@@ -31,6 +31,7 @@
 #include "doc.h"
 #include "fixture.h"
 #include "qlcinputsource.h"
+#include "qlcinputfeedback.h"
 
 #include <QQmlEngine>
 #include <QDebug>
@@ -211,7 +212,26 @@ bool VCBridgeV5::mapWidgetInput(int widgetID, quint32 universe, quint32 channel)
     VCWidget *widget = m_vc->widget(widgetID);
     if (!widget) return false;
 
-    QSharedPointer<QLCInputSource> source(new QLCInputSource(universe, channel));
-    widget->addInputSource(source);
+    m_vc->createAndAddInputSource(widget, universe, channel);
     return true;
+}
+
+bool VCBridgeV5::setWidgetFeedback(int widgetID,
+                                    int idleValue, int activeValue, int monitorValue,
+                                    int idleMidiCh, int activeMidiCh, int monitorMidiCh)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    for (auto &source : widget->inputSources())
+    {
+        source->setFeedbackValue(QLCInputFeedback::LowerValue, (uchar)idleValue);
+        source->setFeedbackValue(QLCInputFeedback::UpperValue, (uchar)activeValue);
+        source->setFeedbackValue(QLCInputFeedback::MonitorValue, (uchar)monitorValue);
+        source->setFeedbackExtraParams(QLCInputFeedback::LowerValue, QVariant(idleMidiCh));
+        source->setFeedbackExtraParams(QLCInputFeedback::UpperValue, QVariant(activeMidiCh));
+        source->setFeedbackExtraParams(QLCInputFeedback::MonitorValue, QVariant(monitorMidiCh));
+        return true;
+    }
+    return false;
 }

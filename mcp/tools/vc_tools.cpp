@@ -314,7 +314,10 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"widgetID", {{"type", "integer"}}},
                 {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
                 {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
-                {"ledMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode (default static)"}}}
+                {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state"}}},
+                {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for idle state (default static)"}}},
+                {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for active state (default static)"}}},
+                {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for monitor state"}}}
             }}, {"required", {"widgetID", "activeValue"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -326,20 +329,25 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 int wid = item["widgetID"].get<int>();
                 int activeVal = item["activeValue"].get<int>();
                 int idleVal = item.value("idleValue", 0);
-                std::string mode = item.value("ledMode", "static");
+                int monitorVal = item.value("monitorValue", 0);
 
-                // Map ledMode to MIDI channel offset
-                int midiChannelOffset = 0;
-                if (mode == "flashing") midiChannelOffset = 1;
-                else if (mode == "pulsing") midiChannelOffset = 2;
+                int midiChIdle = 0, midiChActive = 0, midiChMonitor = 0;
+                std::string idleMode = item.value("idleMode", "static");
+                std::string activeMode = item.value("activeMode", "static");
+                std::string monitorMode = item.value("monitorMode", "");
+                if (idleMode == "flashing") midiChIdle = 1;
+                else if (idleMode == "pulsing") midiChIdle = 2;
+                if (activeMode == "flashing") midiChActive = 1;
+                else if (activeMode == "pulsing") midiChActive = 2;
+                if (monitorMode == "flashing") midiChMonitor = 1;
+                else if (monitorMode == "pulsing") midiChMonitor = 2;
+
+                bool ok = vcBridge->setWidgetFeedback(wid, idleVal, activeVal, monitorVal,
+                                                      midiChIdle, midiChActive, midiChMonitor);
 
                 results.push_back({
                     {"widgetID", wid},
-                    {"activeValue", activeVal},
-                    {"idleValue", idleVal},
-                    {"ledMode", mode},
-                    {"midiChannelOffset", midiChannelOffset},
-                    {"status", "ok"}
+                    {"status", ok ? "ok" : "failed"}
                 });
             }
             return results.dump();

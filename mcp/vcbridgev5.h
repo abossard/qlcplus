@@ -58,6 +58,10 @@ public:
     bool mapWidgetInput(int widgetID, quint32 universe,
                         quint32 channel) override;
 
+    bool setWidgetFeedback(int widgetID,
+                           int idleValue, int activeValue, int monitorValue,
+                           int idleMidiCh, int activeMidiCh, int monitorMidiCh) override;
+
 private:
     Doc *m_doc;
     VirtualConsole *m_vc;

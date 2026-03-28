@@ -82,6 +82,11 @@ public:
     // Input mapping
     virtual bool mapWidgetInput(int widgetID, quint32 universe,
                                 quint32 channel) = 0;
+
+    // Feedback
+    virtual bool setWidgetFeedback(int widgetID,
+                                   int idleValue, int activeValue, int monitorValue,
+                                   int idleMidiCh, int activeMidiCh, int monitorMidiCh) = 0;
 };
 
 #endif // VCBRIDGE_H
