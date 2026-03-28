@@ -29,6 +29,60 @@
 > ./qlcplus-qml --mcp-http
 > # Connect any MCP client to http://localhost:9696/mcp
 > ```
+>
+> ### Connect your AI agent
+>
+> **Copilot CLI** — add to `~/.copilot/mcp.json`:
+> ```json
+> {
+>   "servers": {
+>     "qlcplus": {
+>       "url": "http://localhost:9696/mcp"
+>     }
+>   }
+> }
+> ```
+>
+> **Claude Code** — run:
+> ```bash
+> claude mcp add qlcplus --transport http http://localhost:9696/mcp
+> ```
+>
+> **Claude Desktop** — add to `claude_desktop_config.json`:
+> ```json
+> {
+>   "mcpServers": {
+>     "qlcplus": {
+>       "url": "http://localhost:9696/mcp"
+>     }
+>   }
+> }
+> ```
+>
+> **Cursor** — add to `.cursor/mcp.json`:
+> ```json
+> {
+>   "mcpServers": {
+>     "qlcplus": {
+>       "url": "http://localhost:9696/mcp"
+>     }
+>   }
+> }
+> ```
+>
+> ### Available tools (25)
+> | Category | Tools |
+> |----------|-------|
+> | **Query** | `query_fixtures`, `query_available_fixtures`, `patch_fixtures`, `query_functions`, `query_vc_pages`, `query_universes` |
+> | **Functions** | `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_rgb_matrices` |
+> | **Virtual Console** | `create_vc_pages`, `add_vc_frames`, `add_vc_buttons`, `add_vc_sliders`, `add_vc_xypads`, `add_vc_cuelists`, `add_vc_labels`, `map_vc_inputs` |
+> | **Channels** | `query_fixture_channels`, `configure_channels`, `query_channel_modifiers`, `set_channel_modifiers` |
+> | **I/O** | `configure_universes` |
+> | **Guide** | `get_show_design_guide` |
+>
+> All tools are batch-based (arrays in, arrays out). Ask the AI to call
+> `get_show_design_guide` first — it contains professional lighting design
+> patterns, audio-reactive setups, and beat/tempo system documentation.
 
 <p align="center"><em>(Often abbreviated as "QLC+")</em></p>
 <p align="center">
