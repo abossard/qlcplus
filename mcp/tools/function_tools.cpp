@@ -323,4 +323,28 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::string("Create RGB matrix color animations. Batch: pass multiple in 'items'."),
         std::nullopt
     ));
+
+    // delete_functions (batch)
+    tm.register_tool(Tool(
+        "delete_functions",
+        Json{{"type", "object"}, {"properties", {
+            {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Function IDs to delete"}}}
+        }}, {"required", {"ids"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &fid : args["ids"])
+            {
+                int id = fid.get<int>();
+                bool ok = doc->deleteFunction(id);
+                results.push_back({{"id", id}, {"status", ok ? "deleted" : "not found"}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete functions by ID. Batch."),
+        std::nullopt
+    ));
 }
