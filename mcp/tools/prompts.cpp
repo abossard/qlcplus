@@ -193,18 +193,25 @@ Adapt documentation detail to the user's tier:
 
 ## MIDI Controller Integration (Launchpad Mini MK3)
 
-### Setup Sequence
-1. Call query_midi_devices to find the controller port
-2. Assign MIDI plugin to a universe via configure_universes
-3. Set init message via configure_plugin_params: {initmessage: "Novation Launchpad Mini MK3 Developer Mode"}
-   This sends SysEx to enter Programmer Mode and displays "QLC+" on the pads
-4. Apply profile via set_input_profile: "Novation Launchpad Mini MK3"
-5. Map pads to VC buttons via map_vc_inputs (note N → QLC+ channel 128+N)
-6. Set LED colors via configure_vc_feedback
+### Setup Sequence (IMPORTANT — follow this order)
+1. Call query_midi_devices to find the Launchpad (look for "Launchpad Mini MK3" in MIDI plugin)
+2. Pick the SECOND port (higher line number) — the first port doesn't receive pad input
+3. Set INPUT to MIDI plugin, line 2 (second Launchpad): configure_universes
+4. Apply INPUT PROFILE "Novation Launchpad Mini MK3" — REQUIRED for feedback to work: set_input_profile
+5. DO NOT set an output — it's not needed and can cause issues
+6. Enable FEEDBACK in I/O Manager (user must do this manually — check the Feedback checkbox)
+7. Ask user to set Init Message to "Novation Launchpad Mini MK3 Developer Mode" in MIDI config
+8. Ask user to enter Programmer Mode on Launchpad (hold Session → tap orange pad → release)
+9. Map pads to VC buttons (user must use auto-detect/learn in QLC+ for now)
+10. Set LED feedback colors via configure_vc_feedback
+
+### Why the second port?
+The Launchpad Mini MK3 has two USB MIDI ports:
+- Port 1 (MIDI): Does NOT receive pad presses in Programmer Mode
+- Port 2 (DAW): Receives all pad input + accepts LED feedback
 
 ### Launchpad Mini MK3 Pad Grid (Programmer Mode)
 Note numbers for each pad:
-```
      [91][92][93][94][95][96][97][98]   Top row (CC)
 [89] [81][82][83][84][85][86][87][88]   Row 8
 [79] [71][72][73][74][75][76][77][78]   Row 7
@@ -214,7 +221,6 @@ Note numbers for each pad:
 [39] [31][32][33][34][35][36][37][38]   Row 3
 [29] [21][22][23][24][25][26][27][28]   Row 2
 [19] [11][12][13][14][15][16][17][18]   Row 1
-```
 QLC+ channel = 128 + note number (e.g., pad note 81 = channel 209)
 
 ### LED Feedback: 3 Parameters Per Pad
@@ -222,27 +228,22 @@ QLC+ channel = 128 + note number (e.g., pad note 81 = channel 209)
 - activeValue: LED color when button IS active (confirms it's running)
 - ledMode: static (solid) / flashing (blink) / pulsing (breathe)
 
-### Color Palette (key values)
-```
+### Color Palette (key values from profile — doubled for QLC+)
 0=Off  2=White30%  4=White60%  6=White100%
 8-14=Red shades    16-20=Orange   22-26=Yellow
 28-34=Green        36-42=Cyan     44-54=Blue
 56-66=Purple       68-76=Pink
-```
-Match pad colors to scene colors (e.g., "Red Wash" pad = red LED).
 
 ### Row Assignment Strategy
-Assign rows by function layer:
 - Row 8: System (Blackout, Stop All, Master)
 - Row 7: Moods/Color palette (pad color = scene color)
 - Row 6: Effects (Chase, Strobe, Pulse)
-- Row 5: Audio-reactive modes
+- Row 5: Movement/EFX
 - Row 4-1: Songs, cues, or custom per show
 
 ### Ask the user how they want the pads to behave:
 - Which colors for idle vs active?
 - Flashing for warnings? Pulsing for active effects?
-- Different brightness levels or completely different colors?
 )";
             return guideText;
         },
