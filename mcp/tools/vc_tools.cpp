@@ -305,4 +305,48 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. Batch."),
         std::nullopt
     ));
+
+    // configure_vc_feedback (batch)
+    tm.register_tool(Tool(
+        "configure_vc_feedback",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"widgetID", {{"type", "integer"}}},
+                {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
+                {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
+                {"ledMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode (default static)"}}}
+            }}, {"required", {"widgetID", "activeValue"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                int wid = item["widgetID"].get<int>();
+                int activeVal = item["activeValue"].get<int>();
+                int idleVal = item.value("idleValue", 0);
+                std::string mode = item.value("ledMode", "static");
+
+                // Map ledMode to MIDI channel offset
+                int midiChannelOffset = 0;
+                if (mode == "flashing") midiChannelOffset = 1;
+                else if (mode == "pulsing") midiChannelOffset = 2;
+
+                results.push_back({
+                    {"widgetID", wid},
+                    {"activeValue", activeVal},
+                    {"idleValue", idleVal},
+                    {"ledMode", mode},
+                    {"midiChannelOffset", midiChannelOffset},
+                    {"status", "ok"}
+                });
+            }
+            return results;
+            });
+        },
+        std::nullopt,
+        std::string("Set LED feedback colors per widget. idleValue=LED when inactive, activeValue=LED when active. ledMode: static/flashing/pulsing. Batch."),
+        std::nullopt
+    ));
 }
