@@ -6,12 +6,16 @@
 
 <h1 align="center">Q Light Controller+</h1>
 
-> ## ⚠️ EXPERIMENTAL FORK — NOT FOR PRODUCTION ⚠️
+> ## ⚠️ THIS IS VIBECODED — IGNORE THIS FORK ⚠️
 >
-> **This is a vibe-coded experimental fork** that adds an MCP (Model Context Protocol) server
-> to QLC+, allowing AI agents (Copilot, Claude, etc.) to design lighting shows via natural language.
+> **This entire fork was vibe-coded in a single session with AI pair-programming.**
+> It has NOT been reviewed, tested properly, or designed for reliability.
+> Do NOT use this for anything serious. Do NOT submit PRs to upstream from this.
 >
-> **This is NOT intended to become part of the mainline QLC+ project.** It's a playground for
+> **For the real QLC+ project, go to: [mcallegari/qlcplus](https://github.com/mcallegari/qlcplus)**
+>
+> This fork adds an experimental MCP server that lets AI agents (Copilot, Claude, etc.)
+> set up lighting shows via natural language. It's a fun hack, nothing more.
 > exploring AI-assisted show design. The MCP code was largely generated through AI pair-programming
 > and has not been through proper code review.
 >
