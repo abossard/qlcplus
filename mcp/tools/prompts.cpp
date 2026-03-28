@@ -244,7 +244,7 @@ Assign rows by function layer:
 - Flashing for warnings? Pulsing for active effects?
 - Different brightness levels or completely different colors?
 )";
-            return Json(guideText);
+            return guideText;
         },
         std::nullopt,
         std::string("Get the professional lighting show design guide including audio-reactive patterns, beat/tempo system, and OSC integration. Call this before designing a show."),

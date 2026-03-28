@@ -48,7 +48,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 int idx = vcBridge->addPage(QString::fromStdString(item["name"].get<std::string>()));
                 results.push_back({{"pageIndex", idx}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -82,7 +82,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     item.value("solo", false));
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -118,7 +118,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     QString::fromStdString(item.value("action", "toggle")));
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -166,7 +166,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     channels);
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -199,7 +199,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 int id = vcBridge->addXYPad(item["parentID"].get<int>(), geo, fxIDs);
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -233,7 +233,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     QString::fromStdString(item.value("caption", "")));
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -265,7 +265,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     QString::fromStdString(item["text"].get<std::string>()));
                 results.push_back({{"widgetID", id}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -298,7 +298,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     {"status", ok ? "ok" : "failed"}
                 });
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -342,7 +342,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     {"status", "ok"}
                 });
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,

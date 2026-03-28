@@ -112,7 +112,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 doc->addFunction(scene);
                 results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -185,7 +185,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 doc->addFunction(chaser);
                 results.push_back({{"id", (int)chaser->id()}, {"name", chaser->name().toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -231,7 +231,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 doc->addFunction(efx);
                 results.push_back({{"id", (int)efx->id()}, {"name", efx->name().toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -261,7 +261,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 doc->addFunction(col);
                 results.push_back({{"id", (int)col->id()}, {"name", col->name().toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -298,7 +298,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 doc->addFunction(matrix);
                 results.push_back({{"id", (int)matrix->id()}, {"name", matrix->name().toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,

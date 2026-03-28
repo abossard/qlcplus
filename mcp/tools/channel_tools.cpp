@@ -65,7 +65,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 fxEntry["channels"] = channels;
                 results.push_back(fxEntry);
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -117,7 +117,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 results.push_back({{"fixtureID", (int)fxID}, {"channel", ch}, {"status", "ok"}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -139,7 +139,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 for (const QString &name : cache->templateNames())
                     results.push_back({{"name", name.toStdString()}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -188,7 +188,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
                 results.push_back({{"fixtureID", (int)fxID}, {"channel", ch}, {"status", "ok"}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,

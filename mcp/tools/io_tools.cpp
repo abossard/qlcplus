@@ -82,7 +82,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -98,26 +98,24 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (QLCIOPlugin *plugin : doc->ioPluginCache()->plugins())
+            QList<QLCIOPlugin *> plugins = doc->ioPluginCache()->plugins();
+            for (QLCIOPlugin *plugin : plugins)
             {
-                if (plugin->name().contains("MIDI", Qt::CaseInsensitive))
-                {
-                    Json pluginEntry;
-                    pluginEntry["plugin"] = plugin->name().toStdString();
-                    Json inputLines = Json::array();
-                    QStringList inNames = plugin->inputs();
-                    for (int i = 0; i < inNames.count(); i++)
-                        inputLines.push_back({{"line", i}, {"name", inNames[i].toStdString()}});
-                    Json outputLines = Json::array();
-                    QStringList outNames = plugin->outputs();
-                    for (int i = 0; i < outNames.count(); i++)
-                        outputLines.push_back({{"line", i}, {"name", outNames[i].toStdString()}});
-                    pluginEntry["inputs"] = inputLines;
-                    pluginEntry["outputs"] = outputLines;
-                    results.push_back(pluginEntry);
-                }
+                Json pluginEntry;
+                pluginEntry["plugin"] = plugin->name().toStdString();
+                Json inputLines = Json::array();
+                QStringList inNames = plugin->inputs();
+                for (int i = 0; i < inNames.count(); i++)
+                    inputLines.push_back({{"line", i}, {"name", inNames[i].toStdString()}});
+                Json outputLines = Json::array();
+                QStringList outNames = plugin->outputs();
+                for (int i = 0; i < outNames.count(); i++)
+                    outputLines.push_back({{"line", i}, {"name", outNames[i].toStdString()}});
+                pluginEntry["inputs"] = inputLines;
+                pluginEntry["outputs"] = outputLines;
+                results.push_back(pluginEntry);
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -147,7 +145,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     });
                 }
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -175,7 +173,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 bool ok = doc->inputOutputMap()->setInputProfile(uid, profName);
                 results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,

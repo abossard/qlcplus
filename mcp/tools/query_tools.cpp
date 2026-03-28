@@ -45,7 +45,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             Json results = Json::array();
             for (Fixture *fxi : doc->fixtures())
                 results.push_back(mcp::fixtureToJson(fxi));
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -105,7 +105,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     }
                 }
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -173,7 +173,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     });
                 }
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -191,7 +191,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             Json results = Json::array();
             for (Function *func : doc->functions())
                 results.push_back(mcp::functionToJson(func));
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,
@@ -229,7 +229,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     pageJson["widgets"] = widgets;
                     results.push_back(pageJson);
                 }
-                return results;
+                return results.dump();
                 });
             },
             std::nullopt,
@@ -255,7 +255,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 entry["passthrough"] = uni->passthrough();
                 results.push_back(entry);
             }
-            return results;
+            return results.dump();
             });
         },
         std::nullopt,

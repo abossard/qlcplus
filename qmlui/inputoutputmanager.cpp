@@ -504,22 +504,10 @@ bool InputOutputManager::setFeedbackPatch(int universe, bool enable)
 
     if (enable)
     {
-        // find a matching output line
-        QString inputName = patch->inputName();
-        int i = 0;
-        bool found = false;
-
-        for (QString &pLine : m_ioMap->pluginOutputs(patch->pluginName()))
-        {
-            if (pLine == inputName)
-            {
-                m_ioMap->setOutputPatch(universe, patch->pluginName(), "", i, true);
-                found = true;
-                break;
-            }
-            i++;
-        }
-        return found;
+        // Use the same line number as the input — this ensures feedback
+        // goes to the correct physical port (e.g., Launchpad Mini MK3 port 2)
+        m_ioMap->setOutputPatch(universe, patch->pluginName(), "", patch->input(), true);
+        return true;
     }
     else
     {
