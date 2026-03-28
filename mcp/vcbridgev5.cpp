@@ -235,3 +235,15 @@ bool VCBridgeV5::setWidgetFeedback(int widgetID,
     }
     return false;
 }
+
+bool VCBridgeV5::setWidgetColors(int widgetID, const QColor &bgColor, const QColor &fgColor)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    if (bgColor.isValid())
+        widget->setBackgroundColor(bgColor);
+    if (fgColor.isValid())
+        widget->setForegroundColor(fgColor);
+    return true;
+}

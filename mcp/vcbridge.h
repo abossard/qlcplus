@@ -20,6 +20,7 @@
 #ifndef VCBRIDGE_H
 #define VCBRIDGE_H
 
+#include <QColor>
 #include <QRect>
 #include <QString>
 #include <QVariant>
@@ -87,6 +88,11 @@ public:
     virtual bool setWidgetFeedback(int widgetID,
                                    int idleValue, int activeValue, int monitorValue,
                                    int idleMidiCh, int activeMidiCh, int monitorMidiCh) = 0;
+
+    // Widget colors
+    virtual bool setWidgetColors(int widgetID,
+                                 const QColor &bgColor = QColor(),
+                                 const QColor &fgColor = QColor()) = 0;
 };
 
 #endif // VCBRIDGE_H

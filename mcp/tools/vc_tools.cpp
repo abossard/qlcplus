@@ -65,7 +65,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"caption", {{"type", "string"}}},
-                {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame)"}}}
+                {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame)"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"pageIndex", "x", "y", "width", "height", "caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -81,6 +83,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     QString::fromStdString(item["caption"].get<std::string>()),
                     item.value("solo", false));
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -100,7 +108,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"functionID", {{"type", "integer"}}},
                 {"caption", {{"type", "string"}}},
-                {"action", {{"type", "string"}, {"enum", {"toggle", "flash"}}, {"description", "Button behavior (default toggle)"}}}
+                {"action", {{"type", "string"}, {"enum", {"toggle", "flash"}}, {"description", "Button behavior (default toggle)"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "x", "y", "width", "height", "functionID", "caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -116,7 +126,14 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     item["functionID"].get<int>(),
                     QString::fromStdString(item["caption"].get<std::string>()),
                     QString::fromStdString(item.value("action", "toggle")));
+
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -139,7 +156,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"functionID", {{"type", "integer"}, {"description", "Function to control (for playback mode)"}}},
                 {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}}, {"channel", {{"type", "integer"}}}
-                }}}}, {"description", "Fixture channels to control (for level mode)"}}}
+                }}}}, {"description", "Fixture channels to control (for level mode)"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "x", "y", "width", "height", "caption", "mode"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -165,6 +184,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     item.value("functionID", -1),
                     channels);
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -182,7 +207,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"parentID", {{"type", "integer"}}},
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"size", {{"type", "integer"}, {"description", "Width and height (square)"}}},
-                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}}
+                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "x", "y", "size", "fixtureIDs"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -198,6 +225,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     fxIDs.append(fid.get<int>());
                 int id = vcBridge->addXYPad(item["parentID"].get<int>(), geo, fxIDs);
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -216,7 +249,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"chaserID", {{"type", "integer"}}},
-                {"caption", {{"type", "string"}}}
+                {"caption", {{"type", "string"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "x", "y", "width", "height", "chaserID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -232,6 +267,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     item["chaserID"].get<int>(),
                     QString::fromStdString(item.value("caption", "")));
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -249,7 +290,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"parentID", {{"type", "integer"}}},
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
-                {"text", {{"type", "string"}}}
+                {"text", {{"type", "string"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "x", "y", "width", "height", "text"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -264,6 +307,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     item["parentID"].get<int>(), geo,
                     QString::fromStdString(item["text"].get<std::string>()));
                 results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
             }
             return results.dump();
             });
@@ -355,6 +404,39 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         },
         std::nullopt,
         std::string("Set LED feedback colors per widget. idleValue=LED when inactive, activeValue=LED when active. ledMode: static/flashing/pulsing. Batch."),
+        std::nullopt
+    ));
+
+    // set_widget_colors (batch)
+    tm.register_tool(Tool(
+        "set_widget_colors",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"widgetID", {{"type", "integer"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
+            }}, {"required", {"widgetID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                int wid = item["widgetID"].get<int>();
+                QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                bool ok = vcBridge->setWidgetColors(wid, bg, fg);
+                results.push_back({
+                    {"widgetID", wid},
+                    {"status", ok ? "ok" : "failed"}
+                });
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Set background and/or foreground colors on existing Virtual Console widgets. Batch."),
         std::nullopt
     ));
 }

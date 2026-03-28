@@ -62,6 +62,10 @@ public:
                            int idleValue, int activeValue, int monitorValue,
                            int idleMidiCh, int activeMidiCh, int monitorMidiCh) override;
 
+    bool setWidgetColors(int widgetID,
+                         const QColor &bgColor = QColor(),
+                         const QColor &fgColor = QColor()) override;
+
 private:
     Doc *m_doc;
     VirtualConsole *m_vc;
