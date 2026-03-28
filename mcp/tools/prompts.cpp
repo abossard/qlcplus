@@ -193,17 +193,16 @@ Adapt documentation detail to the user's tier:
 
 ## MIDI Controller Integration (Launchpad Mini MK3)
 
-### Setup Sequence (IMPORTANT — follow this order)
-1. Call query_midi_devices to find the Launchpad (look for "Launchpad Mini MK3" in MIDI plugin)
-2. Pick the SECOND port (higher line number) — the first port doesn't receive pad input
-3. Set INPUT to MIDI plugin, line 2 (second Launchpad): configure_universes
-4. Apply INPUT PROFILE "Novation Launchpad Mini MK3" — REQUIRED for feedback to work: set_input_profile
-5. DO NOT set an output — it's not needed and can cause issues
-6. Enable FEEDBACK in I/O Manager (user must do this manually — check the Feedback checkbox)
-7. Ask user to set Init Message to "Novation Launchpad Mini MK3 Developer Mode" in MIDI config
-8. Ask user to enter Programmer Mode on Launchpad (hold Session → tap orange pad → release)
-9. Map pads to VC buttons (user must use auto-detect/learn in QLC+ for now)
-10. Set LED feedback colors via configure_vc_feedback
+### Setup Sequence (fully automated via MCP)
+1. query_midi_devices → find "Launchpad Mini MK3" in MIDI plugin, pick the SECOND port (higher line number)
+2. configure_universes → set input to MIDI line 2, feedbackEnabled: true
+3. set_input_profile → apply "Novation Launchpad Mini MK3"
+4. configure_plugin_params → set initmessage to "Novation Launchpad Mini MK3 Developer Mode" (enters Programmer Mode automatically)
+5. Ask user to enter Programmer Mode on Launchpad (hold Session → orange pad → release) — only needed first time
+6. patch_fixtures + create_scenes → build show content
+7. add_vc_buttons → create Virtual Console
+8. map_vc_inputs → map pads to buttons
+9. configure_vc_feedback → set LED colors + modes per pad
 
 ### Why the second port?
 The Launchpad Mini MK3 has two USB MIDI ports:

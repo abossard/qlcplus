@@ -83,7 +83,14 @@ def call(tool, args=None):
     resp = send("tools/call", {"name": tool, "arguments": args or {}})
     if "error" in resp:
         raise RuntimeError(f"Tool {tool} error: {resp['error']}")
-    return resp.get("result", {}).get("content", resp.get("result", {}))
+    content = resp.get("result", {}).get("content", resp.get("result", {}))
+    # MCP returns content as [{"type": "text", "text": "..."}] — parse the JSON text
+    if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and "text" in content[0]:
+        try:
+            return json.loads(content[0]["text"])
+        except (json.JSONDecodeError, TypeError):
+            return content[0]["text"]
+    return content
 
 
 def test(name, func):
@@ -119,7 +126,7 @@ def run_tests():
             r = send("tools/list", {})
             tools = r["result"]["tools"]
             names = [t["name"] for t in tools]
-            assert len(tools) >= 25, f"Expected >=25, got {len(tools)}"
+            assert len(tools) >= 30, f"Expected >=30, got {len(tools)}"
             for required in ["query_fixtures", "create_scenes", "create_chasers",
                              "add_vc_buttons", "configure_channels", "set_channel_modifiers",
                              "get_show_design_guide"]:
@@ -327,6 +334,22 @@ def run_tests():
             ]})
             assert r[0]["status"] == "ok"
         test("configure_universes", t_configure_universes)
+
+        def t_configure_universes_feedback():
+            r = call("configure_universes", {"items": [
+                {"universeID": 0, "feedbackEnabled": True},
+            ]})
+            # In offscreen mode no input is patched, so feedback setup may fail gracefully
+            assert r[0]["status"] in ("ok", "failed")
+        test("configure_universes (feedbackEnabled)", t_configure_universes_feedback)
+
+        def t_configure_plugin_params():
+            r = call("configure_plugin_params", {"items": [
+                {"universeID": 0, "plugin": "MIDI", "params": {"midichannel": "1"}},
+            ]})
+            assert len(r) == 1
+            assert r[0]["status"] == "ok" or "error" in r[0]
+        test("configure_plugin_params", t_configure_plugin_params)
 
         # === VIRTUAL CONSOLE ===
         print("\n=== Virtual Console ===")

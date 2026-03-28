@@ -20,6 +20,8 @@
 #include "tool_registry.h"
 #include "doc.h"
 #include "inputoutputmap.h"
+#include "inputpatch.h"
+#include "outputpatch.h"
 #include "universe.h"
 #include "ioplugincache.h"
 #include "qlcioplugin.h"
@@ -44,7 +46,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"inputLine", {{"type", "integer"}}},
                 {"outputPlugin", {{"type", "string"}}},
                 {"outputLine", {{"type", "integer"}}},
-                {"passthrough", {{"type", "boolean"}}}
+                {"passthrough", {{"type", "boolean"}}},
+                {"feedbackEnabled", {{"type", "boolean"}, {"description", "Enable MIDI feedback on same port as input"}}}
             }}, {"required", {"universeID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -79,6 +82,14 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     Universe *uni = ioMap->universe(uid);
                     if (uni) uni->setPassthrough(item["passthrough"].get<bool>());
                 }
+                if (item.contains("feedbackEnabled") && item["feedbackEnabled"].get<bool>())
+                {
+                    InputPatch *inPatch = ioMap->inputPatch(uid);
+                    if (inPatch && inPatch->isPatched())
+                    {
+                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", inPatch->input(), true);
+                    }
+                }
 
                 results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
             }
@@ -87,6 +98,85 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch."),
+        std::nullopt
+    ));
+
+    // query_midi_devices — list connected MIDI input/output ports
+    tm.register_tool(Tool(
+        "configure_plugin_params",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"universeID", {{"type", "integer"}}},
+                {"plugin", {{"type", "string"}}},
+                {"params", {{"type", "object"}, {"description", "Key-value parameters (e.g., initmessage, midichannel)"}}}
+            }}, {"required", {"universeID", "plugin", "params"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                int uid = item["universeID"].get<int>();
+                QString pluginName = QString::fromStdString(item["plugin"].get<std::string>());
+
+                // Find the plugin
+                QLCIOPlugin *plugin = nullptr;
+                for (QLCIOPlugin *p : doc->ioPluginCache()->plugins())
+                {
+                    if (p->name() == pluginName)
+                    {
+                        plugin = p;
+                        break;
+                    }
+                }
+
+                if (!plugin)
+                {
+                    results.push_back({{"universeID", uid}, {"error", "plugin not found"}});
+                    continue;
+                }
+
+                // Get the output line from the universe's output or feedback patch
+                InputOutputMap *ioMap = doc->inputOutputMap();
+                quint32 line = QLCIOPlugin::invalidLine();
+
+                // Try feedback patch first, then output patch, then input patch
+                Universe *uni = ioMap->universe(uid);
+                if (uni)
+                {
+                    OutputPatch *fbPatch = uni->feedbackPatch();
+                    if (fbPatch && fbPatch->isPatched())
+                        line = fbPatch->output();
+                    else
+                    {
+                        OutputPatch *outPatch = uni->outputPatch(0);
+                        if (outPatch && outPatch->isPatched())
+                            line = outPatch->output();
+                        else
+                        {
+                            InputPatch *inPatch = uni->inputPatch();
+                            if (inPatch && inPatch->isPatched())
+                                line = inPatch->input();
+                        }
+                    }
+                }
+
+                // Set each parameter
+                for (auto &[key, value] : item["params"].items())
+                {
+                    QString qKey = QString::fromStdString(key);
+                    QString qValue = QString::fromStdString(value.get<std::string>());
+                    plugin->setParameter(uid, line, QLCIOPlugin::Output, qKey, qValue);
+                }
+
+                results.push_back({{"universeID", uid}, {"status", "ok"}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch."),
         std::nullopt
     ));
 
