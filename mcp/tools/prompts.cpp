@@ -36,122 +36,158 @@ void registerPrompts(fastmcpp::tools::ToolManager &tm)
         Json{},
         [](const Json &) -> Json {
             std::string guideText = R"(
-# Professional Lighting Show Design Guide
+# QLC+ Show Design Guide
 
-## Layered Approach
-Design shows in independent layers that can be mixed:
-- **Ambient/Wash**: Base illumination with broad coverage (pars, washes)
-- **Color**: Mood-setting color washes (RGB fixtures)
-- **Accent**: Focused highlights, specials (spots, gobos)
-- **Effects**: Dynamic movement, chases, strobes (moving heads, strobes)
+## How to Use This Guide
+1. Call query_fixtures to discover available fixtures and capabilities
+2. Ask the user about their event type and comfort level
+3. Pick the right TIER and VENUE TEMPLATE below
+4. Propose a show plan, get user confirmation, then build
+5. After building, create a show-setup.md documentation file (see Post-Build section)
 
-Not every show needs all layers — adapt to available fixtures.
+---
 
-## Energy Curve
-Shape intensity and complexity over time:
-- **Intro**: Low intensity (20-40%), cool/neutral colors, minimal movement
-- **Buildup**: Gradually increase intensity, add movement, warmer colors
-- **Peak/Drop**: Maximum intensity + effects, then sudden change (blackout, color snap)
-- **Sustain**: Medium-high energy, active effects
-- **Outro**: Gradual fade, return to cool/neutral
+## TIER 1: "Just Works" (Beginner / Volunteer)
+For: Church volunteer, school event, house party, first-time user
 
-## Color Psychology
-- Warm (red, amber, orange): Energy, passion, excitement
-- Cool (blue, cyan, teal): Calm, mystery, depth
-- Green: Nature, freshness
-- Purple/magenta: Luxury, creativity
-- White: Clarity, openness
+Structure:
+- 4-6 pre-built Scenes (complete looks, no layering needed)
+- 1 SoloFrame with big buttons (only one look active at a time)
+- 1 master slider (submaster) for overall brightness
+- 1 blackout button
 
-## QLC+ Implementation Patterns
-- **Scene** = Static look (one "moment" of lighting)
-- **Collection** = Mood/Phase (multiple functions running in parallel)
-- **Chaser** = Sequential animation (color chase, intensity build)
-- **EFX** = Algorithmic position movement (circle, figure-8 for moving heads)
-- **SoloFrame** = Mutually exclusive choices (only one mood active at a time)
+Naming: Simple descriptive — "Bright", "Warm", "Cool", "Party", "Calm"
 
-## HTP/LTP Channel Rules
-- Intensity/dimmer channels use HTP (Highest Takes Precedence) — safe to layer
-- Position (Pan/Tilt), color wheels, gobos use LTP (Latest Takes Precedence)
-- Separate intensity scenes from position/color scenes for maximum flexibility
+VC Layout:
+  [Moods SoloFrame: Bright | Warm | Cool | Party | Calm]
+  [Master slider]  [BLACKOUT]
+
+Key: No layering, no chasers, no complexity. Just click a button.
+
+---
+
+## TIER 2: "Flexible Control" (Intermediate / Semi-Pro)
+For: Band gig, club DJ, worship team, small festival
+
+Structure:
+- Color/mood layer: 6-12 Scenes in a SoloFrame (mutually exclusive moods)
+- Effect layer: 3-6 Chasers/EFX as toggle/flash buttons in a Frame (layer on top)
+- Position: XY pad for moving heads (if available)
+- Master controls: Submaster + Blackout + Stop All
+
+Naming: "[Layer] - [Description]" — "Wash - Deep Blue", "FX - Rainbow Chase"
+
+VC Layout:
+  [Moods SoloFrame]        [FX Frame]
+  [Warm] [Cool] [Intense]  [Chase] [Strobe] [Pulse]
+  [Sunset] [Ocean] [Fire]  [Sweep] [Snap]   [Slow]
+  
+  [XY Pad]     [Master]  [BLACKOUT]  [STOP ALL]
+
+Key: Moods are exclusive (SoloFrame), effects layer on top (regular Frame).
+
+---
+
+## TIER 3: "Full Production" (Advanced / Professional)
+For: Concert tour, theatre, festival main stage, installed venue
+
+Structure:
+- Fixture groups by position: Front Wash, Back Light, Side, Overhead, Moving Spots, Moving Wash, Effect/Strobe
+- Per-group scenes: Color-only, intensity-only, position-only (maximum flexibility)
+- Collections for phases: Each phase = color scene + position scene + effect chaser
+- Cue lists per song/act: Chaser with one step per cue, manual advance
+- Audio-reactive inputs: OSC faders mapped to level sliders
+- Per-group submasters for live mixing
+
+Naming: "[Position]_[Purpose]_[ID]" — "FRONT_WASH_01", "US_MH_BEAM_03"
+
+VC Layout (multiple pages):
+  Page 1 "Overview": Mood selector + FX + Masters + Blackout
+  Page 2 "Cue Lists": Per-song/act cue lists
+  Page 3 "Audio": OSC input faders + mode selector
+  Page 4 "Groups": Per-fixture-group submasters + color pickers
+
+Key: Separate color from position from intensity. Maximum layering flexibility.
+
+---
+
+## Fixture Grouping Strategy
+
+Group fixtures by position AND function:
+| Group | Typical Fixtures | Purpose |
+|-------|-----------------|---------|
+| Front Wash | Front-truss pars/washes | Face lighting, visibility |
+| Back Light | Upstage spots/beams | Depth, silhouettes |
+| Side Light | Side-truss washes | Movement accent, sculpting |
+| Top Wash | Overhead pars | General area coverage |
+| Moving Spot | MH spots | Gobos, beams, specials |
+| Moving Wash | MH washes | Color aerials |
+| Effect | Strobes, blinders | Impact moments |
+
+Auto-detect from capabilities: RGB → color wash, Pan/Tilt → moving, Shutter → effect
+
+---
+
+## Venue Templates
+
+### Church / House of Worship
+- Tier 1 or 2 (volunteer-friendly)
+- Warm tones for sermon, cool for worship, dim for prayer
+- Smooth transitions (2-3s fades), no strobes
+- Scenes: "Sermon", "Worship", "Prayer", "Song", "Welcome"
+
+### Concert / Live Band
+- Tier 2 or 3
+- Cue list per song in setlist
+- Energy curve per song: intro → verse → chorus → bridge → outro
+- Fast transitions, movement, color changes
+
+### Club / DJ Set
+- Tier 2 or 3
+- Beat-synced chasers (tempoType: "beats")
+- Audio-reactive OSC inputs for bass/mid/treble
+- Continuous flow, no hard cue stops
+
+### Theatre
+- Tier 3
+- Precise cue-to-cue with GO button (VCCueList)
+- Subtle mood shifts, long crossfades (5-10s)
+- Per-act cue lists, minimal live improvisation
+
+---
+
+## HTP/LTP Rules
+- Intensity/dimmer = HTP (highest wins) — safe to layer
+- Pan/Tilt/Color wheel/Gobo = LTP (latest wins) — separate from intensity
+- Separate intensity scenes from position/color scenes for layering
 
 ## Beat/Tempo System
-QLC+ has a beat-synchronized timing system. When tempoType is "beats":
-- 1000 = 1 beat, 500 = 1/2 beat, 250 = 1/4 beat, 125 = 1/8 beat
-- All timing (fadeIn, fadeOut, holdTime) scales automatically with BPM
-- BPM can come from internal clock, MIDI, audio detection, or OS2L
+- tempoType "beats": 1000 = 1 beat, 500 = 1/2, 250 = 1/4, 125 = 1/8
+- Scales automatically with BPM (internal clock, MIDI, or OS2L)
+- Strobe buildup: Scene with shutter channel + Chaser fadeIn of N beats
 
-### Strobe Buildup Pattern
-To create a strobe that accelerates over N beats:
-1. Create a Scene targeting the fixture's Shutter/Strobe DMX channel at max value
-2. Create a single-step Chaser with tempoType "beats", fadeIn = N × 1000
-   The chaser fades the strobe channel from 0 to max over N beats
+## Audio-Reactive (OSC)
+- Map OSC channels to VCSlider level mode → fixtures pulse with audio
+- Layer: submaster (manual cap) + level (OSC-driven) + playback (chaser intensity)
+- SoloFrame to switch between audio-reactive modes
+- Split by frequency: bass → warm pars, mid → accents, treble → strobes
 
-### Beat-Synced Chase
-Create a Chaser with tempoType "beats", holdTime 1000 (on-beat) or 500 (double-time).
-Use runOrder "loop" for continuous, "pingpong" for back-and-forth.
+---
 
-## Audio-Reactive Patterns (OSC/External Input)
+## Post-Build: Create Documentation
 
-### Architecture: OSC Input → VC Slider → Fixture Control
-External audio analysis (e.g., from Ableton, Resolume, custom analyzers) sends
-OSC messages with audio-reactive values (bass level, treble, BPM, beat trigger).
-Map these to VC sliders to create audio-reactive lighting.
+IMPORTANT: After building a show, ALWAYS create a documentation file called
+show-setup.md in the project directory. Include:
 
-### Pattern 1: Direct Audio-Reactive Intensity
-Setup: OSC sends bass level (0-255) on channel 1
-- Create a VCSlider in "level" mode controlling dimmer channels of wash fixtures
-- Use map_vc_inputs to map OSC universe/channel to this slider
-- Result: Wash fixtures pulse with the bass
+1. Quick Start — how to open and operate the show
+2. Fixture Summary — table of all fixtures with DMX addresses
+3. Virtual Console Guide — what each button/slider/frame does
+4. Modification Guide — how to add a mood, change colors, adjust timing
 
-### Pattern 2: Audio-Reactive with Manual Override (Layered Faders)
-Setup: Three faders in a Frame (NOT SoloFrame — they stack):
-1. **Submaster fader** (mode: "submaster") — manual master intensity cap
-2. **Level fader** (mode: "level") — maps to fixture dimmer channels, OSC-driven
-3. **Playback fader** (mode: "playback") — controls a color chaser's intensity
-
-How they interact:
-- The submaster sets a ceiling (e.g., 80%)
-- The OSC-driven level fader pulses 0-255 with the music
-- HTP means the highest of (level fader, playback fader) wins for each channel
-- The submaster multiplies the result: final = max(level, playback) × submaster%
-
-### Pattern 3: Audio-Reactive Effect Selection (SoloFrame)
-Setup: SoloFrame with buttons, each linked to a different effect Collection:
-- Button "Bass Pulse": Collection = bass-driven intensity scene
-- Button "Treble Sparkle": Collection = treble-driven strobe scene
-- Button "Full Reactive": Collection = all audio channels active
-Only one can be active at a time (SoloFrame ensures mutual exclusion).
-Map OSC buttons to these VC buttons for remote triggering.
-
-### Pattern 4: Fixture Group Separation for Audio
-Split fixtures into audio-reactive groups:
-- **Bass group** (floor pars): OSC bass channel → level slider → warm colors
-- **Mid group** (side washes): OSC mid channel → level slider → accent colors
-- **High group** (strobes/beams): OSC treble channel → level slider → white/strobe
-Each group has its own OSC channel mapping, creating frequency-split lighting.
-
-### Pattern 5: OSC-Driven Scene Blending
-Create multiple color scenes (Warm, Cool, Intense) and map OSC faders to
-playback sliders controlling each scene's intensity. By mixing slider values,
-the operator (or audio analyzer) can blend between moods smoothly.
-
-## Virtual Console Layout Patterns
-
-### Basic Show Layout
-- **Moods SoloFrame**: Mutually exclusive color/mood buttons
-- **FX Frame**: Effect triggers (chase, strobe, position), can layer on top of mood
-- **Masters Frame**: Submaster slider + Blackout + Stop All
-- **Position Frame**: XY pad + EFX buttons for moving heads
-
-### Audio-Reactive Layout
-- **Audio Input Frame**: Level sliders mapped to OSC channels (bass, mid, treble)
-- **Manual Override Frame**: Submaster slider to cap audio intensity
-- **Mode SoloFrame**: Buttons to switch between audio-reactive modes
-- **Scenes Frame**: Manual scene buttons for non-reactive moments
-
-### Naming Convention
-Use: "[Layer] - [Description]"
-Examples: "Wash - Warm Amber", "FX - Fast Strobe", "Audio - Bass Pulse", "OSC - Treble Input"
+Adapt documentation detail to the user's tier:
+- Tier 1: Simple "press this button for this look" guide
+- Tier 2: Layer explanation + how to customize
+- Tier 3: Full technical reference with fixture groups, channel assignments, cue structure
 )";
             return Json(guideText);
         },

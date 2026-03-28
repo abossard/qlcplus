@@ -408,10 +408,13 @@ def run_tests():
         def t_show_design_guide():
             r = call("get_show_design_guide")
             text = str(r)
-            assert "Layered" in text or "layered" in text
-            assert "HTP" in text
-            assert "OSC" in text or "Audio" in text
-        test("get_show_design_guide (has layering + HTP + audio)", t_show_design_guide)
+            assert "TIER 1" in text or "Just Works" in text, "Missing Tier 1"
+            assert "TIER 2" in text or "Flexible" in text, "Missing Tier 2"
+            assert "TIER 3" in text or "Full Production" in text, "Missing Tier 3"
+            assert "Church" in text, "Missing Church venue"
+            assert "HTP" in text, "Missing HTP/LTP rules"
+            assert "show-setup.md" in text, "Missing post-build doc instruction"
+        test("get_show_design_guide (tiers + venues + docs)", t_show_design_guide)
 
         # === SUMMARY ===
         print(f"\n{'='*50}")
