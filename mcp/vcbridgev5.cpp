@@ -76,7 +76,7 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
     VCPage *page = m_vc->page(pageIndex);
     if (!page) return -1;
 
-    VCWidget *widget = page->addWidget(nullptr, solo ? "SoloFrame" : "Frame",
+    VCWidget *widget = page->addWidget(m_vc->currentPageItem(), solo ? "SoloFrame" : "Frame",
                                        QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
     widget->setGeometry(geometry);
@@ -92,7 +92,7 @@ int VCBridgeV5::addButton(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, "Button",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Button",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
@@ -117,7 +117,7 @@ int VCBridgeV5::addSlider(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, "Slider",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Slider",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
@@ -151,7 +151,7 @@ int VCBridgeV5::addXYPad(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, "XYPad",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "XYPad",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
@@ -176,7 +176,7 @@ int VCBridgeV5::addCueList(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, "CueList",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "CueList",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
@@ -198,7 +198,7 @@ int VCBridgeV5::addLabel(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, "Label",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Label",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
