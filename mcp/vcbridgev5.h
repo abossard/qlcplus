@@ -1,0 +1,66 @@
+/*
+  Q Light Controller Plus
+  vcbridgev5.h
+
+  Copyright (C) Massimo Callegari
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0.txt
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+#ifndef VCBRIDGEV5_H
+#define VCBRIDGEV5_H
+
+#include "vcbridge.h"
+
+class Doc;
+class VirtualConsole;
+
+class VCBridgeV5 : public VCBridge
+{
+public:
+    VCBridgeV5(Doc *doc, VirtualConsole *vc);
+
+    int addPage(const QString &name) override;
+    QList<PageInfo> pages() const override;
+    int pagesCount() const override;
+
+    int addFrame(int pageIndex, const QRect &geometry,
+                 const QString &caption, bool solo) override;
+
+    int addButton(int parentID, const QRect &geometry,
+                  quint32 functionID, const QString &caption,
+                  const QString &action) override;
+
+    int addSlider(int parentID, const QRect &geometry,
+                  const QString &mode, const QString &caption,
+                  quint32 functionID,
+                  const QList<QPair<quint32, quint32>> &channels) override;
+
+    int addXYPad(int parentID, const QRect &geometry,
+                 const QList<quint32> &fixtureIDs) override;
+
+    int addCueList(int parentID, const QRect &geometry,
+                   quint32 chaserID, const QString &caption) override;
+
+    int addLabel(int parentID, const QRect &geometry,
+                 const QString &text) override;
+
+    bool mapWidgetInput(int widgetID, quint32 universe,
+                        quint32 channel) override;
+
+private:
+    Doc *m_doc;
+    VirtualConsole *m_vc;
+};
+
+#endif // VCBRIDGEV5_H

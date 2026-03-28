@@ -280,6 +280,23 @@ SidePanel
             }
             IconButton
             {
+                id: functionWizardBtn
+                visible: qlcplus.accessMask & App.AC_FunctionEditing
+                z: 2
+                width: iconSize
+                height: iconSize
+                faSource: FontAwesome.fa_hat_wizard
+                faColor: "orange"
+                tooltip: qsTr("Function Wizard")
+                onClicked: functionWizardPopup.open()
+
+                PopupFunctionWizard
+                {
+                    id: functionWizardPopup
+                }
+            }
+            IconButton
+            {
                 id: removeFunction
                 z: 2
                 width: iconSize

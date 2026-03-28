@@ -53,6 +53,7 @@
 #include "fixturemanager.h"
 #include "palettemanager.h"
 #include "functionmanager.h"
+#include "functionwizardmanager.h"
 #include "fixturegroupeditor.h"
 #include "inputoutputmanager.h"
 
@@ -178,6 +179,7 @@ void App::startup()
 
     m_virtualConsole = new VirtualConsole(this, m_doc, m_contextManager);
     m_showManager = new ShowManager(this, m_doc);
+    m_functionWizardManager = new FunctionWizardManager(this, m_doc, m_virtualConsole);
     connect(m_showManager, &ShowManager::itemClicked, m_contextManager, &ContextManager::setLastClickedType);
 
     m_networkManager = new NetworkManager(this, m_doc, m_virtualConsole, m_simpleDesk);

@@ -18,10 +18,9 @@
 */
 
 #include "tool_registry.h"
+#include "conversions.h"
 #include "doc.h"
 #include "fixture.h"
-#include "qlcchannel.h"
-#include "channelmodifier.h"
 #include "qlcmodifierscache.h"
 
 #include <fastmcpp/tools/manager.hpp>
@@ -57,32 +56,11 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 fxEntry["name"] = fxi->name().toStdString();
                 Json channels = Json::array();
 
-                QList<int> forcedHTP = fxi->forcedHTPChannels();
-                QList<int> forcedLTP = fxi->forcedLTPChannels();
-
                 for (quint32 ch = 0; ch < fxi->channels(); ch++)
                 {
-                    const QLCChannel *channel = fxi->channel(ch);
-                    if (!channel) continue;
-
-                    std::string precedence = "auto";
-                    if (forcedHTP.contains((int)ch)) precedence = "htp";
-                    else if (forcedLTP.contains((int)ch)) precedence = "ltp";
-
-                    std::string modName = "";
-                    ChannelModifier *mod = fxi->channelModifier(ch);
-                    if (mod) modName = mod->name().toStdString();
-
-                    channels.push_back({
-                        {"index", (int)ch},
-                        {"name", channel->name().toStdString()},
-                        {"group", QLCChannel::groupToString(channel->group()).toStdString()},
-                        {"colour", QLCChannel::colourToString(channel->colour()).toStdString()},
-                        {"canFade", fxi->channelCanFade((int)ch)},
-                        {"precedence", precedence},
-                        {"modifier", modName},
-                        {"defaultHTP", channel->group() == QLCChannel::Intensity}
-                    });
+                    Json chJson = mcp::channelToJson(fxi, ch);
+                    if (!chJson.is_null())
+                        channels.push_back(chJson);
                 }
                 fxEntry["channels"] = channels;
                 results.push_back(fxEntry);

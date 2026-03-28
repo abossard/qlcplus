@@ -45,7 +45,7 @@ public:
     ~McpServer();
 
     /** Start MCP server in HTTP mode (non-blocking, runs in background) */
-    void startHttp(int port = 9876);
+    void startHttp(int port = 9696);
     void stopHttp();
 
 private:

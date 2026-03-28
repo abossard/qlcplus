@@ -6,8 +6,8 @@
 #include <QDebug>
 
 static QCommandLineOption s_mcpHttpOption(QStringList() << "mcp-http",
-    "Start MCP HTTP server on specified port (default 9876)",
-    "port", "9876");
+    "Start MCP HTTP server (default port 9696)",
+    "port", "9696");
 
 void mcpAddOptions(QCommandLineParser &parser)
 {

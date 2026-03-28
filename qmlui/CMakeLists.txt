@@ -37,6 +37,8 @@ set(SRC_FILES
     folderbrowser.cpp folderbrowser.h
     functioneditor.cpp functioneditor.h
     functionmanager.cpp functionmanager.h
+    functionwizardmanager.cpp functionwizardmanager.h
+    palettegenerator.cpp palettegenerator.h
     importmanager.cpp importmanager.h
     inputoutputmanager.cpp inputoutputmanager.h
     inputprofileeditor.cpp inputprofileeditor.h
@@ -236,5 +238,11 @@ qt_add_resources(qlcplusqmlui_resource_files qmlui.qrc ../resources/icons/svg/sv
 target_sources(${module_name} PUBLIC
     ${qlcplusqmlui_resource_files}
 )
+
+if(mcp_server)
+    target_link_libraries(${module_name} PRIVATE qlcplusmcp)
+    target_compile_definitions(${module_name} PRIVATE HAS_MCP_SERVER)
+    target_include_directories(${module_name} PRIVATE ${CMAKE_SOURCE_DIR}/mcp)
+endif()
 
 install(TARGETS ${module_name} DESTINATION ${INSTALLROOT}/${BINDIR})

@@ -66,6 +66,7 @@
     <file alias="PopupAbout.qml">qml/popup/PopupAbout.qml</file>
     <file alias="PopupChannelModifiers.qml">qml/popup/PopupChannelModifiers.qml</file>
     <file alias="PopupChannelWizard.qml">qml/popup/PopupChannelWizard.qml</file>
+    <file alias="PopupFunctionWizard.qml">qml/popup/PopupFunctionWizard.qml</file>
     <file alias="PopupCreatePalette.qml">qml/popup/PopupCreatePalette.qml</file>
     <file alias="PopupCustomFeedback.qml">qml/popup/PopupCustomFeedback.qml</file>
     <file alias="PopupDisclaimer.qml">qml/popup/PopupDisclaimer.qml</file>

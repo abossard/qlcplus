@@ -18,12 +18,9 @@
 */
 
 #include "tool_registry.h"
+#include "conversions.h"
 #include "vcbridge.h"
 #include "doc.h"
-#include "fixture.h"
-#include "function.h"
-#include "qlcchannel.h"
-#include "qlcfixturedef.h"
 #include "qlcfixturedefcache.h"
 #include "qlcfixturemode.h"
 #include "inputoutputmap.h"
@@ -33,45 +30,6 @@
 #include <fastmcpp/tools/tool.hpp>
 
 using Json = nlohmann::json;
-
-static Json fixtureCapabilities(const Fixture *fxi)
-{
-    Json caps = Json::array();
-    bool hasPan = false, hasTilt = false;
-    bool hasR = false, hasG = false, hasB = false;
-    bool hasC = false, hasM = false, hasY = false;
-
-    for (quint32 ch = 0; ch < fxi->channels(); ch++)
-    {
-        const QLCChannel *channel = fxi->channel(ch);
-        if (!channel) continue;
-        switch (channel->group())
-        {
-            case QLCChannel::Pan: hasPan = true; break;
-            case QLCChannel::Tilt: hasTilt = true; break;
-            case QLCChannel::Colour: caps.push_back("Colour"); break;
-            case QLCChannel::Gobo: caps.push_back("Gobo"); break;
-            case QLCChannel::Shutter: caps.push_back("Shutter"); break;
-            case QLCChannel::Intensity:
-                switch (channel->colour())
-                {
-                    case QLCChannel::Red: hasR = true; break;
-                    case QLCChannel::Green: hasG = true; break;
-                    case QLCChannel::Blue: hasB = true; break;
-                    case QLCChannel::Cyan: hasC = true; break;
-                    case QLCChannel::Magenta: hasM = true; break;
-                    case QLCChannel::Yellow: hasY = true; break;
-                    default: break;
-                }
-                break;
-            default: break;
-        }
-    }
-    if (hasPan && hasTilt) caps.push_back("Pan/Tilt");
-    if (hasR && hasG && hasB) caps.push_back("RGB");
-    if (hasC && hasM && hasY) caps.push_back("CMY");
-    return caps;
-}
 
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
 {
@@ -86,20 +44,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
             for (Fixture *fxi : doc->fixtures())
-            {
-                Json entry;
-                entry["id"] = fxi->id();
-                entry["name"] = fxi->name().toStdString();
-                entry["channels"] = fxi->channels();
-                entry["heads"] = fxi->heads();
-                if (fxi->fixtureDef())
-                {
-                    entry["manufacturer"] = fxi->fixtureDef()->manufacturer().toStdString();
-                    entry["model"] = fxi->fixtureDef()->model().toStdString();
-                }
-                entry["capabilities"] = fixtureCapabilities(fxi);
-                results.push_back(entry);
-            }
+                results.push_back(mcp::fixtureToJson(fxi));
             return results;
             });
         },
@@ -245,14 +190,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
             for (Function *func : doc->functions())
-            {
-                results.push_back({
-                    {"id", (int)func->id()},
-                    {"name", func->name().toStdString()},
-                    {"type", Function::typeToString(func->type()).toStdString()},
-                    {"duration", (int)func->totalDuration()}
-                });
-            }
+                results.push_back(mcp::functionToJson(func));
             return results;
             });
         },

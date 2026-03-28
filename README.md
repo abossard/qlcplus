@@ -5,6 +5,31 @@
 </p>
 
 <h1 align="center">Q Light Controller+</h1>
+
+> ## ⚠️ EXPERIMENTAL FORK — NOT FOR PRODUCTION ⚠️
+>
+> **This is a vibe-coded experimental fork** that adds an MCP (Model Context Protocol) server
+> to QLC+, allowing AI agents (Copilot, Claude, etc.) to design lighting shows via natural language.
+>
+> **This is NOT intended to become part of the mainline QLC+ project.** It's a playground for
+> exploring AI-assisted show design. The MCP code was largely generated through AI pair-programming
+> and has not been through proper code review.
+>
+> **For the official QLC+ project, go to: [mcallegari/qlcplus](https://github.com/mcallegari/qlcplus)**
+>
+> ### What this fork adds
+> - `mcp/` directory: Self-contained MCP server (25 tools) for AI-driven show setup
+> - `--mcp-http [port]` flag: Starts HTTP MCP endpoint (default port 9696)
+> - Function Wizard for QML UI
+> - Only 4 lines changed in existing QLC+ code — easy to merge upstream changes
+>
+> ### How to use
+> ```bash
+> cmake -Dqmlui=ON -Dmcp_server=ON ..
+> ./qlcplus-qml --mcp-http
+> # Connect any MCP client to http://localhost:9696/mcp
+> ```
+
 <p align="center"><em>(Often abbreviated as "QLC+")</em></p>
 <p align="center">
   <strong>Open-source lighting control for DMX, Art-Net, sACN and more.</strong><br/>
