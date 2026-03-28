@@ -22,7 +22,6 @@
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/mcp/handler.hpp>
-#include <fastmcpp/server/stdio_server.hpp>
 #include <fastmcpp/server/streamable_http_server.hpp>
 
 #include <QDebug>
@@ -43,13 +42,6 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, QObject *parent)
 
 McpServer::~McpServer()
 {
-}
-
-void McpServer::runStdio()
-{
-    auto handler = fastmcpp::mcp::make_mcp_handler("qlcplus", "5.0.0", *m_toolManager);
-    fastmcpp::server::StdioServerWrapper server(handler);
-    server.run();
 }
 
 void McpServer::startHttp(int port)

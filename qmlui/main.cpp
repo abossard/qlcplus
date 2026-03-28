@@ -28,6 +28,10 @@
 #include "qlcconfig.h"
 #include "qlcfile.h"
 
+#ifdef HAS_MCP_SERVER
+#include "mcpinit.h"
+#endif
+
 QFile logFile;
 
 /**
@@ -124,6 +128,10 @@ int main(int argc, char *argv[])
                                       "Specify a file where to store web access basic authentication credentials",
                                       "file", "");
     parser.addOption(webAuthFileOption);
+
+#ifdef HAS_MCP_SERVER
+    mcpAddOptions(parser);
+#endif
 
     parser.process(app);
 
@@ -229,6 +237,10 @@ int main(int argc, char *argv[])
     // fullscreen mode
     if (parser.isSet(fullscreenOption))
         qlcplusApp.toggleFullscreen();
+
+#ifdef HAS_MCP_SERVER
+    mcpInit(qlcplusApp.doc(), qlcplusApp.virtualConsole(), parser);
+#endif
 
     return app.exec();
 }

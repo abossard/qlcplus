@@ -44,9 +44,6 @@ public:
     McpServer(Doc *doc, VCBridge *vcBridge, QObject *parent = nullptr);
     ~McpServer();
 
-    /** Start MCP server in STDIO mode (blocking — run in separate thread) */
-    void runStdio();
-
     /** Start MCP server in HTTP mode (non-blocking, runs in background) */
     void startHttp(int port = 9876);
     void stopHttp();
