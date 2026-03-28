@@ -51,7 +51,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }}}},
                 {"intensity", {{"type", "integer"}, {"description", "Dimmer value 0-255 (default 255)"}}},
                 {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
-                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}}
+                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
+                {"channelValues", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"fixtureID", {{"type", "integer"}}},
+                    {"channel", {{"type", "integer"}}},
+                    {"value", {{"type", "integer"}}}
+                }}}}, {"description", "Set arbitrary DMX values on specific channels (for gobos, prism, color wheel, etc.)"}}}
             }}, {"required", {"name", "fixtureIDs"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -109,6 +114,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                         }
                     }
                 }
+
+                // Set arbitrary channel values (for gobos, prism, color wheel, etc.)
+                if (item.contains("channelValues"))
+                {
+                    for (auto &cv : item["channelValues"])
+                    {
+                        quint32 fxID = cv["fixtureID"].get<int>();
+                        quint32 chIdx = cv["channel"].get<int>();
+                        uchar value = cv["value"].get<int>();
+                        scene->setValue(SceneValue(fxID, chIdx, value));
+                    }
+                }
+
                 doc->addFunction(scene);
                 results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}});
             }
