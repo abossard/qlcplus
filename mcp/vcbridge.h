@@ -112,6 +112,14 @@ public:
     virtual int findWidgetByCaption(int parentID, const QString &widgetType,
                                     const QString &caption) const
         { Q_UNUSED(parentID); Q_UNUSED(widgetType); Q_UNUSED(caption); return -1; }
+
+    // Auto-layout: returns next available position inside a parent frame
+    virtual QRect nextWidgetPosition(int parentID, int width, int height) const
+        { Q_UNUSED(parentID); return QRect(0, 0, width, height); }
+
+    // Widget deletion
+    virtual bool removeWidget(int widgetID)
+        { Q_UNUSED(widgetID); return false; }
 };
 
 #endif // VCBRIDGE_H

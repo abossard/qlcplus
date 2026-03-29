@@ -18,6 +18,7 @@
 */
 
 #include "tool_registry.h"
+#include "idempotency.h"
 #include "vcbridge.h"
 #include "doc.h"
 #include "function.h"
@@ -76,7 +77,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"pageIndex", "x", "y", "width", "height", "caption"}}}}}}
+            }}, {"required", {"pageIndex", "caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -112,8 +113,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     continue;
                 }
 
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int w = item.value("width", 400);
+                int h = item.value("height", 300);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = QRect(5, 5, w, h);
                 int id = vcBridge->addFrame(pageIndex, geo, caption, solo);
                 results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -140,12 +146,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"functionID", {{"type", "integer"}}},
+                {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
                 {"caption", {{"type", "string"}}},
                 {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button behavior: toggle (start/stop), flash (hold), blackout (system blackout toggle), stopall (stop all functions/panic)"}}},
                 {"stopAllFadeTime", {{"type", "integer"}, {"description", "Fade out time in ms before stopping all functions (only for stopall action, default 0 = immediate)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "caption"}}}}}}
+            }}, {"required", {"parentID", "caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -162,9 +169,25 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     continue;
                 }
 
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
-                int funcID = item.value("functionID", -1);
+                // Resolve function ID from name or direct ID
+                int funcID = -1;
+                if (item.contains("functionName"))
+                {
+                    quint32 fid = mcp::resolveFunctionByName(doc, QString::fromStdString(item.at("functionName").get<std::string>()));
+                    if (fid != Function::invalidId()) funcID = (int)fid;
+                }
+                if (item.contains("functionID"))
+                    funcID = item.at("functionID").get<int>();
+
+                // Auto-layout: use provided geometry or compute next position
+                int w = item.value("width", 100);
+                int h = item.value("height", 60);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
+
                 int id = vcBridge->addButton(
                     parentID, geo,
                     funcID >= 0 ? (quint32)funcID : Function::invalidId(),
@@ -199,12 +222,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"caption", {{"type", "string"}}},
                 {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
                 {"functionID", {{"type", "integer"}, {"description", "Function to control (for playback mode)"}}},
+                {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID (for playback mode)."}}},
                 {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}}, {"channel", {{"type", "integer"}}}
                 }}}}, {"description", "Fixture channels to control (for level mode)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "caption", "mode"}}}}}}
+            }}, {"required", {"parentID", "caption", "mode"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -224,8 +248,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     }
                 }
 
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int w = item.value("width", 60);
+                int h = item.value("height", 200);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
 
                 QList<QPair<quint32, quint32>> channels;
                 if (item.contains("channels"))
@@ -234,11 +263,18 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                         channels.append({ch.at("fixtureID").get<int>(), ch.at("channel").get<int>()});
                 }
 
+                int funcID = item.value("functionID", -1);
+                if (funcID < 0 && item.contains("functionName"))
+                {
+                    quint32 fid = mcp::resolveFunctionByName(doc, QString::fromStdString(item.at("functionName").get<std::string>()));
+                    if (fid != Function::invalidId()) funcID = (int)fid;
+                }
+
                 int id = vcBridge->addSlider(
                     parentID, geo,
                     QString::fromStdString(item.at("mode").get<std::string>()),
                     caption,
-                    item.value("functionID", -1),
+                    funcID,
                     channels);
                 results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -267,7 +303,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "size", "fixtureIDs"}}}}}}
+            }}, {"required", {"parentID", "size", "fixtureIDs"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -276,7 +312,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             for (auto &item : args.at("items"))
             {
                 int sz = item.at("size").get<int>();
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(), sz, sz);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), sz, sz);
+                else
+                    geo = vcBridge->nextWidgetPosition(item.at("parentID").get<int>(), sz, sz);
                 QList<quint32> fxIDs;
                 for (auto &fid : item.at("fixtureIDs"))
                     fxIDs.append(fid.get<int>());
@@ -306,10 +346,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"chaserID", {{"type", "integer"}}},
+                {"chaserName", {{"type", "string"}, {"description", "Chaser name. Alternative to chaserID."}}},
                 {"caption", {{"type", "string"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "chaserID"}}}}}}
+            }}, {"required", {"parentID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -329,11 +370,26 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     }
                 }
 
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int w = item.value("width", 300);
+                int h = item.value("height", 200);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
+
+                int chaserIDVal = -1;
+                if (item.contains("chaserID"))
+                    chaserIDVal = item.at("chaserID").get<int>();
+                else if (item.contains("chaserName"))
+                {
+                    quint32 fid = mcp::resolveFunctionByName(doc, QString::fromStdString(item.at("chaserName").get<std::string>()), Function::ChaserType);
+                    if (fid != Function::invalidId()) chaserIDVal = (int)fid;
+                }
+
                 int id = vcBridge->addCueList(
                     parentID, geo,
-                    item.at("chaserID").get<int>(),
+                    chaserIDVal,
                     caption);
                 results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -362,7 +418,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"text", {{"type", "string"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "text"}}}}}}
+            }}, {"required", {"parentID", "text"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -379,8 +435,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     continue;
                 }
 
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int w = item.value("width", 200);
+                int h = item.value("height", 30);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
                 int id = vcBridge->addLabel(parentID, geo, text);
                 results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -531,7 +592,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Chasers/EFX/sequences whose speed this dial controls"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #003366)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "functionIDs"}}}}}}
+            }}, {"required", {"parentID", "functionIDs"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -539,12 +600,18 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int parentID = item.at("parentID").get<int>();
+                int w = item.value("width", 200);
+                int h = item.value("height", 200);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
                 QList<quint32> funcIDs;
                 for (auto &fid : item.at("functionIDs"))
                     funcIDs.append(fid.get<int>());
-                int id = vcBridge->addSpeedDial(item.at("parentID").get<int>(), geo, funcIDs);
+                int id = vcBridge->addSpeedDial(parentID, geo, funcIDs);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
@@ -571,7 +638,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a0000)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ff6666)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height"}}}}}}
+            }}, {"required", {"parentID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -579,9 +646,15 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
-                int id = vcBridge->addAudioTriggers(item.at("parentID").get<int>(), geo);
+                int parentID = item.at("parentID").get<int>();
+                int w = item.value("width", 300);
+                int h = item.value("height", 150);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
+                int id = vcBridge->addAudioTriggers(parentID, geo);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
@@ -609,7 +682,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"clockType", {{"type", "string"}, {"enum", {"clock", "stopwatch", "countdown"}}, {"description", "Clock type (default clock)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a1a1a)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height"}}}}}}
+            }}, {"required", {"parentID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -617,10 +690,16 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
-                          item.at("width").get<int>(), item.at("height").get<int>());
+                int parentID = item.at("parentID").get<int>();
+                int w = item.value("width", 200);
+                int h = item.value("height", 60);
+                QRect geo;
+                if (item.contains("x") && item.contains("y"))
+                    geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                else
+                    geo = vcBridge->nextWidgetPosition(parentID, w, h);
                 int id = vcBridge->addClock(
-                    item.at("parentID").get<int>(), geo,
+                    parentID, geo,
                     QString::fromStdString(item.value("clockType", "clock")));
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -635,6 +714,30 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         },
         std::nullopt,
         std::string("Add clock widgets (real-time clock, stopwatch, or countdown timer). Batch."),
+        std::nullopt
+    ));
+
+    // delete_widgets (batch)
+    tm.register_tool(Tool(
+        "delete_widgets",
+        Json{{"type", "object"}, {"properties", {
+            {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Widget IDs to delete"}}}
+        }}, {"required", {"ids"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &wid : args.at("ids"))
+            {
+                int id = wid.get<int>();
+                bool ok = vcBridge->removeWidget(id);
+                results.push_back({{"id", id}, {"status", ok ? "deleted" : "not found"}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete Virtual Console widgets by ID. Batch."),
         std::nullopt
     ));
 }

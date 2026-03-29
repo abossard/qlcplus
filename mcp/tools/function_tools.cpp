@@ -52,6 +52,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
                 {"color", {{"type", "object"}, {"properties", {
                     {"r", {{"type", "integer"}}}, {"g", {{"type", "integer"}}}, {"b", {{"type", "integer"}}}
                 }}}},
@@ -63,7 +64,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     {"channel", {{"type", "integer"}}},
                     {"value", {{"type", "integer"}}}
                 }}}}, {"description", "Set arbitrary DMX values on specific channels (for gobos, prism, color wheel, etc.)"}}}
-            }}, {"required", {"name", "fixtureIDs"}}}}}}
+            }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -74,10 +75,30 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                if (!item.contains("name") || !item.contains("fixtureIDs"))
+                if (!item.contains("name") || (!item.contains("fixtureIDs") && !item.contains("fixtureNames")))
                 {
-                    results.push_back({{"error","name and fixtureIDs required"}});
+                    results.push_back({{"error","name and fixtureIDs or fixtureNames required"}});
                     continue;
+                }
+
+                // Resolve fixture IDs from names or direct IDs
+                QList<quint32> fixtureIDs;
+                if (item.contains("fixtureNames"))
+                {
+                    for (auto &pattern : item.at("fixtureNames"))
+                    {
+                        auto ids = mcp::resolveFixturesByName(doc, QString::fromStdString(pattern.get<std::string>()));
+                        for (quint32 id : ids)
+                            if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                    }
+                }
+                if (item.contains("fixtureIDs"))
+                {
+                    for (auto &fxId : item.at("fixtureIDs"))
+                    {
+                        quint32 id = fxId.get<int>();
+                        if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                    }
                 }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -111,9 +132,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     b = item.at("color").value("b", 0);
                 }
 
-                for (auto &fxId : item.at("fixtureIDs"))
+                for (quint32 id : fixtureIDs)
                 {
-                    quint32 id = fxId.get<int>();
                     Fixture *fxi = doc->fixture(id);
                     if (!fxi) continue;
 
@@ -168,7 +188,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create color/intensity scenes. Batch: pass multiple scenes in 'items'. Auto-detects RGB/CMY/dimmer channels."),
+        std::string("Create color/intensity scenes. Accepts fixtureIDs or fixtureNames (glob patterns). Upserts: updates existing scenes with same name. Batch."),
         std::nullopt
     ));
 
@@ -180,10 +200,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"name", {{"type", "string"}}},
                 {"steps", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"functionID", {{"type", "integer"}}},
+                    {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
                     {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
                     {"hold", {{"type", "integer"}, {"description", "Hold time in ms (default 0)"}}},
                     {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}}
-                }}, {"required", {"functionID"}}}}}},
+                }}, {"required", Json::array()}}}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
                 {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Tempo type: 'time' (ms) or 'beats' (BPM-synced) (default time)"}}},
@@ -255,7 +276,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 // Add steps with per-step timing
                 for (auto &step : item.at("steps"))
                 {
-                    quint32 fid = step.at("functionID").get<int>();
+                    quint32 fid = Function::invalidId();
+                    if (step.contains("functionID"))
+                        fid = step.at("functionID").get<int>();
+                    else if (step.contains("functionName"))
+                        fid = mcp::resolveFunctionByName(doc, QString::fromStdString(step.at("functionName").get<std::string>()));
+                    if (fid == Function::invalidId()) continue;
                     uint fadeIn = step.value("fadeIn", 0);
                     uint hold = step.value("hold", 0);
                     uint fadeOut = step.value("fadeOut", 0);
@@ -358,6 +384,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
                 {"algorithm", {{"type", "string"}, {"enum", {"Circle", "Eight", "Line", "Line2", "Diamond", "Square", "SquareChoppy", "SquareTrue", "Leaf", "Lissajous"}}, {"description", "Pattern algorithm (default Circle)"}}},
                 {"width", {{"type", "integer"}, {"description", "Pattern width 0-255 (default 127)"}}},
                 {"height", {{"type", "integer"}, {"description", "Pattern height 0-255 (default 127)"}}},
@@ -376,7 +403,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}}
-            }}, {"required", {"name", "fixtureIDs"}}}}}}
+            }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -385,6 +412,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             for (auto &item : args.at("items"))
             {
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
+
+                // Resolve fixtures
+                QList<quint32> fixtureIDs;
+                if (item.contains("fixtureNames"))
+                    for (auto &p : item.at("fixtureNames"))
+                        for (quint32 id : mcp::resolveFixturesByName(doc, QString::fromStdString(p.get<std::string>())))
+                            if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                if (item.contains("fixtureIDs"))
+                    for (auto &fid : item.at("fixtureIDs"))
+                        { quint32 id = fid.get<int>(); if (!fixtureIDs.contains(id)) fixtureIDs.append(id); }
+
                 Function *existing = mcp::findFunction(doc, name, Function::EFXType);
                 EFX *efx;
                 bool isNew = false;
@@ -442,10 +480,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (dir == "backward") efx->setDirection(Function::Backward);
                 else efx->setDirection(Function::Forward);
 
-                for (auto &fid : item.at("fixtureIDs"))
+                for (quint32 fid : fixtureIDs)
                 {
                     EFXFixture *ef = new EFXFixture(efx);
-                    ef->setHead(GroupHead(fid.get<int>(), 0));
+                    ef->setHead(GroupHead(fid, 0));
                     efx->addFixture(ef);
                 }
 
@@ -467,8 +505,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
-                {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}}
-            }}, {"required", {"name", "functionIDs"}}}}}}
+                {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"functionNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Function names to include. Alternative to functionIDs."}}}
+            }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -493,8 +532,23 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     col->setName(name);
                     isNew = true;
                 }
-                for (auto &fid : item.at("functionIDs"))
-                    col->addFunction(fid.get<int>());
+                // Resolve function IDs from names or direct IDs
+                QList<quint32> funcIDs;
+                if (item.contains("functionNames"))
+                    for (auto &fn : item.at("functionNames"))
+                    {
+                        quint32 fid = mcp::resolveFunctionByName(doc, QString::fromStdString(fn.get<std::string>()));
+                        if (fid != Function::invalidId() && !funcIDs.contains(fid))
+                            funcIDs.append(fid);
+                    }
+                if (item.contains("functionIDs"))
+                    for (auto &fid : item.at("functionIDs"))
+                    {
+                        quint32 id = fid.get<int>();
+                        if (!funcIDs.contains(id)) funcIDs.append(id);
+                    }
+                for (quint32 fid : funcIDs)
+                    col->addFunction(fid);
                 if (isNew)
                     doc->addFunction(col);
                 results.push_back({{"id", (int)col->id()}, {"name", col->name().toStdString()}, {"status", isNew ? "created" : "updated"}});

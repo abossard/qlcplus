@@ -26,7 +26,12 @@
 #include "function.h"
 #include "qlcchannel.h"
 #include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
 #include "channelmodifier.h"
+#include "scene.h"
+#include "chaser.h"
+#include "collection.h"
+#include "scenevalue.h"
 
 namespace mcp {
 
@@ -78,6 +83,8 @@ inline Json fixtureToJson(const Fixture *fxi)
     Json entry;
     entry["id"] = fxi->id();
     entry["name"] = fxi->name().toStdString();
+    entry["universe"] = (int)fxi->universe();
+    entry["address"] = (int)fxi->address();
     entry["channels"] = fxi->channels();
     entry["heads"] = fxi->heads();
     if (fxi->fixtureDef())
@@ -85,6 +92,8 @@ inline Json fixtureToJson(const Fixture *fxi)
         entry["manufacturer"] = fxi->fixtureDef()->manufacturer().toStdString();
         entry["model"] = fxi->fixtureDef()->model().toStdString();
     }
+    if (fxi->fixtureMode())
+        entry["mode"] = fxi->fixtureMode()->name().toStdString();
     entry["capabilities"] = fixtureCapabilities(fxi);
     return entry;
 }
@@ -92,12 +101,49 @@ inline Json fixtureToJson(const Fixture *fxi)
 // Pure function: Convert a function to JSON summary
 inline Json functionToJson(Function *fn)
 {
-    return {
+    Json entry = {
         {"id", (int)fn->id()},
         {"name", fn->name().toStdString()},
         {"type", Function::typeToString(fn->type()).toStdString()},
         {"duration", (int)fn->totalDuration()}
     };
+
+    if (fn->type() == Function::SceneType)
+    {
+        Scene *scene = qobject_cast<Scene*>(fn);
+        if (scene)
+        {
+            QSet<quint32> fxIds;
+            for (const SceneValue &sv : scene->values())
+                fxIds.insert(sv.fxi);
+            entry["fixtureCount"] = fxIds.size();
+            entry["channelCount"] = scene->values().size();
+        }
+    }
+    else if (fn->type() == Function::ChaserType)
+    {
+        Chaser *chaser = qobject_cast<Chaser*>(fn);
+        if (chaser)
+        {
+            entry["stepCount"] = chaser->stepsCount();
+            entry["runOrder"] = Function::runOrderToString(chaser->runOrder()).toStdString();
+            entry["direction"] = Function::directionToString(chaser->direction()).toStdString();
+            entry["tempoType"] = chaser->tempoType() == Function::Beats ? "beats" : "time";
+        }
+    }
+    else if (fn->type() == Function::CollectionType)
+    {
+        Collection *col = qobject_cast<Collection*>(fn);
+        if (col)
+        {
+            Json ids = Json::array();
+            for (quint32 fid : col->functions())
+                ids.push_back((int)fid);
+            entry["functionIDs"] = ids;
+        }
+    }
+
+    return entry;
 }
 
 // Pure function: Convert a channel to JSON with precedence info

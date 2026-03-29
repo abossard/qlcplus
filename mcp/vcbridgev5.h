@@ -78,6 +78,8 @@ public:
     int findPageByName(const QString &name) const override;
     int findWidgetByCaption(int parentID, const QString &widgetType,
                             const QString &caption) const override;
+    QRect nextWidgetPosition(int parentID, int width, int height) const override;
+    bool removeWidget(int widgetID) override;
 
 private:
     Doc *m_doc;

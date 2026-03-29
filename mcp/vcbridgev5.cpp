@@ -382,3 +382,30 @@ int VCBridgeV5::findWidgetByCaption(int parentID, const QString &widgetType,
     }
     return -1;
 }
+
+QRect VCBridgeV5::nextWidgetPosition(int parentID, int width, int height) const
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame)
+        return QRect(5, 5, width, height);
+
+    const int pad = 5;
+    int maxBottom = 40; // leave space for frame header
+    for (VCWidget *w : frame->children())
+    {
+        int bottom = (int)w->geometry().y() + (int)w->geometry().height() + pad;
+        if (bottom > maxBottom)
+            maxBottom = bottom;
+    }
+    return QRect(pad, maxBottom, width, height);
+}
+
+bool VCBridgeV5::removeWidget(int widgetID)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    m_vc->deleteVCWidgets(QVariantList{widgetID});
+    return true;
+}

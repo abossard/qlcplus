@@ -369,6 +369,71 @@ void McpIdempotency_Test::upsert_fixtureGroupReplacesFixtures()
     QVERIFY(found->fixtureList().contains(f3->id()));
 }
 
+// ========== Name resolution helpers ==========
+
+void McpIdempotency_Test::resolveFixtures_globMatchesStar()
+{
+    Fixture *f1 = new Fixture(m_doc); f1->setName("Par LED 1"); f1->setChannels(1); f1->setAddress(0); m_doc->addFixture(f1);
+    Fixture *f2 = new Fixture(m_doc); f2->setName("Par LED 2"); f2->setChannels(1); f2->setAddress(1); m_doc->addFixture(f2);
+    Fixture *f3 = new Fixture(m_doc); f3->setName("Moving Head 1"); f3->setChannels(1); f3->setAddress(2); m_doc->addFixture(f3);
+
+    QList<quint32> result = mcp::resolveFixturesByName(m_doc, "Par LED *");
+    QCOMPARE(result.size(), 2);
+    QVERIFY(result.contains(f1->id()));
+    QVERIFY(result.contains(f2->id()));
+    QVERIFY(!result.contains(f3->id()));
+}
+
+void McpIdempotency_Test::resolveFixtures_exactMatch()
+{
+    Fixture *f1 = new Fixture(m_doc); f1->setName("Spot A"); f1->setChannels(1); f1->setAddress(0); m_doc->addFixture(f1);
+
+    QList<quint32> result = mcp::resolveFixturesByName(m_doc, "Spot A");
+    QCOMPARE(result.size(), 1);
+    QCOMPARE(result.first(), f1->id());
+}
+
+void McpIdempotency_Test::resolveFixtures_noMatch()
+{
+    Fixture *f1 = new Fixture(m_doc); f1->setName("Par LED 1"); f1->setChannels(1); m_doc->addFixture(f1);
+
+    QList<quint32> result = mcp::resolveFixturesByName(m_doc, "Moving *");
+    QCOMPARE(result.size(), 0);
+}
+
+void McpIdempotency_Test::resolveFunction_findsByName()
+{
+    Scene *s = new Scene(m_doc); s->setName("Warm Wash"); m_doc->addFunction(s);
+    Chaser *c = new Chaser(m_doc); c->setName("Color Chase"); m_doc->addFunction(c);
+
+    quint32 id = mcp::resolveFunctionByName(m_doc, "Warm Wash");
+    QCOMPARE(id, s->id());
+
+    id = mcp::resolveFunctionByName(m_doc, "Color Chase");
+    QCOMPARE(id, c->id());
+}
+
+void McpIdempotency_Test::resolveFunction_findsByNameAndType()
+{
+    Scene *s = new Scene(m_doc); s->setName("Ambiguous"); m_doc->addFunction(s);
+    Chaser *c = new Chaser(m_doc); c->setName("Ambiguous"); m_doc->addFunction(c);
+
+    quint32 id = mcp::resolveFunctionByName(m_doc, "Ambiguous", Function::SceneType);
+    QCOMPARE(id, s->id());
+
+    id = mcp::resolveFunctionByName(m_doc, "Ambiguous", Function::ChaserType);
+    QCOMPARE(id, c->id());
+
+    id = mcp::resolveFunctionByName(m_doc, "Ambiguous", Function::EFXType);
+    QCOMPARE(id, Function::invalidId());
+}
+
+void McpIdempotency_Test::resolveFunction_returnsInvalidWhenNotFound()
+{
+    QCOMPARE(mcp::resolveFunctionByName(m_doc, "Nothing"), Function::invalidId());
+    QCOMPARE(mcp::resolveFunctionByName(m_doc, "Nothing", Function::SceneType), Function::invalidId());
+}
+
 // ========== Script deduplication ==========
 
 // Mirrors the dedup algorithm from create_scripts tool

@@ -63,6 +63,14 @@ private slots:
     void upsert_collectionReplacesFunctions();
     void upsert_fixtureGroupReplacesFixtures();
 
+    // Name resolution helpers
+    void resolveFixtures_globMatchesStar();
+    void resolveFixtures_exactMatch();
+    void resolveFixtures_noMatch();
+    void resolveFunction_findsByName();
+    void resolveFunction_findsByNameAndType();
+    void resolveFunction_returnsInvalidWhenNotFound();
+
     // Script deduplication
     void scriptDedup_removesStopForStartedFunction();
     void scriptDedup_removesDuplicateStops();

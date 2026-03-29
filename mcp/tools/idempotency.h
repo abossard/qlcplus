@@ -26,6 +26,8 @@
 #include "fixturegroup.h"
 
 #include <QString>
+#include <QRegularExpression>
+#include <QList>
 
 namespace mcp {
 
@@ -38,6 +40,42 @@ inline Function* findFunction(Doc *doc, const QString &name, Function::Type type
             return fn;
     }
     return nullptr;
+}
+
+/** Resolve a function by name (any type). Returns Function::invalidId() if not found. */
+inline quint32 resolveFunctionByName(Doc *doc, const QString &name)
+{
+    for (Function *fn : doc->functions())
+    {
+        if (fn->name() == name)
+            return fn->id();
+    }
+    return Function::invalidId();
+}
+
+/** Resolve a function by name and type. Returns Function::invalidId() if not found. */
+inline quint32 resolveFunctionByName(Doc *doc, const QString &name, Function::Type type)
+{
+    Function *fn = findFunction(doc, name, type);
+    return fn ? fn->id() : Function::invalidId();
+}
+
+/**
+ * Resolve fixtures by name pattern (glob: * and ? supported).
+ * Returns list of fixture IDs matching the pattern.
+ */
+inline QList<quint32> resolveFixturesByName(Doc *doc, const QString &pattern)
+{
+    QList<quint32> ids;
+    QRegularExpression re(
+        QRegularExpression::wildcardToRegularExpression(pattern),
+        QRegularExpression::CaseInsensitiveOption);
+    for (Fixture *fxi : doc->fixtures())
+    {
+        if (re.match(fxi->name()).hasMatch())
+            ids.append(fxi->id());
+    }
+    return ids;
 }
 
 /** Find an existing fixture by name, universe, and address. */
