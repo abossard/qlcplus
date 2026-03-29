@@ -20,4 +20,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(GOBO_DIR IN LISTS GOBO_FILES)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${GOBO_DIR}")
+            file(CREATE_LINK "${CMAKE_CURRENT_SOURCE_DIR}/${GOBO_DIR}"
+                 "${CMAKE_CURRENT_BINARY_DIR}/${GOBO_DIR}" SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(DIRECTORY ${GOBO_FILES} DESTINATION ${INSTALLROOT}/${GOBODIR})

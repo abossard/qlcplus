@@ -13,4 +13,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(COLOR_FILTER_FILE ${COLOR_FILTER_FILES})
+        get_filename_component(FILENAME ${COLOR_FILTER_FILE} NAME)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+            file(CREATE_LINK ${COLOR_FILTER_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(FILES ${COLOR_FILTER_FILES} DESTINATION ${INSTALLROOT}/${COLORFILTERSDIR})

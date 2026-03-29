@@ -16,4 +16,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(GENERIC_MESH_FILE IN LISTS GENERIC_MESH_FILES)
+        get_filename_component(FILENAME ${GENERIC_MESH_FILE} NAME)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+            file(CREATE_LINK ${GENERIC_MESH_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(FILES ${GENERIC_MESH_FILES} DESTINATION ${INSTALLROOT}/${MESHESDIR}/generic)

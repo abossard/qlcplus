@@ -16,4 +16,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(MODTEMPLATE_FILE IN LISTS MODTEMPLATE_FILES)
+        get_filename_component(FILENAME ${MODTEMPLATE_FILE} NAME)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+            file(CREATE_LINK ${MODTEMPLATE_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(FILES ${MODTEMPLATE_FILES} DESTINATION ${INSTALLROOT}/${MODIFIERSTEMPLATEDIR})

@@ -16,4 +16,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(MIDITEMPLATE_FILE IN LISTS MIDITEMPLATE_FILES)
+        get_filename_component(FILENAME ${MIDITEMPLATE_FILE} NAME)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+            file(CREATE_LINK ${MIDITEMPLATE_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(FILES ${MIDITEMPLATE_FILES} DESTINATION ${INSTALLROOT}/${MIDITEMPLATEDIR})

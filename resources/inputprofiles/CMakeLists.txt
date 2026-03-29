@@ -16,4 +16,14 @@ if(ANDROID)
     endforeach()
 endif()
 
+# Create symlinks in build directory for dev builds
+if(NOT ANDROID)
+    foreach(PROFILE_FILE IN LISTS PROFILE_FILES)
+        get_filename_component(FILENAME ${PROFILE_FILE} NAME)
+        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
+            file(CREATE_LINK ${PROFILE_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILENAME} SYMBOLIC)
+        endif()
+    endforeach()
+endif()
+
 install(FILES ${PROFILE_FILES} DESTINATION ${INSTALLROOT}/${INPUTPROFILEDIR})
