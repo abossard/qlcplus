@@ -27,8 +27,10 @@ if(ANDROID)
     file(COPY ${SOURCE_FIXTURES_MAP} DESTINATION ${DESTINATION_FIXTURES_MAP})
 endif()
 
-# Create symlinks in build directory for dev builds
-if(NOT ANDROID)
+# Create symlinks in build directory for dev builds (out-of-source only)
+get_filename_component(_src_real "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
+get_filename_component(_bld_real "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
+if(NOT ANDROID AND NOT _src_real STREQUAL _bld_real)
     foreach(FIXTURE_FILE_AND_DIRECTORY ${FIXTURES_FILES_AND_DIRECTORIES})
         if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${FIXTURE_FILE_AND_DIRECTORY}")
             if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FIXTURE_FILE_AND_DIRECTORY}")

@@ -13,8 +13,10 @@ if(ANDROID)
     endforeach()
 endif()
 
-# Create symlinks in build directory for dev builds
-if(NOT ANDROID)
+# Create symlinks in build directory for dev builds (out-of-source only)
+get_filename_component(_src_real "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
+get_filename_component(_bld_real "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
+if(NOT ANDROID AND NOT _src_real STREQUAL _bld_real)
     foreach(COLOR_FILTER_FILE ${COLOR_FILTER_FILES})
         get_filename_component(FILENAME ${COLOR_FILTER_FILE} NAME)
         if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
