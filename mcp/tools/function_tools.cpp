@@ -37,6 +37,9 @@
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
+#include <set>
+#include <vector>
+
 void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 {
     using Json = nlohmann::json;
@@ -169,17 +172,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
-                {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
-                {"holdTime", {{"type", "integer"}, {"description", "Hold/duration per step in ms (default 1000)"}}},
-                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time per step in ms (default 0)"}}},
-                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time per step in ms (default 0)"}}},
+                {"steps", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"functionID", {{"type", "integer"}}},
+                    {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
+                    {"hold", {{"type", "integer"}, {"description", "Hold time in ms (default 0)"}}},
+                    {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}}
+                }}, {"required", {"functionID"}}}}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
                 {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Tempo type: 'time' (ms) or 'beats' (BPM-synced) (default time)"}}},
-                {"fadeInMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Fade in speed mode (default common)"}}},
-                {"fadeOutMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Fade out speed mode (default common)"}}},
-                {"durationMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Duration speed mode (default common)"}}}
-            }}, {"required", {"name", "functionIDs"}}}}}}
+                {"fadeInMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Fade in speed mode (default perStep)"}}},
+                {"fadeOutMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Fade out speed mode (default perStep)"}}},
+                {"durationMode", {{"type", "string"}, {"enum", {"default", "common", "perStep"}}, {"description", "Duration speed mode (default perStep)"}}}
+            }}, {"required", {"name", "steps"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -190,9 +195,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                if (!item.contains("name") || !item.contains("functionIDs") || !item.at("functionIDs").is_array())
+                if (!item.contains("name") || !item.contains("steps") || !item.at("steps").is_array())
                 {
-                    results.push_back({{"error","name and functionIDs required"}});
+                    results.push_back({{"error","name and steps required"}});
                     continue;
                 }
 
@@ -207,20 +212,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 Chaser *chaser = new Chaser(doc);
                 chaser->setName(name);
 
-                // Speed modes
+                // Speed modes (default to perStep since steps carry their own timing)
                 auto parseSpeedMode = [](const std::string &mode) -> Chaser::SpeedMode {
                     if (mode == "default") return Chaser::Default;
-                    if (mode == "perStep") return Chaser::PerStep;
-                    return Chaser::Common;
+                    if (mode == "common") return Chaser::Common;
+                    return Chaser::PerStep;
                 };
-                chaser->setFadeInMode(parseSpeedMode(item.value("fadeInMode", "common")));
-                chaser->setFadeOutMode(parseSpeedMode(item.value("fadeOutMode", "common")));
-                chaser->setDurationMode(parseSpeedMode(item.value("durationMode", "common")));
-
-                // Speeds
-                chaser->setFadeInSpeed(item.value("fadeIn", 0));
-                chaser->setFadeOutSpeed(item.value("fadeOut", 0));
-                chaser->setDuration(item.value("holdTime", 1000));
+                chaser->setFadeInMode(parseSpeedMode(item.value("fadeInMode", "perStep")));
+                chaser->setFadeOutMode(parseSpeedMode(item.value("fadeOutMode", "perStep")));
+                chaser->setDurationMode(parseSpeedMode(item.value("durationMode", "perStep")));
 
                 // Run order
                 QString order = QString::fromStdString(item.value("runOrder", "loop"));
@@ -239,8 +239,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (tempo == "beats") chaser->setTempoType(Function::Beats);
                 else chaser->setTempoType(Function::Time);
 
-                for (auto &fid : item.at("functionIDs"))
-                    chaser->addStep(ChaserStep(fid.get<int>()));
+                // Add steps with per-step timing
+                for (auto &step : item.at("steps"))
+                {
+                    quint32 fid = step.at("functionID").get<int>();
+                    uint fadeIn = step.value("fadeIn", 0);
+                    uint hold = step.value("hold", 0);
+                    uint fadeOut = step.value("fadeOut", 0);
+                    chaser->addStep(ChaserStep(fid, fadeIn, hold, fadeOut));
+                }
 
                 doc->addFunction(chaser);
                 results.push_back({{"id", (int)chaser->id()}, {"name", chaser->name().toStdString()}, {"status", "created"}});
@@ -252,7 +259,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create chasers with full run properties: runOrder, direction, tempoType, fadeIn/fadeOut/duration with speed modes (default/common/perStep). Batch."),
+        std::string("Create chasers with per-step timing. Each step has functionID and optional fadeIn/hold/fadeOut (ms). Speed modes default to perStep. Batch."),
         std::nullopt
     ));
 
@@ -657,32 +664,77 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
-                // Build script data string
+                // Build script data string with stop/start deduplication
+                // Within contiguous blocks of stopfunction/startfunction commands,
+                // deduplicate stops and remove stops for functions about to be started.
                 QString scriptData;
-
-                for (auto &cmd : item.at("commands"))
+                auto &commands = item.at("commands");
+                size_t i = 0;
+                while (i < commands.size())
                 {
+                    auto &cmd = commands[i];
                     std::string type = cmd.at("type").get<std::string>();
-                    if (type == "startfunction")
-                        scriptData += QString("startfunction:%1\n").arg(cmd.at("functionID").get<int>());
-                    else if (type == "stopfunction")
-                        scriptData += QString("stopfunction:%1\n").arg(cmd.at("functionID").get<int>());
-                    else if (type == "wait")
-                        scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
-                    else if (type == "setfixture")
-                        scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
-                            .arg(cmd.at("fixtureID").get<int>())
-                            .arg(cmd.at("channel").get<int>())
-                            .arg(cmd.at("value").get<int>());
-                    else if (type == "blackout")
-                        scriptData += QString("blackout:%1\n")
-                            .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
-                    else if (type == "label")
-                        scriptData += QString("label:%1\n")
-                            .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
-                    else if (type == "jump")
-                        scriptData += QString("jump:%1\n")
-                            .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
+
+                    if (type == "stopfunction" || type == "startfunction")
+                    {
+                        // Collect the contiguous block of stop/start commands
+                        std::set<int> stopIDs;
+                        std::vector<int> startIDs;
+                        std::set<int> startIDSet;
+
+                        while (i < commands.size())
+                        {
+                            std::string t = commands[i].at("type").get<std::string>();
+                            if (t == "stopfunction")
+                            {
+                                stopIDs.insert(commands[i].at("functionID").get<int>());
+                                i++;
+                            }
+                            else if (t == "startfunction")
+                            {
+                                int fid = commands[i].at("functionID").get<int>();
+                                if (startIDSet.find(fid) == startIDSet.end())
+                                {
+                                    startIDs.push_back(fid);
+                                    startIDSet.insert(fid);
+                                }
+                                i++;
+                            }
+                            else
+                                break;
+                        }
+
+                        // Remove stops for functions about to be started
+                        for (int sid : startIDSet)
+                            stopIDs.erase(sid);
+
+                        // Emit deduplicated commands: stops first, then starts
+                        for (int sid : stopIDs)
+                            scriptData += QString("stopfunction:%1\n").arg(sid);
+                        for (int sid : startIDs)
+                            scriptData += QString("startfunction:%1\n").arg(sid);
+                    }
+                    else
+                    {
+                        // Non stop/start command — emit directly
+                        if (type == "wait")
+                            scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
+                        else if (type == "setfixture")
+                            scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
+                                .arg(cmd.at("fixtureID").get<int>())
+                                .arg(cmd.at("channel").get<int>())
+                                .arg(cmd.at("value").get<int>());
+                        else if (type == "blackout")
+                            scriptData += QString("blackout:%1\n")
+                                .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
+                        else if (type == "label")
+                            scriptData += QString("label:%1\n")
+                                .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
+                        else if (type == "jump")
+                            scriptData += QString("jump:%1\n")
+                                .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
+                        i++;
+                    }
                 }
 
                 Script *script = new Script(doc);
@@ -695,7 +747,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Batch."),
+        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Auto-deduplicates contiguous stop/start blocks: removes duplicate stops and skips stops for functions about to be started. Batch."),
         std::nullopt
     ));
 

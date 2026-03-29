@@ -55,8 +55,19 @@ private slots:
     void findFixtureGroup_findsExactMatch();
     void findFixtureGroup_noMatchDifferentName();
 
+    // ChaserStep per-step timing
+    void chaserStep_carriesPerStepTiming();
+
+    // Script deduplication
+    void scriptDedup_removesStopForStartedFunction();
+    void scriptDedup_removesDuplicateStops();
+    void scriptDedup_preservesAcrossWait();
+
 private:
     Doc *m_doc;
+
+    /** Helper: builds a deduped script data string from a command list (mirrors tool logic) */
+    static QString buildDedupedScript(const QVector<QPair<QString,int>> &commands);
 };
 
 #endif // IDEMPOTENCY_TEST_H
