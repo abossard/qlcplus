@@ -36,260 +36,177 @@ void registerPrompts(fastmcpp::tools::ToolManager &tm)
         Json{},
         [](const Json &) -> Json {
             std::string guideText = R"(
-# QLC+ Show Design Guide
+# QLC+ Show Design Guide — DJ / Club / Live
 
-## How to Use This Guide
-1. Call query_fixtures to discover available fixtures and capabilities
-2. Ask the user about their event type and comfort level
-3. Pick the right TIER and VENUE TEMPLATE below
-4. Propose a show plan, get user confirmation, then build
-5. After building, create a show-setup.md documentation file (see Post-Build section)
+## Step-by-Step Build Order
 
----
-
-## TIER 1: "Just Works" (Beginner / Volunteer)
-For: Church volunteer, school event, house party, first-time user
-
-Structure:
-- 4-6 pre-built Scenes (complete looks, no layering needed)
-- 1 SoloFrame with big buttons (only one look active at a time)
-- 1 master slider (submaster) for overall brightness
-- 1 blackout button
-
-Naming: Simple descriptive — "Bright", "Warm", "Cool", "Party", "Calm"
-
-VC Layout:
-  [Moods SoloFrame: Bright | Warm | Cool | Party | Calm]
-  [Master slider]  [BLACKOUT]
-
-Key: No layering, no chasers, no complexity. Just click a button.
+1. `query_fixtures` → discover what you have (RGB pars, moving heads, strobes, hazer)
+2. Ask user: event type, energy level, fixture placement
+3. Design **orthogonal layers** (see Layer Architecture below)
+4. Build layers bottom-up: scenes → chasers → collections → VC page
+5. Use `build_show_page` for the VC — one call per page
 
 ---
 
-## TIER 2: "Flexible Control" (Intermediate / Semi-Pro)
-For: Band gig, club DJ, worship team, small festival
+## Layer Architecture (Orthogonal — No Channel Conflicts)
 
-Structure:
-- Color/mood layer: 6-12 Scenes in a SoloFrame (mutually exclusive moods)
-- Effect layer: 3-6 Chasers/EFX as toggle/flash buttons in a Frame (layer on top)
-- Position: XY pad for moving heads (if available)
-- Master controls: Submaster + Blackout + Stop All
+Each layer owns specific DMX channels. Layers combine freely via LTP.
 
-Naming: "[Layer] - [Description]" — "Wash - Deep Blue", "FX - Rainbow Chase"
+| Layer | Owns | Controls | VC Widget |
+|-------|------|----------|-----------|
+| **Mood** | RGB/CMY/White channels | Color palette | SoloFrame buttons |
+| **Texture** | Gobo, prism, color wheel, focus | Pattern/atmosphere | SoloFrame buttons |
+| **Energy** | Pan/tilt speed, gobo rotation | Movement aggression | SoloFrame buttons |
+| **Position** | Pan, tilt | Where the beam points | SoloFrame or XY pad |
+| **Dimmer** | Intensity/dimmer channels | Brightness | Slider (submaster or audio-reactive) |
+| **Strobe** | Shutter/strobe channels | Flash accents | Flash buttons (hold to fire) |
+| **Haze** | Hazer output/fan | Atmosphere density | Toggle buttons |
 
-VC Layout:
-  [Moods SoloFrame]        [FX Frame]
-  [Warm] [Cool] [Intense]  [Chase] [Strobe] [Pulse]
-  [Sunset] [Ocean] [Fire]  [Sweep] [Snap]   [Slow]
-  
-  [XY Pad]     [Master]  [BLACKOUT]  [STOP ALL]
-
-Key: Moods are exclusive (SoloFrame), effects layer on top (regular Frame).
+**Rule:** A channel appears in exactly ONE layer. No HTP conflicts.
 
 ---
 
-## TIER 3: "Full Production" (Advanced / Professional)
-For: Concert tour, theatre, festival main stage, installed venue
+## Phase System (4-Phase DJ Set)
 
-Structure:
-- Fixture groups by position: Front Wash, Back Light, Side, Overhead, Moving Spots, Moving Wash, Effect/Strobe
-- Per-group scenes: Color-only, intensity-only, position-only (maximum flexibility)
-- Collections for phases: Each phase = color scene + position scene + effect chaser
-- Cue lists per song/act: Chaser with one step per cue, manual advance
-- Audio-reactive inputs: OSC faders mapped to level sliders
-- Per-group submasters for live mixing
+| Phase | Energy | Palette | Motion |
+|-------|--------|---------|--------|
+| P1 Starter | Low-Med | Green, yellow, warm amber | Smooth, legible groove |
+| P2 Buildup | Med-High | Blue, cyan, purple | Tighter, sharper, directional |
+| P3 Peak | Maximum | Purple, magenta, red, black contrast | Fast snaps, high contrast |
+| P4 Release | Medium | Blue, lavender, aqua | De-escalate, flow, melody |
 
-Naming: "[Position]_[Purpose]_[ID]" — "FRONT_WASH_01", "US_MH_BEAM_03"
-
-VC Layout (multiple pages):
-  Page 1 "Overview": Mood selector + FX + Masters + Blackout
-  Page 2 "Cue Lists": Per-song/act cue lists
-  Page 3 "Audio": OSC input faders + mode selector
-  Page 4 "Groups": Per-fixture-group submasters + color pickers
-
-Key: Separate color from position from intensity. Maximum layering flexibility.
+Phase = Collection bundling: texture scene + default mood + energy preset + haze level.
 
 ---
 
-## Fixture Grouping Strategy
+## Beat-Synced Chasers (tempoType: "beats")
 
-Group fixtures by position AND function:
-| Group | Typical Fixtures | Purpose |
-|-------|-----------------|---------|
-| Front Wash | Front-truss pars/washes | Face lighting, visibility |
-| Back Light | Upstage spots/beams | Depth, silhouettes |
-| Side Light | Side-truss washes | Movement accent, sculpting |
-| Top Wash | Overhead pars | General area coverage |
-| Moving Spot | MH spots | Gobos, beams, specials |
-| Moving Wash | MH washes | Color aerials |
-| Effect | Strobes, blinders | Impact moments |
+Timing in ms where 1000 = 1 beat (scales with BPM via OS2L/MIDI/internal clock):
 
-Auto-detect from capabilities: RGB → color wash, Pan/Tilt → moving, Shutter → effect
+| Feel | Hold | FadeIn | FadeOut | Total |
+|------|------|--------|---------|-------|
+| Ambient drift | 8000 | 4000 | 4000 | 16 beats |
+| Musical flow | 4000 | 2000 | 2000 | 8 beats |
+| Driving pulse | 2000 | 1000 | 1000 | 4 beats |
+| Aggressive snap | 1000 | 250 | 250 | ~2 beats |
+| Glitch stutter | 500 | 0 | 0 | 1 beat |
+| Seizure (use sparingly) | 250 | 0 | 0 | 1/2 beat |
 
----
-
-## Venue Templates
-
-### Church / House of Worship
-- Tier 1 or 2 (volunteer-friendly)
-- Warm tones for sermon, cool for worship, dim for prayer
-- Smooth transitions (2-3s fades), no strobes
-- Scenes: "Sermon", "Worship", "Prayer", "Song", "Welcome"
-
-### Concert / Live Band
-- Tier 2 or 3
-- Cue list per song in setlist
-- Energy curve per song: intro → verse → chorus → bridge → outro
-- Fast transitions, movement, color changes
-
-### Club / DJ Set
-- Tier 2 or 3
-- Beat-synced chasers (tempoType: "beats")
-- Audio-reactive OSC inputs for bass/mid/treble
-- Continuous flow, no hard cue stops
-
-### Theatre
-- Tier 3
-- Precise cue-to-cue with GO button (VCCueList)
-- Subtle mood shifts, long crossfades (5-10s)
-- Per-act cue lists, minimal live improvisation
+### Mood Chase per Phase
+Create a chaser that cycles through phase-appropriate colors:
+- P1: Deep Jungle → Amber → Tropical Cyan (hold=8 beats, fade=4 beats)
+- P3: Blood Moon → Violet → Arctic White (hold=4 beats, fade=1 beat)
 
 ---
 
-## HTP/LTP Rules
-- Intensity/dimmer = HTP (highest wins) — safe to layer
-- Pan/Tilt/Color wheel/Gobo = LTP (latest wins) — separate from intensity
-- Separate intensity scenes from position/color scenes for layering
+## Common Lighting Patterns
 
-## Beat/Tempo System
-- tempoType "beats": 1000 = 1 beat, 500 = 1/2, 250 = 1/4, 125 = 1/8
-- Scales automatically with BPM (internal clock, MIDI, or OS2L)
-- Strobe buildup: Scene with shutter channel + Chaser fadeIn of N beats
+### Phantom Scan (Dark Swipe + Beam Reveal)
+2-step chaser: dark snap → beam reveal.
+- Step 1 "Dark": dimmer=0, pan/tilt snap to new position, pt_speed=0 (instant), arm gobo+color. Hold=0ms.
+- Step 2 "Beam": dimmer=255, pt_speed=220 (slow crawl back), beam is ON. Hold=4 beats.
+- Result: light appears to teleport, then slowly sweeps. Dramatic and musical.
+- Variations: change gobo/color per variant (Red Phantom, Blue Phantom, etc.)
 
-## Audio-Reactive (OSC)
-- Map OSC channels to VCSlider level mode → fixtures pulse with audio
-- Layer: submaster (manual cap) + level (OSC-driven) + playback (chaser intensity)
-- SoloFrame to switch between audio-reactive modes
-- Split by frequency: bass → warm pars, mid → accents, treble → strobes
+### Color Chase
+Chaser cycling through mood scenes with offset timing.
+- Use propagationMode "Serial" on EFX for moving heads (each fixture starts at different phase).
+- For pars: chaser with 2-4 color scenes, 2-beat hold, 1-beat fade.
+
+### Strobe Accent
+Flash-mode buttons (hold to fire). Never automate sustained strobe.
+- Map to Launchpad bottom row with flashing red active LED.
+- Layer: strobe channel only, no color/position — those come from other layers.
+
+### Position Snap
+Scene with pan+tilt values, pt_speed=0 (instant). Use as chaser steps for beat-synced snaps.
+- 4-position chaser: Left→Right→Up→Down, 1-beat hold, 0 fade = staccato impact.
+
+### Wash Fade
+Crossfade between two mood scenes using chaser with long fades.
+- Hold=8 beats, fadeIn=4 beats. runOrder: pingpong for continuous breathing.
+
+### EFX Movement Patterns
+| Pattern | Algorithm | Width | Height | Speed | Feel |
+|---------|-----------|-------|--------|-------|------|
+| Gentle sway | Eight | 40 | 30 | 8000 | Background drift |
+| Rhythmic scan | Lissajous (2:3) | 80 | 60 | 4000 | Musical groove |
+| Bar sweep | Line | 120 | 20 | 2000 | Horizontal wipe |
+| Beat snap | SquareTrue | 100 | 80 | 1000 | Corner-to-corner hits |
+| Glitch jitter | Lissajous (3:2) | 60 | 60 | 250 | Nervous twitching |
+| Chaos engine | Lissajous (7:11) | 200 | 150 | 333 | Polyrhythmic mayhem |
 
 ---
 
-## Post-Build: Create Documentation
+## Audio-Reactive Sliders
 
-IMPORTANT: After building a show, ALWAYS create a documentation file called
-show-setup.md in the project directory. Include:
+Map OSC or audio-trigger input to VCSlider level mode for live response.
+The user connects these to their audio source (OS2L, audio input, or external OSC).
 
-1. Quick Start — how to open and operate the show
-2. Fixture Summary — table of all fixtures with DMX addresses
-3. Virtual Console Guide — what each button/slider/frame does
-4. Modification Guide — how to add a mood, change colors, adjust timing
+| Slider | Channel Group | Purpose |
+|--------|--------------|---------|
+| Bass Pulse | Dimmer channels (pars/wash) | Fixtures pulse with kick drum |
+| Mid Drive | Gobo rotation / movement speed | Texture responds to melody |
+| Treble Flash | Strobe/shutter channels | High-frequency accents trigger flashes |
+| Master | Submaster (all) | Overall brightness cap |
 
-Adapt documentation detail to the user's tier:
-- Tier 1: Simple "press this button for this look" guide
-- Tier 2: Layer explanation + how to customize
-- Tier 3: Full technical reference with fixture groups, channel assignments, cue structure
+**Setup:** Create level-mode sliders targeting specific fixture channels.
+Agent does NOT assign the OSC/audio source — user configures that in QLC+ I/O settings.
 
 ---
 
-## MIDI Controller Integration (Launchpad Mini MK3)
+## VC Page Layout (use build_show_page)
 
-### Setup Sequence (fully automated via MCP)
-1. query_midi_devices → find "Launchpad Mini MK3" in MIDI plugin, pick the SECOND port (higher line number)
-2. configure_universes → set input to MIDI line 2, feedbackEnabled: true
-3. set_input_profile → apply "Novation Launchpad Mini MK3"
-4. configure_plugin_params → set initmessage to "Novation Launchpad Mini MK3 Developer Mode" (enters Programmer Mode automatically)
-5. Ask user to enter Programmer Mode on Launchpad (hold Session → orange pad → release) — only needed first time
-6. patch_fixtures + create_scenes → build show content
-7. add_vc_buttons → create Virtual Console
-8. map_vc_inputs → map pads to buttons
-9. configure_vc_feedback → set LED colors + modes per pad
+```
+Page "Show Control":
+  [Phases] solo=true     → P1 Jungle | P2 Buildup | P3 Peak | P4 Release
+  [Moods] solo=true      → Deep Jungle | Amber | Midnight Blue | Blood Moon | Violet | Cyan
+  [Energy] solo=true     → Entry | Flow | Build | Bullet | Peak | Accent
+  [FX] solo=false        → Gentle Sway | Bar Sweep | Beat Snap | Glitch
+  [Quick Shots] flash    → UV Burst | Strobe Hit | Snap Left | Snap Right
+  [Controls]             → Master (submaster) | BLACKOUT | STOP ALL
+```
 
-### Why the second port?
-The Launchpad Mini MK3 has two USB MIDI ports:
-- Port 1 (MIDI): Does NOT receive pad presses in Programmer Mode
-- Port 2 (DAW): Receives all pad input + accepts LED feedback
+---
 
-### Launchpad Mini MK3 Pad Grid (Programmer Mode)
-Note numbers for each pad:
-     [91][92][93][94][95][96][97][98]   Top row (CC)
-[89] [81][82][83][84][85][86][87][88]   Row 8
-[79] [71][72][73][74][75][76][77][78]   Row 7
-[69] [61][62][63][64][65][66][67][68]   Row 6
-[59] [51][52][53][54][55][56][57][58]   Row 5
-[49] [41][42][43][44][45][46][47][48]   Row 4
-[39] [31][32][33][34][35][36][37][38]   Row 3
-[29] [21][22][23][24][25][26][27][28]   Row 2
-[19] [11][12][13][14][15][16][17][18]   Row 1
-QLC+ channel = 128 + note number (e.g., pad note 81 = channel 209)
+## Non-Negotiable Rules
 
-### LED Feedback Design Principles
+1. **Palette discipline**: 80%+ runtime inside phase palette. Max 1 accent color outside.
+2. **Contrast rhythm**: Every scene needs rest + hit state. No full-intensity >45 seconds.
+3. **Strobe restraint**: Accents only, never sustained >8 seconds.
+4. **Audio-reactivity**: Every phase should have at least one audio-reactive element active.
+5. **Layer separation**: Never put the same DMX channel in two different layer scenes.
+6. **Name clarity**: Phase-prefix names (P1-, P2-) or layer-prefix (Mood-, FX-, Energy-).
 
-#### VC Button Colors = Dim Version of Feedback Color
-The VC button background (bgColor) should be the dim/dark version of the Launchpad LED color.
-This creates visual consistency between screen and controller.
-Example: If a button's LED is green (42), its VC bgColor should be dark green (#1a3300).
+---
 
-#### Feedback Colors = Based on Content, Not Row
-Choose LED colors by what the button DOES, not which row it's on:
-- Green shades → buttons that SET green color on fixtures
-- Blue shades → buttons that SET blue color, or position/movement
-- Red shades → buttons that SET red color, or danger/system controls
-- Orange/Yellow → warm colors, gobo/pattern (texture)
-- Cyan → buttons that SET cyan, or effects/chasers
-- Purple → buttons that SET purple/violet, or show presets
-- Pink/Magenta → buttons that SET pink, or UV effects (light purple/blue for UV)
-- White → utility (haze, full white scenes, generic)
-- Light Blue (Cyan 30%) → UV effects (UV wash, UV strobe)
-- Match the LED color to the ACTUAL COLOR OUTPUT of the scene/function
+## Launchpad Mini MK3
 
-#### Active LED Modes — What They Mean
-- **Pulsing** = "I am ON and staying on" — use for toggle buttons that persist
-  (moods, positions, gobos, collections — things you activate and leave running)
-- **Flashing** = "DANGER / ATTENTION" — use for critical or intense actions:
-  - Blackout, Stop All → flashing RED
-  - UV Strobe, fast strobes → flashing RED (intense/dangerous output)
-  - Any button producing intense/harmful output
-- **Static** = "I fired once" — use for flash/momentary buttons
-  (strobe hits, one-shot effects — active only while held)
+Use `configure_launchpad` (single call) to auto-detect and set up.
 
-#### Idle LED Colors — Always Visible
-Never use 0 (off) for idle. Use dim 30% version of the content color so the
-operator always knows what each pad does, even in a dark booth.
+Row assignment:
+- Row 8: Phase presets (purple LEDs, pulsing)
+- Row 7: Energy levels (cyan LEDs, pulsing)
+- Row 6: Mood colors (LED = output color, pulsing)
+- Row 5: Texture/gobo (orange LEDs, pulsing)
+- Row 4-3: EFX/chasers (cyan/yellow, pulsing)
+- Row 2: Quick shots (white LEDs, static — flash mode)
+- Row 1: System (BLACKOUT=flashing red, STOP ALL=flashing red, Haze=green)
 
-#### Special Button Rules
-- BLACKOUT button: idle = dim red (14), active = flashing bright red (10)
-- STOP ALL button: idle = dim red (14), active = flashing bright red (10)
-- UV Strobe button: idle = dim cyan (78), active = flashing red (10) — dangerous output
-- Fast Strobe buttons: idle = dim content color, active = flashing red (10)
-- Flash/momentary buttons: idle = dim content color, active = static white (6)
-- Color scenes: LED matches the output color (green scene = green LED, blue = blue, etc.)
+**LED colors match output**: green scene = green LED, blue = blue, etc.
+**Idle LEDs always visible** at 30% brightness (never off).
+**Pulsing** = toggle/persistent, **Flashing** = danger/intense, **Static** = momentary.
 
-### Color Palette (from QLC+ built-in profile)
-Values are velocity bytes. Each color has Bright/100%/60%/30% variants:
-  0=Off
-  6=White  2=White30%
- 10=Red100%  14=Red30%   8=BrightRed
- 18=Orange100%  22=Orange30%
- 26=Yellow100%  30=Yellow30%
- 42=Green100%  46=Green30%  40=BrightGreen
- 74=Cyan100%  78=Cyan30%
- 82=Blue100%  86=Blue30%
- 90=DarkBlue100%  94=DarkBlue30%
- 98=Purple100%  102=Purple30%  96=BrightPurple
-106=Magenta100%  110=Magenta30%
-114=Pink100%  118=Pink30%
-120=FireRed
+Pad note → QLC+ channel: `128 + note` (e.g., pad 81 = channel 209).
 
-### Row Assignment Strategy
-- Row 8: High-level show phases/presets (purple LEDs, pulsing when active)
-- Row 7: Mood/wash colors (green LEDs matching content, pulsing)
-- Row 6: Gobo/texture patterns (orange LEDs, pulsing)
-- Row 5: Position/movement (blue LEDs, pulsing)
-- Row 4-2: Effects, chasers, automation (cyan/yellow, pulsing)
-- Row 1: Quick actions (red for blackout/stopall=flashing, white for flash hits=static)
-
-### Ask the user about their show before assigning colors.
-Match pad LED colors to the CONTENT of the button, not its row position.
+### Color Palette (velocity values)
+```
+0=Off  6=White  2=White30%
+10=Red  14=Red30%  18=Orange  22=Orange30%
+26=Yellow  30=Yellow30%  42=Green  46=Green30%
+74=Cyan  78=Cyan30%  82=Blue  86=Blue30%
+98=Purple  102=Purple30%  106=Magenta  110=Magenta30%
+```
 )";
             return guideText;
         },
