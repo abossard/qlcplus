@@ -10,7 +10,7 @@ jobs:
     strategy:
       #fail-fast: false
       matrix:
-        task: [build-v4, build-v5, coverage-build-v4]
+        task: [build-v4, build-v5, build-v5-mcp, coverage-build-v4]
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
@@ -74,7 +74,7 @@ jobs:
           source $GITHUB_ENV && echo "QMAKE=${QTDIR}/bin/qmake" >> $GITHUB_ENV
 
       - name: Set Qt ENV variables (v5)
-        if: ${{ endsWith( matrix.task, 'v5') }}
+        if: ${{ endsWith( matrix.task, 'v5') || matrix.task == 'build-v5-mcp' }}
         run: |
           echo "QT=${QT:-$(echo '${{matrix.task}}' | cut -d '-' -f 2)}" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=/opt" >> $GITHUB_ENV
@@ -149,6 +149,11 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake/" -Dqmlui=ON -Dappimage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
+      - name: Configure for v5 MCP build
+        if: ${{ matrix.task == 'build-v5-mcp' }}
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake/" -Dqmlui=ON -Dmcp_server=ON -Dappimage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
       - name: Configure for coverage build
         if: ${{ matrix.task == 'coverage-build-v4' }}
         run: |
@@ -194,7 +199,7 @@ jobs:
           chrpath -r "../lib" ${INSTALL_ROOT}/usr/bin/qlcplus
 
       - name: Adapt qlcplus for AppImage (v5)
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
           chrpath -r "../lib" ${INSTALL_ROOT}/usr/bin/qlcplus-qml
           sed -i -e 's/Exec=qlcplus --open %f/Exec=qlcplus-qml/g' ${INSTALL_ROOT}/qlcplus.desktop
@@ -214,7 +219,7 @@ jobs:
           find ${INSTALL_ROOT}/usr/lib/ -name libqlcplusengine.so.1.0.0 -exec strip -v {} \;
 
       - name: Strip Binaries (v5)
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
           strip -v ${INSTALL_ROOT}/usr/bin/qlcplus-qml
           find ${INSTALL_ROOT}/usr/lib/ -name libqlcplusengine.so.1.0.0 -exec strip -v {} \;
@@ -257,7 +262,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [build-v4, build-v5]
+        task: [build-v4, build-v5, build-v5-mcp]
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
@@ -297,7 +302,7 @@ jobs:
 
       - name: Set v5 ENV variables
         shell: bash
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
           echo "OUTFILE=`grep 'OutFile' platforms/windows/qlcplus5Qt6.nsi | cut -d'"' -f 2`" >> $GITHUB_ENV
           echo "NSIS_SCRIPT=qlcplus5Qt6.nsi" >> $GITHUB_ENV
@@ -395,6 +400,12 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ env.QTDIR }}/lib/cmake" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -Dqmlui=ON
 
+      - name: Configure v5 MCP build for Windows
+        shell: msys2 {0}
+        if: ${{ matrix.task == 'build-v5-mcp' }}
+        run: |
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ env.QTDIR }}/lib/cmake" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -Dqmlui=ON -Dmcp_server=ON
+
       - name: Build for Windows
         shell: msys2 {0}
         run: |
@@ -425,7 +436,7 @@ jobs:
 
       - name: Run windeployqt for v5
         shell: msys2 {0}
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |-
           SRC_DIR=$PWD
           ./translate.sh release qmlui
@@ -453,7 +464,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [build-v4, build-v5]
+        task: [build-v4, build-v5, build-v5-mcp]
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
@@ -489,7 +500,7 @@ jobs:
 
       - name: Set v5 ENV variables
         shell: bash
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
 
       - name: Print ENV vars
@@ -548,6 +559,12 @@ jobs:
         run: |-
           cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ env.QTDIR }}/lib/cmake" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -Dqmlui=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
+      - name: Configure v5 MCP build
+        shell: bash
+        if: ${{ matrix.task == 'build-v5-mcp' }}
+        run: |-
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="${{ env.QTDIR }}/lib/cmake" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -Dqmlui=ON -Dmcp_server=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
       - name: Build
         shell: bash
         run: |-
@@ -578,7 +595,7 @@ jobs:
 
       - name: Fix v5 dylib dependencies
         shell: bash
-        if: ${{ matrix.task == 'build-v5' }}
+        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |-
           platforms/macos/fix_dylib_deps.sh ~/QLC+.app/Contents/Frameworks/libsndfile.1.dylib
           platforms/macos/fix_dylib_deps.sh ~/QLC+.app/Contents/MacOS/qlcplus-qml
@@ -624,5 +641,40 @@ jobs:
       - name: Store DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QLC+-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.dmg
+          name: QLC+-${{matrix.task}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.dmg
           path: QLC+_${{ matrix.task }}.dmg
+
+  release-mcp:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/mcp-server'
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    name: Release MCP builds
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: '*mcp*'
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mcp-latest
+          name: "QLC+ MCP Server (latest)"
+          body: |
+            Automated build of QLC+ with MCP server support from the `mcp-server` branch.
+            Built from commit ${{ github.sha }}.
+          prerelease: true
+          make_latest: false
+          files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
