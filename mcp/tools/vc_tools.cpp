@@ -718,22 +718,41 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
     ));
 
     // build_show_page — composite: creates a full VC page with sections in one call
+    // Supports per-widget colors, LED feedback, and Launchpad input mapping.
+    // Upsert: existing widgets are updated (not skipped).
     {
     Json buttonSchema = Json{{"type", "object"}, {"properties", {
         {"caption", {{"type", "string"}}},
         {"functionName", {{"type", "string"}, {"description", "Function name to resolve"}}},
         {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}},
-        {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button action (default toggle)"}}}
+        {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button action (default toggle)"}}},
+        {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
+        {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}},
+        {"inputUniverse", {{"type", "integer"}, {"description", "Controller input universe for this button"}}},
+        {"inputChannel", {{"type", "integer"}, {"description", "Controller input channel (e.g. Launchpad pad 81 = channel 209)"}}},
+        {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
+        {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
+        {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state"}}},
+        {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for idle state (default static)"}}},
+        {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for active state (default static)"}}},
+        {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for monitor state"}}},
+        {"stopAllFadeTime", {{"type", "integer"}, {"description", "Fade out time in ms before stopping all functions (only for stopall action, default 0)"}}}
     }}, {"required", {"caption"}}};
     Json sliderSchema = Json{{"type", "object"}, {"properties", {
         {"caption", {{"type", "string"}}},
         {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
         {"functionName", {{"type", "string"}, {"description", "Function name (for playback mode)"}}},
-        {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}}
+        {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}},
+        {"bgColor", {{"type", "string"}, {"description", "Background color hex"}}},
+        {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex"}}},
+        {"inputUniverse", {{"type", "integer"}, {"description", "Controller input universe"}}},
+        {"inputChannel", {{"type", "integer"}, {"description", "Controller input channel"}}}
     }}, {"required", {"caption", "mode"}}};
     Json sectionSchema = Json{{"type", "object"}, {"properties", {
         {"caption", {{"type", "string"}}},
         {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame). Default false."}}},
+        {"bgColor", {{"type", "string"}, {"description", "Frame background color hex"}}},
+        {"fgColor", {{"type", "string"}, {"description", "Frame foreground/text color hex"}}},
         {"buttons", {{"type", "array"}, {"items", buttonSchema}}},
         {"sliders", {{"type", "array"}, {"items", sliderSchema}}}
     }}, {"required", {"caption"}}};
@@ -754,6 +773,49 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             if (pageIndex < 0)
                 pageIndex = vcBridge->addPage(pageName);
 
+            // Helper: parse MIDI channel from mode string
+            auto midiChFromMode = [](const std::string &mode) -> int {
+                if (mode == "flashing") return 1;
+                if (mode == "pulsing") return 2;
+                return 0;
+            };
+
+            // Helper: apply optional colors, input mapping, and LED feedback to a widget
+            auto applyWidgetProps = [&](int widgetID, const Json &props) {
+                // Colors
+                if (props.contains("bgColor") || props.contains("fgColor"))
+                {
+                    QColor bg = props.contains("bgColor")
+                        ? QColor(QString::fromStdString(props.at("bgColor").get<std::string>()))
+                        : QColor();
+                    QColor fg = props.contains("fgColor")
+                        ? QColor(QString::fromStdString(props.at("fgColor").get<std::string>()))
+                        : QColor();
+                    vcBridge->setWidgetColors(widgetID, bg, fg);
+                }
+
+                // Input mapping
+                if (props.contains("inputUniverse") && props.contains("inputChannel"))
+                {
+                    vcBridge->mapWidgetInput(widgetID,
+                        props.at("inputUniverse").get<int>(),
+                        props.at("inputChannel").get<int>());
+                }
+
+                // LED feedback
+                if (props.contains("activeValue"))
+                {
+                    int activeVal = props.at("activeValue").get<int>();
+                    int idleVal = props.value("idleValue", 0);
+                    int monitorVal = props.value("monitorValue", 0);
+                    int idleMidiCh = midiChFromMode(props.value("idleMode", "static"));
+                    int activeMidiCh = midiChFromMode(props.value("activeMode", "static"));
+                    int monitorMidiCh = midiChFromMode(props.value("monitorMode", ""));
+                    vcBridge->setWidgetFeedback(widgetID, idleVal, activeVal, monitorVal,
+                                                idleMidiCh, activeMidiCh, monitorMidiCh);
+                }
+            };
+
             Json sectionsResult = Json::array();
             int frameY = 5;
             const int frameWidth = 400;
@@ -767,7 +829,6 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 // Count children to estimate frame height
                 int btnCount = section.contains("buttons") ? (int)section.at("buttons").size() : 0;
                 int sliderCount = section.contains("sliders") ? (int)section.at("sliders").size() : 0;
-                // 40px header + 65px per button row + 205px per slider row + padding
                 int frameHeight = 40 + btnCount * 65 + sliderCount * 205 + 10;
                 if (frameHeight < 80) frameHeight = 80;
 
@@ -795,79 +856,116 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 }
                 frameY += frameHeight + framePad;
 
+                // Apply colors to frame
+                if (section.contains("bgColor") || section.contains("fgColor"))
+                {
+                    QColor bg = section.contains("bgColor")
+                        ? QColor(QString::fromStdString(section.at("bgColor").get<std::string>()))
+                        : QColor();
+                    QColor fg = section.contains("fgColor")
+                        ? QColor(QString::fromStdString(section.at("fgColor").get<std::string>()))
+                        : QColor();
+                    vcBridge->setWidgetColors(frameID, bg, fg);
+                }
+
                 Json sectionResult;
                 sectionResult["widgetID"] = frameID;
                 sectionResult["caption"] = caption.toStdString();
 
-                // Create buttons inside frame
+                // Create or update buttons inside frame
                 Json buttonsResult = Json::array();
                 if (section.contains("buttons"))
                 {
                     for (auto &btn : section.at("buttons"))
                     {
                         QString btnCaption = QString::fromStdString(btn.at("caption").get<std::string>());
-                        int existingBtn = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
-                        if (existingBtn >= 0)
-                        {
-                            buttonsResult.push_back({{"widgetID", existingBtn}, {"status", "existing"}});
-                            continue;
-                        }
+                        int btnID = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
+                        std::string status;
 
-                        int funcID = -1;
-                        if (btn.contains("functionName"))
+                        if (btnID >= 0)
                         {
-                            quint32 fid = mcp::resolveFunctionByName(doc,
-                                QString::fromStdString(btn.at("functionName").get<std::string>()));
-                            if (fid != Function::invalidId()) funcID = (int)fid;
+                            // Upsert: update existing widget properties
+                            applyWidgetProps(btnID, btn);
+                            status = "updated";
                         }
-                        if (btn.contains("functionID"))
-                            funcID = btn.at("functionID").get<int>();
+                        else
+                        {
+                            // Create new button
+                            int funcID = -1;
+                            if (btn.contains("functionName"))
+                            {
+                                quint32 fid = mcp::resolveFunctionByName(doc,
+                                    QString::fromStdString(btn.at("functionName").get<std::string>()));
+                                if (fid != Function::invalidId()) funcID = (int)fid;
+                            }
+                            if (btn.contains("functionID"))
+                                funcID = btn.at("functionID").get<int>();
 
-                        QRect geo = vcBridge->nextWidgetPosition(frameID, 100, 60);
-                        int btnID = vcBridge->addButton(
-                            frameID, geo,
-                            funcID >= 0 ? (quint32)funcID : Function::invalidId(),
-                            btnCaption,
-                            QString::fromStdString(btn.value("action", "toggle")),
-                            0);
-                        buttonsResult.push_back({{"widgetID", btnID}, {"status", "created"}});
+                            int fadeTime = btn.value("stopAllFadeTime", 0);
+                            QRect geo = vcBridge->nextWidgetPosition(frameID, 100, 60);
+                            btnID = vcBridge->addButton(
+                                frameID, geo,
+                                funcID >= 0 ? (quint32)funcID : Function::invalidId(),
+                                btnCaption,
+                                QString::fromStdString(btn.value("action", "toggle")),
+                                fadeTime);
+
+                            // Apply colors, input mapping, and LED feedback
+                            if (btnID >= 0)
+                                applyWidgetProps(btnID, btn);
+
+                            status = "created";
+                        }
+                        buttonsResult.push_back({{"widgetID", btnID}, {"status", status}});
                     }
                 }
                 sectionResult["buttons"] = buttonsResult;
 
-                // Create sliders inside frame
+                // Create or update sliders inside frame
                 Json slidersResult = Json::array();
                 if (section.contains("sliders"))
                 {
                     for (auto &sl : section.at("sliders"))
                     {
                         QString slCaption = QString::fromStdString(sl.at("caption").get<std::string>());
-                        int existingSl = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
-                        if (existingSl >= 0)
-                        {
-                            slidersResult.push_back({{"widgetID", existingSl}, {"status", "existing"}});
-                            continue;
-                        }
+                        int slID = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
+                        std::string status;
 
-                        int funcID = -1;
-                        if (sl.contains("functionName"))
+                        if (slID >= 0)
                         {
-                            quint32 fid = mcp::resolveFunctionByName(doc,
-                                QString::fromStdString(sl.at("functionName").get<std::string>()));
-                            if (fid != Function::invalidId()) funcID = (int)fid;
+                            // Upsert: update existing widget properties
+                            applyWidgetProps(slID, sl);
+                            status = "updated";
                         }
-                        if (sl.contains("functionID"))
-                            funcID = sl.at("functionID").get<int>();
+                        else
+                        {
+                            // Create new slider
+                            int funcID = -1;
+                            if (sl.contains("functionName"))
+                            {
+                                quint32 fid = mcp::resolveFunctionByName(doc,
+                                    QString::fromStdString(sl.at("functionName").get<std::string>()));
+                                if (fid != Function::invalidId()) funcID = (int)fid;
+                            }
+                            if (sl.contains("functionID"))
+                                funcID = sl.at("functionID").get<int>();
 
-                        QRect geo = vcBridge->nextWidgetPosition(frameID, 60, 200);
-                        QList<QPair<quint32, quint32>> channels;
-                        int slID = vcBridge->addSlider(
-                            frameID, geo,
-                            QString::fromStdString(sl.at("mode").get<std::string>()),
-                            slCaption,
-                            funcID,
-                            channels);
-                        slidersResult.push_back({{"widgetID", slID}, {"status", "created"}});
+                            QRect geo = vcBridge->nextWidgetPosition(frameID, 60, 200);
+                            QList<QPair<quint32, quint32>> channels;
+                            slID = vcBridge->addSlider(
+                                frameID, geo,
+                                QString::fromStdString(sl.at("mode").get<std::string>()),
+                                slCaption,
+                                funcID,
+                                channels);
+
+                            // Apply colors and input mapping
+                            if (slID >= 0)
+                                applyWidgetProps(slID, sl);
+
+                            status = "created";
+                        }
+                        slidersResult.push_back({{"widgetID", slID}, {"status", status}});
                     }
                 }
                 sectionResult["sliders"] = slidersResult;
@@ -882,7 +980,10 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Build a complete Virtual Console page in one call. Sections become frames (solo=true for mutually exclusive moods). Buttons and sliders auto-layout. Use functionName to reference functions by name."),
+        std::string("Build a complete Virtual Console page in one call with upsert semantics. Sections become frames (solo=true for mutually exclusive moods). "
+                     "Buttons and sliders auto-layout. Supports per-widget colors (bgColor/fgColor), Launchpad input mapping (inputUniverse/inputChannel), "
+                     "and LED feedback (idleValue/activeValue/monitorValue with static/flashing/pulsing modes). "
+                     "Existing widgets are updated (not skipped). Use functionName to reference functions by name."),
         std::nullopt
     ));
     } // end build_show_page schema scope
