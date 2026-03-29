@@ -372,6 +372,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            try {
             Json results = Json::array();
             for (auto &item : args["items"])
             {
@@ -400,6 +401,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 });
             }
             return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
             });
         },
         std::nullopt,

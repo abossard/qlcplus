@@ -76,7 +76,7 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
     VCPage *page = m_vc->page(pageIndex);
     if (!page) return -1;
 
-    VCWidget *widget = page->addWidget(m_vc->currentPageItem(), solo ? "SoloFrame" : "Frame",
+    VCWidget *widget = page->addWidget(m_vc->currentPageItem(), solo ? "Solo frame" : "Frame",
                                        QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
     widget->setGeometry(geometry);

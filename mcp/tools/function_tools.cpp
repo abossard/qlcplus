@@ -62,9 +62,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            try {
             Json results = Json::array();
+            if (!args.contains("items") || !args["items"].is_array())
+                return Json({{"error","items array required"}}).dump();
             for (auto &item : args["items"])
             {
+                if (!item.contains("name") || !item.contains("fixtureIDs"))
+                {
+                    results.push_back({{"error","name and fixtureIDs required"}});
+                    continue;
+                }
                 Scene *scene = new Scene(doc);
                 scene->setName(QString::fromStdString(item["name"].get<std::string>()));
 
@@ -116,10 +124,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
 
                 // Set arbitrary channel values (for gobos, prism, color wheel, etc.)
-                if (item.contains("channelValues"))
+                if (item.contains("channelValues") && item["channelValues"].is_array())
                 {
                     for (auto &cv : item["channelValues"])
                     {
+                        if (!cv.contains("fixtureID") || !cv.contains("channel") || !cv.contains("value"))
+                            continue;
                         quint32 fxID = cv["fixtureID"].get<int>();
                         quint32 chIdx = cv["channel"].get<int>();
                         uchar value = cv["value"].get<int>();
@@ -131,6 +141,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}});
             }
             return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
             });
         },
         std::nullopt,
@@ -159,9 +172,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            try {
             Json results = Json::array();
+            if (!args.contains("items") || !args["items"].is_array())
+                return Json({{"error","items array required"}}).dump();
             for (auto &item : args["items"])
             {
+                if (!item.contains("name") || !item.contains("functionIDs") || !item["functionIDs"].is_array())
+                {
+                    results.push_back({{"error","name and functionIDs required"}});
+                    continue;
+                }
                 Chaser *chaser = new Chaser(doc);
                 chaser->setName(QString::fromStdString(item["name"].get<std::string>()));
 
@@ -204,6 +225,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 results.push_back({{"id", (int)chaser->id()}, {"name", chaser->name().toStdString()}});
             }
             return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
             });
         },
         std::nullopt,
