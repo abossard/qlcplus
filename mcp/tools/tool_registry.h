@@ -23,6 +23,7 @@
 #include <QObject>
 #include <QThread>
 #include <QMetaObject>
+#include <nlohmann/json.hpp>
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
@@ -37,15 +38,24 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerPrompts(fastmcpp::tools::ToolManager &tm);
 
 // Thread-safe execution helper — runs lambda on Doc's thread
+// Wraps in try/catch to prevent crashes from malformed JSON
 template<typename Func>
 auto execOnMainThread(QObject *context, Func &&func) -> decltype(func())
 {
     using ReturnType = decltype(func());
+    auto safeFunc = [&func]() -> ReturnType {
+        try {
+            return func();
+        } catch (const std::exception &e) {
+            using Json = nlohmann::json;
+            return Json({{"error", e.what()}}).dump();
+        }
+    };
     if (QThread::currentThread() == context->thread())
-        return func();
+        return safeFunc();
     ReturnType result;
-    QMetaObject::invokeMethod(context, [&result, &func]() {
-        result = func();
+    QMetaObject::invokeMethod(context, [&result, &safeFunc]() {
+        result = safeFunc();
     }, Qt::BlockingQueuedConnection);
     return result;
 }

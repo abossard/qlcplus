@@ -270,4 +270,186 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::string("Set input profile for a universe. Batch: pass multiple in 'items'."),
         std::nullopt
     ));
+
+    // configure_osc — one-call OSC plugin setup per universe
+    tm.register_tool(Tool(
+        "configure_osc",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"universeID", {{"type", "integer"}}},
+                {"inputPort", {{"type", "integer"}, {"description", "OSC listening port (default 7700+universe)"}}},
+                {"outputIP", {{"type", "string"}, {"description", "IP to send OSC output to"}}},
+                {"outputPort", {{"type", "integer"}, {"description", "Port to send OSC output to (default 9000+universe)"}}},
+                {"feedbackIP", {{"type", "string"}, {"description", "IP to send OSC feedback to"}}},
+                {"feedbackPort", {{"type", "integer"}, {"description", "Port to send OSC feedback to"}}},
+                {"inputEnabled", {{"type", "boolean"}, {"description", "Patch OSC as input (default true)"}}},
+                {"outputEnabled", {{"type", "boolean"}, {"description", "Patch OSC as output (default false)"}}},
+                {"feedbackEnabled", {{"type", "boolean"}, {"description", "Enable feedback (default false)"}}}
+            }}, {"required", {"universeID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            try {
+            Json results = Json::array();
+            InputOutputMap *ioMap = doc->inputOutputMap();
+
+            // Find the OSC plugin
+            QLCIOPlugin *oscPlugin = nullptr;
+            for (QLCIOPlugin *plugin : doc->ioPluginCache()->plugins())
+            {
+                if (plugin->name() == "OSC")
+                {
+                    oscPlugin = plugin;
+                    break;
+                }
+            }
+            if (!oscPlugin)
+                return Json({{"error", "OSC plugin not found"}}).dump();
+
+            for (auto &item : args["items"])
+            {
+                int uid = item["universeID"].get<int>();
+                Json result;
+                result["universeID"] = uid;
+                bool ok = true;
+
+                // Patch OSC as input
+                bool inputEnabled = item.value("inputEnabled", true);
+                if (inputEnabled)
+                {
+                    quint32 line = 0;
+                    QStringList inputs = oscPlugin->inputs();
+                    if (!inputs.isEmpty())
+                        ok &= ioMap->setInputPatch(uid, "OSC", "", line);
+                }
+
+                // Patch OSC as output
+                bool outputEnabled = item.value("outputEnabled", false);
+                if (outputEnabled)
+                {
+                    quint32 line = 0;
+                    QStringList outputs = oscPlugin->outputs();
+                    if (!outputs.isEmpty())
+                        ok &= ioMap->setOutputPatch(uid, "OSC", "", line, false);
+                }
+
+                // Enable feedback
+                if (item.value("feedbackEnabled", false))
+                {
+                    InputPatch *inPatch = ioMap->inputPatch(uid);
+                    if (inPatch && inPatch->isPatched())
+                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", inPatch->input(), true);
+                }
+
+                // Set plugin parameters
+                InputPatch *inPatch = ioMap->inputPatch(uid);
+                OutputPatch *outPatch = ioMap->outputPatch(uid);
+                quint32 line = inPatch ? inPatch->input() : (outPatch ? outPatch->output() : 0);
+
+                if (item.contains("inputPort"))
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Input,
+                        "inputPort", QVariant(item["inputPort"].get<int>()));
+                if (item.contains("outputIP"))
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
+                        "outputIP", QVariant(QString::fromStdString(item["outputIP"].get<std::string>())));
+                if (item.contains("outputPort"))
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
+                        "outputPort", QVariant(item["outputPort"].get<int>()));
+                if (item.contains("feedbackIP"))
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
+                        "feedbackIP", QVariant(QString::fromStdString(item["feedbackIP"].get<std::string>())));
+                if (item.contains("feedbackPort"))
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
+                        "feedbackPort", QVariant(item["feedbackPort"].get<int>()));
+
+                result["status"] = ok ? "ok" : "failed";
+                results.push_back(result);
+            }
+            return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
+            });
+        },
+        std::nullopt,
+        std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch."),
+        std::nullopt
+    ));
+
+    // query_osc_status — show current OSC configuration
+    tm.register_tool(Tool(
+        "query_osc_status",
+        Json{{"type", "object"}, {"properties", Json::object()}},
+        Json{},
+        [doc](const Json &) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            try {
+            Json results = Json::array();
+            InputOutputMap *ioMap = doc->inputOutputMap();
+
+            // Find the OSC plugin
+            QLCIOPlugin *oscPlugin = nullptr;
+            for (QLCIOPlugin *plugin : doc->ioPluginCache()->plugins())
+            {
+                if (plugin->name() == "OSC")
+                {
+                    oscPlugin = plugin;
+                    break;
+                }
+            }
+            if (!oscPlugin)
+                return Json({{"error", "OSC plugin not found"}}).dump();
+
+            for (Universe *uni : ioMap->universes())
+            {
+                InputPatch *inPatch = ioMap->inputPatch(uni->id());
+                OutputPatch *outPatch = ioMap->outputPatch(uni->id());
+
+                bool hasOscInput = inPatch && inPatch->isPatched() && inPatch->pluginName() == "OSC";
+                bool hasOscOutput = outPatch && outPatch->isPatched() && outPatch->pluginName() == "OSC";
+
+                if (!hasOscInput && !hasOscOutput)
+                    continue;
+
+                Json entry;
+                entry["universeID"] = (int)uni->id();
+                entry["universeName"] = uni->name().toStdString();
+
+                if (hasOscInput)
+                {
+                    quint32 line = inPatch->input();
+                    entry["inputLine"] = (int)line;
+                    QMap<QString, QVariant> params = oscPlugin->getParameters(uni->id(), line, QLCIOPlugin::Input);
+                    if (params.contains("inputPort"))
+                        entry["inputPort"] = params["inputPort"].toInt();
+                }
+                if (hasOscOutput)
+                {
+                    quint32 line = outPatch->output();
+                    entry["outputLine"] = (int)line;
+                    entry["hasFeedback"] = uni->hasFeedback();
+                    QMap<QString, QVariant> params = oscPlugin->getParameters(uni->id(), line, QLCIOPlugin::Output);
+                    if (params.contains("outputIP"))
+                        entry["outputIP"] = params["outputIP"].toString().toStdString();
+                    if (params.contains("outputPort"))
+                        entry["outputPort"] = params["outputPort"].toInt();
+                    if (params.contains("feedbackIP"))
+                        entry["feedbackIP"] = params["feedbackIP"].toString().toStdString();
+                    if (params.contains("feedbackPort"))
+                        entry["feedbackPort"] = params["feedbackPort"].toInt();
+                }
+
+                results.push_back(entry);
+            }
+            return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
+            });
+        },
+        std::nullopt,
+        std::string("Show current OSC configuration for all universes that have OSC patched. Returns ports, IPs, and line numbers."),
+        std::nullopt
+    ));
 }

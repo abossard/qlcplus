@@ -24,6 +24,10 @@
 #include "qlcfixturedefcache.h"
 #include "qlcfixturemode.h"
 #include "inputoutputmap.h"
+#include "inputpatch.h"
+#include "outputpatch.h"
+#include "universe.h"
+#include "inputoutputmap.h"
 #include "universe.h"
 
 #include <fastmcpp/tools/manager.hpp>
@@ -253,6 +257,27 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 entry["id"] = (int)uni->id();
                 entry["name"] = uni->name().toStdString();
                 entry["passthrough"] = uni->passthrough();
+
+                InputPatch *inPatch = ioMap->inputPatch(uni->id());
+                if (inPatch && inPatch->isPatched())
+                {
+                    entry["inputPlugin"] = inPatch->pluginName().toStdString();
+                    entry["inputLine"] = (int)inPatch->input();
+                    entry["inputName"] = inPatch->inputName().toStdString();
+                    if (inPatch->profile())
+                        entry["inputProfile"] = inPatch->profile()->name().toStdString();
+                }
+
+                OutputPatch *outPatch = ioMap->outputPatch(uni->id());
+                if (outPatch && outPatch->isPatched())
+                {
+                    entry["outputPlugin"] = outPatch->pluginName().toStdString();
+                    entry["outputLine"] = (int)outPatch->output();
+                    entry["outputName"] = outPatch->outputName().toStdString();
+                }
+
+                entry["hasFeedback"] = uni->hasFeedback();
+
                 results.push_back(entry);
             }
             return results.dump();
