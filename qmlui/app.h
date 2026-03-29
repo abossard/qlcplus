@@ -249,6 +249,9 @@ public:
     /** Return the QML Virtual Console instance */
     VirtualConsole *virtualConsole() const;
 
+    /** Return the QML Function Manager instance */
+    FunctionManager *functionManager() const;
+
     /** Return the QML Simple Desk instance */
     SimpleDesk *simpleDesk() const;
 

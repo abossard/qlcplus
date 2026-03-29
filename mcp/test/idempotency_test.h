@@ -76,6 +76,16 @@ private slots:
     void scriptDedup_removesDuplicateStops();
     void scriptDedup_preservesAcrossWait();
 
+    // Flow layout positioning
+    void flowLayout_singleWidget();
+    void flowLayout_autoColumnsWrap();
+    void flowLayout_explicitColumns();
+    void flowLayout_evenWidthDistribution();
+
+    // Beat encoding
+    void beatEncoding_wholeBeatsMultipliedBy1000();
+    void beatEncoding_zeroRemainsZero();
+
 private:
     Doc *m_doc;
 

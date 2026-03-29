@@ -36,6 +36,8 @@ public:
 
     int addFrame(int pageIndex, const QRect &geometry,
                  const QString &caption, bool solo) override;
+    int addFrameInFrame(int parentID, const QRect &geometry,
+                        const QString &caption, bool solo) override;
 
     int addButton(int parentID, const QRect &geometry,
                   quint32 functionID, const QString &caption,
@@ -79,7 +81,28 @@ public:
     int findWidgetByCaption(int parentID, const QString &widgetType,
                             const QString &caption) const override;
     QRect nextWidgetPosition(int parentID, int width, int height) const override;
+    QRect nextWidgetPositionFlow(int parentID, int widgetWidth, int widgetHeight,
+                                  int columns = 0) const override;
+    void setWidgetGeometry(int widgetID, const QRect &geo) override;
     bool removeWidget(int widgetID) override;
+
+    // Widget details query
+    WidgetDetails getWidgetDetails(int widgetID) const override;
+
+    // Widget property mutations
+    bool setWidgetCaption(int widgetID, const QString &caption) override;
+    bool setButtonFunction(int widgetID, quint32 functionID) override;
+    bool setButtonAction(int widgetID, const QString &action) override;
+    bool setSliderMode(int widgetID, const QString &mode) override;
+    bool setSliderFunction(int widgetID, quint32 functionID) override;
+    bool setSliderChannels(int widgetID, const QList<QPair<quint32, quint32>> &channels) override;
+
+    // Input mapping
+    bool addWidgetInput(int widgetID, quint32 universe, quint32 channel) override;
+    bool removeWidgetInput(int widgetID, quint32 universe, quint32 channel) override;
+
+    // Widget reparenting
+    bool reparentWidget(int widgetID, int newParentID, const QRect &geo) override;
 
 private:
     Doc *m_doc;

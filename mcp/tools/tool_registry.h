@@ -25,13 +25,18 @@
 #include <QMetaObject>
 #include <nlohmann/json.hpp>
 
+#include <initializer_list>
+#include <string>
+#include <vector>
+
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
 class VCBridge;
+class FunctionManager;
 
 // Each tool file exports one registration function.
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
-void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionManager *funcMgr = nullptr);
 void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
@@ -61,6 +66,43 @@ auto execOnMainThread(QObject *context, Func &&func) -> decltype(func())
         result = safeFunc();
     }, Qt::BlockingQueuedConnection);
     return result;
+}
+
+/**
+ * Validate a JSON object against a whitelist of allowed field names.
+ * Returns an error JSON string if unknown fields are found, or empty string if valid.
+ * Usage: auto err = validateFields(item, {"name", "fixtureIDs", "channelValues"});
+ *        if (!err.empty()) return err;
+ */
+inline std::string validateFields(const nlohmann::json &obj,
+                                   std::initializer_list<std::string> allowed)
+{
+    if (!obj.is_object()) return "";
+    std::vector<std::string> unknown;
+    for (auto it = obj.begin(); it != obj.end(); ++it)
+    {
+        bool found = false;
+        for (const auto &a : allowed)
+            if (it.key() == a) { found = true; break; }
+        if (!found)
+            unknown.push_back(it.key());
+    }
+    if (unknown.empty()) return "";
+    std::string msg = "unknown fields: ";
+    for (size_t i = 0; i < unknown.size(); i++)
+    {
+        if (i > 0) msg += ", ";
+        msg += unknown[i];
+    }
+    msg += ". Allowed: ";
+    bool first = true;
+    for (const auto &a : allowed)
+    {
+        if (!first) msg += ", ";
+        msg += a;
+        first = false;
+    }
+    return nlohmann::json({{"error", msg}}).dump();
 }
 
 #endif // TOOL_REGISTRY_H

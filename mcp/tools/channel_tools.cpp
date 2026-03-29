@@ -40,6 +40,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"fixtureIDs"});
+            if (!err.empty()) return err;
             Json results = Json::array();
             QList<quint32> ids;
             if (args.contains("fixtureIDs"))
@@ -91,6 +93,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"fixtureID", "channel", "precedence", "canFade"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 quint32 fxID = item.at("fixtureID").get<int>();
                 int ch = item.at("channel").get<int>();
                 Fixture *fxi = doc->fixture(fxID);
@@ -163,6 +167,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"fixtureID", "channel", "modifierName"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 quint32 fxID = item.at("fixtureID").get<int>();
                 int ch = item.at("channel").get<int>();
                 QString modName = QString::fromStdString(item.at("modifierName").get<std::string>());

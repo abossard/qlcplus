@@ -59,6 +59,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             InputOutputMap *ioMap = doc->inputOutputMap();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"universeID", "name", "inputPlugin", "inputLine", "outputPlugin", "outputLine", "passthrough", "feedbackEnabled"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 int uid = item.at("universeID").get<int>();
                 bool ok = true;
 
@@ -119,6 +122,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"universeID", "plugin", "params"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 int uid = item.at("universeID").get<int>();
                 QString pluginName = QString::fromStdString(item.at("plugin").get<std::string>());
 
@@ -260,6 +266,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"universeID", "profileName"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 int uid = item.at("universeID").get<int>();
                 QString profName = QString::fromStdString(item.at("profileName").get<std::string>());
                 bool ok = doc->inputOutputMap()->setInputProfile(uid, profName);
@@ -311,6 +320,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"universeID", "inputEnabled", "inputPort", "outputEnabled", "outputIP", "outputPort", "feedbackEnabled", "feedbackIP", "feedbackPort"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 int uid = item.at("universeID").get<int>();
                 Json result;
                 result["universeID"] = uid;
@@ -465,6 +477,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"type", "bpm"});
+            if (!err.empty()) return err;
+
             InputOutputMap *ioMap = doc->inputOutputMap();
             std::string typeStr = args.at("type").get<std::string>();
 
@@ -512,6 +527,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"value", "valueMode", "channelMode"});
+            if (!err.empty()) return err;
+
             InputOutputMap *ioMap = doc->inputOutputMap();
 
             if (args.contains("value"))
@@ -561,6 +579,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"model"});
+            if (!err.empty()) return err;
+
             QString model = QString::fromStdString(args.at("model").get<std::string>());
             InputOutputMap *ioMap = doc->inputOutputMap();
 

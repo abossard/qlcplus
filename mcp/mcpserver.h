@@ -27,6 +27,7 @@
 class Doc;
 class VCBridge;
 class InputOutputMap;
+class FunctionManager;
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 namespace fastmcpp { namespace server { class StreamableHttpServerWrapper; } }
@@ -41,7 +42,8 @@ class McpServer : public QObject
     Q_OBJECT
 
 public:
-    McpServer(Doc *doc, VCBridge *vcBridge, QObject *parent = nullptr);
+    McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr = nullptr,
+              QObject *parent = nullptr);
     ~McpServer();
 
     /** Start MCP server in HTTP mode (non-blocking, runs in background) */
@@ -51,6 +53,7 @@ public:
 private:
     Doc *m_doc;
     VCBridge *m_vcBridge;
+    FunctionManager *m_funcMgr;
     std::unique_ptr<fastmcpp::tools::ToolManager> m_toolManager;
     std::unique_ptr<fastmcpp::server::StreamableHttpServerWrapper> m_httpServer;
 };

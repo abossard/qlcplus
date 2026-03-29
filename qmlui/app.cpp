@@ -449,6 +449,11 @@ VirtualConsole *App::virtualConsole() const
     return m_virtualConsole;
 }
 
+FunctionManager *App::functionManager() const
+{
+    return m_functionManager;
+}
+
 SimpleDesk *App::simpleDesk() const
 {
     return m_simpleDesk;

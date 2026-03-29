@@ -41,10 +41,11 @@ void registerPrompts(fastmcpp::tools::ToolManager &tm)
 ## Step-by-Step Build Order
 
 1. `query_fixtures` → discover what you have (RGB pars, moving heads, strobes, hazer)
-2. Ask user: event type, energy level, fixture placement
-3. Design **orthogonal layers** (see Layer Architecture below)
-4. Build layers bottom-up: scenes → chasers → collections → VC page
-5. Use `build_show_page` for the VC — one call per page
+2. `query_fixture_channels` → discover exact channel indices per fixture (dimmer, R, G, B, pan, tilt, gobo, etc.)
+3. Ask user: event type, energy level, fixture placement
+4. Design **orthogonal layers** (see Layer Architecture below)
+5. Build layers bottom-up: scenes → chasers → collections → VC page
+6. Use `build_show_page` for the VC — one call per page
 
 ---
 
@@ -66,6 +67,42 @@ Each layer owns specific DMX channels. Layers combine freely via LTP.
 
 ---
 
+## Scene Creation (Explicit Channels Only)
+
+`create_scenes` uses explicit `channelValues` — each entry is `{fixtureID, channel, value}`.
+**Always call `query_fixture_channels` first** to discover channel indices for your fixtures.
+
+### Workflow
+1. `query_fixture_channels` → get channel layout (index, name, group, colour)
+2. Pick only the channels your scene needs (e.g., only R/G/B/Dimmer for a wash scene)
+3. Pass them as `channelValues` to `create_scenes`
+
+### Example: Wash scene (color + dimmer)
+```json
+{ "name": "WS: Red", "channelValues": [
+    { "fixtureID": 5, "channel": 5, "value": 255 },
+    { "fixtureID": 5, "channel": 6, "value": 0 },
+    { "fixtureID": 5, "channel": 7, "value": 0 },
+    { "fixtureID": 5, "channel": 13, "value": 200 }
+]}
+```
+
+### Example: Position scene (pan/tilt only — NO dimmer, NO color)
+```json
+{ "name": "POS: Center", "channelValues": [
+    { "fixtureID": 5, "channel": 0, "value": 128 },
+    { "fixtureID": 5, "channel": 2, "value": 100 }
+]}
+```
+
+### Critical: Layer Separation
+- **Wash scenes**: set only color + dimmer channels
+- **Position scenes**: set only pan/tilt channels
+- **Look scenes**: set only gobo/prism/color wheel channels
+- **Never mix** — a position scene must NOT touch dimmer or color channels
+
+---
+
 ## Phase System (4-Phase DJ Set)
 
 | Phase | Energy | Palette | Motion |
@@ -81,21 +118,19 @@ Phase = Collection bundling: texture scene + default mood + energy preset + haze
 
 ## Beat-Synced Chasers (tempoType: "beats")
 
-Timing in ms where 1000 = 1 beat (scales with BPM via OS2L/MIDI/internal clock):
+When tempoType is "beats", pass timing values as whole beat counts (the tool handles encoding internally):
 
 | Feel | Hold | FadeIn | FadeOut | Total |
 |------|------|--------|---------|-------|
-| Ambient drift | 8000 | 4000 | 4000 | 16 beats |
-| Musical flow | 4000 | 2000 | 2000 | 8 beats |
-| Driving pulse | 2000 | 1000 | 1000 | 4 beats |
-| Aggressive snap | 1000 | 250 | 250 | ~2 beats |
-| Glitch stutter | 500 | 0 | 0 | 1 beat |
-| Seizure (use sparingly) | 250 | 0 | 0 | 1/2 beat |
+| Ambient drift | 8 | 4 | 4 | 16 beats |
+| Musical flow | 4 | 2 | 2 | 8 beats |
+| Driving pulse | 2 | 1 | 1 | 4 beats |
+| Aggressive snap | 1 | 0 | 0 | ~1 beat |
 
 ### Mood Chase per Phase
 Create a chaser that cycles through phase-appropriate colors:
-- P1: Deep Jungle → Amber → Tropical Cyan (hold=8 beats, fade=4 beats)
-- P3: Blood Moon → Violet → Arctic White (hold=4 beats, fade=1 beat)
+- P1: Deep Jungle → Amber → Tropical Cyan (hold=8, fade=4)
+- P3: Blood Moon → Violet → Arctic White (hold=4, fade=1)
 
 ---
 
@@ -177,6 +212,12 @@ Page "Show Control":
 4. **Audio-reactivity**: Every phase should have at least one audio-reactive element active.
 5. **Layer separation**: Never put the same DMX channel in two different layer scenes.
 6. **Name clarity**: Phase-prefix names (P1-, P2-) or layer-prefix (Mood-, FX-, Energy-).
+
+---
+
+## Tool Behavior
+
+**All create/add tools are idempotent (upsert).** Calling `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_scripts`, `create_fixture_groups`, `create_rgb_matrices` with the same name updates the existing function — never creates duplicates. Same for `add_vc_buttons`, `add_vc_sliders`, `add_vc_cuelists`, `add_vc_labels` (matched by caption within parent), and `build_show_page` (matched by page/section/widget name). Safe to call repeatedly.
 
 ---
 

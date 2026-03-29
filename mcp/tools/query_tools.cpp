@@ -77,6 +77,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
 
             for (auto &filter : items)
             {
+                auto err = validateFields(filter, {"manufacturer", "model"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 QString mfgFilter = filter.contains("manufacturer")
                     ? QString::fromStdString(filter.at("manufacturer").get<std::string>()) : "";
                 QString modelFilter = filter.contains("model")
@@ -125,12 +128,12 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"manufacturer", {{"type", "string"}}},
                 {"model", {{"type", "string"}}},
-                {"mode", {{"type", "string"}, {"description", "Fixture mode name (optional, uses first mode if omitted)"}}},
+                {"mode", {{"type", "string"}, {"description", "Fixture mode name (use query_available_fixtures to discover modes)"}}},
                 {"name", {{"type", "string"}, {"description", "Base name for the fixture(s)"}}},
                 {"universe", {{"type", "integer"}}},
                 {"address", {{"type", "integer"}, {"description", "DMX start address (0-based)"}}},
                 {"quantity", {{"type", "integer"}, {"description", "Number of fixtures to patch (default 1)"}}}
-            }}, {"required", {"manufacturer", "model", "name", "universe", "address"}}}}}}
+            }}, {"required", {"manufacturer", "model", "mode", "name", "universe", "address"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -138,14 +141,15 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"manufacturer", "model", "mode", "name", "universe", "address", "quantity"});
+                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+
                 QString mfg = QString::fromStdString(item.at("manufacturer").get<std::string>());
                 QString model = QString::fromStdString(item.at("model").get<std::string>());
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 int universe = item.at("universe").get<int>();
                 int address = item.at("address").get<int>();
                 int quantity = item.value("quantity", 1);
-                QString modeName = item.contains("mode")
-                    ? QString::fromStdString(item.at("mode").get<std::string>()) : "";
 
                 const QLCFixtureDef *def = doc->fixtureDefCache()->fixtureDef(mfg, model);
                 if (!def)
@@ -156,10 +160,14 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
 
                 QLCFixtureDef *mutableDef = const_cast<QLCFixtureDef*>(def);
                 QLCFixtureMode *mode = nullptr;
-                if (!modeName.isEmpty())
-                    mode = mutableDef->mode(modeName);
-                if (!mode && !mutableDef->modes().isEmpty())
-                    mode = mutableDef->modes().first();
+                QString modeName = QString::fromStdString(item.at("mode").get<std::string>());
+                mode = mutableDef->mode(modeName);
+                if (!mode)
+                {
+                    results.push_back({{"error", "Mode not found: " + modeName.toStdString() +
+                        " for fixture " + mfg.toStdString() + " " + model.toStdString()}});
+                    continue;
+                }
 
                 for (int i = 0; i < quantity; i++)
                 {
@@ -221,7 +229,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt
     ));
 
-    // query_vc_pages — list Virtual Console pages
+    // query_vc_pages — list Virtual Console pages with widget details
     if (vcBridge)
     {
         tm.register_tool(Tool(
@@ -239,14 +247,37 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     Json widgets = Json::array();
                     for (const auto &w : page.widgets)
                     {
-                        widgets.push_back({
-                            {"id", w.id},
-                            {"type", w.type.toStdString()},
-                            {"caption", w.caption.toStdString()},
-                            {"x", w.geometry.x()}, {"y", w.geometry.y()},
-                            {"width", w.geometry.width()}, {"height", w.geometry.height()},
-                            {"functionID", (int)w.functionID}
-                        });
+                        Json wJson;
+                        wJson["id"] = w.id;
+                        wJson["type"] = w.type.toStdString();
+                        wJson["caption"] = w.caption.toStdString();
+                        wJson["x"] = w.geometry.x();
+                        wJson["y"] = w.geometry.y();
+                        wJson["width"] = w.geometry.width();
+                        wJson["height"] = w.geometry.height();
+
+                        // Enrich with details from getWidgetDetails
+                        auto d = vcBridge->getWidgetDetails(w.id);
+                        if (d.id >= 0)
+                        {
+                            if (d.functionID != 0 && d.functionID != (quint32)-1)
+                                wJson["functionID"] = (int)d.functionID;
+                            if (!d.action.isEmpty())
+                                wJson["action"] = d.action.toStdString();
+                            if (!d.sliderMode.isEmpty())
+                                wJson["sliderMode"] = d.sliderMode.toStdString();
+                            if (d.parentID >= 0)
+                                wJson["parentID"] = d.parentID;
+
+                            if (!d.inputMappings.isEmpty())
+                            {
+                                Json inputs = Json::array();
+                                for (auto &m : d.inputMappings)
+                                    inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
+                                wJson["inputMappings"] = inputs;
+                            }
+                        }
+                        widgets.push_back(wJson);
                     }
                     pageJson["widgets"] = widgets;
                     results.push_back(pageJson);
@@ -255,7 +286,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 });
             },
             std::nullopt,
-            std::string("List all Virtual Console pages and their widgets."),
+            std::string("List all Virtual Console pages and their widgets with details (type, caption, geometry, "
+                         "function, action, slider mode, parent, input mappings)."),
         std::nullopt
         ));
     }

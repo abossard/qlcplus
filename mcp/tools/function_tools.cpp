@@ -19,6 +19,7 @@
 
 #include "tool_registry.h"
 #include "idempotency.h"
+#include "functionmanager.h"
 #include "doc.h"
 #include "fixture.h"
 #include "scene.h"
@@ -29,18 +30,15 @@
 #include "efx.h"
 #include "efxfixture.h"
 #include "rgbmatrix.h"
+#include "rgbalgorithm.h"
 #include "fixturegroup.h"
 #include "script.h"
-#include "qlcchannel.h"
 #include "scenevalue.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
-#include <set>
-#include <vector>
-
-void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
+void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionManager *funcMgr)
 {
     using Json = nlohmann::json;
     using Tool = fastmcpp::tools::Tool;
@@ -53,17 +51,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"name", {{"type", "string"}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
-                {"color", {{"type", "object"}, {"properties", {
-                    {"r", {{"type", "integer"}}}, {"g", {{"type", "integer"}}}, {"b", {{"type", "integer"}}}
-                }}}},
-                {"intensity", {{"type", "integer"}, {"description", "Dimmer value 0-255 (default 255)"}}},
                 {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
                 {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
                 {"channelValues", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}},
                     {"channel", {{"type", "integer"}}},
                     {"value", {{"type", "integer"}}}
-                }}}}, {"description", "Set arbitrary DMX values on specific channels (for gobos, prism, color wheel, etc.)"}}}
+                }}}}, {"description", "Explicit DMX channel values. Each entry sets exactly one channel on one fixture. Use query_fixture_channels to discover channel indices."}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -75,9 +69,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                if (!item.contains("name") || (!item.contains("fixtureIDs") && !item.contains("fixtureNames")))
+                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "fadeIn", "fadeOut", "channelValues"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                if (!item.contains("name"))
                 {
-                    results.push_back({{"error","name and fixtureIDs or fixtureNames required"}});
+                    results.push_back({{"error","name required"}});
                     continue;
                 }
 
@@ -122,52 +119,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (item.contains("fadeOut"))
                     scene->setFadeOutSpeed(item.at("fadeOut").get<int>());
 
-                int intensity = item.value("intensity", 255);
-                bool hasColor = item.contains("color");
-                int r = 0, g = 0, b = 0;
-                if (hasColor)
-                {
-                    r = item.at("color").value("r", 0);
-                    g = item.at("color").value("g", 0);
-                    b = item.at("color").value("b", 0);
-                }
-
-                for (quint32 id : fixtureIDs)
-                {
-                    Fixture *fxi = doc->fixture(id);
-                    if (!fxi) continue;
-
-                    for (quint32 ch = 0; ch < fxi->channels(); ch++)
-                    {
-                        const QLCChannel *channel = fxi->channel(ch);
-                        if (!channel) continue;
-
-                        if (channel->group() == QLCChannel::Intensity)
-                        {
-                            uchar val = intensity;
-                            if (hasColor)
-                            {
-                                switch (channel->colour())
-                                {
-                                    case QLCChannel::Red: val = r; break;
-                                    case QLCChannel::Green: val = g; break;
-                                    case QLCChannel::Blue: val = b; break;
-                                    case QLCChannel::Cyan: val = 255 - r; break;
-                                    case QLCChannel::Magenta: val = 255 - g; break;
-                                    case QLCChannel::Yellow: val = 255 - b; break;
-                                    default: val = intensity; break;
-                                }
-                            }
-                            scene->setValue(SceneValue(id, ch, val));
-                        }
-                    }
-                }
-
-                // Set arbitrary channel values (for gobos, prism, color wheel, etc.)
+                // Set explicit channel values
                 if (item.contains("channelValues") && item.at("channelValues").is_array())
                 {
                     for (auto &cv : item.at("channelValues"))
                     {
+                        auto cvErr = validateFields(cv, {"fixtureID", "channel", "value"});
+                        if (!cvErr.empty()) { results.push_back(nlohmann::json::parse(cvErr)); continue; }
                         if (!cv.contains("fixtureID") || !cv.contains("channel") || !cv.contains("value"))
                             continue;
                         quint32 fxID = cv.at("fixtureID").get<int>();
@@ -188,7 +146,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create color/intensity scenes. Accepts fixtureIDs or fixtureNames (glob patterns). Upserts: updates existing scenes with same name. Batch."),
+        std::string("Create scenes with explicit channel values. Use query_fixture_channels to discover channel indices. Accepts fixtureIDs or fixtureNames (glob patterns) for fixture resolution. Upserts: replaces all channel values on existing scenes (not merge). Batch."),
         std::nullopt
     ));
 
@@ -222,6 +180,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "steps", "tempoType", "runOrder", "direction", "fadeInMode", "fadeOutMode", "durationMode"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 if (!item.contains("name") || !item.contains("steps") || !item.at("steps").is_array())
                 {
                     results.push_back({{"error","name and steps required"}});
@@ -272,10 +233,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 QString tempo = QString::fromStdString(item.value("tempoType", "time"));
                 if (tempo == "beats") chaser->setTempoType(Function::Beats);
                 else chaser->setTempoType(Function::Time);
+                bool isBeatMode = (tempo == "beats");
 
                 // Add steps with per-step timing
                 for (auto &step : item.at("steps"))
                 {
+                    auto stepErr = validateFields(step, {"functionID", "functionName", "fadeIn", "hold", "fadeOut"});
+                    if (!stepErr.empty()) { results.push_back(nlohmann::json::parse(stepErr)); continue; }
                     quint32 fid = Function::invalidId();
                     if (step.contains("functionID"))
                         fid = step.at("functionID").get<int>();
@@ -285,6 +249,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     uint fadeIn = step.value("fadeIn", 0);
                     uint hold = step.value("hold", 0);
                     uint fadeOut = step.value("fadeOut", 0);
+                    // Beat encoding: QLC+ stores beats as beats × 1000
+                    if (isBeatMode) { fadeIn *= 1000; hold *= 1000; fadeOut *= 1000; }
                     chaser->addStep(ChaserStep(fid, fadeIn, hold, fadeOut));
                 }
 
@@ -299,7 +265,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create chasers with per-step timing. Each step has functionID and optional fadeIn/hold/fadeOut (ms). Speed modes default to perStep. Batch."),
+        std::string("Create chasers with per-step timing. Each step has functionID and optional fadeIn/hold/fadeOut (ms, or beats when tempoType is 'beats'). Speed modes default to perStep. Upserts: replaces all steps on existing chasers (not merge). Batch."),
         std::nullopt
     ));
 
@@ -326,6 +292,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "runOrder", "direction"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 if (!item.contains("name") || !item.contains("boundSceneID"))
                 {
                     results.push_back({{"error","name and boundSceneID required"}});
@@ -373,7 +342,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create sequences bound to scenes. Sequences inherit from Chaser and auto-generate steps from scene values. Batch."),
+        std::string("Create sequences bound to scenes. A sequence uses the bound scene's channels to create per-channel animation steps internally (managed by QLC+). You control timing (fadeIn/fadeOut/holdTime) and playback (runOrder/direction). Upserts: replaces timing and binding on existing sequences. Batch."),
         std::nullopt
     ));
 
@@ -402,8 +371,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
                 {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong"}}, {"description", "Run order (default loop)"}}},
-                {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}}
-            }}, {"required", {"name"}}}}}}
+                {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
+                {"head", {{"type", "integer"}, {"description", "Head index for multi-head fixtures (default 0)"}}}
+            }}, {"required", {"name", "algorithm"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -411,6 +381,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "algorithm", "width", "height", "xOffset", "yOffset", "rotation", "startOffset", "xFrequency", "yFrequency", "xPhase", "yPhase", "isRelative", "propagationMode", "speed", "fadeIn", "fadeOut", "runOrder", "direction", "head"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
 
                 // Resolve fixtures
@@ -483,7 +456,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 for (quint32 fid : fixtureIDs)
                 {
                     EFXFixture *ef = new EFXFixture(efx);
-                    ef->setHead(GroupHead(fid, 0));
+                    int head = 0;
+                    if (item.contains("head"))
+                        head = item.at("head").get<int>();
+                    ef->setHead(GroupHead(fid, head));
                     efx->addFixture(ef);
                 }
 
@@ -495,7 +471,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create EFX position effects for moving heads. Full control: algorithm (10 types), geometry (width/height/offset/rotation), Lissajous params (frequency/phase), propagation mode, speed, fade, run order. Batch."),
+        std::string("Create EFX position effects for moving heads. Full control: algorithm (required, 10 types), geometry (width/height/offset/rotation), Lissajous params (frequency/phase), propagation mode, speed, fade, run order. Upserts: replaces all fixtures and settings on existing EFXs (not merge). Batch."),
         std::nullopt
     ));
 
@@ -515,6 +491,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "functionIDs", "functionNames"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::CollectionType);
                 Collection *col;
@@ -557,7 +536,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create collections (parallel function groups — use for moods/phases). Batch: pass multiple in 'items'."),
+        std::string("Create collections (parallel function groups — use for moods/phases). Upserts: replaces all members on existing collections (not merge). Batch: pass multiple in 'items'."),
         std::nullopt
     ));
 
@@ -579,6 +558,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "fixtureGroupID", "algorithm", "startColor", "endColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::RGBMatrixType);
                 RGBMatrix *matrix;
@@ -595,6 +577,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
                 if (item.contains("fixtureGroupID"))
                     matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
+                if (item.contains("algorithm"))
+                {
+                    QString algoName = QString::fromStdString(item.at("algorithm").get<std::string>());
+                    RGBAlgorithm *algo = RGBAlgorithm::algorithm(doc, algoName);
+                    if (algo)
+                        matrix->setAlgorithm(algo);
+                }
                 if (item.contains("startColor"))
                     matrix->setColor(0, QColor(QString::fromStdString(item.at("startColor").get<std::string>())));
                 if (item.contains("endColor"))
@@ -607,7 +596,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create RGB matrix color animations. Batch: pass multiple in 'items'."),
+        std::string("Create RGB matrix color animations. Upserts: updates settings on existing matrices. Batch: pass multiple in 'items'."),
         std::nullopt
     ));
 
@@ -628,6 +617,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "fixtureIDs", "columns", "rows"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 std::string name = item.at("name").get<std::string>();
                 auto fixtureIDs = item.at("fixtureIDs");
                 int count = (int)fixtureIDs.size();
@@ -672,7 +664,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create fixture groups with grid layout. Batch: pass multiple in 'items'."),
+        std::string("Create fixture groups with grid layout. Upserts: replaces all fixture assignments on existing groups (not merge). Batch: pass multiple in 'items'."),
         std::nullopt
     ));
 
@@ -701,6 +693,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name", "commands"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
                 std::string name = item.at("name").get<std::string>();
 
                 Function *existing = mcp::findFunction(doc, QString::fromStdString(name), Function::ScriptType);
@@ -722,6 +717,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 int lineNum = 0;
                 for (auto &cmd : item.at("commands"))
                 {
+                    auto cmdErr = validateFields(cmd, {"type", "functionID", "time", "fixtureID", "channel", "value", "state", "name", "label"});
+                    if (!cmdErr.empty()) { results.push_back(nlohmann::json::parse(cmdErr)); continue; }
                     lineNum++;
                     if (!cmd.contains("type"))
                     {
@@ -771,77 +768,34 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
-                // Build script data string with stop/start deduplication
-                // Within contiguous blocks of stopfunction/startfunction commands,
-                // deduplicate stops and remove stops for functions about to be started.
+                // Build script data string — commands are emitted exactly as provided
                 QString scriptData;
                 auto &commands = item.at("commands");
-                size_t i = 0;
-                while (i < commands.size())
+                for (size_t i = 0; i < commands.size(); i++)
                 {
                     auto &cmd = commands[i];
                     std::string type = cmd.at("type").get<std::string>();
 
-                    if (type == "stopfunction" || type == "startfunction")
-                    {
-                        // Collect the contiguous block of stop/start commands
-                        std::set<int> stopIDs;
-                        std::vector<int> startIDs;
-                        std::set<int> startIDSet;
-
-                        while (i < commands.size())
-                        {
-                            std::string t = commands[i].at("type").get<std::string>();
-                            if (t == "stopfunction")
-                            {
-                                stopIDs.insert(commands[i].at("functionID").get<int>());
-                                i++;
-                            }
-                            else if (t == "startfunction")
-                            {
-                                int fid = commands[i].at("functionID").get<int>();
-                                if (startIDSet.find(fid) == startIDSet.end())
-                                {
-                                    startIDs.push_back(fid);
-                                    startIDSet.insert(fid);
-                                }
-                                i++;
-                            }
-                            else
-                                break;
-                        }
-
-                        // Remove stops for functions about to be started
-                        for (int sid : startIDSet)
-                            stopIDs.erase(sid);
-
-                        // Emit deduplicated commands: stops first, then starts
-                        for (int sid : stopIDs)
-                            scriptData += QString("stopfunction:%1\n").arg(sid);
-                        for (int sid : startIDs)
-                            scriptData += QString("startfunction:%1\n").arg(sid);
-                    }
-                    else
-                    {
-                        // Non stop/start command — emit directly
-                        if (type == "wait")
-                            scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
-                        else if (type == "setfixture")
-                            scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
-                                .arg(cmd.at("fixtureID").get<int>())
-                                .arg(cmd.at("channel").get<int>())
-                                .arg(cmd.at("value").get<int>());
-                        else if (type == "blackout")
-                            scriptData += QString("blackout:%1\n")
-                                .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
-                        else if (type == "label")
-                            scriptData += QString("label:%1\n")
-                                .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
-                        else if (type == "jump")
-                            scriptData += QString("jump:%1\n")
-                                .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
-                        i++;
-                    }
+                    if (type == "startfunction")
+                        scriptData += QString("startfunction:%1\n").arg(cmd.at("functionID").get<int>());
+                    else if (type == "stopfunction")
+                        scriptData += QString("stopfunction:%1\n").arg(cmd.at("functionID").get<int>());
+                    else if (type == "wait")
+                        scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
+                    else if (type == "setfixture")
+                        scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
+                            .arg(cmd.at("fixtureID").get<int>())
+                            .arg(cmd.at("channel").get<int>())
+                            .arg(cmd.at("value").get<int>());
+                    else if (type == "blackout")
+                        scriptData += QString("blackout:%1\n")
+                            .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
+                    else if (type == "label")
+                        scriptData += QString("label:%1\n")
+                            .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
+                    else if (type == "jump")
+                        scriptData += QString("jump:%1\n")
+                            .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
                 }
 
                 script->setData(scriptData);
@@ -853,7 +807,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Auto-deduplicates contiguous stop/start blocks: removes duplicate stops and skips stops for functions about to be started. Batch."),
+        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Commands are emitted exactly as provided. Upserts: replaces all commands on existing scripts. Batch."),
         std::nullopt
     ));
 
@@ -864,14 +818,25 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Function IDs to delete"}}}
         }}, {"required", {"ids"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, funcMgr](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"ids"});
+            if (!err.empty()) return err;
             Json results = Json::array();
             for (auto &fid : args.at("ids"))
             {
                 int id = fid.get<int>();
-                bool ok = doc->deleteFunction(id);
-                results.push_back({{"id", id}, {"status", ok ? "deleted" : "not found"}});
+                Function *f = doc->function(id);
+                if (f == nullptr)
+                {
+                    results.push_back({{"id", id}, {"status", "not found"}});
+                    continue;
+                }
+                if (funcMgr)
+                    funcMgr->deleteFunction(id);
+                else
+                    doc->deleteFunction(id);
+                results.push_back({{"id", id}, {"status", "deleted"}});
             }
             return results.dump();
             });

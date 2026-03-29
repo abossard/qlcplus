@@ -71,13 +71,14 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"pageIndex", {{"type", "integer"}}},
+                {"parentID", {{"type", "integer"}, {"description", "Parent frame widget ID for nesting. Mutually exclusive with pageIndex."}}},
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"caption", {{"type", "string"}}},
                 {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"pageIndex", "caption"}}}}}}
+            }}, {"required", {"caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -87,30 +88,57 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             {
                 QString caption = QString::fromStdString(item.at("caption").get<std::string>());
                 bool solo = item.value("solo", false);
-                int pageIndex = item.at("pageIndex").get<int>();
+                bool hasPage = item.contains("pageIndex");
+                bool hasParent = item.contains("parentID");
 
-                // For frames, the parent is the page root widget
-                // Search all pages for a frame with this caption
-                int existingId = -1;
-                for (const auto &page : vcBridge->pages())
+                if (hasPage && hasParent)
                 {
-                    if (page.index == pageIndex)
+                    results.push_back({{"error", "pageIndex and parentID are mutually exclusive"}});
+                    continue;
+                }
+                if (!hasPage && !hasParent)
+                {
+                    results.push_back({{"error", "either pageIndex or parentID is required"}});
+                    continue;
+                }
+
+                // Check for existing frame with same caption
+                if (hasPage)
+                {
+                    int pageIndex = item.at("pageIndex").get<int>();
+                    int existingId = -1;
+                    for (const auto &page : vcBridge->pages())
                     {
-                        for (const auto &w : page.widgets)
+                        if (page.index == pageIndex)
                         {
-                            if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                            for (const auto &w : page.widgets)
                             {
-                                existingId = w.id;
-                                break;
+                                if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                                {
+                                    existingId = w.id;
+                                    break;
+                                }
                             }
+                            break;
                         }
-                        break;
+                    }
+                    if (existingId >= 0)
+                    {
+                        results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                        continue;
                     }
                 }
-                if (existingId >= 0)
+                else
                 {
-                    results.push_back({{"widgetID", existingId}, {"status", "existing"}});
-                    continue;
+                    int parentID = item.at("parentID").get<int>();
+                    int existingId = vcBridge->findWidgetByCaption(parentID, "Frame", caption);
+                    if (existingId < 0)
+                        existingId = vcBridge->findWidgetByCaption(parentID, "Solo frame", caption);
+                    if (existingId >= 0)
+                    {
+                        results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                        continue;
+                    }
                 }
 
                 int w = item.value("width", 400);
@@ -120,8 +148,14 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
                 else
                     geo = QRect(5, 5, w, h);
-                int id = vcBridge->addFrame(pageIndex, geo, caption, solo);
-                results.push_back({{"widgetID", id}, {"status", "created"}});
+
+                int id;
+                if (hasPage)
+                    id = vcBridge->addFrame(item.at("pageIndex").get<int>(), geo, caption, solo);
+                else
+                    id = vcBridge->addFrameInFrame(item.at("parentID").get<int>(), geo, caption, solo);
+
+                results.push_back({{"widgetID", id}, {"status", id >= 0 ? "created" : "failed"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
@@ -133,7 +167,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Add frame containers to Virtual Console. Use solo=true for mutually exclusive moods. Batch."),
+        std::string("Add frame containers to Virtual Console. Use pageIndex for top-level frames, "
+                     "parentID for nested frames (mutually exclusive). Use solo=true for mutually exclusive moods. Batch."),
         std::nullopt
     ));
 
@@ -467,28 +502,33 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"widgetID", {{"type", "integer"}}},
                 {"inputUniverse", {{"type", "integer"}}},
                 {"inputChannel", {{"type", "integer"}}}
-            }}, {"required", {"widgetID", "inputUniverse", "inputChannel"}}}}}}
+            }}, {"required", {"widgetID", "inputUniverse", "inputChannel"}}}}}},
+            {"mode", {{"type", "string"}, {"enum", {"replace", "add"}},
+                {"description", "replace (default): clear existing inputs first. add: append without clearing."}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
+            std::string mode = args.value("mode", "replace");
             for (auto &item : args.at("items"))
             {
-                bool ok = vcBridge->mapWidgetInput(
-                    item.at("widgetID").get<int>(),
-                    item.at("inputUniverse").get<int>(),
-                    item.at("inputChannel").get<int>());
-                results.push_back({
-                    {"widgetID", item.at("widgetID").get<int>()},
-                    {"status", ok ? "ok" : "failed"}
-                });
+                int wid = item.at("widgetID").get<int>();
+                quint32 uni = item.at("inputUniverse").get<int>();
+                quint32 ch = item.at("inputChannel").get<int>();
+                bool ok;
+                if (mode == "add")
+                    ok = vcBridge->addWidgetInput(wid, uni, ch);
+                else
+                    ok = vcBridge->mapWidgetInput(wid, uni, ch);
+                results.push_back({{"widgetID", wid}, {"status", ok ? "ok" : "failed"}});
             }
             return results.dump();
             });
         },
         std::nullopt,
-        std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. Batch."),
+        std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. "
+                     "mode='replace' (default): clears existing inputs. mode='add': appends without clearing. Batch."),
         std::nullopt
     ));
 
@@ -743,6 +783,10 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
         {"functionName", {{"type", "string"}, {"description", "Function name (for playback mode)"}}},
         {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}},
+        {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+            {"fixtureID", {{"type", "integer"}}},
+            {"channel", {{"type", "integer"}}}
+        }}}}, {"description", "Fixture channels to control (for level mode)"}}},
         {"bgColor", {{"type", "string"}, {"description", "Background color hex"}}},
         {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex"}}},
         {"inputUniverse", {{"type", "integer"}, {"description", "Controller input universe"}}},
@@ -751,6 +795,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
     Json sectionSchema = Json{{"type", "object"}, {"properties", {
         {"caption", {{"type", "string"}}},
         {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame). Default false."}}},
+        {"columns", {{"type", "integer"}, {"description", "Number of button/slider columns per row. Auto-computed from page width if omitted."}}},
         {"bgColor", {{"type", "string"}, {"description", "Frame background color hex"}}},
         {"fgColor", {{"type", "string"}, {"description", "Frame foreground/text color hex"}}},
         {"buttons", {{"type", "array"}, {"items", buttonSchema}}},
@@ -758,6 +803,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
     }}, {"required", {"caption"}}};
     Json buildPageSchema = Json{{"type", "object"}, {"properties", {
         {"pageName", {{"type", "string"}}},
+        {"pageWidth", {{"type", "integer"}, {"description", "Page/frame width in pixels (default 1910)"}}},
+        {"buttonWidth", {{"type", "integer"}, {"description", "Button width in pixels (default 100)"}}},
+        {"buttonHeight", {{"type", "integer"}, {"description", "Button height in pixels (default 60)"}}},
+        {"sliderWidth", {{"type", "integer"}, {"description", "Slider width in pixels (default 60)"}}},
+        {"sliderHeight", {{"type", "integer"}, {"description", "Slider height in pixels (default 200)"}}},
         {"sections", {{"type", "array"}, {"items", sectionSchema}}}
     }}, {"required", {"pageName", "sections"}}};
     tm.register_tool(Tool(
@@ -818,18 +868,30 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
 
             Json sectionsResult = Json::array();
             int frameY = 5;
-            const int frameWidth = 400;
+            const int frameWidth = args.value("pageWidth", 1910);
             const int framePad = 10;
+            const int pad = 5;
+            const int headerHeight = 40;
+            const int btnWidth = args.value("buttonWidth", 100);
+            const int btnHeight = args.value("buttonHeight", 60);
+            const int sliderWidth = args.value("sliderWidth", 60);
+            const int sliderHeight = args.value("sliderHeight", 200);
 
             for (auto &section : args.at("sections"))
             {
                 QString caption = QString::fromStdString(section.at("caption").get<std::string>());
                 bool solo = section.value("solo", false);
+                int columns = section.value("columns", 0);
 
-                // Count children to estimate frame height
+                // Count children to estimate frame height using flow layout
                 int btnCount = section.contains("buttons") ? (int)section.at("buttons").size() : 0;
                 int sliderCount = section.contains("sliders") ? (int)section.at("sliders").size() : 0;
-                int frameHeight = 40 + btnCount * 65 + sliderCount * 205 + 10;
+
+                int btnCols = columns > 0 ? columns : qMax(1, (frameWidth - pad) / (btnWidth + pad));
+                int btnRows = btnCount > 0 ? (btnCount + btnCols - 1) / btnCols : 0;
+                int sliderCols = columns > 0 ? columns : qMax(1, (frameWidth - pad) / (sliderWidth + pad));
+                int sliderRows = sliderCount > 0 ? (sliderCount + sliderCols - 1) / sliderCols : 0;
+                int frameHeight = headerHeight + btnRows * (btnHeight + pad) + sliderRows * (sliderHeight + pad) + pad;
                 if (frameHeight < 80) frameHeight = 80;
 
                 // Find or create the frame
@@ -854,6 +916,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     QRect frameGeo(5, frameY, frameWidth, frameHeight);
                     frameID = vcBridge->addFrame(pageIndex, frameGeo, caption, solo);
                 }
+                else
+                {
+                    // Resize existing frame to match new layout
+                    vcBridge->setWidgetGeometry(frameID, QRect(5, frameY, frameWidth, frameHeight));
+                }
                 frameY += frameHeight + framePad;
 
                 // Apply colors to frame
@@ -876,15 +943,21 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 Json buttonsResult = Json::array();
                 if (section.contains("buttons"))
                 {
+                    int btnIdx = 0;
                     for (auto &btn : section.at("buttons"))
                     {
                         QString btnCaption = QString::fromStdString(btn.at("caption").get<std::string>());
                         int btnID = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
                         std::string status;
 
+                        // Compute flow position for this button's index
+                        QRect geo = VCBridge::computeFlowPosition(
+                            frameWidth, headerHeight, btnIdx, btnWidth, btnHeight, btnCols, pad);
+
                         if (btnID >= 0)
                         {
-                            // Upsert: update existing widget properties
+                            // Upsert: update existing widget geometry and properties
+                            vcBridge->setWidgetGeometry(btnID, geo);
                             applyWidgetProps(btnID, btn);
                             status = "updated";
                         }
@@ -902,7 +975,6 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                                 funcID = btn.at("functionID").get<int>();
 
                             int fadeTime = btn.value("stopAllFadeTime", 0);
-                            QRect geo = vcBridge->nextWidgetPosition(frameID, 100, 60);
                             btnID = vcBridge->addButton(
                                 frameID, geo,
                                 funcID >= 0 ? (quint32)funcID : Function::invalidId(),
@@ -917,6 +989,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                             status = "created";
                         }
                         buttonsResult.push_back({{"widgetID", btnID}, {"status", status}});
+                        btnIdx++;
                     }
                 }
                 sectionResult["buttons"] = buttonsResult;
@@ -925,15 +998,23 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 Json slidersResult = Json::array();
                 if (section.contains("sliders"))
                 {
+                    // Sliders start below buttons
+                    int sliderOffsetY = headerHeight + btnRows * (btnHeight + pad);
+                    int sliderIdx = 0;
                     for (auto &sl : section.at("sliders"))
                     {
                         QString slCaption = QString::fromStdString(sl.at("caption").get<std::string>());
                         int slID = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
                         std::string status;
 
+                        // Compute flow position for this slider's index
+                        QRect geo = VCBridge::computeFlowPosition(
+                            frameWidth, sliderOffsetY, sliderIdx, sliderWidth, sliderHeight, sliderCols, pad);
+
                         if (slID >= 0)
                         {
-                            // Upsert: update existing widget properties
+                            // Upsert: update existing widget geometry and properties
+                            vcBridge->setWidgetGeometry(slID, geo);
                             applyWidgetProps(slID, sl);
                             status = "updated";
                         }
@@ -950,8 +1031,17 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                             if (sl.contains("functionID"))
                                 funcID = sl.at("functionID").get<int>();
 
-                            QRect geo = vcBridge->nextWidgetPosition(frameID, 60, 200);
                             QList<QPair<quint32, quint32>> channels;
+                            if (sl.contains("channels") && sl.at("channels").is_array())
+                            {
+                                for (auto &ch : sl.at("channels"))
+                                {
+                                    if (ch.contains("fixtureID") && ch.contains("channel"))
+                                        channels.append(qMakePair(
+                                            (quint32)ch.at("fixtureID").get<int>(),
+                                            (quint32)ch.at("channel").get<int>()));
+                                }
+                            }
                             slID = vcBridge->addSlider(
                                 frameID, geo,
                                 QString::fromStdString(sl.at("mode").get<std::string>()),
@@ -966,6 +1056,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                             status = "created";
                         }
                         slidersResult.push_back({{"widgetID", slID}, {"status", status}});
+                        sliderIdx++;
                     }
                 }
                 sectionResult["sliders"] = slidersResult;
@@ -981,12 +1072,244 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         },
         std::nullopt,
         std::string("Build a complete Virtual Console page in one call with upsert semantics. Sections become frames (solo=true for mutually exclusive moods). "
-                     "Buttons and sliders auto-layout. Supports per-widget colors (bgColor/fgColor), Launchpad input mapping (inputUniverse/inputChannel), "
+                     "Buttons and sliders auto-layout horizontally in rows using full page width. Use 'columns' per section to control items per row. "
+                     "Supports per-widget colors (bgColor/fgColor), Launchpad input mapping (inputUniverse/inputChannel), "
                      "and LED feedback (idleValue/activeValue/monitorValue with static/flashing/pulsing modes). "
                      "Existing widgets are updated (not skipped). Use functionName to reference functions by name."),
         std::nullopt
     ));
     } // end build_show_page schema scope
+
+    // query_widget_details (batch)
+    tm.register_tool(Tool(
+        "query_widget_details",
+        Json{{"type", "object"}, {"properties", {
+            {"widgetIDs", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                {"description", "Widget IDs to query. Returns full details for each."}}}
+        }}, {"required", {"widgetIDs"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &wid : args.at("widgetIDs"))
+            {
+                int id = wid.get<int>();
+                auto d = vcBridge->getWidgetDetails(id);
+                if (d.id < 0)
+                {
+                    results.push_back({{"id", id}, {"error", "not found"}});
+                    continue;
+                }
+                Json entry;
+                entry["id"] = d.id;
+                entry["type"] = d.type.toStdString();
+                entry["caption"] = d.caption.toStdString();
+                entry["geometry"] = {{"x", d.geometry.x()}, {"y", d.geometry.y()},
+                                     {"width", d.geometry.width()}, {"height", d.geometry.height()}};
+                entry["parentID"] = d.parentID;
+
+                if (d.functionID != 0 && d.functionID != (quint32)-1)
+                    entry["functionID"] = (int)d.functionID;
+                if (!d.action.isEmpty())
+                    entry["action"] = d.action.toStdString();
+                if (!d.sliderMode.isEmpty())
+                    entry["sliderMode"] = d.sliderMode.toStdString();
+
+                if (!d.channels.isEmpty())
+                {
+                    Json chArr = Json::array();
+                    for (auto &ch : d.channels)
+                        chArr.push_back({{"fixtureID", (int)ch.first}, {"channel", (int)ch.second}});
+                    entry["channels"] = chArr;
+                }
+
+                Json inputs = Json::array();
+                for (auto &m : d.inputMappings)
+                    inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
+                entry["inputMappings"] = inputs;
+
+                if (d.bgColor.isValid())
+                    entry["bgColor"] = d.bgColor.name().toStdString();
+                if (d.fgColor.isValid())
+                    entry["fgColor"] = d.fgColor.name().toStdString();
+
+                if (!d.inputMappings.isEmpty())
+                {
+                    entry["feedback"] = {
+                        {"idleValue", d.feedback.idleValue},
+                        {"activeValue", d.feedback.activeValue},
+                        {"monitorValue", d.feedback.monitorValue},
+                        {"idleMidiCh", d.feedback.idleMidiCh},
+                        {"activeMidiCh", d.feedback.activeMidiCh},
+                        {"monitorMidiCh", d.feedback.monitorMidiCh}
+                    };
+                }
+                results.push_back(entry);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Query full details of Virtual Console widgets: type, caption, geometry, function, action, "
+                     "slider mode, channels, input mappings, colors, LED feedback. Batch."),
+        std::nullopt
+    ));
+
+    // update_widgets (batch — sparse update)
+    tm.register_tool(Tool(
+        "update_widgets",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"widgetID", {{"type", "integer"}}},
+                {"caption", {{"type", "string"}, {"description", "New widget caption/label"}}},
+                {"x", {{"type", "integer"}, {"description", "New X position"}}},
+                {"y", {{"type", "integer"}, {"description", "New Y position"}}},
+                {"width", {{"type", "integer"}, {"description", "New width"}}},
+                {"height", {{"type", "integer"}, {"description", "New height"}}},
+                {"functionID", {{"type", "integer"}, {"description", "New function ID (buttons: controlled function, sliders: playback function)"}}},
+                {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}},
+                    {"description", "Button action type"}}},
+                {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}},
+                    {"description", "Slider mode"}}},
+                {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"fixtureID", {{"type", "integer"}}},
+                    {"channel", {{"type", "integer"}}}
+                }}}}, {"description", "Slider level-mode channels (replaces existing)"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground color hex"}}}
+            }}, {"required", {"widgetID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args.at("items"))
+            {
+                int wid = item.at("widgetID").get<int>();
+                Json changes = Json::array();
+
+                if (item.contains("caption"))
+                {
+                    bool ok = vcBridge->setWidgetCaption(wid,
+                        QString::fromStdString(item.at("caption").get<std::string>()));
+                    changes.push_back({{"property", "caption"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                // Geometry: update only specified fields, preserve others
+                if (item.contains("x") || item.contains("y") ||
+                    item.contains("width") || item.contains("height"))
+                {
+                    auto d = vcBridge->getWidgetDetails(wid);
+                    QRect geo = d.geometry;
+                    if (item.contains("x")) geo.setX(item.at("x").get<int>());
+                    if (item.contains("y")) geo.setY(item.at("y").get<int>());
+                    if (item.contains("width")) geo.setWidth(item.at("width").get<int>());
+                    if (item.contains("height")) geo.setHeight(item.at("height").get<int>());
+                    vcBridge->setWidgetGeometry(wid, geo);
+                    changes.push_back({{"property", "geometry"}, {"status", "ok"}});
+                }
+
+                if (item.contains("functionID"))
+                {
+                    int fid = item.at("functionID").get<int>();
+                    bool ok = vcBridge->setButtonFunction(wid, fid);
+                    if (!ok) ok = vcBridge->setSliderFunction(wid, fid);
+                    changes.push_back({{"property", "functionID"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("action"))
+                {
+                    bool ok = vcBridge->setButtonAction(wid,
+                        QString::fromStdString(item.at("action").get<std::string>()));
+                    changes.push_back({{"property", "action"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("mode"))
+                {
+                    bool ok = vcBridge->setSliderMode(wid,
+                        QString::fromStdString(item.at("mode").get<std::string>()));
+                    changes.push_back({{"property", "mode"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("channels"))
+                {
+                    QList<QPair<quint32, quint32>> channels;
+                    for (auto &ch : item.at("channels"))
+                        channels.append(qMakePair(
+                            (quint32)ch.at("fixtureID").get<int>(),
+                            (quint32)ch.at("channel").get<int>()));
+                    bool ok = vcBridge->setSliderChannels(wid, channels);
+                    changes.push_back({{"property", "channels"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("bgColor") || item.contains("fgColor"))
+                {
+                    QColor bg = item.contains("bgColor")
+                        ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>()))
+                        : QColor();
+                    QColor fg = item.contains("fgColor")
+                        ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>()))
+                        : QColor();
+                    vcBridge->setWidgetColors(wid, bg, fg);
+                    changes.push_back({{"property", "colors"}, {"status", "ok"}});
+                }
+
+                results.push_back({{"widgetID", wid}, {"changes", changes}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed, "
+                     "others are preserved. Supports caption, geometry (x/y/width/height), functionID, "
+                     "action (buttons), mode (sliders), channels (sliders), colors. Batch."),
+        std::nullopt
+    ));
+
+    // reparent_widgets (batch)
+    tm.register_tool(Tool(
+        "reparent_widgets",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"widgetID", {{"type", "integer"}}},
+                {"newParentID", {{"type", "integer"}, {"description", "Target frame widget ID"}}},
+                {"x", {{"type", "integer"}, {"description", "X position in new parent (default 5)"}}},
+                {"y", {{"type", "integer"}, {"description", "Y position in new parent (default 5)"}}},
+                {"width", {{"type", "integer"}, {"description", "Width (preserved from current if omitted)"}}},
+                {"height", {{"type", "integer"}, {"description", "Height (preserved from current if omitted)"}}}
+            }}, {"required", {"widgetID", "newParentID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args.at("items"))
+            {
+                int wid = item.at("widgetID").get<int>();
+                int newParent = item.at("newParentID").get<int>();
+
+                // Get current geometry to preserve size if not specified
+                auto d = vcBridge->getWidgetDetails(wid);
+                int x = item.value("x", 5);
+                int y = item.value("y", 5);
+                int w = item.value("width", d.geometry.width());
+                int h = item.value("height", d.geometry.height());
+
+                bool ok = vcBridge->reparentWidget(wid, newParent, QRect(x, y, w, h));
+                results.push_back({
+                    {"widgetID", wid},
+                    {"newParentID", newParent},
+                    {"status", ok ? "ok" : "failed"}
+                });
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Move Virtual Console widgets between frames. Preserves all properties (input mappings, "
+                     "colors, LED feedback, function bindings). Widget size is preserved if not specified. Batch."),
+        std::nullopt
+    ));
 
     // delete_widgets (batch)
     tm.register_tool(Tool(

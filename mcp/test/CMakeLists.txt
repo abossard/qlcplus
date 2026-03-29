@@ -5,6 +5,7 @@ add_executable(mcp_idempotency_test WIN32
 target_include_directories(mcp_idempotency_test PRIVATE
     ${CMAKE_SOURCE_DIR}/plugins/interfaces
     ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
     ${CMAKE_SOURCE_DIR}/mcp/tools
 )
 

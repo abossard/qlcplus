@@ -32,6 +32,26 @@ Rectangle
     property string contextName: "2D"
     property alias contextItem: twoDView
 
+    property real zoomVelocity: 0
+
+    Timer
+    {
+        id: zoomTimer
+        interval: 16
+        repeat: true
+        onTriggered:
+        {
+            if (Math.abs(zoomVelocity) < 0.005)
+            {
+                zoomTimer.stop()
+                zoomVelocity = 0
+                return
+            }
+            setZoom(zoomVelocity)
+            zoomVelocity *= 0.85
+        }
+    }
+
     onWidthChanged: twoDView.calculateCellSize()
     onHeightChanged: twoDView.calculateCellSize()
 
@@ -41,30 +61,10 @@ Rectangle
         if (contextManager) contextManager.enableContext("2D", false, twoDView)
     }
 
-    function setZoom(amount)
+    function setZoom(factor)
     {
-        var currentScale = View2D.gridScale
-        if (amount < 0)
-        {
-            if (currentScale > 0.2)
-            {
-                if (currentScale <= 1)
-                    View2D.gridScale -= 0.1
-                else
-                    View2D.gridScale += amount
-            }
-        }
-        else
-        {
-            if (currentScale < 5)
-            {
-                if (currentScale < 1)
-                    View2D.gridScale += 0.1
-                else
-                    View2D.gridScale += amount
-            }
-        }
-
+        var newScale = View2D.gridScale * (1.0 + factor)
+        View2D.gridScale = Math.max(0.2, Math.min(5.0, newScale))
         twoDView.calculateCellSize()
     }
 
@@ -322,11 +322,10 @@ Rectangle
 
                 onWheel: (wheel)=>
                 {
-                    //console.log("Wheel delta: " + wheel.angleDelta.y)
-                    if (wheel.angleDelta.y > 0)
-                        setZoom(0.5)
-                    else
-                        setZoom(-0.5)
+                    zoomVelocity += (wheel.angleDelta.y / 120.0) * 0.01
+                    zoomVelocity = Math.max(-0.05, Math.min(0.05, zoomVelocity))
+                    if (!zoomTimer.running)
+                        zoomTimer.start()
                 }
             }
 

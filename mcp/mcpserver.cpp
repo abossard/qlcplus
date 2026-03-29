@@ -26,14 +26,15 @@
 
 #include <QDebug>
 
-McpServer::McpServer(Doc *doc, VCBridge *vcBridge, QObject *parent)
+McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QObject *parent)
     : QObject(parent)
     , m_doc(doc)
     , m_vcBridge(vcBridge)
+    , m_funcMgr(funcMgr)
     , m_toolManager(std::make_unique<fastmcpp::tools::ToolManager>())
 {
     registerQueryTools(*m_toolManager, m_doc, m_vcBridge);
-    registerFunctionTools(*m_toolManager, m_doc);
+    registerFunctionTools(*m_toolManager, m_doc, m_funcMgr);
     registerVCTools(*m_toolManager, m_doc, m_vcBridge);
     registerIOTools(*m_toolManager, m_doc);
     registerChannelTools(*m_toolManager, m_doc);

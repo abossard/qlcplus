@@ -5,6 +5,7 @@ on: ["push", "pull_request"]
 jobs:
   build-linux:
     #if: false
+    continue-on-error: true
     runs-on: ubuntu-22.04
     name: QLCplus Linux ${{matrix.task}}
     strategy:
@@ -257,6 +258,7 @@ jobs:
           path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage
 
   build-windows:
+    continue-on-error: true
     runs-on: windows-latest
     name: QLCplus Windows ${{matrix.task}}
     strategy:

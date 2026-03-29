@@ -34,6 +34,26 @@ Rectangle
     property string contextName: "3D"
     property alias contextItem: scene3d
 
+    property real zoomVelocity: 0
+
+    Timer
+    {
+        id: zoomTimer
+        interval: 16
+        repeat: true
+        onTriggered:
+        {
+            if (Math.abs(zoomVelocity) < 0.005)
+            {
+                zoomTimer.stop()
+                zoomVelocity = 0
+                return
+            }
+            viewCamera.setZoom(-zoomVelocity)
+            zoomVelocity *= 0.85
+        }
+    }
+
     Component.onDestruction: if(contextManager) contextManager.enableContext("3D", false, scene3d)
 
     function hasSettings()
@@ -497,10 +517,9 @@ Rectangle
 
                 onWheel: (wheel) =>
                 {
-                    if (wheel.angleDelta.y > 0)
-                        viewCamera.setZoom(-1)
-                    else
-                        viewCamera.setZoom(1)
+                    zoomVelocity += (wheel.angleDelta.y / 120.0) * 0.15
+                    if (!zoomTimer.running)
+                        zoomTimer.start()
                 }
             }
 

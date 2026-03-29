@@ -110,6 +110,21 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
     return widget->id();
 }
 
+int VCBridgeV5::addFrameInFrame(int parentID, const QRect &geometry,
+                                 const QString &caption, bool solo)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame*>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(nullptr, solo ? "Solo frame" : "Frame",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+    widget->setGeometry(geometry);
+    widget->setCaption(caption);
+    return widget->id();
+}
+
 int VCBridgeV5::addButton(int parentID, const QRect &geometry,
                           quint32 functionID, const QString &caption,
                           const QString &action,
@@ -248,6 +263,13 @@ bool VCBridgeV5::mapWidgetInput(int widgetID, quint32 universe, quint32 channel)
 {
     VCWidget *widget = m_vc->widget(widgetID);
     if (!widget) return false;
+
+    // Remove all existing input sources to prevent duplicates on re-run
+    while (!widget->inputSources().isEmpty())
+    {
+        auto source = widget->inputSources().first();
+        widget->deleteInputSurce(source->id(), source->universe(), source->channel());
+    }
 
     m_vc->createAndAddInputSource(widget, universe, channel);
     return true;
@@ -401,6 +423,27 @@ QRect VCBridgeV5::nextWidgetPosition(int parentID, int width, int height) const
     return QRect(pad, maxBottom, width, height);
 }
 
+QRect VCBridgeV5::nextWidgetPositionFlow(int parentID, int widgetWidth, int widgetHeight,
+                                          int columns) const
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame)
+        return QRect(5, 5, widgetWidth, widgetHeight);
+
+    int parentWidth = (int)frame->geometry().width();
+    int childCount = frame->children().count();
+
+    return computeFlowPosition(parentWidth, 40, childCount, widgetWidth, widgetHeight, columns, 5);
+}
+
+void VCBridgeV5::setWidgetGeometry(int widgetID, const QRect &geo)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (widget)
+        widget->setGeometry(QRectF(geo));
+}
+
 bool VCBridgeV5::removeWidget(int widgetID)
 {
     VCWidget *widget = m_vc->widget(widgetID);
@@ -408,4 +451,186 @@ bool VCBridgeV5::removeWidget(int widgetID)
 
     m_vc->deleteVCWidgets(QVariantList{widgetID});
     return true;
+}
+
+// --- Widget details query ---
+
+VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return WidgetDetails();
+
+    WidgetDetails d;
+    d.id = widgetID;
+    d.type = VCWidget::typeToString(widget->type());
+    d.caption = widget->caption();
+    d.geometry = widget->geometry().toRect();
+    d.bgColor = widget->backgroundColor();
+    d.fgColor = widget->foregroundColor();
+
+    // Parent ID
+    VCWidget *parent = qobject_cast<VCWidget*>(widget->parent());
+    if (parent)
+        d.parentID = (int)parent->id();
+
+    // Input mappings
+    for (auto &src : widget->inputSources())
+    {
+        InputMapping m;
+        m.universe = src->universe();
+        m.channel = src->channel();
+        d.inputMappings.append(m);
+    }
+
+    // Feedback from first input source
+    if (!widget->inputSources().isEmpty())
+    {
+        auto src = widget->inputSources().first();
+        d.feedback.idleValue = src->feedbackValue(QLCInputFeedback::LowerValue);
+        d.feedback.activeValue = src->feedbackValue(QLCInputFeedback::UpperValue);
+        d.feedback.monitorValue = src->feedbackValue(QLCInputFeedback::MonitorValue);
+        d.feedback.idleMidiCh = src->feedbackExtraParams(QLCInputFeedback::LowerValue).toInt();
+        d.feedback.activeMidiCh = src->feedbackExtraParams(QLCInputFeedback::UpperValue).toInt();
+        d.feedback.monitorMidiCh = src->feedbackExtraParams(QLCInputFeedback::MonitorValue).toInt();
+    }
+
+    // Button-specific
+    VCButton *button = qobject_cast<VCButton*>(widget);
+    if (button)
+    {
+        d.functionID = button->functionID();
+        d.action = VCButton::actionToString(button->actionType()).toLower();
+    }
+
+    // Slider-specific
+    VCSlider *slider = qobject_cast<VCSlider*>(widget);
+    if (slider)
+    {
+        switch (slider->sliderMode())
+        {
+            case VCSlider::Level: d.sliderMode = "level"; break;
+            case VCSlider::Adjust: d.sliderMode = "playback"; break;
+            case VCSlider::Submaster: d.sliderMode = "submaster"; break;
+            case VCSlider::GrandMaster: d.sliderMode = "grandmaster"; break;
+        }
+        d.functionID = slider->controlledFunction();
+        for (auto &sv : slider->levelChannels())
+            d.channels.append(qMakePair(sv.fxi, sv.channel));
+    }
+
+    // CueList-specific
+    VCCueList *cuelist = qobject_cast<VCCueList*>(widget);
+    if (cuelist)
+        d.functionID = cuelist->chaserID();
+
+    return d;
+}
+
+// --- Widget property mutations ---
+
+bool VCBridgeV5::setWidgetCaption(int widgetID, const QString &caption)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+    widget->setCaption(caption);
+    return true;
+}
+
+bool VCBridgeV5::setButtonFunction(int widgetID, quint32 functionID)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCButton *button = qobject_cast<VCButton*>(widget);
+    if (!button) return false;
+    button->setFunctionID(functionID);
+    return true;
+}
+
+bool VCBridgeV5::setButtonAction(int widgetID, const QString &action)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCButton *button = qobject_cast<VCButton*>(widget);
+    if (!button) return false;
+
+    if (action == "flash") button->setActionType(VCButton::Flash);
+    else if (action == "blackout") button->setActionType(VCButton::Blackout);
+    else if (action == "stopall") button->setActionType(VCButton::StopAll);
+    else button->setActionType(VCButton::Toggle);
+    return true;
+}
+
+bool VCBridgeV5::setSliderMode(int widgetID, const QString &mode)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider*>(widget);
+    if (!slider) return false;
+
+    if (mode == "level") slider->setSliderMode(VCSlider::Level);
+    else if (mode == "playback") slider->setSliderMode(VCSlider::Adjust);
+    else if (mode == "submaster") slider->setSliderMode(VCSlider::Submaster);
+    else return false;
+    return true;
+}
+
+bool VCBridgeV5::setSliderFunction(int widgetID, quint32 functionID)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider*>(widget);
+    if (!slider) return false;
+    slider->setControlledFunction(functionID);
+    return true;
+}
+
+bool VCBridgeV5::setSliderChannels(int widgetID, const QList<QPair<quint32, quint32>> &channels)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider*>(widget);
+    if (!slider) return false;
+
+    slider->clearLevelChannels();
+    for (auto &ch : channels)
+        slider->addLevelChannel(ch.first, ch.second);
+    return true;
+}
+
+// --- Input mapping ---
+
+bool VCBridgeV5::addWidgetInput(int widgetID, quint32 universe, quint32 channel)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+    m_vc->createAndAddInputSource(widget, universe, channel);
+    return true;
+}
+
+bool VCBridgeV5::removeWidgetInput(int widgetID, quint32 universe, quint32 channel)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    for (auto &src : widget->inputSources())
+    {
+        if (src->universe() == universe && src->channel() == channel)
+        {
+            widget->deleteInputSurce(src->id(), universe, channel);
+            return true;
+        }
+    }
+    return false;
+}
+
+// --- Widget reparenting ---
+
+bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCWidget *newParent = m_vc->widget(newParentID);
+    if (!widget || !newParent) return false;
+
+    VCFrame *targetFrame = qobject_cast<VCFrame*>(newParent);
+    if (!targetFrame) return false;
+
+    bool ok = m_vc->reparentWidget(widget, targetFrame);
+    if (ok)
+        widget->setGeometry(QRectF(geo));
+    return ok;
 }

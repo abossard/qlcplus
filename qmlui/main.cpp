@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
         qlcplusApp.toggleFullscreen();
 
 #ifdef HAS_MCP_SERVER
-    mcpInit(qlcplusApp.doc(), qlcplusApp.virtualConsole(), parser);
+    mcpInit(qlcplusApp.doc(), qlcplusApp.virtualConsole(), qlcplusApp.functionManager(), parser);
 #endif
 
     return app.exec();

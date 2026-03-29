@@ -22,6 +22,7 @@
 #include "idempotency_test.h"
 
 #include "idempotency.h"
+#include "vcbridge.h"
 #include "doc.h"
 #include "scene.h"
 #include "scenevalue.h"
@@ -529,6 +530,110 @@ void McpIdempotency_Test::scriptDedup_preservesAcrossWait()
     QVERIFY(result.contains("stopfunction:10"));
     QVERIFY(result.contains("wait:1000"));
     QVERIFY(result.contains("startfunction:10"));
+}
+
+/*************************************************************************
+ * Flow layout positioning
+ *************************************************************************/
+
+void McpIdempotency_Test::flowLayout_singleWidget()
+{
+    // Single widget in a wide parent: placed at top-left
+    QRect r = VCBridge::computeFlowPosition(1910, 40, 0, 100, 60, 0, 5);
+    QCOMPARE(r.x(), 5);
+    QCOMPARE(r.y(), 40);
+    QVERIFY(r.width() > 0);
+    QCOMPARE(r.height(), 60);
+}
+
+void McpIdempotency_Test::flowLayout_autoColumnsWrap()
+{
+    // Parent width 220, widget width 100, pad 5 → fits 2 per row
+    // (220 - 5) / (100 + 5) = 2.04 → 2 columns
+    QRect r0 = VCBridge::computeFlowPosition(220, 40, 0, 100, 60, 0, 5);
+    QRect r1 = VCBridge::computeFlowPosition(220, 40, 1, 100, 60, 0, 5);
+    QRect r2 = VCBridge::computeFlowPosition(220, 40, 2, 100, 60, 0, 5);
+
+    // First two on same row, different X
+    QCOMPARE(r0.y(), r1.y());
+    QVERIFY(r1.x() > r0.x());
+
+    // Third wraps to next row
+    QCOMPARE(r2.x(), r0.x());
+    QCOMPARE(r2.y(), 40 + 60 + 5);
+}
+
+void McpIdempotency_Test::flowLayout_explicitColumns()
+{
+    // Force 3 columns in a 1910-wide parent
+    QRect r0 = VCBridge::computeFlowPosition(1910, 40, 0, 100, 60, 3, 5);
+    QRect r1 = VCBridge::computeFlowPosition(1910, 40, 1, 100, 60, 3, 5);
+    QRect r2 = VCBridge::computeFlowPosition(1910, 40, 2, 100, 60, 3, 5);
+    QRect r3 = VCBridge::computeFlowPosition(1910, 40, 3, 100, 60, 3, 5);
+
+    // All three on first row
+    QCOMPARE(r0.y(), 40);
+    QCOMPARE(r1.y(), 40);
+    QCOMPARE(r2.y(), 40);
+
+    // Fourth wraps to second row
+    QCOMPARE(r3.y(), 40 + 60 + 5);
+    QCOMPARE(r3.x(), r0.x());
+}
+
+void McpIdempotency_Test::flowLayout_evenWidthDistribution()
+{
+    // 4 columns in 1910-wide parent, pad 5
+    // effectiveWidth = (1910 - 5*5) / 4 = 1885/4 = 471
+    QRect r0 = VCBridge::computeFlowPosition(1910, 40, 0, 100, 60, 4, 5);
+    QRect r1 = VCBridge::computeFlowPosition(1910, 40, 1, 100, 60, 4, 5);
+
+    int expectedWidth = (1910 - 5 * 5) / 4;
+    QCOMPARE(r0.width(), expectedWidth);
+    QCOMPARE(r1.width(), expectedWidth);
+
+    // Buttons fill available space evenly
+    QCOMPARE(r0.x(), 5);
+    QCOMPARE(r1.x(), 5 + expectedWidth + 5);
+}
+
+/*************************************************************************
+ * Beat encoding — verifies the ×1000 contract for beat values
+ *************************************************************************/
+
+void McpIdempotency_Test::beatEncoding_wholeBeatsMultipliedBy1000()
+{
+    // MCP tool multiplies beat values by 1000 before storing.
+    // Verify the engine interprets these correctly.
+    Scene *s = new Scene(m_doc);
+    s->setName("BeatStep");
+    m_doc->addFunction(s);
+
+    Chaser *chaser = new Chaser(m_doc);
+    chaser->setName("Beat Chaser");
+    chaser->setFadeInMode(Chaser::PerStep);
+    chaser->setDurationMode(Chaser::PerStep);
+
+    // Simulate what MCP does: user passes 7 beats, tool stores 7*1000=7000
+    uint userBeats = 7;
+    uint encoded = userBeats * 1000;
+    chaser->addStep(ChaserStep(s->id(), encoded, encoded, 0));
+    m_doc->addFunction(chaser);
+
+    QCOMPARE(chaser->steps().at(0).fadeIn, (uint)7000);
+    QCOMPARE(chaser->steps().at(0).hold, (uint)7000);
+
+    // beatsToTime: 7000 beats at 120 BPM (500ms/beat) = 3500ms
+    uint timeMs = Function::beatsToTime(7000, 500);
+    QCOMPARE(timeMs, (uint)3500);
+}
+
+void McpIdempotency_Test::beatEncoding_zeroRemainsZero()
+{
+    // Zero should stay zero regardless of encoding
+    uint encoded = 0 * 1000;
+    QCOMPARE(encoded, (uint)0);
+    QCOMPARE(Function::beatsToTime(0, 500), (uint)0);
 }
 
 QTEST_MAIN(McpIdempotency_Test)

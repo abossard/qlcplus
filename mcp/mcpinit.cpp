@@ -18,7 +18,7 @@ void mcpAddOptions(QCommandLineParser &parser)
     parser.addOption(s_noMcpOption);
 }
 
-void mcpInit(Doc *doc, VirtualConsole *vc, const QCommandLineParser &parser)
+void mcpInit(Doc *doc, VirtualConsole *vc, FunctionManager *funcMgr, const QCommandLineParser &parser)
 {
     if (parser.isSet(s_noMcpOption))
         return;
@@ -28,6 +28,6 @@ void mcpInit(Doc *doc, VirtualConsole *vc, const QCommandLineParser &parser)
         vcBridge = new VCBridgeV5(doc, vc);
 
     int port = parser.value(s_mcpHttpPortOption).toInt();
-    McpServer *server = new McpServer(doc, vcBridge);
+    McpServer *server = new McpServer(doc, vcBridge, funcMgr);
     server->startHttp(port);
 }

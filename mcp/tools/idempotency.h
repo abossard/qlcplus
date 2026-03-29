@@ -61,6 +61,31 @@ inline quint32 resolveFunctionByName(Doc *doc, const QString &name, Function::Ty
 }
 
 /**
+ * Search functions by name, with optional type filter.
+ * Returns all matches as a list of {id, name, type} structs.
+ */
+struct FunctionMatch {
+    quint32 id;
+    QString name;
+    Function::Type type;
+};
+
+inline QList<FunctionMatch> searchFunctionsByName(Doc *doc, const QString &name,
+                                                   Function::Type type = Function::Undefined)
+{
+    QList<FunctionMatch> results;
+    for (Function *fn : doc->functions())
+    {
+        if (fn->name() == name)
+        {
+            if (type == Function::Undefined || fn->type() == type)
+                results.append({fn->id(), fn->name(), fn->type()});
+        }
+    }
+    return results;
+}
+
+/**
  * Resolve fixtures by name pattern (glob: * and ? supported).
  * Returns list of fixture IDs matching the pattern.
  */
