@@ -5,25 +5,29 @@
 #include <QCommandLineParser>
 #include <QDebug>
 
-static QCommandLineOption s_mcpHttpOption(QStringList() << "mcp-http",
-    "Start MCP HTTP server (default port 9696)",
+static QCommandLineOption s_mcpHttpPortOption(QStringList() << "mcp-port",
+    "Set MCP HTTP server port (default 9696)",
     "port", "9696");
+
+static QCommandLineOption s_noMcpOption(QStringList() << "no-mcp",
+    "Disable the MCP HTTP server");
 
 void mcpAddOptions(QCommandLineParser &parser)
 {
-    parser.addOption(s_mcpHttpOption);
+    parser.addOption(s_mcpHttpPortOption);
+    parser.addOption(s_noMcpOption);
 }
 
 void mcpInit(Doc *doc, VirtualConsole *vc, const QCommandLineParser &parser)
 {
+    if (parser.isSet(s_noMcpOption))
+        return;
+
     VCBridgeV5 *vcBridge = nullptr;
     if (vc)
         vcBridge = new VCBridgeV5(doc, vc);
 
-    if (parser.isSet(s_mcpHttpOption))
-    {
-        int port = parser.value(s_mcpHttpOption).toInt();
-        McpServer *server = new McpServer(doc, vcBridge);
-        server->startHttp(port);
-    }
+    int port = parser.value(s_mcpHttpPortOption).toInt();
+    McpServer *server = new McpServer(doc, vcBridge);
+    server->startHttp(port);
 }
