@@ -47,6 +47,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"name"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 int existingIdx = vcBridge->findPageByName(name);
                 if (existingIdx >= 0)
@@ -86,6 +88,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"pageIndex", "parentID", "x", "y", "width", "height", "caption", "solo", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 QString caption = QString::fromStdString(item.at("caption").get<std::string>());
                 bool solo = item.value("solo", false);
                 bool hasPage = item.contains("pageIndex");
@@ -195,6 +199,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "caption", "action", "functionID", "functionName", "bgColor", "fgColor", "stopAllFadeTime"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 QString caption = QString::fromStdString(item.at("caption").get<std::string>());
                 int existingId = vcBridge->findWidgetByCaption(parentID, "Button", caption);
@@ -271,6 +277,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "caption", "mode", "functionID", "functionName", "channels", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 QString caption = QString::fromStdString(item.value("caption", ""));
                 if (!caption.isEmpty())
@@ -295,7 +303,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 if (item.contains("channels"))
                 {
                     for (auto &ch : item.at("channels"))
+                    {
+                        auto chErr = validateFields(ch, {"fixtureID", "channel"});
+                        if (!chErr.empty()) { results.push_back(nlohmann::json::parse(chErr)); continue; }
                         channels.append({ch.at("fixtureID").get<int>(), ch.at("channel").get<int>()});
+                    }
                 }
 
                 int funcID = item.value("functionID", -1);
@@ -346,6 +358,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "size", "fixtureIDs", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int sz = item.at("size").get<int>();
                 QRect geo;
                 if (item.contains("x") && item.contains("y"))
@@ -393,6 +407,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "caption", "chaserID", "chaserName", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 QString caption = QString::fromStdString(item.value("caption", ""));
                 if (!caption.isEmpty())
@@ -461,6 +477,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "text", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 QString text = QString::fromStdString(item.at("text").get<std::string>());
                 int existingId = vcBridge->findWidgetByCaption(parentID, "Label", text);
@@ -509,10 +527,14 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"items", "mode"});
+            if (!err.empty()) return err;
             Json results = Json::array();
             std::string mode = args.value("mode", "replace");
             for (auto &item : args.at("items"))
             {
+                auto itemErr = validateFields(item, {"widgetID", "inputUniverse", "inputChannel"});
+                if (!itemErr.empty()) { results.push_back(nlohmann::json::parse(itemErr)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 quint32 uni = item.at("inputUniverse").get<int>();
                 quint32 ch = item.at("inputChannel").get<int>();
@@ -553,6 +575,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"widgetID", "activeValue", "idleValue", "monitorValue", "idleMode", "activeMode", "monitorMode"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 int activeVal = item.at("activeValue").get<int>();
                 int idleVal = item.value("idleValue", 0);
@@ -604,6 +628,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"widgetID", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
                 QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
@@ -640,6 +666,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "functionIDs", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 int w = item.value("width", 200);
                 int h = item.value("height", 200);
@@ -686,6 +714,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 int w = item.value("width", 300);
                 int h = item.value("height", 150);
@@ -730,6 +760,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "clockType", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 int w = item.value("width", 200);
                 int h = item.value("height", 60);
@@ -816,6 +848,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"pageName", "sections", "pageWidth", "buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight"});
+            if (!err.empty()) return err;
             QString pageName = QString::fromStdString(args.at("pageName").get<std::string>());
 
             // Find or create the page
@@ -879,6 +913,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
 
             for (auto &section : args.at("sections"))
             {
+                auto secErr = validateFields(section, {"caption", "solo", "columns", "bgColor", "fgColor", "buttons", "sliders"});
+                if (!secErr.empty()) { sectionsResult.push_back(nlohmann::json::parse(secErr)); continue; }
                 QString caption = QString::fromStdString(section.at("caption").get<std::string>());
                 bool solo = section.value("solo", false);
                 int columns = section.value("columns", 0);
@@ -946,6 +982,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     int btnIdx = 0;
                     for (auto &btn : section.at("buttons"))
                     {
+                        auto btnErr = validateFields(btn, {"caption", "functionName", "functionID", "action", "bgColor", "fgColor", "inputUniverse", "inputChannel", "idleValue", "activeValue", "monitorValue", "idleMode", "activeMode", "monitorMode", "stopAllFadeTime"});
+                        if (!btnErr.empty()) { buttonsResult.push_back(nlohmann::json::parse(btnErr)); continue; }
                         QString btnCaption = QString::fromStdString(btn.at("caption").get<std::string>());
                         int btnID = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
                         std::string status;
@@ -1003,6 +1041,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     int sliderIdx = 0;
                     for (auto &sl : section.at("sliders"))
                     {
+                        auto slErr = validateFields(sl, {"caption", "mode", "functionName", "functionID", "channels", "bgColor", "fgColor", "inputUniverse", "inputChannel"});
+                        if (!slErr.empty()) { slidersResult.push_back(nlohmann::json::parse(slErr)); continue; }
                         QString slCaption = QString::fromStdString(sl.at("caption").get<std::string>());
                         int slID = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
                         std::string status;
@@ -1036,6 +1076,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                             {
                                 for (auto &ch : sl.at("channels"))
                                 {
+                                    auto chErr = validateFields(ch, {"fixtureID", "channel"});
+                                    if (!chErr.empty()) { slidersResult.push_back(nlohmann::json::parse(chErr)); continue; }
                                     if (ch.contains("fixtureID") && ch.contains("channel"))
                                         channels.append(qMakePair(
                                             (quint32)ch.at("fixtureID").get<int>(),
@@ -1090,6 +1132,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"widgetIDs"});
+            if (!err.empty()) return err;
             Json results = Json::array();
             for (auto &wid : args.at("widgetIDs"))
             {
@@ -1185,6 +1229,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"widgetID", "caption", "x", "y", "width", "height", "functionID", "action", "mode", "channels", "bgColor", "fgColor"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 Json changes = Json::array();
 
@@ -1235,9 +1281,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {
                     QList<QPair<quint32, quint32>> channels;
                     for (auto &ch : item.at("channels"))
+                    {
+                        auto chErr = validateFields(ch, {"fixtureID", "channel"});
+                        if (!chErr.empty()) { results.push_back(nlohmann::json::parse(chErr)); continue; }
                         channels.append(qMakePair(
                             (quint32)ch.at("fixtureID").get<int>(),
                             (quint32)ch.at("channel").get<int>()));
+                    }
                     bool ok = vcBridge->setSliderChannels(wid, channels);
                     changes.push_back({{"property", "channels"}, {"status", ok ? "ok" : "failed"}});
                 }
@@ -1285,6 +1335,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                auto err = validateFields(item, {"widgetID", "newParentID", "x", "y", "width", "height"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 int newParent = item.at("newParentID").get<int>();
 
@@ -1320,6 +1372,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"ids"});
+            if (!err.empty()) return err;
             Json results = Json::array();
             for (auto &wid : args.at("ids"))
             {
