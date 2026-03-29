@@ -536,6 +536,61 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             for (auto &item : args.at("items"))
             {
                 std::string name = item.at("name").get<std::string>();
+                // Validate commands before building script
+                Json cmdErrors = Json::array();
+                int lineNum = 0;
+                for (auto &cmd : item.at("commands"))
+                {
+                    lineNum++;
+                    if (!cmd.contains("type"))
+                    {
+                        cmdErrors.push_back({{"line", lineNum}, {"error", "missing 'type' field"}});
+                        continue;
+                    }
+                    std::string type = cmd.at("type").get<std::string>();
+                    if (type == "startfunction" || type == "stopfunction")
+                    {
+                        if (!cmd.contains("functionID"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", type + " requires 'functionID'"}});
+                    }
+                    else if (type == "wait")
+                    {
+                        if (!cmd.contains("time"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", "wait requires 'time' (ms)"}});
+                    }
+                    else if (type == "setfixture")
+                    {
+                        if (!cmd.contains("fixtureID") || !cmd.contains("channel") || !cmd.contains("value"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", "setfixture requires 'fixtureID', 'channel', 'value'"}});
+                    }
+                    else if (type == "blackout")
+                    {
+                        if (!cmd.contains("state"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", "blackout requires 'state' ('on' or 'off')"}});
+                    }
+                    else if (type == "label")
+                    {
+                        if (!cmd.contains("name"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", "label requires 'name'"}});
+                    }
+                    else if (type == "jump")
+                    {
+                        if (!cmd.contains("label"))
+                            cmdErrors.push_back({{"line", lineNum}, {"error", "jump requires 'label'"}});
+                    }
+                    else
+                    {
+                        cmdErrors.push_back({{"line", lineNum}, {"error", "unknown command type: " + type}});
+                    }
+                }
+
+                if (!cmdErrors.empty())
+                {
+                    results.push_back({{"error", "script validation failed"}, {"name", name}, {"validationErrors", cmdErrors}});
+                    continue;
+                }
+
+                // Build script data string
                 QString scriptData;
 
                 for (auto &cmd : item.at("commands"))
