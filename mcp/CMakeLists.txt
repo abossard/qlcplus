@@ -44,3 +44,5 @@ target_link_libraries(qlcplusmcp PRIVATE
 )
 target_compile_definitions(qlcplusmcp PUBLIC HAS_MCP_SERVER)
 target_compile_features(qlcplusmcp PUBLIC cxx_std_17)
+
+add_subdirectory(test)
