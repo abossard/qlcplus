@@ -146,7 +146,7 @@ The user connects these to their audio source (OS2L, audio input, or external OS
 | Slider | Channel Group | Purpose |
 |--------|--------------|---------|
 | Bass Pulse | Dimmer channels (pars/wash) | Fixtures pulse with kick drum |
-| Mid Drive | Gobo rotation / movement speed | Texture responds to melody |
+| Mid Drive | Gobo rotation + prism rotation | Texture and beam spread breathe with melody |
 | Treble Flash | Strobe/shutter channels | High-frequency accents trigger flashes |
 | Master | Submaster (all) | Overall brightness cap |
 
