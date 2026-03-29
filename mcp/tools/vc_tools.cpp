@@ -717,6 +717,176 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         std::nullopt
     ));
 
+    // build_show_page — composite: creates a full VC page with sections in one call
+    {
+    Json buttonSchema = Json{{"type", "object"}, {"properties", {
+        {"caption", {{"type", "string"}}},
+        {"functionName", {{"type", "string"}, {"description", "Function name to resolve"}}},
+        {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}},
+        {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button action (default toggle)"}}}
+    }}, {"required", {"caption"}}};
+    Json sliderSchema = Json{{"type", "object"}, {"properties", {
+        {"caption", {{"type", "string"}}},
+        {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
+        {"functionName", {{"type", "string"}, {"description", "Function name (for playback mode)"}}},
+        {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}}
+    }}, {"required", {"caption", "mode"}}};
+    Json sectionSchema = Json{{"type", "object"}, {"properties", {
+        {"caption", {{"type", "string"}}},
+        {"solo", {{"type", "boolean"}, {"description", "If true, only one child can be active at a time (SoloFrame). Default false."}}},
+        {"buttons", {{"type", "array"}, {"items", buttonSchema}}},
+        {"sliders", {{"type", "array"}, {"items", sliderSchema}}}
+    }}, {"required", {"caption"}}};
+    Json buildPageSchema = Json{{"type", "object"}, {"properties", {
+        {"pageName", {{"type", "string"}}},
+        {"sections", {{"type", "array"}, {"items", sectionSchema}}}
+    }}, {"required", {"pageName", "sections"}}};
+    tm.register_tool(Tool(
+        "build_show_page",
+        buildPageSchema,
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            QString pageName = QString::fromStdString(args.at("pageName").get<std::string>());
+
+            // Find or create the page
+            int pageIndex = vcBridge->findPageByName(pageName);
+            if (pageIndex < 0)
+                pageIndex = vcBridge->addPage(pageName);
+
+            Json sectionsResult = Json::array();
+            int frameY = 5;
+            const int frameWidth = 400;
+            const int framePad = 10;
+
+            for (auto &section : args.at("sections"))
+            {
+                QString caption = QString::fromStdString(section.at("caption").get<std::string>());
+                bool solo = section.value("solo", false);
+
+                // Count children to estimate frame height
+                int btnCount = section.contains("buttons") ? (int)section.at("buttons").size() : 0;
+                int sliderCount = section.contains("sliders") ? (int)section.at("sliders").size() : 0;
+                // 40px header + 65px per button row + 205px per slider row + padding
+                int frameHeight = 40 + btnCount * 65 + sliderCount * 205 + 10;
+                if (frameHeight < 80) frameHeight = 80;
+
+                // Find or create the frame
+                int frameID = -1;
+                for (const auto &page : vcBridge->pages())
+                {
+                    if (page.index == pageIndex)
+                    {
+                        for (const auto &w : page.widgets)
+                        {
+                            if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                            {
+                                frameID = w.id;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (frameID < 0)
+                {
+                    QRect frameGeo(5, frameY, frameWidth, frameHeight);
+                    frameID = vcBridge->addFrame(pageIndex, frameGeo, caption, solo);
+                }
+                frameY += frameHeight + framePad;
+
+                Json sectionResult;
+                sectionResult["widgetID"] = frameID;
+                sectionResult["caption"] = caption.toStdString();
+
+                // Create buttons inside frame
+                Json buttonsResult = Json::array();
+                if (section.contains("buttons"))
+                {
+                    for (auto &btn : section.at("buttons"))
+                    {
+                        QString btnCaption = QString::fromStdString(btn.at("caption").get<std::string>());
+                        int existingBtn = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
+                        if (existingBtn >= 0)
+                        {
+                            buttonsResult.push_back({{"widgetID", existingBtn}, {"status", "existing"}});
+                            continue;
+                        }
+
+                        int funcID = -1;
+                        if (btn.contains("functionName"))
+                        {
+                            quint32 fid = mcp::resolveFunctionByName(doc,
+                                QString::fromStdString(btn.at("functionName").get<std::string>()));
+                            if (fid != Function::invalidId()) funcID = (int)fid;
+                        }
+                        if (btn.contains("functionID"))
+                            funcID = btn.at("functionID").get<int>();
+
+                        QRect geo = vcBridge->nextWidgetPosition(frameID, 100, 60);
+                        int btnID = vcBridge->addButton(
+                            frameID, geo,
+                            funcID >= 0 ? (quint32)funcID : Function::invalidId(),
+                            btnCaption,
+                            QString::fromStdString(btn.value("action", "toggle")),
+                            0);
+                        buttonsResult.push_back({{"widgetID", btnID}, {"status", "created"}});
+                    }
+                }
+                sectionResult["buttons"] = buttonsResult;
+
+                // Create sliders inside frame
+                Json slidersResult = Json::array();
+                if (section.contains("sliders"))
+                {
+                    for (auto &sl : section.at("sliders"))
+                    {
+                        QString slCaption = QString::fromStdString(sl.at("caption").get<std::string>());
+                        int existingSl = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
+                        if (existingSl >= 0)
+                        {
+                            slidersResult.push_back({{"widgetID", existingSl}, {"status", "existing"}});
+                            continue;
+                        }
+
+                        int funcID = -1;
+                        if (sl.contains("functionName"))
+                        {
+                            quint32 fid = mcp::resolveFunctionByName(doc,
+                                QString::fromStdString(sl.at("functionName").get<std::string>()));
+                            if (fid != Function::invalidId()) funcID = (int)fid;
+                        }
+                        if (sl.contains("functionID"))
+                            funcID = sl.at("functionID").get<int>();
+
+                        QRect geo = vcBridge->nextWidgetPosition(frameID, 60, 200);
+                        QList<QPair<quint32, quint32>> channels;
+                        int slID = vcBridge->addSlider(
+                            frameID, geo,
+                            QString::fromStdString(sl.at("mode").get<std::string>()),
+                            slCaption,
+                            funcID,
+                            channels);
+                        slidersResult.push_back({{"widgetID", slID}, {"status", "created"}});
+                    }
+                }
+                sectionResult["sliders"] = slidersResult;
+
+                sectionsResult.push_back(sectionResult);
+            }
+
+            Json result;
+            result["pageIndex"] = pageIndex;
+            result["sections"] = sectionsResult;
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Build a complete Virtual Console page in one call. Sections become frames (solo=true for mutually exclusive moods). Buttons and sliders auto-layout. Use functionName to reference functions by name."),
+        std::nullopt
+    ));
+    } // end build_show_page schema scope
+
     // delete_widgets (batch)
     tm.register_tool(Tool(
         "delete_widgets",

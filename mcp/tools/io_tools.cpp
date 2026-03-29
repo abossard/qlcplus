@@ -551,4 +551,123 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::string("Set grand master value (0-255), value mode (limit/reduce), and channel mode (intensity/all)."),
         std::nullopt
     ));
+
+    // configure_launchpad — auto-configure a Novation Launchpad in one call
+    tm.register_tool(Tool(
+        "configure_launchpad",
+        Json{{"type", "object"}, {"properties", {
+            {"model", {{"type", "string"}, {"description", "Launchpad model name, e.g. 'Launchpad Mini MK3'"}}}
+        }}, {"required", {"model"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            QString model = QString::fromStdString(args.at("model").get<std::string>());
+            InputOutputMap *ioMap = doc->inputOutputMap();
+
+            // Find the MIDI plugin
+            QLCIOPlugin *midiPlugin = nullptr;
+            for (QLCIOPlugin *p : doc->ioPluginCache()->plugins())
+            {
+                if (p->name() == "MIDI")
+                {
+                    midiPlugin = p;
+                    break;
+                }
+            }
+            if (!midiPlugin)
+                return Json({{"error", "MIDI plugin not found"}}).dump();
+
+            // Scan for matching input/output lines
+            // Select port 2 (line index 1) — the DAW port, NOT port 1 (MIDI port)
+            int inputLine = -1;
+            int outputLine = -1;
+            QStringList inNames = midiPlugin->inputs();
+            for (int i = 0; i < inNames.count(); i++)
+            {
+                if (inNames[i].contains(model, Qt::CaseInsensitive) && inNames[i].contains("MIDI", Qt::CaseInsensitive))
+                {
+                    // Prefer DAW port (second occurrence) over MIDI port (first)
+                    if (inputLine < 0)
+                        inputLine = i;
+                    else
+                        inputLine = i; // overwrite with later (DAW) port
+                }
+            }
+            QStringList outNames = midiPlugin->outputs();
+            for (int i = 0; i < outNames.count(); i++)
+            {
+                if (outNames[i].contains(model, Qt::CaseInsensitive) && outNames[i].contains("MIDI", Qt::CaseInsensitive))
+                {
+                    if (outputLine < 0)
+                        outputLine = i;
+                    else
+                        outputLine = i; // overwrite with later (DAW) port
+                }
+            }
+
+            if (inputLine < 0 && outputLine < 0)
+                return Json({{"error", "Launchpad not found. Connect device and try again."}}).dump();
+
+            // Find a free universe or use universe 0
+            int universeID = -1;
+            for (Universe *uni : ioMap->universes())
+            {
+                InputPatch *inP = ioMap->inputPatch(uni->id());
+                OutputPatch *outP = ioMap->outputPatch(uni->id());
+                bool inFree = !inP || !inP->isPatched();
+                bool outFree = !outP || !outP->isPatched();
+                if (inFree && outFree)
+                {
+                    universeID = (int)uni->id();
+                    break;
+                }
+            }
+            if (universeID < 0)
+                universeID = 0;
+
+            bool ok = true;
+
+            // Set input patch to MIDI DAW port
+            if (inputLine >= 0)
+                ok &= ioMap->setInputPatch(universeID, "MIDI", "", inputLine);
+
+            // Set output patch to MIDI DAW port
+            if (outputLine >= 0)
+                ok &= ioMap->setOutputPatch(universeID, "MIDI", "", outputLine, false);
+
+            // Enable feedback on same port as input
+            InputPatch *inPatch = ioMap->inputPatch(universeID);
+            if (inPatch && inPatch->isPatched())
+                ok &= ioMap->setOutputPatch(universeID, inPatch->pluginName(), "", inPatch->input(), true);
+
+            // Set input profile matching the model
+            for (const QString &profName : ioMap->profileNames())
+            {
+                QLCInputProfile *prof = ioMap->profile(profName);
+                if (prof && prof->name().contains(model, Qt::CaseInsensitive))
+                {
+                    ioMap->setInputProfile(universeID, profName);
+                    break;
+                }
+            }
+
+            // Send Programmer Mode init message
+            QString initMsg = "Novation " + model + " Developer Mode";
+            quint32 line = inputLine >= 0 ? (quint32)inputLine : (quint32)outputLine;
+            midiPlugin->setParameter(universeID, line, QLCIOPlugin::Output,
+                "initmessage", initMsg);
+
+            Json result;
+            result["status"] = ok ? "ok" : "partial";
+            result["universeID"] = universeID;
+            result["inputLine"] = inputLine;
+            result["outputLine"] = outputLine;
+            result["model"] = model.toStdString();
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Auto-configure a Novation Launchpad. Detects the device, selects the correct DAW port (not MIDI port), sends Programmer Mode init message, sets input profile, enables LED feedback. Single call."),
+        std::nullopt
+    ));
 }
