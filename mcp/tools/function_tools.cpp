@@ -23,11 +23,13 @@
 #include "scene.h"
 #include "chaser.h"
 #include "chaserstep.h"
+#include "sequence.h"
 #include "collection.h"
 #include "efx.h"
 #include "efxfixture.h"
 #include "rgbmatrix.h"
 #include "fixturegroup.h"
+#include "script.h"
 #include "qlcchannel.h"
 #include "scenevalue.h"
 
@@ -235,6 +237,66 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt
     ));
 
+    // create_sequences (batch)
+    tm.register_tool(Tool(
+        "create_sequences",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"name", {{"type", "string"}}},
+                {"boundSceneID", {{"type", "integer"}, {"description", "Scene ID this sequence is bound to"}}},
+                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time per step in ms (default 0)"}}},
+                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time per step in ms (default 0)"}}},
+                {"holdTime", {{"type", "integer"}, {"description", "Hold/duration per step in ms (default 1000)"}}},
+                {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
+                {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}}
+            }}, {"required", {"name", "boundSceneID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            try {
+            Json results = Json::array();
+            if (!args.contains("items") || !args["items"].is_array())
+                return Json({{"error","items array required"}}).dump();
+            for (auto &item : args["items"])
+            {
+                if (!item.contains("name") || !item.contains("boundSceneID"))
+                {
+                    results.push_back({{"error","name and boundSceneID required"}});
+                    continue;
+                }
+                Sequence *seq = new Sequence(doc);
+                seq->setName(QString::fromStdString(item["name"].get<std::string>()));
+                seq->setBoundSceneID(item["boundSceneID"].get<int>());
+
+                seq->setFadeInSpeed(item.value("fadeIn", 0));
+                seq->setFadeOutSpeed(item.value("fadeOut", 0));
+                seq->setDuration(item.value("holdTime", 1000));
+
+                QString order = QString::fromStdString(item.value("runOrder", "loop"));
+                if (order == "single") seq->setRunOrder(Function::SingleShot);
+                else if (order == "pingpong") seq->setRunOrder(Function::PingPong);
+                else if (order == "random") seq->setRunOrder(Function::Random);
+                else seq->setRunOrder(Function::Loop);
+
+                QString dir = QString::fromStdString(item.value("direction", "forward"));
+                if (dir == "backward") seq->setDirection(Function::Backward);
+                else seq->setDirection(Function::Forward);
+
+                doc->addFunction(seq);
+                results.push_back({{"id", (int)seq->id()}, {"name", seq->name().toStdString()}});
+            }
+            return results.dump();
+            } catch (const std::exception &e) {
+                return Json({{"error", e.what()}}).dump();
+            }
+            });
+        },
+        std::nullopt,
+        std::string("Create sequences bound to scenes. Sequences inherit from Chaser and auto-generate steps from scene values. Batch."),
+        std::nullopt
+    ));
+
     // create_efxs (batch)
     tm.register_tool(Tool(
         "create_efxs",
@@ -395,6 +457,123 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Create RGB matrix color animations. Batch: pass multiple in 'items'."),
+        std::nullopt
+    ));
+
+    // create_fixture_groups (batch)
+    tm.register_tool(Tool(
+        "create_fixture_groups",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"name", {{"type", "string"}}},
+                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"columns", {{"type", "integer"}, {"description", "Grid width (default: fixture count)"}}},
+                {"rows", {{"type", "integer"}, {"description", "Grid height (default: 1)"}}}
+            }}, {"required", {"name", "fixtureIDs"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                std::string name = item["name"].get<std::string>();
+                auto fixtureIDs = item["fixtureIDs"];
+                int count = (int)fixtureIDs.size();
+                int columns = item.value("columns", count);
+                int rows = item.value("rows", 1);
+
+                FixtureGroup *group = new FixtureGroup(doc);
+                group->setName(QString::fromStdString(name));
+                group->setSize(QSize(columns, rows));
+
+                int col = 0, row = 0;
+                for (auto &fid : fixtureIDs)
+                {
+                    group->assignFixture(fid.get<int>(), QLCPoint(col, row));
+                    col++;
+                    if (col >= columns)
+                    {
+                        col = 0;
+                        row++;
+                    }
+                }
+
+                doc->addFixtureGroup(group);
+                results.push_back({{"id", (int)group->id()}, {"name", name}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Create fixture groups with grid layout. Batch: pass multiple in 'items'."),
+        std::nullopt
+    ));
+
+    // create_scripts (batch)
+    tm.register_tool(Tool(
+        "create_scripts",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"name", {{"type", "string"}}},
+                {"commands", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"type", {{"type", "string"}, {"description", "Command type: startfunction, stopfunction, wait, setfixture, blackout, label, jump"}}},
+                    {"functionID", {{"type", "integer"}, {"description", "Function ID (for startfunction/stopfunction)"}}},
+                    {"time", {{"type", "integer"}, {"description", "Wait time in ms (for wait)"}}},
+                    {"fixtureID", {{"type", "integer"}, {"description", "Fixture ID (for setfixture)"}}},
+                    {"channel", {{"type", "integer"}, {"description", "Channel number (for setfixture)"}}},
+                    {"value", {{"type", "integer"}, {"description", "DMX value 0-255 (for setfixture)"}}},
+                    {"state", {{"type", "string"}, {"description", "'on' or 'off' (for blackout)"}}},
+                    {"name", {{"type", "string"}, {"description", "Label name (for label/jump)"}}},
+                    {"label", {{"type", "string"}, {"description", "Target label (for jump)"}}}
+                }}}}}}
+            }}, {"required", {"name", "commands"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                std::string name = item["name"].get<std::string>();
+                QString scriptData;
+
+                for (auto &cmd : item["commands"])
+                {
+                    std::string type = cmd["type"].get<std::string>();
+                    if (type == "startfunction")
+                        scriptData += QString("startfunction:%1\n").arg(cmd["functionID"].get<int>());
+                    else if (type == "stopfunction")
+                        scriptData += QString("stopfunction:%1\n").arg(cmd["functionID"].get<int>());
+                    else if (type == "wait")
+                        scriptData += QString("wait:%1\n").arg(cmd["time"].get<int>());
+                    else if (type == "setfixture")
+                        scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
+                            .arg(cmd["fixtureID"].get<int>())
+                            .arg(cmd["channel"].get<int>())
+                            .arg(cmd["value"].get<int>());
+                    else if (type == "blackout")
+                        scriptData += QString("blackout:%1\n")
+                            .arg(QString::fromStdString(cmd["state"].get<std::string>()));
+                    else if (type == "label")
+                        scriptData += QString("label:%1\n")
+                            .arg(QString::fromStdString(cmd["name"].get<std::string>()));
+                    else if (type == "jump")
+                        scriptData += QString("jump:%1\n")
+                            .arg(QString::fromStdString(cmd["label"].get<std::string>()));
+                }
+
+                Script *script = new Script(doc);
+                script->setName(QString::fromStdString(name));
+                script->setData(scriptData);
+                doc->addFunction(script);
+                results.push_back({{"id", (int)script->id()}, {"name", name}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Batch."),
         std::nullopt
     ));
 

@@ -67,6 +67,14 @@ public:
                          const QColor &bgColor = QColor(),
                          const QColor &fgColor = QColor()) override;
 
+    int addSpeedDial(int parentID, const QRect &geometry,
+                     const QList<quint32> &functionIDs) override;
+
+    int addAudioTriggers(int parentID, const QRect &geometry) override;
+
+    int addClock(int parentID, const QRect &geometry,
+                 const QString &clockType) override;
+
 private:
     Doc *m_doc;
     VirtualConsole *m_vc;

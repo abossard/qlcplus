@@ -447,4 +447,122 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         std::string("Set background and/or foreground colors on existing Virtual Console widgets. Batch."),
         std::nullopt
     ));
+
+    // add_vc_speed_dials (batch)
+    tm.register_tool(Tool(
+        "add_vc_speed_dials",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"parentID", {{"type", "integer"}, {"description", "Frame or page widget ID"}}},
+                {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
+                {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
+                {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Chasers/EFX/sequences whose speed this dial controls"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #003366)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
+            }}, {"required", {"parentID", "x", "y", "width", "height", "functionIDs"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
+                          item["width"].get<int>(), item["height"].get<int>());
+                QList<quint32> funcIDs;
+                for (auto &fid : item["functionIDs"])
+                    funcIDs.append(fid.get<int>());
+                int id = vcBridge->addSpeedDial(item["parentID"].get<int>(), geo, funcIDs);
+                results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Add speed dial widgets to control chaser/EFX/sequence speed with tap tempo. Batch."),
+        std::nullopt
+    ));
+
+    // add_vc_audio_triggers (batch)
+    tm.register_tool(Tool(
+        "add_vc_audio_triggers",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"parentID", {{"type", "integer"}, {"description", "Frame or page widget ID"}}},
+                {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
+                {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a0000)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ff6666)"}}}
+            }}, {"required", {"parentID", "x", "y", "width", "height"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
+                          item["width"].get<int>(), item["height"].get<int>());
+                int id = vcBridge->addAudioTriggers(item["parentID"].get<int>(), geo);
+                results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Add audio trigger widgets for sound-reactive lighting. Configure individual frequency bars separately. Batch."),
+        std::nullopt
+    ));
+
+    // add_vc_clocks (batch)
+    tm.register_tool(Tool(
+        "add_vc_clocks",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"parentID", {{"type", "integer"}, {"description", "Frame or page widget ID"}}},
+                {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
+                {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
+                {"clockType", {{"type", "string"}, {"enum", {"clock", "stopwatch", "countdown"}}, {"description", "Clock type (default clock)"}}},
+                {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a1a1a)"}}},
+                {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
+            }}, {"required", {"parentID", "x", "y", "width", "height"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args["items"])
+            {
+                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
+                          item["width"].get<int>(), item["height"].get<int>());
+                int id = vcBridge->addClock(
+                    item["parentID"].get<int>(), geo,
+                    QString::fromStdString(item.value("clockType", "clock")));
+                results.push_back({{"widgetID", id}});
+                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                {
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    vcBridge->setWidgetColors(id, bg, fg);
+                }
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Add clock widgets (real-time clock, stopwatch, or countdown timer). Batch."),
+        std::nullopt
+    ));
 }

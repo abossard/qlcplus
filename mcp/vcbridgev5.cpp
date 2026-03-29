@@ -27,6 +27,9 @@
 #include "vcxypad.h"
 #include "vccuelist.h"
 #include "vclabel.h"
+#include "vcspeeddial.h"
+#include "vcaudiotriggers.h"
+#include "vcclock.h"
 #include "vcwidget.h"
 #include "doc.h"
 #include "fixture.h"
@@ -257,4 +260,64 @@ bool VCBridgeV5::setWidgetColors(int widgetID, const QColor &bgColor, const QCol
     if (fgColor.isValid())
         widget->setForegroundColor(fgColor);
     return true;
+}
+
+int VCBridgeV5::addSpeedDial(int parentID, const QRect &geometry,
+                              const QList<quint32> &functionIDs)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Speed",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+
+    VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
+    if (speedDial)
+    {
+        speedDial->setGeometry(geometry);
+        for (quint32 fid : functionIDs)
+            speedDial->addFunction(fid);
+    }
+    return widget->id();
+}
+
+int VCBridgeV5::addAudioTriggers(int parentID, const QRect &geometry)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Audio Triggers",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+
+    widget->setGeometry(geometry);
+    return widget->id();
+}
+
+int VCBridgeV5::addClock(int parentID, const QRect &geometry,
+                          const QString &clockType)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Clock",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+
+    VCClock *clock = qobject_cast<VCClock *>(widget);
+    if (clock)
+    {
+        clock->setGeometry(geometry);
+        if (clockType == "stopwatch")
+            clock->setClockType(VCClock::Stopwatch);
+        else if (clockType == "countdown")
+            clock->setClockType(VCClock::Countdown);
+        else
+            clock->setClockType(VCClock::Clock);
+    }
+    return widget->id();
 }

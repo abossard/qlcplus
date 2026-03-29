@@ -26,6 +26,8 @@
 #include "ioplugincache.h"
 #include "qlcioplugin.h"
 #include "qlcinputprofile.h"
+#include "mastertimer.h"
+#include "grandmaster.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -450,6 +452,103 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Show current OSC configuration for all universes that have OSC patched. Returns ports, IPs, and line numbers."),
+        std::nullopt
+    ));
+
+    // configure_beat_source — set beat generator type and optional BPM
+    tm.register_tool(Tool(
+        "configure_beat_source",
+        Json{{"type", "object"}, {"properties", {
+            {"type", {{"type", "string"}, {"description", "Beat source: disabled, internal, plugin (OS2L/MIDI), audio"}}},
+            {"bpm", {{"type", "integer"}, {"description", "BPM value (only for internal, default 120)"}}}
+        }}, {"required", {"type"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            InputOutputMap *ioMap = doc->inputOutputMap();
+            std::string typeStr = args["type"].get<std::string>();
+
+            InputOutputMap::BeatGeneratorType beatType;
+            if (typeStr == "disabled")
+                beatType = InputOutputMap::Disabled;
+            else if (typeStr == "internal")
+                beatType = InputOutputMap::Internal;
+            else if (typeStr == "plugin")
+                beatType = InputOutputMap::Plugin;
+            else if (typeStr == "midi")
+                beatType = InputOutputMap::Plugin;
+            else if (typeStr == "audio")
+                beatType = InputOutputMap::Audio;
+            else
+                return Json({{"error", "Invalid type. Use: disabled, internal, plugin, audio"}}).dump();
+
+            ioMap->setBeatGeneratorType(beatType);
+
+            if (beatType == InputOutputMap::Internal)
+            {
+                int bpm = args.value("bpm", 120);
+                ioMap->setBpmNumber(bpm);
+            }
+
+            Json result;
+            result["beatSource"] = typeStr;
+            result["bpm"] = ioMap->bpmNumber();
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Set beat generator source: disabled, internal (with BPM), plugin (OS2L/MIDI beat input), audio (mic/line-in beat detection)."),
+        std::nullopt
+    ));
+
+    // set_grand_master — control grand master value and mode
+    tm.register_tool(Tool(
+        "set_grand_master",
+        Json{{"type", "object"}, {"properties", {
+            {"value", {{"type", "integer"}, {"description", "Grand master value 0-255"}}},
+            {"valueMode", {{"type", "string"}, {"description", "'limit' or 'reduce'"}}},
+            {"channelMode", {{"type", "string"}, {"description", "'intensity' or 'all'"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            InputOutputMap *ioMap = doc->inputOutputMap();
+
+            if (args.contains("value"))
+            {
+                int val = args["value"].get<int>();
+                if (val < 0) val = 0;
+                if (val > 255) val = 255;
+                ioMap->setGrandMasterValue(static_cast<uchar>(val));
+            }
+
+            if (args.contains("valueMode"))
+            {
+                std::string mode = args["valueMode"].get<std::string>();
+                if (mode == "limit")
+                    ioMap->setGrandMasterValueMode(GrandMaster::Limit);
+                else if (mode == "reduce")
+                    ioMap->setGrandMasterValueMode(GrandMaster::Reduce);
+            }
+
+            if (args.contains("channelMode"))
+            {
+                std::string mode = args["channelMode"].get<std::string>();
+                if (mode == "intensity")
+                    ioMap->setGrandMasterChannelMode(GrandMaster::Intensity);
+                else if (mode == "all")
+                    ioMap->setGrandMasterChannelMode(GrandMaster::AllChannels);
+            }
+
+            Json result;
+            result["value"] = (int)ioMap->grandMasterValue();
+            result["valueMode"] = (ioMap->grandMasterValueMode() == GrandMaster::Limit) ? "limit" : "reduce";
+            result["channelMode"] = (ioMap->grandMasterChannelMode() == GrandMaster::Intensity) ? "intensity" : "all";
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Set grand master value (0-255), value mode (limit/reduce), and channel mode (intensity/all)."),
         std::nullopt
     ));
 }

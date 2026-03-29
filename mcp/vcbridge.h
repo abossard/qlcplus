@@ -94,6 +94,17 @@ public:
     virtual bool setWidgetColors(int widgetID,
                                  const QColor &bgColor = QColor(),
                                  const QColor &fgColor = QColor()) = 0;
+
+    // Speed Dial widget
+    virtual int addSpeedDial(int parentID, const QRect &geometry,
+                             const QList<quint32> &functionIDs) = 0;
+
+    // Audio Triggers widget
+    virtual int addAudioTriggers(int parentID, const QRect &geometry) = 0;
+
+    // Clock widget
+    virtual int addClock(int parentID, const QRect &geometry,
+                         const QString &clockType) = 0;
 };
 
 #endif // VCBRIDGE_H
