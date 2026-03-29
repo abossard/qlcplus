@@ -20,6 +20,7 @@
 #include "tool_registry.h"
 #include "vcbridge.h"
 #include "doc.h"
+#include "function.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -108,10 +109,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"functionID", {{"type", "integer"}}},
                 {"caption", {{"type", "string"}}},
-                {"action", {{"type", "string"}, {"enum", {"toggle", "flash"}}, {"description", "Button behavior (default toggle)"}}},
+                {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button behavior: toggle (start/stop), flash (hold), blackout (system blackout toggle), stopall (stop all functions/panic)"}}},
+                {"stopAllFadeTime", {{"type", "integer"}, {"description", "Fade out time in ms before stopping all functions (only for stopall action, default 0 = immediate)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "x", "y", "width", "height", "functionID", "caption"}}}}}}
+            }}, {"required", {"parentID", "x", "y", "width", "height", "caption"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -121,11 +123,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             {
                 QRect geo(item["x"].get<int>(), item["y"].get<int>(),
                           item["width"].get<int>(), item["height"].get<int>());
+                int funcID = item.value("functionID", -1);
                 int id = vcBridge->addButton(
                     item["parentID"].get<int>(), geo,
-                    item["functionID"].get<int>(),
+                    funcID >= 0 ? (quint32)funcID : Function::invalidId(),
                     QString::fromStdString(item["caption"].get<std::string>()),
-                    QString::fromStdString(item.value("action", "toggle")));
+                    QString::fromStdString(item.value("action", "toggle")),
+                    item.value("stopAllFadeTime", 0));
 
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -139,7 +143,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Add buttons linked to functions. Use action='flash' for strobes. Batch."),
+        std::string("Add buttons. Actions: toggle (start/stop function), flash (hold to activate), blackout (toggle system blackout), stopall (panic — stop all functions with optional fade). Batch."),
         std::nullopt
     ));
 

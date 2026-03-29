@@ -242,10 +242,24 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
-                {"algorithm", {{"type", "string"}, {"enum", {"Circle", "Eight", "Line", "Diamond", "Square", "Lissajous"}}}},
-                {"width", {{"type", "integer"}, {"description", "Width 0-255 (default 127)"}}},
-                {"height", {{"type", "integer"}, {"description", "Height 0-255 (default 127)"}}},
-                {"speed", {{"type", "integer"}, {"description", "Duration in ms (default 5000)"}}}
+                {"algorithm", {{"type", "string"}, {"enum", {"Circle", "Eight", "Line", "Line2", "Diamond", "Square", "SquareChoppy", "SquareTrue", "Leaf", "Lissajous"}}, {"description", "Pattern algorithm (default Circle)"}}},
+                {"width", {{"type", "integer"}, {"description", "Pattern width 0-255 (default 127)"}}},
+                {"height", {{"type", "integer"}, {"description", "Pattern height 0-255 (default 127)"}}},
+                {"xOffset", {{"type", "integer"}, {"description", "X center offset 0-255 (default 127 = middle)"}}},
+                {"yOffset", {{"type", "integer"}, {"description", "Y center offset 0-255 (default 127 = middle)"}}},
+                {"rotation", {{"type", "integer"}, {"description", "Pattern rotation 0-359 degrees (default 0)"}}},
+                {"startOffset", {{"type", "integer"}, {"description", "Start phase offset 0-359 degrees (default 0)"}}},
+                {"xFrequency", {{"type", "integer"}, {"description", "X frequency 0-5 for Lissajous (default 2)"}}},
+                {"yFrequency", {{"type", "integer"}, {"description", "Y frequency 0-5 for Lissajous (default 3)"}}},
+                {"xPhase", {{"type", "integer"}, {"description", "X phase 0-359 for Lissajous (default 0)"}}},
+                {"yPhase", {{"type", "integer"}, {"description", "Y phase 0-359 for Lissajous (default 0)"}}},
+                {"isRelative", {{"type", "boolean"}, {"description", "Relative to current position (default false)"}}},
+                {"propagationMode", {{"type", "string"}, {"enum", {"Parallel", "Serial", "Asymmetric"}}, {"description", "Multi-fixture propagation (default Parallel)"}}},
+                {"speed", {{"type", "integer"}, {"description", "Duration/cycle time in ms (default 5000)"}}},
+                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
+                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
+                {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong"}}, {"description", "Run order (default loop)"}}},
+                {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}}
             }}, {"required", {"name", "fixtureIDs"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -257,11 +271,47 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 EFX *efx = new EFX(doc);
                 efx->setName(QString::fromStdString(item["name"].get<std::string>()));
 
+                // Algorithm
                 QString algo = QString::fromStdString(item.value("algorithm", "Circle"));
                 efx->setAlgorithm(EFX::stringToAlgorithm(algo));
+
+                // Pattern geometry
                 efx->setWidth(item.value("width", 127));
                 efx->setHeight(item.value("height", 127));
+                efx->setXOffset(item.value("xOffset", 127));
+                efx->setYOffset(item.value("yOffset", 127));
+                efx->setRotation(item.value("rotation", 0));
+                efx->setStartOffset(item.value("startOffset", 0));
+                efx->setIsRelative(item.value("isRelative", false));
+
+                // Lissajous parameters
+                efx->setXFrequency(item.value("xFrequency", 2));
+                efx->setYFrequency(item.value("yFrequency", 3));
+                efx->setXPhase(item.value("xPhase", 0));
+                efx->setYPhase(item.value("yPhase", 0));
+
+                // Propagation mode
+                QString propMode = QString::fromStdString(item.value("propagationMode", "Parallel"));
+                if (propMode == "Serial") efx->setPropagationMode(EFX::Serial);
+                else if (propMode == "Asymmetric") efx->setPropagationMode(EFX::Asymmetric);
+                else efx->setPropagationMode(EFX::Parallel);
+
+                // Speed
                 efx->setDuration(item.value("speed", 5000));
+                if (item.contains("fadeIn"))
+                    efx->setFadeInSpeed(item["fadeIn"].get<int>());
+                if (item.contains("fadeOut"))
+                    efx->setFadeOutSpeed(item["fadeOut"].get<int>());
+
+                // Run order / direction
+                QString order = QString::fromStdString(item.value("runOrder", "loop"));
+                if (order == "single") efx->setRunOrder(Function::SingleShot);
+                else if (order == "pingpong") efx->setRunOrder(Function::PingPong);
+                else efx->setRunOrder(Function::Loop);
+
+                QString dir = QString::fromStdString(item.value("direction", "forward"));
+                if (dir == "backward") efx->setDirection(Function::Backward);
+                else efx->setDirection(Function::Forward);
 
                 for (auto &fid : item["fixtureIDs"])
                 {
@@ -277,7 +327,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create EFX position effects for moving heads. Batch: pass multiple in 'items'."),
+        std::string("Create EFX position effects for moving heads. Full control: algorithm (10 types), geometry (width/height/offset/rotation), Lissajous params (frequency/phase), propagation mode, speed, fade, run order. Batch."),
         std::nullopt
     ));
 

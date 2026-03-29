@@ -39,7 +39,8 @@ public:
 
     int addButton(int parentID, const QRect &geometry,
                   quint32 functionID, const QString &caption,
-                  const QString &action) override;
+                  const QString &action,
+                  int stopAllFadeTime = 0) override;
 
     int addSlider(int parentID, const QRect &geometry,
                   const QString &mode, const QString &caption,

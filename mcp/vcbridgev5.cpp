@@ -86,7 +86,8 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
 
 int VCBridgeV5::addButton(int parentID, const QRect &geometry,
                           quint32 functionID, const QString &caption,
-                          const QString &action)
+                          const QString &action,
+                          int stopAllFadeTime)
 {
     VCWidget *parent = m_vc->widget(parentID);
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
@@ -101,9 +102,19 @@ int VCBridgeV5::addButton(int parentID, const QRect &geometry,
     {
         button->setGeometry(geometry);
         button->setCaption(caption);
-        button->setFunctionID(functionID);
+        if (functionID != Function::invalidId())
+            button->setFunctionID(functionID);
+
         if (action == "flash")
             button->setActionType(VCButton::Flash);
+        else if (action == "blackout")
+            button->setActionType(VCButton::Blackout);
+        else if (action == "stopall")
+        {
+            button->setActionType(VCButton::StopAll);
+            if (stopAllFadeTime > 0)
+                button->setStopAllFadeOutTime(stopAllFadeTime);
+        }
     }
     return widget->id();
 }

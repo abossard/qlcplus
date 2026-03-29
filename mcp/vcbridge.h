@@ -64,7 +64,8 @@ public:
     // Widgets — return widget ID, -1 on failure
     virtual int addButton(int parentID, const QRect &geometry,
                           quint32 functionID, const QString &caption,
-                          const QString &action) = 0;
+                          const QString &action,
+                          int stopAllFadeTime = 0) = 0;
 
     virtual int addSlider(int parentID, const QRect &geometry,
                           const QString &mode, const QString &caption,
