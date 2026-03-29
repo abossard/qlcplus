@@ -105,6 +105,13 @@ public:
     // Clock widget
     virtual int addClock(int parentID, const QRect &geometry,
                          const QString &clockType) = 0;
+
+    // Idempotency lookups (default: not found → always create)
+    virtual int findPageByName(const QString &name) const
+        { Q_UNUSED(name); return -1; }
+    virtual int findWidgetByCaption(int parentID, const QString &widgetType,
+                                    const QString &caption) const
+        { Q_UNUSED(parentID); Q_UNUSED(widgetType); Q_UNUSED(caption); return -1; }
 };
 
 #endif // VCBRIDGE_H

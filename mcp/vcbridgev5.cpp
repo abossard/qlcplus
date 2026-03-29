@@ -33,6 +33,7 @@
 #include "vcwidget.h"
 #include "doc.h"
 #include "fixture.h"
+#include "function.h"
 #include "qlcinputsource.h"
 #include "qlcinputfeedback.h"
 
@@ -49,7 +50,9 @@ int VCBridgeV5::addPage(const QString &name)
 {
     int idx = m_vc->pagesCount();
     m_vc->addPage(idx);
-    Q_UNUSED(name)
+    VCPage *page = m_vc->page(idx);
+    if (page && !name.isEmpty())
+        page->setCaption(name);
     return idx;
 }
 
@@ -62,7 +65,27 @@ QList<VCBridge::PageInfo> VCBridgeV5::pages() const
         if (!page) continue;
         PageInfo pi;
         pi.index = i;
-        pi.name = QString("Page %1").arg(i + 1);
+        pi.name = page->caption().isEmpty()
+            ? QString("Page %1").arg(i + 1) : page->caption();
+
+        // Populate widgets from the page's children
+        for (VCWidget *w : page->children(true))
+        {
+            WidgetInfo wi;
+            wi.id = w->id();
+            wi.type = VCWidget::typeToString(w->type());
+            wi.caption = w->caption();
+            wi.geometry = w->geometry().toRect();
+            wi.functionID = Function::invalidId();
+
+            VCButton *btn = qobject_cast<VCButton *>(w);
+            if (btn) wi.functionID = btn->functionID();
+            VCCueList *cl = qobject_cast<VCCueList *>(w);
+            if (cl) wi.functionID = cl->chaserID();
+
+            pi.widgets.append(wi);
+        }
+
         result.append(pi);
     }
     return result;
@@ -320,4 +343,42 @@ int VCBridgeV5::addClock(int parentID, const QRect &geometry,
             clock->setClockType(VCClock::Clock);
     }
     return widget->id();
+}
+
+int VCBridgeV5::findPageByName(const QString &name) const
+{
+    for (int i = 0; i < m_vc->pagesCount(); i++)
+    {
+        VCPage *page = m_vc->page(i);
+        if (page && page->caption() == name)
+            return i;
+    }
+    return -1;
+}
+
+int VCBridgeV5::findWidgetByCaption(int parentID, const QString &widgetType,
+                                     const QString &caption) const
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    int targetType = VCWidget::UnknownWidget;
+    if (widgetType == "Button") targetType = VCWidget::ButtonWidget;
+    else if (widgetType == "Slider") targetType = VCWidget::SliderWidget;
+    else if (widgetType == "XYPad") targetType = VCWidget::XYPadWidget;
+    else if (widgetType == "Frame") targetType = VCWidget::FrameWidget;
+    else if (widgetType == "Solo frame") targetType = VCWidget::SoloFrameWidget;
+    else if (widgetType == "Speed") targetType = VCWidget::SpeedWidget;
+    else if (widgetType == "CueList") targetType = VCWidget::CueListWidget;
+    else if (widgetType == "Label") targetType = VCWidget::LabelWidget;
+    else if (widgetType == "Audio Triggers") targetType = VCWidget::AudioTriggersWidget;
+    else if (widgetType == "Clock") targetType = VCWidget::ClockWidget;
+
+    for (VCWidget *w : frame->children())
+    {
+        if (w->type() == targetType && w->caption() == caption)
+            return w->id();
+    }
+    return -1;
 }

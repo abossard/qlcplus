@@ -75,6 +75,10 @@ public:
     int addClock(int parentID, const QRect &geometry,
                  const QString &clockType) override;
 
+    int findPageByName(const QString &name) const override;
+    int findWidgetByCaption(int parentID, const QString &widgetType,
+                            const QString &caption) const override;
+
 private:
     Doc *m_doc;
     VirtualConsole *m_vc;

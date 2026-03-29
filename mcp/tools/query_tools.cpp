@@ -19,6 +19,7 @@
 
 #include "tool_registry.h"
 #include "conversions.h"
+#include "idempotency.h"
 #include "vcbridge.h"
 #include "doc.h"
 #include "qlcfixturedefcache.h"
@@ -162,18 +163,35 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
 
                 for (int i = 0; i < quantity; i++)
                 {
+                    QString fxName = quantity > 1 ? QString("%1 %2").arg(name).arg(i + 1) : name;
+                    int fxAddr = address + (mode ? i * mode->channels().size() : i);
+
+                    Fixture *existing = mcp::findFixture(doc, fxName, universe, fxAddr);
+                    if (existing)
+                    {
+                        results.push_back({
+                            {"id", (int)existing->id()},
+                            {"name", existing->name().toStdString()},
+                            {"address", (int)existing->address()},
+                            {"universe", universe},
+                            {"status", "existing"}
+                        });
+                        continue;
+                    }
+
                     Fixture *fxi = new Fixture(doc);
                     fxi->setFixtureDefinition(mutableDef, mode);
-                    fxi->setName(quantity > 1 ? QString("%1 %2").arg(name).arg(i + 1) : name);
+                    fxi->setName(fxName);
                     fxi->setUniverse(universe);
-                    fxi->setAddress(address + (mode ? i * mode->channels().size() : i));
+                    fxi->setAddress(fxAddr);
                     doc->addFixture(fxi);
 
                     results.push_back({
                         {"id", (int)fxi->id()},
                         {"name", fxi->name().toStdString()},
                         {"address", (int)fxi->address()},
-                        {"universe", universe}
+                        {"universe", universe},
+                        {"status", "created"}
                     });
                 }
             }

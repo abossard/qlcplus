@@ -46,8 +46,15 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                int idx = vcBridge->addPage(QString::fromStdString(item.at("name").get<std::string>()));
-                results.push_back({{"pageIndex", idx}});
+                QString name = QString::fromStdString(item.at("name").get<std::string>());
+                int existingIdx = vcBridge->findPageByName(name);
+                if (existingIdx >= 0)
+                {
+                    results.push_back({{"pageIndex", existingIdx}, {"status", "existing"}});
+                    continue;
+                }
+                int idx = vcBridge->addPage(name);
+                results.push_back({{"pageIndex", idx}, {"status", "created"}});
             }
             return results.dump();
             });
@@ -77,13 +84,38 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                QString caption = QString::fromStdString(item.at("caption").get<std::string>());
+                bool solo = item.value("solo", false);
+                int pageIndex = item.at("pageIndex").get<int>();
+
+                // For frames, the parent is the page root widget
+                // Search all pages for a frame with this caption
+                int existingId = -1;
+                for (const auto &page : vcBridge->pages())
+                {
+                    if (page.index == pageIndex)
+                    {
+                        for (const auto &w : page.widgets)
+                        {
+                            if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                            {
+                                existingId = w.id;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (existingId >= 0)
+                {
+                    results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                    continue;
+                }
+
                 QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
                           item.at("width").get<int>(), item.at("height").get<int>());
-                int id = vcBridge->addFrame(
-                    item.at("pageIndex").get<int>(), geo,
-                    QString::fromStdString(item.at("caption").get<std::string>()),
-                    item.value("solo", false));
-                results.push_back({{"widgetID", id}});
+                int id = vcBridge->addFrame(pageIndex, geo, caption, solo);
+                results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
@@ -121,17 +153,26 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                int parentID = item.at("parentID").get<int>();
+                QString caption = QString::fromStdString(item.at("caption").get<std::string>());
+                int existingId = vcBridge->findWidgetByCaption(parentID, "Button", caption);
+                if (existingId >= 0)
+                {
+                    results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                    continue;
+                }
+
                 QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
                           item.at("width").get<int>(), item.at("height").get<int>());
                 int funcID = item.value("functionID", -1);
                 int id = vcBridge->addButton(
-                    item.at("parentID").get<int>(), geo,
+                    parentID, geo,
                     funcID >= 0 ? (quint32)funcID : Function::invalidId(),
-                    QString::fromStdString(item.at("caption").get<std::string>()),
+                    caption,
                     QString::fromStdString(item.value("action", "toggle")),
                     item.value("stopAllFadeTime", 0));
 
-                results.push_back({{"widgetID", id}});
+                results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
@@ -171,6 +212,18 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                int parentID = item.at("parentID").get<int>();
+                QString caption = QString::fromStdString(item.value("caption", ""));
+                if (!caption.isEmpty())
+                {
+                    int existingId = vcBridge->findWidgetByCaption(parentID, "Slider", caption);
+                    if (existingId >= 0)
+                    {
+                        results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                        continue;
+                    }
+                }
+
                 QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
                           item.at("width").get<int>(), item.at("height").get<int>());
 
@@ -182,12 +235,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 }
 
                 int id = vcBridge->addSlider(
-                    item.at("parentID").get<int>(), geo,
+                    parentID, geo,
                     QString::fromStdString(item.at("mode").get<std::string>()),
-                    QString::fromStdString(item.value("caption", "")),
+                    caption,
                     item.value("functionID", -1),
                     channels);
-                results.push_back({{"widgetID", id}});
+                results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
@@ -264,13 +317,25 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                int parentID = item.at("parentID").get<int>();
+                QString caption = QString::fromStdString(item.value("caption", ""));
+                if (!caption.isEmpty())
+                {
+                    int existingId = vcBridge->findWidgetByCaption(parentID, "CueList", caption);
+                    if (existingId >= 0)
+                    {
+                        results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                        continue;
+                    }
+                }
+
                 QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
                           item.at("width").get<int>(), item.at("height").get<int>());
                 int id = vcBridge->addCueList(
-                    item.at("parentID").get<int>(), geo,
+                    parentID, geo,
                     item.at("chaserID").get<int>(),
-                    QString::fromStdString(item.value("caption", "")));
-                results.push_back({{"widgetID", id}});
+                    caption);
+                results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
@@ -305,12 +370,19 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
+                int parentID = item.at("parentID").get<int>();
+                QString text = QString::fromStdString(item.at("text").get<std::string>());
+                int existingId = vcBridge->findWidgetByCaption(parentID, "Label", text);
+                if (existingId >= 0)
+                {
+                    results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                    continue;
+                }
+
                 QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
                           item.at("width").get<int>(), item.at("height").get<int>());
-                int id = vcBridge->addLabel(
-                    item.at("parentID").get<int>(), geo,
-                    QString::fromStdString(item.at("text").get<std::string>()));
-                results.push_back({{"widgetID", id}});
+                int id = vcBridge->addLabel(parentID, geo, text);
+                results.push_back({{"widgetID", id}, {"status", "created"}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
                     QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
