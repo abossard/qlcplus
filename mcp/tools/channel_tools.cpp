@@ -43,7 +43,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             QList<quint32> ids;
             if (args.contains("fixtureIDs"))
-                for (auto &fid : args["fixtureIDs"])
+                for (auto &fid : args.at("fixtureIDs"))
                     ids.append(fid.get<int>());
 
             for (Fixture *fxi : doc->fixtures())
@@ -89,16 +89,16 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                quint32 fxID = item["fixtureID"].get<int>();
-                int ch = item["channel"].get<int>();
+                quint32 fxID = item.at("fixtureID").get<int>();
+                int ch = item.at("channel").get<int>();
                 Fixture *fxi = doc->fixture(fxID);
                 if (!fxi) { results.push_back({{"error", "fixture not found"}}); continue; }
 
                 if (item.contains("precedence"))
                 {
-                    std::string prec = item["precedence"].get<std::string>();
+                    std::string prec = item.at("precedence").get<std::string>();
                     QList<int> htpList = fxi->forcedHTPChannels();
                     QList<int> ltpList = fxi->forcedLTPChannels();
                     htpList.removeAll(ch);
@@ -113,7 +113,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
 
                 if (item.contains("canFade"))
-                    fxi->setChannelCanFade(ch, item["canFade"].get<bool>());
+                    fxi->setChannelCanFade(ch, item.at("canFade").get<bool>());
 
                 results.push_back({{"fixtureID", (int)fxID}, {"channel", ch}, {"status", "ok"}});
             }
@@ -161,11 +161,11 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                quint32 fxID = item["fixtureID"].get<int>();
-                int ch = item["channel"].get<int>();
-                QString modName = QString::fromStdString(item["modifierName"].get<std::string>());
+                quint32 fxID = item.at("fixtureID").get<int>();
+                int ch = item.at("channel").get<int>();
+                QString modName = QString::fromStdString(item.at("modifierName").get<std::string>());
                 Fixture *fxi = doc->fixture(fxID);
                 if (!fxi) { results.push_back({{"error", "fixture not found"}}); continue; }
 

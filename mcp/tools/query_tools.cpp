@@ -77,9 +77,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             for (auto &filter : items)
             {
                 QString mfgFilter = filter.contains("manufacturer")
-                    ? QString::fromStdString(filter["manufacturer"].get<std::string>()) : "";
+                    ? QString::fromStdString(filter.at("manufacturer").get<std::string>()) : "";
                 QString modelFilter = filter.contains("model")
-                    ? QString::fromStdString(filter["model"].get<std::string>()) : "";
+                    ? QString::fromStdString(filter.at("model").get<std::string>()) : "";
 
                 for (const QString &mfg : doc->fixtureDefCache()->manufacturers())
                 {
@@ -135,16 +135,16 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QString mfg = QString::fromStdString(item["manufacturer"].get<std::string>());
-                QString model = QString::fromStdString(item["model"].get<std::string>());
-                QString name = QString::fromStdString(item["name"].get<std::string>());
-                int universe = item["universe"].get<int>();
-                int address = item["address"].get<int>();
+                QString mfg = QString::fromStdString(item.at("manufacturer").get<std::string>());
+                QString model = QString::fromStdString(item.at("model").get<std::string>());
+                QString name = QString::fromStdString(item.at("name").get<std::string>());
+                int universe = item.at("universe").get<int>();
+                int address = item.at("address").get<int>();
                 int quantity = item.value("quantity", 1);
                 QString modeName = item.contains("mode")
-                    ? QString::fromStdString(item["mode"].get<std::string>()) : "";
+                    ? QString::fromStdString(item.at("mode").get<std::string>()) : "";
 
                 const QLCFixtureDef *def = doc->fixtureDefCache()->fixtureDef(mfg, model);
                 if (!def)

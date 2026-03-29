@@ -44,9 +44,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int idx = vcBridge->addPage(QString::fromStdString(item["name"].get<std::string>()));
+                int idx = vcBridge->addPage(QString::fromStdString(item.at("name").get<std::string>()));
                 results.push_back({{"pageIndex", idx}});
             }
             return results.dump();
@@ -75,19 +75,19 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 int id = vcBridge->addFrame(
-                    item["pageIndex"].get<int>(), geo,
-                    QString::fromStdString(item["caption"].get<std::string>()),
+                    item.at("pageIndex").get<int>(), geo,
+                    QString::fromStdString(item.at("caption").get<std::string>()),
                     item.value("solo", false));
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -119,23 +119,23 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 int funcID = item.value("functionID", -1);
                 int id = vcBridge->addButton(
-                    item["parentID"].get<int>(), geo,
+                    item.at("parentID").get<int>(), geo,
                     funcID >= 0 ? (quint32)funcID : Function::invalidId(),
-                    QString::fromStdString(item["caption"].get<std::string>()),
+                    QString::fromStdString(item.at("caption").get<std::string>()),
                     QString::fromStdString(item.value("action", "toggle")),
                     item.value("stopAllFadeTime", 0));
 
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -169,29 +169,29 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
 
                 QList<QPair<quint32, quint32>> channels;
                 if (item.contains("channels"))
                 {
-                    for (auto &ch : item["channels"])
-                        channels.append({ch["fixtureID"].get<int>(), ch["channel"].get<int>()});
+                    for (auto &ch : item.at("channels"))
+                        channels.append({ch.at("fixtureID").get<int>(), ch.at("channel").get<int>()});
                 }
 
                 int id = vcBridge->addSlider(
-                    item["parentID"].get<int>(), geo,
-                    QString::fromStdString(item["mode"].get<std::string>()),
+                    item.at("parentID").get<int>(), geo,
+                    QString::fromStdString(item.at("mode").get<std::string>()),
                     QString::fromStdString(item.value("caption", "")),
                     item.value("functionID", -1),
                     channels);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -220,19 +220,19 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int sz = item["size"].get<int>();
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(), sz, sz);
+                int sz = item.at("size").get<int>();
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(), sz, sz);
                 QList<quint32> fxIDs;
-                for (auto &fid : item["fixtureIDs"])
+                for (auto &fid : item.at("fixtureIDs"))
                     fxIDs.append(fid.get<int>());
-                int id = vcBridge->addXYPad(item["parentID"].get<int>(), geo, fxIDs);
+                int id = vcBridge->addXYPad(item.at("parentID").get<int>(), geo, fxIDs);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -262,19 +262,19 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 int id = vcBridge->addCueList(
-                    item["parentID"].get<int>(), geo,
-                    item["chaserID"].get<int>(),
+                    item.at("parentID").get<int>(), geo,
+                    item.at("chaserID").get<int>(),
                     QString::fromStdString(item.value("caption", "")));
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -303,18 +303,18 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 int id = vcBridge->addLabel(
-                    item["parentID"].get<int>(), geo,
-                    QString::fromStdString(item["text"].get<std::string>()));
+                    item.at("parentID").get<int>(), geo,
+                    QString::fromStdString(item.at("text").get<std::string>()));
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -340,14 +340,14 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 bool ok = vcBridge->mapWidgetInput(
-                    item["widgetID"].get<int>(),
-                    item["inputUniverse"].get<int>(),
-                    item["inputChannel"].get<int>());
+                    item.at("widgetID").get<int>(),
+                    item.at("inputUniverse").get<int>(),
+                    item.at("inputChannel").get<int>());
                 results.push_back({
-                    {"widgetID", item["widgetID"].get<int>()},
+                    {"widgetID", item.at("widgetID").get<int>()},
                     {"status", ok ? "ok" : "failed"}
                 });
             }
@@ -378,10 +378,10 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int wid = item["widgetID"].get<int>();
-                int activeVal = item["activeValue"].get<int>();
+                int wid = item.at("widgetID").get<int>();
+                int activeVal = item.at("activeValue").get<int>();
                 int idleVal = item.value("idleValue", 0);
                 int monitorVal = item.value("monitorValue", 0);
 
@@ -429,11 +429,11 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int wid = item["widgetID"].get<int>();
-                QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                int wid = item.at("widgetID").get<int>();
+                QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                 bool ok = vcBridge->setWidgetColors(wid, bg, fg);
                 results.push_back({
                     {"widgetID", wid},
@@ -465,19 +465,19 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 QList<quint32> funcIDs;
-                for (auto &fid : item["functionIDs"])
+                for (auto &fid : item.at("functionIDs"))
                     funcIDs.append(fid.get<int>());
-                int id = vcBridge->addSpeedDial(item["parentID"].get<int>(), geo, funcIDs);
+                int id = vcBridge->addSpeedDial(item.at("parentID").get<int>(), geo, funcIDs);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -505,16 +505,16 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
-                int id = vcBridge->addAudioTriggers(item["parentID"].get<int>(), geo);
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
+                int id = vcBridge->addAudioTriggers(item.at("parentID").get<int>(), geo);
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }
@@ -543,18 +543,18 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                QRect geo(item["x"].get<int>(), item["y"].get<int>(),
-                          item["width"].get<int>(), item["height"].get<int>());
+                QRect geo(item.at("x").get<int>(), item.at("y").get<int>(),
+                          item.at("width").get<int>(), item.at("height").get<int>());
                 int id = vcBridge->addClock(
-                    item["parentID"].get<int>(), geo,
+                    item.at("parentID").get<int>(), geo,
                     QString::fromStdString(item.value("clockType", "clock")));
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item["bgColor"].get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item["fgColor"].get<std::string>())) : QColor();
+                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                     vcBridge->setWidgetColors(id, bg, fg);
                 }
             }

@@ -49,6 +49,9 @@ auto execOnMainThread(QObject *context, Func &&func) -> decltype(func())
         } catch (const std::exception &e) {
             using Json = nlohmann::json;
             return Json({{"error", e.what()}}).dump();
+        } catch (...) {
+            using Json = nlohmann::json;
+            return Json({{"error", "unknown error"}}).dump();
         }
     };
     if (QThread::currentThread() == context->thread())

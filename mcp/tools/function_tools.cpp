@@ -66,9 +66,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args["items"].is_array())
+            if (!args.contains("items") || !args.at("items").is_array())
                 return Json({{"error","items array required"}}).dump();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 if (!item.contains("name") || !item.contains("fixtureIDs"))
                 {
@@ -76,24 +76,24 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
                 Scene *scene = new Scene(doc);
-                scene->setName(QString::fromStdString(item["name"].get<std::string>()));
+                scene->setName(QString::fromStdString(item.at("name").get<std::string>()));
 
                 if (item.contains("fadeIn"))
-                    scene->setFadeInSpeed(item["fadeIn"].get<int>());
+                    scene->setFadeInSpeed(item.at("fadeIn").get<int>());
                 if (item.contains("fadeOut"))
-                    scene->setFadeOutSpeed(item["fadeOut"].get<int>());
+                    scene->setFadeOutSpeed(item.at("fadeOut").get<int>());
 
                 int intensity = item.value("intensity", 255);
                 bool hasColor = item.contains("color");
                 int r = 0, g = 0, b = 0;
                 if (hasColor)
                 {
-                    r = item["color"].value("r", 0);
-                    g = item["color"].value("g", 0);
-                    b = item["color"].value("b", 0);
+                    r = item.at("color").value("r", 0);
+                    g = item.at("color").value("g", 0);
+                    b = item.at("color").value("b", 0);
                 }
 
-                for (auto &fxId : item["fixtureIDs"])
+                for (auto &fxId : item.at("fixtureIDs"))
                 {
                     quint32 id = fxId.get<int>();
                     Fixture *fxi = doc->fixture(id);
@@ -126,15 +126,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
 
                 // Set arbitrary channel values (for gobos, prism, color wheel, etc.)
-                if (item.contains("channelValues") && item["channelValues"].is_array())
+                if (item.contains("channelValues") && item.at("channelValues").is_array())
                 {
-                    for (auto &cv : item["channelValues"])
+                    for (auto &cv : item.at("channelValues"))
                     {
                         if (!cv.contains("fixtureID") || !cv.contains("channel") || !cv.contains("value"))
                             continue;
-                        quint32 fxID = cv["fixtureID"].get<int>();
-                        quint32 chIdx = cv["channel"].get<int>();
-                        uchar value = cv["value"].get<int>();
+                        quint32 fxID = cv.at("fixtureID").get<int>();
+                        quint32 chIdx = cv.at("channel").get<int>();
+                        uchar value = cv.at("value").get<int>();
                         scene->setValue(SceneValue(fxID, chIdx, value));
                     }
                 }
@@ -176,17 +176,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args["items"].is_array())
+            if (!args.contains("items") || !args.at("items").is_array())
                 return Json({{"error","items array required"}}).dump();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                if (!item.contains("name") || !item.contains("functionIDs") || !item["functionIDs"].is_array())
+                if (!item.contains("name") || !item.contains("functionIDs") || !item.at("functionIDs").is_array())
                 {
                     results.push_back({{"error","name and functionIDs required"}});
                     continue;
                 }
                 Chaser *chaser = new Chaser(doc);
-                chaser->setName(QString::fromStdString(item["name"].get<std::string>()));
+                chaser->setName(QString::fromStdString(item.at("name").get<std::string>()));
 
                 // Speed modes
                 auto parseSpeedMode = [](const std::string &mode) -> Chaser::SpeedMode {
@@ -220,7 +220,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (tempo == "beats") chaser->setTempoType(Function::Beats);
                 else chaser->setTempoType(Function::Time);
 
-                for (auto &fid : item["functionIDs"])
+                for (auto &fid : item.at("functionIDs"))
                     chaser->addStep(ChaserStep(fid.get<int>()));
 
                 doc->addFunction(chaser);
@@ -256,9 +256,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args["items"].is_array())
+            if (!args.contains("items") || !args.at("items").is_array())
                 return Json({{"error","items array required"}}).dump();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 if (!item.contains("name") || !item.contains("boundSceneID"))
                 {
@@ -266,8 +266,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
                 Sequence *seq = new Sequence(doc);
-                seq->setName(QString::fromStdString(item["name"].get<std::string>()));
-                seq->setBoundSceneID(item["boundSceneID"].get<int>());
+                seq->setName(QString::fromStdString(item.at("name").get<std::string>()));
+                seq->setBoundSceneID(item.at("boundSceneID").get<int>());
 
                 seq->setFadeInSpeed(item.value("fadeIn", 0));
                 seq->setFadeOutSpeed(item.value("fadeOut", 0));
@@ -328,10 +328,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 EFX *efx = new EFX(doc);
-                efx->setName(QString::fromStdString(item["name"].get<std::string>()));
+                efx->setName(QString::fromStdString(item.at("name").get<std::string>()));
 
                 // Algorithm
                 QString algo = QString::fromStdString(item.value("algorithm", "Circle"));
@@ -361,9 +361,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 // Speed
                 efx->setDuration(item.value("speed", 5000));
                 if (item.contains("fadeIn"))
-                    efx->setFadeInSpeed(item["fadeIn"].get<int>());
+                    efx->setFadeInSpeed(item.at("fadeIn").get<int>());
                 if (item.contains("fadeOut"))
-                    efx->setFadeOutSpeed(item["fadeOut"].get<int>());
+                    efx->setFadeOutSpeed(item.at("fadeOut").get<int>());
 
                 // Run order / direction
                 QString order = QString::fromStdString(item.value("runOrder", "loop"));
@@ -375,7 +375,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (dir == "backward") efx->setDirection(Function::Backward);
                 else efx->setDirection(Function::Forward);
 
-                for (auto &fid : item["fixtureIDs"])
+                for (auto &fid : item.at("fixtureIDs"))
                 {
                     EFXFixture *ef = new EFXFixture(efx);
                     ef->setHead(GroupHead(fid.get<int>(), 0));
@@ -406,11 +406,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 Collection *col = new Collection(doc);
-                col->setName(QString::fromStdString(item["name"].get<std::string>()));
-                for (auto &fid : item["functionIDs"])
+                col->setName(QString::fromStdString(item.at("name").get<std::string>()));
+                for (auto &fid : item.at("functionIDs"))
                     col->addFunction(fid.get<int>());
                 doc->addFunction(col);
                 results.push_back({{"id", (int)col->id()}, {"name", col->name().toStdString()}});
@@ -439,16 +439,16 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
                 RGBMatrix *matrix = new RGBMatrix(doc);
-                matrix->setName(QString::fromStdString(item["name"].get<std::string>()));
+                matrix->setName(QString::fromStdString(item.at("name").get<std::string>()));
                 if (item.contains("fixtureGroupID"))
-                    matrix->setFixtureGroup(item["fixtureGroupID"].get<int>());
+                    matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
                 if (item.contains("startColor"))
-                    matrix->setColor(0, QColor(QString::fromStdString(item["startColor"].get<std::string>())));
+                    matrix->setColor(0, QColor(QString::fromStdString(item.at("startColor").get<std::string>())));
                 if (item.contains("endColor"))
-                    matrix->setColor(1, QColor(QString::fromStdString(item["endColor"].get<std::string>())));
+                    matrix->setColor(1, QColor(QString::fromStdString(item.at("endColor").get<std::string>())));
                 doc->addFunction(matrix);
                 results.push_back({{"id", (int)matrix->id()}, {"name", matrix->name().toStdString()}});
             }
@@ -475,10 +475,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                std::string name = item["name"].get<std::string>();
-                auto fixtureIDs = item["fixtureIDs"];
+                std::string name = item.at("name").get<std::string>();
+                auto fixtureIDs = item.at("fixtureIDs");
                 int count = (int)fixtureIDs.size();
                 int columns = item.value("columns", count);
                 int rows = item.value("rows", 1);
@@ -533,34 +533,34 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                std::string name = item["name"].get<std::string>();
+                std::string name = item.at("name").get<std::string>();
                 QString scriptData;
 
-                for (auto &cmd : item["commands"])
+                for (auto &cmd : item.at("commands"))
                 {
-                    std::string type = cmd["type"].get<std::string>();
+                    std::string type = cmd.at("type").get<std::string>();
                     if (type == "startfunction")
-                        scriptData += QString("startfunction:%1\n").arg(cmd["functionID"].get<int>());
+                        scriptData += QString("startfunction:%1\n").arg(cmd.at("functionID").get<int>());
                     else if (type == "stopfunction")
-                        scriptData += QString("stopfunction:%1\n").arg(cmd["functionID"].get<int>());
+                        scriptData += QString("stopfunction:%1\n").arg(cmd.at("functionID").get<int>());
                     else if (type == "wait")
-                        scriptData += QString("wait:%1\n").arg(cmd["time"].get<int>());
+                        scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
                     else if (type == "setfixture")
                         scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
-                            .arg(cmd["fixtureID"].get<int>())
-                            .arg(cmd["channel"].get<int>())
-                            .arg(cmd["value"].get<int>());
+                            .arg(cmd.at("fixtureID").get<int>())
+                            .arg(cmd.at("channel").get<int>())
+                            .arg(cmd.at("value").get<int>());
                     else if (type == "blackout")
                         scriptData += QString("blackout:%1\n")
-                            .arg(QString::fromStdString(cmd["state"].get<std::string>()));
+                            .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
                     else if (type == "label")
                         scriptData += QString("label:%1\n")
-                            .arg(QString::fromStdString(cmd["name"].get<std::string>()));
+                            .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
                     else if (type == "jump")
                         scriptData += QString("jump:%1\n")
-                            .arg(QString::fromStdString(cmd["label"].get<std::string>()));
+                            .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
                 }
 
                 Script *script = new Script(doc);
@@ -587,7 +587,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &fid : args["ids"])
+            for (auto &fid : args.at("ids"))
             {
                 int id = fid.get<int>();
                 bool ok = doc->deleteFunction(id);

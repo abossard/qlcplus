@@ -57,34 +57,34 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
             InputOutputMap *ioMap = doc->inputOutputMap();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int uid = item["universeID"].get<int>();
+                int uid = item.at("universeID").get<int>();
                 bool ok = true;
 
                 if (item.contains("name"))
                 {
                     Universe *uni = ioMap->universe(uid);
-                    if (uni) uni->setName(QString::fromStdString(item["name"].get<std::string>()));
+                    if (uni) uni->setName(QString::fromStdString(item.at("name").get<std::string>()));
                 }
                 if (item.contains("inputPlugin") && item.contains("inputLine"))
                 {
                     ok &= ioMap->setInputPatch(uid,
-                        QString::fromStdString(item["inputPlugin"].get<std::string>()),
-                        QString(), item["inputLine"].get<int>());
+                        QString::fromStdString(item.at("inputPlugin").get<std::string>()),
+                        QString(), item.at("inputLine").get<int>());
                 }
                 if (item.contains("outputPlugin") && item.contains("outputLine"))
                 {
                     ok &= ioMap->setOutputPatch(uid,
-                        QString::fromStdString(item["outputPlugin"].get<std::string>()),
-                        QString(), item["outputLine"].get<int>());
+                        QString::fromStdString(item.at("outputPlugin").get<std::string>()),
+                        QString(), item.at("outputLine").get<int>());
                 }
                 if (item.contains("passthrough"))
                 {
                     Universe *uni = ioMap->universe(uid);
-                    if (uni) uni->setPassthrough(item["passthrough"].get<bool>());
+                    if (uni) uni->setPassthrough(item.at("passthrough").get<bool>());
                 }
-                if (item.contains("feedbackEnabled") && item["feedbackEnabled"].get<bool>())
+                if (item.contains("feedbackEnabled") && item.at("feedbackEnabled").get<bool>())
                 {
                     InputPatch *inPatch = ioMap->inputPatch(uid);
                     if (inPatch && inPatch->isPatched())
@@ -117,10 +117,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int uid = item["universeID"].get<int>();
-                QString pluginName = QString::fromStdString(item["plugin"].get<std::string>());
+                int uid = item.at("universeID").get<int>();
+                QString pluginName = QString::fromStdString(item.at("plugin").get<std::string>());
 
                 // Find the plugin
                 QLCIOPlugin *plugin = nullptr;
@@ -165,7 +165,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
 
                 // Set each parameter
-                for (auto &[key, value] : item["params"].items())
+                for (auto &[key, value] : item.at("params").items())
                 {
                     QString qKey = QString::fromStdString(key);
                     QString qValue = QString::fromStdString(value.get<std::string>());
@@ -258,10 +258,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int uid = item["universeID"].get<int>();
-                QString profName = QString::fromStdString(item["profileName"].get<std::string>());
+                int uid = item.at("universeID").get<int>();
+                QString profName = QString::fromStdString(item.at("profileName").get<std::string>());
                 bool ok = doc->inputOutputMap()->setInputProfile(uid, profName);
                 results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
             }
@@ -309,9 +309,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             if (!oscPlugin)
                 return Json({{"error", "OSC plugin not found"}}).dump();
 
-            for (auto &item : args["items"])
+            for (auto &item : args.at("items"))
             {
-                int uid = item["universeID"].get<int>();
+                int uid = item.at("universeID").get<int>();
                 Json result;
                 result["universeID"] = uid;
                 bool ok = true;
@@ -351,19 +351,19 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 if (item.contains("inputPort"))
                     oscPlugin->setParameter(uid, line, QLCIOPlugin::Input,
-                        "inputPort", QVariant(item["inputPort"].get<int>()));
+                        "inputPort", QVariant(item.at("inputPort").get<int>()));
                 if (item.contains("outputIP"))
                     oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "outputIP", QVariant(QString::fromStdString(item["outputIP"].get<std::string>())));
+                        "outputIP", QVariant(QString::fromStdString(item.at("outputIP").get<std::string>())));
                 if (item.contains("outputPort"))
                     oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "outputPort", QVariant(item["outputPort"].get<int>()));
+                        "outputPort", QVariant(item.at("outputPort").get<int>()));
                 if (item.contains("feedbackIP"))
                     oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "feedbackIP", QVariant(QString::fromStdString(item["feedbackIP"].get<std::string>())));
+                        "feedbackIP", QVariant(QString::fromStdString(item.at("feedbackIP").get<std::string>())));
                 if (item.contains("feedbackPort"))
                     oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "feedbackPort", QVariant(item["feedbackPort"].get<int>()));
+                        "feedbackPort", QVariant(item.at("feedbackPort").get<int>()));
 
                 result["status"] = ok ? "ok" : "failed";
                 results.push_back(result);
@@ -466,7 +466,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             InputOutputMap *ioMap = doc->inputOutputMap();
-            std::string typeStr = args["type"].get<std::string>();
+            std::string typeStr = args.at("type").get<std::string>();
 
             InputOutputMap::BeatGeneratorType beatType;
             if (typeStr == "disabled")
@@ -516,7 +516,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             if (args.contains("value"))
             {
-                int val = args["value"].get<int>();
+                int val = args.at("value").get<int>();
                 if (val < 0) val = 0;
                 if (val > 255) val = 255;
                 ioMap->setGrandMasterValue(static_cast<uchar>(val));
@@ -524,7 +524,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             if (args.contains("valueMode"))
             {
-                std::string mode = args["valueMode"].get<std::string>();
+                std::string mode = args.at("valueMode").get<std::string>();
                 if (mode == "limit")
                     ioMap->setGrandMasterValueMode(GrandMaster::Limit);
                 else if (mode == "reduce")
@@ -533,7 +533,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             if (args.contains("channelMode"))
             {
-                std::string mode = args["channelMode"].get<std::string>();
+                std::string mode = args.at("channelMode").get<std::string>();
                 if (mode == "intensity")
                     ioMap->setGrandMasterChannelMode(GrandMaster::Intensity);
                 else if (mode == "all")
