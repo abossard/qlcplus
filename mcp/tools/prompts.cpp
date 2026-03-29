@@ -222,27 +222,74 @@ Note numbers for each pad:
 [19] [11][12][13][14][15][16][17][18]   Row 1
 QLC+ channel = 128 + note number (e.g., pad note 81 = channel 209)
 
-### LED Feedback: 3 Parameters Per Pad
-- idleValue: LED color when button is NOT active (shows what it does)
-- activeValue: LED color when button IS active (confirms it's running)
-- ledMode: static (solid) / flashing (blink) / pulsing (breathe)
+### LED Feedback Design Principles
 
-### Color Palette (key values from profile — doubled for QLC+)
-0=Off  2=White30%  4=White60%  6=White100%
-8-14=Red shades    16-20=Orange   22-26=Yellow
-28-34=Green        36-42=Cyan     44-54=Blue
-56-66=Purple       68-76=Pink
+#### VC Button Colors = Dim Version of Feedback Color
+The VC button background (bgColor) should be the dim/dark version of the Launchpad LED color.
+This creates visual consistency between screen and controller.
+Example: If a button's LED is green (42), its VC bgColor should be dark green (#1a3300).
+
+#### Feedback Colors = Based on Content, Not Row
+Choose LED colors by what the button DOES, not which row it's on:
+- Green shades → buttons that SET green color on fixtures
+- Blue shades → buttons that SET blue color, or position/movement
+- Red shades → buttons that SET red color, or danger/system controls
+- Orange/Yellow → warm colors, gobo/pattern (texture)
+- Cyan → buttons that SET cyan, or effects/chasers
+- Purple → buttons that SET purple/violet, or show presets
+- Pink/Magenta → buttons that SET pink, or UV effects (light purple/blue for UV)
+- White → utility (haze, full white scenes, generic)
+- Light Blue (Cyan 30%) → UV effects (UV wash, UV strobe)
+- Match the LED color to the ACTUAL COLOR OUTPUT of the scene/function
+
+#### Active LED Modes — What They Mean
+- **Pulsing** = "I am ON and staying on" — use for toggle buttons that persist
+  (moods, positions, gobos, collections — things you activate and leave running)
+- **Flashing** = "DANGER / ATTENTION" — use for critical or intense actions:
+  - Blackout, Stop All → flashing RED
+  - UV Strobe, fast strobes → flashing RED (intense/dangerous output)
+  - Any button producing intense/harmful output
+- **Static** = "I fired once" — use for flash/momentary buttons
+  (strobe hits, one-shot effects — active only while held)
+
+#### Idle LED Colors — Always Visible
+Never use 0 (off) for idle. Use dim 30% version of the content color so the
+operator always knows what each pad does, even in a dark booth.
+
+#### Special Button Rules
+- BLACKOUT button: idle = dim red (14), active = flashing bright red (10)
+- STOP ALL button: idle = dim red (14), active = flashing bright red (10)
+- UV Strobe button: idle = dim cyan (78), active = flashing red (10) — dangerous output
+- Fast Strobe buttons: idle = dim content color, active = flashing red (10)
+- Flash/momentary buttons: idle = dim content color, active = static white (6)
+- Color scenes: LED matches the output color (green scene = green LED, blue = blue, etc.)
+
+### Color Palette (from QLC+ built-in profile)
+Values are velocity bytes. Each color has Bright/100%/60%/30% variants:
+  0=Off
+  6=White  2=White30%
+ 10=Red100%  14=Red30%   8=BrightRed
+ 18=Orange100%  22=Orange30%
+ 26=Yellow100%  30=Yellow30%
+ 42=Green100%  46=Green30%  40=BrightGreen
+ 74=Cyan100%  78=Cyan30%
+ 82=Blue100%  86=Blue30%
+ 90=DarkBlue100%  94=DarkBlue30%
+ 98=Purple100%  102=Purple30%  96=BrightPurple
+106=Magenta100%  110=Magenta30%
+114=Pink100%  118=Pink30%
+120=FireRed
 
 ### Row Assignment Strategy
-- Row 8: System (Blackout, Stop All, Master)
-- Row 7: Moods/Color palette (pad color = scene color)
-- Row 6: Effects (Chase, Strobe, Pulse)
-- Row 5: Movement/EFX
-- Row 4-1: Songs, cues, or custom per show
+- Row 8: High-level show phases/presets (purple LEDs, pulsing when active)
+- Row 7: Mood/wash colors (green LEDs matching content, pulsing)
+- Row 6: Gobo/texture patterns (orange LEDs, pulsing)
+- Row 5: Position/movement (blue LEDs, pulsing)
+- Row 4-2: Effects, chasers, automation (cyan/yellow, pulsing)
+- Row 1: Quick actions (red for blackout/stopall=flashing, white for flash hits=static)
 
-### Ask the user how they want the pads to behave:
-- Which colors for idle vs active?
-- Flashing for warnings? Pulsing for active effects?
+### Ask the user about their show before assigning colors.
+Match pad LED colors to the CONTENT of the button, not its row position.
 )";
             return guideText;
         },
