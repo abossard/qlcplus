@@ -24,6 +24,7 @@
 #include "idempotency.h"
 #include "doc.h"
 #include "scene.h"
+#include "scenevalue.h"
 #include "chaser.h"
 #include "chaserstep.h"
 #include "efx.h"
@@ -272,6 +273,100 @@ void McpIdempotency_Test::chaserStep_carriesPerStepTiming()
     QCOMPARE(chaser->steps().at(1).fadeIn, (uint)0);
     QCOMPARE(chaser->steps().at(1).hold, (uint)500);
     QCOMPARE(chaser->steps().at(1).fadeOut, (uint)0);
+}
+
+// ========== Upsert behavior ==========
+
+void McpIdempotency_Test::upsert_sceneUpdatesValues()
+{
+    // Create a fixture for the scene
+    Fixture *fxi = new Fixture(m_doc);
+    fxi->setName("Test Fix");
+    fxi->setChannels(3);
+    m_doc->addFixture(fxi);
+
+    // Create a scene
+    Scene *s = new Scene(m_doc);
+    s->setName("Upsert Scene");
+    s->setValue(SceneValue(fxi->id(), 0, 100));
+    m_doc->addFunction(s);
+    quint32 originalId = s->id();
+
+    // Simulate upsert: find existing, clear, set new values
+    Function *found = mcp::findFunction(m_doc, "Upsert Scene", Function::SceneType);
+    QVERIFY(found != nullptr);
+    Scene *existing = qobject_cast<Scene*>(found);
+    QVERIFY(existing != nullptr);
+    QCOMPARE(existing->id(), originalId);
+
+    existing->clear();
+    existing->setValue(SceneValue(fxi->id(), 0, 200));
+    existing->setValue(SceneValue(fxi->id(), 1, 150));
+
+    // Verify update happened in-place (same ID, new values)
+    Scene *check = qobject_cast<Scene*>(m_doc->function(originalId));
+    QVERIFY(check != nullptr);
+    QCOMPARE((int)check->value(fxi->id(), 0), 200);
+    QCOMPARE((int)check->value(fxi->id(), 1), 150);
+}
+
+void McpIdempotency_Test::upsert_collectionReplacesFunctions()
+{
+    Scene *s1 = new Scene(m_doc); s1->setName("S1"); m_doc->addFunction(s1);
+    Scene *s2 = new Scene(m_doc); s2->setName("S2"); m_doc->addFunction(s2);
+    Scene *s3 = new Scene(m_doc); s3->setName("S3"); m_doc->addFunction(s3);
+
+    Collection *col = new Collection(m_doc);
+    col->setName("Upsert Collection");
+    col->addFunction(s1->id());
+    col->addFunction(s2->id());
+    m_doc->addFunction(col);
+    quint32 originalId = col->id();
+    QCOMPARE(col->functions().size(), 2);
+
+    // Simulate upsert: clear and replace
+    Function *found = mcp::findFunction(m_doc, "Upsert Collection", Function::CollectionType);
+    Collection *existing = qobject_cast<Collection*>(found);
+    for (quint32 fid : existing->functions())
+        existing->removeFunction(fid);
+    existing->addFunction(s2->id());
+    existing->addFunction(s3->id());
+
+    // Verify same ID, new members
+    QCOMPARE(existing->id(), originalId);
+    QCOMPARE(existing->functions().size(), 2);
+    QVERIFY(existing->functions().contains(s2->id()));
+    QVERIFY(existing->functions().contains(s3->id()));
+    QVERIFY(!existing->functions().contains(s1->id()));
+}
+
+void McpIdempotency_Test::upsert_fixtureGroupReplacesFixtures()
+{
+    Fixture *f1 = new Fixture(m_doc); f1->setName("F1"); f1->setChannels(1); f1->setAddress(0); m_doc->addFixture(f1);
+    Fixture *f2 = new Fixture(m_doc); f2->setName("F2"); f2->setChannels(1); f2->setAddress(1); m_doc->addFixture(f2);
+    Fixture *f3 = new Fixture(m_doc); f3->setName("F3"); f3->setChannels(1); f3->setAddress(2); m_doc->addFixture(f3);
+
+    FixtureGroup *group = new FixtureGroup(m_doc);
+    group->setName("Upsert Group");
+    group->setSize(QSize(3, 1));
+    group->assignFixture(f1->id(), QLCPoint(0, 0));
+    group->assignFixture(f2->id(), QLCPoint(1, 0));
+    m_doc->addFixtureGroup(group);
+    quint32 originalId = group->id();
+    QCOMPARE(group->fixtureList().size(), 2);
+
+    // Simulate upsert: clear and replace
+    FixtureGroup *found = mcp::findFixtureGroup(m_doc, "Upsert Group");
+    for (quint32 fid : found->fixtureList())
+        found->resignFixture(fid);
+    found->setSize(QSize(2, 1));
+    found->assignFixture(f2->id(), QLCPoint(0, 0));
+    found->assignFixture(f3->id(), QLCPoint(1, 0));
+
+    QCOMPARE(found->id(), originalId);
+    QCOMPARE(found->fixtureList().size(), 2);
+    QVERIFY(found->fixtureList().contains(f2->id()));
+    QVERIFY(found->fixtureList().contains(f3->id()));
 }
 
 // ========== Script deduplication ==========

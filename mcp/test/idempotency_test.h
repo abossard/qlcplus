@@ -58,6 +58,11 @@ private slots:
     // ChaserStep per-step timing
     void chaserStep_carriesPerStepTiming();
 
+    // Upsert behavior
+    void upsert_sceneUpdatesValues();
+    void upsert_collectionReplacesFunctions();
+    void upsert_fixtureGroupReplacesFixtures();
+
     // Script deduplication
     void scriptDedup_removesStopForStartedFunction();
     void scriptDedup_removesDuplicateStops();

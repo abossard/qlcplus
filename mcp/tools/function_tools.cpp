@@ -82,14 +82,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::SceneType);
+                Scene *scene;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    scene = qobject_cast<Scene*>(existing);
+                    scene->clear(); // Reset values for upsert
                 }
-
-                Scene *scene = new Scene(doc);
-                scene->setName(name);
+                else
+                {
+                    scene = new Scene(doc);
+                    scene->setName(name);
+                    isNew = true;
+                }
 
                 if (item.contains("fadeIn"))
                     scene->setFadeInSpeed(item.at("fadeIn").get<int>());
@@ -152,8 +157,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     }
                 }
 
-                doc->addFunction(scene);
-                results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(scene);
+                results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -203,14 +209,21 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::ChaserType);
+                Chaser *chaser;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    chaser = qobject_cast<Chaser*>(existing);
+                    // Clear existing steps for upsert
+                    while (chaser->steps().size() > 0)
+                        chaser->removeStep(0);
                 }
-
-                Chaser *chaser = new Chaser(doc);
-                chaser->setName(name);
+                else
+                {
+                    chaser = new Chaser(doc);
+                    chaser->setName(name);
+                    isNew = true;
+                }
 
                 // Speed modes (default to perStep since steps carry their own timing)
                 auto parseSpeedMode = [](const std::string &mode) -> Chaser::SpeedMode {
@@ -249,8 +262,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     chaser->addStep(ChaserStep(fid, fadeIn, hold, fadeOut));
                 }
 
-                doc->addFunction(chaser);
-                results.push_back({{"id", (int)chaser->id()}, {"name", chaser->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(chaser);
+                results.push_back({{"id", (int)chaser->id()}, {"name", chaser->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -294,14 +308,18 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::SequenceType);
+                Sequence *seq;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    seq = qobject_cast<Sequence*>(existing);
                 }
-
-                Sequence *seq = new Sequence(doc);
-                seq->setName(name);
+                else
+                {
+                    seq = new Sequence(doc);
+                    seq->setName(name);
+                    isNew = true;
+                }
                 seq->setBoundSceneID(item.at("boundSceneID").get<int>());
 
                 seq->setFadeInSpeed(item.value("fadeIn", 0));
@@ -318,8 +336,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (dir == "backward") seq->setDirection(Function::Backward);
                 else seq->setDirection(Function::Forward);
 
-                doc->addFunction(seq);
-                results.push_back({{"id", (int)seq->id()}, {"name", seq->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(seq);
+                results.push_back({{"id", (int)seq->id()}, {"name", seq->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -367,14 +386,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::EFXType);
+                EFX *efx;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    efx = qobject_cast<EFX*>(existing);
+                    efx->removeAllFixtures();
                 }
-
-                EFX *efx = new EFX(doc);
-                efx->setName(name);
+                else
+                {
+                    efx = new EFX(doc);
+                    efx->setName(name);
+                    isNew = true;
+                }
 
                 // Algorithm
                 QString algo = QString::fromStdString(item.value("algorithm", "Circle"));
@@ -425,8 +449,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     efx->addFixture(ef);
                 }
 
-                doc->addFunction(efx);
-                results.push_back({{"id", (int)efx->id()}, {"name", efx->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(efx);
+                results.push_back({{"id", (int)efx->id()}, {"name", efx->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             });
@@ -453,18 +478,26 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::CollectionType);
+                Collection *col;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    col = qobject_cast<Collection*>(existing);
+                    // Clear existing members for upsert
+                    for (quint32 fid : col->functions())
+                        col->removeFunction(fid);
                 }
-
-                Collection *col = new Collection(doc);
-                col->setName(name);
+                else
+                {
+                    col = new Collection(doc);
+                    col->setName(name);
+                    isNew = true;
+                }
                 for (auto &fid : item.at("functionIDs"))
                     col->addFunction(fid.get<int>());
-                doc->addFunction(col);
-                results.push_back({{"id", (int)col->id()}, {"name", col->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(col);
+                results.push_back({{"id", (int)col->id()}, {"name", col->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             });
@@ -494,22 +527,27 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 Function *existing = mcp::findFunction(doc, name, Function::RGBMatrixType);
+                RGBMatrix *matrix;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", existing->name().toStdString()}, {"status", "existing"}});
-                    continue;
+                    matrix = qobject_cast<RGBMatrix*>(existing);
                 }
-
-                RGBMatrix *matrix = new RGBMatrix(doc);
-                matrix->setName(name);
+                else
+                {
+                    matrix = new RGBMatrix(doc);
+                    matrix->setName(name);
+                    isNew = true;
+                }
                 if (item.contains("fixtureGroupID"))
                     matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
                 if (item.contains("startColor"))
                     matrix->setColor(0, QColor(QString::fromStdString(item.at("startColor").get<std::string>())));
                 if (item.contains("endColor"))
                     matrix->setColor(1, QColor(QString::fromStdString(item.at("endColor").get<std::string>())));
-                doc->addFunction(matrix);
-                results.push_back({{"id", (int)matrix->id()}, {"name", matrix->name().toStdString()}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(matrix);
+                results.push_back({{"id", (int)matrix->id()}, {"name", matrix->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             });
@@ -543,14 +581,21 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 int rows = item.value("rows", 1);
 
                 FixtureGroup *existingGroup = mcp::findFixtureGroup(doc, QString::fromStdString(name));
+                FixtureGroup *group;
+                bool isNew = false;
                 if (existingGroup)
                 {
-                    results.push_back({{"id", (int)existingGroup->id()}, {"name", name}, {"status", "existing"}});
-                    continue;
+                    group = existingGroup;
+                    // Clear existing assignments for upsert
+                    for (quint32 fid : group->fixtureList())
+                        group->resignFixture(fid);
                 }
-
-                FixtureGroup *group = new FixtureGroup(doc);
-                group->setName(QString::fromStdString(name));
+                else
+                {
+                    group = new FixtureGroup(doc);
+                    group->setName(QString::fromStdString(name));
+                    isNew = true;
+                }
                 group->setSize(QSize(columns, rows));
 
                 int col = 0, row = 0;
@@ -565,8 +610,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     }
                 }
 
-                doc->addFixtureGroup(group);
-                results.push_back({{"id", (int)group->id()}, {"name", name}, {"status", "created"}});
+                if (isNew)
+                    doc->addFixtureGroup(group);
+                results.push_back({{"id", (int)group->id()}, {"name", name}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             });
@@ -604,10 +650,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 std::string name = item.at("name").get<std::string>();
 
                 Function *existing = mcp::findFunction(doc, QString::fromStdString(name), Function::ScriptType);
+                Script *script;
+                bool isNew = false;
                 if (existing)
                 {
-                    results.push_back({{"id", (int)existing->id()}, {"name", name}, {"status", "existing"}});
-                    continue;
+                    script = qobject_cast<Script*>(existing);
+                }
+                else
+                {
+                    script = new Script(doc);
+                    script->setName(QString::fromStdString(name));
+                    isNew = true;
                 }
 
                 // Validate commands before building script
@@ -737,11 +790,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     }
                 }
 
-                Script *script = new Script(doc);
-                script->setName(QString::fromStdString(name));
                 script->setData(scriptData);
-                doc->addFunction(script);
-                results.push_back({{"id", (int)script->id()}, {"name", name}, {"status", "created"}});
+                if (isNew)
+                    doc->addFunction(script);
+                results.push_back({{"id", (int)script->id()}, {"name", name}, {"status", isNew ? "created" : "updated"}});
             }
             return results.dump();
             });
