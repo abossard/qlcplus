@@ -25,8 +25,10 @@
 #include "fixture.h"
 #include "function.h"
 #include "qlcchannel.h"
+#include "qlccapability.h"
 #include "qlcfixturedef.h"
 #include "qlcfixturemode.h"
+#include "qlcphysical.h"
 #include "channelmodifier.h"
 #include "scene.h"
 #include "chaser.h"
@@ -36,6 +38,109 @@
 namespace mcp {
 
 using Json = nlohmann::json;
+
+// Pure function: Convert a QLCCapability to JSON
+inline Json capabilityToJson(const QLCCapability *cap)
+{
+    Json entry;
+    entry["min"] = (int)cap->min();
+    entry["max"] = (int)cap->max();
+    entry["name"] = cap->name().toStdString();
+    QString presetStr = QLCCapability::presetToString(cap->preset());
+    if (!presetStr.isEmpty() && cap->preset() != QLCCapability::Custom)
+        entry["preset"] = presetStr.toStdString();
+
+    switch (cap->presetType())
+    {
+        case QLCCapability::SingleColor:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                entry["color1"] = res.value<QColor>().name().toStdString();
+            break;
+        }
+        case QLCCapability::DoubleColor:
+        {
+            QVariant res0 = cap->resource(0);
+            QVariant res1 = cap->resource(1);
+            if (res0.isValid())
+                entry["color1"] = res0.value<QColor>().name().toStdString();
+            if (res1.isValid())
+                entry["color2"] = res1.value<QColor>().name().toStdString();
+            break;
+        }
+        case QLCCapability::Picture:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                entry["image"] = res.toString().toStdString();
+            break;
+        }
+        case QLCCapability::SingleValue:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                entry["value"] = res.toFloat();
+            QString units = cap->presetUnits();
+            if (!units.isEmpty())
+                entry["unit"] = units.toStdString();
+            break;
+        }
+        case QLCCapability::DoubleValue:
+        {
+            QVariant res0 = cap->resource(0);
+            QVariant res1 = cap->resource(1);
+            if (res0.isValid())
+                entry["valueMin"] = res0.toFloat();
+            if (res1.isValid())
+                entry["valueMax"] = res1.toFloat();
+            QString units = cap->presetUnits();
+            if (!units.isEmpty())
+                entry["unit"] = units.toStdString();
+            break;
+        }
+        default:
+            break;
+    }
+    return entry;
+}
+
+// Pure function: Convert QLCPhysical to JSON (omits default/empty values)
+inline Json physicalToJson(const QLCPhysical &phy)
+{
+    Json entry;
+    if (phy.weight() > 0)
+        entry["weight"] = phy.weight();
+    if (phy.width() > 0)
+        entry["width"] = phy.width();
+    if (phy.height() > 0)
+        entry["height"] = phy.height();
+    if (phy.depth() > 0)
+        entry["depth"] = phy.depth();
+    if (!phy.bulbType().isEmpty())
+        entry["bulbType"] = phy.bulbType().toStdString();
+    if (phy.bulbLumens() > 0)
+        entry["bulbLumens"] = phy.bulbLumens();
+    if (phy.bulbColourTemperature() > 0)
+        entry["bulbColourTemperature"] = phy.bulbColourTemperature();
+    if (!phy.lensName().isEmpty())
+        entry["lensName"] = phy.lensName().toStdString();
+    if (phy.lensDegreesMin() > 0)
+        entry["lensDegreesMin"] = phy.lensDegreesMin();
+    if (phy.lensDegreesMax() > 0)
+        entry["lensDegreesMax"] = phy.lensDegreesMax();
+    if (!phy.focusType().isEmpty())
+        entry["focusType"] = phy.focusType().toStdString();
+    if (phy.focusPanMax() > 0)
+        entry["focusPanMax"] = phy.focusPanMax();
+    if (phy.focusTiltMax() > 0)
+        entry["focusTiltMax"] = phy.focusTiltMax();
+    if (phy.powerConsumption() > 0)
+        entry["powerConsumption"] = phy.powerConsumption();
+    if (!phy.dmxConnector().isEmpty())
+        entry["dmxConnector"] = phy.dmxConnector().toStdString();
+    return entry;
+}
 
 // Pure function: Extract fixture capabilities as JSON array
 inline Json fixtureCapabilities(const Fixture *fxi)
@@ -95,6 +200,15 @@ inline Json fixtureToJson(const Fixture *fxi)
     if (fxi->fixtureMode())
         entry["mode"] = fxi->fixtureMode()->name().toStdString();
     entry["capabilities"] = fixtureCapabilities(fxi);
+
+    if (fxi->fixtureMode())
+    {
+        QLCPhysical phy = fxi->fixtureMode()->physical();
+        Json phyJson = physicalToJson(phy);
+        if (!phyJson.empty())
+            entry["physical"] = phyJson;
+    }
+
     return entry;
 }
 
@@ -169,10 +283,17 @@ inline Json channelToJson(Fixture *fxi, quint32 chIndex)
         {"name", channel->name().toStdString()},
         {"group", QLCChannel::groupToString(channel->group()).toStdString()},
         {"colour", QLCChannel::colourToString(channel->colour()).toStdString()},
+        {"preset", QLCChannel::presetToString(channel->preset()).toStdString()},
         {"canFade", fxi->channelCanFade((int)chIndex)},
         {"precedence", precedence},
         {"modifier", modName},
-        {"defaultHTP", channel->group() == QLCChannel::Intensity}
+        {"defaultHTP", channel->group() == QLCChannel::Intensity},
+        {"capabilities", [&]() {
+            Json caps = Json::array();
+            for (const QLCCapability *cap : channel->capabilities())
+                caps.push_back(capabilityToJson(cap));
+            return caps;
+        }()}
     };
 }
 

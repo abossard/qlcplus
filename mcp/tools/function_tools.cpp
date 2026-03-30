@@ -22,6 +22,7 @@
 #include "functionmanager.h"
 #include "doc.h"
 #include "fixture.h"
+#include "qlcchannel.h"
 #include "scene.h"
 #include "chaser.h"
 #include "chaserstep.h"
@@ -57,7 +58,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     {"fixtureID", {{"type", "integer"}}},
                     {"channel", {{"type", "integer"}}},
                     {"value", {{"type", "integer"}}}
-                }}}}, {"description", "Explicit DMX channel values. Each entry sets exactly one channel on one fixture. Use query_fixture_channels to discover channel indices."}}}
+                }}}}, {"description", "Explicit DMX channel values. Each entry sets exactly one channel on one fixture."}}},
+                {"positions", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"fixtureID", {{"type", "integer"}}},
+                    {"panDegrees", {{"type", "number"}, {"description", "Pan position in degrees (0 to focusPanMax)"}}},
+                    {"tiltDegrees", {{"type", "number"}, {"description", "Tilt position in degrees (0 to focusTiltMax)"}}},
+                    {"zoomDegrees", {{"type", "number"}, {"description", "Zoom/beam angle in degrees"}}}
+                }}, {"required", {"fixtureID"}}}}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -69,7 +76,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "fadeIn", "fadeOut", "channelValues"});
+                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "fadeIn", "fadeOut", "channelValues", "positions"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name"))
@@ -119,7 +126,37 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("fadeOut"))
                     scene->setFadeOutSpeed(item.at("fadeOut").get<int>());
 
-                // Set explicit channel values
+                // Apply degree-based positions (before channelValues so explicit values can override)
+                if (item.contains("positions") && item.at("positions").is_array())
+                {
+                    for (auto &pos : item.at("positions"))
+                    {
+                        auto posErr = validateFields(pos, {"fixtureID", "panDegrees", "tiltDegrees", "zoomDegrees"});
+                        if (!posErr.empty()) { results.push_back(nlohmann::json::parse(posErr)); continue; }
+                        if (!pos.contains("fixtureID")) continue;
+                        quint32 fxID = pos.at("fixtureID").get<int>();
+                        Fixture *fxi = doc->fixture(fxID);
+                        if (!fxi) continue;
+
+                        if (pos.contains("panDegrees"))
+                        {
+                            for (const SceneValue &sv : fxi->positionToValues(QLCChannel::Pan, pos.at("panDegrees").get<float>()))
+                                scene->setValue(sv);
+                        }
+                        if (pos.contains("tiltDegrees"))
+                        {
+                            for (const SceneValue &sv : fxi->positionToValues(QLCChannel::Tilt, pos.at("tiltDegrees").get<float>()))
+                                scene->setValue(sv);
+                        }
+                        if (pos.contains("zoomDegrees"))
+                        {
+                            for (const SceneValue &sv : fxi->zoomToValues(pos.at("zoomDegrees").get<float>(), false))
+                                scene->setValue(sv);
+                        }
+                    }
+                }
+
+                // Set explicit channel values (can override positions above)
                 if (item.contains("channelValues") && item.at("channelValues").is_array())
                 {
                     for (auto &cv : item.at("channelValues"))
@@ -146,7 +183,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create scenes with explicit channel values. Use query_fixture_channels to discover channel indices. Accepts fixtureIDs or fixtureNames (glob patterns) for fixture resolution. Upserts: replaces all channel values on existing scenes (not merge). Batch."),
+        std::string("Create scenes with channel values and/or degree-based positions. Upserts: replaces all values on existing scenes. Batch."),
         std::nullopt
     ));
 
@@ -265,7 +302,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create chasers with per-step timing. Each step has functionID and optional fadeIn/hold/fadeOut (ms, or beats when tempoType is 'beats'). Speed modes default to perStep. Upserts: replaces all steps on existing chasers (not merge). Batch."),
+        std::string("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch."),
         std::nullopt
     ));
 
@@ -342,7 +379,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create sequences bound to scenes. A sequence uses the bound scene's channels to create per-channel animation steps internally (managed by QLC+). You control timing (fadeIn/fadeOut/holdTime) and playback (runOrder/direction). Upserts: replaces timing and binding on existing sequences. Batch."),
+        std::string("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch."),
         std::nullopt
     ));
 
@@ -471,7 +508,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create EFX position effects for moving heads. Full control: algorithm (required, 10 types), geometry (width/height/offset/rotation), Lissajous params (frequency/phase), propagation mode, speed, fade, run order. Upserts: replaces all fixtures and settings on existing EFXs (not merge). Batch."),
+        std::string("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch."),
         std::nullopt
     ));
 
@@ -536,7 +573,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create collections (parallel function groups — use for moods/phases). Upserts: replaces all members on existing collections (not merge). Batch: pass multiple in 'items'."),
+        std::string("Create collections (parallel function groups — use for moods/phases). Upserts. Batch."),
         std::nullopt
     ));
 
@@ -596,7 +633,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create RGB matrix color animations. Upserts: updates settings on existing matrices. Batch: pass multiple in 'items'."),
+        std::string("Create RGB matrix color animations. Upserts. Batch."),
         std::nullopt
     ));
 
@@ -664,7 +701,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create fixture groups with grid layout. Upserts: replaces all fixture assignments on existing groups (not merge). Batch: pass multiple in 'items'."),
+        std::string("Create fixture groups with grid layout for RGB matrices. Upserts. Batch."),
         std::nullopt
     ));
 
@@ -807,7 +844,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Commands are emitted exactly as provided. Upserts: replaces all commands on existing scripts. Batch."),
+        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Upserts. Batch."),
         std::nullopt
     ));
 

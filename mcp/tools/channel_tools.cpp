@@ -21,7 +21,10 @@
 #include "conversions.h"
 #include "doc.h"
 #include "fixture.h"
+#include "qlcchannel.h"
+#include "qlcphysical.h"
 #include "qlcmodifierscache.h"
+#include "scenevalue.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -71,7 +74,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Query detailed per-channel info for fixtures: name, group, colour, canFade, precedence (auto/htp/ltp), modifier, defaultHTP."),
+        std::string("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types."),
         std::nullopt
     ));
 
@@ -199,6 +202,79 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch."),
+        std::nullopt
+    ));
+
+    // convert_degrees_to_dmx — convert pan/tilt/zoom degrees to DMX channel values
+    tm.register_tool(Tool(
+        "convert_degrees_to_dmx",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"fixtureID", {{"type", "integer"}}},
+                {"panDegrees", {{"type", "number"}, {"description", "Pan position in degrees (0 to focusPanMax)"}}},
+                {"tiltDegrees", {{"type", "number"}, {"description", "Tilt position in degrees (0 to focusTiltMax)"}}},
+                {"zoomDegrees", {{"type", "number"}, {"description", "Zoom/beam angle in degrees (lensDegreesMin to lensDegreesMax)"}}}
+            }}, {"required", {"fixtureID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            Json results = Json::array();
+            for (auto &item : args.at("items"))
+            {
+                auto err = validateFields(item, {"fixtureID", "panDegrees", "tiltDegrees", "zoomDegrees"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                quint32 fxID = item.at("fixtureID").get<int>();
+                Fixture *fxi = doc->fixture(fxID);
+                if (!fxi) { results.push_back({{"error", "fixture not found"}, {"fixtureID", (int)fxID}}); continue; }
+
+                Json channelValues = Json::array();
+
+                if (item.contains("panDegrees"))
+                {
+                    float degrees = item.at("panDegrees").get<float>();
+                    QList<SceneValue> vals = fxi->positionToValues(QLCChannel::Pan, degrees);
+                    for (const SceneValue &sv : vals)
+                        channelValues.push_back({{"channel", (int)sv.channel}, {"value", (int)sv.value}});
+                }
+
+                if (item.contains("tiltDegrees"))
+                {
+                    float degrees = item.at("tiltDegrees").get<float>();
+                    QList<SceneValue> vals = fxi->positionToValues(QLCChannel::Tilt, degrees);
+                    for (const SceneValue &sv : vals)
+                        channelValues.push_back({{"channel", (int)sv.channel}, {"value", (int)sv.value}});
+                }
+
+                if (item.contains("zoomDegrees"))
+                {
+                    float degrees = item.at("zoomDegrees").get<float>();
+                    QList<SceneValue> vals = fxi->zoomToValues(degrees, false);
+                    for (const SceneValue &sv : vals)
+                        channelValues.push_back({{"channel", (int)sv.channel}, {"value", (int)sv.value}});
+                }
+
+                Json entry;
+                entry["fixtureID"] = (int)fxID;
+                entry["channelValues"] = channelValues;
+
+                if (fxi->fixtureMode())
+                {
+                    QLCPhysical phy = fxi->fixtureMode()->physical();
+                    entry["panMax"] = phy.focusPanMax();
+                    entry["tiltMax"] = phy.focusTiltMax();
+                    entry["zoomMin"] = phy.lensDegreesMin();
+                    entry["zoomMax"] = phy.lensDegreesMax();
+                }
+
+                results.push_back(entry);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch."),
         std::nullopt
     ));
 }

@@ -40,7 +40,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
 void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
-void registerPrompts(fastmcpp::tools::ToolManager &tm);
+namespace fastmcpp { namespace prompts { class PromptManager; } }
+void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc);
 
 // Thread-safe execution helper — runs lambda on Doc's thread
 // Wraps in try/catch to prevent crashes from malformed JSON

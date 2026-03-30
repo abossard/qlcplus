@@ -54,7 +54,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("List all patched fixtures with their capabilities (RGB, Pan/Tilt, Gobo, etc.)"),
+        std::string("List all patched fixtures with capabilities and physical properties. Returns IDs needed for other tools."),
         std::nullopt
     ));
 
@@ -117,7 +117,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes."),
+        std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch."),
         std::nullopt
     ));
 
@@ -207,7 +207,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("Patch fixtures into the project. Supports batching: pass multiple fixtures in 'items' array."),
+        std::string("Patch fixtures into the project. Upserts: skips if fixture with same name/address exists. Batch."),
         std::nullopt
     ));
 
@@ -225,7 +225,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("List all existing functions (scenes, chasers, collections, etc.)"),
+        std::string("List all existing functions (scenes, chasers, collections, etc.)."),
         std::nullopt
     ));
 
@@ -286,8 +286,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 });
             },
             std::nullopt,
-            std::string("List all Virtual Console pages and their widgets with details (type, caption, geometry, "
-                         "function, action, slider mode, parent, input mappings)."),
+            std::string("List all Virtual Console pages and their widgets with details."),
         std::nullopt
         ));
     }
@@ -334,7 +333,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("List all configured DMX universes."),
+        std::string("List all configured DMX universes with their I/O plugin assignments."),
         std::nullopt
     ));
 }

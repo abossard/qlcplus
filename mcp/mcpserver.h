@@ -30,7 +30,9 @@ class InputOutputMap;
 class FunctionManager;
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
-namespace fastmcpp { namespace server { class StreamableHttpServerWrapper; } }
+namespace fastmcpp { namespace prompts { class PromptManager; } }
+namespace fastmcpp { namespace resources { class ResourceManager; } }
+namespace fastmcpp { namespace server { class Server; class StreamableHttpServerWrapper; } }
 
 /**
  * MCP (Model Context Protocol) server for QLC+.
@@ -55,6 +57,9 @@ private:
     VCBridge *m_vcBridge;
     FunctionManager *m_funcMgr;
     std::unique_ptr<fastmcpp::tools::ToolManager> m_toolManager;
+    std::unique_ptr<fastmcpp::prompts::PromptManager> m_promptManager;
+    std::unique_ptr<fastmcpp::resources::ResourceManager> m_resourceManager;
+    std::unique_ptr<fastmcpp::server::Server> m_server;
     std::unique_ptr<fastmcpp::server::StreamableHttpServerWrapper> m_httpServer;
 };
 
