@@ -295,6 +295,30 @@ bool VCBridgeV5::setWidgetFeedback(int widgetID,
     return false;
 }
 
+VCBridge::FeedbackInfo VCBridgeV5::getWidgetFeedback(int widgetID) const
+{
+    FeedbackInfo fb;
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget || widget->inputSources().isEmpty())
+        return fb;
+
+    auto src = widget->inputSources().first();
+    fb.idleValue = src->feedbackValue(QLCInputFeedback::LowerValue);
+    fb.activeValue = src->feedbackValue(QLCInputFeedback::UpperValue);
+    fb.monitorValue = src->feedbackValue(QLCInputFeedback::MonitorValue);
+    fb.idleMidiCh = src->feedbackExtraParams(QLCInputFeedback::LowerValue).toInt();
+    fb.activeMidiCh = src->feedbackExtraParams(QLCInputFeedback::UpperValue).toInt();
+    fb.monitorMidiCh = src->feedbackExtraParams(QLCInputFeedback::MonitorValue).toInt();
+    return fb;
+}
+
+int VCBridgeV5::widgetInputSourceCount(int widgetID) const
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return 0;
+    return widget->inputSources().size();
+}
+
 bool VCBridgeV5::setWidgetColors(int widgetID, const QColor &bgColor, const QColor &fgColor)
 {
     VCWidget *widget = m_vc->widget(widgetID);

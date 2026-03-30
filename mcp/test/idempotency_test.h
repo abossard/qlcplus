@@ -86,6 +86,16 @@ private slots:
     void beatEncoding_wholeBeatsMultipliedBy1000();
     void beatEncoding_zeroRemainsZero();
 
+    // Input profile color/MIDI channel tables
+    void profileColorTable_emptyByDefault();
+    void profileColorTable_addsAndRetrieves();
+    void profileColorTable_removesEntry();
+    void profileMidiChannelTable_emptyByDefault();
+    void profileMidiChannelTable_addsAndRetrieves();
+
+    // FeedbackInfo defaults
+    void feedbackInfo_defaultsToZero();
+
 private:
     Doc *m_doc;
 

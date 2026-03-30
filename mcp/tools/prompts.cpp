@@ -19,240 +19,454 @@
 
 #include "tool_registry.h"
 
-#include <fastmcpp/tools/manager.hpp>
-#include <fastmcpp/tools/tool.hpp>
+#include <fastmcpp/prompts/manager.hpp>
 
-void registerPrompts(fastmcpp::tools::ToolManager &tm)
+#include <QMetaObject>
+#include <QThread>
+
+#include "doc.h"
+#include "scene.h"
+#include "scenevalue.h"
+#include "chaser.h"
+#include "chaserstep.h"
+#include "collection.h"
+#include "fixture.h"
+#include "qlcchannel.h"
+
+void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
 {
     using Json = nlohmann::json;
-    using Tool = fastmcpp::tools::Tool;
+    using Prompt = fastmcpp::prompts::Prompt;
+    using PromptMessage = fastmcpp::prompts::PromptMessage;
+    using PromptArgument = fastmcpp::prompts::PromptArgument;
 
-    // TODO: Register MCP prompts via fastmcpp prompt API when available.
-    // For now, expose as a tool that returns the prompt text.
+    // ── Prompt 1: design_dj_show ──────────────────────────────────────
+    {
+        Prompt p;
+        p.name = "design_dj_show";
+        p.description = "Design a complete DJ/club lighting show tailored to the currently patched fixtures. "
+                         "Returns a fixture-aware guide with beat-synced timing, audio-reactive sliders, "
+                         "buildup/drop phases, small color palettes, and button-based control layout.";
+        p.arguments = {
+            PromptArgument{"colors_per_phase", std::string("Number of colors per phase palette (default 4)"), false},
+            PromptArgument{"energy_style", std::string("Overall energy: aggressive, balanced, or ambient (default balanced)"), false}
+        };
+        p.generator = [doc](const Json &args) -> std::vector<PromptMessage> {
+            int colorsPerPhase = 4;
+            if (args.contains("colors_per_phase"))
+            {
+                if (args["colors_per_phase"].is_number())
+                    colorsPerPhase = args["colors_per_phase"].get<int>();
+                else if (args["colors_per_phase"].is_string())
+                    colorsPerPhase = std::stoi(args["colors_per_phase"].get<std::string>());
+            }
+            std::string energyStyle = args.contains("energy_style") ? args["energy_style"].get<std::string>() : "balanced";
 
-    tm.register_tool(Tool(
-        "get_show_design_guide",
-        Json{{"type", "object"}, {"properties", Json::object()}},
-        Json{},
-        [](const Json &) -> Json {
-            std::string guideText = R"(
-# QLC+ Show Design Guide — DJ / Club / Live
+            // Query current fixtures
+            std::string fixtureSummary;
+            int rgbCount = 0, movingHeadCount = 0, strobeCount = 0, dimmerOnlyCount = 0;
 
-## Step-by-Step Build Order
+            QMetaObject::invokeMethod(doc, [&]() {
+                for (Fixture *fxi : doc->fixtures())
+                {
+                    bool hasRGB = false, hasPanTilt = false, hasGobo = false, hasStrobe = false;
+                    for (quint32 ch = 0; ch < fxi->channels(); ch++)
+                    {
+                        const QLCChannel *c = fxi->channel(ch);
+                        if (!c) continue;
+                        if (c->group() == QLCChannel::Intensity &&
+                            (c->colour() == QLCChannel::Red || c->colour() == QLCChannel::Green || c->colour() == QLCChannel::Blue))
+                            hasRGB = true;
+                        if (c->group() == QLCChannel::Pan || c->group() == QLCChannel::Tilt)
+                            hasPanTilt = true;
+                        if (c->group() == QLCChannel::Gobo)
+                            hasGobo = true;
+                        if (c->group() == QLCChannel::Shutter)
+                            hasStrobe = true;
+                    }
+                    if (hasRGB) rgbCount++;
+                    if (hasPanTilt) movingHeadCount++;
+                    if (hasStrobe) strobeCount++;
+                    if (!hasRGB && !hasPanTilt) dimmerOnlyCount++;
 
-1. `query_fixtures` → discover what you have (RGB pars, moving heads, strobes, hazer)
-2. `query_fixture_channels` → discover exact channel indices per fixture (dimmer, R, G, B, pan, tilt, gobo, etc.)
-3. Ask user: event type, energy level, fixture placement
-4. Design **orthogonal layers** (see Layer Architecture below)
-5. Build layers bottom-up: scenes → chasers → collections → VC page
-6. Use `build_show_page` for the VC — one call per page
+                    std::string type = hasPanTilt ? (hasRGB ? "Moving Head (RGB)" : "Moving Head") :
+                                       hasRGB ? "RGB Par/Wash" :
+                                       hasStrobe ? "Strobe" : "Dimmer/Other";
+                    std::string capList;
+                    if (hasRGB) capList += "RGB ";
+                    if (hasPanTilt) capList += "Pan/Tilt ";
+                    if (hasGobo) capList += "Gobo ";
+                    if (hasStrobe) capList += "Strobe ";
+                    if (capList.empty()) capList = "Dimmer";
 
----
+                    fixtureSummary += "- ID " + std::to_string(fxi->id()) + ": "
+                        + fxi->name().toStdString() + " (" + type + ") — "
+                        + std::to_string(fxi->channels()) + "ch [" + capList + "]\n";
+                }
+            }, Qt::BlockingQueuedConnection);
 
-## Layer Architecture (Orthogonal — No Channel Conflicts)
+            if (fixtureSummary.empty())
+                fixtureSummary = "(No fixtures patched — patch fixtures first with patch_fixtures)\n";
 
-Each layer owns specific DMX channels. Layers combine freely via LTP.
+            // Build timing table based on energy style
+            std::string timingTable;
+            if (energyStyle == "aggressive") {
+                timingTable =
+                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
+                    "|------|------|--------|---------|-----|\n"
+                    "| Driving pulse | 2 | 1 | 1 | Default mood chase |\n"
+                    "| Aggressive snap | 1 | 0 | 0 | Peak/drop moments |\n"
+                    "| Musical flow | 4 | 1 | 1 | Buildup transition |\n";
+            } else if (energyStyle == "ambient") {
+                timingTable =
+                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
+                    "|------|------|--------|---------|-----|\n"
+                    "| Ambient drift | 8 | 4 | 4 | Default mood chase |\n"
+                    "| Musical flow | 4 | 2 | 2 | Accent moments |\n"
+                    "| Gentle pulse | 2 | 2 | 2 | Subtle energy shifts |\n";
+            } else {
+                timingTable =
+                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
+                    "|------|------|--------|---------|-----|\n"
+                    "| Musical flow | 4 | 2 | 2 | Default mood chase |\n"
+                    "| Driving pulse | 2 | 1 | 1 | Energy sections |\n"
+                    "| Aggressive snap | 1 | 0 | 0 | Peak/drop hits |\n"
+                    "| Ambient drift | 8 | 4 | 4 | Intro/outro |\n";
+            }
 
-| Layer | Owns | Controls | VC Widget |
-|-------|------|----------|-----------|
-| **Mood** | RGB/CMY/White channels | Color palette | SoloFrame buttons |
-| **Texture** | Gobo, prism, color wheel, focus | Pattern/atmosphere | SoloFrame buttons |
-| **Energy** | Pan/tilt speed, gobo rotation | Movement aggression | SoloFrame buttons |
-| **Position** | Pan, tilt | Where the beam points | SoloFrame or XY pad |
-| **Dimmer** | Intensity/dimmer channels | Brightness | Slider (submaster or audio-reactive) |
-| **Strobe** | Shutter/strobe channels | Flash accents | Flash buttons (hold to fire) |
-| **Haze** | Hazer output/fan | Atmosphere density | Toggle buttons |
+            std::string colorsNote = "Use " + std::to_string(colorsPerPhase)
+                + " colors per phase. Keep palettes tight — repetition builds recognition.";
 
-**Rule:** A channel appears in exactly ONE layer. No HTP conflicts.
+            std::string guide =
+                "# DJ Show Design — Your Fixtures\n\n"
+                "## Current Rig\n" + fixtureSummary +
+                "\nTotals: " + std::to_string(rgbCount) + " RGB, "
+                + std::to_string(movingHeadCount) + " moving heads, "
+                + std::to_string(strobeCount) + " strobes, "
+                + std::to_string(dimmerOnlyCount) + " dimmer-only\n"
+                "\nEnergy style: **" + energyStyle + "**\n\n"
 
----
+                "## Build Order\n"
+                "1. `query_fixture_channels` — get exact channel indices for your fixtures\n"
+                "2. Design orthogonal layers (each DMX channel in exactly ONE layer)\n"
+                "3. Create scenes bottom-up: mood colors → energy presets → position snaps\n"
+                "4. Create beat-synced chasers (always use `tempoType: \"beats\"`)\n"
+                "5. Bundle into phase collections (P1-P4)\n"
+                "6. Build VC page with `build_show_page`\n\n"
 
-## Scene Creation (Explicit Channels Only)
+                "## Layer Architecture\n"
+                "| Layer | Owns | VC Widget |\n"
+                "|-------|------|-----------|\n"
+                "| **Mood** | RGB/CMY/White channels | SoloFrame buttons |\n"
+                "| **Energy** | Pan/tilt speed, gobo rotation speed | SoloFrame buttons |\n"
+                "| **Activity** | EFX patterns, chaser run/stop | SoloFrame buttons |\n"
+                "| **Dimmer** | Intensity/dimmer channels | Audio-reactive slider |\n"
+                "| **Strobe** | Shutter/strobe channels | Flash buttons (hold) |\n"
+                + std::string(movingHeadCount > 0 ?
+                    "| **Position** | Pan, tilt | SoloFrame or XY pad |\n"
+                    "| **Texture** | Gobo, prism, color wheel | SoloFrame buttons |\n" : "") +
+                "\n**Rule:** A channel appears in exactly ONE layer.\n\n"
 
-`create_scenes` uses explicit `channelValues` — each entry is `{fixtureID, channel, value}`.
-**Always call `query_fixture_channels` first** to discover channel indices for your fixtures.
+                "## DJ Phase System (Buildup / Drop)\n"
+                "| Phase | Energy | Palette | Motion |\n"
+                "|-------|--------|---------|--------|\n"
+                "| P1 Warmup | Low-Med | Warm tones (amber, gold) | Slow drifts |\n"
+                "| P2 Buildup | Med-High | Cool tones (blue, cyan) | Tightening, sharper |\n"
+                "| P3 Drop/Peak | Maximum | Hot (magenta, red, white) | Fast snaps, strobes |\n"
+                "| P4 Release | Medium | Ethereal (lavender, aqua) | De-escalate, flow |\n\n"
+                + colorsNote + "\n\n"
+                "Phase = Collection bundling: mood scene + energy preset + activity level.\n\n"
 
-### Workflow
-1. `query_fixture_channels` → get channel layout (index, name, group, colour)
-2. Pick only the channels your scene needs (e.g., only R/G/B/Dimmer for a wash scene)
-3. Pass them as `channelValues` to `create_scenes`
+                "## Beat-Synced Timing (tempoType: \"beats\" — ALWAYS)\n"
+                + timingTable + "\n"
 
-### Example: Wash scene (color + dimmer)
-```json
-{ "name": "WS: Red", "channelValues": [
-    { "fixtureID": 5, "channel": 5, "value": 255 },
-    { "fixtureID": 5, "channel": 6, "value": 0 },
-    { "fixtureID": 5, "channel": 7, "value": 0 },
-    { "fixtureID": 5, "channel": 13, "value": 200 }
-]}
-```
+                "## Audio-Reactive Sliders\n"
+                "| Slider | Mode | Channels | Purpose |\n"
+                "|--------|------|----------|---------|\n"
+                "| Bass Pulse | level | Dimmer channels | Fixtures pulse with kick |\n"
+                + std::string(movingHeadCount > 0 ?
+                    "| Mid Drive | level | Gobo/prism rotation | Texture breathes with melody |\n" : "") +
+                "| Treble Flash | level | Strobe/shutter | Hi-hat triggers flashes |\n"
+                "| Master | submaster | (all) | Overall brightness cap |\n\n"
+                "User configures the audio/OSC source in QLC+ I/O settings.\n\n"
 
-### Example: Position scene (pan/tilt only — NO dimmer, NO color)
-```json
-{ "name": "POS: Center", "channelValues": [
-    { "fixtureID": 5, "channel": 0, "value": 128 },
-    { "fixtureID": 5, "channel": 2, "value": 100 }
-]}
-```
+                "## VC Page Layout (button-based control)\n"
+                "```\n"
+                "Page \"DJ Control\":\n"
+                "  [Phases] solo=true     → P1 Warmup | P2 Buildup | P3 Drop | P4 Release\n"
+                "  [Moods] solo=true      → 3-5 color scenes per phase palette\n"
+                "  [Energy] solo=true     → Chill | Groove | Drive | Bullet | Peak\n"
+                "  [Activity] solo=false  → EFX patterns, chase toggles\n"
+                "  [Quick Shots] flash    → Strobe Hit | Snap Left | Snap Right\n"
+                "  [Controls]            → Master (submaster) | Bass Pulse | BLACKOUT | STOP ALL\n"
+                "```\n\n"
 
-### Critical: Layer Separation
-- **Wash scenes**: set only color + dimmer channels
-- **Position scenes**: set only pan/tilt channels
-- **Look scenes**: set only gobo/prism/color wheel channels
-- **Never mix** — a position scene must NOT touch dimmer or color channels
+                "## Scene Creation Rules\n"
+                "- **Mood scenes**: set ONLY color channels (R/G/B/CMY + dimmer)\n"
+                "- **Position scenes**: set ONLY pan/tilt channels\n"
+                "- **Energy scenes**: set ONLY speed channels\n"
+                "- **NEVER mix** layers in one scene\n"
+                "- Use `query_fixture_channels` to find exact channel indices\n\n"
 
----
+                "## Non-Negotiable Rules\n"
+                "1. **Palette discipline**: 80%+ runtime inside phase palette\n"
+                "2. **Contrast rhythm**: Every phase needs rest + hit state\n"
+                "3. **Strobe restraint**: Flash-button accents only, never sustained\n"
+                "4. **Audio-reactivity**: Every phase has at least one reactive element\n"
+                "5. **Layer separation**: Same channel NEVER in two layers\n"
+                "6. **Beat-sync default**: All chasers use tempoType \"beats\"\n"
+                "7. **Naming**: Phase-prefix (P1-, P2-) or layer-prefix (Mood-, FX-)\n"
+                "8. **Idempotent tools**: All create/add tools upsert by name — safe to call repeatedly\n";
 
-## Phase System (4-Phase DJ Set)
+            return {PromptMessage{"user", guide}};
+        };
+        pm.register_prompt(p);
+    }
 
-| Phase | Energy | Palette | Motion |
-|-------|--------|---------|--------|
-| P1 Starter | Low-Med | Green, yellow, warm amber | Smooth, legible groove |
-| P2 Buildup | Med-High | Blue, cyan, purple | Tighter, sharper, directional |
-| P3 Peak | Maximum | Purple, magenta, red, black contrast | Fast snaps, high contrast |
-| P4 Release | Medium | Blue, lavender, aqua | De-escalate, flow, melody |
+    // ── Prompt 2: debug_channel_conflict ──────────────────────────────
+    {
+        Prompt p;
+        p.name = "debug_channel_conflict";
+        p.description = "Diagnose which scenes and functions touch a specific fixture channel. "
+                         "Use when you suspect a DMX channel is being set by multiple layers or scenes.";
+        p.arguments = {
+            PromptArgument{"fixture_id", std::string("Fixture ID to inspect"), true},
+            PromptArgument{"channel", std::string("Channel index to check"), true}
+        };
+        p.generator = [doc](const Json &args) -> std::vector<PromptMessage> {
+            int fixtureId = 0, channelIdx = 0;
+            if (args["fixture_id"].is_number()) fixtureId = args["fixture_id"].get<int>();
+            else fixtureId = std::stoi(args["fixture_id"].get<std::string>());
+            if (args["channel"].is_number()) channelIdx = args["channel"].get<int>();
+            else channelIdx = std::stoi(args["channel"].get<std::string>());
 
-Phase = Collection bundling: texture scene + default mood + energy preset + haze level.
+            std::string report;
 
----
+            QMetaObject::invokeMethod(doc, [&]() {
+                Fixture *fxi = doc->fixture(fixtureId);
+                if (!fxi)
+                {
+                    report = "Error: Fixture ID " + std::to_string(fixtureId) + " not found.";
+                    return;
+                }
+                const QLCChannel *ch = fxi->channel(channelIdx);
+                if (!ch)
+                {
+                    report = "Error: Channel " + std::to_string(channelIdx) + " not found on fixture "
+                             + fxi->name().toStdString() + ".";
+                    return;
+                }
 
-## Beat-Synced Chasers (tempoType: "beats")
+                report = "# Channel Conflict Report\n\n"
+                         "**Fixture:** " + fxi->name().toStdString() + " (ID " + std::to_string(fixtureId) + ")\n"
+                         "**Channel:** " + std::to_string(channelIdx) + " — " + ch->name().toStdString() +
+                         " (Group: " + QLCChannel::groupToString(ch->group()).toStdString() +
+                         ", Colour: " + QLCChannel::colourToString(ch->colour()).toStdString() + ")\n\n";
 
-When tempoType is "beats", pass timing values as whole beat counts (the tool handles encoding internally):
+                // Find all scenes that touch this channel
+                struct SceneHit {
+                    quint32 sceneId;
+                    std::string sceneName;
+                    uchar value;
+                };
+                std::vector<SceneHit> hits;
 
-| Feel | Hold | FadeIn | FadeOut | Total |
-|------|------|--------|---------|-------|
-| Ambient drift | 8 | 4 | 4 | 16 beats |
-| Musical flow | 4 | 2 | 2 | 8 beats |
-| Driving pulse | 2 | 1 | 1 | 4 beats |
-| Aggressive snap | 1 | 0 | 0 | ~1 beat |
+                for (Function *fn : doc->functionsByType(Function::SceneType))
+                {
+                    Scene *scene = qobject_cast<Scene*>(fn);
+                    if (!scene) continue;
+                    for (const SceneValue &sv : scene->values())
+                    {
+                        if ((int)sv.fxi == fixtureId && (int)sv.channel == channelIdx)
+                        {
+                            hits.push_back({fn->id(), fn->name().toStdString(), sv.value});
+                            break;
+                        }
+                    }
+                }
 
-### Mood Chase per Phase
-Create a chaser that cycles through phase-appropriate colors:
-- P1: Deep Jungle → Amber → Tropical Cyan (hold=8, fade=4)
-- P3: Blood Moon → Violet → Arctic White (hold=4, fade=1)
+                if (hits.empty())
+                {
+                    report += "**No scenes touch this channel.** It is unused or only controlled by manual faders.\n";
+                }
+                else
+                {
+                    report += "## Scenes Setting This Channel (" + std::to_string(hits.size()) + " found)\n\n"
+                              "| Scene | ID | Value | DMX |\n"
+                              "|-------|----|-------|-----|\n";
+                    for (const auto &hit : hits)
+                    {
+                        report += "| " + hit.sceneName + " | " + std::to_string(hit.sceneId)
+                                + " | " + std::to_string(hit.value)
+                                + " | " + std::to_string(hit.value) + "/255 |\n";
+                    }
+                    report += "\n";
 
----
+                    // Find chasers/collections referencing these scenes
+                    std::map<quint32, std::string> sceneIds;
+                    for (const auto &hit : hits)
+                        sceneIds[hit.sceneId] = hit.sceneName;
 
-## Common Lighting Patterns
+                    std::string refs;
+                    for (Function *fn : doc->functionsByType(Function::ChaserType))
+                    {
+                        Chaser *chaser = qobject_cast<Chaser*>(fn);
+                        if (!chaser) continue;
+                        for (int i = 0; i < chaser->stepsCount(); i++)
+                        {
+                            ChaserStep *step = chaser->stepAt(i);
+                            if (step && sceneIds.count(step->fid))
+                            {
+                                refs += "- Chaser **" + fn->name().toStdString()
+                                      + "** (ID " + std::to_string(fn->id())
+                                      + ") uses scene " + sceneIds[step->fid]
+                                      + " at step " + std::to_string(i) + "\n";
+                                break;
+                            }
+                        }
+                    }
+                    for (Function *fn : doc->functionsByType(Function::CollectionType))
+                    {
+                        Collection *col = qobject_cast<Collection*>(fn);
+                        if (!col) continue;
+                        for (quint32 fid : col->functions())
+                        {
+                            if (sceneIds.count(fid))
+                            {
+                                refs += "- Collection **" + fn->name().toStdString()
+                                      + "** (ID " + std::to_string(fn->id())
+                                      + ") includes scene " + sceneIds[fid] + "\n";
+                                break;
+                            }
+                        }
+                    }
 
-### Phantom Scan (Dark Swipe + Beam Reveal)
-2-step chaser: dark snap → beam reveal.
-- Step 1 "Dark": dimmer=0, pan/tilt snap to new position, pt_speed=0 (instant), arm gobo+color. Hold=0ms.
-- Step 2 "Beam": dimmer=255, pt_speed=220 (slow crawl back), beam is ON. Hold=4 beats.
-- Result: light appears to teleport, then slowly sweeps. Dramatic and musical.
-- Variations: change gobo/color per variant (Red Phantom, Blue Phantom, etc.)
+                    if (!refs.empty())
+                        report += "## Functions Referencing These Scenes\n\n" + refs + "\n";
 
-### Color Chase
-Chaser cycling through mood scenes with offset timing.
-- Use propagationMode "Serial" on EFX for moving heads (each fixture starts at different phase).
-- For pars: chaser with 2-4 color scenes, 2-beat hold, 1-beat fade.
+                    // Conflict analysis
+                    if (hits.size() > 1)
+                    {
+                        report += "## Potential Conflict\n\n"
+                                  "**" + std::to_string(hits.size()) + " scenes** set this channel. "
+                                  "If these scenes belong to different layers and run simultaneously, "
+                                  "they will fight for control (LTP — last one wins).\n\n"
+                                  "**Fix:** Ensure only ONE layer owns this channel. "
+                                  "Remove the channel from scenes in other layers, or split into "
+                                  "separate layer-specific scenes.\n";
+                    }
+                    else
+                    {
+                        report += "## No Conflict\n\nOnly one scene touches this channel.\n";
+                    }
+                }
+            }, Qt::BlockingQueuedConnection);
 
-### Strobe Accent
-Flash-mode buttons (hold to fire). Never automate sustained strobe.
-- Map to Launchpad bottom row with flashing red active LED.
-- Layer: strobe channel only, no color/position — those come from other layers.
+            return {PromptMessage{"user", report}};
+        };
+        pm.register_prompt(p);
+    }
 
-### Position Snap
-Scene with pan+tilt values, pt_speed=0 (instant). Use as chaser steps for beat-synced snaps.
-- 4-position chaser: Left→Right→Up→Down, 1-beat hold, 0 fade = staccato impact.
+    // ── Prompt 3: setup_launchpad ─────────────────────────────────────
+    {
+        Prompt p;
+        p.name = "setup_launchpad";
+        p.description = "Step-by-step guide to set up a Novation Launchpad as a lighting controller in QLC+. "
+                         "Covers detection, configuration, button mapping, and LED feedback.";
+        p.arguments = {
+            PromptArgument{"model", std::string("Launchpad model, e.g. 'Launchpad Mini MK3'"), true}
+        };
+        p.generator = [](const Json &args) -> std::vector<PromptMessage> {
+            std::string model = args.at("model").get<std::string>();
 
-### Wash Fade
-Crossfade between two mood scenes using chaser with long fades.
-- Hold=8 beats, fadeIn=4 beats. runOrder: pingpong for continuous breathing.
+            std::string guide =
+                "# Launchpad Setup Guide: " + model + "\n\n"
 
-### EFX Movement Patterns
-| Pattern | Algorithm | Width | Height | Speed | Feel |
-|---------|-----------|-------|--------|-------|------|
-| Gentle sway | Eight | 40 | 30 | 8000 | Background drift |
-| Rhythmic scan | Lissajous (2:3) | 80 | 60 | 4000 | Musical groove |
-| Bar sweep | Line | 120 | 20 | 2000 | Horizontal wipe |
-| Beat snap | SquareTrue | 100 | 80 | 1000 | Corner-to-corner hits |
-| Glitch jitter | Lissajous (3:2) | 60 | 60 | 250 | Nervous twitching |
-| Chaos engine | Lissajous (7:11) | 200 | 150 | 333 | Polyrhythmic mayhem |
+                "## Step 1: Connect Hardware\n"
+                "Plug the " + model + " into USB. It should power on and show its default LED pattern.\n\n"
 
----
+                "## Step 2: Verify Detection\n"
+                "Call `query_midi_devices` to confirm QLC+ sees the Launchpad.\n"
+                "You should see **two ports** per device:\n"
+                "- **MIDI port** — for notes/CC (do NOT use this one)\n"
+                "- **DAW port** — for full Programmer Mode control (USE THIS)\n\n"
+                "If not listed, check USB connection and restart QLC+.\n\n"
 
-## Audio-Reactive Sliders
+                "## Step 3: Auto-Configure\n"
+                "Call `configure_launchpad` with model `\"" + model + "\"`.\n\n"
+                "This single call does everything:\n"
+                "1. Detects the correct DAW port (not MIDI port)\n"
+                "2. Sends the Programmer Mode SysEx init message\n"
+                "3. Sets the correct input profile\n"
+                "4. Enables LED feedback on the same universe\n\n"
+                "**After this call, the Launchpad is ready to use.**\n\n"
 
-Map OSC or audio-trigger input to VCSlider level mode for live response.
-The user connects these to their audio source (OS2L, audio input, or external OSC).
+                "## Step 4: Verify Setup\n"
+                "Call `query_universes` to confirm:\n"
+                "- An input universe is patched to the Launchpad DAW port\n"
+                "- Feedback is enabled on the same universe\n"
+                "- The input profile is set (e.g., \"Novation " + model + "\")\n\n"
 
-| Slider | Channel Group | Purpose |
-|--------|--------------|---------|
-| Bass Pulse | Dimmer channels (pars/wash) | Fixtures pulse with kick drum |
-| Mid Drive | Gobo rotation + prism rotation | Texture and beam spread breathe with melody |
-| Treble Flash | Strobe/shutter channels | High-frequency accents trigger flashes |
-| Master | Submaster (all) | Overall brightness cap |
+                "## Step 5: Map Buttons\n"
+                "Use `build_show_page` with `inputUniverse` and `inputChannel` on each button.\n\n"
+                "### Pad-to-Channel Formula\n"
+                "```\n"
+                "QLC+ channel = 128 + pad_note_number\n"
+                "```\n\n"
+                "### Pad Layout (note numbers)\n"
+                "```\n"
+                "Row 8: 81 82 83 84 85 86 87 88   (top row)\n"
+                "Row 7: 71 72 73 74 75 76 77 78\n"
+                "Row 6: 61 62 63 64 65 66 67 68\n"
+                "Row 5: 51 52 53 54 55 56 57 58\n"
+                "Row 4: 41 42 43 44 45 46 47 48\n"
+                "Row 3: 31 32 33 34 35 36 37 38\n"
+                "Row 2: 21 22 23 24 25 26 27 28\n"
+                "Row 1: 11 12 13 14 15 16 17 18   (bottom row)\n"
+                "```\n"
+                "Example: Pad at row 8, column 1 → note 81 → channel 209\n\n"
 
-**Setup:** Create level-mode sliders targeting specific fixture channels.
-Agent does NOT assign the OSC/audio source — user configures that in QLC+ I/O settings.
+                "### Suggested Row Assignment\n"
+                "| Row | Purpose | LED Style |\n"
+                "|-----|---------|----------|\n"
+                "| 8 | Phase presets | Purple, pulsing |\n"
+                "| 7 | Energy levels | Cyan, pulsing |\n"
+                "| 6 | Mood colors | Match output color, pulsing |\n"
+                "| 5 | Texture/gobo | Orange, pulsing |\n"
+                "| 4-3 | EFX/chasers | Cyan/Yellow, pulsing |\n"
+                "| 2 | Quick shots (flash) | White, static |\n"
+                "| 1 | System (BLACKOUT, STOP) | Red, flashing |\n\n"
 
----
+                "## Step 6: Configure LED Feedback\n"
+                "First, discover the available colors and animation modes for your controller:\n"
+                "```\n"
+                "Call query_feedback_profile with universeID (from Step 4)\n"
+                "```\n"
+                "This returns:\n"
+                "- **colorTable**: available LED colors with velocity values, labels, and hex colors\n"
+                "- **midiChannelTable**: available animation modes (e.g. 0=Static, 1=Flashing, 2=Pulsing)\n\n"
 
-## VC Page Layout (use build_show_page)
+                "Use `map_vc_inputs` or `build_show_page` to set feedback inline per button:\n"
+                "- `idleValue`: LED color velocity when button is OFF (use dimmer variants)\n"
+                "- `activeValue`: LED color velocity when button is ON (full brightness)\n"
+                "- `monitorValue`: LED color velocity for monitor state\n"
+                "- `idleChannel`/`activeChannel`/`monitorChannel`: animation mode from midiChannelTable\n\n"
+                "**Design rules:**\n"
+                "- LED colors should match the output (green scene = green LED)\n"
+                "- Idle LEDs always visible (never fully off) — use dimmer color variants\n"
+                "- Pulsing = toggle/persistent buttons\n"
+                "- Flashing = danger/intense (BLACKOUT, STOP ALL)\n"
+                "- Static = momentary/flash buttons\n\n"
 
-```
-Page "Show Control":
-  [Phases] solo=true     → P1 Jungle | P2 Buildup | P3 Peak | P4 Release
-  [Moods] solo=true      → Deep Jungle | Amber | Midnight Blue | Blood Moon | Violet | Cyan
-  [Energy] solo=true     → Entry | Flow | Build | Bullet | Peak | Accent
-  [FX] solo=false        → Gentle Sway | Bar Sweep | Beat Snap | Glitch
-  [Quick Shots] flash    → UV Burst | Strobe Hit | Snap Left | Snap Right
-  [Controls]             → Master (submaster) | BLACKOUT | STOP ALL
-```
+                "## Common Pitfalls\n"
+                "- **Wrong port**: Always use the DAW port, not the MIDI port\n"
+                "- **No init message**: Without Programmer Mode, LEDs won't respond to feedback\n"
+                "- **Channel math**: Remember `128 + note`, not just the note number\n"
+                "- **Feedback not enabled**: Verify feedback is ON in `query_universes`\n"
+                "- **Profile missing**: The input profile maps pads correctly — verify it's set\n";
 
----
-
-## Non-Negotiable Rules
-
-1. **Palette discipline**: 80%+ runtime inside phase palette. Max 1 accent color outside.
-2. **Contrast rhythm**: Every scene needs rest + hit state. No full-intensity >45 seconds.
-3. **Strobe restraint**: Accents only, never sustained >8 seconds.
-4. **Audio-reactivity**: Every phase should have at least one audio-reactive element active.
-5. **Layer separation**: Never put the same DMX channel in two different layer scenes.
-6. **Name clarity**: Phase-prefix names (P1-, P2-) or layer-prefix (Mood-, FX-, Energy-).
-
----
-
-## Tool Behavior
-
-**All create/add tools are idempotent (upsert).** Calling `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_scripts`, `create_fixture_groups`, `create_rgb_matrices` with the same name updates the existing function — never creates duplicates. Same for `add_vc_buttons`, `add_vc_sliders`, `add_vc_cuelists`, `add_vc_labels` (matched by caption within parent), and `build_show_page` (matched by page/section/widget name). Safe to call repeatedly.
-
----
-
-## Launchpad Mini MK3
-
-Use `configure_launchpad` (single call) to auto-detect and set up.
-
-Row assignment:
-- Row 8: Phase presets (purple LEDs, pulsing)
-- Row 7: Energy levels (cyan LEDs, pulsing)
-- Row 6: Mood colors (LED = output color, pulsing)
-- Row 5: Texture/gobo (orange LEDs, pulsing)
-- Row 4-3: EFX/chasers (cyan/yellow, pulsing)
-- Row 2: Quick shots (white LEDs, static — flash mode)
-- Row 1: System (BLACKOUT=flashing red, STOP ALL=flashing red, Haze=green)
-
-**LED colors match output**: green scene = green LED, blue = blue, etc.
-**Idle LEDs always visible** at 30% brightness (never off).
-**Pulsing** = toggle/persistent, **Flashing** = danger/intense, **Static** = momentary.
-
-Pad note → QLC+ channel: `128 + note` (e.g., pad 81 = channel 209).
-
-### Color Palette (velocity values)
-```
-0=Off  6=White  2=White30%
-10=Red  14=Red30%  18=Orange  22=Orange30%
-26=Yellow  30=Yellow30%  42=Green  46=Green30%
-74=Cyan  78=Cyan30%  82=Blue  86=Blue30%
-98=Purple  102=Purple30%  106=Magenta  110=Magenta30%
-```
-)";
-            return guideText;
-        },
-        std::nullopt,
-        std::string("Get the professional lighting show design guide including audio-reactive patterns, beat/tempo system, and OSC integration. Call this before designing a show."),
-        std::nullopt
-    ));
+            return {PromptMessage{"user", guide}};
+        };
+        pm.register_prompt(p);
+    }
 }

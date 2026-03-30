@@ -65,6 +65,9 @@ public:
                            int idleValue, int activeValue, int monitorValue,
                            int idleMidiCh, int activeMidiCh, int monitorMidiCh) override;
 
+    FeedbackInfo getWidgetFeedback(int widgetID) const override;
+    int widgetInputSourceCount(int widgetID) const override;
+
     bool setWidgetColors(int widgetID,
                          const QColor &bgColor = QColor(),
                          const QColor &fgColor = QColor()) override;

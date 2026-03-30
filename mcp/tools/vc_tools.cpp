@@ -63,7 +63,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Create new Virtual Console pages. Batch: pass multiple in 'items'."),
+        std::string("Create new Virtual Console pages. Batch."),
         std::nullopt
     ));
 
@@ -171,8 +171,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Add frame containers to Virtual Console. Use pageIndex for top-level frames, "
-                     "parentID for nested frames (mutually exclusive). Use solo=true for mutually exclusive moods. Batch."),
+        std::string("Add frame containers to Virtual Console. Use solo=true for mutually exclusive moods. Batch."),
         std::nullopt
     ));
 
@@ -519,7 +518,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"widgetID", {{"type", "integer"}}},
                 {"inputUniverse", {{"type", "integer"}}},
-                {"inputChannel", {{"type", "integer"}}}
+                {"inputChannel", {{"type", "integer"}}},
+                {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
+                {"activeValue", {{"type", "integer"}, {"description", "LED color when active (velocity from color table)"}}},
+                {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state (velocity from color table)"}}},
+                {"idleChannel", {{"type", "integer"}, {"description", "MIDI channel for idle state (from profile's MIDI channel table)"}}},
+                {"activeChannel", {{"type", "integer"}, {"description", "MIDI channel for active state (from profile's MIDI channel table)"}}},
+                {"monitorChannel", {{"type", "integer"}, {"description", "MIDI channel for monitor state (from profile's MIDI channel table)"}}}
             }}, {"required", {"widgetID", "inputUniverse", "inputChannel"}}}}}},
             {"mode", {{"type", "string"}, {"enum", {"replace", "add"}},
                 {"description", "replace (default): clear existing inputs first. add: append without clearing."}}}
@@ -533,16 +538,77 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             std::string mode = args.value("mode", "replace");
             for (auto &item : args.at("items"))
             {
-                auto itemErr = validateFields(item, {"widgetID", "inputUniverse", "inputChannel"});
+                auto itemErr = validateFields(item, {"widgetID", "inputUniverse", "inputChannel",
+                    "idleValue", "activeValue", "monitorValue",
+                    "idleChannel", "activeChannel", "monitorChannel"});
                 if (!itemErr.empty()) { results.push_back(nlohmann::json::parse(itemErr)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 quint32 uni = item.at("inputUniverse").get<int>();
                 quint32 ch = item.at("inputChannel").get<int>();
+
+                // Check for multiple sources (not supported)
+                int srcCount = vcBridge->widgetInputSourceCount(wid);
+                if (srcCount > 1)
+                {
+                    results.push_back({{"widgetID", wid}, {"status", "error"},
+                        {"error", "widget has multiple input sources; not supported"}});
+                    continue;
+                }
+
+                // Determine feedback: use supplied values or preserve existing
+                bool hasFeedback = item.contains("activeValue");
+                if (hasFeedback)
+                {
+                    // All 6 fields required when feedback is supplied
+                    if (!item.contains("idleValue") || !item.contains("monitorValue") ||
+                        !item.contains("idleChannel") || !item.contains("activeChannel") ||
+                        !item.contains("monitorChannel"))
+                    {
+                        results.push_back({{"widgetID", wid}, {"status", "error"},
+                            {"error", "all 6 feedback fields required when any feedback is supplied "
+                                      "(idleValue, activeValue, monitorValue, idleChannel, activeChannel, monitorChannel)"}});
+                        continue;
+                    }
+                }
+
+                // Snapshot existing feedback before replacing
+                VCBridge::FeedbackInfo savedFb;
+                bool hadExistingSource = (srcCount == 1);
+                if (hadExistingSource)
+                    savedFb = vcBridge->getWidgetFeedback(wid);
+
+                // Map the input (replace or add)
                 bool ok;
-                if (mode == "add")
+                if (mode == "add" && srcCount == 0)
                     ok = vcBridge->addWidgetInput(wid, uni, ch);
                 else
                     ok = vcBridge->mapWidgetInput(wid, uni, ch);
+
+                if (!ok)
+                {
+                    results.push_back({{"widgetID", wid}, {"status", "failed"}});
+                    continue;
+                }
+
+                // Apply feedback
+                if (hasFeedback)
+                {
+                    vcBridge->setWidgetFeedback(wid,
+                        item.at("idleValue").get<int>(),
+                        item.at("activeValue").get<int>(),
+                        item.at("monitorValue").get<int>(),
+                        item.at("idleChannel").get<int>(),
+                        item.at("activeChannel").get<int>(),
+                        item.at("monitorChannel").get<int>());
+                }
+                else if (hadExistingSource)
+                {
+                    // Preserve previous feedback
+                    vcBridge->setWidgetFeedback(wid,
+                        savedFb.idleValue, savedFb.activeValue, savedFb.monitorValue,
+                        savedFb.idleMidiCh, savedFb.activeMidiCh, savedFb.monitorMidiCh);
+                }
+
                 results.push_back({{"widgetID", wid}, {"status", ok ? "ok" : "failed"}});
             }
             return results.dump();
@@ -550,7 +616,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         },
         std::nullopt,
         std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. "
-                     "mode='replace' (default): clears existing inputs. mode='add': appends without clearing. Batch."),
+                     "Optionally set LED feedback in the same call (all 6 feedback fields required together). "
+                     "Feedback is preserved across remaps if not explicitly supplied. Batch."),
         std::nullopt
     ));
 
@@ -563,35 +630,42 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
                 {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
                 {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state"}}},
-                {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for idle state (default static)"}}},
-                {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for active state (default static)"}}},
-                {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for monitor state"}}}
+                {"idleChannel", {{"type", "integer"}, {"description", "MIDI channel for idle state (from profile's MIDI channel table, default 0)"}}},
+                {"activeChannel", {{"type", "integer"}, {"description", "MIDI channel for active state (from profile's MIDI channel table, default 0)"}}},
+                {"monitorChannel", {{"type", "integer"}, {"description", "MIDI channel for monitor state (from profile's MIDI channel table, default 0)"}}},
+                {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use idleChannel instead. LED animation mode for idle state (default static)"}}},
+                {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use activeChannel instead. LED animation mode for active state (default static)"}}},
+                {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use monitorChannel instead. LED animation mode for monitor state"}}}
             }}, {"required", {"widgetID", "activeValue"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             try {
+            auto midiChFromMode = [](const std::string &mode) -> int {
+                if (mode == "flashing") return 1;
+                if (mode == "pulsing") return 2;
+                return 0;
+            };
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"widgetID", "activeValue", "idleValue", "monitorValue", "idleMode", "activeMode", "monitorMode"});
+                auto err = validateFields(item, {"widgetID", "activeValue", "idleValue", "monitorValue",
+                    "idleChannel", "activeChannel", "monitorChannel",
+                    "idleMode", "activeMode", "monitorMode"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 int activeVal = item.at("activeValue").get<int>();
                 int idleVal = item.value("idleValue", 0);
                 int monitorVal = item.value("monitorValue", 0);
 
-                int midiChIdle = 0, midiChActive = 0, midiChMonitor = 0;
-                std::string idleMode = item.value("idleMode", "static");
-                std::string activeMode = item.value("activeMode", "static");
-                std::string monitorMode = item.value("monitorMode", "");
-                if (idleMode == "flashing") midiChIdle = 1;
-                else if (idleMode == "pulsing") midiChIdle = 2;
-                if (activeMode == "flashing") midiChActive = 1;
-                else if (activeMode == "pulsing") midiChActive = 2;
-                if (monitorMode == "flashing") midiChMonitor = 1;
-                else if (monitorMode == "pulsing") midiChMonitor = 2;
+                // Integer channel fields take precedence; fall back to string mode names
+                int midiChIdle = item.contains("idleChannel") ? item.at("idleChannel").get<int>()
+                    : midiChFromMode(item.value("idleMode", "static"));
+                int midiChActive = item.contains("activeChannel") ? item.at("activeChannel").get<int>()
+                    : midiChFromMode(item.value("activeMode", "static"));
+                int midiChMonitor = item.contains("monitorChannel") ? item.at("monitorChannel").get<int>()
+                    : midiChFromMode(item.value("monitorMode", ""));
 
                 bool ok = vcBridge->setWidgetFeedback(wid, idleVal, activeVal, monitorVal,
                                                       midiChIdle, midiChActive, midiChMonitor);
@@ -608,7 +682,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Set LED feedback colors per widget. idleValue=LED when inactive, activeValue=LED when active. ledMode: static/flashing/pulsing. Batch."),
+        std::string("Set LED feedback colors and animation mode per widget. "
+                     "Use integer idleChannel/activeChannel/monitorChannel (from query_feedback_profile) "
+                     "or legacy string idleMode/activeMode/monitorMode. Batch."),
         std::nullopt
     ));
 
@@ -805,9 +881,12 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
         {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
         {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state"}}},
-        {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for idle state (default static)"}}},
-        {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for active state (default static)"}}},
-        {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "LED animation mode for monitor state"}}},
+        {"idleMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use idleChannel instead. LED animation mode for idle state (default static)"}}},
+        {"activeMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use activeChannel instead. LED animation mode for active state (default static)"}}},
+        {"monitorMode", {{"type", "string"}, {"enum", {"static", "flashing", "pulsing"}}, {"description", "Deprecated: use monitorChannel instead. LED animation mode for monitor state"}}},
+        {"idleChannel", {{"type", "integer"}, {"description", "MIDI channel for idle state (from profile's MIDI channel table, default 0)"}}},
+        {"activeChannel", {{"type", "integer"}, {"description", "MIDI channel for active state (from profile's MIDI channel table, default 0)"}}},
+        {"monitorChannel", {{"type", "integer"}, {"description", "MIDI channel for monitor state (from profile's MIDI channel table, default 0)"}}},
         {"stopAllFadeTime", {{"type", "integer"}, {"description", "Fade out time in ms before stopping all functions (only for stopall action, default 0)"}}}
     }}, {"required", {"caption"}}};
     Json sliderSchema = Json{{"type", "object"}, {"properties", {
@@ -892,9 +971,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     int activeVal = props.at("activeValue").get<int>();
                     int idleVal = props.value("idleValue", 0);
                     int monitorVal = props.value("monitorValue", 0);
-                    int idleMidiCh = midiChFromMode(props.value("idleMode", "static"));
-                    int activeMidiCh = midiChFromMode(props.value("activeMode", "static"));
-                    int monitorMidiCh = midiChFromMode(props.value("monitorMode", ""));
+                    // Integer channel fields take precedence; fall back to string mode names
+                    int idleMidiCh = props.contains("idleChannel") ? props.at("idleChannel").get<int>()
+                        : midiChFromMode(props.value("idleMode", "static"));
+                    int activeMidiCh = props.contains("activeChannel") ? props.at("activeChannel").get<int>()
+                        : midiChFromMode(props.value("activeMode", "static"));
+                    int monitorMidiCh = props.contains("monitorChannel") ? props.at("monitorChannel").get<int>()
+                        : midiChFromMode(props.value("monitorMode", ""));
                     vcBridge->setWidgetFeedback(widgetID, idleVal, activeVal, monitorVal,
                                                 idleMidiCh, activeMidiCh, monitorMidiCh);
                 }
@@ -982,7 +1065,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     int btnIdx = 0;
                     for (auto &btn : section.at("buttons"))
                     {
-                        auto btnErr = validateFields(btn, {"caption", "functionName", "functionID", "action", "bgColor", "fgColor", "inputUniverse", "inputChannel", "idleValue", "activeValue", "monitorValue", "idleMode", "activeMode", "monitorMode", "stopAllFadeTime"});
+                        auto btnErr = validateFields(btn, {"caption", "functionName", "functionID", "action", "bgColor", "fgColor", "inputUniverse", "inputChannel", "idleValue", "activeValue", "monitorValue", "idleMode", "activeMode", "monitorMode", "idleChannel", "activeChannel", "monitorChannel", "stopAllFadeTime"});
                         if (!btnErr.empty()) { buttonsResult.push_back(nlohmann::json::parse(btnErr)); continue; }
                         QString btnCaption = QString::fromStdString(btn.at("caption").get<std::string>());
                         int btnID = vcBridge->findWidgetByCaption(frameID, "Button", btnCaption);
@@ -1113,11 +1196,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Build a complete Virtual Console page in one call with upsert semantics. Sections become frames (solo=true for mutually exclusive moods). "
-                     "Buttons and sliders auto-layout horizontally in rows using full page width. Use 'columns' per section to control items per row. "
-                     "Supports per-widget colors (bgColor/fgColor), Launchpad input mapping (inputUniverse/inputChannel), "
-                     "and LED feedback (idleValue/activeValue/monitorValue with static/flashing/pulsing modes). "
-                     "Existing widgets are updated (not skipped). Use functionName to reference functions by name."),
+        std::string("Build a complete Virtual Console page in one call. Sections become frames, buttons and sliders auto-layout. "
+                     "Supports input mapping, LED feedback, and per-widget colors. Upserts."),
         std::nullopt
     ));
     } // end build_show_page schema scope
@@ -1183,9 +1263,9 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                         {"idleValue", d.feedback.idleValue},
                         {"activeValue", d.feedback.activeValue},
                         {"monitorValue", d.feedback.monitorValue},
-                        {"idleMidiCh", d.feedback.idleMidiCh},
-                        {"activeMidiCh", d.feedback.activeMidiCh},
-                        {"monitorMidiCh", d.feedback.monitorMidiCh}
+                        {"idleChannel", d.feedback.idleMidiCh},
+                        {"activeChannel", d.feedback.activeMidiCh},
+                        {"monitorChannel", d.feedback.monitorMidiCh}
                     };
                 }
                 results.push_back(entry);
@@ -1194,8 +1274,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Query full details of Virtual Console widgets: type, caption, geometry, function, action, "
-                     "slider mode, channels, input mappings, colors, LED feedback. Batch."),
+        std::string("Query full details of Virtual Console widgets. Batch."),
         std::nullopt
     ));
 
@@ -1310,9 +1389,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed, "
-                     "others are preserved. Supports caption, geometry (x/y/width/height), functionID, "
-                     "action (buttons), mode (sliders), channels (sliders), colors. Batch."),
+        std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed. Batch."),
         std::nullopt
     ));
 
@@ -1358,8 +1435,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             });
         },
         std::nullopt,
-        std::string("Move Virtual Console widgets between frames. Preserves all properties (input mappings, "
-                     "colors, LED feedback, function bindings). Widget size is preserved if not specified. Batch."),
+        std::string("Move Virtual Console widgets between frames. Preserves all properties. Batch."),
         std::nullopt
     ));
 

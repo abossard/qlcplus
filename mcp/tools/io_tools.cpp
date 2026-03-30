@@ -278,7 +278,92 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Set input profile for a universe. Batch: pass multiple in 'items'."),
+        std::string("Set input profile for a universe. Batch."),
+        std::nullopt
+    ));
+
+    // query_feedback_profile — get color table and MIDI channel table from an input profile
+    tm.register_tool(Tool(
+        "query_feedback_profile",
+        Json{{"type", "object"}, {"properties", {
+            {"profileName", {{"type", "string"}, {"description", "Name of the input profile to query. Use query_input_profiles to list available profiles."}}},
+            {"universeID", {{"type", "integer"}, {"description", "Universe ID to get the active input profile from. Alternative to profileName."}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"profileName", "universeID"});
+            if (!err.empty()) return err;
+
+            InputOutputMap *ioMap = doc->inputOutputMap();
+            QLCInputProfile *prof = nullptr;
+
+            if (args.contains("profileName"))
+            {
+                QString profName = QString::fromStdString(args.at("profileName").get<std::string>());
+                prof = ioMap->profile(profName);
+                if (!prof)
+                    return Json({{"error", "profile not found: " + profName.toStdString()}}).dump();
+            }
+            else if (args.contains("universeID"))
+            {
+                int uid = args.at("universeID").get<int>();
+                InputPatch *inPatch = ioMap->inputPatch(uid);
+                if (!inPatch || !inPatch->profile())
+                    return Json({{"error", "no input profile set on universe " + std::to_string(uid)}}).dump();
+                prof = inPatch->profile();
+            }
+            else
+            {
+                return Json({{"error", "either profileName or universeID is required"}}).dump();
+            }
+
+            Json result;
+            result["profileName"] = prof->name().toStdString();
+
+            // Color table
+            result["hasColorTable"] = prof->hasColorTable();
+            Json colorTable = Json::array();
+            if (prof->hasColorTable())
+            {
+                QMapIterator<uchar, QPair<QString, QColor>> it(prof->colorTable());
+                while (it.hasNext())
+                {
+                    it.next();
+                    colorTable.push_back({
+                        {"value", (int)it.key()},
+                        {"label", it.value().first.toStdString()},
+                        {"color", it.value().second.name().toStdString()}
+                    });
+                }
+            }
+            result["colorTable"] = colorTable;
+
+            // MIDI channel table
+            result["hasMidiChannelTable"] = prof->hasMidiChannelTable();
+            Json midiChannelTable = Json::array();
+            if (prof->hasMidiChannelTable())
+            {
+                QMapIterator<uchar, QString> it(prof->midiChannelTable());
+                while (it.hasNext())
+                {
+                    it.next();
+                    midiChannelTable.push_back({
+                        {"value", (int)it.key()},
+                        {"label", it.value().toStdString()}
+                    });
+                }
+            }
+            result["midiChannelTable"] = midiChannelTable;
+
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Get the color table and MIDI channel table from an input profile. "
+                     "Accepts profileName or universeID (to use the active profile on that universe). "
+                     "Returns available LED colors (velocity values) and animation modes "
+                     "for use with feedback configuration."),
         std::nullopt
     ));
 
@@ -463,7 +548,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Show current OSC configuration for all universes that have OSC patched. Returns ports, IPs, and line numbers."),
+        std::string("Show current OSC configuration for all universes that have OSC patched."),
         std::nullopt
     ));
 
@@ -566,7 +651,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Set grand master value (0-255), value mode (limit/reduce), and channel mode (intensity/all)."),
+        std::string("Set grand master value, value mode, and channel mode."),
         std::nullopt
     ));
 
@@ -688,7 +773,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Auto-configure a Novation Launchpad. Detects the device, selects the correct DAW port (not MIDI port), sends Programmer Mode init message, sets input profile, enables LED feedback. Single call."),
+        std::string("Auto-configure a Novation Launchpad. Detects the device, sets DAW port, sends init message, sets input profile, enables LED feedback."),
         std::nullopt
     ));
 }

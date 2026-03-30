@@ -126,6 +126,14 @@ public:
                                    int idleValue, int activeValue, int monitorValue,
                                    int idleMidiCh, int activeMidiCh, int monitorMidiCh) = 0;
 
+    // Read feedback from the widget's first input source
+    virtual FeedbackInfo getWidgetFeedback(int widgetID) const
+        { Q_UNUSED(widgetID); return FeedbackInfo(); }
+
+    // Number of input sources on a widget
+    virtual int widgetInputSourceCount(int widgetID) const
+        { Q_UNUSED(widgetID); return 0; }
+
     // Widget colors
     virtual bool setWidgetColors(int widgetID,
                                  const QColor &bgColor = QColor(),

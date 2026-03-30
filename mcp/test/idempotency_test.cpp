@@ -34,6 +34,7 @@
 #include "script.h"
 #include "fixture.h"
 #include "fixturegroup.h"
+#include "qlcinputprofile.h"
 
 #include <set>
 #include <vector>
@@ -634,6 +635,87 @@ void McpIdempotency_Test::beatEncoding_zeroRemainsZero()
     uint encoded = 0 * 1000;
     QCOMPARE(encoded, (uint)0);
     QCOMPARE(Function::beatsToTime(0, 500), (uint)0);
+}
+
+/*************************************************************************
+ * Input profile color / MIDI channel tables
+ *************************************************************************/
+
+void McpIdempotency_Test::profileColorTable_emptyByDefault()
+{
+    QLCInputProfile prof;
+    QVERIFY(!prof.hasColorTable());
+    QVERIFY(prof.colorTable().isEmpty());
+}
+
+void McpIdempotency_Test::profileColorTable_addsAndRetrieves()
+{
+    QLCInputProfile prof;
+    prof.addColor(0, "Black", QColor("#000000"));
+    prof.addColor(10, "Red", QColor("#ff0000"));
+    prof.addColor(20, "Green", QColor("#00ff00"));
+
+    QVERIFY(prof.hasColorTable());
+    QCOMPARE(prof.colorTable().size(), 3);
+
+    auto table = prof.colorTable();
+    QCOMPARE(table.value(0).first, QString("Black"));
+    QCOMPARE(table.value(0).second, QColor("#000000"));
+    QCOMPARE(table.value(10).first, QString("Red"));
+    QCOMPARE(table.value(10).second, QColor("#ff0000"));
+    QCOMPARE(table.value(20).first, QString("Green"));
+    QCOMPARE(table.value(20).second, QColor("#00ff00"));
+}
+
+void McpIdempotency_Test::profileColorTable_removesEntry()
+{
+    QLCInputProfile prof;
+    prof.addColor(5, "Orange", QColor("#ff8800"));
+    prof.addColor(10, "Red", QColor("#ff0000"));
+    QCOMPARE(prof.colorTable().size(), 2);
+
+    prof.removeColor(5);
+    QCOMPARE(prof.colorTable().size(), 1);
+    QVERIFY(!prof.colorTable().contains(5));
+    QVERIFY(prof.colorTable().contains(10));
+}
+
+void McpIdempotency_Test::profileMidiChannelTable_emptyByDefault()
+{
+    QLCInputProfile prof;
+    QVERIFY(!prof.hasMidiChannelTable());
+    QVERIFY(prof.midiChannelTable().isEmpty());
+}
+
+void McpIdempotency_Test::profileMidiChannelTable_addsAndRetrieves()
+{
+    QLCInputProfile prof;
+    prof.addMidiChannel(0, "Static colour");
+    prof.addMidiChannel(1, "Flashing colour");
+    prof.addMidiChannel(2, "Pulsing colour");
+
+    QVERIFY(prof.hasMidiChannelTable());
+    QCOMPARE(prof.midiChannelTable().size(), 3);
+
+    auto table = prof.midiChannelTable();
+    QCOMPARE(table.value(0), QString("Static colour"));
+    QCOMPARE(table.value(1), QString("Flashing colour"));
+    QCOMPARE(table.value(2), QString("Pulsing colour"));
+}
+
+/*************************************************************************
+ * FeedbackInfo defaults
+ *************************************************************************/
+
+void McpIdempotency_Test::feedbackInfo_defaultsToZero()
+{
+    VCBridge::FeedbackInfo fb;
+    QCOMPARE(fb.idleValue, 0);
+    QCOMPARE(fb.activeValue, 0);
+    QCOMPARE(fb.monitorValue, 0);
+    QCOMPARE(fb.idleMidiCh, 0);
+    QCOMPARE(fb.activeMidiCh, 0);
+    QCOMPARE(fb.monitorMidiCh, 0);
 }
 
 QTEST_MAIN(McpIdempotency_Test)
