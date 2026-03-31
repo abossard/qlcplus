@@ -400,6 +400,115 @@ def run_tests():
             assert len(r) == 1
         test("add_vc_sliders (submaster)", t_add_vc_sliders)
 
+        # === SLIDER EXTENDED PROPERTIES ===
+        print("\n=== Slider Extended Properties ===")
+
+        def t_slider_grandmaster():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 500, "y": 10, "width": 60, "height": 400,
+                 "caption": "GM", "mode": "grandmaster",
+                 "gmValueMode": "reduce", "gmChannelMode": "allchannels"},
+            ]})
+            assert len(r) == 1
+            wid = r[0]["widgetID"]
+            assert wid >= 0, f"Expected valid ID, got {r[0]}"
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["sliderMode"] == "grandmaster", f"Expected grandmaster, got {d.get('sliderMode')}"
+            assert d["gmValueMode"] == "reduce", f"Expected reduce, got {d.get('gmValueMode')}"
+            assert d["gmChannelMode"] == "allchannels", f"Expected allchannels, got {d.get('gmChannelMode')}"
+        test("slider grandmaster mode", t_slider_grandmaster)
+
+        def t_slider_click_and_go():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 580, "y": 10, "width": 60, "height": 400,
+                 "caption": "Gobo Pick", "mode": "level",
+                 "clickAndGoType": "preset"},
+            ]})
+            assert len(r) == 1
+            wid = r[0]["widgetID"]
+            assert wid >= 0
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["clickAndGoType"] == "preset", f"Expected preset, got {d.get('clickAndGoType')}"
+        test("slider clickAndGoType (preset)", t_slider_click_and_go)
+
+        def t_slider_value_display_style():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 660, "y": 10, "width": 60, "height": 400,
+                 "caption": "Pct Slider", "mode": "level",
+                 "valueDisplayStyle": "percentage"},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["valueDisplayStyle"] == "percentage", f"Expected percentage, got {d.get('valueDisplayStyle')}"
+        test("slider valueDisplayStyle (percentage)", t_slider_value_display_style)
+
+        def t_slider_range_limits():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 740, "y": 10, "width": 60, "height": 400,
+                 "caption": "Ranged", "mode": "level",
+                 "rangeLowLimit": 50, "rangeHighLimit": 200},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["rangeLowLimit"] == 50, f"rangeLowLimit: {d.get('rangeLowLimit')}"
+            assert d["rangeHighLimit"] == 200, f"rangeHighLimit: {d.get('rangeHighLimit')}"
+        test("slider rangeLowLimit/rangeHighLimit", t_slider_range_limits)
+
+        def t_slider_monitor():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 820, "y": 10, "width": 60, "height": 400,
+                 "caption": "Monitored", "mode": "level",
+                 "monitorEnabled": True},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["monitorEnabled"] == True, f"monitorEnabled: {d.get('monitorEnabled')}"
+        test("slider monitorEnabled", t_slider_monitor)
+
+        def t_slider_inverted():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 900, "y": 10, "width": 60, "height": 400,
+                 "caption": "Inverted", "mode": "level",
+                 "invertedAppearance": True},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d.get("invertedAppearance") == True or d.get("sliderInvertedAppearance") == True, \
+                f"invertedAppearance not set: {d}"
+        test("slider invertedAppearance", t_slider_inverted)
+
+        def t_slider_upsert():
+            # Create a slider, then create another with same caption → should upsert
+            r1 = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 980, "y": 10, "width": 60, "height": 400,
+                 "caption": "Upsert Test", "mode": "level"},
+            ]})
+            wid1 = r1[0]["widgetID"]
+            assert r1[0]["status"] == "created"
+
+            r2 = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "caption": "Upsert Test", "mode": "level",
+                 "clickAndGoType": "colors"},
+            ]})
+            assert r2[0]["status"] == "updated", f"Expected updated, got {r2[0].get('status')}"
+            assert r2[0]["widgetID"] == wid1, "Upsert should return same widget ID"
+
+            d = call("query_widget_details", {"widgetIDs": [wid1]})[0]
+            assert d["clickAndGoType"] == "colors", f"Expected colors after upsert, got {d.get('clickAndGoType')}"
+        test("slider upsert (update existing by caption)", t_slider_upsert)
+
+        def t_slider_colors_on_create():
+            r = call("add_vc_sliders", {"items": [
+                {"parentID": page_idx, "x": 1060, "y": 10, "width": 60, "height": 400,
+                 "caption": "Colored", "mode": "level",
+                 "clickAndGoType": "colors",
+                 "bgColor": "#1a3300", "fgColor": "#ffffff"},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["clickAndGoType"] == "colors"
+        test("slider with colors + clickAndGo on create", t_slider_colors_on_create)
+
         def t_add_vc_cuelists():
             fns = call("query_functions")
             chaser_id = next((f["id"] for f in fns if f.get("type") == "Chaser"), fns[0]["id"] if fns else 0)
