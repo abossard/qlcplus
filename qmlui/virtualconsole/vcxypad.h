@@ -177,6 +177,15 @@ public:
     /** Remove a Fixture from this XY Pad */
     Q_INVOKABLE void removeHeads(QVariantList heads);
 
+    /** Remove a single head by fixture ID and head index */
+    bool removeHead(quint32 fixtureID, int headIndex);
+
+    /** Get/set per-fixture axis ranges (for MCP bridge) */
+    bool setFixtureRange(quint32 fixtureID, int head,
+                         qreal xMin, qreal xMax, bool xReverse,
+                         qreal yMin, qreal yMax, bool yReverse);
+    QList<XYPadFixture> fixtures() const { return m_fixtures; }
+
     /** Add presets */
     Q_INVOKABLE int addPositionPreset();
     Q_INVOKABLE int addFunctionPreset(quint32 functionID);

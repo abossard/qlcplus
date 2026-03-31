@@ -443,6 +443,46 @@ void VCXYPad::removeHeads(QVariantList heads)
     updateFixtureList();
 }
 
+bool VCXYPad::removeHead(quint32 fixtureID, int headIndex)
+{
+    int fIdx = 0;
+    for (XYPadFixture &fixture : m_fixtures)
+    {
+        if (fixture.m_head.fxi == (int)fixtureID && fixture.m_head.head == headIndex)
+        {
+            m_fixtures.takeAt(fIdx);
+            m_doc->setModified();
+            updateFixtureList();
+            return true;
+        }
+        fIdx++;
+    }
+    return false;
+}
+
+bool VCXYPad::setFixtureRange(quint32 fixtureID, int head,
+                               qreal xMin, qreal xMax, bool xReverse,
+                               qreal yMin, qreal yMax, bool yReverse)
+{
+    for (XYPadFixture &fixture : m_fixtures)
+    {
+        if (fixture.m_head.fxi == (int)fixtureID && fixture.m_head.head == head)
+        {
+            fixture.m_xMin = xMin;
+            fixture.m_xMax = xMax;
+            fixture.m_xReverse = xReverse;
+            fixture.m_yMin = yMin;
+            fixture.m_yMax = yMax;
+            fixture.m_yReverse = yReverse;
+            computeRange(fixture);
+            m_doc->setModified();
+            updateFixtureList();
+            return true;
+        }
+    }
+    return false;
+}
+
 QVariant VCXYPad::fixtureList() const
 {
     return QVariant::fromValue(m_fixtureList);

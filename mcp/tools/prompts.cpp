@@ -181,13 +181,15 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 + timingTable + "\n"
 
                 "## Audio-Reactive Sliders\n"
-                "| Slider | Mode | Channels | Purpose |\n"
-                "|--------|------|----------|---------|\n"
-                "| Bass Pulse | level | Dimmer channels | Fixtures pulse with kick |\n"
+                "| Slider | Mode | Channels | Click & Go | Purpose |\n"
+                "|--------|------|----------|------------|---------|\n"
+                "| Bass Pulse | level | Dimmer channels | none | Fixtures pulse with kick |\n"
                 + std::string(movingHeadCount > 0 ?
-                    "| Mid Drive | level | Gobo/prism rotation | Texture breathes with melody |\n" : "") +
-                "| Treble Flash | level | Strobe/shutter | Hi-hat triggers flashes |\n"
-                "| Master | submaster | (all) | Overall brightness cap |\n\n"
+                    "| Mid Drive | level | Gobo/prism rotation | preset | Texture breathes with melody (clickAndGoType: preset for gobo picker) |\n" : "") +
+                "| Treble Flash | level | Strobe/shutter | preset | Hi-hat triggers flashes (clickAndGoType: preset for strobe picker) |\n"
+                "| Master | grandmaster | (all) | none | Overall brightness cap (gmValueMode: reduce, gmChannelMode: allchannels) |\n\n"
+                "Slider options: clickAndGoType (none/colors/preset), valueDisplayStyle (dmx/percentage),\n"
+                "invertedAppearance, rangeLowLimit/rangeHighLimit (0-255), monitorEnabled.\n"
                 "User configures the audio/OSC source in QLC+ I/O settings.\n\n"
 
                 "## VC Page Layout (button-based control)\n"
@@ -198,7 +200,7 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 "  [Energy] solo=true     → Chill | Groove | Drive | Bullet | Peak\n"
                 "  [Activity] solo=false  → EFX patterns, chase toggles\n"
                 "  [Quick Shots] flash    → Strobe Hit | Snap Left | Snap Right\n"
-                "  [Controls]            → Master (submaster) | Bass Pulse | BLACKOUT | STOP ALL\n"
+                "  [Controls]            → Master (grandmaster) | Bass Pulse | BLACKOUT | STOP ALL\n"
                 "```\n\n"
 
                 "## Scene Creation Rules\n"

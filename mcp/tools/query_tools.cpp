@@ -266,6 +266,23 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                                 wJson["action"] = d.action.toStdString();
                             if (!d.sliderMode.isEmpty())
                                 wJson["sliderMode"] = d.sliderMode.toStdString();
+                            // Slider extended properties (only emit non-defaults)
+                            if (!d.clickAndGoType.isEmpty() && d.clickAndGoType != "none")
+                                wJson["clickAndGoType"] = d.clickAndGoType.toStdString();
+                            if (!d.valueDisplayStyle.isEmpty() && d.valueDisplayStyle != "dmx")
+                                wJson["valueDisplayStyle"] = d.valueDisplayStyle.toStdString();
+                            if (d.sliderInvertedAppearance)
+                                wJson["invertedAppearance"] = true;
+                            if (d.rangeLowLimit > 0)
+                                wJson["rangeLowLimit"] = d.rangeLowLimit;
+                            if (d.rangeHighLimit < 255)
+                                wJson["rangeHighLimit"] = d.rangeHighLimit;
+                            if (d.monitorEnabled)
+                                wJson["monitorEnabled"] = true;
+                            if (!d.gmValueMode.isEmpty())
+                                wJson["gmValueMode"] = d.gmValueMode.toStdString();
+                            if (!d.gmChannelMode.isEmpty())
+                                wJson["gmChannelMode"] = d.gmChannelMode.toStdString();
                             if (d.parentID >= 0)
                                 wJson["parentID"] = d.parentID;
 

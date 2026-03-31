@@ -96,6 +96,31 @@ private slots:
     // FeedbackInfo defaults
     void feedbackInfo_defaultsToZero();
 
+    // Overlap detection
+    void overlap_noChildren();
+    void overlap_noOverlap();
+    void overlap_twoWidgets();
+    void overlap_threeWidgetsChain();
+    void overlap_identicalRects();
+    void overlap_containedRect();
+
+    // Reflow children
+    void reflow_emptyFrame();
+    void reflow_buttonsOnly();
+    void reflow_slidersOnly();
+    void reflow_buttonsAndSliders();
+    void reflow_nestedFrame();
+    void reflow_deeplyNested();
+    void reflow_preservesGroupOrder();
+    void reflow_respectsExplicitColumns();
+    void reflow_autoColumnsFromWidth();
+
+    // Reflow page
+    void reflowPage_singleFrame();
+    void reflowPage_twoFramesStack();
+    void reflowPage_frameGrowsCascade();
+    void reflowPage_collectsAllGeometries();
+
 private:
     Doc *m_doc;
 

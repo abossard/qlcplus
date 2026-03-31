@@ -34,6 +34,8 @@
 #include "doc.h"
 #include "fixture.h"
 #include "function.h"
+#include "grandmaster.h"
+#include "inputoutputmap.h"
 #include "qlcinputsource.h"
 #include "qlcinputfeedback.h"
 
@@ -186,6 +188,8 @@ int VCBridgeV5::addSlider(int parentID, const QRect &geometry,
             slider->setSliderMode(VCSlider::Adjust);
             slider->setControlledFunction(functionID);
         }
+        else if (mode == "grandmaster")
+            slider->setSliderMode(VCSlider::GrandMaster);
         else // "level"
         {
             slider->setSliderMode(VCSlider::Level);
@@ -199,6 +203,22 @@ int VCBridgeV5::addSlider(int parentID, const QRect &geometry,
 int VCBridgeV5::addXYPad(int parentID, const QRect &geometry,
                          const QList<quint32> &fixtureIDs)
 {
+    // Delegate to addXYPadEx with default config
+    QList<XYPadFixtureConfig> configs;
+    for (quint32 fxID : fixtureIDs)
+    {
+        XYPadFixtureConfig cfg;
+        cfg.fixtureID = fxID;
+        configs.append(cfg);
+    }
+    return addXYPadEx(parentID, geometry, configs, "degrees", false);
+}
+
+int VCBridgeV5::addXYPadEx(int parentID, const QRect &geometry,
+                            const QList<XYPadFixtureConfig> &fixtures,
+                            const QString &displayMode,
+                            bool invertedAppearance)
+{
     VCWidget *parent = m_vc->widget(parentID);
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
@@ -211,12 +231,40 @@ int VCBridgeV5::addXYPad(int parentID, const QRect &geometry,
     if (xyPad)
     {
         xyPad->setGeometry(geometry);
-        for (quint32 fxID : fixtureIDs)
+
+        for (const XYPadFixtureConfig &cfg : fixtures)
         {
-            Fixture *fxi = m_doc->fixture(fxID);
-            if (fxi)
+            Fixture *fxi = m_doc->fixture(cfg.fixtureID);
+            if (!fxi) continue;
+
+            bool isDefault = (cfg.xMin == 0.0 && cfg.xMax == 1.0
+                              && cfg.yMin == 0.0 && cfg.yMax == 1.0
+                              && !cfg.xReverse && !cfg.yReverse);
+
+            // Add the fixture/head to the pad
+            if (cfg.head == 0 && isDefault)
                 xyPad->addFixture(QVariant::fromValue(fxi));
+            else
+                xyPad->addHead(cfg.fixtureID, cfg.head);
+
+            // Apply custom axis ranges if non-default
+            if (!isDefault)
+            {
+                xyPad->setFixtureRange(cfg.fixtureID, cfg.head,
+                                       cfg.xMin, cfg.xMax, cfg.xReverse,
+                                       cfg.yMin, cfg.yMax, cfg.yReverse);
+            }
         }
+
+        // Set display mode
+        if (displayMode == "percentage")
+            xyPad->setDisplayMode(VCXYPad::Percentage);
+        else if (displayMode == "dmx")
+            xyPad->setDisplayMode(VCXYPad::DMX);
+        else
+            xyPad->setDisplayMode(VCXYPad::Degrees);
+
+        xyPad->setInvertedAppearance(invertedAppearance);
     }
     return widget->id();
 }
@@ -540,12 +588,77 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         d.functionID = slider->controlledFunction();
         for (auto &sv : slider->levelChannels())
             d.channels.append(qMakePair(sv.fxi, sv.channel));
+
+        // Extended slider properties
+        switch (slider->clickAndGoType())
+        {
+            case VCSlider::CnGNone: d.clickAndGoType = "none"; break;
+            case VCSlider::CnGColors: d.clickAndGoType = "colors"; break;
+            case VCSlider::CnGPreset: d.clickAndGoType = "preset"; break;
+        }
+        switch (slider->valueDisplayStyle())
+        {
+            case VCSlider::DMXValue: d.valueDisplayStyle = "dmx"; break;
+            case VCSlider::PercentageValue: d.valueDisplayStyle = "percentage"; break;
+        }
+        d.sliderInvertedAppearance = slider->invertedAppearance();
+        d.rangeLowLimit = slider->rangeLowLimit();
+        d.rangeHighLimit = slider->rangeHighLimit();
+        d.monitorEnabled = slider->monitorEnabled();
+
+        if (slider->sliderMode() == VCSlider::GrandMaster)
+        {
+            auto gmValMode = slider->grandMasterValueMode();
+            d.gmValueMode = (gmValMode == GrandMaster::Reduce) ? "reduce" : "limit";
+            auto gmChMode = slider->grandMasterChannelMode();
+            d.gmChannelMode = (gmChMode == GrandMaster::AllChannels) ? "allchannels" : "intensity";
+        }
     }
 
     // CueList-specific
     VCCueList *cuelist = qobject_cast<VCCueList*>(widget);
     if (cuelist)
         d.functionID = cuelist->chaserID();
+
+    // XYPad-specific
+    VCXYPad *xyPad = qobject_cast<VCXYPad*>(widget);
+    if (xyPad)
+    {
+        switch (xyPad->displayMode())
+        {
+            case VCXYPad::Percentage: d.displayMode = "percentage"; break;
+            case VCXYPad::Degrees: d.displayMode = "degrees"; break;
+            case VCXYPad::DMX: d.displayMode = "dmx"; break;
+        }
+        d.invertedAppearance = xyPad->invertedAppearance();
+        d.xyPadPosition = xyPad->currentPosition();
+
+        for (const auto &fxItem : xyPad->fixtures())
+        {
+            XYPadFixtureInfo info;
+            info.fixtureID = fxItem.m_head.fxi;
+            info.head = fxItem.m_head.head;
+            info.xMin = fxItem.m_xMin;
+            info.xMax = fxItem.m_xMax;
+            info.xReverse = fxItem.m_xReverse;
+            info.yMin = fxItem.m_yMin;
+            info.yMax = fxItem.m_yMax;
+            info.yReverse = fxItem.m_yReverse;
+
+            Fixture *fxi = m_doc->fixture(info.fixtureID);
+            if (fxi)
+            {
+                info.name = fxi->name();
+                QRectF degRange = fxi->degreesRange(info.head);
+                if (!degRange.isNull())
+                {
+                    info.panDegreesMax = degRange.width();
+                    info.tiltDegreesMax = degRange.height();
+                }
+            }
+            d.xyPadFixtures.append(info);
+        }
+    }
 
     return d;
 }
@@ -591,7 +704,50 @@ bool VCBridgeV5::setSliderMode(int widgetID, const QString &mode)
     if (mode == "level") slider->setSliderMode(VCSlider::Level);
     else if (mode == "playback") slider->setSliderMode(VCSlider::Adjust);
     else if (mode == "submaster") slider->setSliderMode(VCSlider::Submaster);
+    else if (mode == "grandmaster") slider->setSliderMode(VCSlider::GrandMaster);
     else return false;
+    return true;
+}
+
+bool VCBridgeV5::configureSlider(int widgetID, const SliderConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider*>(widget);
+    if (!slider) return false;
+
+    if (config.clickAndGoType.has_value())
+    {
+        const QString &v = config.clickAndGoType.value();
+        if (v == "colors") slider->setClickAndGoType(VCSlider::CnGColors);
+        else if (v == "preset") slider->setClickAndGoType(VCSlider::CnGPreset);
+        else slider->setClickAndGoType(VCSlider::CnGNone);
+    }
+    if (config.valueDisplayStyle.has_value())
+    {
+        const QString &v = config.valueDisplayStyle.value();
+        if (v == "percentage") slider->setValueDisplayStyle(VCSlider::PercentageValue);
+        else slider->setValueDisplayStyle(VCSlider::DMXValue);
+    }
+    if (config.invertedAppearance.has_value())
+        slider->setInvertedAppearance(config.invertedAppearance.value());
+    if (config.rangeLowLimit.has_value())
+        slider->setRangeLowLimit(config.rangeLowLimit.value());
+    if (config.rangeHighLimit.has_value())
+        slider->setRangeHighLimit(config.rangeHighLimit.value());
+    if (config.monitorEnabled.has_value())
+        slider->setMonitorEnabled(config.monitorEnabled.value());
+    if (config.gmValueMode.has_value())
+    {
+        const QString &v = config.gmValueMode.value();
+        slider->setGrandMasterValueMode(
+            v == "reduce" ? GrandMaster::Reduce : GrandMaster::Limit);
+    }
+    if (config.gmChannelMode.has_value())
+    {
+        const QString &v = config.gmChannelMode.value();
+        slider->setGrandMasterChannelMode(
+            v == "allchannels" ? GrandMaster::AllChannels : GrandMaster::Intensity);
+    }
     return true;
 }
 
@@ -642,6 +798,67 @@ bool VCBridgeV5::removeWidgetInput(int widgetID, quint32 universe, quint32 chann
     return false;
 }
 
+// --- XY Pad property mutations ---
+
+bool VCBridgeV5::setXYPadPosition(int widgetID, qreal x, qreal y)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+    xyPad->setCurrentPosition(QPointF(x, y));
+    return true;
+}
+
+bool VCBridgeV5::setXYPadDisplayMode(int widgetID, const QString &mode)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+
+    if (mode == "percentage")
+        xyPad->setDisplayMode(VCXYPad::Percentage);
+    else if (mode == "dmx")
+        xyPad->setDisplayMode(VCXYPad::DMX);
+    else if (mode == "degrees")
+        xyPad->setDisplayMode(VCXYPad::Degrees);
+    else
+        return false;
+    return true;
+}
+
+bool VCBridgeV5::setXYPadInvertedAppearance(int widgetID, bool inverted)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+    xyPad->setInvertedAppearance(inverted);
+    return true;
+}
+
+bool VCBridgeV5::addXYPadFixture(int widgetID, const XYPadFixtureConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+
+    Fixture *fxi = m_doc->fixture(config.fixtureID);
+    if (!fxi) return false;
+
+    xyPad->addHead(config.fixtureID, config.head);
+    xyPad->setFixtureRange(config.fixtureID, config.head,
+                           config.xMin, config.xMax, config.xReverse,
+                           config.yMin, config.yMax, config.yReverse);
+    return true;
+}
+
+bool VCBridgeV5::removeXYPadFixture(int widgetID, quint32 fixtureID, int head)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+    return xyPad->removeHead(fixtureID, head);
+}
+
 // --- Widget reparenting ---
 
 bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
@@ -657,4 +874,51 @@ bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
     if (ok)
         widget->setGeometry(QRectF(geo));
     return ok;
+}
+
+// --- Layout analysis: snapshot / apply ---
+
+static VCBridge::WidgetSnapshot snapshotWidget(VCWidget *widget)
+{
+    VCBridge::WidgetSnapshot snap;
+    snap.id = widget->id();
+    snap.type = widget->type();
+    snap.geometry = widget->geometry().toRect();
+
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (frame)
+    {
+        snap.parentID = -1;  // filled by caller
+        for (VCWidget *child : frame->children(false))
+        {
+            VCBridge::WidgetSnapshot childSnap = snapshotWidget(child);
+            childSnap.parentID = snap.id;
+            snap.children.append(childSnap);
+        }
+    }
+    return snap;
+}
+
+VCBridge::WidgetSnapshot VCBridgeV5::snapshotFrame(int frameID) const
+{
+    VCWidget *widget = m_vc->widget(frameID);
+    if (!widget) return WidgetSnapshot();
+    return snapshotWidget(widget);
+}
+
+VCBridge::WidgetSnapshot VCBridgeV5::snapshotPage(int pageIndex) const
+{
+    VCPage *page = m_vc->page(pageIndex);
+    if (!page) return WidgetSnapshot();
+    return snapshotWidget(page);
+}
+
+void VCBridgeV5::applyLayoutPlan(const LayoutPlan &plan)
+{
+    for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
+    {
+        VCWidget *widget = m_vc->widget(it.key());
+        if (widget)
+            widget->setGeometry(QRectF(it.value()));
+    }
 }

@@ -40,7 +40,7 @@ def http_post(url, data, headers=None):
 
 def start_server():
     proc = subprocess.Popen(
-        [QLCPLUS_BIN, "--mcp-http", str(MCP_PORT)],
+        [QLCPLUS_BIN, "--mcp-port", str(MCP_PORT)],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -424,6 +424,145 @@ def run_tests():
             ]})
             assert len(r) == 1
         test("map_vc_inputs", t_map_vc_inputs)
+
+        # === XY PAD ===
+        print("\n=== XY Pad ===")
+
+        # Patch a moving head fixture for XY pad tests
+        mh_patched = False
+        mh_fixture_ids = []
+        def t_patch_moving_heads():
+            nonlocal mh_patched, mh_fixture_ids
+            r = call("patch_fixtures", {"items": [
+                {"manufacturer": "Showtec", "model": "Acrobat", "mode": "11 Channel",
+                 "name": "MH", "universe": 0, "address": 100, "quantity": 2},
+            ]})
+            if len(r) >= 1 and "error" not in r[0]:
+                mh_patched = True
+                mh_fixture_ids = [f["id"] for f in r]
+            else:
+                print(f"    (note: moving head patch: {r})")
+        test("patch moving heads for XY pad", t_patch_moving_heads)
+
+        def t_xypad_basic():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 200,
+                 "fixtureIDs": mh_fixture_ids},
+            ]})
+            assert len(r) == 1
+            assert r[0]["widgetID"] >= 0, f"Expected valid ID, got {r[0]}"
+        test("add_vc_xypads (basic fixtureIDs)", t_xypad_basic)
+
+        def t_xypad_with_config():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 200,
+                 "fixtures": [
+                     {"fixtureID": mh_fixture_ids[0], "head": 0,
+                      "xMin": 0.1, "xMax": 0.9, "yMin": 0.2, "yMax": 0.8}
+                 ],
+                 "displayMode": "degrees",
+                 "invertedAppearance": True},
+            ]})
+            assert len(r) == 1
+            assert r[0]["widgetID"] >= 0
+            return r[0]["widgetID"]
+        test("add_vc_xypads (per-fixture config)", t_xypad_with_config)
+
+        def t_xypad_query_details():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            # Create a pad with known config
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 200,
+                 "fixtures": [
+                     {"fixtureID": mh_fixture_ids[0], "xMin": 0.25, "xMax": 0.75}
+                 ],
+                 "displayMode": "degrees"},
+            ]})
+            wid = r[0]["widgetID"]
+            assert wid >= 0
+
+            details = call("query_widget_details", {"widgetIDs": [wid]})
+            assert len(details) == 1
+            d = details[0]
+            assert d["type"] == "XY Pad", f"Expected XY Pad, got {d['type']}"
+            assert d["displayMode"] == "degrees", f"Expected degrees, got {d.get('displayMode')}"
+            assert "fixtures" in d, "Missing fixtures in details"
+            assert len(d["fixtures"]) >= 1, "Expected at least 1 fixture"
+            fx = d["fixtures"][0]
+            assert fx["fixtureID"] == mh_fixture_ids[0]
+            assert abs(fx["xMin"] - 0.25) < 0.01, f"xMin: {fx['xMin']}"
+            assert abs(fx["xMax"] - 0.75) < 0.01, f"xMax: {fx['xMax']}"
+        test("query_widget_details (XY Pad fixtures+degrees)", t_xypad_query_details)
+
+        def t_xypad_display_mode():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 150,
+                 "fixtureIDs": [mh_fixture_ids[0]],
+                 "displayMode": "percentage"},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["displayMode"] == "percentage"
+
+            # Update display mode
+            r2 = call("update_widgets", {"items": [
+                {"widgetID": wid, "displayMode": "dmx"}
+            ]})
+            assert any(c["property"] == "displayMode" and c["status"] == "ok"
+                       for c in r2[0]["changes"])
+            d2 = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d2["displayMode"] == "dmx"
+        test("XY Pad display mode (create + update)", t_xypad_display_mode)
+
+        def t_xypad_inverted():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 150,
+                 "fixtureIDs": [mh_fixture_ids[0]],
+                 "invertedAppearance": True},
+            ]})
+            wid = r[0]["widgetID"]
+            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d["invertedAppearance"] == True
+
+            # Toggle off via update
+            call("update_widgets", {"items": [
+                {"widgetID": wid, "invertedAppearance": False}
+            ]})
+            d2 = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            assert d2["invertedAppearance"] == False
+        test("XY Pad inverted appearance", t_xypad_inverted)
+
+        def t_xypad_position():
+            if not mh_patched:
+                print("    (skipped: no moving heads)")
+                return
+            r = call("add_vc_xypads", {"items": [
+                {"parentID": page_idx, "size": 150,
+                 "fixtureIDs": [mh_fixture_ids[0]]},
+            ]})
+            wid = r[0]["widgetID"]
+
+            # Set position via update_widgets
+            r2 = call("update_widgets", {"items": [
+                {"widgetID": wid, "xyPadPosition": {"x": 0.5, "y": 0.3}}
+            ]})
+            assert any(c["property"] == "xyPadPosition" and c["status"] == "ok"
+                       for c in r2[0]["changes"])
+        test("XY Pad position control", t_xypad_position)
 
         # === PROMPTS ===
         print("\n=== Design Guide ===")

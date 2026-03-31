@@ -33,6 +33,36 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
 
     if (!vcBridge) return;
 
+    // Helper: parse SliderConfig from JSON (only sets fields that are present)
+    auto parseSliderConfig = [](const Json &item) -> VCBridge::SliderConfig {
+        VCBridge::SliderConfig cfg;
+        if (item.contains("clickAndGoType"))
+            cfg.clickAndGoType = QString::fromStdString(item.at("clickAndGoType").get<std::string>());
+        if (item.contains("valueDisplayStyle"))
+            cfg.valueDisplayStyle = QString::fromStdString(item.at("valueDisplayStyle").get<std::string>());
+        if (item.contains("invertedAppearance"))
+            cfg.invertedAppearance = item.at("invertedAppearance").get<bool>();
+        if (item.contains("rangeLowLimit"))
+            cfg.rangeLowLimit = item.at("rangeLowLimit").get<double>();
+        if (item.contains("rangeHighLimit"))
+            cfg.rangeHighLimit = item.at("rangeHighLimit").get<double>();
+        if (item.contains("monitorEnabled"))
+            cfg.monitorEnabled = item.at("monitorEnabled").get<bool>();
+        if (item.contains("gmValueMode"))
+            cfg.gmValueMode = QString::fromStdString(item.at("gmValueMode").get<std::string>());
+        if (item.contains("gmChannelMode"))
+            cfg.gmChannelMode = QString::fromStdString(item.at("gmChannelMode").get<std::string>());
+        return cfg;
+    };
+
+    // Helper: check whether SliderConfig has any value set
+    auto hasSliderConfig = [](const VCBridge::SliderConfig &cfg) -> bool {
+        return cfg.clickAndGoType.has_value() || cfg.valueDisplayStyle.has_value()
+            || cfg.invertedAppearance.has_value() || cfg.rangeLowLimit.has_value()
+            || cfg.rangeHighLimit.has_value() || cfg.monitorEnabled.has_value()
+            || cfg.gmValueMode.has_value() || cfg.gmChannelMode.has_value();
+    };
+
     // create_vc_pages (batch)
     tm.register_tool(Tool(
         "create_vc_pages",
@@ -260,32 +290,53 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"width", {{"type", "integer"}}}, {"height", {{"type", "integer"}}},
                 {"caption", {{"type", "string"}}},
-                {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
+                {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster", "grandmaster"}}}},
                 {"functionID", {{"type", "integer"}, {"description", "Function to control (for playback mode)"}}},
                 {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID (for playback mode)."}}},
                 {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}}, {"channel", {{"type", "integer"}}}
                 }}}}, {"description", "Fixture channels to control (for level mode)"}}},
+                {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset"}}, {"description", "Click & Go button type: none, colors (RGB picker), preset (gobo/effect/macro grid)"}}},
+                {"valueDisplayStyle", {{"type", "string"}, {"enum", {"dmx", "percentage"}}, {"description", "Value display: dmx (0-255) or percentage (0-100%)"}}},
+                {"invertedAppearance", {{"type", "boolean"}, {"description", "Invert slider direction"}}},
+                {"rangeLowLimit", {{"type", "number"}, {"description", "DMX range low limit (0-255, default 0)"}}},
+                {"rangeHighLimit", {{"type", "number"}, {"description", "DMX range high limit (0-255, default 255)"}}},
+                {"monitorEnabled", {{"type", "boolean"}, {"description", "Enable channel level monitoring"}}},
+                {"gmValueMode", {{"type", "string"}, {"enum", {"limit", "reduce"}}, {"description", "Grand Master value mode (grandmaster mode only)"}}},
+                {"gmChannelMode", {{"type", "string"}, {"enum", {"intensity", "allchannels"}}, {"description", "Grand Master channel mode (grandmaster mode only)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
             }}, {"required", {"parentID", "caption", "mode"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
-        [doc, vcBridge](const Json &args) -> Json {
+        [doc, vcBridge, parseSliderConfig, hasSliderConfig](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "caption", "mode", "functionID", "functionName", "channels", "bgColor", "fgColor"});
+                auto err = validateFields(item, {"parentID", "x", "y", "width", "height", "caption", "mode", "functionID", "functionName", "channels", "clickAndGoType", "valueDisplayStyle", "invertedAppearance", "rangeLowLimit", "rangeHighLimit", "monitorEnabled", "gmValueMode", "gmChannelMode", "bgColor", "fgColor"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int parentID = item.at("parentID").get<int>();
                 QString caption = QString::fromStdString(item.value("caption", ""));
+
+                // Parse slider config for new properties
+                auto sliderCfg = parseSliderConfig(item);
+
+                // Upsert: find existing slider by caption, update if found
                 if (!caption.isEmpty())
                 {
                     int existingId = vcBridge->findWidgetByCaption(parentID, "Slider", caption);
                     if (existingId >= 0)
                     {
-                        results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                        if (hasSliderConfig(sliderCfg))
+                            vcBridge->configureSlider(existingId, sliderCfg);
+                        if (item.contains("bgColor") || item.contains("fgColor"))
+                        {
+                            QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                            QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
+                            vcBridge->setWidgetColors(existingId, bg, fg);
+                        }
+                        results.push_back({{"widgetID", existingId}, {"status", "updated"}});
                         continue;
                     }
                 }
@@ -323,18 +374,25 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     funcID,
                     channels);
                 results.push_back({{"widgetID", id}, {"status", "created"}});
-                if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
+                if (id >= 0)
                 {
-                    QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
-                    QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
-                    vcBridge->setWidgetColors(id, bg, fg);
+                    if (hasSliderConfig(sliderCfg))
+                        vcBridge->configureSlider(id, sliderCfg);
+                    if (item.contains("bgColor") || item.contains("fgColor"))
+                    {
+                        QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                        QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
+                        vcBridge->setWidgetColors(id, bg, fg);
+                    }
                 }
             }
             return results.dump();
             });
         },
         std::nullopt,
-        std::string("Add sliders. Modes: 'level' (DMX channels), 'playback' (function intensity), 'submaster' (master dimmer). Batch."),
+        std::string("Add sliders. Modes: 'level' (DMX channels), 'playback' (function intensity), 'submaster' (master dimmer), 'grandmaster' (global master). "
+                     "Supports Click & Go (clickAndGoType: preset for gobo/effect picker, colors for RGB picker), range limits, monitor, inverted appearance, and value display style. "
+                     "Upserts: existing slider with same caption is updated. Batch."),
         std::nullopt
     ));
 
@@ -346,10 +404,26 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                 {"parentID", {{"type", "integer"}}},
                 {"x", {{"type", "integer"}}}, {"y", {{"type", "integer"}}},
                 {"size", {{"type", "integer"}, {"description", "Width and height (square)"}}},
-                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
+                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                    {"description", "Simple fixture ID list (all heads, full range). Alternative to fixtures."}}},
+                {"fixtures", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                    {"fixtureID", {{"type", "integer"}}},
+                    {"head", {{"type", "integer"}, {"description", "Head index for multi-head fixtures (default 0)"}}},
+                    {"xMin", {{"type", "number"}, {"description", "Pan range min (0.0-1.0, default 0.0)"}}},
+                    {"xMax", {{"type", "number"}, {"description", "Pan range max (0.0-1.0, default 1.0)"}}},
+                    {"xReverse", {{"type", "boolean"}, {"description", "Reverse pan direction"}}},
+                    {"yMin", {{"type", "number"}, {"description", "Tilt range min (0.0-1.0, default 0.0)"}}},
+                    {"yMax", {{"type", "number"}, {"description", "Tilt range max (0.0-1.0, default 1.0)"}}},
+                    {"yReverse", {{"type", "boolean"}, {"description", "Reverse tilt direction"}}}
+                }}, {"required", {"fixtureID"}}}},
+                    {"description", "Per-fixture config with axis ranges. Alternative to fixtureIDs."}}},
+                {"displayMode", {{"type", "string"}, {"enum", {"degrees", "percentage", "dmx"}},
+                    {"description", "Range display mode (default degrees)"}}},
+                {"invertedAppearance", {{"type", "boolean"},
+                    {"description", "Invert Y-axis (default false)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex (e.g. #1a3300)"}}},
                 {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex (e.g. #ffffff)"}}}
-            }}, {"required", {"parentID", "size", "fixtureIDs"}}}}}}
+            }}, {"required", {"parentID", "size"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
@@ -357,18 +431,63 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"parentID", "x", "y", "size", "fixtureIDs", "bgColor", "fgColor"});
+                auto err = validateFields(item, {"parentID", "x", "y", "size",
+                    "fixtureIDs", "fixtures", "displayMode", "invertedAppearance",
+                    "bgColor", "fgColor"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                // Must have either fixtureIDs or fixtures
+                if (!item.contains("fixtureIDs") && !item.contains("fixtures"))
+                {
+                    results.push_back({{"error", "Either fixtureIDs or fixtures is required"}});
+                    continue;
+                }
+
                 int sz = item.at("size").get<int>();
                 QRect geo;
                 if (item.contains("x") && item.contains("y"))
                     geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), sz, sz);
                 else
                     geo = vcBridge->nextWidgetPosition(item.at("parentID").get<int>(), sz, sz);
-                QList<quint32> fxIDs;
-                for (auto &fid : item.at("fixtureIDs"))
-                    fxIDs.append(fid.get<int>());
-                int id = vcBridge->addXYPad(item.at("parentID").get<int>(), geo, fxIDs);
+
+                QString displayMode = "degrees";
+                if (item.contains("displayMode"))
+                    displayMode = QString::fromStdString(item.at("displayMode").get<std::string>());
+                bool inverted = item.contains("invertedAppearance") && item.at("invertedAppearance").get<bool>();
+
+                int id = -1;
+                if (item.contains("fixtures"))
+                {
+                    QList<VCBridge::XYPadFixtureConfig> configs;
+                    for (auto &fx : item.at("fixtures"))
+                    {
+                        VCBridge::XYPadFixtureConfig cfg;
+                        cfg.fixtureID = fx.at("fixtureID").get<int>();
+                        if (fx.contains("head")) cfg.head = fx.at("head").get<int>();
+                        if (fx.contains("xMin")) cfg.xMin = fx.at("xMin").get<double>();
+                        if (fx.contains("xMax")) cfg.xMax = fx.at("xMax").get<double>();
+                        if (fx.contains("xReverse")) cfg.xReverse = fx.at("xReverse").get<bool>();
+                        if (fx.contains("yMin")) cfg.yMin = fx.at("yMin").get<double>();
+                        if (fx.contains("yMax")) cfg.yMax = fx.at("yMax").get<double>();
+                        if (fx.contains("yReverse")) cfg.yReverse = fx.at("yReverse").get<bool>();
+                        configs.append(cfg);
+                    }
+                    id = vcBridge->addXYPadEx(item.at("parentID").get<int>(), geo,
+                                              configs, displayMode, inverted);
+                }
+                else
+                {
+                    QList<VCBridge::XYPadFixtureConfig> configs;
+                    for (auto &fid : item.at("fixtureIDs"))
+                    {
+                        VCBridge::XYPadFixtureConfig cfg;
+                        cfg.fixtureID = fid.get<int>();
+                        configs.append(cfg);
+                    }
+                    id = vcBridge->addXYPadEx(item.at("parentID").get<int>(), geo,
+                                              configs, displayMode, inverted);
+                }
+
                 results.push_back({{"widgetID", id}});
                 if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                 {
@@ -891,13 +1010,21 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
     }}, {"required", {"caption"}}};
     Json sliderSchema = Json{{"type", "object"}, {"properties", {
         {"caption", {{"type", "string"}}},
-        {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}}}},
+        {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster", "grandmaster"}}}},
         {"functionName", {{"type", "string"}, {"description", "Function name (for playback mode)"}}},
         {"functionID", {{"type", "integer"}, {"description", "Direct function ID (overrides functionName)"}}},
         {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
             {"fixtureID", {{"type", "integer"}}},
             {"channel", {{"type", "integer"}}}
         }}}}, {"description", "Fixture channels to control (for level mode)"}}},
+        {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset"}}, {"description", "Click & Go button type"}}},
+        {"valueDisplayStyle", {{"type", "string"}, {"enum", {"dmx", "percentage"}}, {"description", "Value display style"}}},
+        {"invertedAppearance", {{"type", "boolean"}, {"description", "Invert slider direction"}}},
+        {"rangeLowLimit", {{"type", "number"}, {"description", "DMX range low limit (0-255)"}}},
+        {"rangeHighLimit", {{"type", "number"}, {"description", "DMX range high limit (0-255)"}}},
+        {"monitorEnabled", {{"type", "boolean"}, {"description", "Enable channel level monitoring"}}},
+        {"gmValueMode", {{"type", "string"}, {"enum", {"limit", "reduce"}}, {"description", "Grand Master value mode"}}},
+        {"gmChannelMode", {{"type", "string"}, {"enum", {"intensity", "allchannels"}}, {"description", "Grand Master channel mode"}}},
         {"bgColor", {{"type", "string"}, {"description", "Background color hex"}}},
         {"fgColor", {{"type", "string"}, {"description", "Foreground/text color hex"}}},
         {"inputUniverse", {{"type", "integer"}, {"description", "Controller input universe"}}},
@@ -925,7 +1052,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         "build_show_page",
         buildPageSchema,
         Json{},
-        [doc, vcBridge](const Json &args) -> Json {
+        [doc, vcBridge, parseSliderConfig, hasSliderConfig](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"pageName", "sections", "pageWidth", "buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight"});
             if (!err.empty()) return err;
@@ -1124,11 +1251,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     int sliderIdx = 0;
                     for (auto &sl : section.at("sliders"))
                     {
-                        auto slErr = validateFields(sl, {"caption", "mode", "functionName", "functionID", "channels", "bgColor", "fgColor", "inputUniverse", "inputChannel"});
+                        auto slErr = validateFields(sl, {"caption", "mode", "functionName", "functionID", "channels", "clickAndGoType", "valueDisplayStyle", "invertedAppearance", "rangeLowLimit", "rangeHighLimit", "monitorEnabled", "gmValueMode", "gmChannelMode", "bgColor", "fgColor", "inputUniverse", "inputChannel"});
                         if (!slErr.empty()) { slidersResult.push_back(nlohmann::json::parse(slErr)); continue; }
                         QString slCaption = QString::fromStdString(sl.at("caption").get<std::string>());
                         int slID = vcBridge->findWidgetByCaption(frameID, "Slider", slCaption);
                         std::string status;
+
+                        auto sliderCfg = parseSliderConfig(sl);
 
                         // Compute flow position for this slider's index
                         QRect geo = VCBridge::computeFlowPosition(
@@ -1138,6 +1267,8 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                         {
                             // Upsert: update existing widget geometry and properties
                             vcBridge->setWidgetGeometry(slID, geo);
+                            if (hasSliderConfig(sliderCfg))
+                                vcBridge->configureSlider(slID, sliderCfg);
                             applyWidgetProps(slID, sl);
                             status = "updated";
                         }
@@ -1174,9 +1305,13 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                                 funcID,
                                 channels);
 
-                            // Apply colors and input mapping
+                            // Apply slider config, colors, and input mapping
                             if (slID >= 0)
+                            {
+                                if (hasSliderConfig(sliderCfg))
+                                    vcBridge->configureSlider(slID, sliderCfg);
                                 applyWidgetProps(slID, sl);
+                            }
 
                             status = "created";
                         }
@@ -1268,6 +1403,37 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                         {"monitorChannel", d.feedback.monitorMidiCh}
                     };
                 }
+
+                // XY Pad specific fields
+                if (!d.displayMode.isEmpty())
+                {
+                    entry["displayMode"] = d.displayMode.toStdString();
+                    entry["invertedAppearance"] = d.invertedAppearance;
+                    entry["position"] = {{"x", d.xyPadPosition.x()}, {"y", d.xyPadPosition.y()}};
+
+                    Json fxArr = Json::array();
+                    for (const auto &fx : d.xyPadFixtures)
+                    {
+                        Json fxEntry;
+                        fxEntry["fixtureID"] = (int)fx.fixtureID;
+                        fxEntry["head"] = fx.head;
+                        fxEntry["name"] = fx.name.toStdString();
+                        fxEntry["xMin"] = fx.xMin;
+                        fxEntry["xMax"] = fx.xMax;
+                        fxEntry["xReverse"] = fx.xReverse;
+                        fxEntry["yMin"] = fx.yMin;
+                        fxEntry["yMax"] = fx.yMax;
+                        fxEntry["yReverse"] = fx.yReverse;
+                        if (fx.panDegreesMax > 0 || fx.tiltDegreesMax > 0)
+                        {
+                            fxEntry["panDegreesMax"] = fx.panDegreesMax;
+                            fxEntry["tiltDegreesMax"] = fx.tiltDegreesMax;
+                        }
+                        fxArr.push_back(fxEntry);
+                    }
+                    entry["fixtures"] = fxArr;
+                }
+
                 results.push_back(entry);
             }
             return results.dump();
@@ -1299,7 +1465,15 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                     {"channel", {{"type", "integer"}}}
                 }}}}, {"description", "Slider level-mode channels (replaces existing)"}}},
                 {"bgColor", {{"type", "string"}, {"description", "Background color hex"}}},
-                {"fgColor", {{"type", "string"}, {"description", "Foreground color hex"}}}
+                {"fgColor", {{"type", "string"}, {"description", "Foreground color hex"}}},
+                {"displayMode", {{"type", "string"}, {"enum", {"degrees", "percentage", "dmx"}},
+                    {"description", "XY Pad display mode"}}},
+                {"invertedAppearance", {{"type", "boolean"},
+                    {"description", "XY Pad inverted Y-axis"}}},
+                {"xyPadPosition", {{"type", "object"}, {"properties", {
+                    {"x", {{"type", "number"}, {"description", "X position (0.0-1.0)"}}},
+                    {"y", {{"type", "number"}, {"description", "Y position (0.0-1.0)"}}}
+                }}, {"description", "Set XY Pad cursor position"}}}
             }}, {"required", {"widgetID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -1308,7 +1482,7 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"widgetID", "caption", "x", "y", "width", "height", "functionID", "action", "mode", "channels", "bgColor", "fgColor"});
+                auto err = validateFields(item, {"widgetID", "caption", "x", "y", "width", "height", "functionID", "action", "mode", "channels", "bgColor", "fgColor", "displayMode", "invertedAppearance", "xyPadPosition"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
                 Json changes = Json::array();
@@ -1381,6 +1555,30 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
                         : QColor();
                     vcBridge->setWidgetColors(wid, bg, fg);
                     changes.push_back({{"property", "colors"}, {"status", "ok"}});
+                }
+
+                // XY Pad specific updates
+                if (item.contains("displayMode"))
+                {
+                    bool ok = vcBridge->setXYPadDisplayMode(wid,
+                        QString::fromStdString(item.at("displayMode").get<std::string>()));
+                    changes.push_back({{"property", "displayMode"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("invertedAppearance"))
+                {
+                    bool ok = vcBridge->setXYPadInvertedAppearance(wid,
+                        item.at("invertedAppearance").get<bool>());
+                    changes.push_back({{"property", "invertedAppearance"}, {"status", ok ? "ok" : "failed"}});
+                }
+
+                if (item.contains("xyPadPosition"))
+                {
+                    auto pos = item.at("xyPadPosition");
+                    qreal x = pos.contains("x") ? pos.at("x").get<double>() : 0.0;
+                    qreal y = pos.contains("y") ? pos.at("y").get<double>() : 0.0;
+                    bool ok = vcBridge->setXYPadPosition(wid, x, y);
+                    changes.push_back({{"property", "xyPadPosition"}, {"status", ok ? "ok" : "failed"}});
                 }
 
                 results.push_back({{"widgetID", wid}, {"changes", changes}});
@@ -1464,4 +1662,167 @@ void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBri
         std::string("Delete Virtual Console widgets by ID. Batch."),
         std::nullopt
     ));
+
+    // detect_vc_overlaps — find overlapping widgets within a frame or page
+    tm.register_tool(Tool(
+        "detect_vc_overlaps",
+        Json{{"type", "object"}, {"properties", {
+            {"parentID", {{"type", "integer"}, {"description",
+                "Widget ID of a frame or page to check for overlapping children. "
+                "Use a page's root frame ID or any frame ID."}}},
+            {"pageIndex", {{"type", "integer"}, {"description",
+                "Page index (0-based) to check. Used only if parentID is not provided."}}}
+        }}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"parentID", "pageIndex"});
+            if (!err.empty()) return err;
+
+            VCBridge::WidgetSnapshot snap;
+            if (args.contains("parentID"))
+                snap = vcBridge->snapshotFrame(args.at("parentID").get<int>());
+            else if (args.contains("pageIndex"))
+                snap = vcBridge->snapshotPage(args.at("pageIndex").get<int>());
+            else
+                return std::string("{\"error\": \"Provide parentID or pageIndex\"}");
+
+            if (snap.id < 0 && snap.children.isEmpty())
+                return std::string("{\"error\": \"Frame/page not found\"}");
+
+            auto overlaps = VCBridge::detectOverlaps(snap.children);
+            Json result;
+            result["parentID"] = snap.id;
+            result["childCount"] = (int)snap.children.size();
+            Json overlapArr = Json::array();
+            for (const auto &ov : overlaps)
+            {
+                overlapArr.push_back({
+                    {"widgetA", ov.widgetA},
+                    {"widgetB", ov.widgetB},
+                    {"intersection", {
+                        {"x", ov.intersection.x()}, {"y", ov.intersection.y()},
+                        {"width", ov.intersection.width()}, {"height", ov.intersection.height()}
+                    }}
+                });
+            }
+            result["overlaps"] = overlapArr;
+            result["overlapCount"] = (int)overlaps.size();
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Detect overlapping widgets within a frame or page. Returns pairs of overlapping widget IDs with their intersection rectangles."),
+        std::nullopt
+    ));
+
+    // reflow_vc_frame — reflow children within a frame (or entire page) using flow layout
+    {
+    Json reflowSchema = Json{{"type", "object"}, {"properties", {
+        {"frameID", {{"type", "integer"}, {"description",
+            "Widget ID of the frame to reflow. All children will be repositioned."}}},
+        {"pageIndex", {{"type", "integer"}, {"description",
+            "Page index (0-based) to reflow. Stacks all top-level frames vertically. "
+            "Used only if frameID is not provided."}}},
+        {"columns", {{"type", "integer"}, {"description",
+            "Number of columns for flow grid. 0 or omit for auto-compute from width."}}},
+        {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels (default 5)"}}},
+        {"framePad", {{"type", "integer"}, {"description", "Vertical gap between top-level frames (default 10)"}}},
+        {"buttonWidth", {{"type", "integer"}, {"description", "Button width in pixels (default 100)"}}},
+        {"buttonHeight", {{"type", "integer"}, {"description", "Button height in pixels (default 60)"}}},
+        {"sliderWidth", {{"type", "integer"}, {"description", "Slider width in pixels (default 60)"}}},
+        {"sliderHeight", {{"type", "integer"}, {"description", "Slider height in pixels (default 200)"}}},
+        {"dryRun", {{"type", "boolean"}, {"description",
+            "If true, compute the plan but do not apply it. Returns proposed changes without modifying widgets."}}}
+    }}};
+    tm.register_tool(Tool(
+        "reflow_vc_frame",
+        reflowSchema,
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"frameID", "pageIndex", "columns", "pad", "framePad",
+                "buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight", "dryRun"});
+            if (!err.empty()) return err;
+
+            VCBridge::ReflowOptions opts;
+            opts.columns = args.value("columns", 0);
+            opts.pad = args.value("pad", 5);
+            opts.framePad = args.value("framePad", 10);
+            opts.defaultButtonWidth = args.value("buttonWidth", 100);
+            opts.defaultButtonHeight = args.value("buttonHeight", 60);
+            opts.defaultSliderWidth = args.value("sliderWidth", 60);
+            opts.defaultSliderHeight = args.value("sliderHeight", 200);
+            bool dryRun = args.value("dryRun", false);
+
+            VCBridge::WidgetSnapshot snap;
+            bool isPage = false;
+            if (args.contains("frameID"))
+            {
+                snap = vcBridge->snapshotFrame(args.at("frameID").get<int>());
+            }
+            else if (args.contains("pageIndex"))
+            {
+                snap = vcBridge->snapshotPage(args.at("pageIndex").get<int>());
+                isPage = true;
+            }
+            else
+                return std::string("{\"error\": \"Provide frameID or pageIndex\"}");
+
+            if (snap.id < 0 && snap.children.isEmpty())
+                return std::string("{\"error\": \"Frame/page not found\"}");
+
+            VCBridge::LayoutPlan plan;
+            if (isPage)
+                plan = VCBridge::reflowPage(snap, opts);
+            else
+            {
+                int requiredHeight = VCBridge::reflowChildren(snap, opts);
+                snap.geometry.setHeight(requiredHeight);
+                VCBridge::collectGeometries(snap, plan);
+                plan.geometries.insert(snap.id, snap.geometry);
+                plan.overlaps = VCBridge::detectOverlaps(snap.children);
+            }
+
+            if (!dryRun)
+                vcBridge->applyLayoutPlan(plan);
+
+            // Build response
+            Json result;
+            result["applied"] = !dryRun;
+            result["widgetsMoved"] = (int)plan.geometries.size();
+
+            Json changes = Json::array();
+            for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
+            {
+                changes.push_back({
+                    {"widgetID", it.key()},
+                    {"geometry", {{"x", it.value().x()}, {"y", it.value().y()},
+                                  {"width", it.value().width()}, {"height", it.value().height()}}}
+                });
+            }
+            result["changes"] = changes;
+
+            Json overlapArr = Json::array();
+            for (const auto &ov : plan.overlaps)
+            {
+                overlapArr.push_back({
+                    {"widgetA", ov.widgetA}, {"widgetB", ov.widgetB},
+                    {"intersection", {
+                        {"x", ov.intersection.x()}, {"y", ov.intersection.y()},
+                        {"width", ov.intersection.width()}, {"height", ov.intersection.height()}
+                    }}
+                });
+            }
+            result["remainingOverlaps"] = overlapArr;
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Reflow widgets within a frame or page using flow layout. "
+                     "Buttons and sliders are arranged in a grid, nested frames are recursively reflowed, "
+                     "and the container is resized to fit. Supports dryRun mode to preview changes."),
+        std::nullopt
+    ));
+    } // end reflow_vc_frame schema scope
 }

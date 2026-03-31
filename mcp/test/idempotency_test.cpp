@@ -718,4 +718,336 @@ void McpIdempotency_Test::feedbackInfo_defaultsToZero()
     QCOMPARE(fb.monitorMidiCh, 0);
 }
 
+// ─── Overlap detection tests ────────────────────────────────────
+
+static VCBridge::WidgetSnapshot makeSnap(int id, int type, QRect geo)
+{
+    VCBridge::WidgetSnapshot s;
+    s.id = id;
+    s.type = type;
+    s.geometry = geo;
+    return s;
+}
+
+void McpIdempotency_Test::overlap_noChildren()
+{
+    QList<VCBridge::WidgetSnapshot> empty;
+    auto overlaps = VCBridge::detectOverlaps(empty);
+    QVERIFY(overlaps.isEmpty());
+}
+
+void McpIdempotency_Test::overlap_noOverlap()
+{
+    QList<VCBridge::WidgetSnapshot> siblings;
+    siblings.append(makeSnap(1, 1, QRect(0, 0, 100, 60)));
+    siblings.append(makeSnap(2, 1, QRect(110, 0, 100, 60)));
+    auto overlaps = VCBridge::detectOverlaps(siblings);
+    QVERIFY(overlaps.isEmpty());
+}
+
+void McpIdempotency_Test::overlap_twoWidgets()
+{
+    QList<VCBridge::WidgetSnapshot> siblings;
+    siblings.append(makeSnap(1, 1, QRect(0, 0, 100, 60)));
+    siblings.append(makeSnap(2, 1, QRect(50, 0, 100, 60)));
+    auto overlaps = VCBridge::detectOverlaps(siblings);
+    QCOMPARE(overlaps.size(), 1);
+    QCOMPARE(overlaps[0].widgetA, 1);
+    QCOMPARE(overlaps[0].widgetB, 2);
+    QCOMPARE(overlaps[0].intersection, QRect(50, 0, 50, 60));
+}
+
+void McpIdempotency_Test::overlap_threeWidgetsChain()
+{
+    QList<VCBridge::WidgetSnapshot> siblings;
+    siblings.append(makeSnap(1, 1, QRect(0, 0, 100, 60)));
+    siblings.append(makeSnap(2, 1, QRect(50, 0, 100, 60)));    // overlaps 1
+    siblings.append(makeSnap(3, 1, QRect(200, 0, 100, 60)));   // no overlap with 1 or 2
+    auto overlaps = VCBridge::detectOverlaps(siblings);
+    QCOMPARE(overlaps.size(), 1);
+}
+
+void McpIdempotency_Test::overlap_identicalRects()
+{
+    QList<VCBridge::WidgetSnapshot> siblings;
+    siblings.append(makeSnap(1, 1, QRect(10, 10, 100, 60)));
+    siblings.append(makeSnap(2, 1, QRect(10, 10, 100, 60)));
+    auto overlaps = VCBridge::detectOverlaps(siblings);
+    QCOMPARE(overlaps.size(), 1);
+    QCOMPARE(overlaps[0].intersection, QRect(10, 10, 100, 60));
+}
+
+void McpIdempotency_Test::overlap_containedRect()
+{
+    QList<VCBridge::WidgetSnapshot> siblings;
+    siblings.append(makeSnap(1, 1, QRect(0, 0, 200, 200)));
+    siblings.append(makeSnap(2, 1, QRect(50, 50, 50, 50)));
+    auto overlaps = VCBridge::detectOverlaps(siblings);
+    QCOMPARE(overlaps.size(), 1);
+    QCOMPARE(overlaps[0].intersection, QRect(50, 50, 50, 50));
+}
+
+// ─── Reflow children tests ──────────────────────────────────────
+
+void McpIdempotency_Test::reflow_emptyFrame()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    VCBridge::ReflowOptions opts;
+    int height = VCBridge::reflowChildren(frame, opts);
+    QCOMPARE(height, opts.headerHeight + opts.pad);
+}
+
+void McpIdempotency_Test::reflow_buttonsOnly()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    frame.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    frame.children.append(makeSnap(11, 1, QRect(0, 0, 100, 60)));
+    frame.children.append(makeSnap(12, 1, QRect(0, 0, 100, 60)));
+
+    VCBridge::ReflowOptions opts;
+    opts.defaultButtonWidth = 100;
+    opts.defaultButtonHeight = 60;
+
+    int height = VCBridge::reflowChildren(frame, opts);
+
+    // All buttons should be at y = headerHeight (40) since they fit in one row
+    for (const auto &child : frame.children)
+        QCOMPARE(child.geometry.y(), opts.headerHeight);
+
+    // Height = header + 1 row of buttons
+    QCOMPARE(height, opts.headerHeight + 1 * (opts.defaultButtonHeight + opts.pad));
+}
+
+void McpIdempotency_Test::reflow_slidersOnly()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    frame.children.append(makeSnap(10, 2, QRect(0, 0, 60, 200)));
+    frame.children.append(makeSnap(11, 2, QRect(0, 0, 60, 200)));
+
+    VCBridge::ReflowOptions opts;
+    int height = VCBridge::reflowChildren(frame, opts);
+    QVERIFY(height > opts.headerHeight);
+
+    // Sliders should start at header height
+    for (const auto &child : frame.children)
+        QCOMPARE(child.geometry.y(), opts.headerHeight);
+}
+
+void McpIdempotency_Test::reflow_buttonsAndSliders()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    // 2 buttons + 1 slider
+    frame.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    frame.children.append(makeSnap(11, 1, QRect(0, 0, 100, 60)));
+    frame.children.append(makeSnap(12, 2, QRect(0, 0, 60, 200)));
+
+    VCBridge::ReflowOptions opts;
+    int height = VCBridge::reflowChildren(frame, opts);
+
+    // Buttons at header, sliders below buttons
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight); // button
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight); // button
+    int sliderY = opts.headerHeight + 1 * (opts.defaultButtonHeight + opts.pad);
+    QCOMPARE(frame.children[2].geometry.y(), sliderY); // slider below buttons
+
+    // Total height includes both
+    int expectedHeight = sliderY + 1 * (opts.defaultSliderHeight + opts.pad);
+    QCOMPARE(height, expectedHeight);
+}
+
+void McpIdempotency_Test::reflow_nestedFrame()
+{
+    // Outer frame with an inner frame containing 2 buttons
+    VCBridge::WidgetSnapshot inner = makeSnap(10, 4, QRect(0, 0, 400, 100));
+    inner.children.append(makeSnap(20, 1, QRect(0, 0, 100, 60)));
+    inner.children.append(makeSnap(21, 1, QRect(0, 0, 100, 60)));
+
+    VCBridge::WidgetSnapshot outer = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    outer.children.append(inner);
+
+    VCBridge::ReflowOptions opts;
+    int outerHeight = VCBridge::reflowChildren(outer, opts);
+
+    // Inner frame should have been reflowed (buttons repositioned)
+    auto &reflowedInner = outer.children[0];
+    QCOMPARE(reflowedInner.children[0].geometry.y(), opts.headerHeight);
+    QCOMPARE(reflowedInner.children[1].geometry.y(), opts.headerHeight);
+
+    // Inner frame positioned at y = headerHeight of outer
+    QCOMPARE(reflowedInner.geometry.y(), opts.headerHeight);
+
+    // Outer height includes header + inner frame height + pad
+    QVERIFY(outerHeight > opts.headerHeight + reflowedInner.geometry.height());
+}
+
+void McpIdempotency_Test::reflow_deeplyNested()
+{
+    // 3 levels: page-frame → mid-frame → inner-frame with buttons
+    VCBridge::WidgetSnapshot innermost = makeSnap(100, 4, QRect(0, 0, 300, 50));
+    innermost.children.append(makeSnap(200, 1, QRect(0, 0, 100, 60)));
+
+    VCBridge::WidgetSnapshot mid = makeSnap(10, 4, QRect(0, 0, 400, 100));
+    mid.children.append(innermost);
+
+    VCBridge::WidgetSnapshot outer = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    outer.children.append(mid);
+
+    VCBridge::ReflowOptions opts;
+    int outerHeight = VCBridge::reflowChildren(outer, opts);
+
+    // All levels should have valid heights (> headerHeight)
+    QVERIFY(outerHeight > opts.headerHeight);
+
+    auto &rMid = outer.children[0];
+    QVERIFY(rMid.geometry.height() > opts.headerHeight);
+
+    auto &rInner = rMid.children[0];
+    QVERIFY(rInner.geometry.height() > opts.headerHeight);
+}
+
+void McpIdempotency_Test::reflow_preservesGroupOrder()
+{
+    // Mix of types: buttons come first, then sliders, then frames, then others
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 500));
+    frame.children.append(makeSnap(10, 2, QRect(100, 100, 60, 200)));  // slider (placed first in list)
+    frame.children.append(makeSnap(11, 1, QRect(200, 200, 100, 60)));  // button (placed second)
+
+    VCBridge::ReflowOptions opts;
+    VCBridge::reflowChildren(frame, opts);
+
+    // After reflow: buttons should be above sliders regardless of original order
+    // Button (id=11) should be at headerHeight, slider (id=10) below
+    int buttonY = -1, sliderY = -1;
+    for (const auto &c : frame.children)
+    {
+        if (c.id == 11) buttonY = c.geometry.y();
+        if (c.id == 10) sliderY = c.geometry.y();
+    }
+    QVERIFY(buttonY < sliderY);
+}
+
+void McpIdempotency_Test::reflow_respectsExplicitColumns()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    for (int i = 0; i < 6; i++)
+        frame.children.append(makeSnap(10 + i, 1, QRect(0, 0, 100, 60)));
+
+    VCBridge::ReflowOptions opts;
+    opts.columns = 2;
+    VCBridge::reflowChildren(frame, opts);
+
+    // With 2 columns, 6 buttons → 3 rows
+    // Row 0: buttons 0,1 at y=40
+    // Row 1: buttons 2,3 at y=40+65
+    // Row 2: buttons 4,5 at y=40+130
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight);
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight);
+    int row1Y = opts.headerHeight + (opts.defaultButtonHeight + opts.pad);
+    QCOMPARE(frame.children[2].geometry.y(), row1Y);
+    QCOMPARE(frame.children[3].geometry.y(), row1Y);
+}
+
+void McpIdempotency_Test::reflow_autoColumnsFromWidth()
+{
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 250, 300));
+    for (int i = 0; i < 4; i++)
+        frame.children.append(makeSnap(10 + i, 1, QRect(0, 0, 100, 60)));
+
+    VCBridge::ReflowOptions opts;
+    opts.columns = 0; // auto
+    opts.defaultButtonWidth = 100;
+    VCBridge::reflowChildren(frame, opts);
+
+    // Width 250, button width 100, pad 5 → (250-5)/(100+5) = 2 columns
+    // So 4 buttons → 2 rows
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight);
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight);
+    int row1Y = opts.headerHeight + (opts.defaultButtonHeight + opts.pad);
+    QCOMPARE(frame.children[2].geometry.y(), row1Y);
+}
+
+// ─── Reflow page tests ──────────────────────────────────────────
+
+void McpIdempotency_Test::reflowPage_singleFrame()
+{
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    frame.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    page.children.append(frame);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    QVERIFY(plan.geometries.contains(1));
+    QCOMPARE(plan.geometries[1].y(), opts.pad); // frame at top
+    QVERIFY(plan.overlaps.isEmpty());
+}
+
+void McpIdempotency_Test::reflowPage_twoFramesStack()
+{
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+
+    VCBridge::WidgetSnapshot frame1 = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    frame1.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    page.children.append(frame1);
+
+    VCBridge::WidgetSnapshot frame2 = makeSnap(2, 4, QRect(0, 0, 500, 300));
+    frame2.children.append(makeSnap(20, 1, QRect(0, 0, 100, 60)));
+    page.children.append(frame2);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    QVERIFY(plan.geometries.contains(1));
+    QVERIFY(plan.geometries.contains(2));
+
+    // Second frame must start below first frame + framePad
+    int frame1Bottom = plan.geometries[1].y() + plan.geometries[1].height();
+    QVERIFY(plan.geometries[2].y() >= frame1Bottom + opts.framePad);
+}
+
+void McpIdempotency_Test::reflowPage_frameGrowsCascade()
+{
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+
+    // Frame 1: lots of buttons → tall
+    VCBridge::WidgetSnapshot frame1 = makeSnap(1, 4, QRect(0, 0, 300, 50));
+    for (int i = 0; i < 20; i++)
+        frame1.children.append(makeSnap(100 + i, 1, QRect(0, 0, 100, 60)));
+    page.children.append(frame1);
+
+    // Frame 2: single button → short
+    VCBridge::WidgetSnapshot frame2 = makeSnap(2, 4, QRect(0, 0, 300, 50));
+    frame2.children.append(makeSnap(200, 1, QRect(0, 0, 100, 60)));
+    page.children.append(frame2);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    // Frame 1 should have grown to fit 20 buttons
+    QVERIFY(plan.geometries[1].height() > 200);
+
+    // Frame 2 should be pushed down below the grown frame 1
+    int frame1Bottom = plan.geometries[1].y() + plan.geometries[1].height();
+    QVERIFY(plan.geometries[2].y() >= frame1Bottom);
+}
+
+void McpIdempotency_Test::reflowPage_collectsAllGeometries()
+{
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+    frame.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    frame.children.append(makeSnap(11, 2, QRect(0, 0, 60, 200)));
+    page.children.append(frame);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    // Plan should contain geometries for: frame(1), button(10), slider(11)
+    QVERIFY(plan.geometries.contains(1));
+    QVERIFY(plan.geometries.contains(10));
+    QVERIFY(plan.geometries.contains(11));
+    QCOMPARE(plan.geometries.size(), 3);
+}
+
 QTEST_MAIN(McpIdempotency_Test)

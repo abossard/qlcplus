@@ -52,6 +52,17 @@ public:
     int addXYPad(int parentID, const QRect &geometry,
                  const QList<quint32> &fixtureIDs) override;
 
+    int addXYPadEx(int parentID, const QRect &geometry,
+                   const QList<XYPadFixtureConfig> &fixtures,
+                   const QString &displayMode = "degrees",
+                   bool invertedAppearance = false) override;
+
+    bool setXYPadPosition(int widgetID, qreal x, qreal y) override;
+    bool setXYPadDisplayMode(int widgetID, const QString &mode) override;
+    bool setXYPadInvertedAppearance(int widgetID, bool inverted) override;
+    bool addXYPadFixture(int widgetID, const XYPadFixtureConfig &config) override;
+    bool removeXYPadFixture(int widgetID, quint32 fixtureID, int head = 0) override;
+
     int addCueList(int parentID, const QRect &geometry,
                    quint32 chaserID, const QString &caption) override;
 
@@ -99,6 +110,7 @@ public:
     bool setSliderMode(int widgetID, const QString &mode) override;
     bool setSliderFunction(int widgetID, quint32 functionID) override;
     bool setSliderChannels(int widgetID, const QList<QPair<quint32, quint32>> &channels) override;
+    bool configureSlider(int widgetID, const SliderConfig &config) override;
 
     // Input mapping
     bool addWidgetInput(int widgetID, quint32 universe, quint32 channel) override;
@@ -106,6 +118,11 @@ public:
 
     // Widget reparenting
     bool reparentWidget(int widgetID, int newParentID, const QRect &geo) override;
+
+    // Layout analysis
+    WidgetSnapshot snapshotFrame(int frameID) const override;
+    WidgetSnapshot snapshotPage(int pageIndex) const override;
+    void applyLayoutPlan(const LayoutPlan &plan) override;
 
 private:
     Doc *m_doc;
