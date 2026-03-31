@@ -37,7 +37,10 @@ class FunctionManager;
 // Each tool file exports one registration function.
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionManager *funcMgr = nullptr);
-void registerVCTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
+void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
+void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
+void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
+void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 namespace fastmcpp { namespace prompts { class PromptManager; } }

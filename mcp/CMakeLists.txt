@@ -16,7 +16,10 @@ set(MCP_SOURCES
     tools/tool_registry.h
     tools/query_tools.cpp
     tools/function_tools.cpp
-    tools/vc_tools.cpp
+    tools/vc_create_tools.cpp
+    tools/vc_update_tools.cpp
+    tools/vc_input_tools.cpp
+    tools/vc_layout_tools.cpp
     tools/io_tools.cpp
     tools/channel_tools.cpp
     tools/prompts.cpp

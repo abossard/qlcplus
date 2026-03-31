@@ -673,6 +673,96 @@ def run_tests():
                        for c in r2[0]["changes"])
         test("XY Pad position control", t_xypad_position)
 
+        # === AUDIO TRIGGERS ===
+        print("\n=== Audio Triggers ===")
+
+        def t_audio_triggers_create():
+            r = call("add_vc_audio_triggers", {"items": [
+                {"parentID": page_idx, "width": 300, "height": 150,
+                 "barsNumber": 5, "volumeLevel": 200},
+            ]})
+            assert len(r) == 1
+            assert r[0]["widgetID"] >= 0
+            return r[0]["widgetID"]
+        test("add_vc_audio_triggers (with settings)", t_audio_triggers_create)
+
+        # Get the widget ID for subsequent tests
+        at_r = call("add_vc_audio_triggers", {"items": [
+            {"parentID": page_idx, "barsNumber": 5}
+        ]})
+        at_wid = at_r[0]["widgetID"] if at_r and at_r[0].get("widgetID", -1) >= 0 else -1
+
+        def t_audio_triggers_query():
+            if at_wid < 0:
+                print("    (skipped: no widget)")
+                return
+            d = call("query_widget_details", {"widgetIDs": [at_wid]})
+            assert len(d) == 1
+            det = d[0]
+            assert det["type"] == "Audio Triggers", f"Got {det['type']}"
+            assert "barsNumber" in det, "Missing barsNumber"
+            assert det["barsNumber"] == 5, f"Expected 5 bars, got {det['barsNumber']}"
+            assert "bars" in det, "Missing bars array"
+            assert len(det["bars"]) == 5
+            assert det["bars"][0]["barIndex"] == 0  # volume bar
+        test("query_widget_details (Audio Triggers)", t_audio_triggers_query)
+
+        def t_audio_triggers_configure_function_bar():
+            if at_wid < 0:
+                print("    (skipped: no widget)")
+                return
+            fns = call("query_functions")
+            if not fns:
+                print("    (skipped: no functions)")
+                return
+            fn_id = fns[0]["id"]
+            r = call("configure_audio_triggers", {"items": [
+                {"widgetID": at_wid, "bars": [
+                    {"barIndex": 1, "type": "function", "functionID": fn_id,
+                     "minThreshold": 30, "maxThreshold": 70}
+                ]}
+            ]})
+            assert r[0]["bars"][0]["status"] == "ok"
+
+            # Verify round-trip
+            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
+            bar1 = d["bars"][1]
+            assert bar1["type"] == "function", f"Expected function, got {bar1['type']}"
+            assert bar1["functionID"] == fn_id
+            assert bar1["minThreshold"] == 30
+            assert bar1["maxThreshold"] == 70
+        test("configure_audio_triggers (function bar)", t_audio_triggers_configure_function_bar)
+
+        def t_audio_triggers_configure_none_bar():
+            if at_wid < 0:
+                print("    (skipped: no widget)")
+                return
+            r = call("configure_audio_triggers", {"items": [
+                {"widgetID": at_wid, "bars": [
+                    {"barIndex": 1, "type": "none"}
+                ]}
+            ]})
+            assert r[0]["bars"][0]["status"] == "ok"
+            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
+            assert d["bars"][1]["type"] == "none"
+        test("configure_audio_triggers (reset bar to none)", t_audio_triggers_configure_none_bar)
+
+        def t_audio_triggers_update():
+            if at_wid < 0:
+                print("    (skipped: no widget)")
+                return
+            r = call("update_widgets", {"items": [
+                {"widgetID": at_wid, "barsNumber": 8, "volumeLevel": 150}
+            ]})
+            changes = {c["property"]: c["status"] for c in r[0]["changes"]}
+            assert changes.get("barsNumber") == "ok"
+            assert changes.get("volumeLevel") == "ok"
+
+            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
+            assert d["barsNumber"] == 8
+            assert d["volumeLevel"] == 150
+        test("update_widgets (Audio Triggers barsNumber+volume)", t_audio_triggers_update)
+
         # === PROMPTS ===
         print("\n=== Design Guide ===")
 

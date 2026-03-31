@@ -56,7 +56,10 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QOb
 {
     registerQueryTools(*m_toolManager, m_doc, m_vcBridge);
     registerFunctionTools(*m_toolManager, m_doc, m_funcMgr);
-    registerVCTools(*m_toolManager, m_doc, m_vcBridge);
+    registerVCCreateTools(*m_toolManager, m_doc, m_vcBridge);
+    registerVCUpdateTools(*m_toolManager, m_doc, m_vcBridge);
+    registerVCInputTools(*m_toolManager, m_doc, m_vcBridge);
+    registerVCLayoutTools(*m_toolManager, m_doc, m_vcBridge);
     registerIOTools(*m_toolManager, m_doc);
     registerChannelTools(*m_toolManager, m_doc);
     registerPrompts(*m_promptManager, m_doc);

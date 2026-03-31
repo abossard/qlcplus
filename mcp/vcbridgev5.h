@@ -88,6 +88,11 @@ public:
 
     int addAudioTriggers(int parentID, const QRect &geometry) override;
 
+    bool configureAudioTriggerBar(int widgetID, const AudioBarConfig &config) override;
+    bool setAudioTriggerCapture(int widgetID, bool enabled) override;
+    bool setAudioTriggerVolume(int widgetID, int volume) override;
+    bool setAudioTriggerBarsNumber(int widgetID, int count) override;
+
     int addClock(int parentID, const QRect &geometry,
                  const QString &clockType) override;
 
@@ -118,6 +123,39 @@ public:
 
     // Widget reparenting
     bool reparentWidget(int widgetID, int newParentID, const QRect &geo) override;
+
+    // Matrix widget
+    int addMatrix(int parentID, const QRect &geometry,
+                  quint32 functionID, const QString &caption) override;
+    bool configureMatrix(int widgetID, const MatrixConfig &config) override;
+
+    // Extended widget config
+    bool configureButton(int widgetID, const ButtonConfig &config) override;
+    bool configureFrame(int widgetID, const FrameConfig &config) override;
+    bool configureCueList(int widgetID, const CueListConfig &config) override;
+    bool configureClock(int widgetID, const ClockConfig &config) override;
+    bool configureSpeedDial(int widgetID, const SpeedDialConfig &config) override;
+
+    // XY Pad presets
+    bool setXYPadPresets(int widgetID, const QList<XYPadPresetInfo> &presets) override;
+
+    // Key sequences and named input mapping
+    bool setWidgetKeySequence(int widgetID, const QString &sourceName,
+                              const QKeySequence &keySequence) override;
+    bool mapWidgetInputByName(int widgetID, const QString &sourceName,
+                              quint32 universe, quint32 channel) override;
+
+    // Base widget properties
+    bool setWidgetFont(int widgetID, const FontConfig &font) override;
+    bool setWidgetBackgroundImage(int widgetID, const QString &path) override;
+    bool setWidgetDisableState(int widgetID, bool disabled) override;
+
+    // Page rename
+    bool renamePage(int pageIndex, const QString &name) override;
+
+    // Slider extended
+    bool setSliderWidgetStyle(int widgetID, const QString &style) override;
+    bool setSliderCatchValues(int widgetID, bool enable) override;
 
     // Layout analysis
     WidgetSnapshot snapshotFrame(int frameID) const override;

@@ -25,15 +25,19 @@
 #include "vcbutton.h"
 #include "vcslider.h"
 #include "vcxypad.h"
+#include "vcxypadpreset.h"
 #include "vccuelist.h"
 #include "vclabel.h"
 #include "vcspeeddial.h"
+#include "vcspeeddialpreset.h"
 #include "vcaudiotriggers.h"
 #include "vcclock.h"
+#include "vcanimation.h"
 #include "vcwidget.h"
 #include "doc.h"
 #include "fixture.h"
 #include "function.h"
+#include "scenevalue.h"
 #include "grandmaster.h"
 #include "inputoutputmap.h"
 #include "qlcinputsource.h"
@@ -414,6 +418,71 @@ int VCBridgeV5::addAudioTriggers(int parentID, const QRect &geometry)
     return widget->id();
 }
 
+bool VCBridgeV5::configureAudioTriggerBar(int widgetID, const AudioBarConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCAudioTriggers *at = qobject_cast<VCAudioTriggers *>(widget);
+    if (!at) return false;
+
+    if (config.barIndex < 0 || config.barIndex >= at->barsNumber())
+        return false;
+
+    at->selectBarForEditing(config.barIndex);
+
+    // Set bar type
+    VCAudioTriggers::BarType barType = VCAudioTriggers::None;
+    if (config.type == "dmx") barType = VCAudioTriggers::DMXBar;
+    else if (config.type == "function") barType = VCAudioTriggers::FunctionBar;
+    else if (config.type == "widget") barType = VCAudioTriggers::VCWidgetBar;
+    at->setBarType(barType);
+
+    // Set thresholds
+    at->setBarThresholds(config.minThreshold, config.maxThreshold);
+
+    // Set type-specific assignments
+    if (barType == VCAudioTriggers::FunctionBar && config.functionID != (quint32)-1)
+        at->setBarFunction(config.functionID);
+    else if (barType == VCAudioTriggers::VCWidgetBar && config.widgetID != (quint32)-1)
+        at->setBarWidget(config.widgetID);
+    else if (barType == VCAudioTriggers::DMXBar && !config.dmxChannels.isEmpty())
+    {
+        QList<SceneValue> svList;
+        for (const auto &ch : config.dmxChannels)
+            svList.append(SceneValue(ch.first, ch.second));
+        at->setBarDmxChannels(svList);
+    }
+
+    return true;
+}
+
+bool VCBridgeV5::setAudioTriggerCapture(int widgetID, bool enabled)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCAudioTriggers *at = qobject_cast<VCAudioTriggers *>(widget);
+    if (!at) return false;
+    at->setCaptureEnabled(enabled);
+    return true;
+}
+
+bool VCBridgeV5::setAudioTriggerVolume(int widgetID, int volume)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCAudioTriggers *at = qobject_cast<VCAudioTriggers *>(widget);
+    if (!at) return false;
+    at->setVolumeLevel(qBound(0, volume, 255));
+    return true;
+}
+
+bool VCBridgeV5::setAudioTriggerBarsNumber(int widgetID, int count)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCAudioTriggers *at = qobject_cast<VCAudioTriggers *>(widget);
+    if (!at) return false;
+    if (count < 1) count = 1; // minimum: volume bar
+    at->setBarsNumber(count);
+    return true;
+}
+
 int VCBridgeV5::addClock(int parentID, const QRect &geometry,
                           const QString &clockType)
 {
@@ -527,6 +596,24 @@ bool VCBridgeV5::removeWidget(int widgetID)
 
 // --- Widget details query ---
 
+static QString multiplierToString(VCSpeedDial::SpeedMultiplier m)
+{
+    switch (m)
+    {
+        case VCSpeedDial::Zero: return "0";
+        case VCSpeedDial::OneSixteenth: return "1/16";
+        case VCSpeedDial::OneEighth: return "1/8";
+        case VCSpeedDial::OneFourth: return "1/4";
+        case VCSpeedDial::Half: return "1/2";
+        case VCSpeedDial::One: return "1";
+        case VCSpeedDial::Two: return "2";
+        case VCSpeedDial::Four: return "4";
+        case VCSpeedDial::Eight: return "8";
+        case VCSpeedDial::Sixteen: return "16";
+        default: return "none";
+    }
+}
+
 VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
 {
     VCWidget *widget = m_vc->widget(widgetID);
@@ -572,6 +659,11 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     {
         d.functionID = button->functionID();
         d.action = VCButton::actionToString(button->actionType()).toLower();
+        d.startupIntensityEnabled = button->startupIntensityEnabled();
+        d.startupIntensity = button->startupIntensity();
+        d.flashOverride = button->flashOverrides();
+        d.flashForceLTP = button->flashForceLTP();
+        d.stopAllFadeTime = button->stopAllFadeOutTime();
     }
 
     // Slider-specific
@@ -613,12 +705,36 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
             auto gmChMode = slider->grandMasterChannelMode();
             d.gmChannelMode = (gmChMode == GrandMaster::AllChannels) ? "allchannels" : "intensity";
         }
+
+        // Widget style and catch values
+        d.widgetStyle = (slider->widgetStyle() == VCSlider::WKnob) ? "knob" : "slider";
+        d.catchValues = slider->catchValues();
     }
 
     // CueList-specific
     VCCueList *cuelist = qobject_cast<VCCueList*>(widget);
     if (cuelist)
+    {
         d.functionID = cuelist->chaserID();
+        switch (cuelist->nextPrevBehavior())
+        {
+            case VCCueList::DefaultRunFirst: d.nextPrevBehavior = "defaultRunFirst"; break;
+            case VCCueList::RunNext: d.nextPrevBehavior = "runNext"; break;
+            case VCCueList::Select: d.nextPrevBehavior = "select"; break;
+            case VCCueList::Nothing: d.nextPrevBehavior = "nothing"; break;
+        }
+        switch (cuelist->playbackLayout())
+        {
+            case VCCueList::PlayPauseStop: d.playbackLayout = "playPauseStop"; break;
+            case VCCueList::PlayStopPause: d.playbackLayout = "playStopPause"; break;
+        }
+        switch (cuelist->sideFaderMode())
+        {
+            case VCCueList::None: d.sideFaderMode = "none"; break;
+            case VCCueList::Crossfade: d.sideFaderMode = "crossfade"; break;
+            case VCCueList::Steps: d.sideFaderMode = "steps"; break;
+        }
+    }
 
     // XYPad-specific
     VCXYPad *xyPad = qobject_cast<VCXYPad*>(widget);
@@ -658,7 +774,173 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
             }
             d.xyPadFixtures.append(info);
         }
+
+        // XY Pad presets
+        for (const QVariant &v : xyPad->presetsList())
+        {
+            QVariantMap pm = v.toMap();
+            XYPadPresetInfo pi;
+            pi.name = pm.value("name").toString();
+            pi.functionID = pm.value("functionID").toUInt();
+            pi.type = pm.value("typeString").toString().toLower();
+            d.xyPadPresets.append(pi);
+        }
     }
+
+    // AudioTriggers-specific
+    VCAudioTriggers *audioTrig = qobject_cast<VCAudioTriggers*>(widget);
+    if (audioTrig)
+    {
+        d.captureEnabled = audioTrig->captureEnabled();
+        d.volumeLevel = audioTrig->volumeLevel();
+        d.barsNumber = audioTrig->barsNumber();
+
+        QVariantList bInfo = audioTrig->barsInfo();
+        for (const QVariant &v : bInfo)
+        {
+            QVariantMap bm = v.toMap();
+            WidgetDetails::AudioBarInfo bar;
+            bar.barIndex = bm.value("index").toInt();
+            int bType = bm.value("type").toInt();
+            switch (bType)
+            {
+                case VCAudioTriggers::DMXBar: bar.type = "dmx"; break;
+                case VCAudioTriggers::FunctionBar: bar.type = "function"; break;
+                case VCAudioTriggers::VCWidgetBar: bar.type = "widget"; break;
+                default: bar.type = "none"; break;
+            }
+            bar.minThreshold = bm.value("minThreshold").toInt();
+            bar.maxThreshold = bm.value("maxThreshold").toInt();
+
+            if (bType == VCAudioTriggers::FunctionBar)
+            {
+                int fid = bm.value("intVal").toInt();
+                if (fid >= 0)
+                {
+                    bar.functionID = fid;
+                    Function *fn = m_doc->function(fid);
+                    if (fn) bar.functionName = fn->name();
+                }
+            }
+            else if (bType == VCAudioTriggers::VCWidgetBar)
+            {
+                int wid = bm.value("intVal").toInt();
+                if (wid >= 0)
+                {
+                    bar.widgetID = wid;
+                    bar.widgetName = bm.value("strVal").toString();
+                }
+            }
+
+            d.audioBars.append(bar);
+        }
+    }
+
+    // Frame-specific
+    VCFrame *frame = qobject_cast<VCFrame*>(widget);
+    if (frame && !qobject_cast<VCPage*>(widget))
+    {
+        d.multipageMode = frame->multiPageMode();
+        d.totalPages = frame->totalPagesNumber();
+        d.currentPage = frame->currentPage();
+        d.pagesLoop = frame->pagesLoop();
+        d.headerVisible = frame->showHeader();
+        d.enableButtonVisible = frame->showEnable();
+        d.collapsed = frame->isCollapsed();
+
+        VCSoloFrame *soloFrame = qobject_cast<VCSoloFrame*>(widget);
+        if (soloFrame)
+        {
+            d.soloframeMixing = soloFrame->soloframeMixing();
+            d.excludeMonitoredFunctions = soloFrame->excludeMonitoredFunctions();
+        }
+    }
+
+    // Animation/Matrix-specific
+    VCAnimation *animation = qobject_cast<VCAnimation*>(widget);
+    if (animation)
+    {
+        d.functionID = animation->functionID();
+        d.matrixColor1 = animation->getColor1();
+        d.matrixColor2 = animation->getColor2();
+        d.matrixColor3 = animation->getColor3();
+        d.matrixColor4 = animation->getColor4();
+        d.matrixColor5 = animation->getColor5();
+        QStringList algos = animation->algorithms();
+        int algIdx = animation->algorithmIndex();
+        if (algIdx >= 0 && algIdx < algos.size())
+            d.matrixAnimation = algos.at(algIdx);
+        d.matrixInstantApply = animation->instantChanges();
+        d.matrixVisibilityMask = animation->visibilityMask();
+    }
+
+    // Clock-specific
+    VCClock *clock = qobject_cast<VCClock*>(widget);
+    if (clock)
+    {
+        switch (clock->clockType())
+        {
+            case VCClock::Clock: d.clockType = "clock"; break;
+            case VCClock::Stopwatch: d.clockType = "stopwatch"; break;
+            case VCClock::Countdown: d.clockType = "countdown"; break;
+        }
+        int targetMs = clock->targetTime();
+        int totalSecs = targetMs / 1000;
+        d.countdownH = totalSecs / 3600;
+        d.countdownM = (totalSecs % 3600) / 60;
+        d.countdownS = totalSecs % 60;
+
+        for (VCClockSchedule *sched : clock->schedules())
+        {
+            ClockScheduleInfo csi;
+            csi.functionID = sched->functionID();
+            int startSecs = sched->startTime();
+            csi.hour = startSecs / 3600;
+            csi.minute = (startSecs % 3600) / 60;
+            csi.second = startSecs % 60;
+            d.clockSchedules.append(csi);
+        }
+    }
+
+    // SpeedDial-specific
+    VCSpeedDial *speedDial = qobject_cast<VCSpeedDial*>(widget);
+    if (speedDial)
+    {
+        QMap<quint32, VCSpeedDial::VCSpeedDialFunction> funcs = speedDial->functions();
+        for (auto it = funcs.constBegin(); it != funcs.constEnd(); ++it)
+        {
+            SpeedDialFunctionInfo fi;
+            fi.functionID = it.value().m_fId;
+            fi.fadeInMultiplier = multiplierToString(it.value().m_fadeInFactor);
+            fi.fadeOutMultiplier = multiplierToString(it.value().m_fadeOutFactor);
+            fi.durationMultiplier = multiplierToString(it.value().m_durationFactor);
+            d.speedDialFunctions.append(fi);
+        }
+        for (const QVariant &v : speedDial->presetsList())
+        {
+            QVariantMap pm = v.toMap();
+            SpeedDialPresetInfo pi;
+            pi.name = pm.value("name").toString();
+            pi.value = pm.value("value").toInt();
+            d.speedDialPresets.append(pi);
+        }
+        d.absoluteValueMin = speedDial->timeMinimumValue();
+        d.absoluteValueMax = speedDial->timeMaximumValue();
+        d.speedDialVisibilityMask = speedDial->visibilityMask();
+        d.resetFactorOnDialChange = speedDial->resetOnDialChange();
+    }
+
+    // Base widget extended properties
+    if (widget->hasCustomFont())
+    {
+        QFont f = widget->font();
+        d.fontConfig.family = f.family();
+        d.fontConfig.pointSize = f.pointSize();
+        d.fontConfig.bold = f.bold();
+        d.fontConfig.italic = f.italic();
+    }
+    d.backgroundImage = widget->backgroundImage();
+    d.disabled = widget->isDisabled();
 
     return d;
 }
@@ -718,7 +1000,7 @@ bool VCBridgeV5::configureSlider(int widgetID, const SliderConfig &config)
     if (config.clickAndGoType.has_value())
     {
         const QString &v = config.clickAndGoType.value();
-        if (v == "colors") slider->setClickAndGoType(VCSlider::CnGColors);
+        if (v == "colors" || v == "rgb" || v == "cmy") slider->setClickAndGoType(VCSlider::CnGColors);
         else if (v == "preset") slider->setClickAndGoType(VCSlider::CnGPreset);
         else slider->setClickAndGoType(VCSlider::CnGNone);
     }
@@ -874,6 +1156,489 @@ bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
     if (ok)
         widget->setGeometry(QRectF(geo));
     return ok;
+}
+
+// --- Matrix widget ---
+
+int VCBridgeV5::addMatrix(int parentID, const QRect &geometry,
+                          quint32 functionID, const QString &caption)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Animation",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+
+    VCAnimation *animation = qobject_cast<VCAnimation *>(widget);
+    if (animation)
+    {
+        animation->setGeometry(geometry);
+        if (!caption.isEmpty())
+            animation->setCaption(caption);
+        if (functionID != Function::invalidId())
+            animation->setFunctionID(functionID);
+    }
+    return widget->id();
+}
+
+bool VCBridgeV5::configureMatrix(int widgetID, const MatrixConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCAnimation *animation = qobject_cast<VCAnimation *>(widget);
+    if (!animation) return false;
+
+    if (config.functionID.has_value())
+        animation->setFunctionID(config.functionID.value());
+    if (config.color1.has_value())
+        animation->setColor1(config.color1.value());
+    if (config.color2.has_value())
+        animation->setColor2(config.color2.value());
+    if (config.color3.has_value())
+        animation->setColor3(config.color3.value());
+    if (config.color4.has_value())
+        animation->setColor4(config.color4.value());
+    if (config.color5.has_value())
+        animation->setColor5(config.color5.value());
+    if (config.animation.has_value())
+    {
+        QStringList algos = animation->algorithms();
+        int idx = algos.indexOf(config.animation.value());
+        if (idx >= 0)
+            animation->setAlgorithmIndex(idx);
+    }
+    if (config.instantApply.has_value())
+        animation->setInstantChanges(config.instantApply.value());
+    if (config.visibilityMask.has_value())
+        animation->setVisibilityMask(config.visibilityMask.value());
+    return true;
+}
+
+// --- Button extended config ---
+
+bool VCBridgeV5::configureButton(int widgetID, const ButtonConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCButton *button = qobject_cast<VCButton *>(widget);
+    if (!button) return false;
+
+    if (config.functionID.has_value())
+        button->setFunctionID(config.functionID.value());
+    if (config.action.has_value())
+    {
+        const QString &a = config.action.value();
+        if (a == "flash") button->setActionType(VCButton::Flash);
+        else if (a == "blackout") button->setActionType(VCButton::Blackout);
+        else if (a == "stopall") button->setActionType(VCButton::StopAll);
+        else button->setActionType(VCButton::Toggle);
+    }
+    if (config.startupIntensityEnabled.has_value())
+        button->setStartupIntensityEnabled(config.startupIntensityEnabled.value());
+    if (config.startupIntensity.has_value())
+        button->setStartupIntensity(config.startupIntensity.value());
+    if (config.flashOverride.has_value())
+        button->setFlashOverride(config.flashOverride.value());
+    if (config.flashForceLTP.has_value())
+        button->setFlashForceLTP(config.flashForceLTP.value());
+    if (config.stopAllFadeTime.has_value())
+        button->setStopAllFadeOutTime(config.stopAllFadeTime.value());
+    return true;
+}
+
+// --- Frame extended config ---
+
+bool VCBridgeV5::configureFrame(int widgetID, const FrameConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (!frame) return false;
+
+    if (config.multipageMode.has_value())
+        frame->setMultiPageMode(config.multipageMode.value());
+    if (config.totalPages.has_value())
+        frame->setTotalPagesNumber(config.totalPages.value());
+    if (config.currentPage.has_value())
+        frame->setCurrentPage(config.currentPage.value());
+    if (config.pagesLoop.has_value())
+        frame->setPagesLoop(config.pagesLoop.value());
+    if (config.headerVisible.has_value())
+        frame->setShowHeader(config.headerVisible.value());
+    if (config.enableButtonVisible.has_value())
+        frame->setShowEnable(config.enableButtonVisible.value());
+    if (config.collapsed.has_value())
+        frame->setCollapsed(config.collapsed.value());
+
+    // SoloFrame-specific properties
+    VCSoloFrame *soloFrame = qobject_cast<VCSoloFrame *>(widget);
+    if (soloFrame)
+    {
+        if (config.soloframeMixing.has_value())
+            soloFrame->setSoloframeMixing(config.soloframeMixing.value());
+        if (config.excludeMonitoredFunctions.has_value())
+            soloFrame->setExcludeMonitoredFunctions(config.excludeMonitoredFunctions.value());
+    }
+    return true;
+}
+
+// --- CueList extended config ---
+
+bool VCBridgeV5::configureCueList(int widgetID, const CueListConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCCueList *cuelist = qobject_cast<VCCueList *>(widget);
+    if (!cuelist) return false;
+
+    if (config.chaserID.has_value())
+        cuelist->setChaserID(config.chaserID.value());
+    if (config.nextPrevBehavior.has_value())
+    {
+        const QString &v = config.nextPrevBehavior.value();
+        if (v == "runNext") cuelist->setNextPrevBehavior(VCCueList::RunNext);
+        else if (v == "select") cuelist->setNextPrevBehavior(VCCueList::Select);
+        else if (v == "nothing") cuelist->setNextPrevBehavior(VCCueList::Nothing);
+        else cuelist->setNextPrevBehavior(VCCueList::DefaultRunFirst);
+    }
+    if (config.playbackLayout.has_value())
+    {
+        const QString &v = config.playbackLayout.value();
+        if (v == "playStopPause") cuelist->setPlaybackLayout(VCCueList::PlayStopPause);
+        else cuelist->setPlaybackLayout(VCCueList::PlayPauseStop);
+    }
+    if (config.sideFaderMode.has_value())
+    {
+        const QString &v = config.sideFaderMode.value();
+        if (v == "crossfade") cuelist->setSideFaderMode(VCCueList::Crossfade);
+        else if (v == "steps") cuelist->setSideFaderMode(VCCueList::Steps);
+        else cuelist->setSideFaderMode(VCCueList::None);
+    }
+    return true;
+}
+
+// --- Clock extended config ---
+
+bool VCBridgeV5::configureClock(int widgetID, const ClockConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCClock *clock = qobject_cast<VCClock *>(widget);
+    if (!clock) return false;
+
+    if (config.clockType.has_value())
+    {
+        const QString &v = config.clockType.value();
+        if (v == "stopwatch") clock->setClockType(VCClock::Stopwatch);
+        else if (v == "countdown") clock->setClockType(VCClock::Countdown);
+        else clock->setClockType(VCClock::Clock);
+    }
+    if (config.countdownH.has_value() || config.countdownM.has_value() || config.countdownS.has_value())
+    {
+        int h = config.countdownH.value_or(0);
+        int m = config.countdownM.value_or(0);
+        int s = config.countdownS.value_or(0);
+        clock->setTargetTime((h * 3600 + m * 60 + s) * 1000);
+    }
+    if (config.schedules.has_value())
+    {
+        // Remove existing schedules (reverse order)
+        while (!clock->schedules().isEmpty())
+            clock->removeSchedule(0);
+
+        for (const ClockScheduleInfo &info : config.schedules.value())
+        {
+            VCClockSchedule *sched = new VCClockSchedule(clock);
+            sched->setFunctionID(info.functionID);
+            sched->setStartTime(info.hour * 3600 + info.minute * 60 + info.second);
+            clock->addSchedule(sched);
+        }
+    }
+    return true;
+}
+
+// --- SpeedDial extended config ---
+
+static VCSpeedDial::SpeedMultiplier stringToMultiplier(const QString &str)
+{
+    if (str == "0") return VCSpeedDial::Zero;
+    if (str == "1/16") return VCSpeedDial::OneSixteenth;
+    if (str == "1/8") return VCSpeedDial::OneEighth;
+    if (str == "1/4") return VCSpeedDial::OneFourth;
+    if (str == "1/2") return VCSpeedDial::Half;
+    if (str == "1") return VCSpeedDial::One;
+    if (str == "2") return VCSpeedDial::Two;
+    if (str == "4") return VCSpeedDial::Four;
+    if (str == "8") return VCSpeedDial::Eight;
+    if (str == "16") return VCSpeedDial::Sixteen;
+    return VCSpeedDial::None;
+}
+
+bool VCBridgeV5::configureSpeedDial(int widgetID, const SpeedDialConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
+    if (!speedDial) return false;
+
+    if (config.functions.has_value())
+    {
+        QMap<quint32, VCSpeedDial::VCSpeedDialFunction> funcMap;
+        for (const SpeedDialFunctionInfo &fi : config.functions.value())
+        {
+            VCSpeedDial::VCSpeedDialFunction f;
+            f.m_fId = fi.functionID;
+            f.m_fadeInFactor = stringToMultiplier(fi.fadeInMultiplier);
+            f.m_fadeOutFactor = stringToMultiplier(fi.fadeOutMultiplier);
+            f.m_durationFactor = stringToMultiplier(fi.durationMultiplier);
+            funcMap.insert(fi.functionID, f);
+        }
+        speedDial->setFunctions(funcMap);
+    }
+    if (config.presets.has_value())
+    {
+        // Remove existing presets via public API
+        QVariantList existingPresets = speedDial->presetsList();
+        for (auto it = existingPresets.rbegin(); it != existingPresets.rend(); ++it)
+            speedDial->removePreset(it->toMap().value("id").toUInt());
+
+        for (const SpeedDialPresetInfo &pi : config.presets.value())
+            speedDial->addPreset(pi.name, pi.value);
+    }
+    if (config.absoluteValueMin.has_value())
+        speedDial->setTimeMinimumValue(config.absoluteValueMin.value());
+    if (config.absoluteValueMax.has_value())
+        speedDial->setTimeMaximumValue(config.absoluteValueMax.value());
+    if (config.visibilityMask.has_value())
+        speedDial->setVisibilityMask(config.visibilityMask.value());
+    if (config.resetFactorOnDialChange.has_value())
+        speedDial->setResetOnDialChange(config.resetFactorOnDialChange.value());
+    return true;
+}
+
+// --- XY Pad presets ---
+
+bool VCBridgeV5::setXYPadPresets(int widgetID, const QList<XYPadPresetInfo> &presets)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
+    if (!xyPad) return false;
+
+    // Remove existing presets via public API
+    QVariantList existingPresets = xyPad->presetsList();
+    for (auto it = existingPresets.rbegin(); it != existingPresets.rend(); ++it)
+        xyPad->removePreset(it->toMap().value("id").toUInt());
+
+    for (const XYPadPresetInfo &info : presets)
+    {
+        if (info.type == "position")
+        {
+            // Set current position before creating preset so it captures it
+            xyPad->setCurrentPosition(info.position);
+            int presetId = xyPad->addPositionPreset();
+            if (presetId >= 0 && !info.name.isEmpty())
+                xyPad->setPresetName(static_cast<quint8>(presetId), info.name);
+        }
+        else if (info.type == "efx" || info.type == "scene")
+        {
+            int presetId = xyPad->addFunctionPreset(info.functionID);
+            if (presetId >= 0 && !info.name.isEmpty())
+                xyPad->setPresetName(static_cast<quint8>(presetId), info.name);
+        }
+    }
+    return true;
+}
+
+// --- Key sequences ---
+
+static int resolveControlId(VCWidget *widget, const QString &sourceName)
+{
+    // Control IDs are defined per widget type
+    VCButton *btn = qobject_cast<VCButton *>(widget);
+    if (btn)
+    {
+        if (sourceName == "default") return 0;
+        return -1;
+    }
+
+    VCSlider *slider = qobject_cast<VCSlider *>(widget);
+    if (slider)
+    {
+        if (sourceName == "default") return 0;
+        if (sourceName == "overrideReset") return 1;
+        if (sourceName == "flashButton") return 2;
+        return -1;
+    }
+
+    VCCueList *cuelist = qobject_cast<VCCueList *>(widget);
+    if (cuelist)
+    {
+        if (sourceName == "next") return 0;
+        if (sourceName == "previous") return 1;
+        if (sourceName == "playback") return 2;
+        if (sourceName == "stop") return 3;
+        return -1;
+    }
+
+    VCClock *clock = qobject_cast<VCClock *>(widget);
+    if (clock)
+    {
+        if (sourceName == "play") return 0;
+        if (sourceName == "reset") return 1;
+        return -1;
+    }
+
+    VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
+    if (speedDial)
+    {
+        if (sourceName == "tap") return 1;
+        if (sourceName == "mult") return 2;
+        if (sourceName == "div") return 3;
+        if (sourceName == "multDivReset") return 4;
+        if (sourceName == "apply") return 5;
+        return -1;
+    }
+
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (frame)
+    {
+        if (sourceName == "nextPage") return 0;
+        if (sourceName == "previousPage") return 1;
+        if (sourceName == "enable") return 2;
+        return -1;
+    }
+
+    VCAudioTriggers *audioTrig = qobject_cast<VCAudioTriggers *>(widget);
+    if (audioTrig)
+    {
+        if (sourceName == "default") return 0;
+        return -1;
+    }
+
+    return -1;
+}
+
+bool VCBridgeV5::setWidgetKeySequence(int widgetID, const QString &sourceName,
+                                      const QKeySequence &keySequence)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    int controlId = resolveControlId(widget, sourceName);
+    if (controlId < 0) return false;
+
+    // Remove existing key sequence for this control ID
+    QMap<QKeySequence, quint32> existing = widget->keySequenceMap();
+    for (auto it = existing.constBegin(); it != existing.constEnd(); ++it)
+    {
+        if (it.value() == (quint32)controlId)
+            widget->deleteKeySequence(it.key());
+    }
+
+    if (!keySequence.isEmpty())
+        widget->addKeySequence(keySequence, (quint32)controlId);
+    return true;
+}
+
+// --- Named input mapping ---
+
+bool VCBridgeV5::mapWidgetInputByName(int widgetID, const QString &sourceName,
+                                      quint32 universe, quint32 channel)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    int controlId = resolveControlId(widget, sourceName);
+    if (controlId < 0) return false;
+
+    // Remove existing input source for this control ID
+    for (auto &src : widget->inputSources())
+    {
+        if (src->id() == (quint32)controlId)
+        {
+            widget->deleteInputSurce(src->id(), src->universe(), src->channel());
+            break;
+        }
+    }
+
+    QSharedPointer<QLCInputSource> source(new QLCInputSource(universe, channel));
+    source->setID((quint32)controlId);
+    widget->addInputSource(source);
+
+    // Register with page for event routing
+    for (int i = 0; i < m_vc->pagesCount(); i++)
+    {
+        VCPage *page = m_vc->page(i);
+        if (page)
+            page->mapInputSource(source, widget, true);
+    }
+    return true;
+}
+
+// --- Base widget properties ---
+
+bool VCBridgeV5::setWidgetFont(int widgetID, const FontConfig &font)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    QFont f = widget->font();
+    if (font.family.has_value())
+        f.setFamily(font.family.value());
+    if (font.pointSize.has_value())
+        f.setPointSize(font.pointSize.value());
+    if (font.bold.has_value())
+        f.setBold(font.bold.value());
+    if (font.italic.has_value())
+        f.setItalic(font.italic.value());
+    widget->setFont(f);
+    return true;
+}
+
+bool VCBridgeV5::setWidgetBackgroundImage(int widgetID, const QString &path)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+    widget->setBackgroundImage(path);
+    return true;
+}
+
+bool VCBridgeV5::setWidgetDisableState(int widgetID, bool disabled)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+    widget->setDisabled(disabled);
+    return true;
+}
+
+// --- Page rename ---
+
+bool VCBridgeV5::renamePage(int pageIndex, const QString &name)
+{
+    VCPage *page = m_vc->page(pageIndex);
+    if (!page) return false;
+    page->setCaption(name);
+    return true;
+}
+
+// --- Slider extended ---
+
+bool VCBridgeV5::setSliderWidgetStyle(int widgetID, const QString &style)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider *>(widget);
+    if (!slider) return false;
+
+    if (style == "knob")
+        slider->setWidgetStyle(VCSlider::WKnob);
+    else
+        slider->setWidgetStyle(VCSlider::WSlider);
+    return true;
+}
+
+bool VCBridgeV5::setSliderCatchValues(int widgetID, bool enable)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCSlider *slider = qobject_cast<VCSlider *>(widget);
+    if (!slider) return false;
+    slider->setCatchValues(enable);
+    return true;
 }
 
 // --- Layout analysis: snapshot / apply ---

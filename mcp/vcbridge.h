@@ -21,6 +21,7 @@
 #define VCBRIDGE_H
 
 #include <QColor>
+#include <QKeySequence>
 #include <QRect>
 #include <QString>
 #include <QVariant>
@@ -106,6 +107,113 @@ public:
         std::optional<QString> gmChannelMode;     // "intensity"/"allchannels" (grandmaster only)
     };
 
+    /** Button extended configuration */
+    struct ButtonConfig
+    {
+        std::optional<quint32> functionID;
+        std::optional<QString> action;         // "toggle"/"flash"/"blackout"/"stopall"
+        std::optional<QString> iconPath;
+        std::optional<bool> startupIntensityEnabled;
+        std::optional<qreal> startupIntensity; // 0.0-1.0
+        std::optional<bool> flashOverride;
+        std::optional<bool> flashForceLTP;
+        std::optional<int> stopAllFadeTime;    // ms
+    };
+
+    /** Frame/SoloFrame configuration */
+    struct FrameConfig
+    {
+        std::optional<bool> multipageMode;
+        std::optional<int> totalPages;
+        std::optional<int> currentPage;
+        std::optional<bool> pagesLoop;
+        std::optional<bool> headerVisible;
+        std::optional<bool> enableButtonVisible;
+        std::optional<bool> collapsed;
+        // SoloFrame only:
+        std::optional<bool> soloframeMixing;
+        std::optional<bool> excludeMonitoredFunctions;
+    };
+
+    /** CueList configuration */
+    struct CueListConfig
+    {
+        std::optional<quint32> chaserID;
+        std::optional<QString> nextPrevBehavior;  // "defaultRunFirst"/"runNext"/"select"/"nothing"
+        std::optional<QString> playbackLayout;    // "playPauseStop"/"playStopPause"
+        std::optional<QString> sideFaderMode;     // "none"/"crossfade"/"steps"
+    };
+
+    /** Matrix (Animation) configuration */
+    struct MatrixConfig
+    {
+        std::optional<quint32> functionID;
+        std::optional<QColor> color1, color2, color3, color4, color5;
+        std::optional<QString> animation;        // algorithm name
+        std::optional<bool> instantApply;
+        std::optional<quint32> visibilityMask;
+    };
+
+    /** Clock schedule entry */
+    struct ClockScheduleInfo
+    {
+        quint32 functionID = (quint32)-1;
+        int hour = 0, minute = 0, second = 0;
+    };
+
+    /** Clock configuration */
+    struct ClockConfig
+    {
+        std::optional<QString> clockType;        // "clock"/"stopwatch"/"countdown"
+        std::optional<int> countdownH, countdownM, countdownS;
+        std::optional<QList<ClockScheduleInfo>> schedules;
+    };
+
+    /** SpeedDial function with per-function multipliers */
+    struct SpeedDialFunctionInfo
+    {
+        quint32 functionID = (quint32)-1;
+        QString fadeInMultiplier = "none";    // "none","0","1/16","1/8","1/4","1/2","1","2","4","8","16"
+        QString fadeOutMultiplier = "none";
+        QString durationMultiplier = "1";
+    };
+
+    /** SpeedDial preset (named speed value) */
+    struct SpeedDialPresetInfo
+    {
+        QString name;
+        int value = 0;  // milliseconds
+    };
+
+    /** SpeedDial configuration */
+    struct SpeedDialConfig
+    {
+        std::optional<QList<SpeedDialFunctionInfo>> functions;
+        std::optional<QList<SpeedDialPresetInfo>> presets;
+        std::optional<quint32> absoluteValueMin;
+        std::optional<quint32> absoluteValueMax;
+        std::optional<quint32> visibilityMask;
+        std::optional<bool> resetFactorOnDialChange;
+    };
+
+    /** XY Pad preset */
+    struct XYPadPresetInfo
+    {
+        QString name;
+        QString type;  // "position"/"efx"/"scene"/"fixtureGroup"
+        QPointF position;           // for position type
+        quint32 functionID = (quint32)-1;  // for efx/scene type
+    };
+
+    /** Font configuration */
+    struct FontConfig
+    {
+        std::optional<QString> family;
+        std::optional<int> pointSize;
+        std::optional<bool> bold;
+        std::optional<bool> italic;
+    };
+
     struct WidgetDetails
     {
         int id = -1;
@@ -137,6 +245,80 @@ public:
         bool invertedAppearance = false;
         QList<XYPadFixtureInfo> xyPadFixtures;
         QPointF xyPadPosition;                // current position (0.0–1.0)
+
+        // Audio Triggers specific
+        bool captureEnabled = false;
+        int volumeLevel = 100;                // 0–255
+        int barsNumber = 0;
+        struct AudioBarInfo
+        {
+            int barIndex = 0;
+            QString type;                     // "none", "dmx", "function", "widget"
+            int minThreshold = 51;            // 0–255 (default 20%)
+            int maxThreshold = 204;           // 0–255 (default 80%)
+            int divisor = 1;
+            quint32 functionID = (quint32)-1;
+            QString functionName;
+            quint32 widgetID = (quint32)-1;
+            QString widgetName;
+            QList<QPair<quint32, quint32>> dmxChannels; // {fixtureID, channel}
+        };
+        QList<AudioBarInfo> audioBars;
+
+        // Button extended
+        QString iconPath;
+        bool startupIntensityEnabled = false;
+        qreal startupIntensity = 1.0;
+        bool flashOverride = false;
+        bool flashForceLTP = false;
+        int stopAllFadeTime = 0;
+
+        // Slider extended
+        QString widgetStyle;              // "slider"/"knob"
+        bool catchValues = false;
+
+        // Frame extended
+        bool multipageMode = false;
+        int totalPages = 1;
+        int currentPage = 0;
+        bool pagesLoop = false;
+        bool headerVisible = true;
+        bool enableButtonVisible = false;
+        bool collapsed = false;
+        bool soloframeMixing = false;
+        bool excludeMonitoredFunctions = false;
+
+        // CueList extended
+        QString nextPrevBehavior;
+        QString playbackLayout;
+        QString sideFaderMode;
+
+        // Clock extended
+        QString clockType;
+        int countdownH = 0, countdownM = 0, countdownS = 0;
+        QList<ClockScheduleInfo> clockSchedules;
+
+        // SpeedDial extended
+        QList<SpeedDialFunctionInfo> speedDialFunctions;
+        QList<SpeedDialPresetInfo> speedDialPresets;
+        quint32 absoluteValueMin = 0;
+        quint32 absoluteValueMax = 0;
+        quint32 speedDialVisibilityMask = 0;
+        bool resetFactorOnDialChange = false;
+
+        // Matrix extended
+        quint32 matrixVisibilityMask = 0;
+        bool matrixInstantApply = false;
+        QColor matrixColor1, matrixColor2, matrixColor3, matrixColor4, matrixColor5;
+        QString matrixAnimation;
+
+        // XY Pad presets
+        QList<XYPadPresetInfo> xyPadPresets;
+
+        // Base widget extended
+        FontConfig fontConfig;
+        QString backgroundImage;
+        bool disabled = false;
     };
 
     struct PageInfo
@@ -235,6 +417,29 @@ public:
     // Audio Triggers widget
     virtual int addAudioTriggers(int parentID, const QRect &geometry) = 0;
 
+    /** Per-bar configuration for audio triggers */
+    struct AudioBarConfig
+    {
+        int barIndex = 0;
+        QString type = "none";               // "none", "dmx", "function", "widget"
+        int minThreshold = 20;               // 0–100 scale (default 20%)
+        int maxThreshold = 80;               // 0–100 scale (default 80%)
+        int divisor = 1;
+        quint32 functionID = (quint32)-1;
+        quint32 widgetID = (quint32)-1;
+        QList<QPair<quint32, quint32>> dmxChannels; // {fixtureID, channel}
+    };
+
+    // Audio Triggers property mutations
+    virtual bool configureAudioTriggerBar(int widgetID, const AudioBarConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+    virtual bool setAudioTriggerCapture(int widgetID, bool enabled)
+        { Q_UNUSED(widgetID); Q_UNUSED(enabled); return false; }
+    virtual bool setAudioTriggerVolume(int widgetID, int volume)
+        { Q_UNUSED(widgetID); Q_UNUSED(volume); return false; }
+    virtual bool setAudioTriggerBarsNumber(int widgetID, int count)
+        { Q_UNUSED(widgetID); Q_UNUSED(count); return false; }
+
     // Clock widget
     virtual int addClock(int parentID, const QRect &geometry,
                          const QString &clockType) = 0;
@@ -311,6 +516,65 @@ public:
     // Widget deletion
     virtual bool removeWidget(int widgetID)
         { Q_UNUSED(widgetID); return false; }
+
+    // Matrix widget
+    virtual int addMatrix(int parentID, const QRect &geometry,
+                          quint32 functionID, const QString &caption)
+        { Q_UNUSED(parentID); Q_UNUSED(geometry); Q_UNUSED(functionID); Q_UNUSED(caption); return -1; }
+    virtual bool configureMatrix(int widgetID, const MatrixConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // Button extended config
+    virtual bool configureButton(int widgetID, const ButtonConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // Frame extended config
+    virtual bool configureFrame(int widgetID, const FrameConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // CueList extended config
+    virtual bool configureCueList(int widgetID, const CueListConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // Clock extended config
+    virtual bool configureClock(int widgetID, const ClockConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // SpeedDial extended config
+    virtual bool configureSpeedDial(int widgetID, const SpeedDialConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // XY Pad presets
+    virtual bool setXYPadPresets(int widgetID, const QList<XYPadPresetInfo> &presets)
+        { Q_UNUSED(widgetID); Q_UNUSED(presets); return false; }
+
+    // Key sequences (generic — sourceName determines which input source)
+    virtual bool setWidgetKeySequence(int widgetID, const QString &sourceName,
+                                       const QKeySequence &keySequence)
+        { Q_UNUSED(widgetID); Q_UNUSED(sourceName); Q_UNUSED(keySequence); return false; }
+
+    // Multi-input mapping with named source
+    virtual bool mapWidgetInputByName(int widgetID, const QString &sourceName,
+                                       quint32 universe, quint32 channel)
+        { Q_UNUSED(widgetID); Q_UNUSED(sourceName); Q_UNUSED(universe); Q_UNUSED(channel); return false; }
+
+    // Base widget properties
+    virtual bool setWidgetFont(int widgetID, const FontConfig &font)
+        { Q_UNUSED(widgetID); Q_UNUSED(font); return false; }
+    virtual bool setWidgetBackgroundImage(int widgetID, const QString &path)
+        { Q_UNUSED(widgetID); Q_UNUSED(path); return false; }
+    virtual bool setWidgetDisableState(int widgetID, bool disabled)
+        { Q_UNUSED(widgetID); Q_UNUSED(disabled); return false; }
+
+    // Page rename
+    virtual bool renamePage(int pageIndex, const QString &name)
+        { Q_UNUSED(pageIndex); Q_UNUSED(name); return false; }
+
+    // Slider widget style (slider/knob)
+    virtual bool setSliderWidgetStyle(int widgetID, const QString &style)
+        { Q_UNUSED(widgetID); Q_UNUSED(style); return false; }
+    virtual bool setSliderCatchValues(int widgetID, bool enable)
+        { Q_UNUSED(widgetID); Q_UNUSED(enable); return false; }
 
     // ─── Layout analysis types (pure value types) ───────────────────
 

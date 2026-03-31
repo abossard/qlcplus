@@ -233,7 +233,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     if (vcBridge)
     {
         tm.register_tool(Tool(
-            "query_vc_pages",
+            "vc_query_pages",
             Json{{"type", "object"}, {"properties", Json::object()}},
             Json{},
             [doc, vcBridge](const Json &) -> Json {
@@ -293,6 +293,144 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                                     inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
                                 wJson["inputMappings"] = inputs;
                             }
+
+                            // Button extended
+                            if (!d.iconPath.isEmpty())
+                                wJson["iconPath"] = d.iconPath.toStdString();
+                            if (d.startupIntensityEnabled)
+                            {
+                                wJson["startupIntensityEnabled"] = true;
+                                wJson["startupIntensity"] = d.startupIntensity;
+                            }
+                            if (d.flashOverride)
+                                wJson["flashOverride"] = true;
+                            if (d.flashForceLTP)
+                                wJson["flashForceLTP"] = true;
+                            if (d.stopAllFadeTime > 0)
+                                wJson["stopAllFadeTime"] = d.stopAllFadeTime;
+
+                            // Slider extended
+                            if (!d.widgetStyle.isEmpty())
+                                wJson["widgetStyle"] = d.widgetStyle.toStdString();
+                            if (d.catchValues)
+                                wJson["catchValues"] = true;
+
+                            // Frame extended
+                            if (d.multipageMode)
+                            {
+                                wJson["multipageMode"] = true;
+                                wJson["totalPages"] = d.totalPages;
+                                wJson["currentPage"] = d.currentPage;
+                                wJson["pagesLoop"] = d.pagesLoop;
+                            }
+                            if (!d.headerVisible)
+                                wJson["headerVisible"] = false;
+                            if (d.enableButtonVisible)
+                                wJson["enableButtonVisible"] = true;
+                            if (d.collapsed)
+                                wJson["collapsed"] = true;
+                            if (d.soloframeMixing)
+                                wJson["soloframeMixing"] = true;
+                            if (d.excludeMonitoredFunctions)
+                                wJson["excludeMonitoredFunctions"] = true;
+
+                            // CueList extended
+                            if (!d.nextPrevBehavior.isEmpty())
+                                wJson["nextPrevBehavior"] = d.nextPrevBehavior.toStdString();
+                            if (!d.playbackLayout.isEmpty())
+                                wJson["playbackLayout"] = d.playbackLayout.toStdString();
+                            if (!d.sideFaderMode.isEmpty())
+                                wJson["sideFaderMode"] = d.sideFaderMode.toStdString();
+
+                            // Clock extended
+                            if (!d.clockType.isEmpty())
+                                wJson["clockType"] = d.clockType.toStdString();
+                            if (d.countdownH > 0 || d.countdownM > 0 || d.countdownS > 0)
+                            {
+                                wJson["countdownHours"] = d.countdownH;
+                                wJson["countdownMinutes"] = d.countdownM;
+                                wJson["countdownSeconds"] = d.countdownS;
+                            }
+                            if (!d.clockSchedules.isEmpty())
+                            {
+                                Json schedArr = Json::array();
+                                for (auto &sch : d.clockSchedules)
+                                    schedArr.push_back({{"functionID", (int)sch.functionID},
+                                                        {"hour", sch.hour}, {"minute", sch.minute}, {"second", sch.second}});
+                                wJson["schedules"] = schedArr;
+                            }
+
+                            // SpeedDial extended
+                            if (!d.speedDialFunctions.isEmpty())
+                            {
+                                Json funcArr = Json::array();
+                                for (auto &f : d.speedDialFunctions)
+                                    funcArr.push_back({{"functionID", (int)f.functionID},
+                                                       {"fadeInMultiplier", f.fadeInMultiplier.toStdString()},
+                                                       {"fadeOutMultiplier", f.fadeOutMultiplier.toStdString()},
+                                                       {"durationMultiplier", f.durationMultiplier.toStdString()}});
+                                wJson["speedDialFunctions"] = funcArr;
+                            }
+                            if (!d.speedDialPresets.isEmpty())
+                            {
+                                Json presetArr = Json::array();
+                                for (auto &p : d.speedDialPresets)
+                                    presetArr.push_back({{"name", p.name.toStdString()}, {"value", p.value}});
+                                wJson["speedDialPresets"] = presetArr;
+                            }
+
+                            // Matrix extended
+                            if (d.matrixVisibilityMask > 0)
+                                wJson["visibilityMask"] = (int)d.matrixVisibilityMask;
+                            if (d.matrixInstantApply)
+                                wJson["instantApply"] = true;
+                            if (d.matrixColor1.isValid())
+                                wJson["color1"] = d.matrixColor1.name().toStdString();
+                            if (d.matrixColor2.isValid())
+                                wJson["color2"] = d.matrixColor2.name().toStdString();
+                            if (d.matrixColor3.isValid())
+                                wJson["color3"] = d.matrixColor3.name().toStdString();
+                            if (d.matrixColor4.isValid())
+                                wJson["color4"] = d.matrixColor4.name().toStdString();
+                            if (d.matrixColor5.isValid())
+                                wJson["color5"] = d.matrixColor5.name().toStdString();
+                            if (!d.matrixAnimation.isEmpty())
+                                wJson["animation"] = d.matrixAnimation.toStdString();
+
+                            // XY Pad presets
+                            if (!d.xyPadPresets.isEmpty())
+                            {
+                                Json presetArr = Json::array();
+                                for (auto &p : d.xyPadPresets)
+                                {
+                                    Json pj = {{"name", p.name.toStdString()}, {"type", p.type.toStdString()}};
+                                    if (p.type == "position")
+                                        pj["position"] = {{"x", p.position.x()}, {"y", p.position.y()}};
+                                    if (p.functionID != (quint32)-1)
+                                        pj["functionID"] = (int)p.functionID;
+                                    presetArr.push_back(pj);
+                                }
+                                wJson["presets"] = presetArr;
+                            }
+
+                            // Base widget extended
+                            if (!d.backgroundImage.isEmpty())
+                                wJson["backgroundImage"] = d.backgroundImage.toStdString();
+                            if (d.disabled)
+                                wJson["disabled"] = true;
+                            if (d.fontConfig.family.has_value() || d.fontConfig.pointSize.has_value())
+                            {
+                                Json fontJson;
+                                if (d.fontConfig.family.has_value())
+                                    fontJson["family"] = d.fontConfig.family->toStdString();
+                                if (d.fontConfig.pointSize.has_value())
+                                    fontJson["size"] = *d.fontConfig.pointSize;
+                                if (d.fontConfig.bold.has_value())
+                                    fontJson["bold"] = *d.fontConfig.bold;
+                                if (d.fontConfig.italic.has_value())
+                                    fontJson["italic"] = *d.fontConfig.italic;
+                                wJson["font"] = fontJson;
+                            }
                         }
                         widgets.push_back(wJson);
                     }
@@ -305,6 +443,281 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             std::nullopt,
             std::string("List all Virtual Console pages and their widgets with details."),
         std::nullopt
+        ));
+
+        // vc_query_widgets (batch) — query full details of Virtual Console widgets
+        tm.register_tool(Tool(
+            "vc_query_widgets",
+            Json{{"type", "object"}, {"properties", {
+                {"widgetIDs", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                    {"description", "Widget IDs to query. Returns full details for each."}}}
+            }}, {"required", {"widgetIDs"}}},
+            Json{},
+            [doc, vcBridge](const Json &args) -> Json {
+                return execOnMainThread(doc, [&]() -> Json {
+                auto err = validateFields(args, {"widgetIDs"});
+                if (!err.empty()) return err;
+                Json results = Json::array();
+                for (auto &wid : args.at("widgetIDs"))
+                {
+                    int id = wid.get<int>();
+                    auto d = vcBridge->getWidgetDetails(id);
+                    if (d.id < 0)
+                    {
+                        results.push_back({{"id", id}, {"error", "not found"}});
+                        continue;
+                    }
+                    Json entry;
+                    entry["id"] = d.id;
+                    entry["type"] = d.type.toStdString();
+                    entry["caption"] = d.caption.toStdString();
+                    entry["geometry"] = {{"x", d.geometry.x()}, {"y", d.geometry.y()},
+                                         {"width", d.geometry.width()}, {"height", d.geometry.height()}};
+                    entry["parentID"] = d.parentID;
+
+                    if (d.functionID != 0 && d.functionID != (quint32)-1)
+                        entry["functionID"] = (int)d.functionID;
+                    if (!d.action.isEmpty())
+                        entry["action"] = d.action.toStdString();
+                    if (!d.sliderMode.isEmpty())
+                        entry["sliderMode"] = d.sliderMode.toStdString();
+
+                    if (!d.channels.isEmpty())
+                    {
+                        Json chArr = Json::array();
+                        for (auto &ch : d.channels)
+                            chArr.push_back({{"fixtureID", (int)ch.first}, {"channel", (int)ch.second}});
+                        entry["channels"] = chArr;
+                    }
+
+                    Json inputs = Json::array();
+                    for (auto &m : d.inputMappings)
+                        inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
+                    entry["inputMappings"] = inputs;
+
+                    if (d.bgColor.isValid())
+                        entry["bgColor"] = d.bgColor.name().toStdString();
+                    if (d.fgColor.isValid())
+                        entry["fgColor"] = d.fgColor.name().toStdString();
+
+                    if (!d.inputMappings.isEmpty())
+                    {
+                        entry["feedback"] = {
+                            {"idleValue", d.feedback.idleValue},
+                            {"activeValue", d.feedback.activeValue},
+                            {"monitorValue", d.feedback.monitorValue},
+                            {"idleChannel", d.feedback.idleMidiCh},
+                            {"activeChannel", d.feedback.activeMidiCh},
+                            {"monitorChannel", d.feedback.monitorMidiCh}
+                        };
+                    }
+
+                    // XY Pad specific fields
+                    if (!d.displayMode.isEmpty())
+                    {
+                        entry["displayMode"] = d.displayMode.toStdString();
+                        entry["invertedAppearance"] = d.invertedAppearance;
+                        entry["position"] = {{"x", d.xyPadPosition.x()}, {"y", d.xyPadPosition.y()}};
+
+                        Json fxArr = Json::array();
+                        for (const auto &fx : d.xyPadFixtures)
+                        {
+                            Json fxEntry;
+                            fxEntry["fixtureID"] = (int)fx.fixtureID;
+                            fxEntry["head"] = fx.head;
+                            fxEntry["name"] = fx.name.toStdString();
+                            fxEntry["xMin"] = fx.xMin;
+                            fxEntry["xMax"] = fx.xMax;
+                            fxEntry["xReverse"] = fx.xReverse;
+                            fxEntry["yMin"] = fx.yMin;
+                            fxEntry["yMax"] = fx.yMax;
+                            fxEntry["yReverse"] = fx.yReverse;
+                            if (fx.panDegreesMax > 0 || fx.tiltDegreesMax > 0)
+                            {
+                                fxEntry["panDegreesMax"] = fx.panDegreesMax;
+                                fxEntry["tiltDegreesMax"] = fx.tiltDegreesMax;
+                            }
+                            fxArr.push_back(fxEntry);
+                        }
+                        entry["fixtures"] = fxArr;
+                    }
+
+                    // Audio Triggers specific fields
+                    if (!d.audioBars.isEmpty())
+                    {
+                        entry["captureEnabled"] = d.captureEnabled;
+                        entry["volumeLevel"] = d.volumeLevel;
+                        entry["barsNumber"] = d.barsNumber;
+
+                        Json barsArr = Json::array();
+                        for (const auto &bar : d.audioBars)
+                        {
+                            Json barEntry;
+                            barEntry["barIndex"] = bar.barIndex;
+                            barEntry["type"] = bar.type.toStdString();
+                            barEntry["minThreshold"] = bar.minThreshold;
+                            barEntry["maxThreshold"] = bar.maxThreshold;
+                            if (bar.type == "function" && bar.functionID != (quint32)-1)
+                            {
+                                barEntry["functionID"] = (int)bar.functionID;
+                                barEntry["functionName"] = bar.functionName.toStdString();
+                            }
+                            if (bar.type == "widget" && bar.widgetID != (quint32)-1)
+                            {
+                                barEntry["widgetID"] = (int)bar.widgetID;
+                                barEntry["widgetName"] = bar.widgetName.toStdString();
+                            }
+                            barsArr.push_back(barEntry);
+                        }
+                        entry["bars"] = barsArr;
+                    }
+
+                    // Button extended
+                    if (!d.iconPath.isEmpty())
+                        entry["iconPath"] = d.iconPath.toStdString();
+                    if (d.startupIntensityEnabled)
+                    {
+                        entry["startupIntensityEnabled"] = true;
+                        entry["startupIntensity"] = d.startupIntensity;
+                    }
+                    if (d.flashOverride)
+                        entry["flashOverride"] = true;
+                    if (d.flashForceLTP)
+                        entry["flashForceLTP"] = true;
+                    if (d.stopAllFadeTime > 0)
+                        entry["stopAllFadeTime"] = d.stopAllFadeTime;
+
+                    // Slider extended
+                    if (!d.widgetStyle.isEmpty())
+                        entry["widgetStyle"] = d.widgetStyle.toStdString();
+                    if (d.catchValues)
+                        entry["catchValues"] = true;
+
+                    // Frame extended
+                    if (d.multipageMode)
+                    {
+                        entry["multipageMode"] = true;
+                        entry["totalPages"] = d.totalPages;
+                        entry["currentPage"] = d.currentPage;
+                        entry["pagesLoop"] = d.pagesLoop;
+                    }
+                    if (!d.headerVisible)
+                        entry["headerVisible"] = false;
+                    if (d.enableButtonVisible)
+                        entry["enableButtonVisible"] = true;
+                    if (d.collapsed)
+                        entry["collapsed"] = true;
+                    if (d.soloframeMixing)
+                        entry["soloframeMixing"] = true;
+                    if (d.excludeMonitoredFunctions)
+                        entry["excludeMonitoredFunctions"] = true;
+
+                    // CueList extended
+                    if (!d.nextPrevBehavior.isEmpty())
+                        entry["nextPrevBehavior"] = d.nextPrevBehavior.toStdString();
+                    if (!d.playbackLayout.isEmpty())
+                        entry["playbackLayout"] = d.playbackLayout.toStdString();
+                    if (!d.sideFaderMode.isEmpty())
+                        entry["sideFaderMode"] = d.sideFaderMode.toStdString();
+
+                    // Clock extended
+                    if (!d.clockType.isEmpty())
+                        entry["clockType"] = d.clockType.toStdString();
+                    if (d.countdownH > 0 || d.countdownM > 0 || d.countdownS > 0)
+                    {
+                        entry["countdownHours"] = d.countdownH;
+                        entry["countdownMinutes"] = d.countdownM;
+                        entry["countdownSeconds"] = d.countdownS;
+                    }
+                    if (!d.clockSchedules.isEmpty())
+                    {
+                        Json schedArr = Json::array();
+                        for (auto &sch : d.clockSchedules)
+                            schedArr.push_back({{"functionID", (int)sch.functionID},
+                                                {"hour", sch.hour}, {"minute", sch.minute}, {"second", sch.second}});
+                        entry["schedules"] = schedArr;
+                    }
+
+                    // SpeedDial extended
+                    if (!d.speedDialFunctions.isEmpty())
+                    {
+                        Json funcArr = Json::array();
+                        for (auto &f : d.speedDialFunctions)
+                            funcArr.push_back({{"functionID", (int)f.functionID},
+                                               {"fadeInMultiplier", f.fadeInMultiplier.toStdString()},
+                                               {"fadeOutMultiplier", f.fadeOutMultiplier.toStdString()},
+                                               {"durationMultiplier", f.durationMultiplier.toStdString()}});
+                        entry["speedDialFunctions"] = funcArr;
+                    }
+                    if (!d.speedDialPresets.isEmpty())
+                    {
+                        Json presetArr = Json::array();
+                        for (auto &p : d.speedDialPresets)
+                            presetArr.push_back({{"name", p.name.toStdString()}, {"value", p.value}});
+                        entry["speedDialPresets"] = presetArr;
+                    }
+
+                    // Matrix extended
+                    if (d.matrixVisibilityMask > 0)
+                        entry["visibilityMask"] = (int)d.matrixVisibilityMask;
+                    if (d.matrixInstantApply)
+                        entry["instantApply"] = true;
+                    if (d.matrixColor1.isValid())
+                        entry["color1"] = d.matrixColor1.name().toStdString();
+                    if (d.matrixColor2.isValid())
+                        entry["color2"] = d.matrixColor2.name().toStdString();
+                    if (d.matrixColor3.isValid())
+                        entry["color3"] = d.matrixColor3.name().toStdString();
+                    if (d.matrixColor4.isValid())
+                        entry["color4"] = d.matrixColor4.name().toStdString();
+                    if (d.matrixColor5.isValid())
+                        entry["color5"] = d.matrixColor5.name().toStdString();
+                    if (!d.matrixAnimation.isEmpty())
+                        entry["animation"] = d.matrixAnimation.toStdString();
+
+                    // XY Pad presets
+                    if (!d.xyPadPresets.isEmpty())
+                    {
+                        Json presetArr = Json::array();
+                        for (auto &p : d.xyPadPresets)
+                        {
+                            Json pj = {{"name", p.name.toStdString()}, {"type", p.type.toStdString()}};
+                            if (p.type == "position")
+                                pj["position"] = {{"x", p.position.x()}, {"y", p.position.y()}};
+                            if (p.functionID != (quint32)-1)
+                                pj["functionID"] = (int)p.functionID;
+                            presetArr.push_back(pj);
+                        }
+                        entry["presets"] = presetArr;
+                    }
+
+                    // Base widget extended
+                    if (!d.backgroundImage.isEmpty())
+                        entry["backgroundImage"] = d.backgroundImage.toStdString();
+                    if (d.disabled)
+                        entry["disabled"] = true;
+                    if (d.fontConfig.family.has_value() || d.fontConfig.pointSize.has_value())
+                    {
+                        Json fontJson;
+                        if (d.fontConfig.family.has_value())
+                            fontJson["family"] = d.fontConfig.family->toStdString();
+                        if (d.fontConfig.pointSize.has_value())
+                            fontJson["size"] = *d.fontConfig.pointSize;
+                        if (d.fontConfig.bold.has_value())
+                            fontJson["bold"] = *d.fontConfig.bold;
+                        if (d.fontConfig.italic.has_value())
+                            fontJson["italic"] = *d.fontConfig.italic;
+                        entry["font"] = fontJson;
+                    }
+
+                    results.push_back(entry);
+                }
+                return results.dump();
+                });
+            },
+            std::nullopt,
+            std::string("Query full details of Virtual Console widgets. Batch."),
+            std::nullopt
         ));
     }
 
