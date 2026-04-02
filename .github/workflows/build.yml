@@ -4,7 +4,7 @@ on: ["push", "pull_request"]
 
 jobs:
   build-linux:
-    #if: false
+    if: false
     continue-on-error: true
     runs-on: ubuntu-22.04
     name: QLCplus Linux ${{matrix.task}}
@@ -254,6 +254,7 @@ jobs:
           path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage
 
   build-windows:
+    if: false
     continue-on-error: true
     runs-on: windows-latest
     name: QLCplus Windows ${{matrix.task}}
@@ -648,7 +649,7 @@ jobs:
 
   release-mcp:
     if: github.event_name == 'push' && github.ref == 'refs/heads/mcp-server'
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-macos]
     runs-on: ubuntu-latest
     name: Release MCP builds
     permissions:
