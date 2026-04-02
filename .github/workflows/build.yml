@@ -463,7 +463,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [build-v4, build-v5, build-v5-mcp]
+        task: [build-v5-mcp]
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
