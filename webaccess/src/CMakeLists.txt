@@ -121,8 +121,13 @@ if(UNIX AND NOT APPLE)
 endif()
 
 
-install(TARGETS ${module_name}
-    ARCHIVE DESTINATION ${INSTALLROOT}/${LIBSDIR}
-    LIBRARY DESTINATION ${INSTALLROOT}/${LIBSDIR}
-    RUNTIME DESTINATION ${INSTALLROOT}/${LIBSDIR}
-)
+if(APPLE AND qmlui)
+    # Static archives cannot be code-signed and are not needed at runtime
+    # in the app bundle (already linked into the executable at build time)
+else()
+    install(TARGETS ${module_name}
+        ARCHIVE DESTINATION ${INSTALLROOT}/${LIBSDIR}
+        LIBRARY DESTINATION ${INSTALLROOT}/${LIBSDIR}
+        RUNTIME DESTINATION ${INSTALLROOT}/${LIBSDIR}
+    )
+endif()
