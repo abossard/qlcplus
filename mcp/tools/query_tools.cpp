@@ -289,9 +289,33 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                             if (!d.inputMappings.isEmpty())
                             {
                                 Json inputs = Json::array();
-                                for (auto &m : d.inputMappings)
-                                    inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
+                                for (const auto &m : d.inputMappings)
+                                {
+                                    Json inp = {{"universe", (int)m.universe}, {"channel", (int)m.channel},
+                                                {"sourceId", m.sourceId}};
+                                    if (!m.sourceName.isEmpty())
+                                        inp["sourceName"] = m.sourceName.toStdString();
+                                    inp["feedback"] = {
+                                        {"idleValue", m.feedback.idleValue},
+                                        {"activeValue", m.feedback.activeValue},
+                                        {"monitorValue", m.feedback.monitorValue},
+                                        {"idleChannel", m.feedback.idleMidiCh},
+                                        {"activeChannel", m.feedback.activeMidiCh},
+                                        {"monitorChannel", m.feedback.monitorMidiCh}
+                                    };
+                                    inputs.push_back(inp);
+                                }
                                 wJson["inputMappings"] = inputs;
+                            }
+
+                            if (!d.validSources.isEmpty())
+                            {
+                                Json vs = Json::array();
+                                for (const auto &s : d.validSources)
+                                    vs.push_back({{"name", s.name.toStdString()},
+                                                  {"id", s.id},
+                                                  {"description", s.description.toStdString()}});
+                                wJson["validSources"] = vs;
                             }
 
                             // Button extended
@@ -498,25 +522,38 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     }
 
                     Json inputs = Json::array();
-                    for (auto &m : d.inputMappings)
-                        inputs.push_back({{"universe", (int)m.universe}, {"channel", (int)m.channel}});
-                    entry["inputMappings"] = inputs;
+                    for (const auto &m : d.inputMappings)
+                    {
+                        Json inp = {{"universe", (int)m.universe}, {"channel", (int)m.channel},
+                                    {"sourceId", m.sourceId}};
+                        if (!m.sourceName.isEmpty())
+                            inp["sourceName"] = m.sourceName.toStdString();
+                        inp["feedback"] = {
+                            {"idleValue", m.feedback.idleValue},
+                            {"activeValue", m.feedback.activeValue},
+                            {"monitorValue", m.feedback.monitorValue},
+                            {"idleChannel", m.feedback.idleMidiCh},
+                            {"activeChannel", m.feedback.activeMidiCh},
+                            {"monitorChannel", m.feedback.monitorMidiCh}
+                        };
+                        inputs.push_back(inp);
+                    }
+                    if (!inputs.empty())
+                        entry["inputMappings"] = inputs;
 
                     if (d.bgColor.isValid())
                         entry["bgColor"] = d.bgColor.name().toStdString();
                     if (d.fgColor.isValid())
                         entry["fgColor"] = d.fgColor.name().toStdString();
 
-                    if (!d.inputMappings.isEmpty())
+                    if (!d.validSources.isEmpty())
                     {
-                        entry["feedback"] = {
-                            {"idleValue", d.feedback.idleValue},
-                            {"activeValue", d.feedback.activeValue},
-                            {"monitorValue", d.feedback.monitorValue},
-                            {"idleChannel", d.feedback.idleMidiCh},
-                            {"activeChannel", d.feedback.activeMidiCh},
-                            {"monitorChannel", d.feedback.monitorMidiCh}
-                        };
+                        Json vs = Json::array();
+                        for (const auto &s : d.validSources)
+                            vs.push_back({{"name", s.name.toStdString()},
+                                          {"id", s.id},
+                                          {"description", s.description.toStdString()}});
+                        entry["validSources"] = vs;
                     }
 
                     // XY Pad specific fields

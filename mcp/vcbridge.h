@@ -49,12 +49,6 @@ public:
         quint32 functionID;
     };
 
-    struct InputMapping
-    {
-        quint32 universe;
-        quint32 channel;
-    };
-
     struct FeedbackInfo
     {
         int idleValue = 0;
@@ -63,6 +57,23 @@ public:
         int idleMidiCh = 0;
         int activeMidiCh = 0;
         int monitorMidiCh = 0;
+    };
+
+    struct InputMapping
+    {
+        quint32 universe;
+        quint32 channel;
+        quint32 sourceId = 0;
+        QString sourceName;
+        FeedbackInfo feedback;
+    };
+
+    /** Describes a valid input source on a widget type */
+    struct SourceDef
+    {
+        QString name;        // e.g., "pan", "tilt", "next"
+        quint32 id;          // QLC+ input source ID
+        QString description; // e.g., "Pan (X axis)"
     };
 
     /** Per-fixture configuration for XY Pad creation */
@@ -228,7 +239,7 @@ public:
         QList<InputMapping> inputMappings;
         QColor bgColor;
         QColor fgColor;
-        FeedbackInfo feedback;
+        QList<SourceDef> validSources;
         int parentID = -1;
 
         // Slider extended properties
@@ -394,7 +405,7 @@ public:
     virtual bool mapWidgetInput(int widgetID, quint32 universe,
                                 quint32 channel) = 0;
 
-    // Feedback
+    // Feedback (legacy — operates on first input source)
     virtual bool setWidgetFeedback(int widgetID,
                                    int idleValue, int activeValue, int monitorValue,
                                    int idleMidiCh, int activeMidiCh, int monitorMidiCh) = 0;
@@ -406,6 +417,22 @@ public:
     // Number of input sources on a widget
     virtual int widgetInputSourceCount(int widgetID) const
         { Q_UNUSED(widgetID); return 0; }
+
+    // Get valid source names/IDs for a widget type
+    virtual QList<SourceDef> getWidgetSourceDefs(int widgetID) const
+        { Q_UNUSED(widgetID); return {}; }
+
+    // Set feedback on a specific named source
+    virtual bool setWidgetFeedbackByName(int widgetID, const QString &sourceName,
+                                         int idleVal, int activeVal, int monitorVal,
+                                         int idleCh, int activeCh, int monitorCh)
+        { Q_UNUSED(widgetID); Q_UNUSED(sourceName);
+          Q_UNUSED(idleVal); Q_UNUSED(activeVal); Q_UNUSED(monitorVal);
+          Q_UNUSED(idleCh); Q_UNUSED(activeCh); Q_UNUSED(monitorCh); return false; }
+
+    // Get feedback for a specific named source
+    virtual FeedbackInfo getWidgetFeedbackByName(int widgetID, const QString &sourceName) const
+        { Q_UNUSED(widgetID); Q_UNUSED(sourceName); return FeedbackInfo(); }
 
     // Widget colors
     virtual bool setWidgetColors(int widgetID,

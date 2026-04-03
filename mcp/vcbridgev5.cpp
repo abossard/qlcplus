@@ -46,6 +46,124 @@
 #include <QQmlEngine>
 #include <QDebug>
 
+// --- Source definition table ---
+// Maps widget class name → valid input source {name, ID, description}.
+// IDs match the qmlui #define INPUT_*_ID constants.
+
+static const QMap<QString, QList<VCBridge::SourceDef>> sourceDefTable = {
+    {"VCButton",        {{"default", 0, "Button pressure"}}},
+    {"VCSlider",        {{"default", 0, "Slider control"},
+                         {"overrideReset", 1, "Reset control"},
+                         {"flashButton", 2, "Flash control"}}},
+    {"VCCueList",       {{"next", 0, "Next cue"},
+                         {"previous", 1, "Previous cue"},
+                         {"playback", 2, "Play/stop/pause"},
+                         {"stop", 3, "Stop/pause"},
+                         {"sideFader", 4, "Side fader"}}},
+    {"VCXYPad",         {{"pan", 0, "Pan / Horizontal axis"},
+                         {"panFine", 1, "Pan fine"},
+                         {"tilt", 2, "Tilt / Vertical axis"},
+                         {"tiltFine", 3, "Tilt fine"},
+                         {"width", 4, "Width"},
+                         {"height", 5, "Height"}}},
+    {"VCSpeedDial",     {{"absolute", 0, "Time wheel"},
+                         {"tap", 1, "Tap button"},
+                         {"mult", 2, "Multiply button"},
+                         {"div", 3, "Divide button"},
+                         {"multDivReset", 4, "Reset button"},
+                         {"apply", 5, "Apply button"},
+                         {"1_16x", 6, "1/16x speed"},
+                         {"1_8x", 7, "1/8x speed"},
+                         {"1_4x", 8, "1/4x speed"},
+                         {"1_2x", 9, "1/2x speed"},
+                         {"2x", 10, "2x speed"},
+                         {"4x", 11, "4x speed"},
+                         {"8x", 12, "8x speed"},
+                         {"16x", 13, "16x speed"}}},
+    {"VCClock",         {{"play", 0, "Play/pause timer"},
+                         {"reset", 1, "Reset timer"}}},
+    {"VCFrame",         {{"nextPage", 0, "Next page"},
+                         {"previousPage", 1, "Previous page"},
+                         {"enable", 2, "Enable/disable frame"},
+                         {"collapse", 3, "Collapse/expand"}}},
+    {"VCSoloFrame",     {{"nextPage", 0, "Next page"},
+                         {"previousPage", 1, "Previous page"},
+                         {"enable", 2, "Enable/disable frame"},
+                         {"collapse", 3, "Collapse/expand"}}},
+    {"VCAudioTriggers", {{"default", 0, "Enable/disable capture"},
+                         {"volumeControl", 1, "Volume control"}}},
+    {"VCAnimation",     {{"default", 0, "Intensity fader"}}},
+    {"VCLabel",         {}},
+};
+
+static int resolveControlId(VCWidget *widget, const QString &sourceName)
+{
+    if (!widget) return -1;
+
+    // Frame/SoloFrame page shortcuts: "shortcut0", "shortcut1", ...
+    if (sourceName.startsWith("shortcut"))
+    {
+        if (!qobject_cast<VCFrame *>(widget)) return -1;
+        bool ok = false;
+        int idx = sourceName.mid(8).toInt(&ok);
+        if (!ok || idx < 0) return -1;
+        return INPUT_SHORTCUT_BASE_ID + idx;
+    }
+
+    // Frame/SoloFrame legacy page syntax: "page0", "page1", ...
+    if (sourceName.startsWith("page"))
+    {
+        if (!qobject_cast<VCFrame *>(widget)) return -1;
+        bool ok = false;
+        int idx = sourceName.mid(4).toInt(&ok);
+        if (!ok || idx < 0) return -1;
+        return INPUT_SHORTCUT_BASE_ID + idx;
+    }
+
+    // XYPad/SpeedDial presets: "preset0", "preset1", ...
+    if (sourceName.startsWith("preset"))
+    {
+        if (!qobject_cast<VCXYPad *>(widget) && !qobject_cast<VCSpeedDial *>(widget))
+            return -1;
+        bool ok = false;
+        int idx = sourceName.mid(6).toInt(&ok);
+        if (!ok || idx < 0) return -1;
+        return 30 + idx; // INPUT_PRESETS_BASE_ID
+    }
+
+    // Static table lookup
+    QString typeName = QString::fromLatin1(widget->metaObject()->className());
+    auto it = sourceDefTable.constFind(typeName);
+    if (it == sourceDefTable.constEnd()) return -1;
+    for (const auto &def : it.value())
+    {
+        if (def.name == sourceName) return def.id;
+    }
+    return -1;
+}
+
+static QString resolveSourceName(VCWidget *widget, quint32 id)
+{
+    if (!widget) return QString();
+
+    // Frame shortcuts range
+    if (id >= INPUT_SHORTCUT_BASE_ID && qobject_cast<VCFrame *>(widget))
+        return QStringLiteral("shortcut%1").arg(id - INPUT_SHORTCUT_BASE_ID);
+
+    // XYPad/SpeedDial presets range
+    if (id >= 30 && (qobject_cast<VCXYPad *>(widget) || qobject_cast<VCSpeedDial *>(widget)))
+        return QStringLiteral("preset%1").arg(id - 30);
+
+    // Static table reverse lookup
+    QString typeName = QString::fromLatin1(widget->metaObject()->className());
+    auto defs = sourceDefTable.value(typeName);
+    for (const auto &def : defs)
+    {
+        if (def.id == id) return def.name;
+    }
+    return QString();
+}
+
 VCBridgeV5::VCBridgeV5(Doc *doc, VirtualConsole *vc)
     : m_doc(doc)
     , m_vc(vc)
@@ -371,6 +489,77 @@ int VCBridgeV5::widgetInputSourceCount(int widgetID) const
     return widget->inputSources().size();
 }
 
+QList<VCBridge::SourceDef> VCBridgeV5::getWidgetSourceDefs(int widgetID) const
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return {};
+
+    QString typeName = QString::fromLatin1(widget->metaObject()->className());
+    auto result = sourceDefTable.value(typeName);
+
+    // For multipage frames, add dynamic shortcut entries
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (frame && frame->totalPagesNumber() > 1)
+    {
+        for (int i = 0; i < frame->totalPagesNumber(); i++)
+            result.append({QStringLiteral("shortcut%1").arg(i),
+                          quint32(INPUT_SHORTCUT_BASE_ID + i),
+                          QStringLiteral("Jump to page %1").arg(i)});
+    }
+    return result;
+}
+
+bool VCBridgeV5::setWidgetFeedbackByName(int widgetID, const QString &sourceName,
+                                          int idleVal, int activeVal, int monitorVal,
+                                          int idleCh, int activeCh, int monitorCh)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return false;
+
+    int controlId = resolveControlId(widget, sourceName);
+    if (controlId < 0) return false;
+
+    for (auto &src : widget->inputSources())
+    {
+        if (src->id() == (quint32)controlId)
+        {
+            src->setFeedbackValue(QLCInputFeedback::LowerValue, (uchar)idleVal);
+            src->setFeedbackValue(QLCInputFeedback::UpperValue, (uchar)activeVal);
+            src->setFeedbackValue(QLCInputFeedback::MonitorValue, (uchar)monitorVal);
+            src->setFeedbackExtraParams(QLCInputFeedback::LowerValue, QVariant(idleCh));
+            src->setFeedbackExtraParams(QLCInputFeedback::UpperValue, QVariant(activeCh));
+            src->setFeedbackExtraParams(QLCInputFeedback::MonitorValue, QVariant(monitorCh));
+            return true;
+        }
+    }
+    return false;
+}
+
+VCBridge::FeedbackInfo VCBridgeV5::getWidgetFeedbackByName(int widgetID, const QString &sourceName) const
+{
+    FeedbackInfo fb;
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget) return fb;
+
+    int controlId = resolveControlId(widget, sourceName);
+    if (controlId < 0) return fb;
+
+    for (const auto &src : widget->inputSources())
+    {
+        if (src->id() == (quint32)controlId)
+        {
+            fb.idleValue = src->feedbackValue(QLCInputFeedback::LowerValue);
+            fb.activeValue = src->feedbackValue(QLCInputFeedback::UpperValue);
+            fb.monitorValue = src->feedbackValue(QLCInputFeedback::MonitorValue);
+            fb.idleMidiCh = src->feedbackExtraParams(QLCInputFeedback::LowerValue).toInt();
+            fb.activeMidiCh = src->feedbackExtraParams(QLCInputFeedback::UpperValue).toInt();
+            fb.monitorMidiCh = src->feedbackExtraParams(QLCInputFeedback::MonitorValue).toInt();
+            return fb;
+        }
+    }
+    return fb;
+}
+
 bool VCBridgeV5::setWidgetColors(int widgetID, const QColor &bgColor, const QColor &fgColor)
 {
     VCWidget *widget = m_vc->widget(widgetID);
@@ -632,26 +821,25 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     if (parent)
         d.parentID = (int)parent->id();
 
-    // Input mappings
-    for (auto &src : widget->inputSources())
+    // Input mappings with per-source feedback
+    for (const auto &src : widget->inputSources())
     {
         InputMapping m;
         m.universe = src->universe();
         m.channel = src->channel();
+        m.sourceId = src->id();
+        m.sourceName = resolveSourceName(widget, src->id());
+        m.feedback.idleValue = src->feedbackValue(QLCInputFeedback::LowerValue);
+        m.feedback.activeValue = src->feedbackValue(QLCInputFeedback::UpperValue);
+        m.feedback.monitorValue = src->feedbackValue(QLCInputFeedback::MonitorValue);
+        m.feedback.idleMidiCh = src->feedbackExtraParams(QLCInputFeedback::LowerValue).toInt();
+        m.feedback.activeMidiCh = src->feedbackExtraParams(QLCInputFeedback::UpperValue).toInt();
+        m.feedback.monitorMidiCh = src->feedbackExtraParams(QLCInputFeedback::MonitorValue).toInt();
         d.inputMappings.append(m);
     }
 
-    // Feedback from first input source
-    if (!widget->inputSources().isEmpty())
-    {
-        auto src = widget->inputSources().first();
-        d.feedback.idleValue = src->feedbackValue(QLCInputFeedback::LowerValue);
-        d.feedback.activeValue = src->feedbackValue(QLCInputFeedback::UpperValue);
-        d.feedback.monitorValue = src->feedbackValue(QLCInputFeedback::MonitorValue);
-        d.feedback.idleMidiCh = src->feedbackExtraParams(QLCInputFeedback::LowerValue).toInt();
-        d.feedback.activeMidiCh = src->feedbackExtraParams(QLCInputFeedback::UpperValue).toInt();
-        d.feedback.monitorMidiCh = src->feedbackExtraParams(QLCInputFeedback::MonitorValue).toInt();
-    }
+    // Valid source definitions for this widget type
+    d.validSources = getWidgetSourceDefs(widgetID);
 
     // Button-specific
     VCButton *button = qobject_cast<VCButton*>(widget);
@@ -1453,81 +1641,6 @@ bool VCBridgeV5::setXYPadPresets(int widgetID, const QList<XYPadPresetInfo> &pre
 }
 
 // --- Key sequences ---
-
-static int resolveControlId(VCWidget *widget, const QString &sourceName)
-{
-    // Control IDs are defined per widget type
-    VCButton *btn = qobject_cast<VCButton *>(widget);
-    if (btn)
-    {
-        if (sourceName == "default") return 0;
-        return -1;
-    }
-
-    VCSlider *slider = qobject_cast<VCSlider *>(widget);
-    if (slider)
-    {
-        if (sourceName == "default") return 0;
-        if (sourceName == "overrideReset") return 1;
-        if (sourceName == "flashButton") return 2;
-        return -1;
-    }
-
-    VCCueList *cuelist = qobject_cast<VCCueList *>(widget);
-    if (cuelist)
-    {
-        if (sourceName == "next") return 0;
-        if (sourceName == "previous") return 1;
-        if (sourceName == "playback") return 2;
-        if (sourceName == "stop") return 3;
-        return -1;
-    }
-
-    VCClock *clock = qobject_cast<VCClock *>(widget);
-    if (clock)
-    {
-        if (sourceName == "play") return 0;
-        if (sourceName == "reset") return 1;
-        return -1;
-    }
-
-    VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
-    if (speedDial)
-    {
-        if (sourceName == "tap") return 1;
-        if (sourceName == "mult") return 2;
-        if (sourceName == "div") return 3;
-        if (sourceName == "multDivReset") return 4;
-        if (sourceName == "apply") return 5;
-        return -1;
-    }
-
-    VCFrame *frame = qobject_cast<VCFrame *>(widget);
-    if (frame)
-    {
-        if (sourceName == "nextPage") return INPUT_NEXT_PAGE_ID;
-        if (sourceName == "previousPage") return INPUT_PREVIOUS_PAGE_ID;
-        if (sourceName == "enable") return INPUT_ENABLE_ID;
-        if (sourceName == "collapse") return INPUT_COLLAPSE_ID;
-        if (sourceName.startsWith("page"))
-        {
-            bool ok = false;
-            int pageIdx = sourceName.mid(4).toInt(&ok);
-            if (ok && pageIdx >= 0)
-                return INPUT_SHORTCUT_BASE_ID + pageIdx;
-        }
-        return -1;
-    }
-
-    VCAudioTriggers *audioTrig = qobject_cast<VCAudioTriggers *>(widget);
-    if (audioTrig)
-    {
-        if (sourceName == "default") return 0;
-        return -1;
-    }
-
-    return -1;
-}
 
 bool VCBridgeV5::setWidgetKeySequence(int widgetID, const QString &sourceName,
                                       const QKeySequence &keySequence)

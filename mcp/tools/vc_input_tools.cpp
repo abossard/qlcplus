@@ -33,6 +33,19 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
 
     if (!vcBridge) return;
 
+    static const char *sourceNameDesc =
+        "Input source name. Per widget type: "
+        "Button: 'default'. "
+        "Slider: 'default', 'overrideReset', 'flashButton'. "
+        "CueList: 'next', 'previous', 'playback', 'stop', 'sideFader'. "
+        "XYPad: 'pan', 'panFine', 'tilt', 'tiltFine', 'width', 'height', 'preset0'..'presetN'. "
+        "SpeedDial: 'absolute', 'tap', 'mult', 'div', 'multDivReset', 'apply', "
+        "'1_16x','1_8x','1_4x','1_2x','2x','4x','8x','16x', 'preset0'..'presetN'. "
+        "Clock: 'play', 'reset'. "
+        "Frame/SoloFrame: 'nextPage', 'previousPage', 'enable', 'collapse', 'shortcut0'..'shortcutN'. "
+        "AudioTriggers: 'default', 'volumeControl'. "
+        "Matrix: 'default'.";
+
     // vc_map_inputs (batch)
     tm.register_tool(Tool(
         "vc_map_inputs",
@@ -41,7 +54,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 {"widgetID", {{"type", "integer"}}},
                 {"inputUniverse", {{"type", "integer"}}},
                 {"inputChannel", {{"type", "integer"}}},
-                {"sourceName", {{"type", "string"}, {"description", "Input source name: 'default', or widget-specific names like 'next'/'play'/'tap' etc."}}},
+                {"sourceName", {{"type", "string"}, {"description", sourceNameDesc}}},
                 {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
                 {"activeValue", {{"type", "integer"}, {"description", "LED color when active (velocity from color table)"}}},
                 {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state (velocity from color table)"}}},
@@ -58,7 +71,6 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             auto err = validateFields(args, {"items", "mode"});
             if (!err.empty()) return err;
             Json results = Json::array();
-            std::string mode = args.value("mode", "replace");
             for (auto &item : args.at("items"))
             {
                 auto itemErr = validateFields(item, {"widgetID", "inputUniverse", "inputChannel",
@@ -68,21 +80,13 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 int wid = item.at("widgetID").get<int>();
                 quint32 uni = item.at("inputUniverse").get<int>();
                 quint32 ch = item.at("inputChannel").get<int>();
-
-                // Check for multiple sources (not supported)
-                int srcCount = vcBridge->widgetInputSourceCount(wid);
-                if (srcCount > 1)
-                {
-                    results.push_back({{"widgetID", wid}, {"status", "error"},
-                        {"error", "widget has multiple input sources; not supported"}});
-                    continue;
-                }
+                std::string srcName = item.value("sourceName", "default");
+                QString qSrcName = QString::fromStdString(srcName);
 
                 // Determine feedback: use supplied values or preserve existing
                 bool hasFeedback = item.contains("activeValue");
                 if (hasFeedback)
                 {
-                    // All 6 fields required when feedback is supplied
                     if (!item.contains("idleValue") || !item.contains("monitorValue") ||
                         !item.contains("idleChannel") || !item.contains("activeChannel") ||
                         !item.contains("monitorChannel"))
@@ -94,34 +98,25 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                     }
                 }
 
-                // Snapshot existing feedback before replacing
-                VCBridge::FeedbackInfo savedFb;
-                bool hadExistingSource = (srcCount == 1);
-                if (hadExistingSource)
-                    savedFb = vcBridge->getWidgetFeedback(wid);
+                // Snapshot existing feedback for this specific source before remap
+                VCBridge::FeedbackInfo savedFb = vcBridge->getWidgetFeedbackByName(wid, qSrcName);
+                bool hadFeedback = (savedFb.idleValue != 0 || savedFb.activeValue != 0 ||
+                                    savedFb.monitorValue != 0);
 
-                // Map the input (replace or add), with optional sourceName
-                std::string srcName = item.value("sourceName", "default");
-                bool ok;
-                if (srcName != "default")
-                {
-                    ok = vcBridge->mapWidgetInputByName(wid, QString::fromStdString(srcName), uni, ch);
-                }
-                else if (mode == "add" && srcCount == 0)
-                    ok = vcBridge->addWidgetInput(wid, uni, ch);
-                else
-                    ok = vcBridge->mapWidgetInput(wid, uni, ch);
+                // Always map by name — works for all widget types and source counts
+                bool ok = vcBridge->mapWidgetInputByName(wid, qSrcName, uni, ch);
 
                 if (!ok)
                 {
-                    results.push_back({{"widgetID", wid}, {"status", "failed"}});
+                    results.push_back({{"widgetID", wid}, {"status", "failed"},
+                        {"error", "mapping failed (invalid sourceName or widgetID)"}});
                     continue;
                 }
 
-                // Apply feedback
+                // Apply feedback (source-specific)
                 if (hasFeedback)
                 {
-                    vcBridge->setWidgetFeedback(wid,
+                    vcBridge->setWidgetFeedbackByName(wid, qSrcName,
                         item.at("idleValue").get<int>(),
                         item.at("activeValue").get<int>(),
                         item.at("monitorValue").get<int>(),
@@ -129,15 +124,14 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                         item.at("activeChannel").get<int>(),
                         item.at("monitorChannel").get<int>());
                 }
-                else if (hadExistingSource)
+                else if (hadFeedback)
                 {
-                    // Preserve previous feedback
-                    vcBridge->setWidgetFeedback(wid,
+                    vcBridge->setWidgetFeedbackByName(wid, qSrcName,
                         savedFb.idleValue, savedFb.activeValue, savedFb.monitorValue,
                         savedFb.idleMidiCh, savedFb.activeMidiCh, savedFb.monitorMidiCh);
                 }
 
-                results.push_back({{"widgetID", wid}, {"status", ok ? "ok" : "failed"}});
+                results.push_back({{"widgetID", wid}, {"status", "ok"}});
             }
             return results.dump();
             });
@@ -155,6 +149,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"widgetID", {{"type", "integer"}}},
+                {"sourceName", {{"type", "string"}, {"description", sourceNameDesc}}},
                 {"idleValue", {{"type", "integer"}, {"description", "LED color when inactive (velocity from color table, 0=off)"}}},
                 {"activeValue", {{"type", "integer"}, {"description", "LED color when active"}}},
                 {"monitorValue", {{"type", "integer"}, {"description", "LED color for monitor/intermediate state"}}},
@@ -179,10 +174,11 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"widgetID", "activeValue", "idleValue", "monitorValue",
-                    "idleChannel", "activeChannel", "monitorChannel",
+                    "sourceName", "idleChannel", "activeChannel", "monitorChannel",
                     "idleMode", "activeMode", "monitorMode"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
                 int wid = item.at("widgetID").get<int>();
+                QString srcName = QString::fromStdString(item.value("sourceName", "default"));
                 int activeVal = item.at("activeValue").get<int>();
                 int idleVal = item.value("idleValue", 0);
                 int monitorVal = item.value("monitorValue", 0);
@@ -195,7 +191,12 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 int midiChMonitor = item.contains("monitorChannel") ? item.at("monitorChannel").get<int>()
                     : midiChFromMode(item.value("monitorMode", ""));
 
-                bool ok = vcBridge->setWidgetFeedback(wid, idleVal, activeVal, monitorVal,
+                bool ok = vcBridge->setWidgetFeedbackByName(wid, srcName,
+                    idleVal, activeVal, monitorVal, midiChIdle, midiChActive, midiChMonitor);
+
+                // Fall back to legacy per-widget feedback if sourceName is default
+                if (!ok && srcName == QStringLiteral("default"))
+                    ok = vcBridge->setWidgetFeedback(wid, idleVal, activeVal, monitorVal,
                                                       midiChIdle, midiChActive, midiChMonitor);
 
                 results.push_back({
@@ -210,7 +211,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             });
         },
         std::nullopt,
-        std::string("Set LED feedback colors and animation mode per widget. "
+        std::string("Set LED feedback colors and animation mode per widget input source. "
+                     "Use sourceName to target a specific source (default 'default'). "
                      "Use integer idleChannel/activeChannel/monitorChannel (from query_feedback_profile) "
                      "or legacy string idleMode/activeMode/monitorMode. Batch."),
         std::nullopt
@@ -222,7 +224,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"widgetID", {{"type", "integer"}}},
-                {"sourceName", {{"type", "string"}, {"description", "Input source name: 'default', or widget-specific names like 'next'/'play'/'tap' etc."}}},
+                {"sourceName", {{"type", "string"}, {"description", sourceNameDesc}}},
                 {"keySequence", {{"type", "string"}, {"description", "Key sequence string (e.g. 'Ctrl+A', 'Space', 'F5')"}}}
             }}, {"required", {"widgetID", "keySequence"}}}}}}
         }}, {"required", {"items"}}},

@@ -79,6 +79,12 @@ public:
     FeedbackInfo getWidgetFeedback(int widgetID) const override;
     int widgetInputSourceCount(int widgetID) const override;
 
+    QList<SourceDef> getWidgetSourceDefs(int widgetID) const override;
+    bool setWidgetFeedbackByName(int widgetID, const QString &sourceName,
+                                  int idleVal, int activeVal, int monitorVal,
+                                  int idleCh, int activeCh, int monitorCh) override;
+    FeedbackInfo getWidgetFeedbackByName(int widgetID, const QString &sourceName) const override;
+
     bool setWidgetColors(int widgetID,
                          const QColor &bgColor = QColor(),
                          const QColor &fgColor = QColor()) override;
