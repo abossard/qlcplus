@@ -14,7 +14,11 @@ if(qmlui)
 else()
     install(FILES Info.plist DESTINATION ${INSTALLROOT})
 endif()
-install(CODE "execute_process(COMMAND sed -i '' \"s/__QLC_VERSION__/${APPVERSION}/g\" ${INSTALLROOT}/Info.plist)")
+install(CODE "
+    file(READ \"${INSTALLROOT}/Info.plist\" _plist_content)
+    string(REPLACE \"__QLC_VERSION__\" \"${APPVERSION}\" _plist_content \"\${_plist_content}\")
+    file(WRITE \"${INSTALLROOT}/Info.plist\" \"\${_plist_content}\")
+")
 
 set(APPLE_CODESIGN_ENTITLEMENTS "qlcplus.entitlements")
 

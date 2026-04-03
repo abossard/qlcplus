@@ -595,6 +595,8 @@ jobs:
           ENT="${{ github.workspace }}/platforms/macos/qlcplus.entitlements"
           # Remove static archives — they can't be code-signed and aren't needed at runtime
           find "$APP" -name '*.a' -delete
+          # Remove sed backup files (e.g. Info.plist-e, Info.plist'')
+          find "$APP" -name 'Info.plist*' ! -name 'Info.plist' -delete
           # Sign all dylibs and frameworks inside-out
           find "$APP/Contents/Frameworks" -name '*.dylib' -exec codesign --force --sign - {} \;
           find "$APP/Contents/Frameworks" -name '*.framework' -exec codesign --force --sign - {} \;
