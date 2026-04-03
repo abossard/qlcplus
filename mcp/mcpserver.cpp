@@ -51,6 +51,14 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QOb
               "- All create tools are idempotent (upsert by name) — safe to call repeatedly.\n"
               "- Use tempoType \"beats\" for DJ/club shows.\n"
               "- Scenes must only set channels for their layer (wash = color+dimmer only, position = pan+tilt only).\n\n"
+              "DJ phase workflow — use SoloFrame multipage for phase-based shows:\n"
+              "  1. Create a SoloFrame with multipageMode=true, totalPages=N, pageLabels=[\"Intro\",\"Build\",\"Drop\",...].\n"
+              "  2. Set currentPage=0 via vc_update_widgets, then create widgets for that phase.\n"
+              "  3. Set currentPage=1, create widgets for next phase. Repeat for each phase.\n"
+              "  4. Map next/previous page to MIDI via vc_map_inputs with sourceName \"nextPage\"/\"previousPage\".\n"
+              "  5. Map direct page jumps with sourceName \"page0\", \"page1\", etc.\n"
+              "  6. Additional source names: \"enable\" (toggle frame), \"collapse\" (toggle collapsed).\n"
+              "  7. Multiple SoloFrames can share the same phase structure — all switch pages together via MIDI.\n\n"
               "Use MCP prompts for guided workflows: design_dj_show, debug_channel_conflict, setup_launchpad."
           )))
 {

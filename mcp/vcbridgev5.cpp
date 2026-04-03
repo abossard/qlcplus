@@ -844,6 +844,7 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         d.totalPages = frame->totalPagesNumber();
         d.currentPage = frame->currentPage();
         d.pagesLoop = frame->pagesLoop();
+        d.pageLabels = frame->pageLabels();
         d.headerVisible = frame->showHeader();
         d.enableButtonVisible = frame->showEnable();
         d.collapsed = frame->isCollapsed();
@@ -1262,6 +1263,12 @@ bool VCBridgeV5::configureFrame(int widgetID, const FrameConfig &config)
         frame->setCurrentPage(config.currentPage.value());
     if (config.pagesLoop.has_value())
         frame->setPagesLoop(config.pagesLoop.value());
+    if (config.pageLabels.has_value())
+    {
+        const QStringList &labels = config.pageLabels.value();
+        for (int i = 0; i < labels.size() && i < frame->totalPagesNumber(); i++)
+            frame->setShortcutName(i, labels.at(i));
+    }
     if (config.headerVisible.has_value())
         frame->setShowHeader(config.headerVisible.value());
     if (config.enableButtonVisible.has_value())
@@ -1498,9 +1505,17 @@ static int resolveControlId(VCWidget *widget, const QString &sourceName)
     VCFrame *frame = qobject_cast<VCFrame *>(widget);
     if (frame)
     {
-        if (sourceName == "nextPage") return 0;
-        if (sourceName == "previousPage") return 1;
-        if (sourceName == "enable") return 2;
+        if (sourceName == "nextPage") return INPUT_NEXT_PAGE_ID;
+        if (sourceName == "previousPage") return INPUT_PREVIOUS_PAGE_ID;
+        if (sourceName == "enable") return INPUT_ENABLE_ID;
+        if (sourceName == "collapse") return INPUT_COLLAPSE_ID;
+        if (sourceName.startsWith("page"))
+        {
+            bool ok = false;
+            int pageIdx = sourceName.mid(4).toInt(&ok);
+            if (ok && pageIdx >= 0)
+                return INPUT_SHORTCUT_BASE_ID + pageIdx;
+        }
         return -1;
     }
 

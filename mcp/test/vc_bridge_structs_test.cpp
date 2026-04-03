@@ -75,6 +75,7 @@ void VCBridgeStructs_Test::widgetDetails_defaultValues()
     QCOMPARE(d.totalPages, 1);
     QCOMPARE(d.currentPage, 0);
     QCOMPARE(d.pagesLoop, false);
+    QVERIFY(d.pageLabels.isEmpty());
     QCOMPARE(d.headerVisible, true);
     QCOMPARE(d.enableButtonVisible, false);
     QCOMPARE(d.collapsed, false);
@@ -135,6 +136,7 @@ void VCBridgeStructs_Test::frameConfig_allOptionalEmpty()
     QVERIFY(!cfg.totalPages.has_value());
     QVERIFY(!cfg.currentPage.has_value());
     QVERIFY(!cfg.pagesLoop.has_value());
+    QVERIFY(!cfg.pageLabels.has_value());
     QVERIFY(!cfg.headerVisible.has_value());
     QVERIFY(!cfg.enableButtonVisible.has_value());
     QVERIFY(!cfg.collapsed.has_value());
@@ -230,6 +232,7 @@ void VCBridgeStructs_Test::frameConfig_setAndRead()
     cfg.totalPages = 5;
     cfg.currentPage = 2;
     cfg.pagesLoop = true;
+    cfg.pageLabels = QStringList{"Intro", "Drop", "Outro"};
     cfg.headerVisible = false;
     cfg.enableButtonVisible = true;
     cfg.collapsed = false;
@@ -240,6 +243,7 @@ void VCBridgeStructs_Test::frameConfig_setAndRead()
     QCOMPARE(cfg.totalPages.value(), 5);
     QCOMPARE(cfg.currentPage.value(), 2);
     QCOMPARE(cfg.pagesLoop.value(), true);
+    QCOMPARE(cfg.pageLabels.value(), (QStringList{"Intro", "Drop", "Outro"}));
     QCOMPARE(cfg.headerVisible.value(), false);
     QCOMPARE(cfg.enableButtonVisible.value(), true);
     QCOMPARE(cfg.collapsed.value(), false);

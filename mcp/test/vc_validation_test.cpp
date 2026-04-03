@@ -111,6 +111,17 @@ void VCValidation_Test::createValidation_frameFieldsValid()
     QVERIFY2(err.empty(), err.c_str());
 }
 
+void VCValidation_Test::createValidation_framePageLabelsValid()
+{
+    Json item = {
+        {"type", "frame"}, {"pageIndex", 0},
+        {"multipageMode", true}, {"totalPages", 3}, {"pagesLoop", true},
+        {"pageLabels", {"Intro", "Drop", "Outro"}}
+    };
+    auto err = VCValidate::validateFieldsForType(item, VCType::Frame, true);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
 void VCValidation_Test::createValidation_matrixFieldsValid()
 {
     Json item = {
@@ -307,6 +318,22 @@ void VCValidation_Test::updateValidation_multipageModeOnFrame_valid()
     Json item = {{"widgetID", 1}, {"multipageMode", true}, {"totalPages", 4}};
     auto err = VCValidate::validateFieldsForType(item, VCType::Frame, false);
     QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::updateValidation_pageLabelsOnFrame_valid()
+{
+    Json item = {{"widgetID", 1}, {"pageLabels", {"Phase 1", "Phase 2"}}};
+    auto err = VCValidate::validateFieldsForType(item, VCType::Frame, false);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::updateValidation_pageLabelsOnButton_rejected()
+{
+    Json item = {{"widgetID", 1}, {"pageLabels", {"Phase 1"}}};
+    auto err = VCValidate::validateFieldsForType(item, VCType::Button, false);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QCOMPARE(errJson["invalidFields"][0].get<std::string>(), std::string("pageLabels"));
 }
 
 void VCValidation_Test::updateValidation_multipageModeOnLabel_rejected()

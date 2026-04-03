@@ -127,6 +127,7 @@ public:
         std::optional<int> totalPages;
         std::optional<int> currentPage;
         std::optional<bool> pagesLoop;
+        std::optional<QStringList> pageLabels;
         std::optional<bool> headerVisible;
         std::optional<bool> enableButtonVisible;
         std::optional<bool> collapsed;
@@ -282,6 +283,7 @@ public:
         int totalPages = 1;
         int currentPage = 0;
         bool pagesLoop = false;
+        QStringList pageLabels;
         bool headerVisible = true;
         bool enableButtonVisible = false;
         bool collapsed = false;

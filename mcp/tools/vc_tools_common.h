@@ -159,11 +159,11 @@ namespace VCFields
             }},
             {Frame, {
                 "pageIndex", "solo", "multipageMode", "totalPages", "pagesLoop",
-                "headerVisible", "enableButtonVisible"
+                "pageLabels", "headerVisible", "enableButtonVisible"
             }},
             {SoloFrame, {
                 "pageIndex", "multipageMode", "totalPages", "pagesLoop",
-                "headerVisible", "enableButtonVisible",
+                "pageLabels", "headerVisible", "enableButtonVisible",
                 "soloframeMixing", "excludeMonitoredFunctions"
             }},
             {XYPad, {
@@ -217,11 +217,11 @@ namespace VCFields
             }},
             {Frame, {
                 "multipageMode", "totalPages", "currentPage", "pagesLoop",
-                "headerVisible", "enableButtonVisible", "collapsed"
+                "pageLabels", "headerVisible", "enableButtonVisible", "collapsed"
             }},
             {SoloFrame, {
                 "multipageMode", "totalPages", "currentPage", "pagesLoop",
-                "headerVisible", "enableButtonVisible", "collapsed",
+                "pageLabels", "headerVisible", "enableButtonVisible", "collapsed",
                 "soloframeMixing", "excludeMonitoredFunctions"
             }},
             {XYPad, {

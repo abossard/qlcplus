@@ -322,6 +322,13 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                                 wJson["totalPages"] = d.totalPages;
                                 wJson["currentPage"] = d.currentPage;
                                 wJson["pagesLoop"] = d.pagesLoop;
+                                if (!d.pageLabels.isEmpty())
+                                {
+                                    auto arr = nlohmann::json::array();
+                                    for (const auto &lbl : d.pageLabels)
+                                        arr.push_back(lbl.toStdString());
+                                    wJson["pageLabels"] = arr;
+                                }
                             }
                             if (!d.headerVisible)
                                 wJson["headerVisible"] = false;
@@ -600,6 +607,13 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         entry["totalPages"] = d.totalPages;
                         entry["currentPage"] = d.currentPage;
                         entry["pagesLoop"] = d.pagesLoop;
+                        if (!d.pageLabels.isEmpty())
+                        {
+                            auto arr = nlohmann::json::array();
+                            for (const auto &lbl : d.pageLabels)
+                                arr.push_back(lbl.toStdString());
+                            entry["pageLabels"] = arr;
+                        }
                     }
                     if (!d.headerVisible)
                         entry["headerVisible"] = false;

@@ -100,6 +100,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"totalPages", {{"type", "integer"}, {"description", "Frame: total number of pages"}}},
                 {"currentPage", {{"type", "integer"}, {"description", "Frame: current page index"}}},
                 {"pagesLoop", {{"type", "boolean"}, {"description", "Frame: loop pages"}}},
+                {"pageLabels", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Frame: page names (one per page, ordered by index)"}}},
                 {"headerVisible", {{"type", "boolean"}, {"description", "Frame: show header"}}},
                 {"enableButtonVisible", {{"type", "boolean"}, {"description", "Frame: show enable button"}}},
                 {"collapsed", {{"type", "boolean"}, {"description", "Frame: collapsed state"}}},
@@ -410,6 +411,14 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     if (item.contains("totalPages")) { frameCfg.totalPages = item["totalPages"].get<int>(); hasFrameCfg = true; }
                     if (item.contains("currentPage")) { frameCfg.currentPage = item["currentPage"].get<int>(); hasFrameCfg = true; }
                     if (item.contains("pagesLoop")) { frameCfg.pagesLoop = item["pagesLoop"].get<bool>(); hasFrameCfg = true; }
+                    if (item.contains("pageLabels"))
+                    {
+                        QStringList labels;
+                        for (auto &lbl : item["pageLabels"])
+                            labels.append(QString::fromStdString(lbl.get<std::string>()));
+                        frameCfg.pageLabels = labels;
+                        hasFrameCfg = true;
+                    }
                     if (item.contains("headerVisible")) { frameCfg.headerVisible = item["headerVisible"].get<bool>(); hasFrameCfg = true; }
                     if (item.contains("enableButtonVisible")) { frameCfg.enableButtonVisible = item["enableButtonVisible"].get<bool>(); hasFrameCfg = true; }
                     if (item.contains("collapsed")) { frameCfg.collapsed = item["collapsed"].get<bool>(); hasFrameCfg = true; }

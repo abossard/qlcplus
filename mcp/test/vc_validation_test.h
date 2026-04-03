@@ -37,6 +37,7 @@ private slots:
     void createValidation_buttonFieldsValid();
     void createValidation_sliderFieldsValid();
     void createValidation_frameFieldsValid();
+    void createValidation_framePageLabelsValid();
     void createValidation_matrixFieldsValid();
     void createValidation_allTypesAcceptCommonFields();
     void createValidation_buttonFieldOnSlider_rejected();
@@ -53,6 +54,8 @@ private slots:
     void updateValidation_catchValuesOnSlider_valid();
     void updateValidation_catchValuesOnButton_rejected();
     void updateValidation_multipageModeOnFrame_valid();
+    void updateValidation_pageLabelsOnFrame_valid();
+    void updateValidation_pageLabelsOnButton_rejected();
     void updateValidation_multipageModeOnLabel_rejected();
     void updateValidation_barsNumberOnAudioTrigger_valid();
     void updateValidation_barsNumberOnButton_rejected();
