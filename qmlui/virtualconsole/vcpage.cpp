@@ -73,6 +73,26 @@ void VCPage::setPageScale(qreal factor)
         child->setScaleFactor(m_pageScale);
 }
 
+void VCPage::adjustPageHeight()
+{
+    qreal maxBottom = 0;
+    for (VCWidget *child : children(false))
+    {
+        QRectF g = child->geometry();
+        qreal bottom = g.y() + g.height();
+        if (bottom > maxBottom)
+            maxBottom = bottom;
+    }
+
+    const int margin = 20;
+    const int minHeight = 1080;
+    int neededHeight = qMax(minHeight, static_cast<int>(maxBottom) + margin);
+
+    QRectF current = geometry();
+    if (neededHeight > static_cast<int>(current.height()))
+        setGeometry(QRectF(current.x(), current.y(), current.width(), neededHeight));
+}
+
 /*********************************************************************
  * External input
  *********************************************************************/

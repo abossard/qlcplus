@@ -497,6 +497,11 @@ void FunctionWizardManager::createVCWidgets(QList<PaletteGenerator *> &palettes)
         // Advance position for next group
         yPos += frameHeight + 10;
     }
+
+    // Grow the page height if widgets exceed the default bounds
+    VCPage *page = qobject_cast<VCPage *>(targetFrame);
+    if (page)
+        page->adjustPageHeight();
 }
 
 void FunctionWizardManager::reset()

@@ -44,6 +44,9 @@ public:
     qreal pageScale() const;
     void setPageScale(qreal factor);
 
+    /** Grow page height to fit all child widgets if they exceed the current bounds */
+    void adjustPageHeight();
+
 private:
     /** Reference to a PreviewContext, registered to the Context Manager */
     PreviewContext *m_pageContext;
