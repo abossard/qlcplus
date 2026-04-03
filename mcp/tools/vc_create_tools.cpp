@@ -184,7 +184,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {"second", {{"type", "integer"}}}
                 }}}}, {"description", "Clock: scheduled function triggers"}}},
                 {"instantApply", {{"type", "boolean"}, {"description", "Matrix: instant apply changes"}}}
-            }}, {"required", {"type", "parentID"}}}}}}
+            }}, {"required", {"type"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge, parseSliderConfig, hasSliderConfig](const Json &args) -> Json {
@@ -222,17 +222,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     bool solo = (widgetType == VCType::SoloFrame) || item.value("solo", false);
                     bool hasPage = item.contains("pageIndex");
                     bool hasParent = item.contains("parentID");
-
-                    if (hasPage && hasParent)
-                    {
-                        results.push_back({{"error", "pageIndex and parentID are mutually exclusive"}});
-                        continue;
-                    }
-                    if (!hasPage && !hasParent)
-                    {
-                        results.push_back({{"error", "either pageIndex or parentID is required"}});
-                        continue;
-                    }
 
                     // Check for existing frame with same caption
                     if (!caption.isEmpty())

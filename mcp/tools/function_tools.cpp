@@ -196,9 +196,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"steps", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"functionID", {{"type", "integer"}}},
                     {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
-                    {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
-                    {"hold", {{"type", "integer"}, {"description", "Hold time in ms (default 0)"}}},
-                    {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}}
+                    {"fadeIn", {{"type", "integer"}, {"description", "Fade in: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}},
+                    {"hold", {{"type", "integer"}, {"description", "Hold: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}},
+                    {"fadeOut", {{"type", "integer"}, {"description", "Fade out: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}}
                 }}, {"required", Json::array()}}}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
@@ -283,11 +283,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     else if (step.contains("functionName"))
                         fid = mcp::resolveFunctionByName(doc, QString::fromStdString(step.at("functionName").get<std::string>()));
                     if (fid == Function::invalidId()) continue;
+                    // In beat mode, values are already in internal encoding
+                    // (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat)
                     uint fadeIn = step.value("fadeIn", 0);
                     uint hold = step.value("hold", 0);
                     uint fadeOut = step.value("fadeOut", 0);
-                    // Beat encoding: QLC+ stores beats as beats × 1000
-                    if (isBeatMode) { fadeIn *= 1000; hold *= 1000; fadeOut *= 1000; }
                     chaser->addStep(ChaserStep(fid, fadeIn, hold, fadeOut));
                 }
 

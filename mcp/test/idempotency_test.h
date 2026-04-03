@@ -85,6 +85,12 @@ private slots:
     // Beat encoding
     void beatEncoding_wholeBeatsMultipliedBy1000();
     void beatEncoding_zeroRemainsZero();
+    void beatEncoding_fractionalHalfBeat();
+    void beatEncoding_fractionalQuarterBeat();
+    void beatEncoding_fractionalEighthBeat();
+    void beatEncoding_mixedWholeAndFractional();
+    void beatEncoding_stepDurationArithmetic();
+    void beatEncoding_runtimeGranularity_wholeBeatOnly();
 
     // Input profile color/MIDI channel tables
     void profileColorTable_emptyByDefault();

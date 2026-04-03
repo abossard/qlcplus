@@ -777,7 +777,7 @@ bool ChaserRunner::write(MasterTimer *timer, QList<Universe *> universes)
 
         if (step->m_duration != Function::infiniteSpeed() &&
             ((m_chaser->tempoType() == Function::Time && step->m_elapsed >= step->m_duration) ||
-             (m_chaser->tempoType() == Function::Beats && step->m_elapsedBeats >= step->m_duration)))
+             (m_chaser->tempoType() == Function::Beats && step->m_elapsed >= Function::beatsToTime(step->m_duration, timer->beatTimeDuration()))))
         {
             if (step->m_duration != 0)
                 prevStepRoundElapsed = step->m_elapsed % step->m_duration;

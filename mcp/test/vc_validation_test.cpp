@@ -581,4 +581,79 @@ void VCValidation_Test::fullValidation_sliderUpdateCrossTypeField()
     QCOMPARE(errJson["invalidFields"][0].get<std::string>(), std::string("action"));
 }
 
+// ========== parentID / pageIndex exclusivity ==========
+
+void VCValidation_Test::parentOrPage_frameWithPageIndex_valid()
+{
+    Json item = {{"type", "frame"}, {"pageIndex", 0}, {"caption", "Top"}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::parentOrPage_frameWithParentID_valid()
+{
+    Json item = {{"type", "frame"}, {"parentID", 42}, {"caption", "Nested"}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::parentOrPage_frameWithBoth_rejected()
+{
+    Json item = {{"type", "frame"}, {"parentID", 0}, {"pageIndex", 0}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QVERIFY(errJson["error"].get<std::string>().find("mutually exclusive") != std::string::npos);
+}
+
+void VCValidation_Test::parentOrPage_frameWithNeither_rejected()
+{
+    Json item = {{"type", "frame"}, {"caption", "Orphan"}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QVERIFY(errJson["error"].get<std::string>().find("either pageIndex or parentID") != std::string::npos);
+}
+
+void VCValidation_Test::parentOrPage_soloframeWithPageIndex_valid()
+{
+    Json item = {{"type", "soloframe"}, {"pageIndex", 1}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::SoloFrame);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::parentOrPage_soloframeWithBoth_rejected()
+{
+    Json item = {{"type", "soloframe"}, {"parentID", 0}, {"pageIndex", 1}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::SoloFrame);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QVERIFY(errJson["error"].get<std::string>().find("mutually exclusive") != std::string::npos);
+}
+
+void VCValidation_Test::parentOrPage_buttonWithParentID_valid()
+{
+    Json item = {{"type", "button"}, {"parentID", 10}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
+    QVERIFY2(err.empty(), err.c_str());
+}
+
+void VCValidation_Test::parentOrPage_buttonWithPageIndex_rejected()
+{
+    Json item = {{"type", "button"}, {"parentID", 10}, {"pageIndex", 0}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QVERIFY(errJson["error"].get<std::string>().find("not valid for widget type") != std::string::npos);
+}
+
+void VCValidation_Test::parentOrPage_buttonWithNeither_rejected()
+{
+    Json item = {{"type", "button"}, {"caption", "Go"}};
+    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
+    QVERIFY(!err.empty());
+    auto errJson = Json::parse(err);
+    QVERIFY(errJson["error"].get<std::string>().find("parentID is required") != std::string::npos);
+}
+
 QTEST_MAIN(VCValidation_Test)

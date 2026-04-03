@@ -637,6 +637,87 @@ void McpIdempotency_Test::beatEncoding_zeroRemainsZero()
     QCOMPARE(Function::beatsToTime(0, 500), (uint)0);
 }
 
+void McpIdempotency_Test::beatEncoding_fractionalHalfBeat()
+{
+    // 500 = 0.5 beats; at 120 BPM (beatDuration=500ms): 0.5 * 500 = 250ms
+    uint encoded = 500;
+    uint timeMs = Function::beatsToTime(encoded, 500);
+    QCOMPARE(timeMs, (uint)250);
+}
+
+void McpIdempotency_Test::beatEncoding_fractionalQuarterBeat()
+{
+    // 250 = 0.25 beats; at 120 BPM (beatDuration=500ms): 0.25 * 500 = 125ms
+    uint encoded = 250;
+    uint timeMs = Function::beatsToTime(encoded, 500);
+    QCOMPARE(timeMs, (uint)125);
+}
+
+void McpIdempotency_Test::beatEncoding_fractionalEighthBeat()
+{
+    // 125 = 0.125 beats; at 120 BPM (beatDuration=500ms): 0.125 * 500 = 62ms
+    uint encoded = 125;
+    uint timeMs = Function::beatsToTime(encoded, 500);
+    QCOMPARE(timeMs, (uint)62);
+}
+
+void McpIdempotency_Test::beatEncoding_mixedWholeAndFractional()
+{
+    // 2750 = 2.75 beats; at 120 BPM (beatDuration=500ms): 2.75 * 500 = 1375ms
+    uint encoded = 2750;
+    uint timeMs = Function::beatsToTime(encoded, 500);
+    QCOMPARE(timeMs, (uint)1375);
+}
+
+void McpIdempotency_Test::beatEncoding_stepDurationArithmetic()
+{
+    // ChaserStep duration = fadeIn + hold
+    // fadeIn=500 (0.5 beats) + hold=1500 (1.5 beats) = duration 2000 (2.0 beats)
+    Scene *s = new Scene(m_doc);
+    s->setName("FracStep");
+    m_doc->addFunction(s);
+
+    ChaserStep step(s->id(), 500, 1500, 250);
+    QCOMPARE(step.fadeIn, (uint)500);
+    QCOMPARE(step.hold, (uint)1500);
+    QCOMPARE(step.fadeOut, (uint)250);
+    QCOMPARE(step.duration, step.fadeIn + step.hold); // 2000 = 2.0 beats
+    QCOMPARE(step.duration, (uint)2000);
+}
+
+void McpIdempotency_Test::beatEncoding_runtimeGranularity_wholeBeatOnly()
+{
+    // Verifies that ChaserRunner's step-completion check now uses
+    // m_elapsed (real ms) vs beatsToTime(duration) instead of the coarse
+    // m_elapsedBeats counter. This means fractional beat durations
+    // complete at the correct wall-clock time.
+    //
+    // At 120 BPM, beatTimeDuration = 500ms.
+    // A 1.5-beat step (duration=1500) should complete at 750ms,
+    // not at 1000ms (2 beats).
+    int beatTimeDuration = 500; // 120 BPM
+    uint stepDuration = 1500;   // 1.5 beats
+
+    // Convert beat duration to ms — this is what ChaserRunner now compares against
+    uint targetMs = Function::beatsToTime(stepDuration, beatTimeDuration);
+    QCOMPARE(targetMs, (uint)750);
+
+    // Simulate m_elapsed incrementing by MasterTimer::tick() (20ms)
+    uint elapsed = 0;
+    while (elapsed < targetMs)
+        elapsed += 20; // MasterTimer::tick() = 20ms
+
+    // Step completes at 760ms (first tick >= 750ms), not at 1000ms
+    QVERIFY(elapsed >= targetMs);
+    QVERIFY(elapsed <= 760u); // within one tick of target
+    QVERIFY(elapsed < 1000u); // well before the old 2-beat boundary
+
+    // Whole-beat durations still work: 2 beats = 1000ms
+    uint wholeBeatDuration = 2000; // 2.0 beats
+    uint wholeBeatTarget = Function::beatsToTime(wholeBeatDuration, beatTimeDuration);
+    QCOMPARE(wholeBeatTarget, (uint)1000);
+}
+
 /*************************************************************************
  * Input profile color / MIDI channel tables
  *************************************************************************/

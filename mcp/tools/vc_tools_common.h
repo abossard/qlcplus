@@ -582,6 +582,35 @@ namespace VCValidate
     }
 
     /**
+     * Validate parentID / pageIndex mutual exclusivity for create operations.
+     * Frames and SoloFrames accept exactly one of pageIndex or parentID.
+     * All other widget types require parentID (pageIndex is not allowed).
+     * Returns empty string on success, or a JSON error string on failure.
+     */
+    inline std::string validateParentOrPage(const Json &item, int widgetType)
+    {
+        bool hasPage = item.contains("pageIndex");
+        bool hasParent = item.contains("parentID");
+
+        if (widgetType == VCType::Frame || widgetType == VCType::SoloFrame)
+        {
+            if (hasPage && hasParent)
+                return Json({{"error", "pageIndex and parentID are mutually exclusive"}}).dump();
+            if (!hasPage && !hasParent)
+                return Json({{"error", "either pageIndex or parentID is required"}}).dump();
+        }
+        else
+        {
+            if (!hasParent)
+                return Json({{"error", "parentID is required"}}).dump();
+            if (hasPage)
+                return Json({{"error", "pageIndex is not valid for widget type '" +
+                    VCType::toString(widgetType) + "'"}}).dump();
+        }
+        return "";
+    }
+
+    /**
      * Full validation pipeline: field names + field values.
      * Returns empty string on success, or JSON error string on failure.
      */
@@ -592,6 +621,12 @@ namespace VCValidate
 
         err = validateFieldValues(item, widgetType);
         if (!err.empty()) return err;
+
+        if (isCreate)
+        {
+            err = validateParentOrPage(item, widgetType);
+            if (!err.empty()) return err;
+        }
 
         return "";
     }

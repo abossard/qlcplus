@@ -84,6 +84,17 @@ private slots:
     void fullValidation_buttonCreateInvalidValue();
     void fullValidation_sliderUpdateValid();
     void fullValidation_sliderUpdateCrossTypeField();
+
+    // parentID / pageIndex exclusivity
+    void parentOrPage_frameWithPageIndex_valid();
+    void parentOrPage_frameWithParentID_valid();
+    void parentOrPage_frameWithBoth_rejected();
+    void parentOrPage_frameWithNeither_rejected();
+    void parentOrPage_soloframeWithPageIndex_valid();
+    void parentOrPage_soloframeWithBoth_rejected();
+    void parentOrPage_buttonWithParentID_valid();
+    void parentOrPage_buttonWithPageIndex_rejected();
+    void parentOrPage_buttonWithNeither_rejected();
 };
 
 #endif // VC_VALIDATION_TEST_H
