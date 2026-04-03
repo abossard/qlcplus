@@ -36,10 +36,9 @@
 >
 > ### macOS: Install with Homebrew (recommended)
 > ```bash
-> brew tap abossard/qlcplus https://github.com/abossard/qlcplus
-> brew install --cask qlcplus
+> brew install abossard/qlcplus/qlcplus
 > ```
-> This installs the latest pre-built QLC+ with MCP server. Quarantine is cleared automatically.
+> This installs the latest pre-built QLC+ with MCP server and links it to `/Applications`. Quarantine is cleared automatically.
 >
 > To start with the MCP server:
 > ```bash

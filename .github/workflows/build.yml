@@ -654,6 +654,17 @@ jobs:
           name: QLC+-${{matrix.task}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.dmg
           path: QLC+_${{ matrix.task }}.dmg
 
+      - name: Create Homebrew tar.gz
+        run: |
+          cd ~
+          tar -czf "$GITHUB_WORKSPACE/qlcplus-pre-macos-arm64.tar.gz" "QLC+.app"
+
+      - name: Store Homebrew tar.gz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qlcplus-pre-macos-arm64.tar.gz
+          path: qlcplus-pre-macos-arm64.tar.gz
+
   release-mcp:
     if: github.event_name == 'push' && github.ref == 'refs/heads/mcp-server'
     needs: [build-macos]
@@ -663,16 +674,27 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
           pattern: '*mcp*'
 
+      - name: Download Homebrew artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: 'qlcplus-pre-*'
+
       - name: Flatten artifacts
         run: |
           mkdir -p release
-          find artifacts -type f \( -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' \) -exec cp {} release/ \;
+          find artifacts -type f \( -name '*.AppImage' -o -name '*.exe' -o -name '*.dmg' -o -name '*.tar.gz' \) -exec cp {} release/ \;
           ls -la release/
 
       - name: Create or update GitHub Release
@@ -683,8 +705,33 @@ jobs:
           body: |
             Automated build of QLC+ with MCP server support from the `mcp-server` branch.
             Built from commit ${{ github.sha }}.
+
+            ## Install with Homebrew
+            ```
+            brew install abossard/qlcplus/qlcplus
+            ```
           prerelease: true
           make_latest: false
           files: release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew formula SHA256
+        run: |
+          MACOS_ARM64=$(sha256sum release/qlcplus-pre-macos-arm64.tar.gz | awk '{print $1}')
+          echo "SHA256 macos-arm64: $MACOS_ARM64"
+
+          sed -i "s|sha256 \".*\" # macos-arm64|sha256 \"${MACOS_ARM64}\" # macos-arm64|" Formula/qlcplus.rb
+
+          echo "Updated Formula/qlcplus.rb:"
+          grep 'sha256' Formula/qlcplus.rb
+
+      - name: Commit formula updates
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/qlcplus.rb
+          git diff --cached --quiet || git commit -m "chore: update Homebrew formula SHA256 [skip ci]"
+          git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
