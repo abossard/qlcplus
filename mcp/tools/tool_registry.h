@@ -46,6 +46,15 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc);
 
+// MCP tool annotation constants (readOnlyHint, destructiveHint, idempotentHint, openWorldHint)
+namespace mcp {
+using Json = nlohmann::json;
+inline const Json kAnnotReadOnly    = {{"readOnlyHint", true},  {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
+inline const Json kAnnotIdempotent  = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
+inline const Json kAnnotDestructive = {{"readOnlyHint", false}, {"destructiveHint", true},  {"idempotentHint", true},  {"openWorldHint", false}};
+inline const Json kAnnotOpenWorld   = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", true}};
+}
+
 // Thread-safe execution helper — runs lambda on Doc's thread
 // Wraps in try/catch to prevent crashes from malformed JSON
 template<typename Func>

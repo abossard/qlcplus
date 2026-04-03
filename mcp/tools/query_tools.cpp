@@ -56,7 +56,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List all patched fixtures with capabilities and physical properties. Returns IDs needed for other tools."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // query_available_fixtures — search fixture definition library
     tm.register_tool(Tool(
@@ -119,7 +120,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // patch_fixtures — add fixtures to the project (batch)
     tm.register_tool(Tool(
@@ -209,7 +211,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("Patch fixtures into the project. Upserts: skips if fixture with same name/address exists. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // query_functions — list existing functions
     tm.register_tool(Tool(
@@ -227,7 +230,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List all existing functions (scenes, chasers, collections, etc.)."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // query_vc_pages — list Virtual Console pages with widget details
     if (vcBridge)
@@ -474,7 +478,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             std::nullopt,
             std::string("List all Virtual Console pages and their widgets with details."),
         std::nullopt
-        ));
+        )
+        .set_annotations(mcp::kAnnotReadOnly));
 
         // vc_query_widgets (batch) — query full details of Virtual Console widgets
         tm.register_tool(Tool(
@@ -769,7 +774,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             std::nullopt,
             std::string("Query full details of Virtual Console widgets. Batch."),
             std::nullopt
-        ));
+        )
+        .set_annotations(mcp::kAnnotReadOnly));
     }
 
     // query_universes — list universe configuration
@@ -816,5 +822,6 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List all configured DMX universes with their I/O plugin assignments."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 }

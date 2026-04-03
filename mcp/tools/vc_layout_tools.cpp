@@ -75,7 +75,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Move Virtual Console widgets between frames. Preserves all properties. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_delete_widgets (batch)
     tm.register_tool(Tool(
@@ -101,7 +102,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Delete Virtual Console widgets by ID. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotDestructive));
 
     // vc_detect_overlaps — find overlapping widgets within a frame or page
     tm.register_tool(Tool(
@@ -154,7 +156,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Detect overlapping widgets within a frame or page. Returns pairs of overlapping widget IDs with their intersection rectangles."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // vc_reflow_frame — reflow children within a frame (or entire page) using flow layout
     {
@@ -263,6 +266,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                      "Buttons and sliders are arranged in a grid, nested frames are recursively reflowed, "
                      "and the container is resized to fit. Supports dryRun mode to preview changes."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
     } // end vc_reflow_frame schema scope
 }

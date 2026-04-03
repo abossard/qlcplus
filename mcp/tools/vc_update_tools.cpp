@@ -584,5 +584,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                      "Validates fields against widget type. Supports type-specific configuration for buttons, "
                      "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, and audio triggers. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 }

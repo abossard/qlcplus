@@ -141,7 +141,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                      "Optionally set LED feedback in the same call (all 6 feedback fields required together). "
                      "Feedback is preserved across remaps if not explicitly supplied. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_configure_feedback (batch)
     tm.register_tool(Tool(
@@ -216,7 +217,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                      "Use integer idleChannel/activeChannel/monitorChannel (from query_feedback_profile) "
                      "or legacy string idleMode/activeMode/monitorMode. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_set_key_sequences (batch)
     tm.register_tool(Tool(
@@ -250,5 +252,6 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         std::nullopt,
         std::string("Set keyboard shortcuts on Virtual Console widgets. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 }

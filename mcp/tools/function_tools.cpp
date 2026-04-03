@@ -185,7 +185,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create scenes with channel values and/or degree-based positions. Upserts: replaces all values on existing scenes. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_chasers (batch)
     tm.register_tool(Tool(
@@ -304,7 +305,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_sequences (batch)
     tm.register_tool(Tool(
@@ -381,7 +383,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_efxs (batch)
     tm.register_tool(Tool(
@@ -510,7 +513,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_collections (batch)
     tm.register_tool(Tool(
@@ -575,7 +579,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create collections (parallel function groups — use for moods/phases). Upserts. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_rgb_matrices (batch)
     tm.register_tool(Tool(
@@ -635,7 +640,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create RGB matrix color animations. Upserts. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_fixture_groups (batch)
     tm.register_tool(Tool(
@@ -703,7 +709,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create fixture groups with grid layout for RGB matrices. Upserts. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // create_scripts (batch)
     tm.register_tool(Tool(
@@ -846,7 +853,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Upserts. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_functions (batch)
     tm.register_tool(Tool(
@@ -881,5 +889,6 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Delete functions by ID. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotDestructive));
 }

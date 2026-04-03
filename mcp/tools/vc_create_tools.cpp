@@ -96,7 +96,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Create new Virtual Console pages. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_create_widgets — unified widget creation tool with type discriminator
     tm.register_tool(Tool(
@@ -795,5 +796,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                      "frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock. "
                      "Upserts: existing widget with same caption is returned. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 }

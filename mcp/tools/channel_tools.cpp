@@ -76,7 +76,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_channels — set precedence and canFade (batch)
     tm.register_tool(Tool(
@@ -130,7 +131,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Set channel precedence (auto/htp/ltp) and fade behavior per channel. auto restores default. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // query_channel_modifiers — list available modifier templates
     tm.register_tool(Tool(
@@ -152,7 +154,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("List available channel modifier templates (Invert, Exponential, Logarithmic, Linear, etc.)"),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // set_channel_modifiers — apply modifier templates to channels (batch)
     tm.register_tool(Tool(
@@ -203,7 +206,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // convert_degrees_to_dmx — convert pan/tilt/zoom degrees to DMX channel values
     tm.register_tool(Tool(
@@ -276,5 +280,6 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 }

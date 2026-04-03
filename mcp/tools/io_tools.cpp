@@ -104,7 +104,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_midi_devices — list connected MIDI input/output ports
     tm.register_tool(Tool(
@@ -186,7 +187,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_midi_devices — list connected MIDI input/output ports
     tm.register_tool(Tool(
@@ -219,7 +221,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("List connected MIDI devices with their input/output ports."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // query_input_profiles — list available input profiles
     tm.register_tool(Tool(
@@ -249,7 +252,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("List available input profiles (e.g., Novation Launchpad Mini MK3)."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // set_input_profile (batch)
     tm.register_tool(Tool(
@@ -280,7 +284,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Set input profile for a universe. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 
     // query_feedback_profile — get color table and MIDI channel table from an input profile
     tm.register_tool(Tool(
@@ -365,7 +370,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                      "Returns available LED colors (velocity values) and animation modes "
                      "for use with feedback configuration."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_osc — one-call OSC plugin setup per universe
     tm.register_tool(Tool(
@@ -474,7 +480,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_osc_status — show current OSC configuration
     tm.register_tool(Tool(
@@ -550,7 +557,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Show current OSC configuration for all universes that have OSC patched."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_beat_source — set beat generator type and optional BPM
     tm.register_tool(Tool(
@@ -599,7 +607,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Set beat generator source: disabled, internal (with BPM), plugin (OS2L/MIDI beat input), audio (mic/line-in beat detection)."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 
     // set_grand_master — control grand master value and mode
     tm.register_tool(Tool(
@@ -653,7 +662,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Set grand master value, value mode, and channel mode."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 
     // configure_launchpad — auto-configure a Novation Launchpad in one call
     tm.register_tool(Tool(
@@ -775,5 +785,6 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Auto-configure a Novation Launchpad. Detects the device, sets DAW port, sends init message, sets input profile, enables LED feedback."),
         std::nullopt
-    ));
+    )
+    .set_annotations(mcp::kAnnotOpenWorld));
 }
