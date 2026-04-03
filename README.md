@@ -34,6 +34,19 @@
 > # Connect any MCP client to http://localhost:9696/mcp
 > ```
 >
+> ### macOS: Installing from DMG
+> Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
+> After mounting the DMG and dragging QLC+ to `/Applications`:
+> ```bash
+> # Remove the quarantine flag so macOS allows the app to run
+> sudo xattr -cr /Applications/QLC+.app
+>
+> # Launch from terminal (or double-click in Finder)
+> open /Applications/QLC+.app
+> ```
+> The `xattr -cr` step is needed because the app is ad-hoc signed (no Apple Developer certificate).
+> macOS blocks downloaded apps with quarantine attributes until they are cleared.
+>
 > ### Connect your AI agent
 >
 > **Copilot CLI** — add to `~/.copilot/mcp.json`:
