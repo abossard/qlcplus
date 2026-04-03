@@ -34,7 +34,19 @@
 > # Connect any MCP client to http://localhost:9696/mcp
 > ```
 >
-> ### macOS: Installing from DMG
+> ### macOS: Install with Homebrew (recommended)
+> ```bash
+> brew tap abossard/qlcplus https://github.com/abossard/qlcplus
+> brew install --cask qlcplus
+> ```
+> This installs the latest pre-built QLC+ with MCP server. Quarantine is cleared automatically.
+>
+> To start with the MCP server:
+> ```bash
+> open /Applications/QLC+.app --args --mcp-http 9696
+> ```
+>
+> ### macOS: Installing from DMG (manual)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
 > After mounting the DMG and dragging QLC+ to `/Applications`:
 > ```bash
