@@ -102,6 +102,8 @@ QString PaletteGenerator::typetoString(PaletteGenerator::PaletteType type)
         case Gobos: return tr("Gobo macros");
         case ColourMacro: return tr("Colour macros");
         case Animation: return tr("Animations");
+        case PanTilt: return tr("Pan/Tilt positions");
+        case Dimmer: return tr("Dimmer levels");
         case Undefined:
         default:
             return tr("Unknown");
@@ -116,6 +118,7 @@ QStringList PaletteGenerator::getCapabilities(const Fixture *fixture)
     bool hasRed = false, hasGreen = false, hasBlue = false;
     bool hasCyan = false, hasMagenta = false, hasYellow = false;
     bool hasWhite = false;
+    bool hasDimmer = false;
 
     Q_ASSERT(fixture != NULL);
     for (quint32 ch = 0; ch < fixture->channels(); ch++)
@@ -155,6 +158,7 @@ QStringList PaletteGenerator::getCapabilities(const Fixture *fixture)
                     case QLCChannel::Magenta: hasMagenta = true; break;
                     case QLCChannel::Yellow: hasYellow = true; break;
                     case QLCChannel::White: hasWhite = true; break;
+                    case QLCChannel::NoColour: hasDimmer = true; break;
                     default: break;
                 }
             }
@@ -175,6 +179,9 @@ QStringList PaletteGenerator::getCapabilities(const Fixture *fixture)
 
     if (hasWhite)
         caps.append(KQLCChannelWhite);
+
+    if (hasDimmer)
+        caps.append(QStringLiteral("Dimmer"));
 
     return caps;
 }
@@ -432,6 +439,144 @@ void PaletteGenerator::createCapabilityScene(QHash<quint32, quint32> chMap,
     }
 }
 
+void PaletteGenerator::createPanTiltScenes(QHash<quint32, quint32> panMap,
+                                           QHash<quint32, quint32> tiltMap,
+                                           PaletteGenerator::PaletteSubType subType)
+{
+    if (panMap.isEmpty() || tiltMap.isEmpty())
+        return;
+
+    struct PosPreset {
+        const char *name;
+        uchar pan;
+        uchar tilt;
+    };
+
+    PosPreset presets[] = {
+        { QT_TR_NOOP("Center"),       127, 127 },
+        { QT_TR_NOOP("Top"),          127,   0 },
+        { QT_TR_NOOP("Bottom"),       127, 255 },
+        { QT_TR_NOOP("Left"),           0, 127 },
+        { QT_TR_NOOP("Right"),        255, 127 },
+        { QT_TR_NOOP("Top Left"),       0,   0 },
+        { QT_TR_NOOP("Top Right"),    255,   0 },
+        { QT_TR_NOOP("Bottom Left"),    0, 255 },
+        { QT_TR_NOOP("Bottom Right"), 255, 255 },
+    };
+
+    for (const auto &preset : presets)
+    {
+        Scene *scene = new Scene(m_doc);
+        Scene *evenScene = nullptr;
+        Scene *oddScene = nullptr;
+        bool even = false;
+
+        if (subType == OddEven)
+        {
+            evenScene = new Scene(m_doc);
+            oddScene = new Scene(m_doc);
+        }
+
+        QHashIterator<quint32, quint32> it(panMap);
+        while (it.hasNext())
+        {
+            it.next();
+            quint32 fxID = it.key();
+
+            scene->setValue(fxID, panMap[fxID], preset.pan);
+            if (tiltMap.contains(fxID))
+                scene->setValue(fxID, tiltMap[fxID], preset.tilt);
+
+            if (subType == OddEven)
+            {
+                if (even)
+                {
+                    evenScene->setValue(fxID, panMap[fxID], preset.pan);
+                    if (tiltMap.contains(fxID))
+                        evenScene->setValue(fxID, tiltMap[fxID], preset.tilt);
+                }
+                else
+                {
+                    oddScene->setValue(fxID, panMap[fxID], preset.pan);
+                    if (tiltMap.contains(fxID))
+                        oddScene->setValue(fxID, tiltMap[fxID], preset.tilt);
+                }
+                even = !even;
+            }
+        }
+
+        scene->setName(getNamePrefix("Position", tr(preset.name)));
+        m_scenes.append(scene);
+
+        if (subType == OddEven)
+        {
+            evenScene->setName(tr("%1 (Even)").arg(getNamePrefix("Position", tr(preset.name))));
+            oddScene->setName(tr("%1 (Odd)").arg(getNamePrefix("Position", tr(preset.name))));
+            m_scenes.append(evenScene);
+            m_scenes.append(oddScene);
+        }
+    }
+}
+
+void PaletteGenerator::createDimmerScenes(QList<SceneValue> dimmerMap,
+                                          PaletteGenerator::PaletteSubType subType)
+{
+    if (dimmerMap.isEmpty())
+        return;
+
+    struct LevelPreset {
+        const char *name;
+        uchar value;
+    };
+
+    LevelPreset presets[] = {
+        { QT_TR_NOOP("Full"),    255 },
+        { QT_TR_NOOP("75%"),     191 },
+        { QT_TR_NOOP("50%"),     127 },
+        { QT_TR_NOOP("25%"),      64 },
+        { QT_TR_NOOP("Off"),       0 },
+    };
+
+    for (const auto &preset : presets)
+    {
+        Scene *scene = new Scene(m_doc);
+        Scene *evenScene = nullptr;
+        Scene *oddScene = nullptr;
+        bool even = false;
+
+        if (subType == OddEven)
+        {
+            evenScene = new Scene(m_doc);
+            oddScene = new Scene(m_doc);
+        }
+
+        for (const SceneValue &scv : dimmerMap)
+        {
+            scene->setValue(scv.fxi, scv.channel, preset.value);
+
+            if (subType == OddEven)
+            {
+                if (even)
+                    evenScene->setValue(scv.fxi, scv.channel, preset.value);
+                else
+                    oddScene->setValue(scv.fxi, scv.channel, preset.value);
+                even = !even;
+            }
+        }
+
+        scene->setName(getNamePrefix("Dimmer", tr(preset.name)));
+        m_scenes.append(scene);
+
+        if (subType == OddEven)
+        {
+            evenScene->setName(tr("%1 (Even)").arg(getNamePrefix("Dimmer", tr(preset.name))));
+            oddScene->setName(tr("%1 (Odd)").arg(getNamePrefix("Dimmer", tr(preset.name))));
+            m_scenes.append(evenScene);
+            m_scenes.append(oddScene);
+        }
+    }
+}
+
 void PaletteGenerator::createRGBMatrices(QList<SceneValue> rgbMap)
 {
     m_fixtureGroup = new FixtureGroup(m_doc);
@@ -489,6 +634,7 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
     QList<SceneValue> m_magentaList;
     QList<SceneValue> m_yellowList;
     QList<SceneValue> m_whiteList;
+    QList<SceneValue> m_dimmerList;
     QHash<quint32, quint32> m_goboList;
     QHash<quint32, quint32> m_shutterList;
     QHash<quint32, quint32> m_colorMacroList;
@@ -523,6 +669,7 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
                         case QLCChannel::Magenta: m_magentaList.append(SceneValue(fxID, ch)); break;
                         case QLCChannel::Yellow: m_yellowList.append(SceneValue(fxID, ch)); break;
                         case QLCChannel::White: m_whiteList.append(SceneValue(fxID, ch)); break;
+                        case QLCChannel::NoColour: m_dimmerList.append(SceneValue(fxID, ch)); break;
                         default: break;
                     }
                 }
@@ -577,6 +724,18 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
         case ColourMacro:
         {
             createCapabilityScene(m_colorMacroList, subType);
+            createChaser(typetoString(type));
+        }
+        break;
+        case PanTilt:
+        {
+            createPanTiltScenes(m_panList, m_tiltList, subType);
+            createChaser(typetoString(type));
+        }
+        break;
+        case Dimmer:
+        {
+            createDimmerScenes(m_dimmerList, subType);
             createChaser(typetoString(type));
         }
         break;

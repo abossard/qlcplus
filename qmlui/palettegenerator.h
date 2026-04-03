@@ -56,7 +56,9 @@ public:
         Shutter,
         Gobos,
         ColourMacro,
-        Animation
+        Animation,
+        PanTilt,
+        Dimmer
     };
 
     enum PaletteSubType
@@ -124,6 +126,12 @@ private:
                            QString name, bool rgb, PaletteSubType subType);
 
     void createCapabilityScene(QHash<quint32, quint32> chMap, PaletteSubType subType);
+
+    void createPanTiltScenes(QHash<quint32, quint32> panMap,
+                             QHash<quint32, quint32> tiltMap,
+                             PaletteSubType subType);
+
+    void createDimmerScenes(QList<SceneValue> dimmerMap, PaletteSubType subType);
 
     void createRGBMatrices(QList<SceneValue> rgbMap);
 

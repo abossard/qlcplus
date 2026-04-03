@@ -209,6 +209,12 @@ void FunctionWizardManager::updateCapabilities()
     if (caps.contains(KQLCChannelRGB))
         m_capabilities.append({tr("Animations"), PaletteGenerator::Animation, true});
 
+    if (caps.contains(KQLCChannelMovement))
+        m_capabilities.append({tr("Pan/Tilt Positions"), PaletteGenerator::PanTilt, true});
+
+    if (caps.contains(QStringLiteral("Dimmer")))
+        m_capabilities.append({tr("Dimmer Levels"), PaletteGenerator::Dimmer, true});
+
     emit capabilitiesListChanged();
 }
 
@@ -486,6 +492,61 @@ void FunctionWizardManager::createVCWidgets(QList<PaletteGenerator *> &palettes)
             if (innerX + sfWidth > frameWidth)
                 frameWidth = innerX + sfWidth;
             frameHeight = innerY + sfHeight;
+        }
+
+        // Create XY Pad for Pan/Tilt palettes
+        if (palette->type() == PaletteGenerator::PanTilt)
+        {
+            innerX = 5;
+            innerY = frameHeight + 10;
+
+            VCXYPad *xypad = new VCXYPad(m_doc, groupFrame);
+            xypad->setCaption(tr("Pan/Tilt Pad"));
+            for (Fixture *fx : m_fixtures)
+            {
+                for (int h = 0; h < fx->heads(); h++)
+                    xypad->addHead(fx->id(), h);
+            }
+
+            int padSize = static_cast<int>(pd * 50);
+            xypad->setGeometry(QRect(innerX, innerY, padSize, padSize));
+            groupFrame->addWidget(nullptr, xypad, QPoint(innerX, innerY));
+
+            if (innerX + padSize > frameWidth)
+                frameWidth = innerX + padSize;
+            frameHeight = innerY + padSize;
+        }
+
+        // Create Slider for Dimmer palettes
+        if (palette->type() == PaletteGenerator::Dimmer)
+        {
+            innerX = 5;
+            innerY = frameHeight + 10;
+
+            VCSlider *slider = new VCSlider(m_doc, groupFrame);
+            slider->setCaption(tr("Dimmer"));
+            slider->setSliderMode(VCSlider::Level);
+            for (Fixture *fx : m_fixtures)
+            {
+                for (quint32 ch = 0; ch < fx->channels(); ch++)
+                {
+                    const QLCChannel *channel = fx->channel(ch);
+                    if (channel->group() == QLCChannel::Intensity &&
+                        channel->colour() == QLCChannel::NoColour)
+                    {
+                        slider->addLevelChannel(fx->id(), ch);
+                    }
+                }
+            }
+
+            int sw = static_cast<int>(pd * 15);
+            int sh = static_cast<int>(pd * 50);
+            slider->setGeometry(QRect(innerX, innerY, sw, sh));
+            groupFrame->addWidget(nullptr, slider, QPoint(innerX, innerY));
+
+            if (innerX + sw > frameWidth)
+                frameWidth = innerX + sw;
+            frameHeight = innerY + sh;
         }
 
         // Size and position the group frame
