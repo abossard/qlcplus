@@ -575,6 +575,7 @@ void FunctionWizardManager::reset()
     m_sliderHeight = 200;
 
     emit fixtureListChanged();
+    emit availableFixturesChanged();
     emit capabilitiesListChanged();
     emit createDedicatedPageChanged();
     emit widgetsPerLineChanged();

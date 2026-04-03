@@ -47,8 +47,39 @@ PaletteGenerator::PaletteGenerator(Doc* doc, const QList <Fixture*>& fxList,
     if (m_fixtures.count() > 0)
     {
         m_name = typetoString(type);
-        if (m_fixtures.at(0)->fixtureDef() != NULL)
-            m_model = m_fixtures.at(0)->fixtureDef()->model();
+
+        // Derive display label from user-given fixture names
+        if (m_fixtures.count() == 1)
+        {
+            m_model = m_fixtures.at(0)->name();
+        }
+        else
+        {
+            // Find longest common prefix across all fixture names
+            QString prefix = m_fixtures.at(0)->name();
+            for (int i = 1; i < m_fixtures.count(); i++)
+            {
+                const QString &other = m_fixtures.at(i)->name();
+                int len = qMin(prefix.length(), other.length());
+                int common = 0;
+                while (common < len && prefix.at(common) == other.at(common))
+                    common++;
+                prefix = prefix.left(common);
+                if (prefix.isEmpty())
+                    break;
+            }
+            // Strip trailing digits, spaces, hashes, and dashes
+            while (!prefix.isEmpty())
+            {
+                QChar last = prefix.at(prefix.length() - 1);
+                if (last.isDigit() || last == ' ' || last == '#' || last == '-')
+                    prefix.chop(1);
+                else
+                    break;
+            }
+            m_model = prefix.isEmpty() ? m_fixtures.at(0)->name() : prefix;
+        }
+
         if (type != Undefined)
             createFunctions(type, subType);
     }
