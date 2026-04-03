@@ -597,9 +597,12 @@ jobs:
           find "$APP" -name '*.a' -delete
           # Remove sed backup files (e.g. Info.plist-e, Info.plist'')
           find "$APP" -name 'Info.plist*' ! -name 'Info.plist' -delete
-          # Sign all dylibs and frameworks inside-out
-          find "$APP/Contents/Frameworks" -name '*.dylib' -exec codesign --force --sign - {} \;
+          # Sign all individual files inside frameworks (replaces Qt's Team ID signatures
+          # with ad-hoc to match the main executable — prevents Team ID mismatch at runtime)
+          find "$APP/Contents/Frameworks" -type f -exec codesign --force --sign - {} \; 2>/dev/null || true
+          # Sign framework bundles
           find "$APP/Contents/Frameworks" -name '*.framework' -exec codesign --force --sign - {} \;
+          # Sign all plugin dylibs (recursive into subdirectories)
           find "$APP/Contents/PlugIns" -name '*.dylib' -exec codesign --force --sign - {} \;
           find "$APP/Contents/Resources" -name '*.dylib' -exec codesign --force --sign - {} \; 2>/dev/null || true
           # Sign main executable(s) with entitlements
