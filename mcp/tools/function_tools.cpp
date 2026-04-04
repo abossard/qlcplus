@@ -34,7 +34,7 @@
 #include "rgbmatrix.h"
 #include "rgbalgorithm.h"
 #include "fixturegroup.h"
-#include "script.h"
+#include "scriptv4.h"
 #include "scenevalue.h"
 #include "inputoutputmap.h"
 #include "universe.h"
@@ -967,25 +967,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
     )
     .set_annotations(mcp::kAnnotIdempotent));
 
-    // create_scripts (batch)
+    // create_scripts (batch) — JavaScript-only
     tm.register_tool(Tool(
         "create_scripts",
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
                 {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Utilities/Scripts'). Creates folders implicitly."}}},
-                {"commands", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
-                    {"type", {{"type", "string"}, {"description", "Command type: startfunction, stopfunction, wait, setfixture, blackout, label, jump"}}},
-                    {"functionID", {{"type", "integer"}, {"description", "Function ID (for startfunction/stopfunction)"}}},
-                    {"time", {{"type", "integer"}, {"description", "Wait time in ms (for wait)"}}},
-                    {"fixtureID", {{"type", "integer"}, {"description", "Fixture ID (for setfixture)"}}},
-                    {"channel", {{"type", "integer"}, {"description", "Channel number (for setfixture)"}}},
-                    {"value", {{"type", "integer"}, {"description", "DMX value 0-255 (for setfixture)"}}},
-                    {"state", {{"type", "string"}, {"description", "'on' or 'off' (for blackout)"}}},
-                    {"name", {{"type", "string"}, {"description", "Label name (for label/jump)"}}},
-                    {"label", {{"type", "string"}, {"description", "Target label (for jump)"}}}
-                }}}}}}
-            }}, {"required", {"name", "commands"}}}}}}
+                {"content", {{"type", "string"}, {"description",
+                    "Raw JavaScript code executed by QJSEngine. "
+                    "The code runs inside (function run() { YOUR_CODE }). "
+                    "Use the Engine object to control QLC+. Full JS is available: variables, loops, if/else, Math.*, closures, arrays, objects."
+                }}}
+            }}, {"required", {"name", "content"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -993,17 +987,27 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "commands"});
+                auto err = validateFields(item, {"name", "path", "content"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 std::string name = item.at("name").get<std::string>();
+                std::string content = item.at("content").get<std::string>();
 
+                if (content.empty())
+                {
+                    results.push_back({{"error", "content must not be empty"}, {"name", name}});
+                    continue;
+                }
+
+                // Create or find existing script (upsert by name)
                 Function *existing = mcp::findFunction(doc, QString::fromStdString(name), Function::ScriptType);
                 Script *script;
                 bool isNew = false;
+                QString previousData;
                 if (existing)
                 {
                     script = qobject_cast<Script*>(existing);
+                    previousData = script->data();
                 }
                 else
                 {
@@ -1015,102 +1019,87 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("path"))
                     script->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
-                // Validate commands before building script
-                Json cmdErrors = Json::array();
-                int lineNum = 0;
-                for (auto &cmd : item.at("commands"))
+                // Set content and run syntax check
+                QString qContent = QString::fromStdString(content);
+                script->setData(qContent);
+
+                QStringList syntaxErrors = script->syntaxErrorsLines();
+                if (!syntaxErrors.isEmpty())
                 {
-                    auto cmdErr = validateFields(cmd, {"type", "functionID", "time", "fixtureID", "channel", "value", "state", "name", "label"});
-                    if (!cmdErr.empty()) { results.push_back(nlohmann::json::parse(cmdErr)); continue; }
-                    lineNum++;
-                    if (!cmd.contains("type"))
+                    // Syntax errors — reject: restore previous state or discard
+                    if (isNew)
                     {
-                        cmdErrors.push_back({{"line", lineNum}, {"error", "missing 'type' field"}});
-                        continue;
-                    }
-                    std::string type = cmd.at("type").get<std::string>();
-                    if (type == "startfunction" || type == "stopfunction")
-                    {
-                        if (!cmd.contains("functionID"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", type + " requires 'functionID'"}});
-                    }
-                    else if (type == "wait")
-                    {
-                        if (!cmd.contains("time"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", "wait requires 'time' (ms)"}});
-                    }
-                    else if (type == "setfixture")
-                    {
-                        if (!cmd.contains("fixtureID") || !cmd.contains("channel") || !cmd.contains("value"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", "setfixture requires 'fixtureID', 'channel', 'value'"}});
-                    }
-                    else if (type == "blackout")
-                    {
-                        if (!cmd.contains("state"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", "blackout requires 'state' ('on' or 'off')"}});
-                    }
-                    else if (type == "label")
-                    {
-                        if (!cmd.contains("name"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", "label requires 'name'"}});
-                    }
-                    else if (type == "jump")
-                    {
-                        if (!cmd.contains("label"))
-                            cmdErrors.push_back({{"line", lineNum}, {"error", "jump requires 'label'"}});
+                        delete script;
                     }
                     else
                     {
-                        cmdErrors.push_back({{"line", lineNum}, {"error", "unknown command type: " + type}});
+                        script->setData(previousData);
                     }
-                }
 
-                if (!cmdErrors.empty())
-                {
-                    results.push_back({{"error", "script validation failed"}, {"name", name}, {"validationErrors", cmdErrors}});
+                    Json errorList = Json::array();
+                    for (const QString &err : syntaxErrors)
+                        errorList.push_back(err.toStdString());
+
+                    results.push_back({
+                        {"error", "JavaScript syntax check failed"},
+                        {"name", name},
+                        {"syntaxErrors", errorList}
+                    });
                     continue;
                 }
 
-                // Build script data string — commands are emitted exactly as provided
-                QString scriptData;
-                auto &commands = item.at("commands");
-                for (size_t i = 0; i < commands.size(); i++)
-                {
-                    auto &cmd = commands[i];
-                    std::string type = cmd.at("type").get<std::string>();
-
-                    if (type == "startfunction")
-                        scriptData += QString("startfunction:%1\n").arg(cmd.at("functionID").get<int>());
-                    else if (type == "stopfunction")
-                        scriptData += QString("stopfunction:%1\n").arg(cmd.at("functionID").get<int>());
-                    else if (type == "wait")
-                        scriptData += QString("wait:%1\n").arg(cmd.at("time").get<int>());
-                    else if (type == "setfixture")
-                        scriptData += QString("setfixture:%1 ch:%2 val:%3\n")
-                            .arg(cmd.at("fixtureID").get<int>())
-                            .arg(cmd.at("channel").get<int>())
-                            .arg(cmd.at("value").get<int>());
-                    else if (type == "blackout")
-                        scriptData += QString("blackout:%1\n")
-                            .arg(QString::fromStdString(cmd.at("state").get<std::string>()));
-                    else if (type == "label")
-                        scriptData += QString("label:%1\n")
-                            .arg(QString::fromStdString(cmd.at("name").get<std::string>()));
-                    else if (type == "jump")
-                        scriptData += QString("jump:%1\n")
-                            .arg(QString::fromStdString(cmd.at("label").get<std::string>()));
-                }
-
-                script->setData(scriptData);
+                // Syntax OK — save the script
                 if (isNew)
                     doc->addFunction(script);
-                results.push_back({{"id", (int)script->id()}, {"name", name}, {"status", isNew ? "created" : "updated"}});
+
+                results.push_back({
+                    {"id", (int)script->id()},
+                    {"name", name},
+                    {"status", isNew ? "created" : "updated"}
+                });
             }
             return results.dump();
             });
         },
         std::nullopt,
-        std::string("Create scripted sequences from commands (startfunction, stopfunction, wait, setfixture, blackout, label, jump). Upserts. Batch."),
+        std::string(
+            "Create or update Script functions with raw JavaScript. Content is executed by QJSEngine in a dedicated thread. Upserts by name. "
+            "Syntax is validated before saving — scripts with errors are rejected with line numbers. Batch.\n"
+            "\n"
+            "ENGINE API (all methods on the global `Engine` object):\n"
+            "  Engine.startFunction(functionID)           — Start any QLC+ function\n"
+            "  Engine.stopFunction(functionID)             — Stop a running function\n"
+            "  Engine.isFunctionRunning(functionID)        — Check if function is active (bool)\n"
+            "  Engine.setFixture(fixtureID, ch, value)     — Set fixture channel (0-255)\n"
+            "  Engine.setFixture(fixtureID, ch, value, fadeMs) — Set with fade time\n"
+            "  Engine.getChannelValue(universe, channel)   — Read live DMX value (0-255)\n"
+            "  Engine.waitTime(milliseconds)               — Pause execution\n"
+            "  Engine.waitTime(\"2s.500\")                   — Pause using time string\n"
+            "  Engine.waitFunctionStart(functionID)        — Block until function starts\n"
+            "  Engine.waitFunctionStop(functionID)         — Block until function stops\n"
+            "  Engine.random(min, max)                     — Random integer in [min,max]\n"
+            "  Engine.random(\"1s.0\", \"5s.0\")               — Random ms from time strings\n"
+            "  Engine.setBlackout(true/false)              — Toggle global blackout\n"
+            "  Engine.setBPM(bpm)                          — Set beat generator BPM\n"
+            "  Engine.systemCommand(\"program args\")        — Run external process (detached)\n"
+            "  Engine.stopOnExit(true/false)               — Auto-stop started functions on script exit\n"
+            "  Engine.getFunctionAttribute(fID, index)     — Read function attribute (float)\n"
+            "  Engine.setFunctionAttribute(fID, index, val) — Modify running function attribute\n"
+            "  Engine.setFunctionAttribute(fID, \"Name\", val) — By attribute name (e.g. \"Width\", \"Intensity\")\n"
+            "\n"
+            "JAVASCRIPT FEATURES: Full ECMAScript via QJSEngine — variables, for/while loops, if/else, "
+            "switch, functions, closures, arrays, objects, Math.* (sin, cos, pow, sqrt, random, PI, floor, round, min, max, abs, log), Date.\n"
+            "\n"
+            "PATTERNS:\n"
+            "  Continuous effect: while(true) { /* set values */ Engine.waitTime(50); }  — ALWAYS include waitTime in loops\n"
+            "  Randomness: Engine.random(min,max) for uniform, Math.random() for float, implement Gaussian with Box-Muller\n"
+            "  Easing: define functions like easeInOutSine(t) = -(Math.cos(Math.PI*t)-1)/2, apply to fades\n"
+            "  State machine: var state='idle'; while(true) { switch(state) { case 'idle': ... } Engine.waitTime(50); }\n"
+            "  Reactive: read DMX with getChannelValue(), mirror/follow other fixtures with variation\n"
+            "  Cascade: for(var i=0;i<N;i++) { Engine.setFixture(i,0,255,500); Engine.waitTime(200); }\n"
+            "  Dynamic EFX: Engine.setFunctionAttribute(efxID, \"Width\", newValue) while EFX runs\n"
+            "  External integration: Engine.systemCommand(\"mosquitto_pub -t topic -m msg\") for MQTT/OSC/HTTP\n"
+        ),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

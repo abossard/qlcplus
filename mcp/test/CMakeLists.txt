@@ -74,3 +74,24 @@ target_link_libraries(mcp_palette_integration_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+
+# Script Tool tests — exercises JavaScript-only create_scripts MCP tool
+add_executable(mcp_script_tool_test WIN32
+    script_tool_test.cpp script_tool_test.h
+)
+
+target_include_directories(mcp_script_tool_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_script_tool_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+    Qt${QT_MAJOR_VERSION}::Qml
+    qlcplusengine
+    nlohmann_json::nlohmann_json
+)
