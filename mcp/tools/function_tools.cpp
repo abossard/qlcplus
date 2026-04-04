@@ -410,9 +410,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"steps", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"functionID", {{"type", "integer"}}},
                     {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
-                    {"fadeIn", {{"type", "integer"}, {"description", "Fade in: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}},
-                    {"hold", {{"type", "integer"}, {"description", "Hold: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}},
-                    {"fadeOut", {{"type", "integer"}, {"description", "Fade out: milliseconds when tempoType='time'; in beat mode: internal encoding (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat). Default 0"}}}
+                    {"fadeIn", {{"type", "number"}, {"description", "Fade in: beats when tempoType='beats' (e.g. 2=2beats, 0.5=half beat, 0.25=quarter beat); milliseconds when tempoType='time'. Default 0"}}},
+                    {"hold", {{"type", "number"}, {"description", "Hold: beats when tempoType='beats' (e.g. 4=4beats, 0.5=half beat); milliseconds when tempoType='time'. Default 0"}}},
+                    {"fadeOut", {{"type", "number"}, {"description", "Fade out: beats when tempoType='beats'; milliseconds when tempoType='time'. Default 0"}}}
                 }}, {"required", Json::array()}}}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
@@ -487,6 +487,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 bool isBeatMode = (tempo == "beats");
 
                 // Add steps with per-step timing
+                // In beat mode: user passes human-readable beats (e.g. 2 = 2 beats, 0.5 = half beat)
+                // Engine expects internal encoding: beats × 1000 (e.g. 2000 = 2 beats, 500 = half beat)
                 for (auto &step : item.at("steps"))
                 {
                     auto stepErr = validateFields(step, {"functionID", "functionName", "fadeIn", "hold", "fadeOut"});
@@ -497,11 +499,24 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     else if (step.contains("functionName"))
                         fid = mcp::resolveFunctionByName(doc, QString::fromStdString(step.at("functionName").get<std::string>()));
                     if (fid == Function::invalidId()) continue;
-                    // In beat mode, values are already in internal encoding
-                    // (1000=1beat, 500=1/2beat, 250=1/4beat, 125=1/8beat)
-                    uint fadeIn = step.value("fadeIn", 0);
-                    uint hold = step.value("hold", 0);
-                    uint fadeOut = step.value("fadeOut", 0);
+
+                    double rawFadeIn = step.value("fadeIn", 0.0);
+                    double rawHold = step.value("hold", 0.0);
+                    double rawFadeOut = step.value("fadeOut", 0.0);
+
+                    uint fadeIn, hold, fadeOut;
+                    if (isBeatMode)
+                    {
+                        fadeIn = static_cast<uint>(rawFadeIn * 1000.0);
+                        hold = static_cast<uint>(rawHold * 1000.0);
+                        fadeOut = static_cast<uint>(rawFadeOut * 1000.0);
+                    }
+                    else
+                    {
+                        fadeIn = static_cast<uint>(rawFadeIn);
+                        hold = static_cast<uint>(rawHold);
+                        fadeOut = static_cast<uint>(rawFadeOut);
+                    }
                     chaser->addStep(ChaserStep(fid, fadeIn, hold, fadeOut));
                 }
 

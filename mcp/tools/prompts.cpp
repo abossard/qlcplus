@@ -269,7 +269,9 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
 
                 "---\n\n"
                 "## Beat-Synced Timing (tempoType: \"beats\" — ALWAYS)\n\n"
-                "All durations MUST align to musical bar boundaries. QLC+ supports fractional beats.\n\n"
+                "All durations MUST align to musical bar boundaries. QLC+ supports fractional beats.\n"
+                "Pass beat values directly (e.g. hold: 2 for 2 beats, fadeIn: 0.5 for half beat) — "
+                "the tool auto-converts to internal encoding.\n\n"
                 "### Beat Values\n"
                 "| Notation | Beats | Musical Meaning |\n"
                 "|----------|-------|----------------|\n"
