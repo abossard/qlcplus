@@ -165,8 +165,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         {"frameID", {{"type", "integer"}, {"description",
             "Widget ID of the frame to reflow. All children will be repositioned."}}},
         {"pageIndex", {{"type", "integer"}, {"description",
-            "Page index (0-based) to reflow. Stacks all top-level frames vertically. "
-            "Used only if frameID is not provided."}}},
+            "Page index (0-based). Auto-detects column layout from x-positions and reflows within each column. "
+            "Defaults to dryRun=true. Used only if frameID is not provided."}}},
         {"columns", {{"type", "integer"}, {"description",
             "Number of columns for flow grid. 0 or omit for auto-compute from width."}}},
         {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels (default 5)"}}},
@@ -176,7 +176,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         {"sliderWidth", {{"type", "integer"}, {"description", "Slider width in pixels (default 60)"}}},
         {"sliderHeight", {{"type", "integer"}, {"description", "Slider height in pixels (default 200)"}}},
         {"dryRun", {{"type", "boolean"}, {"description",
-            "If true, compute the plan but do not apply it. Returns proposed changes without modifying widgets."}}}
+            "Preview mode: compute plan without applying. Defaults to true for pageIndex (safe preview), false for frameID."}}}
     }}};
     tm.register_tool(Tool(
         "vc_reflow_frame",
@@ -196,7 +196,6 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             opts.defaultButtonHeight = args.value("buttonHeight", 60);
             opts.defaultSliderWidth = args.value("sliderWidth", 60);
             opts.defaultSliderHeight = args.value("sliderHeight", 200);
-            bool dryRun = args.value("dryRun", false);
 
             VCBridge::WidgetSnapshot snap;
             bool isPage = false;
@@ -211,6 +210,9 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             else
                 return std::string("{\"error\": \"Provide frameID or pageIndex\"}");
+
+            // Page-level reflow defaults to dryRun (destructive at page scale)
+            bool dryRun = args.value("dryRun", isPage);
 
             if (snap.id < 0 && snap.children.isEmpty())
                 return std::string("{\"error\": \"Frame/page not found\"}");
@@ -263,8 +265,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         },
         std::nullopt,
         std::string("Reflow widgets within a frame or page using flow layout. "
-                     "Buttons and sliders are arranged in a grid, nested frames are recursively reflowed, "
-                     "and the container is resized to fit. Supports dryRun mode to preview changes."),
+                     "With frameID: arranges buttons/sliders in a grid, recursively reflows nested frames, resizes the frame to fit. "
+                     "With pageIndex: auto-detects column groupings from x-positions, preserves multi-column layouts, "
+                     "reflows within each column independently. Page-level reflow defaults to dryRun=true (pass dryRun=false to apply). "
+                     "Never reparents or creates widgets — only repositions existing children within their current parent."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

@@ -122,6 +122,8 @@ private slots:
     void reflowPage_twoFramesStack();
     void reflowPage_frameGrowsCascade();
     void reflowPage_collectsAllGeometries();
+    void reflowPage_multiColumnPreserved();
+    void reflowPage_pageGrowsToTallestColumn();
 
 private:
     Doc *m_doc;

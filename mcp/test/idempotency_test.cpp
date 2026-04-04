@@ -891,12 +891,12 @@ void McpIdempotency_Test::reflow_buttonsOnly()
 
     int height = VCBridge::reflowChildren(frame, opts);
 
-    // All buttons should be at y = headerHeight (40) since they fit in one row
+    // All buttons should be below the header with padding
     for (const auto &child : frame.children)
-        QCOMPARE(child.geometry.y(), opts.headerHeight);
+        QCOMPARE(child.geometry.y(), opts.headerHeight + opts.pad);
 
-    // Height = header + 1 row of buttons
-    QCOMPARE(height, opts.headerHeight + 1 * (opts.defaultButtonHeight + opts.pad));
+    // Height = header + pad + 1 row of buttons
+    QCOMPARE(height, opts.headerHeight + opts.pad + 1 * (opts.defaultButtonHeight + opts.pad));
 }
 
 void McpIdempotency_Test::reflow_slidersOnly()
@@ -909,9 +909,9 @@ void McpIdempotency_Test::reflow_slidersOnly()
     int height = VCBridge::reflowChildren(frame, opts);
     QVERIFY(height > opts.headerHeight);
 
-    // Sliders should start at header height
+    // Sliders should start below header with padding
     for (const auto &child : frame.children)
-        QCOMPARE(child.geometry.y(), opts.headerHeight);
+        QCOMPARE(child.geometry.y(), opts.headerHeight + opts.pad);
 }
 
 void McpIdempotency_Test::reflow_buttonsAndSliders()
@@ -925,10 +925,10 @@ void McpIdempotency_Test::reflow_buttonsAndSliders()
     VCBridge::ReflowOptions opts;
     int height = VCBridge::reflowChildren(frame, opts);
 
-    // Buttons at header, sliders below buttons
-    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight); // button
-    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight); // button
-    int sliderY = opts.headerHeight + 1 * (opts.defaultButtonHeight + opts.pad);
+    // Buttons below header with padding, sliders below buttons
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight + opts.pad); // button
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight + opts.pad); // button
+    int sliderY = opts.headerHeight + opts.pad + 1 * (opts.defaultButtonHeight + opts.pad);
     QCOMPARE(frame.children[2].geometry.y(), sliderY); // slider below buttons
 
     // Total height includes both
@@ -951,11 +951,11 @@ void McpIdempotency_Test::reflow_nestedFrame()
 
     // Inner frame should have been reflowed (buttons repositioned)
     auto &reflowedInner = outer.children[0];
-    QCOMPARE(reflowedInner.children[0].geometry.y(), opts.headerHeight);
-    QCOMPARE(reflowedInner.children[1].geometry.y(), opts.headerHeight);
+    QCOMPARE(reflowedInner.children[0].geometry.y(), opts.headerHeight + opts.pad);
+    QCOMPARE(reflowedInner.children[1].geometry.y(), opts.headerHeight + opts.pad);
 
-    // Inner frame positioned at y = headerHeight of outer
-    QCOMPARE(reflowedInner.geometry.y(), opts.headerHeight);
+    // Inner frame positioned below outer header with padding
+    QCOMPARE(reflowedInner.geometry.y(), opts.headerHeight + opts.pad);
 
     // Outer height includes header + inner frame height + pad
     QVERIFY(outerHeight > opts.headerHeight + reflowedInner.geometry.height());
@@ -1018,12 +1018,12 @@ void McpIdempotency_Test::reflow_respectsExplicitColumns()
     VCBridge::reflowChildren(frame, opts);
 
     // With 2 columns, 6 buttons → 3 rows
-    // Row 0: buttons 0,1 at y=40
-    // Row 1: buttons 2,3 at y=40+65
-    // Row 2: buttons 4,5 at y=40+130
-    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight);
-    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight);
-    int row1Y = opts.headerHeight + (opts.defaultButtonHeight + opts.pad);
+    // Row 0: buttons 0,1 at y=45
+    // Row 1: buttons 2,3 at y=45+65
+    // Row 2: buttons 4,5 at y=45+130
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight + opts.pad);
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight + opts.pad);
+    int row1Y = opts.headerHeight + opts.pad + (opts.defaultButtonHeight + opts.pad);
     QCOMPARE(frame.children[2].geometry.y(), row1Y);
     QCOMPARE(frame.children[3].geometry.y(), row1Y);
 }
@@ -1041,9 +1041,9 @@ void McpIdempotency_Test::reflow_autoColumnsFromWidth()
 
     // Width 250, button width 100, pad 5 → (250-5)/(100+5) = 2 columns
     // So 4 buttons → 2 rows
-    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight);
-    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight);
-    int row1Y = opts.headerHeight + (opts.defaultButtonHeight + opts.pad);
+    QCOMPARE(frame.children[0].geometry.y(), opts.headerHeight + opts.pad);
+    QCOMPARE(frame.children[1].geometry.y(), opts.headerHeight + opts.pad);
+    int row1Y = opts.headerHeight + opts.pad + (opts.defaultButtonHeight + opts.pad);
     QCOMPARE(frame.children[2].geometry.y(), row1Y);
 }
 
@@ -1129,6 +1129,67 @@ void McpIdempotency_Test::reflowPage_collectsAllGeometries()
     QVERIFY(plan.geometries.contains(10));
     QVERIFY(plan.geometries.contains(11));
     QCOMPARE(plan.geometries.size(), 3);
+}
+
+void McpIdempotency_Test::reflowPage_multiColumnPreserved()
+{
+    // Two-column layout: left column (x=0..960), right sidebar (x=960..1270)
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+
+    // Left column: 2 frames
+    VCBridge::WidgetSnapshot left1 = makeSnap(1, 4, QRect(0, 0, 960, 300));
+    left1.children.append(makeSnap(10, 1, QRect(0, 0, 100, 60)));
+    page.children.append(left1);
+
+    VCBridge::WidgetSnapshot left2 = makeSnap(2, 4, QRect(0, 300, 960, 300));
+    left2.children.append(makeSnap(20, 1, QRect(0, 0, 100, 60)));
+    page.children.append(left2);
+
+    // Right sidebar: 1 frame
+    VCBridge::WidgetSnapshot right1 = makeSnap(3, 4, QRect(960, 0, 310, 500));
+    right1.children.append(makeSnap(30, 1, QRect(0, 0, 100, 60)));
+    page.children.append(right1);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    // Left column frames should stay in x range 0..960
+    QCOMPARE(plan.geometries[1].x(), 0);
+    QCOMPARE(plan.geometries[2].x(), 0);
+    QCOMPARE(plan.geometries[1].width(), 960);
+
+    // Right column frame should stay at x=960
+    QCOMPARE(plan.geometries[3].x(), 960);
+    QCOMPARE(plan.geometries[3].width(), 310);
+
+    // Left frames should stack vertically within their column
+    int left1Bottom = plan.geometries[1].y() + plan.geometries[1].height();
+    QVERIFY(plan.geometries[2].y() >= left1Bottom);
+
+    // Right frame should be at top of its column (y=pad), NOT stacked below left frames
+    QCOMPARE(plan.geometries[3].y(), opts.pad);
+}
+
+void McpIdempotency_Test::reflowPage_pageGrowsToTallestColumn()
+{
+    // Short page, tall left column
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 200));
+
+    VCBridge::WidgetSnapshot tallFrame = makeSnap(1, 4, QRect(0, 0, 960, 100));
+    for (int i = 0; i < 20; i++)
+        tallFrame.children.append(makeSnap(100 + i, 1, QRect(0, 0, 100, 60)));
+    page.children.append(tallFrame);
+
+    VCBridge::WidgetSnapshot sidebar = makeSnap(2, 4, QRect(960, 0, 310, 100));
+    sidebar.children.append(makeSnap(200, 1, QRect(0, 0, 100, 60)));
+    page.children.append(sidebar);
+
+    VCBridge::ReflowOptions opts;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    // Page should grow to fit the tall left column
+    QVERIFY(plan.geometries.contains(0)); // page itself was resized
+    QVERIFY(plan.geometries[0].height() > 200);
 }
 
 QTEST_MAIN(McpIdempotency_Test)

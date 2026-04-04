@@ -224,6 +224,10 @@ inline Json functionToJson(Function *fn)
         {"duration", (int)fn->totalDuration()}
     };
 
+    QString fnPath = fn->path(true);
+    if (!fnPath.isEmpty())
+        entry["path"] = fnPath.toStdString();
+
     if (fn->type() == Function::SceneType)
     {
         Scene *scene = qobject_cast<Scene*>(fn);

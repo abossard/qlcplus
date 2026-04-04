@@ -334,7 +334,13 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 "8. **Beat-aligned**: All chasers use tempoType \"beats\"; total duration = 4, 8, 16, or 32 beats\n"
                 "9. **Naming**: `{Phase}-{Phrase}-{Layer}` — e.g. P2-Drop-MoodCyan\n"
                 "10. **Idempotent**: All create tools upsert by name — safe to call repeatedly\n"
-                "11. **Palette-first**: Create palettes → reference in scenes → channelValues only for overrides\n";
+                "11. **Palette-first**: Create palettes → reference in scenes → channelValues only for overrides\n"
+                "12. **Folder organization**: Use the `path` parameter on all create tools to group functions into folders:\n"
+                "    - `Phase1/Scenes`, `Phase1/Chasers`, `Phase2/Scenes`, etc.\n"
+                "    - Folders are created implicitly — just set the path\n"
+                "    - To move an existing function, upsert it with a new `path`\n"
+                "    - Example: `create_scenes({items: [{name: 'P1-Intro-MoodGreen', path: 'Phase1/Scenes'}]})`\n"
+                "    - Recommended structure: `{Phase}/{FunctionType}` — keeps large shows navigable\n";
 
             return {PromptMessage{"user", guide}};
         };

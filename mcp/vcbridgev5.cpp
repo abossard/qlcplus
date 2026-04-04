@@ -1781,6 +1781,7 @@ static VCBridge::WidgetSnapshot snapshotWidget(VCWidget *widget)
     VCFrame *frame = qobject_cast<VCFrame *>(widget);
     if (frame)
     {
+        snap.showHeader = frame->showHeader();
         snap.parentID = -1;  // filled by caller
         for (VCWidget *child : frame->children(false))
         {

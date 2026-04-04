@@ -613,6 +613,7 @@ public:
         int id = -1;
         int parentID = -1;
         int type = 0;               // VCWidget::WidgetType (or 0 for unknown)
+        bool showHeader = true;     // frame header visible (affects child y offset)
         QRect geometry;
         QList<WidgetSnapshot> children;
     };
@@ -672,8 +673,10 @@ public:
      */
     static int reflowChildren(WidgetSnapshot &container, const ReflowOptions &opts)
     {
+        int hdrH = container.showHeader ? opts.headerHeight : 0;
+
         if (container.children.isEmpty())
-            return opts.headerHeight + opts.pad;
+            return hdrH + opts.pad;
 
         // Classify children by type, preserving order within each group
         QList<WidgetSnapshot *> buttons, sliders, frames, others;
@@ -695,7 +698,7 @@ public:
         }
 
         int parentWidth = container.geometry.width();
-        int y = opts.headerHeight;
+        int y = hdrH + opts.pad;  // gap between header and first content
 
         // Buttons in flow grid
         if (!buttons.isEmpty())
@@ -732,7 +735,7 @@ public:
         {
             int nestedHeight = reflowChildren(*f, opts);
             f->geometry = QRect(opts.pad, y, parentWidth - 2 * opts.pad, nestedHeight);
-            y += nestedHeight + opts.pad;
+            y += nestedHeight + opts.framePad;
         }
 
         // Other widgets — stack vertically
@@ -746,32 +749,99 @@ public:
     }
 
     /**
-     * Reflow an entire page: stacks top-level frames vertically,
-     * reflowing each frame's children recursively.
+     * Reflow an entire page: auto-detects column groupings from x-positions,
+     * then stacks frames vertically within each column independently.
+     * Preserves multi-column layouts (e.g. main content + sidebar).
      * Returns a LayoutPlan with all proposed geometry changes.
      */
     static LayoutPlan reflowPage(WidgetSnapshot &page, const ReflowOptions &opts)
     {
         LayoutPlan plan;
-        int y = opts.pad;
-        int pageWidth = page.geometry.width();
 
+        // --- Step 1: Cluster children into columns by x-overlap ---
+        struct Column {
+            int x;                              // left edge
+            int right;                          // right edge
+            QList<WidgetSnapshot *> children;
+        };
+        QList<Column> columns;
+
+        // Sort children indices by x position for stable clustering
+        QList<int> sortedIdx;
         for (int i = 0; i < page.children.size(); ++i)
-        {
-            WidgetSnapshot &child = page.children[i];
-            bool isFrame = (child.type == 4 || child.type == 5);
+            sortedIdx.append(i);
+        std::sort(sortedIdx.begin(), sortedIdx.end(), [&](int a, int b) {
+            return page.children[a].geometry.x() < page.children[b].geometry.x();
+        });
 
-            if (isFrame)
+        for (int idx : sortedIdx)
+        {
+            WidgetSnapshot &child = page.children[idx];
+            int cx = child.geometry.x();
+            int cr = cx + child.geometry.width();
+
+            // Try to place into an existing column with x-overlap
+            bool placed = false;
+            for (auto &col : columns)
             {
-                int requiredHeight = reflowChildren(child, opts);
-                child.geometry = QRect(opts.pad, y, pageWidth - 2 * opts.pad, requiredHeight);
-                y += requiredHeight + opts.framePad;
+                if (cx < col.right && cr > col.x)
+                {
+                    col.children.append(&child);
+                    col.x = qMin(col.x, cx);
+                    col.right = qMax(col.right, cr);
+                    placed = true;
+                    break;
+                }
             }
-            else
+            if (!placed)
+                columns.append({cx, cr, {&child}});
+        }
+
+        // Sort columns left-to-right
+        std::sort(columns.begin(), columns.end(), [](const Column &a, const Column &b) {
+            return a.x < b.x;
+        });
+
+        // --- Step 2: Reflow within each column independently ---
+        int maxColumnBottom = 0;
+
+        for (auto &col : columns)
+        {
+            // Sort children within column by original y position
+            std::sort(col.children.begin(), col.children.end(),
+                [](const WidgetSnapshot *a, const WidgetSnapshot *b) {
+                    return a->geometry.y() < b->geometry.y();
+                });
+
+            int colWidth = col.right - col.x;
+            int y = opts.pad;
+
+            for (WidgetSnapshot *child : col.children)
             {
-                child.geometry = QRect(opts.pad, y, child.geometry.width(), child.geometry.height());
-                y += child.geometry.height() + opts.pad;
+                bool isFrame = (child->type == 4 || child->type == 5);
+
+                if (isFrame)
+                {
+                    int requiredHeight = reflowChildren(*child, opts);
+                    child->geometry = QRect(col.x, y, colWidth, requiredHeight);
+                    y += requiredHeight + opts.framePad;
+                }
+                else
+                {
+                    child->geometry = QRect(col.x, y, child->geometry.width(), child->geometry.height());
+                    y += child->geometry.height() + opts.pad;
+                }
             }
+
+            maxColumnBottom = qMax(maxColumnBottom, y);
+        }
+
+        // --- Step 3: Grow page height if tallest column overflows ---
+        int requiredPageHeight = maxColumnBottom + opts.pad;
+        if (requiredPageHeight > page.geometry.height())
+        {
+            page.geometry.setHeight(requiredPageHeight);
+            plan.geometries.insert(page.id, page.geometry);
         }
 
         // Collect all changed geometries (recursive)

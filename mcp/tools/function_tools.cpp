@@ -54,6 +54,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Moods'). Creates folders implicitly."}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
                 {"paletteIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Palette IDs to reference. Palettes provide reusable values (color, position, dimmer)."}}},
@@ -82,7 +83,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "channelValues", "positions"});
+                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "channelValues", "positions"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name"))
@@ -135,6 +136,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 // Register fixtures on the scene (required for palette resolution)
                 for (quint32 fxId : fixtureIDs)
                     scene->addFixture(fxId);
+
+                if (item.contains("path"))
+                    scene->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
                 if (item.contains("fadeIn"))
                     scene->setFadeInSpeed(item.at("fadeIn").get<int>());
@@ -407,6 +411,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Chasers'). Creates folders implicitly."}}},
                 {"steps", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"functionID", {{"type", "integer"}}},
                     {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
@@ -431,7 +436,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "steps", "tempoType", "runOrder", "direction", "fadeInMode", "fadeOutMode", "durationMode"});
+                auto err = validateFields(item, {"name", "path", "steps", "tempoType", "runOrder", "direction", "fadeInMode", "fadeOutMode", "durationMode"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name") || !item.contains("steps") || !item.at("steps").is_array())
@@ -457,6 +462,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     chaser->setName(name);
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    chaser->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
                 // Speed modes (default to perStep since steps carry their own timing)
                 auto parseSpeedMode = [](const std::string &mode) -> Chaser::SpeedMode {
@@ -542,6 +550,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Sequences'). Creates folders implicitly."}}},
                 {"boundSceneID", {{"type", "integer"}, {"description", "Scene ID this sequence is bound to"}}},
                 {"fadeIn", {{"type", "integer"}, {"description", "Fade in time per step in ms (default 0)"}}},
                 {"fadeOut", {{"type", "integer"}, {"description", "Fade out time per step in ms (default 0)"}}},
@@ -559,7 +568,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "runOrder", "direction"});
+                auto err = validateFields(item, {"name", "path", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "runOrder", "direction"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name") || !item.contains("boundSceneID"))
@@ -582,6 +591,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     seq->setName(name);
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    seq->setPath(QString::fromStdString(item.at("path").get<std::string>()));
+
                 seq->setBoundSceneID(item.at("boundSceneID").get<int>());
 
                 seq->setFadeInSpeed(item.value("fadeIn", 0));
@@ -620,6 +633,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Effects/EFX'). Creates folders implicitly."}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
                 {"algorithm", {{"type", "string"}, {"enum", {"Circle", "Eight", "Line", "Line2", "Diamond", "Square", "SquareChoppy", "SquareTrue", "Leaf", "Lissajous"}}, {"description", "Pattern algorithm (default Circle)"}}},
@@ -649,7 +663,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "algorithm", "width", "height", "xOffset", "yOffset", "rotation", "startOffset", "xFrequency", "yFrequency", "xPhase", "yPhase", "isRelative", "propagationMode", "speed", "fadeIn", "fadeOut", "runOrder", "direction", "head"});
+                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "algorithm", "width", "height", "xOffset", "yOffset", "rotation", "startOffset", "xFrequency", "yFrequency", "xPhase", "yPhase", "isRelative", "propagationMode", "speed", "fadeIn", "fadeOut", "runOrder", "direction", "head"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -678,6 +692,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     efx->setName(name);
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    efx->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
                 // Algorithm
                 QString algo = QString::fromStdString(item.value("algorithm", "Circle"));
@@ -750,6 +767,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Collections'). Creates folders implicitly."}}},
                 {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"functionNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Function names to include. Alternative to functionIDs."}}}
             }}, {"required", {"name"}}}}}}
@@ -760,7 +778,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "functionIDs", "functionNames"});
+                auto err = validateFields(item, {"name", "path", "functionIDs", "functionNames"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -780,6 +798,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     col->setName(name);
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    col->setPath(QString::fromStdString(item.at("path").get<std::string>()));
+
                 // Resolve function IDs from names or direct IDs
                 QList<quint32> funcIDs;
                 if (item.contains("functionNames"))
@@ -816,6 +838,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Effects/RGB'). Creates folders implicitly."}}},
                 {"fixtureGroupID", {{"type", "integer"}}},
                 {"algorithm", {{"type", "string"}}},
                 {"startColor", {{"type", "string"}, {"description", "Hex color e.g. #FF0000"}}},
@@ -828,7 +851,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "fixtureGroupID", "algorithm", "startColor", "endColor"});
+                auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm", "startColor", "endColor"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -845,6 +868,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     matrix->setName(name);
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    matrix->setPath(QString::fromStdString(item.at("path").get<std::string>()));
+
                 if (item.contains("fixtureGroupID"))
                     matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
                 if (item.contains("algorithm"))
@@ -946,6 +973,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Utilities/Scripts'). Creates folders implicitly."}}},
                 {"commands", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"type", {{"type", "string"}, {"description", "Command type: startfunction, stopfunction, wait, setfixture, blackout, label, jump"}}},
                     {"functionID", {{"type", "integer"}, {"description", "Function ID (for startfunction/stopfunction)"}}},
@@ -965,7 +993,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "commands"});
+                auto err = validateFields(item, {"name", "path", "commands"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 std::string name = item.at("name").get<std::string>();
@@ -983,6 +1011,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     script->setName(QString::fromStdString(name));
                     isNew = true;
                 }
+
+                if (item.contains("path"))
+                    script->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
                 // Validate commands before building script
                 Json cmdErrors = Json::array();
