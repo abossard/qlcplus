@@ -238,7 +238,9 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 "5. **Build scenes per phase × phrase × layer** — use `create_scenes` with `paletteNames`\n"
                 "6. Create phrase chasers (beat-synced sequence within one phase)\n"
                 "7. Bundle into phase collections (each collection = one phase's full look)\n"
-                "8. Build VC with Phase + Phrase SoloFrames\n\n"
+                "8. **Optional: create scripts** — `create_scripts` for effects that need randomness, audio-reactivity, "
+                "easing, or state machines (candle flicker, storm lightning, BPM-synced patterns, audio-driven color)\n"
+                "9. Build VC with Phase + Phrase SoloFrames\n\n"
 
                 "---\n\n"
                 "## Layer Architecture\n"
@@ -309,6 +311,11 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                     "| Mid Drive | level | Gobo/prism speed | Texture breathes with melody |\n" : "") +
                 "| Treble Flash | level | Strobe/shutter | Hi-hat triggers flashes |\n"
                 "| Master | grandmaster | (all) | Overall brightness cap |\n\n"
+                "**Tip:** For more advanced audio-reactive behavior, use `create_scripts` with JavaScript. "
+                "Scripts can read `Engine.getAudioFrequency(0,3)` (bass), `Engine.getAudioFrequency(1,3)` (mid), "
+                "`Engine.getAudioFrequency(2,3)` (high) and `Engine.getAudioLevel()` to drive fixture values directly. "
+                "Scripts can also read `Engine.getBPM()` and `Engine.getBeatDuration()` for beat-synced algorithms, "
+                "or use easing, randomness, and state machines for organic effects that sliders can't achieve.\n\n"
 
                 "## Live Capture Workflow\n"
                 "- `read_dmx_values` — read current DMX output for any fixture/channel filter\n"

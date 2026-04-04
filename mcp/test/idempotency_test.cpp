@@ -36,9 +36,6 @@
 #include "fixturegroup.h"
 #include "qlcinputprofile.h"
 
-#include <set>
-#include <vector>
-
 void McpIdempotency_Test::initTestCase()
 {
     m_doc = new Doc(this);
@@ -395,103 +392,6 @@ void McpIdempotency_Test::resolveFunction_returnsInvalidWhenNotFound()
 {
     QCOMPARE(mcp::resolveFunctionByName(m_doc, "Nothing"), Function::invalidId());
     QCOMPARE(mcp::resolveFunctionByName(m_doc, "Nothing", Function::SceneType), Function::invalidId());
-}
-
-// ========== Script deduplication ==========
-
-// Mirrors the dedup algorithm from create_scripts tool
-QString McpIdempotency_Test::buildDedupedScript(const QVector<QPair<QString,int>> &commands)
-{
-    QString scriptData;
-    int i = 0;
-    while (i < commands.size())
-    {
-        const auto &cmd = commands[i];
-        if (cmd.first == "stopfunction" || cmd.first == "startfunction")
-        {
-            std::set<int> stopIDs;
-            std::vector<int> startIDs;
-            std::set<int> startIDSet;
-
-            while (i < commands.size())
-            {
-                const auto &c = commands[i];
-                if (c.first == "stopfunction")
-                {
-                    stopIDs.insert(c.second);
-                    i++;
-                }
-                else if (c.first == "startfunction")
-                {
-                    if (startIDSet.find(c.second) == startIDSet.end())
-                    {
-                        startIDs.push_back(c.second);
-                        startIDSet.insert(c.second);
-                    }
-                    i++;
-                }
-                else
-                    break;
-            }
-
-            for (int sid : startIDSet)
-                stopIDs.erase(sid);
-
-            for (int sid : stopIDs)
-                scriptData += QString("stopfunction:%1\n").arg(sid);
-            for (int sid : startIDs)
-                scriptData += QString("startfunction:%1\n").arg(sid);
-        }
-        else if (cmd.first == "wait")
-        {
-            scriptData += QString("wait:%1\n").arg(cmd.second);
-            i++;
-        }
-        else
-        {
-            i++;
-        }
-    }
-    return scriptData;
-}
-
-void McpIdempotency_Test::scriptDedup_removesStopForStartedFunction()
-{
-    // Stop 10, start 10 → only start 10 (function keeps running)
-    QVector<QPair<QString,int>> commands = {
-        {"stopfunction", 10},
-        {"startfunction", 10}
-    };
-    QString result = buildDedupedScript(commands);
-    QVERIFY(!result.contains("stopfunction:10"));
-    QVERIFY(result.contains("startfunction:10"));
-}
-
-void McpIdempotency_Test::scriptDedup_removesDuplicateStops()
-{
-    // Stop 5 twice, stop 7 once → stop 5 once, stop 7 once
-    QVector<QPair<QString,int>> commands = {
-        {"stopfunction", 5},
-        {"stopfunction", 5},
-        {"stopfunction", 7}
-    };
-    QString result = buildDedupedScript(commands);
-    QCOMPARE(result.count("stopfunction:5"), 1);
-    QCOMPARE(result.count("stopfunction:7"), 1);
-}
-
-void McpIdempotency_Test::scriptDedup_preservesAcrossWait()
-{
-    // Stop 10, wait, start 10 → both stop and start preserved (wait breaks the block)
-    QVector<QPair<QString,int>> commands = {
-        {"stopfunction", 10},
-        {"wait", 1000},
-        {"startfunction", 10}
-    };
-    QString result = buildDedupedScript(commands);
-    QVERIFY(result.contains("stopfunction:10"));
-    QVERIFY(result.contains("wait:1000"));
-    QVERIFY(result.contains("startfunction:10"));
 }
 
 /*************************************************************************

@@ -706,6 +706,88 @@ void ScriptTool_Test::pattern_easedFade()
     QVERIFY2(!r.contains("error"), r.dump().c_str());
 }
 
+void ScriptTool_Test::pattern_bpmReactive()
+{
+    auto r = callCreateScript("BpmReactive",
+        "var bpm = Engine.getBPM();\n"
+        "var beatMs = Engine.getBeatDuration();\n"
+        "if (bpm > 0 && beatMs > 0) {\n"
+        "    for (var beat = 0; beat < 16; beat++) {\n"
+        "        Engine.setFixture(0, 0, 255);\n"
+        "        Engine.waitTime(Math.round(beatMs / 4));\n"
+        "        Engine.setFixture(0, 0, 0);\n"
+        "        Engine.waitTime(Math.round(beatMs * 3 / 4));\n"
+        "    }\n"
+        "}\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::pattern_audioReactive()
+{
+    auto r = callCreateScript("AudioReactive",
+        "for (var tick = 0; tick < 200; tick++) {\n"
+        "    var level = Engine.getAudioLevel();\n"
+        "    var bass = Engine.getAudioFrequency(0, 3);\n"
+        "    var mid = Engine.getAudioFrequency(1, 3);\n"
+        "    var high = Engine.getAudioFrequency(2, 3);\n"
+        "    Engine.setFixture(0, 0, level);\n"
+        "    Engine.setFixture(0, 1, bass);\n"
+        "    Engine.setFixture(0, 2, mid);\n"
+        "    Engine.setFixture(0, 3, high);\n"
+        "    Engine.waitTime(25);\n"
+        "}\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::pattern_audioSpectrum16Band()
+{
+    auto r = callCreateScript("Spectrum16",
+        "for (var tick = 0; tick < 100; tick++) {\n"
+        "    for (var band = 0; band < 16; band++) {\n"
+        "        var mag = Engine.getAudioFrequency(band, 16);\n"
+        "        Engine.setFixture(band, 0, mag);\n"
+        "    }\n"
+        "    Engine.waitTime(25);\n"
+        "}\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+// ── New Engine API: BPM + Audio ────────────────────────────────────────────
+
+void ScriptTool_Test::engineApi_getBPM()
+{
+    auto r = callCreateScript("GetBPM", "var bpm = Engine.getBPM();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getBeatDuration()
+{
+    auto r = callCreateScript("GetBeatDur", "var beatMs = Engine.getBeatDuration();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_isBeat()
+{
+    auto r = callCreateScript("IsBeat", "var onBeat = Engine.isBeat();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getAudioLevel()
+{
+    auto r = callCreateScript("GetAudio", "var level = Engine.getAudioLevel();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getAudioFrequency()
+{
+    auto r = callCreateScript("GetFreq",
+        "var bass = Engine.getAudioFrequency(0, 3);\n"
+        "var mid = Engine.getAudioFrequency(1, 3);\n"
+        "var high = Engine.getAudioFrequency(2, 3);\n"
+        "var sub = Engine.getAudioFrequency(0, 16);\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Edge cases
 // ═══════════════════════════════════════════════════════════════════════════

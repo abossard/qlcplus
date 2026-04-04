@@ -101,6 +101,28 @@ int AudioCapture::defaultBarsNumber() const
     return FREQ_SUBBANDS_DEFAULT_NUMBER;
 }
 
+double AudioCapture::bandMagnitude(int bandIndex, int numBands) const
+{
+    if (!m_fftMagnitudeMap.contains(numBands))
+        return 0.0;
+    const auto &buf = m_fftMagnitudeMap[numBands].m_fftMagnitudeBuffer;
+    if (bandIndex < 0 || bandIndex >= buf.size())
+        return 0.0;
+    return buf[bandIndex];
+}
+
+double AudioCapture::bandMaxMagnitude(int numBands) const
+{
+    if (!m_fftMagnitudeMap.contains(numBands))
+        return 0.0;
+    const auto &buf = m_fftMagnitudeMap[numBands].m_fftMagnitudeBuffer;
+    double maxVal = 0.0;
+    for (int i = 0; i < buf.size(); i++)
+        if (buf[i] > maxVal)
+            maxVal = buf[i];
+    return maxVal;
+}
+
 void AudioCapture::registerBandsNumber(int number)
 {
     qDebug() << "[AudioCapture] registering" << number << "bands";

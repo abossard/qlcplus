@@ -403,10 +403,11 @@ classDiagram
     class create_scripts {
         <<idempotent>>
         +name: string
-        +commands: string[]
+        +content: string (JavaScript)
         --
         Ref: function_tools.cpp
         Engine: Script::setData()
+        Validates JS via ScriptRunner::collectScriptData()
     }
 
     class delete_functions {

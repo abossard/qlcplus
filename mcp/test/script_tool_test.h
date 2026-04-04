@@ -91,6 +91,16 @@ private slots:
     void pattern_stateMachine();
     void pattern_reactiveFollow();
     void pattern_easedFade();
+    void pattern_bpmReactive();
+    void pattern_audioReactive();
+    void pattern_audioSpectrum16Band();
+
+    // ── New Engine API: BPM + Audio ────────────────────────────────────
+    void engineApi_getBPM();
+    void engineApi_getBeatDuration();
+    void engineApi_isBeat();
+    void engineApi_getAudioLevel();
+    void engineApi_getAudioFrequency();
 
     // ── Edge cases ─────────────────────────────────────────────────────
     void edge_longScript();

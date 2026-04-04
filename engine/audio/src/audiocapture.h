@@ -124,6 +124,16 @@ public:
     /** @reimpl */
     void run() override;
 
+    /** Get the current smoothed signal power (audio volume) */
+    quint32 signalPower() const { return m_signalPower; }
+
+    /** Get the magnitude for a specific band in a registered band set.
+     *  Returns 0.0 if numBands is not registered or bandIndex is out of range. */
+    double bandMagnitude(int bandIndex, int numBands) const;
+
+    /** Get the maximum magnitude across all bands in a registered band set. */
+    double bandMaxMagnitude(int numBands) const;
+
 protected:
     void stop();
 

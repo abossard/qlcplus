@@ -24,6 +24,7 @@
 #include <QQueue>
 #include <QPair>
 #include <QMap>
+#include <QSet>
 #include "function.h"
 
 class GenericFader;
@@ -224,6 +225,43 @@ public slots:
      */
     int random(int minTime, int maxTime);
 
+    /**
+     * Get the current BPM from the beat generator (internal, MIDI, or audio)
+     *
+     * @return current BPM, or 0 if no beat source is active
+     */
+    int getBPM();
+
+    /**
+     * Get the duration of one beat in milliseconds at the current BPM
+     *
+     * @return beat duration in ms (e.g. 500 at 120 BPM), or 0
+     */
+    int getBeatDuration();
+
+    /**
+     * Check if the current MasterTimer tick falls on a beat
+     *
+     * @return true if the current tick is a beat
+     */
+    bool isBeat();
+
+    /**
+     * Get the overall audio input level
+     *
+     * @return audio volume scaled to 0-255, or 0 if no audio capture
+     */
+    int getAudioLevel();
+
+    /**
+     * Get the magnitude of a frequency band from audio input FFT
+     *
+     * @param bandIndex which band (0 to numBands-1)
+     * @param numBands total number of log-spaced bands (e.g. 3 for bass/mid/high, 16 for detailed)
+     * @return magnitude scaled to 0-255, or 0 if no audio capture or out of range
+     */
+    int getAudioFrequency(int bandIndex, int numBands);
+
 protected slots:
     /** Triggered when the script's execution pauses to await the starting of a function */
     void slotWaitFunctionStarted(quint32 fid);
@@ -272,6 +310,8 @@ private:
     quint32 m_waitFunctionId;
     // Map used to lookup a GenericFader instance for a Universe ID
     QMap<quint32, QSharedPointer<GenericFader> > m_fadersMap;
+    // Track which band counts we registered with AudioCapture
+    QSet<int> m_registeredBands;
 };
 
 #endif

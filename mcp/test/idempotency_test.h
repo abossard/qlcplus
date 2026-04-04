@@ -66,11 +66,6 @@ private slots:
     void resolveFunction_findsByNameAndType();
     void resolveFunction_returnsInvalidWhenNotFound();
 
-    // Script deduplication
-    void scriptDedup_removesStopForStartedFunction();
-    void scriptDedup_removesDuplicateStops();
-    void scriptDedup_preservesAcrossWait();
-
     // Flow layout positioning
     void flowLayout_singleWidget();
     void flowLayout_autoColumnsWrap();
@@ -128,8 +123,6 @@ private slots:
 private:
     Doc *m_doc;
 
-    /** Helper: builds a deduped script data string from a command list (mirrors tool logic) */
-    static QString buildDedupedScript(const QVector<QPair<QString,int>> &commands);
 };
 
 #endif // IDEMPOTENCY_TEST_H

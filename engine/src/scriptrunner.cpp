@@ -30,6 +30,7 @@
 #include "genericfader.h"
 #include "fadechannel.h"
 #include "mastertimer.h"
+#include "audiocapture.h"
 #include "universe.h"
 
 ScriptRunner::ScriptRunner(Doc *doc, const QString &content, QObject *parent)
@@ -89,6 +90,18 @@ void ScriptRunner::stop()
             fader->requestDelete();
     }
     m_fadersMap.clear();
+
+    // Unregister any audio bands we registered
+    if (!m_registeredBands.isEmpty())
+    {
+        QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
+        if (!capture.isNull())
+        {
+            for (int bands : m_registeredBands)
+                capture->unregisterBandsNumber(bands);
+        }
+        m_registeredBands.clear();
+    }
 
     m_running = false;
 }
@@ -584,4 +597,71 @@ int ScriptRunner::random(int minTime, int maxTime)
         return 0;
 
     return QRandomGenerator::global()->generate() % ((maxTime + 1) - minTime) + minTime;
+}
+
+int ScriptRunner::getBPM()
+{
+    if (m_running == false)
+        return 0;
+
+    return m_doc->inputOutputMap()->bpmNumber();
+}
+
+int ScriptRunner::getBeatDuration()
+{
+    if (m_running == false)
+        return 0;
+
+    return m_doc->masterTimer()->beatTimeDuration();
+}
+
+bool ScriptRunner::isBeat()
+{
+    if (m_running == false)
+        return false;
+
+    return m_doc->masterTimer()->isBeat();
+}
+
+int ScriptRunner::getAudioLevel()
+{
+    if (m_running == false)
+        return 0;
+
+    QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
+    if (capture.isNull())
+        return 0;
+
+    // Scale from 0-32767 to 0-255
+    quint32 power = capture->signalPower();
+    return qBound(0, (int)(power * 255 / 32767), 255);
+}
+
+int ScriptRunner::getAudioFrequency(int bandIndex, int numBands)
+{
+    if (m_running == false)
+        return 0;
+
+    if (numBands <= 0 || bandIndex < 0 || bandIndex >= numBands)
+        return 0;
+
+    QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
+    if (capture.isNull())
+        return 0;
+
+    // Register this band count if not yet registered
+    if (!m_registeredBands.contains(numBands))
+    {
+        capture->registerBandsNumber(numBands);
+        m_registeredBands.insert(numBands);
+    }
+
+    double magnitude = capture->bandMagnitude(bandIndex, numBands);
+    double maxMag = capture->bandMaxMagnitude(numBands);
+
+    if (maxMag <= 0.0)
+        return 0;
+
+    // Normalize to 0-255 relative to the max magnitude across bands
+    return qBound(0, (int)(magnitude * 255.0 / maxMag), 255);
 }
