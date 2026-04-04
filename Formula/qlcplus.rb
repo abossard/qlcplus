@@ -6,7 +6,7 @@ class Qlcplus < Formula
 
   on_macos do
     url "https://github.com/abossard/qlcplus/releases/download/mcp-latest/qlcplus-pre-macos-arm64.tar.gz"
-    sha256 "57bb0860bd1337a0a5e1f64a5b31ac36c0f98d1877be78f9bafc9d74d53630f0" # macos-arm64
+    sha256 "0d8c6221af6bcc13a83fe75112faaa0124d6b214d12e7601a9373a2c1305bd9c" # macos-arm64
   end
 
   def install
