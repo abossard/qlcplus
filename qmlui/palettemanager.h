@@ -92,8 +92,6 @@ public:
     int colorCount() const { return m_colorCount; }
     int positionCount() const { return m_positionCount; }
 
-    void updatePaletteList();
-
 signals:
     void typeFilterChanged();
     void searchFilterChanged();
@@ -105,6 +103,7 @@ signals:
 
 public slots:
     void slotDocLoaded();
+    void updatePaletteList();
 
 private:
     /** Reference to the QML view root */
