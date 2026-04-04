@@ -124,10 +124,6 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
     // create_palettes (batch)
     static const std::string typeDesc =
         "Palette type: Dimmer, Color, Pan, Tilt, PanTilt";
-    static const std::string fanningDesc =
-        "Optional fanning. type: Flat|Linear|Sine|Square|Saw. "
-        "layout: XAscending|XDescending|XCentered|YAscending|YDescending|YCentered|ZAscending|ZDescending|ZCentered. "
-        "amount: 0-1000 (percentage). value: fanning end value (int for Dimmer, '#rrggbb' for Color, degrees for Position).";
 
     tm.register_tool(Tool(
         "create_palettes",
@@ -139,13 +135,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"panDegrees", {{"type", "number"}, {"description", "Pan degrees (Pan or PanTilt type)"}}},
                 {"tiltDegrees", {{"type", "number"}, {"description", "Tilt degrees (Tilt or PanTilt type)"}}},
                 {"rgb", {{"type", "string"}, {"description", "Color: RGB hex '#rrggbb'"}}},
-                {"wauv", {{"type", "string"}, {"description", "Color: White/Amber/UV hex '#wwaauu' (optional, default '#000000')"}}},
-                {"fanning", {{"type", "object"}, {"description", fanningDesc}, {"properties", {
-                    {"type", {{"type", "string"}}},
-                    {"layout", {{"type", "string"}}},
-                    {"amount", {{"type", "integer"}}},
-                    {"value", {}}
-                }}}}
+                {"wauv", {{"type", "string"}, {"description", "Color: White/Amber/UV hex '#wwaauu' (optional, default '#000000')"}}}
             }}, {"required", {"name", "type"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -159,7 +149,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto itemErr = validateFields(item, {"name", "type", "value", "panDegrees", "tiltDegrees", "rgb", "wauv", "fanning"});
+                auto itemErr = validateFields(item, {"name", "type", "value", "panDegrees", "tiltDegrees", "rgb", "wauv"});
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
 
                 if (!item.contains("name") || !item.contains("type"))
