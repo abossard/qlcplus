@@ -24,11 +24,11 @@
 #include "doc.h"
 #include "qlcfixturedefcache.h"
 #include "qlcfixturemode.h"
+#include "qlcpalette.h"
+#include "scene.h"
 #include "inputoutputmap.h"
 #include "inputpatch.h"
 #include "outputpatch.h"
-#include "universe.h"
-#include "inputoutputmap.h"
 #include "universe.h"
 
 #include <fastmcpp/tools/manager.hpp>
@@ -821,6 +821,111 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         },
         std::nullopt,
         std::string("List all configured DMX universes with their I/O plugin assignments."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // query_palettes — list all palettes
+    tm.register_tool(Tool(
+        "query_palettes",
+        Json{{"type", "object"}, {"properties", {
+            {"typeFilter", {{"type", "string"},
+                {"description", "Filter by type: Dimmer, Color, Pan, Tilt, PanTilt (omit for all)"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"typeFilter"});
+            if (!err.empty()) return err;
+
+            // Optional type filter
+            QLCPalette::PaletteType filterType = QLCPalette::Undefined;
+            if (args.contains("typeFilter"))
+            {
+                QString tf = QString::fromStdString(args.at("typeFilter").get<std::string>());
+                filterType = QLCPalette::stringToType(tf);
+            }
+
+            // Build reverse map: palette ID → list of scenes that reference it
+            QMap<quint32, QList<QPair<quint32, QString>>> paletteSceneRefs;
+            for (Function *fn : doc->functions())
+            {
+                if (fn->type() != Function::SceneType) continue;
+                Scene *scene = qobject_cast<Scene*>(fn);
+                if (!scene) continue;
+                for (quint32 palId : scene->palettes())
+                    paletteSceneRefs[palId].append({scene->id(), scene->name()});
+            }
+
+            Json results = Json::array();
+            for (QLCPalette *p : doc->palettes())
+            {
+                if (filterType != QLCPalette::Undefined && p->type() != filterType)
+                    continue;
+
+                Json entry;
+                entry["id"] = (int)p->id();
+                entry["name"] = p->name().toStdString();
+                entry["type"] = QLCPalette::typeToString(p->type()).toStdString();
+
+                // Type-specific values
+                switch (p->type())
+                {
+                    case QLCPalette::Dimmer:
+                        entry["value"] = p->intValue1();
+                        break;
+                    case QLCPalette::Color:
+                        entry["rgb"] = p->rgbValue().name().toStdString();
+                        entry["wauv"] = p->wauvValue().name().toStdString();
+                        break;
+                    case QLCPalette::Pan:
+                        entry["panDegrees"] = p->floatValue1();
+                        break;
+                    case QLCPalette::Tilt:
+                        entry["tiltDegrees"] = p->floatValue1();
+                        break;
+                    case QLCPalette::PanTilt:
+                        entry["panDegrees"] = p->floatValue1();
+                        entry["tiltDegrees"] = (double)p->intValue2();
+                        break;
+                    default:
+                        break;
+                }
+
+                // Fanning
+                if (p->fanningType() != QLCPalette::Flat)
+                {
+                    Json fan;
+                    fan["type"] = QLCPalette::fanningTypeToString(p->fanningType()).toStdString();
+                    fan["layout"] = QLCPalette::fanningLayoutToString(p->fanningLayout()).toStdString();
+                    fan["amount"] = p->fanningAmount();
+                    QVariant fv = p->fanningValue();
+                    if (fv.canConvert<QColor>())
+                        fan["value"] = fv.value<QColor>().name().toStdString();
+                    else if (fv.canConvert<double>())
+                        fan["value"] = fv.toDouble();
+                    else if (fv.canConvert<int>())
+                        fan["value"] = fv.toInt();
+                    entry["fanning"] = fan;
+                }
+
+                // Scene references
+                if (paletteSceneRefs.contains(p->id()))
+                {
+                    Json refs = Json::array();
+                    for (auto &pair : paletteSceneRefs[p->id()])
+                        refs.push_back({{"sceneID", (int)pair.first}, {"sceneName", pair.second.toStdString()}});
+                    entry["referencedByScenes"] = refs;
+                }
+
+                results.push_back(entry);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("List all palettes with their type, values, fanning config, and which scenes reference them. "
+                     "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

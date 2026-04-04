@@ -19,12 +19,16 @@
 
 #include "tool_registry.h"
 #include "conversions.h"
+#include "idempotency.h"
 #include "doc.h"
 #include "fixture.h"
 #include "qlcchannel.h"
 #include "qlcphysical.h"
+#include "qlcfixturemode.h"
 #include "qlcmodifierscache.h"
 #include "scenevalue.h"
+#include "inputoutputmap.h"
+#include "universe.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -279,6 +283,143 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // read_dmx_values — read current live DMX output
+    tm.register_tool(Tool(
+        "read_dmx_values",
+        Json{{"type", "object"}, {"properties", {
+            {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                {"description", "Fixture IDs to read (empty = all patched)"}}},
+            {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}},
+                {"description", "Fixture name patterns (glob: * ?)"}}},
+            {"channelFilter", {{"type", "string"},
+                {"description", "Filter by channel group: all (default), dimmer, color, position, gobo, shutter, beam, effect"}}},
+            {"nonZeroOnly", {{"type", "boolean"},
+                {"description", "Only return channels with non-zero values (default false)"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"fixtureIDs", "fixtureNames", "channelFilter", "nonZeroOnly"});
+            if (!err.empty()) return err;
+
+            bool nonZero = args.value("nonZeroOnly", false);
+            std::string filter = args.value("channelFilter", "all");
+
+            // Map filter string to QLCChannel::Group set
+            auto groupMatches = [&](QLCChannel::Group g) -> bool {
+                if (filter == "all") return true;
+                if (filter == "dimmer")   return g == QLCChannel::Intensity;
+                if (filter == "color")    return g == QLCChannel::Colour;
+                if (filter == "position") return g == QLCChannel::Pan || g == QLCChannel::Tilt;
+                if (filter == "gobo")     return g == QLCChannel::Gobo;
+                if (filter == "shutter")  return g == QLCChannel::Shutter;
+                if (filter == "beam")     return g == QLCChannel::Beam;
+                if (filter == "effect")   return g == QLCChannel::Effect;
+                return true;
+            };
+
+            // Resolve fixture IDs
+            QList<quint32> fixtureIDs;
+            if (args.contains("fixtureNames") && args.at("fixtureNames").is_array())
+            {
+                for (auto &p : args.at("fixtureNames"))
+                {
+                    auto ids = mcp::resolveFixturesByName(doc, QString::fromStdString(p.get<std::string>()));
+                    for (quint32 id : ids)
+                        if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                }
+            }
+            if (args.contains("fixtureIDs") && args.at("fixtureIDs").is_array())
+            {
+                for (auto &fid : args.at("fixtureIDs"))
+                {
+                    quint32 id = fid.get<int>();
+                    if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                }
+            }
+            // Default: all patched fixtures
+            if (fixtureIDs.isEmpty())
+            {
+                for (Fixture *fxi : doc->fixtures())
+                    fixtureIDs.append(fxi->id());
+            }
+
+            // Read preGM values from universes
+            InputOutputMap *ioMap = doc->inputOutputMap();
+            QList<Universe*> universes = ioMap->claimUniverses();
+
+            Json fixtures = Json::array();
+            for (quint32 fxID : fixtureIDs)
+            {
+                Fixture *fxi = doc->fixture(fxID);
+                if (!fxi) continue;
+
+                int uniIdx = fxi->universe();
+                int baseAddr = fxi->address();
+                if (uniIdx < 0 || uniIdx >= universes.count()) continue;
+
+                Universe *uni = universes.at(uniIdx);
+                const QByteArray preGM = uni->preGMValues();
+
+                Json channels = Json::array();
+                for (quint32 ch = 0; ch < fxi->channels(); ch++)
+                {
+                    const QLCChannel *qlcCh = fxi->channel(ch);
+                    if (!qlcCh) continue;
+                    if (!groupMatches(qlcCh->group())) continue;
+
+                    int absAddr = baseAddr + (int)ch;
+                    uchar val = (absAddr < preGM.size()) ? static_cast<uchar>(preGM.at(absAddr)) : 0;
+
+                    if (nonZero && val == 0) continue;
+
+                    Json chEntry;
+                    chEntry["channel"] = (int)ch;
+                    chEntry["name"] = qlcCh->name().toStdString();
+                    chEntry["group"] = QLCChannel::groupToString(qlcCh->group()).toStdString();
+                    chEntry["value"] = (int)val;
+
+                    // Add degree conversion for position/zoom channels
+                    if (qlcCh->group() == QLCChannel::Pan || qlcCh->group() == QLCChannel::Tilt)
+                    {
+                        QLCFixtureMode *mode = fxi->fixtureMode();
+                        if (mode)
+                        {
+                            QLCPhysical phy = mode->physical();
+                            double maxDeg = (qlcCh->group() == QLCChannel::Pan) ? phy.focusPanMax() : phy.focusTiltMax();
+                            if (maxDeg > 0)
+                                chEntry["degrees"] = (val / 255.0) * maxDeg;
+                        }
+                    }
+
+                    channels.push_back(chEntry);
+                }
+
+                if (!channels.empty())
+                {
+                    fixtures.push_back({
+                        {"fixtureID", (int)fxID},
+                        {"fixtureName", fxi->name().toStdString()},
+                        {"channels", channels}
+                    });
+                }
+            }
+
+            ioMap->releaseUniverses(false);
+
+            return Json({{"fixtures", fixtures}}).dump();
+            });
+        },
+        std::nullopt,
+        std::string("Read current live DMX output values (pre-Grand Master) for fixtures. "
+                     "Returns the merged result of all running functions. "
+                     "Filter by channel group and optionally exclude zero values. "
+                     "Position/zoom channels include degree conversion. "
+                     "Use with update_scene_from_dmx to capture live state into scenes."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

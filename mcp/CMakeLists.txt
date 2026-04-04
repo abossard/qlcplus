@@ -22,6 +22,7 @@ set(MCP_SOURCES
     tools/vc_layout_tools.cpp
     tools/io_tools.cpp
     tools/channel_tools.cpp
+    tools/palette_tools.cpp
     tools/prompts.cpp
 )
 

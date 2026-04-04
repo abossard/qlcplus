@@ -54,3 +54,23 @@ target_link_libraries(mcp_vc_structs_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
 )
+
+# Palette Integration tests — exercises palette CRUD, scene-palette refs, functionToJson with palettes
+add_executable(mcp_palette_integration_test WIN32
+    palette_integration_test.cpp palette_integration_test.h
+)
+
+target_include_directories(mcp_palette_integration_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_palette_integration_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+    nlohmann_json::nlohmann_json
+)

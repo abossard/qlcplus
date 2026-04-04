@@ -23,6 +23,7 @@
 #include "doc.h"
 #include "fixture.h"
 #include "qlcchannel.h"
+#include "qlcpalette.h"
 #include "scene.h"
 #include "chaser.h"
 #include "chaserstep.h"
@@ -35,7 +36,10 @@
 #include "fixturegroup.h"
 #include "script.h"
 #include "scenevalue.h"
+#include "inputoutputmap.h"
+#include "universe.h"
 
+#include <QRegularExpression>
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
@@ -52,13 +56,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"name", {{"type", "string"}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
+                {"paletteIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Palette IDs to reference. Palettes provide reusable values (color, position, dimmer)."}}},
+                {"paletteNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Palette names to reference (glob patterns). Resolved from existing palettes."}}},
                 {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
                 {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
                 {"channelValues", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}},
                     {"channel", {{"type", "integer"}}},
                     {"value", {{"type", "integer"}}}
-                }}}}, {"description", "Explicit DMX channel values. Each entry sets exactly one channel on one fixture."}}},
+                }}}}, {"description", "Explicit DMX channel values (override palettes). Each entry sets exactly one channel on one fixture."}}},
                 {"positions", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}},
                     {"panDegrees", {{"type", "number"}, {"description", "Pan position in degrees (0 to focusPanMax)"}}},
@@ -76,7 +82,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "fadeIn", "fadeOut", "channelValues", "positions"});
+                auto err = validateFields(item, {"name", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "channelValues", "positions"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name"))
@@ -113,6 +119,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {
                     scene = qobject_cast<Scene*>(existing);
                     scene->clear(); // Reset values for upsert
+                    // Clear palette and fixture refs on upsert
+                    for (quint32 palId : scene->palettes())
+                        scene->removePalette(palId);
+                    for (quint32 fxId : scene->fixtures())
+                        scene->removeFixture(fxId);
                 }
                 else
                 {
@@ -121,10 +132,40 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     isNew = true;
                 }
 
+                // Register fixtures on the scene (required for palette resolution)
+                for (quint32 fxId : fixtureIDs)
+                    scene->addFixture(fxId);
+
                 if (item.contains("fadeIn"))
                     scene->setFadeInSpeed(item.at("fadeIn").get<int>());
                 if (item.contains("fadeOut"))
                     scene->setFadeOutSpeed(item.at("fadeOut").get<int>());
+
+                // Resolve and add palette references
+                if (item.contains("paletteIDs") && item.at("paletteIDs").is_array())
+                {
+                    for (auto &palId : item.at("paletteIDs"))
+                    {
+                        quint32 id = palId.get<int>();
+                        if (doc->palette(id))
+                            scene->addPalette(id);
+                    }
+                }
+                if (item.contains("paletteNames") && item.at("paletteNames").is_array())
+                {
+                    for (auto &palName : item.at("paletteNames"))
+                    {
+                        QString pattern = QString::fromStdString(palName.get<std::string>());
+                        QRegularExpression re(
+                            QRegularExpression::wildcardToRegularExpression(pattern),
+                            QRegularExpression::CaseInsensitiveOption);
+                        for (QLCPalette *p : doc->palettes())
+                        {
+                            if (re.match(p->name()).hasMatch())
+                                scene->addPalette(p->id());
+                        }
+                    }
+                }
 
                 // Apply degree-based positions (before channelValues so explicit values can override)
                 if (item.contains("positions") && item.at("positions").is_array())
@@ -137,6 +178,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                         quint32 fxID = pos.at("fixtureID").get<int>();
                         Fixture *fxi = doc->fixture(fxID);
                         if (!fxi) continue;
+
+                        // Auto-register fixture from positions
+                        scene->addFixture(fxID);
 
                         if (pos.contains("panDegrees"))
                         {
@@ -156,7 +200,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     }
                 }
 
-                // Set explicit channel values (can override positions above)
+                // Set explicit channel values (override palettes and positions)
                 if (item.contains("channelValues") && item.at("channelValues").is_array())
                 {
                     for (auto &cv : item.at("channelValues"))
@@ -169,12 +213,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                         quint32 chIdx = cv.at("channel").get<int>();
                         uchar value = cv.at("value").get<int>();
                         scene->setValue(SceneValue(fxID, chIdx, value));
+
+                        // Auto-register fixture from channelValues
+                        scene->addFixture(fxID);
                     }
                 }
 
                 if (isNew)
                     doc->addFunction(scene);
-                results.push_back({{"id", (int)scene->id()}, {"name", scene->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
+
+                Json result = {{"id", (int)scene->id()}, {"name", scene->name().toStdString()}, {"status", isNew ? "created" : "updated"}};
+                if (!scene->palettes().isEmpty())
+                    result["paletteCount"] = (int)scene->palettes().count();
+                results.push_back(result);
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -183,7 +234,169 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create scenes with channel values and/or degree-based positions. Upserts: replaces all values on existing scenes. Batch."),
+        std::string("Create scenes with palettes, channel values, and/or degree-based positions. "
+                     "Palette-first: reference palettes via paletteNames/paletteIDs for reusable values; "
+                     "channelValues override palettes for fine-tuning. "
+                     "Upserts: replaces all values and palette refs on existing scenes. Batch."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
+
+    // update_scene_from_dmx (batch) — capture live DMX into scenes
+    tm.register_tool(Tool(
+        "update_scene_from_dmx",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"sceneName", {{"type", "string"}, {"description", "Target scene name. Creates new if not exists (upsert)."}}},
+                {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Fixture IDs to capture (empty = all patched)"}}},
+                {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?)"}}},
+                {"channelFilter", {{"type", "string"}, {"description", "Filter: all (default), dimmer, color, position, gobo, shutter, beam, effect"}}},
+                {"nonZeroOnly", {{"type", "boolean"}, {"description", "Only capture non-zero channels (default true)"}}},
+                {"merge", {{"type", "boolean"}, {"description", "true = keep existing values for uncaptured channels; false = replace all (default false)"}}}
+            }}, {"required", {"sceneName"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"items"});
+            if (!err.empty()) return err;
+            if (!args.contains("items") || !args.at("items").is_array())
+                return Json({{"error", "items array required"}}).dump();
+
+            // Channel group filter helper
+            auto groupMatches = [](const std::string &filter, QLCChannel::Group g) -> bool {
+                if (filter == "all") return true;
+                if (filter == "dimmer")   return g == QLCChannel::Intensity;
+                if (filter == "color")    return g == QLCChannel::Colour;
+                if (filter == "position") return g == QLCChannel::Pan || g == QLCChannel::Tilt;
+                if (filter == "gobo")     return g == QLCChannel::Gobo;
+                if (filter == "shutter")  return g == QLCChannel::Shutter;
+                if (filter == "beam")     return g == QLCChannel::Beam;
+                if (filter == "effect")   return g == QLCChannel::Effect;
+                return true;
+            };
+
+            InputOutputMap *ioMap = doc->inputOutputMap();
+            QList<Universe*> universes = ioMap->claimUniverses();
+
+            Json results = Json::array();
+            for (auto &item : args.at("items"))
+            {
+                auto itemErr = validateFields(item, {"sceneName", "fixtureIDs", "fixtureNames", "channelFilter", "nonZeroOnly", "merge"});
+                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
+
+                if (!item.contains("sceneName"))
+                {
+                    results.push_back({{"error", "sceneName required"}});
+                    continue;
+                }
+
+                QString sceneName = QString::fromStdString(item.at("sceneName").get<std::string>());
+                bool nonZero = item.value("nonZeroOnly", true);
+                bool merge = item.value("merge", false);
+                std::string filter = item.value("channelFilter", "all");
+
+                // Resolve fixtures
+                QList<quint32> fixtureIDs;
+                if (item.contains("fixtureNames") && item.at("fixtureNames").is_array())
+                {
+                    for (auto &p : item.at("fixtureNames"))
+                    {
+                        auto ids = mcp::resolveFixturesByName(doc, QString::fromStdString(p.get<std::string>()));
+                        for (quint32 id : ids)
+                            if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                    }
+                }
+                if (item.contains("fixtureIDs") && item.at("fixtureIDs").is_array())
+                {
+                    for (auto &fid : item.at("fixtureIDs"))
+                    {
+                        quint32 id = fid.get<int>();
+                        if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
+                    }
+                }
+                if (fixtureIDs.isEmpty())
+                {
+                    for (Fixture *fxi : doc->fixtures())
+                        fixtureIDs.append(fxi->id());
+                }
+
+                // Find or create scene
+                Function *existing = mcp::findFunction(doc, sceneName, Function::SceneType);
+                Scene *scene;
+                bool isNew = false;
+                if (existing)
+                {
+                    scene = qobject_cast<Scene*>(existing);
+                    if (!merge)
+                    {
+                        scene->clear();
+                        for (quint32 palId : scene->palettes())
+                            scene->removePalette(palId);
+                        for (quint32 fxId : scene->fixtures())
+                            scene->removeFixture(fxId);
+                    }
+                }
+                else
+                {
+                    scene = new Scene(doc);
+                    scene->setName(sceneName);
+                    isNew = true;
+                }
+
+                // Read DMX values and populate scene
+                int capturedChannels = 0;
+                for (quint32 fxID : fixtureIDs)
+                {
+                    Fixture *fxi = doc->fixture(fxID);
+                    if (!fxi) continue;
+
+                    int uniIdx = fxi->universe();
+                    int baseAddr = fxi->address();
+                    if (uniIdx < 0 || uniIdx >= universes.count()) continue;
+
+                    Universe *uni = universes.at(uniIdx);
+                    const QByteArray preGM = uni->preGMValues();
+
+                    scene->addFixture(fxID);
+
+                    for (quint32 ch = 0; ch < fxi->channels(); ch++)
+                    {
+                        const QLCChannel *qlcCh = fxi->channel(ch);
+                        if (!qlcCh) continue;
+                        if (!groupMatches(filter, qlcCh->group())) continue;
+
+                        int absAddr = baseAddr + (int)ch;
+                        uchar val = (absAddr < preGM.size()) ? static_cast<uchar>(preGM.at(absAddr)) : 0;
+
+                        if (nonZero && val == 0) continue;
+
+                        scene->setValue(SceneValue(fxID, ch, val));
+                        capturedChannels++;
+                    }
+                }
+
+                if (isNew)
+                    doc->addFunction(scene);
+
+                results.push_back({
+                    {"sceneID", (int)scene->id()},
+                    {"sceneName", scene->name().toStdString()},
+                    {"status", isNew ? "created" : "updated"},
+                    {"capturedChannels", capturedChannels},
+                    {"fixtureCount", (int)fixtureIDs.count()}
+                });
+            }
+
+            ioMap->releaseUniverses(false);
+
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Capture current live DMX output into scenes. Reads pre-Grand Master values and writes them as scene channel values. "
+                     "Supports channel filtering, non-zero-only mode, and merge (keep existing) vs replace mode. "
+                     "Use case: 'save current Pan/Tilt of HERO fixtures to scene ABC'. Batch."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

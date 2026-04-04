@@ -29,11 +29,13 @@
 #include "qlcfixturedef.h"
 #include "qlcfixturemode.h"
 #include "qlcphysical.h"
+#include "qlcpalette.h"
 #include "channelmodifier.h"
 #include "scene.h"
 #include "chaser.h"
 #include "collection.h"
 #include "scenevalue.h"
+#include "doc.h"
 
 namespace mcp {
 
@@ -232,6 +234,28 @@ inline Json functionToJson(Function *fn)
                 fxIds.insert(sv.fxi);
             entry["fixtureCount"] = fxIds.size();
             entry["channelCount"] = scene->values().size();
+
+            // Palette references
+            if (!scene->palettes().isEmpty())
+            {
+                Json palRefs = Json::array();
+                Doc *doc = qobject_cast<Doc*>(fn->parent());
+                for (quint32 palId : scene->palettes())
+                {
+                    Json ref = {{"id", (int)palId}};
+                    if (doc)
+                    {
+                        QLCPalette *pal = doc->palette(palId);
+                        if (pal)
+                        {
+                            ref["name"] = pal->name().toStdString();
+                            ref["type"] = QLCPalette::typeToString(pal->type()).toStdString();
+                        }
+                    }
+                    palRefs.push_back(ref);
+                }
+                entry["paletteRefs"] = palRefs;
+            }
         }
     }
     else if (fn->type() == Function::ChaserType)
