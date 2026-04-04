@@ -112,26 +112,25 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
             std::string timingTable;
             if (energyStyle == "aggressive") {
                 timingTable =
-                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
-                    "|------|------|--------|---------|-----|\n"
-                    "| Driving pulse | 2 | 1 | 1 | Default mood chase |\n"
-                    "| Aggressive snap | 1 | 0 | 0 | Peak/drop moments |\n"
-                    "| Musical flow | 4 | 1 | 1 | Buildup transition |\n";
+                    "| Phrase | Hold | FadeIn | FadeOut | Steps | Total |\n"
+                    "|--------|------|--------|---------|-------|-------|\n"
+                    "| Drop | 1 | 0 | 0 | 4 | 4 beats (1 bar) |\n"
+                    "| Build | 2 | 0.5 | 0.5 | 4 | 12 beats |\n"
+                    "| Intro/Break | 4 | 1 | 1 | 4 | 24 beats |\n";
             } else if (energyStyle == "ambient") {
                 timingTable =
-                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
-                    "|------|------|--------|---------|-----|\n"
-                    "| Ambient drift | 8 | 4 | 4 | Default mood chase |\n"
-                    "| Musical flow | 4 | 2 | 2 | Accent moments |\n"
-                    "| Gentle pulse | 2 | 2 | 2 | Subtle energy shifts |\n";
+                    "| Phrase | Hold | FadeIn | FadeOut | Steps | Total |\n"
+                    "|--------|------|--------|---------|-------|-------|\n"
+                    "| Drop | 4 | 2 | 2 | 4 | 32 beats (8 bars) |\n"
+                    "| Build | 4 | 2 | 2 | 4 | 32 beats |\n"
+                    "| Intro/Break | 8 | 4 | 4 | 2 | 32 beats |\n";
             } else {
                 timingTable =
-                    "| Feel | Hold | FadeIn | FadeOut | Use |\n"
-                    "|------|------|--------|---------|-----|\n"
-                    "| Musical flow | 4 | 2 | 2 | Default mood chase |\n"
-                    "| Driving pulse | 2 | 1 | 1 | Energy sections |\n"
-                    "| Aggressive snap | 1 | 0 | 0 | Peak/drop hits |\n"
-                    "| Ambient drift | 8 | 4 | 4 | Intro/outro |\n";
+                    "| Phrase | Hold | FadeIn | FadeOut | Steps | Total |\n"
+                    "|--------|------|--------|---------|-------|-------|\n"
+                    "| Drop | 2 | 0 | 0.5 | 4 | 10 beats |\n"
+                    "| Build | 2 | 1 | 1 | 4 | 16 beats (4 bars) |\n"
+                    "| Intro/Break | 4 | 2 | 2 | 4 | 32 beats (8 bars) |\n";
             }
 
             std::string colorsNote = "Use " + std::to_string(colorsPerPhase)
@@ -269,8 +268,36 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 "- Phrase buttons are exclusive — only one phrase active\n\n"
 
                 "---\n\n"
-                "## Beat-Synced Timing (tempoType: \"beats\" — ALWAYS)\n"
+                "## Beat-Synced Timing (tempoType: \"beats\" — ALWAYS)\n\n"
+                "All durations MUST align to musical bar boundaries. QLC+ supports fractional beats.\n\n"
+                "### Beat Values\n"
+                "| Notation | Beats | Musical Meaning |\n"
+                "|----------|-------|----------------|\n"
+                "| 0.25 | ¼ beat | Sixteenth note — strobe/stutter |\n"
+                "| 0.5 | ½ beat | Eighth note — tight accents |\n"
+                "| 1 | 1 beat | Quarter note — pulse, tap |\n"
+                "| 2 | 2 beats | Half bar — driving rhythm |\n"
+                "| 4 | 4 beats | 1 bar — standard step |\n"
+                "| 8 | 8 beats | 2 bars — musical phrase |\n"
+                "| 16 | 16 beats | 4 bars — section length |\n"
+                "| 32 | 32 beats | 8 bars — full phrase |\n\n"
+                "### Step Timing per Phrase\n"
                 + timingTable + "\n"
+                "### Chaser & Collection Duration Guide\n"
+                "| Structure | Total Duration | Steps × Hold | Use |\n"
+                "|-----------|---------------|-------------|-----|\n"
+                "| Quick color cycle | 4 beats (1 bar) | 4 × 1 beat | Tight pulse |\n"
+                "| Mood rotation | 16 beats (4 bars) | 4 × 4 beats | Standard mood |\n"
+                "| Phrase chase | 32 beats (8 bars) | 4 × 8 beats | Full musical phrase |\n"
+                "| Build sequence | 16 beats | 8 × 2 beats | Rising tension |\n"
+                "| Drop hit | 4 beats | 2 × 2 beats | Impact moment |\n\n"
+                "**Rules:**\n"
+                "- Total chaser duration should be 4, 8, 16, or 32 beats (bar-aligned)\n"
+                "- FadeIn + Hold + FadeOut = step duration (must divide evenly into total)\n"
+                "- Use 0.5-beat fades for snappy transitions, 2-beat fades for smooth\n"
+                "- Drop phrases: 0 fade, 1-2 beat hold (hard cuts)\n"
+                "- Build phrases: 1-beat fade, 2-4 beat hold (progressive)\n"
+                "- Break phrases: 2-4 beat fade, 4-8 beat hold (breathing)\n\n"
 
                 "## Audio-Reactive Sliders\n"
                 "| Slider | Mode | Channels | Purpose |\n"
@@ -302,7 +329,7 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
                 "5. **Transition ownership**: Entry and exit scenes per phase are softer than peak scenes\n"
                 "6. **Audio-reactivity**: Every phrase must include at least one audio-reactive element\n"
                 "7. **Layer separation**: Same DMX channel NEVER in two layers\n"
-                "8. **Beat-sync default**: All chasers use tempoType \"beats\"\n"
+                "8. **Beat-aligned**: All chasers use tempoType \"beats\"; total duration = 4, 8, 16, or 32 beats\n"
                 "9. **Naming**: `{Phase}-{Phrase}-{Layer}` — e.g. P2-Drop-MoodCyan\n"
                 "10. **Idempotent**: All create tools upsert by name — safe to call repeatedly\n"
                 "11. **Palette-first**: Create palettes → reference in scenes → channelValues only for overrides\n";
