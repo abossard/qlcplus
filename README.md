@@ -22,27 +22,28 @@
 > **For the official QLC+ project, go to: [mcallegari/qlcplus](https://github.com/mcallegari/qlcplus)**
 >
 > ### What this fork adds
-> - `mcp/` directory: Self-contained MCP server (25 tools) for AI-driven show setup
-> - `--mcp-http [port]` flag: Starts HTTP MCP endpoint (default port 9696)
+> - `mcp/` directory: Self-contained MCP server (47 tools) for AI-driven show setup
+> - MCP server starts automatically on port 9696 (disable with `--no-mcp`)
 > - Function Wizard for QML UI
 > - Only 4 lines changed in existing QLC+ code — easy to merge upstream changes
 >
-> ### How to use
-> ```bash
-> cmake -Dqmlui=ON -Dmcp_server=ON ..
-> ./qlcplus-qml --mcp-http
-> # Connect any MCP client to http://localhost:9696/mcp
-> ```
->
-> ### macOS: Install with Homebrew (recommended)
+> ### Install (macOS)
 > ```bash
 > brew install abossard/qlcplus/qlcplus
 > ```
-> This installs the latest pre-built QLC+ with MCP server and links it to `/Applications`. Quarantine is cleared automatically.
+> That's it. Installs QLC+ with MCP server to `/Applications` and clears quarantine automatically.
 >
-> To start with the MCP server:
+> ### Run
 > ```bash
-> open /Applications/QLC+.app --args --mcp-http 9696
+> open /Applications/QLC+.app
+> ```
+> The MCP server starts automatically on `http://localhost:9696/mcp`.
+>
+> ### Build from source
+> ```bash
+> cmake -Dqmlui=ON -Dmcp_server=ON ..
+> make -j$(sysctl -n hw.ncpu)
+> ./qlcplus-qml  # MCP auto-starts on port 9696
 > ```
 >
 > ### macOS: Installing from DMG (manual)
@@ -98,19 +99,19 @@
 > }
 > ```
 >
-> ### Available tools (25)
+> ### Available tools (47)
 > | Category | Tools |
 > |----------|-------|
-> | **Query** | `query_fixtures`, `query_available_fixtures`, `patch_fixtures`, `query_functions`, `query_vc_pages`, `query_universes` |
-> | **Functions** | `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_rgb_matrices` |
-> | **Virtual Console** | `create_vc_pages`, `add_vc_frames`, `add_vc_buttons`, `add_vc_sliders`, `add_vc_xypads`, `add_vc_cuelists`, `add_vc_labels`, `map_vc_inputs` |
-> | **Channels** | `query_fixture_channels`, `configure_channels`, `query_channel_modifiers`, `set_channel_modifiers` |
+> | **Query** | `query_fixtures`, `query_available_fixtures`, `patch_fixtures`, `query_functions`, `query_vc_pages`, `query_universes`, `query_palettes`, `query_fixture_channels` |
+> | **Functions** | `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_rgb_matrices`, `create_scripts`, `update_scene_from_dmx` |
+> | **Palettes** | `create_palettes`, `delete_palettes` |
+> | **Virtual Console** | `create_vc_pages`, `add_vc_frames`, `add_vc_buttons`, `add_vc_sliders`, `add_vc_xypads`, `add_vc_cuelists`, `add_vc_labels`, `add_vc_clocks`, `add_vc_speed_dials`, `add_vc_audio_triggers`, `add_vc_animations` |
+> | **VC Control** | `vc_update_widgets`, `vc_map_inputs`, `vc_layout_reflow` |
+> | **Channels** | `configure_channels`, `read_dmx_values`, `query_channel_modifiers`, `set_channel_modifiers` |
 > | **I/O** | `configure_universes` |
-> | **Guide** | `get_show_design_guide` |
+> | **Prompts** | `design_dj_show`, `debug_channel_conflict`, `setup_launchpad` |
 >
-> All tools are batch-based (arrays in, arrays out). Ask the AI to call
-> `get_show_design_guide` first — it contains professional lighting design
-> patterns, audio-reactive setups, and beat/tempo system documentation.
+> All tools are batch-based (arrays in, arrays out) and idempotent (upsert by name).
 
 <p align="center"><em>(Often abbreviated as "QLC+")</em></p>
 <p align="center">
