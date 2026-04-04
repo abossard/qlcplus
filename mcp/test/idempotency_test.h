@@ -34,21 +34,16 @@ private slots:
 
     // mcp::findFunction
     void findFunction_notFoundInEmptyDoc();
-    void findFunction_findsSceneByName();
-    void findFunction_findsChaserByName();
-    void findFunction_findsEfxByName();
-    void findFunction_findsCollectionByName();
-    void findFunction_findsRgbMatrixByName();
-    void findFunction_findsScriptByName();
+    void findFunction_findsByType_data();
+    void findFunction_findsByType();
     void findFunction_discriminatesByType();
     void findFunction_returnsNullForWrongName();
 
     // mcp::findFixture
     void findFixture_notFoundInEmptyDoc();
     void findFixture_findsExactMatch();
-    void findFixture_noMatchDifferentName();
-    void findFixture_noMatchDifferentUniverse();
-    void findFixture_noMatchDifferentAddress();
+    void findFixture_noMatch_data();
+    void findFixture_noMatch();
 
     // mcp::findFixtureGroup
     void findFixtureGroup_notFoundInEmptyDoc();
@@ -84,13 +79,14 @@ private slots:
 
     // Beat encoding
     void beatEncoding_wholeBeatsMultipliedBy1000();
-    void beatEncoding_zeroRemainsZero();
-    void beatEncoding_fractionalHalfBeat();
-    void beatEncoding_fractionalQuarterBeat();
-    void beatEncoding_fractionalEighthBeat();
-    void beatEncoding_mixedWholeAndFractional();
+    void beatEncoding_beatsToTime_data();
+    void beatEncoding_beatsToTime();
     void beatEncoding_stepDurationArithmetic();
     void beatEncoding_runtimeGranularity_wholeBeatOnly();
+
+    // Beat auto-conversion (tool-level: user beats → internal encoding)
+    void beatConversion_data();
+    void beatConversion();
 
     // Input profile color/MIDI channel tables
     void profileColorTable_emptyByDefault();

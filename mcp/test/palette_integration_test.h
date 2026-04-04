@@ -33,23 +33,14 @@ private slots:
     void cleanup();
 
     // QLCPalette CRUD via Doc
-    void palette_createDimmer();
-    void palette_createColor();
-    void palette_createPan();
-    void palette_createTilt();
-    void palette_createPanTilt();
+    void palette_create_data();
+    void palette_create();
     void palette_deleteRemovesFromDoc();
 
     // Scene-palette integration
     void scene_addPaletteRef();
     void scene_addFixtureRegistration();
     void scene_clearPalettesOnUpsert();
-
-    // Fanning
-    void fanning_linearType();
-    void fanning_sineType();
-    void fanning_layoutVariants();
-    void fanning_amountRange();
 
     // functionToJson with palette refs
     void functionToJson_sceneWithPalettes();

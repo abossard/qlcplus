@@ -780,7 +780,18 @@ bool ChaserRunner::write(MasterTimer *timer, QList<Universe *> universes)
              (m_chaser->tempoType() == Function::Beats && step->m_elapsed >= Function::beatsToTime(step->m_duration, timer->beatTimeDuration()))))
         {
             if (step->m_duration != 0)
-                prevStepRoundElapsed = step->m_elapsed % step->m_duration;
+            {
+                if (m_chaser->tempoType() == Function::Beats)
+                {
+                    uint realDuration = Function::beatsToTime(step->m_duration, timer->beatTimeDuration());
+                    if (realDuration != 0)
+                        prevStepRoundElapsed = step->m_elapsed % realDuration;
+                }
+                else
+                {
+                    prevStepRoundElapsed = step->m_elapsed % step->m_duration;
+                }
+            }
 
             m_lastFunctionID = step->m_function->type() == Function::SceneType ? step->m_function->id() : Function::invalidId();
             step->m_function->stop(functionParent(), m_chaser->type() == Function::SequenceType);

@@ -41,77 +41,69 @@ void PaletteIntegration_Test::cleanup()
 // QLCPalette CRUD via Doc
 // ────────────────────────────────────────────
 
-void PaletteIntegration_Test::palette_createDimmer()
+void PaletteIntegration_Test::palette_create_data()
 {
-    auto *pal = new QLCPalette(QLCPalette::Dimmer);
-    pal->setName("Full");
-    pal->setValue(QVariant(255));
+    QTest::addColumn<int>("paletteType");
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QVariant>("value1");
+    QTest::addColumn<QVariant>("value2");
+
+    QTest::newRow("Dimmer")  << (int)QLCPalette::Dimmer  << QStringLiteral("Full")
+                             << QVariant(255) << QVariant();
+    QTest::newRow("Color")   << (int)QLCPalette::Color   << QStringLiteral("Deep Blue")
+                             << QVariant(QLCPalette::colorToString(QColor(0, 0, 255), QColor(0, 0, 0))) << QVariant();
+    QTest::newRow("Pan")     << (int)QLCPalette::Pan     << QStringLiteral("Center Pan")
+                             << QVariant(180.0) << QVariant();
+    QTest::newRow("Tilt")    << (int)QLCPalette::Tilt    << QStringLiteral("Tilt Down")
+                             << QVariant(45.0) << QVariant();
+    QTest::newRow("PanTilt") << (int)QLCPalette::PanTilt << QStringLiteral("Center Stage")
+                             << QVariant(180.0) << QVariant(45.0);
+}
+
+void PaletteIntegration_Test::palette_create()
+{
+    QFETCH(int, paletteType);
+    QFETCH(QString, name);
+    QFETCH(QVariant, value1);
+    QFETCH(QVariant, value2);
+
+    auto ptype = static_cast<QLCPalette::PaletteType>(paletteType);
+    auto *pal = new QLCPalette(ptype);
+    pal->setName(name);
+
+    if (value2.isValid())
+        pal->setValue(value1, value2);
+    else
+        pal->setValue(value1);
     pal->setTemporary(false);
 
     QVERIFY(m_doc->addPalette(pal));
     QVERIFY(pal->id() != QLCPalette::invalidId());
     QCOMPARE(m_doc->palette(pal->id()), pal);
-    QCOMPARE(pal->type(), QLCPalette::Dimmer);
-    QCOMPARE(pal->name(), QString("Full"));
-    QCOMPARE(pal->value().toInt(), 255);
-}
+    QCOMPARE(pal->type(), ptype);
+    QCOMPARE(pal->name(), name);
 
-void PaletteIntegration_Test::palette_createColor()
-{
-    auto *pal = new QLCPalette(QLCPalette::Color);
-    pal->setName("Deep Blue");
-    QColor rgb(0, 0, 255);
-    QColor wauv(0, 0, 0);
-    pal->setValue(QVariant(QLCPalette::colorToString(rgb, wauv)));
-    pal->setTemporary(false);
-
-    QVERIFY(m_doc->addPalette(pal));
-    QVERIFY(pal->id() != QLCPalette::invalidId());
-    QCOMPARE(pal->type(), QLCPalette::Color);
-
-    // Verify the stored color can be parsed back
-    QColor parsedRgb, parsedWauv;
-    QVERIFY(QLCPalette::stringToColor(pal->value().toString(), parsedRgb, parsedWauv));
-    QCOMPARE(parsedRgb, rgb);
-}
-
-void PaletteIntegration_Test::palette_createPan()
-{
-    auto *pal = new QLCPalette(QLCPalette::Pan);
-    pal->setName("Center Pan");
-    pal->setValue(QVariant(180.0));
-    pal->setTemporary(false);
-
-    QVERIFY(m_doc->addPalette(pal));
-    QCOMPARE(pal->type(), QLCPalette::Pan);
-    QCOMPARE(pal->value().toDouble(), 180.0);
-}
-
-void PaletteIntegration_Test::palette_createTilt()
-{
-    auto *pal = new QLCPalette(QLCPalette::Tilt);
-    pal->setName("Tilt Down");
-    pal->setValue(QVariant(45.0));
-    pal->setTemporary(false);
-
-    QVERIFY(m_doc->addPalette(pal));
-    QCOMPARE(pal->type(), QLCPalette::Tilt);
-    QCOMPARE(pal->value().toDouble(), 45.0);
-}
-
-void PaletteIntegration_Test::palette_createPanTilt()
-{
-    auto *pal = new QLCPalette(QLCPalette::PanTilt);
-    pal->setName("Center Stage");
-    pal->setValue(QVariant(180.0), QVariant(45.0));
-    pal->setTemporary(false);
-
-    QVERIFY(m_doc->addPalette(pal));
-    QCOMPARE(pal->type(), QLCPalette::PanTilt);
-    QVariantList vals = pal->values();
-    QCOMPARE(vals.size(), 2);
-    QCOMPARE(vals.at(0).toDouble(), 180.0);
-    QCOMPARE(vals.at(1).toDouble(), 45.0);
+    if (ptype == QLCPalette::PanTilt)
+    {
+        QVariantList vals = pal->values();
+        QCOMPARE(vals.size(), 2);
+        QCOMPARE(vals.at(0).toDouble(), value1.toDouble());
+        QCOMPARE(vals.at(1).toDouble(), value2.toDouble());
+    }
+    else if (ptype == QLCPalette::Color)
+    {
+        QColor parsedRgb, parsedWauv;
+        QVERIFY(QLCPalette::stringToColor(pal->value().toString(), parsedRgb, parsedWauv));
+        QCOMPARE(parsedRgb, QColor(0, 0, 255));
+    }
+    else if (ptype == QLCPalette::Dimmer)
+    {
+        QCOMPARE(pal->value().toInt(), value1.toInt());
+    }
+    else
+    {
+        QCOMPARE(pal->value().toDouble(), value1.toDouble());
+    }
 }
 
 void PaletteIntegration_Test::palette_deleteRemovesFromDoc()
@@ -203,79 +195,6 @@ void PaletteIntegration_Test::scene_clearPalettesOnUpsert()
 
     scene->addPalette(pal1->id());
     QCOMPARE(scene->palettes().size(), 1);
-}
-
-// ────────────────────────────────────────────
-// Fanning
-// ────────────────────────────────────────────
-
-void PaletteIntegration_Test::fanning_linearType()
-{
-    auto *pal = new QLCPalette(QLCPalette::Dimmer);
-    pal->setName("Gradient");
-    pal->setValue(QVariant(255));
-    pal->setFanningType(QLCPalette::Linear);
-    pal->setFanningAmount(500);
-    pal->setFanningValue(QVariant(0));
-    pal->setTemporary(false);
-    QVERIFY(m_doc->addPalette(pal));
-
-    QCOMPARE(pal->fanningType(), QLCPalette::Linear);
-    QCOMPARE(pal->fanningAmount(), 500);
-    QCOMPARE(pal->fanningValue().toInt(), 0);
-}
-
-void PaletteIntegration_Test::fanning_sineType()
-{
-    auto *pal = new QLCPalette(QLCPalette::Color);
-    pal->setName("Color Wave");
-    pal->setValue(QVariant(QLCPalette::colorToString(QColor(255, 0, 0), QColor(0, 0, 0))));
-    pal->setFanningType(QLCPalette::Sine);
-    pal->setFanningLayout(QLCPalette::XCentered);
-    pal->setFanningAmount(1000);
-    pal->setTemporary(false);
-    QVERIFY(m_doc->addPalette(pal));
-
-    QCOMPARE(pal->fanningType(), QLCPalette::Sine);
-    QCOMPARE(pal->fanningLayout(), QLCPalette::XCentered);
-    QCOMPARE(pal->fanningAmount(), 1000);
-}
-
-void PaletteIntegration_Test::fanning_layoutVariants()
-{
-    auto *pal = new QLCPalette(QLCPalette::Pan);
-    pal->setName("Layout Test");
-    pal->setValue(QVariant(90.0));
-    pal->setTemporary(false);
-    QVERIFY(m_doc->addPalette(pal));
-
-    // Test all layout variants
-    pal->setFanningLayout(QLCPalette::XAscending);
-    QCOMPARE(pal->fanningLayout(), QLCPalette::XAscending);
-
-    pal->setFanningLayout(QLCPalette::YDescending);
-    QCOMPARE(pal->fanningLayout(), QLCPalette::YDescending);
-
-    pal->setFanningLayout(QLCPalette::ZCentered);
-    QCOMPARE(pal->fanningLayout(), QLCPalette::ZCentered);
-}
-
-void PaletteIntegration_Test::fanning_amountRange()
-{
-    auto *pal = new QLCPalette(QLCPalette::Dimmer);
-    pal->setName("Amount Range");
-    pal->setValue(QVariant(255));
-    pal->setTemporary(false);
-    QVERIFY(m_doc->addPalette(pal));
-
-    pal->setFanningAmount(0);
-    QCOMPARE(pal->fanningAmount(), 0);
-
-    pal->setFanningAmount(1000);
-    QCOMPARE(pal->fanningAmount(), 1000);
-
-    pal->setFanningAmount(500);
-    QCOMPARE(pal->fanningAmount(), 500);
 }
 
 // ────────────────────────────────────────────

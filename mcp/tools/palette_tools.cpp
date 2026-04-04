@@ -50,70 +50,6 @@ QLCPalette::PaletteType stringToPaletteType(const std::string &s)
     return QLCPalette::Undefined;
 }
 
-void applyFanning(QLCPalette *palette, const nlohmann::json &fan)
-{
-    if (fan.contains("type"))
-    {
-        std::string t = fan.at("type").get<std::string>();
-        if (t == "Flat")    palette->setFanningType(QLCPalette::Flat);
-        else if (t == "Linear") palette->setFanningType(QLCPalette::Linear);
-        else if (t == "Sine")   palette->setFanningType(QLCPalette::Sine);
-        else if (t == "Square") palette->setFanningType(QLCPalette::Square);
-        else if (t == "Saw")    palette->setFanningType(QLCPalette::Saw);
-    }
-    if (fan.contains("layout"))
-    {
-        std::string l = fan.at("layout").get<std::string>();
-        if (l == "XAscending")  palette->setFanningLayout(QLCPalette::XAscending);
-        else if (l == "XDescending") palette->setFanningLayout(QLCPalette::XDescending);
-        else if (l == "XCentered")   palette->setFanningLayout(QLCPalette::XCentered);
-        else if (l == "YAscending")  palette->setFanningLayout(QLCPalette::YAscending);
-        else if (l == "YDescending") palette->setFanningLayout(QLCPalette::YDescending);
-        else if (l == "YCentered")   palette->setFanningLayout(QLCPalette::YCentered);
-        else if (l == "ZAscending")  palette->setFanningLayout(QLCPalette::ZAscending);
-        else if (l == "ZDescending") palette->setFanningLayout(QLCPalette::ZDescending);
-        else if (l == "ZCentered")   palette->setFanningLayout(QLCPalette::ZCentered);
-    }
-    if (fan.contains("amount"))
-        palette->setFanningAmount(fan.at("amount").get<int>());
-    if (fan.contains("value"))
-    {
-        auto &v = fan.at("value");
-        if (v.is_string())
-        {
-            // Color fanning value: "#rrggbb"
-            palette->setFanningValue(QVariant(QColor(QString::fromStdString(v.get<std::string>()))));
-        }
-        else if (v.is_number_float())
-        {
-            palette->setFanningValue(QVariant(v.get<double>()));
-        }
-        else if (v.is_number_integer())
-        {
-            palette->setFanningValue(QVariant(v.get<int>()));
-        }
-    }
-}
-
-nlohmann::json fanningToJson(const QLCPalette *palette)
-{
-    using Json = nlohmann::json;
-    Json fan;
-    fan["type"] = QLCPalette::fanningTypeToString(palette->fanningType()).toStdString();
-    fan["layout"] = QLCPalette::fanningLayoutToString(palette->fanningLayout()).toStdString();
-    fan["amount"] = palette->fanningAmount();
-    QVariant fv = palette->fanningValue();
-    if (fv.canConvert<QColor>())
-        fan["value"] = fv.value<QColor>().name().toStdString();
-    else if (fv.canConvert<double>())
-        fan["value"] = fv.toDouble();
-    else if (fv.canConvert<int>())
-        fan["value"] = fv.toInt();
-    else if (fv.isValid())
-        fan["value"] = fv.toString().toStdString();
-    return fan;
-}
-
 } // anonymous namespace
 
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
@@ -217,10 +153,6 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                         break;
                 }
 
-                // Apply fanning if provided
-                if (item.contains("fanning") && item.at("fanning").is_object())
-                    applyFanning(palette, item.at("fanning"));
-
                 if (isNew)
                 {
                     palette->setTemporary(false);
@@ -240,8 +172,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt. "
                      "Upserts by name+type. Palettes are the building blocks for scenes: create palettes first, then "
-                     "reference them in create_scenes via paletteNames/paletteIDs. Supports fanning for distributing "
-                     "values across fixtures (gradients, waves). Batch."),
+                     "reference them in create_scenes via paletteNames/paletteIDs. Batch."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

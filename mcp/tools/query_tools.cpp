@@ -892,23 +892,6 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         break;
                 }
 
-                // Fanning
-                if (p->fanningType() != QLCPalette::Flat)
-                {
-                    Json fan;
-                    fan["type"] = QLCPalette::fanningTypeToString(p->fanningType()).toStdString();
-                    fan["layout"] = QLCPalette::fanningLayoutToString(p->fanningLayout()).toStdString();
-                    fan["amount"] = p->fanningAmount();
-                    QVariant fv = p->fanningValue();
-                    if (fv.canConvert<QColor>())
-                        fan["value"] = fv.value<QColor>().name().toStdString();
-                    else if (fv.canConvert<double>())
-                        fan["value"] = fv.toDouble();
-                    else if (fv.canConvert<int>())
-                        fan["value"] = fv.toInt();
-                    entry["fanning"] = fan;
-                }
-
                 // Scene references
                 if (paletteSceneRefs.contains(p->id()))
                 {
@@ -924,7 +907,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("List all palettes with their type, values, fanning config, and which scenes reference them. "
+        std::string("List all palettes with their type, values, and which scenes reference them. "
                      "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt."),
         std::nullopt
     )

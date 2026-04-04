@@ -610,77 +610,60 @@ void VCValidation_Test::fullValidation_sliderUpdateCrossTypeField()
 
 // ========== parentID / pageIndex exclusivity ==========
 
-void VCValidation_Test::parentOrPage_frameWithPageIndex_valid()
+void VCValidation_Test::parentOrPage_data()
 {
-    Json item = {{"type", "frame"}, {"pageIndex", 0}, {"caption", "Top"}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
-    QVERIFY2(err.empty(), err.c_str());
+    QTest::addColumn<QString>("typeName");
+    QTest::addColumn<int>("vcType");
+    QTest::addColumn<bool>("hasParentID");
+    QTest::addColumn<bool>("hasPageIndex");
+    QTest::addColumn<bool>("expectValid");
+    QTest::addColumn<QString>("errorSubstring");
+
+    // Frames/SoloFrames accept either parentID or pageIndex, but not both/neither
+    QTest::newRow("frame+pageIndex")       << "frame"     << (int)VCType::Frame     << false << true  << true  << QString();
+    QTest::newRow("frame+parentID")        << "frame"     << (int)VCType::Frame     << true  << false << true  << QString();
+    QTest::newRow("frame+both")            << "frame"     << (int)VCType::Frame     << true  << true  << false << QStringLiteral("mutually exclusive");
+    QTest::newRow("frame+neither")         << "frame"     << (int)VCType::Frame     << false << false << false << QStringLiteral("either pageIndex or parentID");
+    QTest::newRow("soloframe+pageIndex")   << "soloframe" << (int)VCType::SoloFrame << false << true  << true  << QString();
+    QTest::newRow("soloframe+both")        << "soloframe" << (int)VCType::SoloFrame << true  << true  << false << QStringLiteral("mutually exclusive");
+
+    // Non-container widgets require parentID, reject pageIndex
+    QTest::newRow("button+parentID")       << "button"    << (int)VCType::Button    << true  << false << true  << QString();
+    QTest::newRow("button+pageIndex")      << "button"    << (int)VCType::Button    << true  << true  << false << QStringLiteral("not valid for widget type");
+    QTest::newRow("button+neither")        << "button"    << (int)VCType::Button    << false << false << false << QStringLiteral("parentID is required");
 }
 
-void VCValidation_Test::parentOrPage_frameWithParentID_valid()
+void VCValidation_Test::parentOrPage()
 {
-    Json item = {{"type", "frame"}, {"parentID", 42}, {"caption", "Nested"}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
-    QVERIFY2(err.empty(), err.c_str());
-}
+    QFETCH(QString, typeName);
+    QFETCH(int, vcType);
+    QFETCH(bool, hasParentID);
+    QFETCH(bool, hasPageIndex);
+    QFETCH(bool, expectValid);
+    QFETCH(QString, errorSubstring);
 
-void VCValidation_Test::parentOrPage_frameWithBoth_rejected()
-{
-    Json item = {{"type", "frame"}, {"parentID", 0}, {"pageIndex", 0}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
-    QVERIFY(!err.empty());
-    auto errJson = Json::parse(err);
-    QVERIFY(errJson["error"].get<std::string>().find("mutually exclusive") != std::string::npos);
-}
+    Json item = {{"type", typeName.toStdString()}};
+    if (hasParentID)
+        item["parentID"] = 42;
+    if (hasPageIndex)
+        item["pageIndex"] = 0;
+    if (!hasParentID && !hasPageIndex)
+        item["caption"] = "Test";
 
-void VCValidation_Test::parentOrPage_frameWithNeither_rejected()
-{
-    Json item = {{"type", "frame"}, {"caption", "Orphan"}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Frame);
-    QVERIFY(!err.empty());
-    auto errJson = Json::parse(err);
-    QVERIFY(errJson["error"].get<std::string>().find("either pageIndex or parentID") != std::string::npos);
-}
+    auto err = VCValidate::validateParentOrPage(item, vcType);
 
-void VCValidation_Test::parentOrPage_soloframeWithPageIndex_valid()
-{
-    Json item = {{"type", "soloframe"}, {"pageIndex", 1}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::SoloFrame);
-    QVERIFY2(err.empty(), err.c_str());
-}
-
-void VCValidation_Test::parentOrPage_soloframeWithBoth_rejected()
-{
-    Json item = {{"type", "soloframe"}, {"parentID", 0}, {"pageIndex", 1}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::SoloFrame);
-    QVERIFY(!err.empty());
-    auto errJson = Json::parse(err);
-    QVERIFY(errJson["error"].get<std::string>().find("mutually exclusive") != std::string::npos);
-}
-
-void VCValidation_Test::parentOrPage_buttonWithParentID_valid()
-{
-    Json item = {{"type", "button"}, {"parentID", 10}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
-    QVERIFY2(err.empty(), err.c_str());
-}
-
-void VCValidation_Test::parentOrPage_buttonWithPageIndex_rejected()
-{
-    Json item = {{"type", "button"}, {"parentID", 10}, {"pageIndex", 0}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
-    QVERIFY(!err.empty());
-    auto errJson = Json::parse(err);
-    QVERIFY(errJson["error"].get<std::string>().find("not valid for widget type") != std::string::npos);
-}
-
-void VCValidation_Test::parentOrPage_buttonWithNeither_rejected()
-{
-    Json item = {{"type", "button"}, {"caption", "Go"}};
-    auto err = VCValidate::validateParentOrPage(item, VCType::Button);
-    QVERIFY(!err.empty());
-    auto errJson = Json::parse(err);
-    QVERIFY(errJson["error"].get<std::string>().find("parentID is required") != std::string::npos);
+    if (expectValid)
+    {
+        QVERIFY2(err.empty(), err.c_str());
+    }
+    else
+    {
+        QVERIFY(!err.empty());
+        auto errJson = Json::parse(err);
+        QString errMsg = QString::fromStdString(errJson["error"].get<std::string>());
+        QVERIFY2(errMsg.contains(errorSubstring),
+                 qPrintable(QStringLiteral("Expected '%1' in error: %2").arg(errorSubstring, errMsg)));
+    }
 }
 
 QTEST_MAIN(VCValidation_Test)

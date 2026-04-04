@@ -57,71 +57,41 @@ void McpIdempotency_Test::findFunction_notFoundInEmptyDoc()
     QVERIFY(mcp::findFunction(m_doc, "nonexistent", Function::ChaserType) == nullptr);
 }
 
-void McpIdempotency_Test::findFunction_findsSceneByName()
+void McpIdempotency_Test::findFunction_findsByType_data()
 {
-    Scene *s = new Scene(m_doc);
-    s->setName("Red Wash");
-    m_doc->addFunction(s);
+    QTest::addColumn<int>("funcType");
+    QTest::addColumn<QString>("name");
 
-    Function *found = mcp::findFunction(m_doc, "Red Wash", Function::SceneType);
-    QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), s->id());
-    QCOMPARE(found->name(), QString("Red Wash"));
+    QTest::newRow("Scene")      << (int)Function::SceneType      << QStringLiteral("Red Wash");
+    QTest::newRow("Chaser")     << (int)Function::ChaserType     << QStringLiteral("Color Chase");
+    QTest::newRow("EFX")        << (int)Function::EFXType        << QStringLiteral("Circle Motion");
+    QTest::newRow("Collection") << (int)Function::CollectionType << QStringLiteral("Mood: Party");
+    QTest::newRow("RGBMatrix")  << (int)Function::RGBMatrixType  << QStringLiteral("Rainbow Wave");
+    QTest::newRow("Script")     << (int)Function::ScriptType     << QStringLiteral("Show Opener");
 }
 
-void McpIdempotency_Test::findFunction_findsChaserByName()
+void McpIdempotency_Test::findFunction_findsByType()
 {
-    Chaser *c = new Chaser(m_doc);
-    c->setName("Color Chase");
-    m_doc->addFunction(c);
+    QFETCH(int, funcType);
+    QFETCH(QString, name);
 
-    Function *found = mcp::findFunction(m_doc, "Color Chase", Function::ChaserType);
+    Function *fn = nullptr;
+    switch (static_cast<Function::Type>(funcType))
+    {
+        case Function::SceneType:      fn = new Scene(m_doc); break;
+        case Function::ChaserType:     fn = new Chaser(m_doc); break;
+        case Function::EFXType:        fn = new EFX(m_doc); break;
+        case Function::CollectionType: fn = new Collection(m_doc); break;
+        case Function::RGBMatrixType:  fn = new RGBMatrix(m_doc); break;
+        case Function::ScriptType:     fn = new Script(m_doc); break;
+        default: QFAIL("Unsupported function type");
+    }
+    fn->setName(name);
+    m_doc->addFunction(fn);
+
+    Function *found = mcp::findFunction(m_doc, name, static_cast<Function::Type>(funcType));
     QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), c->id());
-}
-
-void McpIdempotency_Test::findFunction_findsEfxByName()
-{
-    EFX *e = new EFX(m_doc);
-    e->setName("Circle Motion");
-    m_doc->addFunction(e);
-
-    Function *found = mcp::findFunction(m_doc, "Circle Motion", Function::EFXType);
-    QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), e->id());
-}
-
-void McpIdempotency_Test::findFunction_findsCollectionByName()
-{
-    Collection *col = new Collection(m_doc);
-    col->setName("Mood: Party");
-    m_doc->addFunction(col);
-
-    Function *found = mcp::findFunction(m_doc, "Mood: Party", Function::CollectionType);
-    QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), col->id());
-}
-
-void McpIdempotency_Test::findFunction_findsRgbMatrixByName()
-{
-    RGBMatrix *m = new RGBMatrix(m_doc);
-    m->setName("Rainbow Wave");
-    m_doc->addFunction(m);
-
-    Function *found = mcp::findFunction(m_doc, "Rainbow Wave", Function::RGBMatrixType);
-    QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), m->id());
-}
-
-void McpIdempotency_Test::findFunction_findsScriptByName()
-{
-    Script *sc = new Script(m_doc);
-    sc->setName("Show Opener");
-    m_doc->addFunction(sc);
-
-    Function *found = mcp::findFunction(m_doc, "Show Opener", Function::ScriptType);
-    QVERIFY(found != nullptr);
-    QCOMPARE(found->id(), sc->id());
+    QCOMPARE(found->id(), fn->id());
 }
 
 void McpIdempotency_Test::findFunction_discriminatesByType()
@@ -181,20 +151,23 @@ void McpIdempotency_Test::findFixture_findsExactMatch()
     QCOMPARE(found->id(), fxi->id());
 }
 
-void McpIdempotency_Test::findFixture_noMatchDifferentName()
+void McpIdempotency_Test::findFixture_noMatch_data()
 {
-    Fixture *fxi = new Fixture(m_doc);
-    fxi->setName("Par LED 1");
-    fxi->setUniverse(0);
-    fxi->setAddress(10);
-    fxi->setChannels(6);
-    m_doc->addFixture(fxi);
+    QTest::addColumn<QString>("searchName");
+    QTest::addColumn<int>("searchUniverse");
+    QTest::addColumn<int>("searchAddress");
 
-    QVERIFY(mcp::findFixture(m_doc, "Par LED 2", 0, 10) == nullptr);
+    QTest::newRow("different name")     << QStringLiteral("Par LED 2") << 0 << 10;
+    QTest::newRow("different universe") << QStringLiteral("Par LED 1") << 1 << 10;
+    QTest::newRow("different address")  << QStringLiteral("Par LED 1") << 0 << 20;
 }
 
-void McpIdempotency_Test::findFixture_noMatchDifferentUniverse()
+void McpIdempotency_Test::findFixture_noMatch()
 {
+    QFETCH(QString, searchName);
+    QFETCH(int, searchUniverse);
+    QFETCH(int, searchAddress);
+
     Fixture *fxi = new Fixture(m_doc);
     fxi->setName("Par LED 1");
     fxi->setUniverse(0);
@@ -202,19 +175,7 @@ void McpIdempotency_Test::findFixture_noMatchDifferentUniverse()
     fxi->setChannels(6);
     m_doc->addFixture(fxi);
 
-    QVERIFY(mcp::findFixture(m_doc, "Par LED 1", 1, 10) == nullptr);
-}
-
-void McpIdempotency_Test::findFixture_noMatchDifferentAddress()
-{
-    Fixture *fxi = new Fixture(m_doc);
-    fxi->setName("Par LED 1");
-    fxi->setUniverse(0);
-    fxi->setAddress(10);
-    fxi->setChannels(6);
-    m_doc->addFixture(fxi);
-
-    QVERIFY(mcp::findFixture(m_doc, "Par LED 1", 0, 20) == nullptr);
+    QVERIFY(mcp::findFixture(m_doc, searchName, searchUniverse, searchAddress) == nullptr);
 }
 
 // ========== mcp::findFixtureGroup ==========
@@ -629,44 +590,27 @@ void McpIdempotency_Test::beatEncoding_wholeBeatsMultipliedBy1000()
     QCOMPARE(timeMs, (uint)3500);
 }
 
-void McpIdempotency_Test::beatEncoding_zeroRemainsZero()
+void McpIdempotency_Test::beatEncoding_beatsToTime_data()
 {
-    // Zero should stay zero regardless of encoding
-    uint encoded = 0 * 1000;
-    QCOMPARE(encoded, (uint)0);
-    QCOMPARE(Function::beatsToTime(0, 500), (uint)0);
+    QTest::addColumn<uint>("encoded");
+    QTest::addColumn<int>("beatDuration");
+    QTest::addColumn<uint>("expectedMs");
+
+    QTest::newRow("zero")           << 0u    << 500 << 0u;
+    QTest::newRow("1/8 beat")       << 125u  << 500 << 62u;
+    QTest::newRow("1/4 beat")       << 250u  << 500 << 125u;
+    QTest::newRow("1/2 beat")       << 500u  << 500 << 250u;
+    QTest::newRow("2.75 beats")     << 2750u << 500 << 1375u;
+    QTest::newRow("7 beats")        << 7000u << 500 << 3500u;
 }
 
-void McpIdempotency_Test::beatEncoding_fractionalHalfBeat()
+void McpIdempotency_Test::beatEncoding_beatsToTime()
 {
-    // 500 = 0.5 beats; at 120 BPM (beatDuration=500ms): 0.5 * 500 = 250ms
-    uint encoded = 500;
-    uint timeMs = Function::beatsToTime(encoded, 500);
-    QCOMPARE(timeMs, (uint)250);
-}
+    QFETCH(uint, encoded);
+    QFETCH(int, beatDuration);
+    QFETCH(uint, expectedMs);
 
-void McpIdempotency_Test::beatEncoding_fractionalQuarterBeat()
-{
-    // 250 = 0.25 beats; at 120 BPM (beatDuration=500ms): 0.25 * 500 = 125ms
-    uint encoded = 250;
-    uint timeMs = Function::beatsToTime(encoded, 500);
-    QCOMPARE(timeMs, (uint)125);
-}
-
-void McpIdempotency_Test::beatEncoding_fractionalEighthBeat()
-{
-    // 125 = 0.125 beats; at 120 BPM (beatDuration=500ms): 0.125 * 500 = 62ms
-    uint encoded = 125;
-    uint timeMs = Function::beatsToTime(encoded, 500);
-    QCOMPARE(timeMs, (uint)62);
-}
-
-void McpIdempotency_Test::beatEncoding_mixedWholeAndFractional()
-{
-    // 2750 = 2.75 beats; at 120 BPM (beatDuration=500ms): 2.75 * 500 = 1375ms
-    uint encoded = 2750;
-    uint timeMs = Function::beatsToTime(encoded, 500);
-    QCOMPARE(timeMs, (uint)1375);
+    QCOMPARE(Function::beatsToTime(encoded, beatDuration), expectedMs);
 }
 
 void McpIdempotency_Test::beatEncoding_stepDurationArithmetic()
@@ -716,6 +660,62 @@ void McpIdempotency_Test::beatEncoding_runtimeGranularity_wholeBeatOnly()
     uint wholeBeatDuration = 2000; // 2.0 beats
     uint wholeBeatTarget = Function::beatsToTime(wholeBeatDuration, beatTimeDuration);
     QCOMPARE(wholeBeatTarget, (uint)1000);
+}
+
+// ========== Beat auto-conversion (simulates tool-level x1000) ==========
+
+void McpIdempotency_Test::beatConversion_data()
+{
+    QTest::addColumn<int>("tempoType");
+    QTest::addColumn<double>("rawFadeIn");
+    QTest::addColumn<double>("rawHold");
+    QTest::addColumn<double>("rawFadeOut");
+    QTest::addColumn<uint>("expectFadeIn");
+    QTest::addColumn<uint>("expectHold");
+    QTest::addColumn<uint>("expectFadeOut");
+
+    QTest::newRow("whole beats")      << (int)Function::Beats << 1.0   << 4.0   << 1.0   << 1000u << 4000u << 1000u;
+    QTest::newRow("half beats")       << (int)Function::Beats << 0.5   << 2.0   << 0.5   << 500u  << 2000u << 500u;
+    QTest::newRow("quarter/eighth")   << (int)Function::Beats << 0.25  << 1.0   << 0.125 << 250u  << 1000u << 125u;
+    QTest::newRow("time passthrough") << (int)Function::Time  << 2000.0 << 5000.0 << 1500.0 << 2000u << 5000u << 1500u;
+}
+
+void McpIdempotency_Test::beatConversion()
+{
+    QFETCH(int, tempoType);
+    QFETCH(double, rawFadeIn);
+    QFETCH(double, rawHold);
+    QFETCH(double, rawFadeOut);
+    QFETCH(uint, expectFadeIn);
+    QFETCH(uint, expectHold);
+    QFETCH(uint, expectFadeOut);
+
+    Scene *s = new Scene(m_doc);
+    m_doc->addFunction(s);
+
+    Chaser *chaser = new Chaser(m_doc);
+    chaser->setTempoType(static_cast<Function::TempoType>(tempoType));
+
+    uint fadeIn, hold, fadeOut;
+    if (tempoType == Function::Beats)
+    {
+        fadeIn  = static_cast<uint>(rawFadeIn * 1000.0);
+        hold    = static_cast<uint>(rawHold * 1000.0);
+        fadeOut = static_cast<uint>(rawFadeOut * 1000.0);
+    }
+    else
+    {
+        fadeIn  = static_cast<uint>(rawFadeIn);
+        hold    = static_cast<uint>(rawHold);
+        fadeOut = static_cast<uint>(rawFadeOut);
+    }
+
+    chaser->addStep(ChaserStep(s->id(), fadeIn, hold, fadeOut));
+    m_doc->addFunction(chaser);
+
+    QCOMPARE(chaser->steps().at(0).fadeIn, expectFadeIn);
+    QCOMPARE(chaser->steps().at(0).hold, expectHold);
+    QCOMPARE(chaser->steps().at(0).fadeOut, expectFadeOut);
 }
 
 /*************************************************************************

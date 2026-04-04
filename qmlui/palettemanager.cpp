@@ -46,6 +46,8 @@ PaletteManager::PaletteManager(QQuickView *view, Doc *doc,
     m_dimmerCount = m_colorCount = m_positionCount = 0;
 
     connect(m_doc, SIGNAL(loaded()), this, SLOT(slotDocLoaded()));
+    connect(m_doc, SIGNAL(paletteAdded(quint32)), this, SLOT(updatePaletteList()));
+    connect(m_doc, SIGNAL(paletteRemoved(quint32)), this, SLOT(updatePaletteList()));
 }
 
 PaletteManager::~PaletteManager()
