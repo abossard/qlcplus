@@ -92,6 +92,114 @@
 >
 > All tools are batch-based (arrays in, arrays out) and idempotent (upsert by name).
 > See [`mcp/MCP-ARCHITECTURE.md`](mcp/MCP-ARCHITECTURE.md) for full documentation.
+>
+> ### Script Engine (JavaScript)
+>
+> `create_scripts` accepts raw JavaScript executed by QJSEngine in a dedicated thread.
+> Scripts are validated before saving — syntax errors are rejected with line numbers.
+>
+> <details>
+> <summary><strong>Full Engine API (25 methods)</strong></summary>
+>
+> **Function Control:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.startFunction(id)` | bool | Start any QLC+ function |
+> | `Engine.stopFunction(id)` | bool | Stop a running function |
+> | `Engine.isFunctionRunning(id)` | bool | Check if function is active |
+> | `Engine.waitFunctionStart(id)` | bool | Block until function starts |
+> | `Engine.waitFunctionStop(id)` | bool | Block until function stops |
+> | `Engine.stopOnExit(bool)` | bool | Auto-stop started functions on script exit |
+>
+> **Fixture Control:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.setFixture(fxID, ch, val)` | bool | Set fixture channel (0-255) |
+> | `Engine.setFixture(fxID, ch, val, fadeMs)` | bool | Set with fade time |
+> | `Engine.getChannelValue(universe, ch)` | int | Read live pre-GM DMX value |
+>
+> **Timing:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.waitTime(ms)` | bool | Pause execution (ms) |
+> | `Engine.waitTime("2s.500")` | bool | Pause using time string |
+> | `Engine.random(min, max)` | int | Random integer in [min,max] |
+> | `Engine.random("1s.0", "5s.0")` | int | Random ms from time strings |
+>
+> **BPM & Beat:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.setBPM(bpm)` | bool | Set beat generator BPM |
+> | `Engine.getBPM()` | int | Current BPM (internal/MIDI/audio) |
+> | `Engine.getBeatDuration()` | int | Beat period in ms |
+> | `Engine.isBeat()` | bool | True if current tick is on a beat |
+>
+> **Audio Input:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.getAudioLevel()` | int | Overall volume 0-255 |
+> | `Engine.getAudioFrequency(band, numBands)` | int | Frequency band 0-255 (3=bass/mid/high, 16=detailed) |
+>
+> **Envelope (from parent Chaser/Collection):**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.getOwnID()` | int | This script's function ID |
+> | `Engine.getElapsed()` | int | Ms since script started |
+> | `Engine.getEnvelopeDuration()` | int | Allocated duration from parent (ms, 0 if standalone) |
+> | `Engine.getEnvelopeFadeIn()` | int | Fade-in from parent (ms, 0 if not set) |
+> | `Engine.getEnvelopeFadeOut()` | int | Fade-out from parent (ms, 0 if not set) |
+>
+> **Function Attributes:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.getFunctionAttribute(id, idx)` | float | Read function attribute |
+> | `Engine.setFunctionAttribute(id, idx, val)` | bool | Modify running function attribute |
+> | `Engine.setFunctionAttribute(id, "Name", val)` | bool | By name (e.g. "Width", "Intensity") |
+>
+> **System:**
+> | Method | Returns | Description |
+> |--------|---------|-------------|
+> | `Engine.setBlackout(bool)` | bool | Toggle global blackout |
+> | `Engine.systemCommand("prog args")` | bool | Run external process (detached) |
+>
+> </details>
+>
+> <details>
+> <summary><strong>Example patterns</strong></summary>
+>
+> ```javascript
+> // Candle flicker — Gaussian random, warm colors
+> function gaussRand(mean, std) {
+>     var u1 = Math.random(), u2 = Math.random();
+>     return mean + std * Math.sqrt(-2*Math.log(u1)) * Math.cos(2*Math.PI*u2);
+> }
+> for (var tick = 0; tick < 200; tick++) {
+>     for (var c = 0; c < 6; c++) {
+>         Engine.setFixture(c, 0, Math.max(100, Math.min(255, Math.round(gaussRand(210, 25)))));
+>     }
+>     Engine.waitTime(Engine.random(30, 120));
+> }
+>
+> // Envelope-adaptive buildup — reusable across different chaser step durations
+> var totalMs = Engine.getEnvelopeDuration();
+> if (totalMs <= 0) totalMs = 5000;
+> var steps = Math.round(totalMs / 25);
+> for (var i = 0; i <= steps; i++) {
+>     Engine.setFixture(0, 0, Math.round(255 * i / steps));
+>     Engine.waitTime(25);
+> }
+>
+> // Audio-reactive — bass drives brightness, mid drives color
+> for (var tick = 0; tick < 500; tick++) {
+>     var bass = Engine.getAudioFrequency(0, 3);
+>     var mid = Engine.getAudioFrequency(1, 3);
+>     Engine.setFixture(0, 0, bass);
+>     Engine.setFixture(0, 1, mid);
+>     Engine.waitTime(25);
+> }
+> ```
+>
+> </details>
 
 <p align="center"><em>(Often abbreviated as "QLC+")</em></p>
 <p align="center">

@@ -715,23 +715,3 @@ jobs:
           files: release/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update Homebrew formula SHA256
-        run: |
-          MACOS_ARM64=$(sha256sum release/qlcplus-pre-macos-arm64.tar.gz | awk '{print $1}')
-          echo "SHA256 macos-arm64: $MACOS_ARM64"
-
-          sed -i "s|sha256 \".*\" # macos-arm64|sha256 \"${MACOS_ARM64}\" # macos-arm64|" Formula/qlcplus.rb
-
-          echo "Updated Formula/qlcplus.rb:"
-          grep 'sha256' Formula/qlcplus.rb
-
-      - name: Commit formula updates
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/qlcplus.rb
-          git diff --cached --quiet || git commit -m "chore: update Homebrew formula SHA256 [skip ci]"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -107,6 +107,9 @@ public:
     /** Get the number of currently running functions */
     int runningFunctions() const;
 
+    /** Get a thread-safe copy of running function IDs */
+    QList<quint32> runningFunctionIds() const;
+
 signals:
     /** Tells that the list of running functions has changed */
     void functionListChanged();

@@ -64,6 +64,8 @@ class FunctionManager final : public QObject
     Q_PROPERTY(int showCount READ showCount NOTIFY showCountChanged)
     Q_PROPERTY(int audioCount READ audioCount NOTIFY audioCountChanged)
     Q_PROPERTY(int videoCount READ videoCount NOTIFY videoCountChanged)
+    Q_PROPERTY(int runningCount READ runningCount NOTIFY runningCountChanged)
+    Q_PROPERTY(bool showRunningOnly READ showRunningOnly WRITE setShowRunningOnly NOTIFY showRunningOnlyChanged)
 
     Q_PROPERTY(QStringList audioExtensions READ audioExtensions CONSTANT)
     Q_PROPERTY(QStringList pictureExtensions READ pictureExtensions CONSTANT)
@@ -188,6 +190,10 @@ public:
     int audioCount() const { return m_audioCount; }
     int videoCount() const { return m_videoCount; }
 
+    int runningCount() const;
+    bool showRunningOnly() const;
+    void setShowRunningOnly(bool show);
+
     QStringList audioExtensions() const;
     QStringList pictureExtensions() const;
     QStringList videoExtensions() const;
@@ -217,6 +223,8 @@ signals:
     void showCountChanged();
     void audioCountChanged();
     void videoCountChanged();
+    void runningCountChanged();
+    void showRunningOnlyChanged();
     void selectedFunctionCountChanged(int count);
     void previewEnabledChanged();
     void isEditingChanged(bool editing);
@@ -225,6 +233,10 @@ signals:
 public slots:
     void slotDocLoaded();
     void slotFunctionAdded(quint32 fid);
+
+private slots:
+    void slotFunctionStarted(quint32 fid);
+    void slotFunctionStopped(quint32 fid);
 
 private:
     /** Reference of the QML view */
@@ -249,6 +261,10 @@ private:
     int m_sceneCount, m_chaserCount, m_sequenceCount, m_efxCount;
     int m_collectionCount, m_rgbMatrixCount, m_scriptCount;
     int m_showCount, m_audioCount, m_videoCount;
+
+    /** Running functions tracking */
+    int m_runningCount;
+    bool m_showRunningOnly;
 
     FunctionEditor *m_currentEditor;
     FunctionEditor *m_sceneEditor;

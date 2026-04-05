@@ -37,6 +37,7 @@ Rectangle
     property bool isSelected: false
     property bool isCheckable: false
     property bool isChecked: false
+    property bool isRunning: false
     property Item dragItem
 
     onCRefChanged:
@@ -116,6 +117,27 @@ Rectangle
 
                 onDropped: drag.source.itemDropped(cRef.id, cRef.name)
             }
+        }
+    }
+
+    Rectangle
+    {
+        id: runningIndicator
+        anchors.right: parent.right
+        anchors.rightMargin: UISettings.listItemHeight + 4
+        anchors.verticalCenter: parent.verticalCenter
+        width: 8
+        height: 8
+        radius: 4
+        color: "#00FF00"
+        visible: isRunning
+
+        SequentialAnimation on opacity
+        {
+            running: isRunning
+            loops: Animation.Infinite
+            NumberAnimation { from: 1.0; to: 0.3; duration: 800; easing.type: Easing.InOutQuad }
+            NumberAnimation { from: 0.3; to: 1.0; duration: 800; easing.type: Easing.InOutQuad }
         }
     }
 

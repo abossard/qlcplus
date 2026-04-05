@@ -32,6 +32,7 @@ class MasterTimer;
 class QJSEngine;
 class QJSValue;
 class Universe;
+class Script;
 class Doc;
 
 typedef struct
@@ -51,7 +52,7 @@ class ScriptRunner final : public QThread
      * Initialization
      ************************************************************************/
 public:
-    ScriptRunner(Doc *doc, const QString &content, QObject *parent = 0);
+    ScriptRunner(Doc *doc, Script *script, const QString &content, QObject *parent = 0);
     ~ScriptRunner();
 
     /** Start the thread execution and therefore the JavaScript code */
@@ -262,6 +263,37 @@ public slots:
      */
     int getAudioFrequency(int bandIndex, int numBands);
 
+    /**
+     * Get this script's own function ID
+     * @return function ID, or -1 if no script reference
+     */
+    int getOwnID();
+
+    /**
+     * Get elapsed time since the script started running
+     * @return milliseconds elapsed
+     */
+    int getElapsed();
+
+    /**
+     * Get the envelope duration set by the parent (Chaser step, Collection).
+     * This is the total time the script is expected to run.
+     * @return duration in ms, or 0 if not set (standalone script)
+     */
+    int getEnvelopeDuration();
+
+    /**
+     * Get the envelope fade-in time set by the parent
+     * @return fade-in in ms, or 0 if not set
+     */
+    int getEnvelopeFadeIn();
+
+    /**
+     * Get the envelope fade-out time set by the parent
+     * @return fade-out in ms, or 0 if not set
+     */
+    int getEnvelopeFadeOut();
+
 protected slots:
     /** Triggered when the script's execution pauses to await the starting of a function */
     void slotWaitFunctionStarted(quint32 fid);
@@ -292,6 +324,7 @@ private:
 
 private:
     Doc *m_doc;
+    Script *m_script;
     QString m_content;
     bool m_running;
 

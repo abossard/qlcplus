@@ -32,10 +32,12 @@
 #include "mastertimer.h"
 #include "audiocapture.h"
 #include "universe.h"
+#include "scriptv4.h"
 
-ScriptRunner::ScriptRunner(Doc *doc, const QString &content, QObject *parent)
+ScriptRunner::ScriptRunner(Doc *doc, Script *script, const QString &content, QObject *parent)
     : QThread(parent)
     , m_doc(doc)
+    , m_script(script)
     , m_content(content)
     , m_running(false)
     , m_engine(NULL)
@@ -664,4 +666,47 @@ int ScriptRunner::getAudioFrequency(int bandIndex, int numBands)
 
     // Normalize to 0-255 relative to the max magnitude across bands
     return qBound(0, (int)(magnitude * 255.0 / maxMag), 255);
+}
+
+int ScriptRunner::getOwnID()
+{
+    if (m_script == nullptr)
+        return -1;
+
+    return (int)m_script->id();
+}
+
+int ScriptRunner::getElapsed()
+{
+    if (m_script == nullptr)
+        return 0;
+
+    return (int)m_script->elapsed();
+}
+
+int ScriptRunner::getEnvelopeDuration()
+{
+    if (m_script == nullptr)
+        return 0;
+
+    uint dur = m_script->overrideDuration();
+    return (dur == Function::defaultSpeed()) ? 0 : (int)dur;
+}
+
+int ScriptRunner::getEnvelopeFadeIn()
+{
+    if (m_script == nullptr)
+        return 0;
+
+    uint fi = m_script->overrideFadeInSpeed();
+    return (fi == Function::defaultSpeed()) ? 0 : (int)fi;
+}
+
+int ScriptRunner::getEnvelopeFadeOut()
+{
+    if (m_script == nullptr)
+        return 0;
+
+    uint fo = m_script->overrideFadeOutSpeed();
+    return (fo == Function::defaultSpeed()) ? 0 : (int)fo;
 }

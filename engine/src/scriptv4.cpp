@@ -81,7 +81,7 @@ quint32 Script::totalDuration()
 {
     quint32 totalDuration = 0;
 
-    ScriptRunner *runner = new ScriptRunner(doc(), m_data);
+    ScriptRunner *runner = new ScriptRunner(doc(), nullptr, m_data);
     runner->collectScriptData();
     totalDuration = runner->currentWaitTime();
     //runner->deleteLater();
@@ -224,7 +224,7 @@ QList<quint32> Script::fixtureList() const
 
 QStringList Script::syntaxErrorsLines() const
 {
-    ScriptRunner *runner = new ScriptRunner(doc(), m_data);
+    ScriptRunner *runner = new ScriptRunner(doc(), nullptr, m_data);
     QStringList errorList = runner->collectScriptData();
     //runner->deleteLater();
 
@@ -329,7 +329,7 @@ bool Script::saveXML(QXmlStreamWriter *doc) const
 
 void Script::preRun(MasterTimer* timer)
 {
-    m_runner = new ScriptRunner(doc(), m_data);
+    m_runner = new ScriptRunner(doc(), this, m_data);
     connect(m_runner, SIGNAL(finished()), this, SLOT(slotRunnerFinished()));
     m_runner->execute();
 

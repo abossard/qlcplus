@@ -209,6 +209,22 @@ Rectangle
                 onCheckedChanged: setFunctionFilter(QLCFunction.VideoType, checked)
             }
 
+            Rectangle { width: 1; height: topBar.height - 6; color: UISettings.fgMedium }
+
+            IconButton
+            {
+                z: 2
+                width: height
+                height: topBar.height - 2
+                faSource: FontAwesome.fa_play
+                faColor: checked ? "#00FF00" : "gray"
+                checkable: true
+                checked: functionManager.showRunningOnly
+                tooltip: qsTr("Running functions only")
+                counter: functionManager.runningCount
+                onCheckedChanged: functionManager.showRunningOnly = checked
+            }
+
             Rectangle { Layout.fillWidth: true }
 
             IconButton
@@ -293,6 +309,7 @@ Rectangle
                           if (type === App.FunctionDragItem)
                           {
                               item.cRef = classRef
+                              item.isRunning = Qt.binding(function() { return isRunning })
                           }
                           else
                           {

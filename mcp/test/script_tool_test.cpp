@@ -788,6 +788,55 @@ void ScriptTool_Test::engineApi_getAudioFrequency()
     QVERIFY2(!r.contains("error"), r.dump().c_str());
 }
 
+// ── Envelope awareness ─────────────────────────────────────────────────────
+
+void ScriptTool_Test::engineApi_getOwnID()
+{
+    auto r = callCreateScript("GetOwnID", "var myID = Engine.getOwnID();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getElapsed()
+{
+    auto r = callCreateScript("GetElapsed", "var ms = Engine.getElapsed();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getEnvelopeDuration()
+{
+    auto r = callCreateScript("GetEnvDur", "var dur = Engine.getEnvelopeDuration();");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::engineApi_getEnvelopeFadeInOut()
+{
+    auto r = callCreateScript("GetEnvFade",
+        "var fi = Engine.getEnvelopeFadeIn();\n"
+        "var fo = Engine.getEnvelopeFadeOut();\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::pattern_envelopeAdaptive()
+{
+    auto r = callCreateScript("EnvelopeAdaptive",
+        "// Reusable buildup — adapts to any envelope duration\n"
+        "var totalMs = Engine.getEnvelopeDuration();\n"
+        "if (totalMs <= 0) totalMs = 5000;\n"
+        "var fadeIn = Engine.getEnvelopeFadeIn();\n"
+        "var fadeOut = Engine.getEnvelopeFadeOut();\n"
+        "var steps = Math.max(1, Math.round(totalMs / 25));\n"
+        "function easeInQuad(t) { return t * t; }\n"
+        "for (var i = 0; i <= steps; i++) {\n"
+        "    var t = i / steps;\n"
+        "    var brightness = Math.round(255 * easeInQuad(t));\n"
+        "    for (var fix = 0; fix < 8; fix++) {\n"
+        "        Engine.setFixture(fix, 0, brightness);\n"
+        "    }\n"
+        "    Engine.waitTime(25);\n"
+        "}\n");
+    QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Edge cases
 // ═══════════════════════════════════════════════════════════════════════════

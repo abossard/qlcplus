@@ -1,7 +1,0 @@
-qlcplus/
-qlcplus-dbg/
-tmp/
-*.log
-*.debhelper
-*.substvars
-files

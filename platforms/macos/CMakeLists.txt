@@ -31,7 +31,6 @@ set(APPLE_CODESIGN_ENTITLEMENTS "qlcplus.entitlements")
 #endif()
 
 # install Qt library frameworks
-#set(QT_FRAMEWORKS_DIR ${_qt5_root_dir}/../../Frameworks) # homebrew
 set(QT_FRAMEWORKS_DIR $ENV{QTDIR}/lib)
 set(QT_FRAMEWORK_NAMES
     "QtCore"

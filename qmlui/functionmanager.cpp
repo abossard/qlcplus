@@ -48,6 +48,7 @@
 #include "app.h"
 
 #include "tardis.h"
+#include "mastertimer.h"
 #include "doc.h"
 
 FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
@@ -62,6 +63,8 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
     m_sceneCount = m_chaserCount = m_sequenceCount = m_efxCount = 0;
     m_collectionCount = m_rgbMatrixCount = m_scriptCount = 0;
     m_showCount = m_audioCount = m_videoCount = 0;
+    m_runningCount = 0;
+    m_showRunningOnly = false;
 
     m_currentEditor = nullptr;
     m_sceneEditor = nullptr;
@@ -78,12 +81,16 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
     m_functionTree = new TreeModel(this);
     QQmlEngine::setObjectOwnership(m_functionTree, QQmlEngine::CppOwnership);
     QStringList treeColumns;
-    treeColumns << "classRef" << "type";
+    treeColumns << "classRef" << "type" << "isRunning";
     m_functionTree->setColumnNames(treeColumns);
     m_functionTree->enableSorting(true);
 
     connect(m_doc, SIGNAL(loaded()), this, SLOT(slotDocLoaded()));
     connect(m_doc, SIGNAL(functionAdded(quint32)), this, SLOT(slotFunctionAdded(quint32)));
+    connect(m_doc->masterTimer(), SIGNAL(functionStarted(quint32)),
+            this, SLOT(slotFunctionStarted(quint32)));
+    connect(m_doc->masterTimer(), SIGNAL(functionStopped(quint32)),
+            this, SLOT(slotFunctionStopped(quint32)));
 }
 
 
@@ -1477,9 +1484,13 @@ void FunctionManager::addFunctionTreeItem(Function *func)
     if ((m_filter == 0 || m_filter & func->type()) &&
         (m_searchFilter.length() < SEARCH_MIN_CHARS || func->name().toLower().contains(m_searchFilter)))
     {
+        if (m_showRunningOnly && !func->isRunning())
+            return;
+
         QVariantList params;
         params.append(QVariant::fromValue(func)); // classRef
         params.append(App::FunctionDragItem); // type
+        params.append(func->isRunning()); // isRunning
         QString fPath = func->path(true).replace("/", TreeModel::separator());
         TreeModelItem *item = m_functionTree->addItem(func->name(), params, fPath, expandAll ? TreeModel::Expanded : 0);
         if (m_selectedIDList.contains(QVariant(func->id())))
@@ -1587,6 +1598,8 @@ void FunctionManager::updateFunctionsTree()
 void FunctionManager::slotDocLoaded()
 {
     setPreviewEnabled(false);
+    m_runningCount = m_doc->masterTimer()->runningFunctionIds().size();
+    emit runningCountChanged();
     updateFunctionsTree();
 }
 
@@ -1597,4 +1610,73 @@ void FunctionManager::slotFunctionAdded(quint32 fid)
 
     Function *func = m_doc->function(fid);
     addFunctionTreeItem(func);
+}
+
+/*********************************************************************
+ * Running functions tracking
+ *********************************************************************/
+
+int FunctionManager::runningCount() const
+{
+    return m_runningCount;
+}
+
+bool FunctionManager::showRunningOnly() const
+{
+    return m_showRunningOnly;
+}
+
+void FunctionManager::setShowRunningOnly(bool show)
+{
+    if (m_showRunningOnly == show)
+        return;
+
+    m_showRunningOnly = show;
+    emit showRunningOnlyChanged();
+    updateFunctionsTree();
+}
+
+void FunctionManager::slotFunctionStarted(quint32 fid)
+{
+    Function *func = m_doc->function(fid);
+    if (func == nullptr)
+        return;
+
+    m_runningCount++;
+    emit runningCountChanged();
+
+    int isRunningRole = m_functionTree->roleIndex("isRunning");
+    if (isRunningRole < 0)
+        return;
+
+    QString treePath = func->path(true).replace("/", TreeModel::separator());
+    QString fullPath = treePath.isEmpty() ? func->name()
+        : treePath + TreeModel::separator() + func->name();
+    m_functionTree->setItemRoleData(fullPath, true, isRunningRole);
+
+    if (m_showRunningOnly)
+        updateFunctionsTree();
+}
+
+void FunctionManager::slotFunctionStopped(quint32 fid)
+{
+    Function *func = m_doc->function(fid);
+    if (func == nullptr)
+        return;
+
+    if (m_runningCount > 0)
+        m_runningCount--;
+    emit runningCountChanged();
+
+    int isRunningRole = m_functionTree->roleIndex("isRunning");
+    if (isRunningRole < 0)
+        return;
+
+    QString treePath = func->path(true).replace("/", TreeModel::separator());
+    QString fullPath = treePath.isEmpty() ? func->name()
+        : treePath + TreeModel::separator() + func->name();
+    m_functionTree->setItemRoleData(fullPath, false, isRunningRole);
+
+    if (m_showRunningOnly)
+        updateFunctionsTree();
 }

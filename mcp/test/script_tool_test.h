@@ -102,6 +102,13 @@ private slots:
     void engineApi_getAudioLevel();
     void engineApi_getAudioFrequency();
 
+    // ── Envelope awareness ─────────────────────────────────────────────
+    void engineApi_getOwnID();
+    void engineApi_getElapsed();
+    void engineApi_getEnvelopeDuration();
+    void engineApi_getEnvelopeFadeInOut();
+    void pattern_envelopeAdaptive();
+
     // ── Edge cases ─────────────────────────────────────────────────────
     void edge_longScript();
     void edge_commentsOnly();

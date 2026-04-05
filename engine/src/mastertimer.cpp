@@ -217,6 +217,18 @@ int MasterTimer::runningFunctions() const
     return m_functionList.size();
 }
 
+QList<quint32> MasterTimer::runningFunctionIds() const
+{
+    QMutexLocker locker(const_cast<QMutex*>(&m_functionListMutex));
+    QList<quint32> ids;
+    for (Function *f : m_functionList)
+    {
+        if (f != nullptr)
+            ids.append(f->id());
+    }
+    return ids;
+}
+
 void MasterTimer::timerTickFunctions(QList<Universe *> universes)
 {
     // List of m_functionList indices that should be removed at the end of this
