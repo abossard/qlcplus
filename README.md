@@ -6,68 +6,48 @@
 
 <h1 align="center">Q Light Controller+</h1>
 
-> ## ⚠️ THIS IS VIBECODED — IGNORE THIS FORK ⚠️
+> ## ⚠️ EXPERIMENTAL FORK — USE AT YOUR OWN RISK ⚠️
 >
-> **This entire fork was vibe-coded in a single session with AI pair-programming.**
-> It has NOT been reviewed, tested properly, or designed for reliability.
-> Do NOT use this for anything serious. Do NOT submit PRs to upstream from this.
->
-> **For the real QLC+ project, go to: [mcallegari/qlcplus](https://github.com/mcallegari/qlcplus)**
->
-> This fork adds an experimental MCP server that lets AI agents (Copilot, Claude, etc.)
-> set up lighting shows via natural language. It's a fun hack, nothing more.
-> exploring AI-assisted show design. The MCP code was largely generated through AI pair-programming
-> and has not been through proper code review.
+> **This fork was largely vibe-coded with AI pair-programming.**
+> It has NOT been through upstream code review or formal QA.
+> Do NOT submit PRs to upstream from this fork.
 >
 > **For the official QLC+ project, go to: [mcallegari/qlcplus](https://github.com/mcallegari/qlcplus)**
 >
+> This fork adds an MCP (Model Context Protocol) server that lets AI agents
+> (Copilot, Claude, Cursor, etc.) design and control lighting shows via natural language.
+>
 > ### What this fork adds
-> - `mcp/` directory: Self-contained MCP server (47 tools) for AI-driven show setup
-> - MCP server starts automatically on port 9696 (disable with `--no-mcp`)
+> - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 230 unit tests
+> - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
 > - Function Wizard for QML UI
-> - Only 4 lines changed in existing QLC+ code — easy to merge upstream changes
+> - Launchpad controller integration support
+> - Audio capture / BPM detection for scripts
 >
-> ### Install (macOS)
-> ```bash
-> brew install abossard/qlcplus/qlcplus
-> ```
-> That's it. Installs QLC+ with MCP server to `/Applications` and clears quarantine automatically.
->
-> ### Run
-> ```bash
-> open /Applications/QLC+.app
-> ```
-> The MCP server starts automatically on `http://localhost:9696/mcp`.
->
-> ### Build from source
-> ```bash
-> cmake -Dqmlui=ON -Dmcp_server=ON ..
-> make -j$(sysctl -n hw.ncpu)
-> ./qlcplus-qml  # MCP auto-starts on port 9696
-> ```
->
-> ### macOS: Installing from DMG (manual)
+> ### Install from DMG (macOS)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
 > After mounting the DMG and dragging QLC+ to `/Applications`:
 > ```bash
-> # Remove the quarantine flag so macOS allows the app to run
-> sudo xattr -cr /Applications/QLC+.app
->
-> # Launch from terminal (or double-click in Finder)
+> sudo xattr -cr /Applications/QLC+.app   # clear quarantine (ad-hoc signed)
 > open /Applications/QLC+.app
 > ```
-> The `xattr -cr` step is needed because the app is ad-hoc signed (no Apple Developer certificate).
-> macOS blocks downloaded apps with quarantine attributes until they are cleared.
+>
+> ### Build from source
+> ```bash
+> mkdir build && cd build
+> cmake -Dqmlui=ON -Dmcp_server=ON ..
+> make -j$(sysctl -n hw.ncpu)
+> ./qmlui/qlcplus-qml   # MCP auto-starts on port 9696
+> ```
+> Disable MCP with `--no-mcp`, or change port with `--mcp-http <port>`.
 >
 > ### Connect your AI agent
 >
-> **Copilot CLI** — add to `~/.copilot/mcp.json`:
+> **Copilot CLI / VS Code** — add to `~/.copilot/mcp.json`:
 > ```json
 > {
 >   "servers": {
->     "qlcplus": {
->       "url": "http://localhost:9696/mcp"
->     }
+>     "qlcplus": { "url": "http://localhost:9696/mcp" }
 >   }
 > }
 > ```
@@ -81,9 +61,7 @@
 > ```json
 > {
 >   "mcpServers": {
->     "qlcplus": {
->       "url": "http://localhost:9696/mcp"
->     }
+>     "qlcplus": { "url": "http://localhost:9696/mcp" }
 >   }
 > }
 > ```
@@ -92,9 +70,7 @@
 > ```json
 > {
 >   "mcpServers": {
->     "qlcplus": {
->       "url": "http://localhost:9696/mcp"
->     }
+>     "qlcplus": { "url": "http://localhost:9696/mcp" }
 >   }
 > }
 > ```
@@ -102,16 +78,20 @@
 > ### Available tools (47)
 > | Category | Tools |
 > |----------|-------|
-> | **Query** | `query_fixtures`, `query_available_fixtures`, `patch_fixtures`, `query_functions`, `query_vc_pages`, `query_universes`, `query_palettes`, `query_fixture_channels` |
-> | **Functions** | `create_scenes`, `create_chasers`, `create_efxs`, `create_collections`, `create_rgb_matrices`, `create_scripts`, `update_scene_from_dmx` |
+> | **Query** | `query_fixtures`, `query_available_fixtures`, `query_functions`, `query_fixture_channels`, `query_palettes`, `query_universes`, `query_input_profiles`, `query_midi_devices`, `query_osc_status`, `query_channel_modifiers`, `query_feedback_profile` |
+> | **Patch** | `patch_fixtures` |
+> | **Functions** | `create_scenes`, `create_chasers`, `create_sequences`, `create_efxs`, `create_collections`, `create_rgb_matrices`, `create_scripts`, `create_fixture_groups`, `update_scene_from_dmx`, `delete_functions` |
 > | **Palettes** | `create_palettes`, `delete_palettes` |
-> | **Virtual Console** | `create_vc_pages`, `add_vc_frames`, `add_vc_buttons`, `add_vc_sliders`, `add_vc_xypads`, `add_vc_cuelists`, `add_vc_labels`, `add_vc_clocks`, `add_vc_speed_dials`, `add_vc_audio_triggers`, `add_vc_animations` |
-> | **VC Control** | `vc_update_widgets`, `vc_map_inputs`, `vc_layout_reflow` |
-> | **Channels** | `configure_channels`, `read_dmx_values`, `query_channel_modifiers`, `set_channel_modifiers` |
-> | **I/O** | `configure_universes` |
-> | **Prompts** | `design_dj_show`, `debug_channel_conflict`, `setup_launchpad` |
+> | **Channels** | `configure_channels`, `read_dmx_values`, `set_channel_modifiers`, `convert_degrees_to_dmx`, `set_grand_master` |
+> | **I/O** | `configure_universes`, `configure_plugin_params`, `configure_osc`, `configure_beat_source`, `configure_launchpad`, `set_input_profile`, `vc_configure_feedback` |
+> | **Virtual Console** | `vc_create_pages`, `vc_create_widgets`, `vc_query_pages`, `vc_query_widgets`, `vc_update_widgets`, `vc_delete_widgets`, `vc_reparent_widgets` |
+> | **VC Input** | `vc_map_inputs`, `vc_set_key_sequences`, `vc_detect_overlaps` |
+> | **VC Layout** | `vc_reflow_frame` |
+>
+> **Prompts:** `design_dj_show`, `debug_channel_conflict`, `setup_launchpad`
 >
 > All tools are batch-based (arrays in, arrays out) and idempotent (upsert by name).
+> See [`mcp/MCP-ARCHITECTURE.md`](mcp/MCP-ARCHITECTURE.md) for full documentation.
 
 <p align="center"><em>(Often abbreviated as "QLC+")</em></p>
 <p align="center">
