@@ -73,7 +73,7 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QOb
     registerIOTools(*m_toolManager, m_doc);
     registerChannelTools(*m_toolManager, m_doc);
     registerPaletteTools(*m_toolManager, m_doc);
-    registerPrompts(*m_promptManager, m_doc);
+    registerPrompts(*m_promptManager, m_doc, m_vcBridge);
 }
 
 McpServer::~McpServer()

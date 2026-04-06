@@ -67,18 +67,26 @@ Rectangle
         bgImage.anchors.margins = m
     }
 
+    function snapToGrid()
+    {
+        if (virtualConsole.snapping)
+        {
+            var s = virtualConsole.snappingSize
+            if (s > 0)
+            {
+                x = Math.round(x / s) * s
+                y = Math.round(y / s) * s
+                width = Math.max(Math.round(width / s) * s, s)
+                height = Math.max(Math.round(height / s) * s, s)
+            }
+        }
+    }
+
     function updateGeometry(d)
     {
         d.target = null
 
-        if (virtualConsole.snapping)
-        {
-            var snappingSize = virtualConsole.snappingSize
-            x = Math.round(x / snappingSize) * snappingSize
-            y = Math.round(y / snappingSize) * snappingSize
-            width = Math.round(width / snappingSize) * snappingSize
-            height = Math.round(height / snappingSize) * snappingSize
-        }
+        snapToGrid()
 
         if (height < UISettings.iconSizeMedium)
             height = UISettings.iconSizeMedium
@@ -151,6 +159,16 @@ Rectangle
                         virtualConsole.setWidgetSelection(wObj.id, wRoot, isSelected, mouse.modifiers & Qt.ControlModifier)
                     }
                 }
+
+                if (drag.active && virtualConsole.snapping)
+                {
+                    var s = virtualConsole.snappingSize
+                    if (s > 0)
+                    {
+                        wRoot.x = Math.round(wRoot.x / s) * s
+                        wRoot.y = Math.round(wRoot.y / s) * s
+                    }
+                }
             }
 
             onReleased: (mouse) =>
@@ -199,6 +217,7 @@ Rectangle
                     wRoot.width -= tlHandle.x
                     wRoot.height -= tlHandle.y
                     wRoot.y += tlHandle.y
+                    wRoot.snapToGrid()
                 }
                 onReleased: wRoot.updateGeometry(drag)
             }
@@ -234,6 +253,7 @@ Rectangle
                     wRoot.width = trHandle.x + trHandle.width
                     wRoot.height -= trHandle.y
                     wRoot.y += trHandle.y
+                    wRoot.snapToGrid()
                 }
                 onReleased: wRoot.updateGeometry(drag)
             }
@@ -267,6 +287,7 @@ Rectangle
                         return;
                     wRoot.width = brHandle.x + brHandle.width
                     wRoot.height = brHandle.y + brHandle.height
+                    wRoot.snapToGrid()
                 }
                 onReleased: wRoot.updateGeometry(drag)
             }
@@ -302,6 +323,7 @@ Rectangle
                     wRoot.height = blHandle.y + blHandle.height
                     wRoot.x += blHandle.x
                     wRoot.width -= blHandle.x
+                    wRoot.snapToGrid()
                 }
                 onReleased: wRoot.updateGeometry(drag)
             }

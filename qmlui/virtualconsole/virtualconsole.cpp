@@ -189,7 +189,7 @@ void VirtualConsole::setSnapping(bool enable)
 
 qreal VirtualConsole::snappingSize() const
 {
-    return pixelDensity() * 3;
+    return qMax(pixelDensity() * 3, 5.0);
 }
 
 VirtualConsole::LoadStatus VirtualConsole::loadStatus() const

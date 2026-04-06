@@ -25,6 +25,7 @@
 #include <QThread>
 
 #include "doc.h"
+#include "vcbridge.h"
 #include "scene.h"
 #include "scenevalue.h"
 #include "chaser.h"
@@ -33,7 +34,7 @@
 #include "fixture.h"
 #include "qlcchannel.h"
 
-void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
+void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge)
 {
     using Json = nlohmann::json;
     using Prompt = fastmcpp::prompts::Prompt;
@@ -51,7 +52,7 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
             PromptArgument{"colors_per_phase", std::string("Number of colors per phase palette (default 4)"), false},
             PromptArgument{"energy_style", std::string("Overall energy: aggressive, balanced, or ambient (default balanced)"), false}
         };
-        p.generator = [doc](const Json &args) -> std::vector<PromptMessage> {
+        p.generator = [doc, vcBridge](const Json &args) -> std::vector<PromptMessage> {
             int colorsPerPhase = 4;
             if (args.contains("colors_per_phase"))
             {
@@ -354,6 +355,9 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc)
 
                 "---\n\n"
                 "## VC Layout Best Practices\n"
+                "- **Grid alignment**: All widget positions (x, y) and sizes (width, height) MUST be multiples of **"
+                + std::to_string(vcBridge ? vcBridge->snappingSize() : 5)
+                + "px** (the snap grid size). This applies even when snapping is toggled off in the UI.\n"
                 "- **Frames side-by-side**: Use x/y positioning for related frames on the same row\n"
                 "- **Slider height**: 350px minimum for usable sliders\n"
                 "- **XY Pads**: Always square (250×250 or 300×300)\n"

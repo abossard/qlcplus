@@ -170,6 +170,26 @@ VCBridgeV5::VCBridgeV5(Doc *doc, VirtualConsole *vc)
 {
 }
 
+QRect VCBridgeV5::snapRect(const QRect &rect) const
+{
+    qreal s = m_vc->snappingSize();
+    if (s <= 0)
+        return rect;
+
+    int is = qRound(s);
+    return QRect(
+        qRound((qreal)rect.x() / s) * is,
+        qRound((qreal)rect.y() / s) * is,
+        qMax(qRound((qreal)rect.width() / s) * is, is),
+        qMax(qRound((qreal)rect.height() / s) * is, is)
+    );
+}
+
+int VCBridgeV5::snappingSize() const
+{
+    return qRound(m_vc->snappingSize());
+}
+
 int VCBridgeV5::addPage(const QString &name)
 {
     int idx = m_vc->pagesCount();
@@ -229,7 +249,7 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
     VCWidget *widget = page->addWidget(m_vc->currentPageItem(), solo ? "Solo frame" : "Frame",
                                        QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
-    widget->setGeometry(geometry);
+    widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
     return widget->id();
 }
@@ -244,7 +264,7 @@ int VCBridgeV5::addFrameInFrame(int parentID, const QRect &geometry,
     VCWidget *widget = frame->addWidget(nullptr, solo ? "Solo frame" : "Frame",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
-    widget->setGeometry(geometry);
+    widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
     return widget->id();
 }
@@ -265,7 +285,7 @@ int VCBridgeV5::addButton(int parentID, const QRect &geometry,
     VCButton *button = qobject_cast<VCButton *>(widget);
     if (button)
     {
-        button->setGeometry(geometry);
+        button->setGeometry(snapRect(geometry));
         button->setCaption(caption);
         if (functionID != Function::invalidId())
             button->setFunctionID(functionID);
@@ -300,7 +320,7 @@ int VCBridgeV5::addSlider(int parentID, const QRect &geometry,
     VCSlider *slider = qobject_cast<VCSlider *>(widget);
     if (slider)
     {
-        slider->setGeometry(geometry);
+        slider->setGeometry(snapRect(geometry));
         slider->setCaption(caption);
 
         if (mode == "submaster")
@@ -352,7 +372,7 @@ int VCBridgeV5::addXYPadEx(int parentID, const QRect &geometry,
     VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
     if (xyPad)
     {
-        xyPad->setGeometry(geometry);
+        xyPad->setGeometry(snapRect(geometry));
 
         for (const XYPadFixtureConfig &cfg : fixtures)
         {
@@ -405,7 +425,7 @@ int VCBridgeV5::addCueList(int parentID, const QRect &geometry,
     VCCueList *cuelist = qobject_cast<VCCueList *>(widget);
     if (cuelist)
     {
-        cuelist->setGeometry(geometry);
+        cuelist->setGeometry(snapRect(geometry));
         cuelist->setChaserID(chaserID);
         if (!caption.isEmpty())
             cuelist->setCaption(caption);
@@ -424,7 +444,7 @@ int VCBridgeV5::addLabel(int parentID, const QRect &geometry,
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
-    widget->setGeometry(geometry);
+    widget->setGeometry(snapRect(geometry));
     widget->setCaption(text);
     return widget->id();
 }
@@ -586,7 +606,7 @@ int VCBridgeV5::addSpeedDial(int parentID, const QRect &geometry,
     VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
     if (speedDial)
     {
-        speedDial->setGeometry(geometry);
+        speedDial->setGeometry(snapRect(geometry));
         for (quint32 fid : functionIDs)
             speedDial->addFunction(fid);
     }
@@ -603,7 +623,7 @@ int VCBridgeV5::addAudioTriggers(int parentID, const QRect &geometry)
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
-    widget->setGeometry(geometry);
+    widget->setGeometry(snapRect(geometry));
     return widget->id();
 }
 
@@ -686,7 +706,7 @@ int VCBridgeV5::addClock(int parentID, const QRect &geometry,
     VCClock *clock = qobject_cast<VCClock *>(widget);
     if (clock)
     {
-        clock->setGeometry(geometry);
+        clock->setGeometry(snapRect(geometry));
         if (clockType == "stopwatch")
             clock->setClockType(VCClock::Stopwatch);
         else if (clockType == "countdown")
@@ -771,7 +791,7 @@ void VCBridgeV5::setWidgetGeometry(int widgetID, const QRect &geo)
 {
     VCWidget *widget = m_vc->widget(widgetID);
     if (widget)
-        widget->setGeometry(QRectF(geo));
+        widget->setGeometry(QRectF(snapRect(geo)));
 }
 
 bool VCBridgeV5::removeWidget(int widgetID)
@@ -1343,7 +1363,7 @@ bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
 
     bool ok = m_vc->reparentWidget(widget, targetFrame);
     if (ok)
-        widget->setGeometry(QRectF(geo));
+        widget->setGeometry(QRectF(snapRect(geo)));
     return ok;
 }
 
@@ -1363,7 +1383,7 @@ int VCBridgeV5::addMatrix(int parentID, const QRect &geometry,
     VCAnimation *animation = qobject_cast<VCAnimation *>(widget);
     if (animation)
     {
-        animation->setGeometry(geometry);
+        animation->setGeometry(snapRect(geometry));
         if (!caption.isEmpty())
             animation->setCaption(caption);
         if (functionID != Function::invalidId())
@@ -1813,6 +1833,6 @@ void VCBridgeV5::applyLayoutPlan(const LayoutPlan &plan)
     {
         VCWidget *widget = m_vc->widget(it.key());
         if (widget)
-            widget->setGeometry(QRectF(it.value()));
+            widget->setGeometry(QRectF(snapRect(it.value())));
     }
 }

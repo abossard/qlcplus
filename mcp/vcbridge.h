@@ -546,6 +546,9 @@ public:
     virtual bool removeWidget(int widgetID)
         { Q_UNUSED(widgetID); return false; }
 
+    /** Get the current snap-to-grid size in pixels */
+    virtual int snappingSize() const { return 5; }
+
     // Matrix widget
     virtual int addMatrix(int parentID, const QRect &geometry,
                           quint32 functionID, const QString &caption)
@@ -637,6 +640,7 @@ public:
         int defaultButtonHeight = 60;
         int defaultSliderWidth = 60;
         int defaultSliderHeight = 200;
+        int gridSize = 0;           // snap-to-grid size (0 = disabled)
     };
 
     /** The result of a layout computation: proposed geometry changes + detected overlaps. */
@@ -647,6 +651,15 @@ public:
     };
 
     // ─── Pure layout functions (static, no side effects) ────────────
+
+    /** Round a rectangle's position and size to the nearest grid multiple. No-op if g <= 0. */
+    static QRect snapRectToGrid(const QRect &r, int g)
+    {
+        if (g <= 0) return r;
+        auto snap = [g](int v) { return ((v + g / 2) / g) * g; };
+        return QRect(snap(r.x()), snap(r.y()),
+                     qMax(snap(r.width()), g), qMax(snap(r.height()), g));
+    }
 
     /** Detect overlapping widgets among a list of siblings. O(n²). */
     static QList<OverlapInfo> detectOverlaps(const QList<WidgetSnapshot> &siblings)
@@ -699,6 +712,7 @@ public:
 
         int parentWidth = container.geometry.width();
         int y = hdrH + opts.pad;  // gap between header and first content
+        int g = opts.gridSize;
 
         // Buttons in flow grid
         if (!buttons.isEmpty())
@@ -709,7 +723,7 @@ public:
             {
                 QRect pos = computeFlowPosition(parentWidth, y, i,
                     opts.defaultButtonWidth, opts.defaultButtonHeight, cols, opts.pad);
-                buttons[i]->geometry = pos;
+                buttons[i]->geometry = snapRectToGrid(pos, g);
             }
             int rows = (buttons.size() + cols - 1) / cols;
             y += rows * (opts.defaultButtonHeight + opts.pad);
@@ -724,7 +738,7 @@ public:
             {
                 QRect pos = computeFlowPosition(parentWidth, y, i,
                     opts.defaultSliderWidth, opts.defaultSliderHeight, cols, opts.pad);
-                sliders[i]->geometry = pos;
+                sliders[i]->geometry = snapRectToGrid(pos, g);
             }
             int rows = (sliders.size() + cols - 1) / cols;
             y += rows * (opts.defaultSliderHeight + opts.pad);
@@ -734,14 +748,14 @@ public:
         for (WidgetSnapshot *f : frames)
         {
             int nestedHeight = reflowChildren(*f, opts);
-            f->geometry = QRect(opts.pad, y, parentWidth - 2 * opts.pad, nestedHeight);
-            y += nestedHeight + opts.framePad;
+            f->geometry = snapRectToGrid(QRect(opts.pad, y, parentWidth - 2 * opts.pad, nestedHeight), g);
+            y += f->geometry.height() + opts.framePad;
         }
 
         // Other widgets — stack vertically
         for (WidgetSnapshot *o : others)
         {
-            o->geometry = QRect(opts.pad, y, parentWidth - 2 * opts.pad, o->geometry.height());
+            o->geometry = snapRectToGrid(QRect(opts.pad, y, parentWidth - 2 * opts.pad, o->geometry.height()), g);
             y += o->geometry.height() + opts.pad;
         }
 
@@ -804,6 +818,7 @@ public:
 
         // --- Step 2: Reflow within each column independently ---
         int maxColumnBottom = 0;
+        int g = opts.gridSize;
 
         for (auto &col : columns)
         {
@@ -823,12 +838,12 @@ public:
                 if (isFrame)
                 {
                     int requiredHeight = reflowChildren(*child, opts);
-                    child->geometry = QRect(col.x, y, colWidth, requiredHeight);
-                    y += requiredHeight + opts.framePad;
+                    child->geometry = snapRectToGrid(QRect(col.x, y, colWidth, requiredHeight), g);
+                    y += child->geometry.height() + opts.framePad;
                 }
                 else
                 {
-                    child->geometry = QRect(col.x, y, child->geometry.width(), child->geometry.height());
+                    child->geometry = snapRectToGrid(QRect(col.x, y, child->geometry.width(), child->geometry.height()), g);
                     y += child->geometry.height() + opts.pad;
                 }
             }

@@ -45,7 +45,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
-void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc);
+void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge);
 
 // MCP tool annotation constants (readOnlyHint, destructiveHint, idempotentHint, openWorldHint)
 namespace mcp {

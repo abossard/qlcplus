@@ -1092,4 +1092,177 @@ void McpIdempotency_Test::reflowPage_pageGrowsToTallestColumn()
     QVERIFY(plan.geometries[0].height() > 200);
 }
 
+// ─── Grid snapping tests ────────────────────────────────────────
+
+static bool isMultiple(int value, int grid)
+{
+    return grid <= 0 || (value % grid) == 0;
+}
+
+static void verifyGridAligned(const QRect &r, int grid, const char *label)
+{
+    if (grid <= 0) return;
+    QVERIFY2(isMultiple(r.x(), grid),
+        qPrintable(QString("%1: x=%2 not multiple of %3").arg(label).arg(r.x()).arg(grid)));
+    QVERIFY2(isMultiple(r.y(), grid),
+        qPrintable(QString("%1: y=%2 not multiple of %3").arg(label).arg(r.y()).arg(grid)));
+    QVERIFY2(isMultiple(r.width(), grid),
+        qPrintable(QString("%1: w=%2 not multiple of %3").arg(label).arg(r.width()).arg(grid)));
+    QVERIFY2(isMultiple(r.height(), grid),
+        qPrintable(QString("%1: h=%2 not multiple of %3").arg(label).arg(r.height()).arg(grid)));
+}
+
+void McpIdempotency_Test::snapRectToGrid_data()
+{
+    QTest::addColumn<QRect>("input");
+    QTest::addColumn<int>("grid");
+    QTest::addColumn<QRect>("expected");
+
+    QTest::newRow("aligned_10")       << QRect(10, 20, 100, 60)  << 10 << QRect(10, 20, 100, 60);
+    QTest::newRow("round_up_10")      << QRect(13, 27, 103, 57)  << 10 << QRect(10, 30, 100, 60);
+    QTest::newRow("round_down_10")    << QRect(11, 12, 98, 62)   << 10 << QRect(10, 10, 100, 60);
+    QTest::newRow("small_grid_5")     << QRect(7, 3, 52, 31)     << 5  << QRect(5, 5, 50, 30);
+    QTest::newRow("large_grid_20")    << QRect(25, 35, 110, 90)  << 20 << QRect(20, 40, 120, 100);
+    QTest::newRow("zero_pos_10")      << QRect(0, 0, 100, 60)    << 10 << QRect(0, 0, 100, 60);
+    QTest::newRow("min_size_enforced") << QRect(5, 5, 3, 2)       << 10 << QRect(10, 10, 10, 10);
+    QTest::newRow("grid_15")          << QRect(8, 22, 47, 68)    << 15 << QRect(15, 15, 45, 75);
+}
+
+void McpIdempotency_Test::snapRectToGrid()
+{
+    QFETCH(QRect, input);
+    QFETCH(int, grid);
+    QFETCH(QRect, expected);
+
+    QRect result = VCBridge::snapRectToGrid(input, grid);
+    QCOMPARE(result, expected);
+}
+
+void McpIdempotency_Test::snapRectToGrid_disabledWhenZero()
+{
+    QRect input(13, 27, 103, 57);
+
+    // gridSize=0 → no change
+    QCOMPARE(VCBridge::snapRectToGrid(input, 0), input);
+
+    // gridSize=-1 → no change
+    QCOMPARE(VCBridge::snapRectToGrid(input, -1), input);
+}
+
+void McpIdempotency_Test::reflowChildren_gridSnap_data()
+{
+    QTest::addColumn<int>("gridSize");
+    QTest::addColumn<int>("numButtons");
+    QTest::addColumn<int>("numSliders");
+    QTest::addColumn<bool>("hasNestedFrame");
+
+    QTest::newRow("grid10_buttons_only")   << 10 << 3 << 0 << false;
+    QTest::newRow("grid10_sliders_only")   << 10 << 0 << 2 << false;
+    QTest::newRow("grid10_mixed")          << 10 << 2 << 1 << false;
+    QTest::newRow("grid10_nested")         << 10 << 1 << 0 << true;
+    QTest::newRow("grid15_buttons_only")   << 15 << 4 << 0 << false;
+    QTest::newRow("grid15_mixed")          << 15 << 2 << 2 << false;
+    QTest::newRow("grid20_buttons_only")   << 20 << 3 << 0 << false;
+    QTest::newRow("grid5_mixed")           << 5  << 3 << 1 << true;
+}
+
+void McpIdempotency_Test::reflowChildren_gridSnap()
+{
+    QFETCH(int, gridSize);
+    QFETCH(int, numButtons);
+    QFETCH(int, numSliders);
+    QFETCH(bool, hasNestedFrame);
+
+    VCBridge::WidgetSnapshot frame = makeSnap(1, 4, QRect(0, 0, 500, 300));
+
+    int nextId = 10;
+    for (int i = 0; i < numButtons; i++)
+        frame.children.append(makeSnap(nextId++, 1, QRect(0, 0, 100, 60)));
+    for (int i = 0; i < numSliders; i++)
+        frame.children.append(makeSnap(nextId++, 2, QRect(0, 0, 60, 200)));
+
+    if (hasNestedFrame)
+    {
+        VCBridge::WidgetSnapshot inner = makeSnap(nextId++, 4, QRect(0, 0, 400, 100));
+        inner.children.append(makeSnap(nextId++, 1, QRect(0, 0, 100, 60)));
+        frame.children.append(inner);
+    }
+
+    VCBridge::ReflowOptions opts;
+    opts.gridSize = gridSize;
+    VCBridge::reflowChildren(frame, opts);
+
+    // Verify every child geometry is grid-aligned
+    for (int i = 0; i < frame.children.size(); i++)
+    {
+        const auto &child = frame.children[i];
+        verifyGridAligned(child.geometry, gridSize,
+            qPrintable(QString("child[%1] id=%2").arg(i).arg(child.id)));
+
+        // Recurse into nested frames
+        for (int j = 0; j < child.children.size(); j++)
+        {
+            verifyGridAligned(child.children[j].geometry, gridSize,
+                qPrintable(QString("child[%1].child[%2]").arg(i).arg(j)));
+        }
+    }
+}
+
+void McpIdempotency_Test::reflowPage_gridSnap_data()
+{
+    QTest::addColumn<int>("gridSize");
+    QTest::addColumn<int>("numFrames");
+    QTest::addColumn<bool>("multiColumn");
+
+    QTest::newRow("grid10_single")    << 10 << 1 << false;
+    QTest::newRow("grid10_two")       << 10 << 2 << false;
+    QTest::newRow("grid10_multicol")  << 10 << 2 << true;
+    QTest::newRow("grid15_single")    << 15 << 1 << false;
+    QTest::newRow("grid15_multicol")  << 15 << 3 << true;
+    QTest::newRow("grid20_two")       << 20 << 2 << false;
+}
+
+void McpIdempotency_Test::reflowPage_gridSnap()
+{
+    QFETCH(int, gridSize);
+    QFETCH(int, numFrames);
+    QFETCH(bool, multiColumn);
+
+    VCBridge::WidgetSnapshot page = makeSnap(0, 4, QRect(0, 0, 1920, 1080));
+    page.showHeader = false;
+
+    for (int i = 0; i < numFrames; i++)
+    {
+        int x = multiColumn ? i * 960 : 0;
+        int w = multiColumn ? 950 : 1910;
+        VCBridge::WidgetSnapshot frame = makeSnap(i + 1, 4, QRect(x, i * 300, w, 280));
+        frame.children.append(makeSnap(100 + i * 10, 1, QRect(5, 45, 100, 60)));
+        frame.children.append(makeSnap(101 + i * 10, 1, QRect(110, 45, 100, 60)));
+        page.children.append(frame);
+    }
+
+    VCBridge::ReflowOptions opts;
+    opts.gridSize = gridSize;
+    auto plan = VCBridge::reflowPage(page, opts);
+
+    // Every geometry in the plan must be grid-aligned
+    for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
+    {
+        verifyGridAligned(it.value(), gridSize,
+            qPrintable(QString("plan widget id=%1").arg(it.key())));
+    }
+
+    // Also verify the snapshot itself was grid-aligned
+    for (const auto &child : page.children)
+    {
+        verifyGridAligned(child.geometry, gridSize,
+            qPrintable(QString("page child id=%1").arg(child.id)));
+        for (const auto &grandchild : child.children)
+        {
+            verifyGridAligned(grandchild.geometry, gridSize,
+                qPrintable(QString("grandchild id=%1").arg(grandchild.id)));
+        }
+    }
+}
+
 QTEST_MAIN(McpIdempotency_Test)

@@ -120,6 +120,15 @@ private slots:
     void reflowPage_multiColumnPreserved();
     void reflowPage_pageGrowsToTallestColumn();
 
+    // Grid snapping
+    void snapRectToGrid_data();
+    void snapRectToGrid();
+    void reflowChildren_gridSnap_data();
+    void reflowChildren_gridSnap();
+    void reflowPage_gridSnap_data();
+    void reflowPage_gridSnap();
+    void snapRectToGrid_disabledWhenZero();
+
 private:
     Doc *m_doc;
 

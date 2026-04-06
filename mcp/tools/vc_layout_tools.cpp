@@ -196,6 +196,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             opts.defaultButtonHeight = args.value("buttonHeight", 60);
             opts.defaultSliderWidth = args.value("sliderWidth", 60);
             opts.defaultSliderHeight = args.value("sliderHeight", 200);
+            opts.gridSize = vcBridge->snappingSize();
 
             VCBridge::WidgetSnapshot snap;
             bool isPage = false;

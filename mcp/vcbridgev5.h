@@ -168,7 +168,12 @@ public:
     WidgetSnapshot snapshotPage(int pageIndex) const override;
     void applyLayoutPlan(const LayoutPlan &plan) override;
 
+    int snappingSize() const override;
+
 private:
+    /** Round a rectangle's position and size to the nearest grid multiple */
+    QRect snapRect(const QRect &rect) const;
+
     Doc *m_doc;
     VirtualConsole *m_vc;
 };
