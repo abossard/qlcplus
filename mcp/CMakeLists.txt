@@ -14,6 +14,7 @@ set(MCP_SOURCES
     vcbridgev5.cpp vcbridgev5.h
     mcpinit.cpp mcpinit.h
     tools/tool_registry.h
+    tools/vc_query_helpers.h
     tools/query_tools.cpp
     tools/function_tools.cpp
     tools/vc_create_tools.cpp

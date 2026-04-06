@@ -21,6 +21,7 @@
 #include "conversions.h"
 #include "idempotency.h"
 #include "vcbridge.h"
+#include "vc_query_helpers.h"
 #include "doc.h"
 #include "qlcfixturedefcache.h"
 #include "qlcfixturemode.h"
@@ -233,242 +234,84 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     )
     .set_annotations(mcp::kAnnotReadOnly));
 
-    // query_vc_pages — list Virtual Console pages with widget details
+    // query_vc_pages — list Virtual Console pages with widget details, filtering, and field selection
     if (vcBridge)
     {
         tm.register_tool(Tool(
             "vc_query_pages",
-            Json{{"type", "object"}, {"properties", Json::object()}},
+            Json{{"type", "object"}, {"properties", {
+                {"nameFilter", {{"type", "string"},
+                    {"description", "Glob pattern to match widget captions (case-insensitive, e.g. 'Wash*', '*left*'). Supports * and ?."}}},
+                {"typeFilter", {{"type", "string"},
+                    {"description", "Widget type(s) to include. Also accepts a JSON array of strings. "
+                     "Valid: button, slider, xypad, frame, soloframe, speedDial, cuelist, label, audioTrigger, matrix, clock."}}},
+                {"functionID", {{"type", "integer"},
+                    {"description", "Only widgets bound to this function ID."}}},
+                {"fixtureID", {{"type", "integer"},
+                    {"description", "Only widgets controlling channels on this fixture."}}},
+                {"channel", {{"type", "integer"},
+                    {"description", "Only widgets controlling this DMX channel number."}}},
+                {"pageIndex", {{"type", "integer"},
+                    {"description", "Only return widgets from this page (0-based)."}}},
+                {"parentID", {{"type", "integer"},
+                    {"description", "Only return direct children of this frame widget."}}},
+                {"properties", {{"type", "array"}, {"items", {{"type", "string"}}},
+                    {"description", "Property names to include per widget (id always included). "
+                     "Omit for all. Core: type, caption, pageIndex, parentID, geometry. "
+                     "Function: functionID, action. Slider: sliderMode, channels, widgetStyle. "
+                     "Frame: multipageMode, totalPages, currentPage, collapsed. "
+                     "Input: inputMappings, validSources. Appearance: bgColor, fgColor, font, disabled. "
+                     "Groups: buttonConfig, cueListConfig, clockConfig, speedDialConfig, matrixConfig, xyPadConfig."
+                    }}}
+            }}},
             Json{},
-            [doc, vcBridge](const Json &) -> Json {
+            [doc, vcBridge](const Json &args) -> Json {
                 return execOnMainThread(doc, [&]() -> Json {
+
+                // Validate arguments
+                auto err = VCQueryPages::validateArgs(args);
+                if (!err.empty()) return err;
+
+                // Parse field selection
+                auto properties = VCQueryPages::parseProperties(args);
+
+                // Check pageIndex filter
+                int filterPageIndex = -1;
+                if (args.contains("pageIndex"))
+                    filterPageIndex = args["pageIndex"].get<int>();
+
                 Json results = Json::array();
                 for (const auto &page : vcBridge->pages())
                 {
-                    Json pageJson;
-                    pageJson["index"] = page.index;
-                    pageJson["name"] = page.name.toStdString();
+                    // Skip pages that don't match pageIndex filter
+                    if (filterPageIndex >= 0 && page.index != filterPageIndex)
+                        continue;
+
                     Json widgets = Json::array();
                     for (const auto &w : page.widgets)
                     {
-                        Json wJson;
-                        wJson["id"] = w.id;
-                        wJson["type"] = w.type.toStdString();
-                        wJson["caption"] = w.caption.toStdString();
-                        wJson["x"] = w.geometry.x();
-                        wJson["y"] = w.geometry.y();
-                        wJson["width"] = w.geometry.width();
-                        wJson["height"] = w.geometry.height();
-
-                        // Enrich with details from getWidgetDetails
                         auto d = vcBridge->getWidgetDetails(w.id);
-                        if (d.id >= 0)
-                        {
-                            if (d.functionID != 0 && d.functionID != (quint32)-1)
-                                wJson["functionID"] = (int)d.functionID;
-                            if (!d.action.isEmpty())
-                                wJson["action"] = d.action.toStdString();
-                            if (!d.sliderMode.isEmpty())
-                                wJson["sliderMode"] = d.sliderMode.toStdString();
-                            // Slider extended properties (only emit non-defaults)
-                            if (!d.clickAndGoType.isEmpty() && d.clickAndGoType != "none")
-                                wJson["clickAndGoType"] = d.clickAndGoType.toStdString();
-                            if (!d.valueDisplayStyle.isEmpty() && d.valueDisplayStyle != "dmx")
-                                wJson["valueDisplayStyle"] = d.valueDisplayStyle.toStdString();
-                            if (d.sliderInvertedAppearance)
-                                wJson["invertedAppearance"] = true;
-                            if (d.rangeLowLimit > 0)
-                                wJson["rangeLowLimit"] = d.rangeLowLimit;
-                            if (d.rangeHighLimit < 255)
-                                wJson["rangeHighLimit"] = d.rangeHighLimit;
-                            if (d.monitorEnabled)
-                                wJson["monitorEnabled"] = true;
-                            if (!d.gmValueMode.isEmpty())
-                                wJson["gmValueMode"] = d.gmValueMode.toStdString();
-                            if (!d.gmChannelMode.isEmpty())
-                                wJson["gmChannelMode"] = d.gmChannelMode.toStdString();
-                            if (d.parentID >= 0)
-                                wJson["parentID"] = d.parentID;
+                        if (d.id < 0)
+                            continue;
 
-                            if (!d.inputMappings.isEmpty())
-                            {
-                                Json inputs = Json::array();
-                                for (const auto &m : d.inputMappings)
-                                {
-                                    Json inp = {{"universe", (int)m.universe}, {"channel", (int)m.channel},
-                                                {"sourceId", m.sourceId}};
-                                    if (!m.sourceName.isEmpty())
-                                        inp["sourceName"] = m.sourceName.toStdString();
-                                    inp["feedback"] = {
-                                        {"idleValue", m.feedback.idleValue},
-                                        {"activeValue", m.feedback.activeValue},
-                                        {"monitorValue", m.feedback.monitorValue},
-                                        {"idleChannel", m.feedback.idleMidiCh},
-                                        {"activeChannel", m.feedback.activeMidiCh},
-                                        {"monitorChannel", m.feedback.monitorMidiCh}
-                                    };
-                                    inputs.push_back(inp);
-                                }
-                                wJson["inputMappings"] = inputs;
-                            }
+                        // Apply filters
+                        if (!VCQueryPages::filterWidget(d, args))
+                            continue;
 
-                            if (!d.validSources.isEmpty())
-                            {
-                                Json vs = Json::array();
-                                for (const auto &s : d.validSources)
-                                    vs.push_back({{"name", s.name.toStdString()},
-                                                  {"id", s.id},
-                                                  {"description", s.description.toStdString()}});
-                                wJson["validSources"] = vs;
-                            }
-
-                            // Button extended
-                            if (!d.iconPath.isEmpty())
-                                wJson["iconPath"] = d.iconPath.toStdString();
-                            if (d.startupIntensityEnabled)
-                            {
-                                wJson["startupIntensityEnabled"] = true;
-                                wJson["startupIntensity"] = d.startupIntensity;
-                            }
-                            if (d.flashOverride)
-                                wJson["flashOverride"] = true;
-                            if (d.flashForceLTP)
-                                wJson["flashForceLTP"] = true;
-                            if (d.stopAllFadeTime > 0)
-                                wJson["stopAllFadeTime"] = d.stopAllFadeTime;
-
-                            // Slider extended
-                            if (!d.widgetStyle.isEmpty())
-                                wJson["widgetStyle"] = d.widgetStyle.toStdString();
-                            if (d.catchValues)
-                                wJson["catchValues"] = true;
-
-                            // Frame extended
-                            if (d.multipageMode)
-                            {
-                                wJson["multipageMode"] = true;
-                                wJson["totalPages"] = d.totalPages;
-                                wJson["currentPage"] = d.currentPage;
-                                wJson["pagesLoop"] = d.pagesLoop;
-                                if (!d.pageLabels.isEmpty())
-                                {
-                                    auto arr = nlohmann::json::array();
-                                    for (const auto &lbl : d.pageLabels)
-                                        arr.push_back(lbl.toStdString());
-                                    wJson["pageLabels"] = arr;
-                                }
-                            }
-                            if (!d.headerVisible)
-                                wJson["headerVisible"] = false;
-                            if (d.enableButtonVisible)
-                                wJson["enableButtonVisible"] = true;
-                            if (d.collapsed)
-                                wJson["collapsed"] = true;
-                            if (d.soloframeMixing)
-                                wJson["soloframeMixing"] = true;
-                            if (d.excludeMonitoredFunctions)
-                                wJson["excludeMonitoredFunctions"] = true;
-
-                            // CueList extended
-                            if (!d.nextPrevBehavior.isEmpty())
-                                wJson["nextPrevBehavior"] = d.nextPrevBehavior.toStdString();
-                            if (!d.playbackLayout.isEmpty())
-                                wJson["playbackLayout"] = d.playbackLayout.toStdString();
-                            if (!d.sideFaderMode.isEmpty())
-                                wJson["sideFaderMode"] = d.sideFaderMode.toStdString();
-
-                            // Clock extended
-                            if (!d.clockType.isEmpty())
-                                wJson["clockType"] = d.clockType.toStdString();
-                            if (d.countdownH > 0 || d.countdownM > 0 || d.countdownS > 0)
-                            {
-                                wJson["countdownHours"] = d.countdownH;
-                                wJson["countdownMinutes"] = d.countdownM;
-                                wJson["countdownSeconds"] = d.countdownS;
-                            }
-                            if (!d.clockSchedules.isEmpty())
-                            {
-                                Json schedArr = Json::array();
-                                for (auto &sch : d.clockSchedules)
-                                    schedArr.push_back({{"functionID", (int)sch.functionID},
-                                                        {"hour", sch.hour}, {"minute", sch.minute}, {"second", sch.second}});
-                                wJson["schedules"] = schedArr;
-                            }
-
-                            // SpeedDial extended
-                            if (!d.speedDialFunctions.isEmpty())
-                            {
-                                Json funcArr = Json::array();
-                                for (auto &f : d.speedDialFunctions)
-                                    funcArr.push_back({{"functionID", (int)f.functionID},
-                                                       {"fadeInMultiplier", f.fadeInMultiplier.toStdString()},
-                                                       {"fadeOutMultiplier", f.fadeOutMultiplier.toStdString()},
-                                                       {"durationMultiplier", f.durationMultiplier.toStdString()}});
-                                wJson["speedDialFunctions"] = funcArr;
-                            }
-                            if (!d.speedDialPresets.isEmpty())
-                            {
-                                Json presetArr = Json::array();
-                                for (auto &p : d.speedDialPresets)
-                                    presetArr.push_back({{"name", p.name.toStdString()}, {"value", p.value}});
-                                wJson["speedDialPresets"] = presetArr;
-                            }
-
-                            // Matrix extended
-                            if (d.matrixVisibilityMask > 0)
-                                wJson["visibilityMask"] = (int)d.matrixVisibilityMask;
-                            if (d.matrixInstantApply)
-                                wJson["instantApply"] = true;
-                            if (d.matrixColor1.isValid())
-                                wJson["color1"] = d.matrixColor1.name().toStdString();
-                            if (d.matrixColor2.isValid())
-                                wJson["color2"] = d.matrixColor2.name().toStdString();
-                            if (d.matrixColor3.isValid())
-                                wJson["color3"] = d.matrixColor3.name().toStdString();
-                            if (d.matrixColor4.isValid())
-                                wJson["color4"] = d.matrixColor4.name().toStdString();
-                            if (d.matrixColor5.isValid())
-                                wJson["color5"] = d.matrixColor5.name().toStdString();
-                            if (!d.matrixAnimation.isEmpty())
-                                wJson["animation"] = d.matrixAnimation.toStdString();
-
-                            // XY Pad presets
-                            if (!d.xyPadPresets.isEmpty())
-                            {
-                                Json presetArr = Json::array();
-                                for (auto &p : d.xyPadPresets)
-                                {
-                                    Json pj = {{"name", p.name.toStdString()}, {"type", p.type.toStdString()}};
-                                    if (p.type == "position")
-                                        pj["position"] = {{"x", p.position.x()}, {"y", p.position.y()}};
-                                    if (p.functionID != (quint32)-1)
-                                        pj["functionID"] = (int)p.functionID;
-                                    presetArr.push_back(pj);
-                                }
-                                wJson["presets"] = presetArr;
-                            }
-
-                            // Base widget extended
-                            if (!d.backgroundImage.isEmpty())
-                                wJson["backgroundImage"] = d.backgroundImage.toStdString();
-                            if (d.disabled)
-                                wJson["disabled"] = true;
-                            if (d.fontConfig.family.has_value() || d.fontConfig.pointSize.has_value())
-                            {
-                                Json fontJson;
-                                if (d.fontConfig.family.has_value())
-                                    fontJson["family"] = d.fontConfig.family->toStdString();
-                                if (d.fontConfig.pointSize.has_value())
-                                    fontJson["size"] = *d.fontConfig.pointSize;
-                                if (d.fontConfig.bold.has_value())
-                                    fontJson["bold"] = *d.fontConfig.bold;
-                                if (d.fontConfig.italic.has_value())
-                                    fontJson["italic"] = *d.fontConfig.italic;
-                                wJson["font"] = fontJson;
-                            }
-                        }
-                        widgets.push_back(wJson);
+                        // Serialize with field selection
+                        widgets.push_back(VCQueryPages::serializeWidget(d, properties));
                     }
+
+                    // Omit pages with no matching widgets (when filters are active)
+                    bool hasFilters = args.contains("nameFilter") || args.contains("typeFilter") ||
+                                     args.contains("functionID") || args.contains("fixtureID") ||
+                                     args.contains("channel") || args.contains("parentID");
+                    if (hasFilters && widgets.empty())
+                        continue;
+
+                    Json pageJson;
+                    pageJson["index"] = page.index;
+                    pageJson["name"] = page.name.toStdString();
                     pageJson["widgets"] = widgets;
                     results.push_back(pageJson);
                 }
@@ -476,7 +319,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 });
             },
             std::nullopt,
-            std::string("List all Virtual Console pages and their widgets with details."),
+            std::string("Search and list Virtual Console widgets with optional filtering and field selection. "
+                        "Filters (AND-combined): nameFilter (glob), typeFilter (string/array), "
+                        "functionID, fixtureID, channel, pageIndex, parentID. "
+                        "Field selection: properties array (id always included, omit for all). "
+                        "No parameters returns everything (backward compatible)."),
         std::nullopt
         )
         .set_annotations(mcp::kAnnotReadOnly));
@@ -494,6 +341,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 auto err = validateFields(args, {"widgetIDs"});
                 if (!err.empty()) return err;
                 Json results = Json::array();
+                std::set<std::string> allProps;  // empty = all properties
                 for (auto &wid : args.at("widgetIDs"))
                 {
                     int id = wid.get<int>();
@@ -503,270 +351,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         results.push_back({{"id", id}, {"error", "not found"}});
                         continue;
                     }
-                    Json entry;
-                    entry["id"] = d.id;
-                    entry["type"] = d.type.toStdString();
-                    entry["caption"] = d.caption.toStdString();
-                    entry["geometry"] = {{"x", d.geometry.x()}, {"y", d.geometry.y()},
-                                         {"width", d.geometry.width()}, {"height", d.geometry.height()}};
-                    entry["parentID"] = d.parentID;
-
-                    if (d.functionID != 0 && d.functionID != (quint32)-1)
-                        entry["functionID"] = (int)d.functionID;
-                    if (!d.action.isEmpty())
-                        entry["action"] = d.action.toStdString();
-                    if (!d.sliderMode.isEmpty())
-                        entry["sliderMode"] = d.sliderMode.toStdString();
-
-                    if (!d.channels.isEmpty())
-                    {
-                        Json chArr = Json::array();
-                        for (auto &ch : d.channels)
-                            chArr.push_back({{"fixtureID", (int)ch.first}, {"channel", (int)ch.second}});
-                        entry["channels"] = chArr;
-                    }
-
-                    Json inputs = Json::array();
-                    for (const auto &m : d.inputMappings)
-                    {
-                        Json inp = {{"universe", (int)m.universe}, {"channel", (int)m.channel},
-                                    {"sourceId", m.sourceId}};
-                        if (!m.sourceName.isEmpty())
-                            inp["sourceName"] = m.sourceName.toStdString();
-                        inp["feedback"] = {
-                            {"idleValue", m.feedback.idleValue},
-                            {"activeValue", m.feedback.activeValue},
-                            {"monitorValue", m.feedback.monitorValue},
-                            {"idleChannel", m.feedback.idleMidiCh},
-                            {"activeChannel", m.feedback.activeMidiCh},
-                            {"monitorChannel", m.feedback.monitorMidiCh}
-                        };
-                        inputs.push_back(inp);
-                    }
-                    if (!inputs.empty())
-                        entry["inputMappings"] = inputs;
-
-                    if (d.bgColor.isValid())
-                        entry["bgColor"] = d.bgColor.name().toStdString();
-                    if (d.fgColor.isValid())
-                        entry["fgColor"] = d.fgColor.name().toStdString();
-
-                    if (!d.validSources.isEmpty())
-                    {
-                        Json vs = Json::array();
-                        for (const auto &s : d.validSources)
-                            vs.push_back({{"name", s.name.toStdString()},
-                                          {"id", s.id},
-                                          {"description", s.description.toStdString()}});
-                        entry["validSources"] = vs;
-                    }
-
-                    // XY Pad specific fields
-                    if (!d.displayMode.isEmpty())
-                    {
-                        entry["displayMode"] = d.displayMode.toStdString();
-                        entry["invertedAppearance"] = d.invertedAppearance;
-                        entry["position"] = {{"x", d.xyPadPosition.x()}, {"y", d.xyPadPosition.y()}};
-
-                        Json fxArr = Json::array();
-                        for (const auto &fx : d.xyPadFixtures)
-                        {
-                            Json fxEntry;
-                            fxEntry["fixtureID"] = (int)fx.fixtureID;
-                            fxEntry["head"] = fx.head;
-                            fxEntry["name"] = fx.name.toStdString();
-                            fxEntry["xMin"] = fx.xMin;
-                            fxEntry["xMax"] = fx.xMax;
-                            fxEntry["xReverse"] = fx.xReverse;
-                            fxEntry["yMin"] = fx.yMin;
-                            fxEntry["yMax"] = fx.yMax;
-                            fxEntry["yReverse"] = fx.yReverse;
-                            if (fx.panDegreesMax > 0 || fx.tiltDegreesMax > 0)
-                            {
-                                fxEntry["panDegreesMax"] = fx.panDegreesMax;
-                                fxEntry["tiltDegreesMax"] = fx.tiltDegreesMax;
-                            }
-                            fxArr.push_back(fxEntry);
-                        }
-                        entry["fixtures"] = fxArr;
-                    }
-
-                    // Audio Triggers specific fields
-                    if (!d.audioBars.isEmpty())
-                    {
-                        entry["captureEnabled"] = d.captureEnabled;
-                        entry["volumeLevel"] = d.volumeLevel;
-                        entry["barsNumber"] = d.barsNumber;
-
-                        Json barsArr = Json::array();
-                        for (const auto &bar : d.audioBars)
-                        {
-                            Json barEntry;
-                            barEntry["barIndex"] = bar.barIndex;
-                            barEntry["type"] = bar.type.toStdString();
-                            barEntry["minThreshold"] = bar.minThreshold;
-                            barEntry["maxThreshold"] = bar.maxThreshold;
-                            if (bar.type == "function" && bar.functionID != (quint32)-1)
-                            {
-                                barEntry["functionID"] = (int)bar.functionID;
-                                barEntry["functionName"] = bar.functionName.toStdString();
-                            }
-                            if (bar.type == "widget" && bar.widgetID != (quint32)-1)
-                            {
-                                barEntry["widgetID"] = (int)bar.widgetID;
-                                barEntry["widgetName"] = bar.widgetName.toStdString();
-                            }
-                            barsArr.push_back(barEntry);
-                        }
-                        entry["bars"] = barsArr;
-                    }
-
-                    // Button extended
-                    if (!d.iconPath.isEmpty())
-                        entry["iconPath"] = d.iconPath.toStdString();
-                    if (d.startupIntensityEnabled)
-                    {
-                        entry["startupIntensityEnabled"] = true;
-                        entry["startupIntensity"] = d.startupIntensity;
-                    }
-                    if (d.flashOverride)
-                        entry["flashOverride"] = true;
-                    if (d.flashForceLTP)
-                        entry["flashForceLTP"] = true;
-                    if (d.stopAllFadeTime > 0)
-                        entry["stopAllFadeTime"] = d.stopAllFadeTime;
-
-                    // Slider extended
-                    if (!d.widgetStyle.isEmpty())
-                        entry["widgetStyle"] = d.widgetStyle.toStdString();
-                    if (d.catchValues)
-                        entry["catchValues"] = true;
-
-                    // Frame extended
-                    if (d.multipageMode)
-                    {
-                        entry["multipageMode"] = true;
-                        entry["totalPages"] = d.totalPages;
-                        entry["currentPage"] = d.currentPage;
-                        entry["pagesLoop"] = d.pagesLoop;
-                        if (!d.pageLabels.isEmpty())
-                        {
-                            auto arr = nlohmann::json::array();
-                            for (const auto &lbl : d.pageLabels)
-                                arr.push_back(lbl.toStdString());
-                            entry["pageLabels"] = arr;
-                        }
-                    }
-                    if (!d.headerVisible)
-                        entry["headerVisible"] = false;
-                    if (d.enableButtonVisible)
-                        entry["enableButtonVisible"] = true;
-                    if (d.collapsed)
-                        entry["collapsed"] = true;
-                    if (d.soloframeMixing)
-                        entry["soloframeMixing"] = true;
-                    if (d.excludeMonitoredFunctions)
-                        entry["excludeMonitoredFunctions"] = true;
-
-                    // CueList extended
-                    if (!d.nextPrevBehavior.isEmpty())
-                        entry["nextPrevBehavior"] = d.nextPrevBehavior.toStdString();
-                    if (!d.playbackLayout.isEmpty())
-                        entry["playbackLayout"] = d.playbackLayout.toStdString();
-                    if (!d.sideFaderMode.isEmpty())
-                        entry["sideFaderMode"] = d.sideFaderMode.toStdString();
-
-                    // Clock extended
-                    if (!d.clockType.isEmpty())
-                        entry["clockType"] = d.clockType.toStdString();
-                    if (d.countdownH > 0 || d.countdownM > 0 || d.countdownS > 0)
-                    {
-                        entry["countdownHours"] = d.countdownH;
-                        entry["countdownMinutes"] = d.countdownM;
-                        entry["countdownSeconds"] = d.countdownS;
-                    }
-                    if (!d.clockSchedules.isEmpty())
-                    {
-                        Json schedArr = Json::array();
-                        for (auto &sch : d.clockSchedules)
-                            schedArr.push_back({{"functionID", (int)sch.functionID},
-                                                {"hour", sch.hour}, {"minute", sch.minute}, {"second", sch.second}});
-                        entry["schedules"] = schedArr;
-                    }
-
-                    // SpeedDial extended
-                    if (!d.speedDialFunctions.isEmpty())
-                    {
-                        Json funcArr = Json::array();
-                        for (auto &f : d.speedDialFunctions)
-                            funcArr.push_back({{"functionID", (int)f.functionID},
-                                               {"fadeInMultiplier", f.fadeInMultiplier.toStdString()},
-                                               {"fadeOutMultiplier", f.fadeOutMultiplier.toStdString()},
-                                               {"durationMultiplier", f.durationMultiplier.toStdString()}});
-                        entry["speedDialFunctions"] = funcArr;
-                    }
-                    if (!d.speedDialPresets.isEmpty())
-                    {
-                        Json presetArr = Json::array();
-                        for (auto &p : d.speedDialPresets)
-                            presetArr.push_back({{"name", p.name.toStdString()}, {"value", p.value}});
-                        entry["speedDialPresets"] = presetArr;
-                    }
-
-                    // Matrix extended
-                    if (d.matrixVisibilityMask > 0)
-                        entry["visibilityMask"] = (int)d.matrixVisibilityMask;
-                    if (d.matrixInstantApply)
-                        entry["instantApply"] = true;
-                    if (d.matrixColor1.isValid())
-                        entry["color1"] = d.matrixColor1.name().toStdString();
-                    if (d.matrixColor2.isValid())
-                        entry["color2"] = d.matrixColor2.name().toStdString();
-                    if (d.matrixColor3.isValid())
-                        entry["color3"] = d.matrixColor3.name().toStdString();
-                    if (d.matrixColor4.isValid())
-                        entry["color4"] = d.matrixColor4.name().toStdString();
-                    if (d.matrixColor5.isValid())
-                        entry["color5"] = d.matrixColor5.name().toStdString();
-                    if (!d.matrixAnimation.isEmpty())
-                        entry["animation"] = d.matrixAnimation.toStdString();
-
-                    // XY Pad presets
-                    if (!d.xyPadPresets.isEmpty())
-                    {
-                        Json presetArr = Json::array();
-                        for (auto &p : d.xyPadPresets)
-                        {
-                            Json pj = {{"name", p.name.toStdString()}, {"type", p.type.toStdString()}};
-                            if (p.type == "position")
-                                pj["position"] = {{"x", p.position.x()}, {"y", p.position.y()}};
-                            if (p.functionID != (quint32)-1)
-                                pj["functionID"] = (int)p.functionID;
-                            presetArr.push_back(pj);
-                        }
-                        entry["presets"] = presetArr;
-                    }
-
-                    // Base widget extended
-                    if (!d.backgroundImage.isEmpty())
-                        entry["backgroundImage"] = d.backgroundImage.toStdString();
-                    if (d.disabled)
-                        entry["disabled"] = true;
-                    if (d.fontConfig.family.has_value() || d.fontConfig.pointSize.has_value())
-                    {
-                        Json fontJson;
-                        if (d.fontConfig.family.has_value())
-                            fontJson["family"] = d.fontConfig.family->toStdString();
-                        if (d.fontConfig.pointSize.has_value())
-                            fontJson["size"] = *d.fontConfig.pointSize;
-                        if (d.fontConfig.bold.has_value())
-                            fontJson["bold"] = *d.fontConfig.bold;
-                        if (d.fontConfig.italic.has_value())
-                            fontJson["italic"] = *d.fontConfig.italic;
-                        entry["font"] = fontJson;
-                    }
-
-                    results.push_back(entry);
+                    results.push_back(VCQueryPages::serializeWidget(d, allProps));
                 }
                 return results.dump();
                 });
