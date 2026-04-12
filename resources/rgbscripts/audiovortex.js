@@ -111,7 +111,7 @@ var testAlgo;
                 var armVal = Math.sin(spiral * arms) * 0.5 + 0.5;
 
                 // Brightness: arms visible, fades toward edge
-                var bright = armVal * (0.3 + power * 0.7) * (1 - normDist * 0.5);
+                var bright = armVal * power * (1 - normDist * 0.5);
 
                 // Color: gradient from center to edge
                 var t = normDist;

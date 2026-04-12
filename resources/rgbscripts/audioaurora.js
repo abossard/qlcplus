@@ -135,7 +135,7 @@ var testAlgo;
                     );
 
                     var intensity = (wave * 0.5 + 0.5) * (vertWave * 0.3 + 0.7);
-                    intensity *= 0.3 + power * 0.7;
+                    intensity *= power; // band power directly controls visibility
 
                     r += col[0] * intensity / layers;
                     g += col[1] * intensity / layers;

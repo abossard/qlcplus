@@ -107,7 +107,7 @@ var testAlgo;
         }
 
         // Brightness varies with audio power
-        var bright = Math.min(1, 0.3 + power * 0.7);
+        var bright = Math.min(1, power);
 
         // Fill background
         var bgPacked = LedFx.rgb(bgColor[0], bgColor[1], bgColor[2]);

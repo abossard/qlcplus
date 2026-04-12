@@ -20,7 +20,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Lava Lamp";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // bass, mids, highs
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -44,9 +44,12 @@ var testAlgo;
     algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
-    var startColor = [255, 0, 128];
-    var endColor = [0, 128, 255];
+    var color1 = [255, 0, 128];
+    var color2 = [0, 128, 255];
+    var color3 = [128, 255, 0];
     var lowsFilter = null;
+    var midsFilter = null;
+    var highsFilter = null;
     var lowsPower = 0;
     var elapsedMs = 0;
     var lastTime = 0;
@@ -55,19 +58,24 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
         if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
+            color1 = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
         if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
+            color2 = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
+        if (rawColors && rawColors.length >= 3)
+            color3 = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [LedFx.rgb(color1[0], color1[1], color1[2]),
+                LedFx.rgb(color2[0], color2[1], color2[2]),
+                LedFx.rgb(color3[0], color3[1], color3[2])];
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
             lowsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
+            midsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
+            highsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
             lastTime = Date.now();
             initialized = true;
         }
@@ -82,40 +90,45 @@ var testAlgo;
         elapsedMs += dt * 1000;
 
         lowsPower = lowsFilter.update(LedFx.lows_power(audio));
+        var midsPower = midsFilter.update(LedFx.mids_power(audio));
+        var highsPower = highsFilter.update(LedFx.high_power(audio));
         var speed = algo.presetSpeed;
         var contrast = 1 - algo.presetContrast / 10.0;
 
-        // Time phases
-        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowsPower * 0.004)) % 1;
-        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowsPower * 0.007)) % 1;
+        // Time phases — bass accelerates significantly
+        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowsPower * 2)) % 1;
+        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowsPower * 3)) % 1;
 
-        var pixelCount = width;
+        // True 2D: each pixel gets unique wave value
+        for (var y = 0; y < height; y++) {
+            var yNorm = y / Math.max(1, height - 1);
 
-        for (var x = 0; x < width; x++) {
-            var il = x / Math.max(1, pixelCount - 1);
+            for (var x = 0; x < width; x++) {
+                var xNorm = x / Math.max(1, width - 1);
 
-            // Lava lamp sine wave blending
-            var w1 = Math.sin((t1 + il) * Math.PI * 2);
-            var w2 = Math.sin((t2 - il) * Math.PI * 2);
-            var w3 = Math.sin((il + w1 + w2) * Math.PI * 2);
+                // Three wave layers for lava pattern
+                var w1 = Math.sin((t1 + xNorm + yNorm * 0.5) * Math.PI * 2);
+                var w2 = Math.sin((t2 - xNorm + yNorm * 0.7) * Math.PI * 2);
+                var w3 = Math.sin((xNorm + yNorm + w1 + w2) * Math.PI * 2);
 
-            // Hue from position + time
-            var hue = (t1 + il) % 1;
+                // Combine waves for pattern
+                var pattern = (w1 + 0.1) * (w2 + lowsPower * 2) * (w3 + midsPower * 1.5);
+                pattern = Math.pow(Math.max(0, pattern + contrast), 2);
+                pattern = Math.min(1, pattern);
 
-            // Combine waves for brightness
-            var bright = (w1 + 0.1) * (w2 + lowsPower * 0.7) * (w3 + lowsPower * 0.9);
-            bright = Math.pow(Math.max(0, bright + contrast), 2);
-            bright = Math.min(1, bright);
+                // Mix 3 colors weighted by frequency band powers
+                var r = color1[0] * lowsPower + color2[0] * midsPower + color3[0] * highsPower;
+                var g = color1[1] * lowsPower + color2[1] * midsPower + color3[1] * highsPower;
+                var b = color1[2] * lowsPower + color2[2] * midsPower + color3[2] * highsPower;
 
-            // Interpolate between start and end color based on hue
-            var r = startColor[0] + (endColor[0] - startColor[0]) * hue;
-            var g = startColor[1] + (endColor[1] - startColor[1]) * hue;
-            var b = startColor[2] + (endColor[2] - startColor[2]) * hue;
-
-            var packed = LedFx.rgb(r * bright, g * bright, b * bright);
-
-            for (var y = 0; y < height; y++)
-                map[y][x] = packed;
+                // Normalize and apply pattern
+                var total = Math.max(0.01, lowsPower + midsPower + highsPower);
+                map[y][x] = LedFx.rgb(
+                    r / total * pattern,
+                    g / total * pattern,
+                    b / total * pattern
+                );
+            }
         }
 
         return map;

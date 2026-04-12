@@ -122,7 +122,7 @@ var testAlgo;
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 // Audio modulates ring brightness
-                var bright = ringVal * (0.3 + power * 0.7);
+                var bright = ringVal * power;
 
                 // Color gradient from center to edge
                 var t = normDist;
