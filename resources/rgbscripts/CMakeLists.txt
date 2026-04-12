@@ -5,11 +5,16 @@ set(SCRIPT_FILES
     audioenergy.js
     audioequalizer.js
     audiofire.js
+    audioglitch.js
+    audiolava.js
+    audiomelt.js
     audiopower.js
     audioscan.js
     audiospectrum.js
     audiostrobe.js
+    audiowater.js
     audiowavelength.js
+    audioblocks.js
     balls.js
     blinder.js
     circles.js
