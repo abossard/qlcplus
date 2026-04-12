@@ -694,50 +694,34 @@ void RGBScript::applyTransforms(const RGBMap &src, const QSize &srcSize,
                                 const QSize &dstSize, int rotation, int mirror,
                                 RGBMap &dst)
 {
-    int sw = srcSize.width();
+    Q_UNUSED(dstSize);
     int sh = srcSize.height();
-    int dw = dstSize.width();
-    int dh = dstSize.height();
+    int sw = srcSize.width();
 
-    // Step 1: Rotate src → rotated map with dst dimensions
-    dst.resize(dh);
-    for (int y = 0; y < dh; y++)
+    // Step 1: Rotation
+    // 0° and 90°: output = src as-is (90° already got swapped dimensions)
+    // 180° and 270°: flip both axes (270° already got swapped dimensions)
+    if (rotation == 0 || rotation == 1)
     {
-        dst[y].resize(dw);
-        dst[y].fill(0);
+        dst = src;
     }
-
-    for (int sy = 0; sy < sh && sy < src.size(); sy++)
+    else // 180° or 270°: reverse rows and reverse each row
     {
-        for (int sx = 0; sx < sw && sx < src[sy].size(); sx++)
+        dst.resize(sh);
+        for (int y = 0; y < sh; y++)
         {
-            uint pixel = src[sy][sx];
-            int dx, dy;
-            switch (rotation)
-            {
-                case 0: // 0°
-                    dx = sx; dy = sy;
-                    break;
-                case 1: // 90° CW: (x,y) → (h-1-y, x)
-                    dx = sh - 1 - sy; dy = sx;
-                    break;
-                case 2: // 180°: (x,y) → (w-1-x, h-1-y)
-                    dx = sw - 1 - sx; dy = sh - 1 - sy;
-                    break;
-                case 3: // 270° CW: (x,y) → (y, w-1-x)
-                    dx = sy; dy = sw - 1 - sx;
-                    break;
-                default:
-                    dx = sx; dy = sy;
-                    break;
-            }
-
-            if (dx >= 0 && dx < dw && dy >= 0 && dy < dh)
-                dst[dy][dx] = pixel;
+            int sy = sh - 1 - y;
+            if (sy >= src.size()) continue;
+            dst[y].resize(sw);
+            for (int x = 0; x < sw && x < src[sy].size(); x++)
+                dst[y][x] = src[sy][sw - 1 - x];
         }
     }
 
     // Step 2: Mirror using max() blending (LedFX style)
+    int dw = dst.isEmpty() ? 0 : dst[0].size();
+    int dh = dst.size();
+
     if (mirror & 1) // Horizontal mirror
     {
         for (int y = 0; y < dh; y++)
@@ -747,7 +731,6 @@ void RGBScript::applyTransforms(const RGBMap &src, const QSize &srcSize,
                 int mx = dw - 1 - x;
                 uint left = dst[y][x];
                 uint right = dst[y][mx];
-                // max() per channel
                 uint r = qMax((left >> 16) & 0xFF, (right >> 16) & 0xFF);
                 uint g = qMax((left >> 8) & 0xFF, (right >> 8) & 0xFF);
                 uint b = qMax(left & 0xFF, right & 0xFF);
