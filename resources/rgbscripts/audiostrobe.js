@@ -32,7 +32,7 @@ var testAlgo;
     algo.presetMode = 0;
     algo.properties.push(
       "name:presetMode|type:list|display:Trigger|" +
-      "values:Beat,Bass,Volume|write:setMode|read:getMode");
+      "values:Beat,Bass,Mids,Highs,Volume|write:setMode|read:getMode");
 
     algo.presetThreshold = 6;
     algo.properties.push(
@@ -48,12 +48,16 @@ var testAlgo;
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setMode = function(_v) {
         if (_v === "Bass") algo.presetMode = 1;
-        else if (_v === "Volume") algo.presetMode = 2;
+        else if (_v === "Mids") algo.presetMode = 2;
+        else if (_v === "Highs") algo.presetMode = 3;
+        else if (_v === "Volume") algo.presetMode = 4;
         else algo.presetMode = 0;
     };
     algo.getMode = function() {
         if (algo.presetMode === 1) return "Bass";
-        if (algo.presetMode === 2) return "Volume";
+        if (algo.presetMode === 2) return "Mids";
+        if (algo.presetMode === 3) return "Highs";
+        if (algo.presetMode === 4) return "Volume";
         return "Beat";
     };
     algo.setThreshold = function(_v) { algo.presetThreshold = parseInt(_v); };
@@ -92,6 +96,10 @@ var testAlgo;
             trigger = audio.beat;
         } else if (algo.presetMode === 1) {
             trigger = LedFx.lows_power(audio) > thresh;
+        } else if (algo.presetMode === 2) {
+            trigger = LedFx.mids_power(audio) > thresh;
+        } else if (algo.presetMode === 3) {
+            trigger = LedFx.high_power(audio) > thresh;
         } else {
             trigger = audio.volume > thresh;
         }
