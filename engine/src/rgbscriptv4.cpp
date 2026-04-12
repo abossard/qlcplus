@@ -70,7 +70,6 @@ RGBScript::RGBScript(Doc *doc)
     , m_audioMaxMagnitude(0)
     , m_audioPower(0)
     , m_audioBeat(false)
-    , m_audioReceiver(NULL)
 {
 }
 
@@ -85,7 +84,6 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_audioMaxMagnitude(0)
     , m_audioPower(0)
     , m_audioBeat(false)
-    , m_audioReceiver(NULL)
 {
     evaluate();
     foreach (RGBScriptProperty cap, s.m_properties)
@@ -393,13 +391,13 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     {
         setupAudioCapture();
 
-        // Register for the right number of bands based on grid width
-        if (m_audioBandsNumber != size.width() && m_audioInput != NULL)
+        // Register fixed band count (max 32). JS shim interpolates to grid width.
+        if (m_audioBandsNumber != AUDIO_FIXED_BANDS && m_audioInput != NULL)
         {
             if (m_audioBandsNumber > 0)
                 m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
-            m_audioBandsNumber = size.width();
-            m_audioInput->registerBandsNumber(m_audioBandsNumber);
+            m_audioBandsNumber = AUDIO_FIXED_BANDS;
+            m_audioInput->registerBandsNumber(AUDIO_FIXED_BANDS);
         }
     }
 
@@ -540,54 +538,73 @@ void RGBScript::setupAudioCapture()
     if (capture.isNull())
         return;
 
-    if (capture.data() != m_audioInput)
-    {
-        teardownAudioCapture();
-        m_audioInput = capture.data();
+    if (m_audioInput != NULL && capture.data() == m_audioInput)
+        return; // Already connected to this capture
 
-        // Create a context QObject for lambda connections
-        m_audioReceiver = new QObject();
+    teardownAudioCapture();
+    m_audioInput = capture.data();
+    qDebug() << "[RGBScript] Audio capture connected:" << m_audioInput;
 
-        QObject::connect(m_audioInput, &AudioCapture::dataProcessed,
-            m_audioReceiver,
-            [this](double *spectrumBands, int size, double maxMagnitude, quint32 power)
-            {
-                if (size != m_audioBandsNumber)
-                    return;
-                QMutexLocker locker(&m_audioMutex);
-                m_audioSpectrum.clear();
-                for (int i = 0; i < m_audioBandsNumber; i++)
-                    m_audioSpectrum.append(spectrumBands[i]);
-                m_audioMaxMagnitude = maxMagnitude;
-                m_audioPower = power;
-            });
-        QObject::connect(m_audioInput, &AudioCapture::beatDetected,
-            m_audioReceiver,
-            [this]()
-            {
-                QMutexLocker locker(&m_audioMutex);
-                m_audioBeat = true;
-            });
-    }
+    // Use DirectConnection so lambdas fire on AudioCapture's thread immediately.
+    // Thread safety is handled by m_audioMutex in the lambdas.
+    m_audioDataConn = QObject::connect(m_audioInput, &AudioCapture::dataProcessed,
+        [this](double *spectrumBands, int size, double maxMagnitude, quint32 power)
+        {
+            int expected = m_audioBandsNumber.load();
+            if (size != expected || expected <= 0)
+                return;
+            QMutexLocker locker(&m_audioMutex);
+            m_audioSpectrum.resize(expected);
+            for (int i = 0; i < expected; i++)
+                m_audioSpectrum[i] = spectrumBands[i];
+            m_audioMaxMagnitude = maxMagnitude;
+            m_audioPower = power;
+        });
+    m_audioBeatConn = QObject::connect(m_audioInput, &AudioCapture::beatDetected,
+        [this]()
+        {
+            QMutexLocker locker(&m_audioMutex);
+            m_audioBeat = true;
+        });
 }
 
 void RGBScript::teardownAudioCapture()
 {
     if (m_audioInput != NULL)
     {
-        delete m_audioReceiver;
-        m_audioReceiver = NULL;
-
+        // Unregister first — this blocks on AudioCapture::m_mutex,
+        // ensuring any in-flight processData() emission completes
+        // before we disconnect.
         if (m_audioBandsNumber > 0)
             m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
+
+        // Now safe to disconnect
+        QObject::disconnect(m_audioDataConn);
+        QObject::disconnect(m_audioBeatConn);
+
         m_audioInput = NULL;
         m_audioBandsNumber = -1;
     }
+
+    // Clear stale audio state
+    QMutexLocker locker(&m_audioMutex);
+    m_audioSpectrum.clear();
+    m_audioMaxMagnitude = 0;
+    m_audioPower = 0;
+    m_audioBeat = false;
 }
 
 QJSValue RGBScript::buildAudioDataObject()
 {
     QMutexLocker locker(&m_audioMutex);
+
+    static int debugCounter = 0;
+    if (++debugCounter % 50 == 1) // Log every ~1 second at 50fps
+        qDebug() << "[RGBScript] Audio data: specSize=" << m_audioSpectrum.size()
+                 << "maxMag=" << m_audioMaxMagnitude
+                 << "power=" << m_audioPower
+                 << "beat=" << m_audioBeat
+                 << "bands=" << m_audioBandsNumber;
 
     QJSValue audioObj = s_jsThread->engine->newObject();
 

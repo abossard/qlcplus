@@ -24,6 +24,8 @@
 #include <QJSValue>
 #include <QMutex>
 
+#include <atomic>
+
 #include "rgbalgorithm.h"
 #include "rgbscriptproperty.h"
 
@@ -147,15 +149,18 @@ private:
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
     QJSValue buildAudioDataObject();
 
+    static const int AUDIO_FIXED_BANDS = 32; //! Fixed band count for audio scripts
+
 private:
     AudioCapture *m_audioInput;
-    int m_audioBandsNumber;
+    std::atomic<int> m_audioBandsNumber;
     QVector<double> m_audioSpectrum;
     double m_audioMaxMagnitude;
     quint32 m_audioPower;
     bool m_audioBeat;
     QMutex m_audioMutex;
-    QObject *m_audioReceiver;  //! Context object for signal/slot connections
+    QMetaObject::Connection m_audioDataConn;
+    QMetaObject::Connection m_audioBeatConn;
 
     /************************************************************************
      * Properties
