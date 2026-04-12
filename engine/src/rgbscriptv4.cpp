@@ -543,7 +543,6 @@ void RGBScript::setupAudioCapture()
 
     teardownAudioCapture();
     m_audioInput = capture.data();
-    qDebug() << "[RGBScript] Audio capture connected:" << m_audioInput;
 
     // Use DirectConnection so lambdas fire on AudioCapture's thread immediately.
     // Thread safety is handled by m_audioMutex in the lambdas.
@@ -597,14 +596,6 @@ void RGBScript::teardownAudioCapture()
 QJSValue RGBScript::buildAudioDataObject()
 {
     QMutexLocker locker(&m_audioMutex);
-
-    static int debugCounter = 0;
-    if (++debugCounter % 50 == 1) // Log every ~1 second at 50fps
-        qDebug() << "[RGBScript] Audio data: specSize=" << m_audioSpectrum.size()
-                 << "maxMag=" << m_audioMaxMagnitude
-                 << "power=" << m_audioPower
-                 << "beat=" << m_audioBeat
-                 << "bands=" << m_audioBandsNumber;
 
     QJSValue audioObj = s_jsThread->engine->newObject();
 
