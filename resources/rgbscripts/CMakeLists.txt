@@ -15,9 +15,11 @@ set(SCRIPT_FILES
     audiowater.js
     audiowavelength.js
     audioblocks.js
+    audiochaser.js
     audiocrawler.js
     audioplasma.js
     audioscroll.js
+    audioshot.js
     audiosoap.js
     balls.js
     blinder.js
