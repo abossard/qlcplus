@@ -105,6 +105,10 @@ public:
      */
     virtual int acceptColors() const = 0;
 
+    /** Return whether this algorithm uses audio input data.
+     *  When true, the host should provide audio spectrum data before rendering. */
+    virtual bool usesAudio() const { return type() == Audio; }
+
     /************************************************************************
      * RGB Colors
      ************************************************************************/

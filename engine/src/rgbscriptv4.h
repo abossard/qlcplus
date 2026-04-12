@@ -22,10 +22,12 @@
 
 #include <QHash>
 #include <QJSValue>
+#include <QMutex>
 
 #include "rgbalgorithm.h"
 #include "rgbscriptproperty.h"
 
+class AudioCapture;
 class QJSEngine;
 class QDir;
 
@@ -112,6 +114,12 @@ public:
     int acceptColors() const override;
 
     /** @reimp */
+    bool usesAudio() const override;
+
+    /** @reimp */
+    void postRun() override;
+
+    /** @reimp */
     bool loadXML(QXmlStreamReader &root) override;
 
     /** @reimp */
@@ -124,6 +132,30 @@ private:
     QJSValue m_rgbMapStepCount; //! rgbMapStepCount() function
     QJSValue m_rgbMapSetColors; //! rgbMapSetColors() function
     QJSValue m_rgbMapGetColors; //! rgbMapSetColors() function
+    bool m_usesAudio;           //! Whether the script declared algo.usesAudio = true
+
+    /************************************************************************
+     * Audio support
+     ************************************************************************/
+private:
+    /** Connect to AudioCapture and register for spectrum data */
+    void setupAudioCapture();
+
+    /** Disconnect from AudioCapture and release resources */
+    void teardownAudioCapture();
+
+    /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
+    QJSValue buildAudioDataObject();
+
+private:
+    AudioCapture *m_audioInput;
+    int m_audioBandsNumber;
+    QVector<double> m_audioSpectrum;
+    double m_audioMaxMagnitude;
+    quint32 m_audioPower;
+    bool m_audioBeat;
+    QMutex m_audioMutex;
+    QObject *m_audioReceiver;  //! Context object for signal/slot connections
 
     /************************************************************************
      * Properties

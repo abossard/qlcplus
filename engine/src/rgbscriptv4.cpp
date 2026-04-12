@@ -19,10 +19,12 @@
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QTextStream>
 #include <QJSEngine>
 #include <QThread>
 #include <QDebug>
 #include <QFile>
+#include <QDir>
 
 // cppcheck-suppress missingIncludeSystem
 #include <QCoreApplication>
@@ -32,8 +34,11 @@
 #include "rgbscriptv4.h"
 
 #include "rgbscriptscache.h"
+#include "audiocapture.h"
+#include "mastertimer.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
+#include "doc.h"
 
 /****************************************************************************
  * Initialization
@@ -59,6 +64,13 @@ public:
 RGBScript::RGBScript(Doc *doc)
     : RGBAlgorithm(doc)
     , m_apiVersion(0)
+    , m_usesAudio(false)
+    , m_audioInput(NULL)
+    , m_audioBandsNumber(-1)
+    , m_audioMaxMagnitude(0)
+    , m_audioPower(0)
+    , m_audioBeat(false)
+    , m_audioReceiver(NULL)
 {
 }
 
@@ -67,6 +79,13 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_fileName(s.m_fileName)
     , m_contents(s.m_contents)
     , m_apiVersion(0)
+    , m_usesAudio(false)
+    , m_audioInput(NULL)
+    , m_audioBandsNumber(-1)
+    , m_audioMaxMagnitude(0)
+    , m_audioPower(0)
+    , m_audioBeat(false)
+    , m_audioReceiver(NULL)
 {
     evaluate();
     foreach (RGBScriptProperty cap, s.m_properties)
@@ -77,6 +96,7 @@ RGBScript::RGBScript(const RGBScript& s)
 
 RGBScript::~RGBScript()
 {
+    teardownAudioCapture();
 }
 
 RGBScript &RGBScript::operator=(const RGBScript &s)
@@ -154,6 +174,24 @@ void RGBScript::initEngine()
         // cppcheck-suppress unknownMacro
         qAddPostRoutine(RGBScript::cleanupEngine);
         s_jsThread->ready.acquire(1);
+
+        // Load the LedFX compatibility shim into the engine's global scope
+        // so all audio-reactive scripts can use LedFx.* helpers.
+        QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
+        QString shimPath = scriptsDir.filePath("ledfx_compat.js");
+        QFile shimFile(shimPath);
+        if (shimFile.open(QIODevice::ReadOnly))
+        {
+            QString shimContents = QTextStream(&shimFile).readAll();
+            shimFile.close();
+            QMetaObject::invokeMethod(s_jsThread->engine, [shimContents, shimPath]{
+                QJSValue result = s_jsThread->engine->evaluate(shimContents, shimPath);
+                if (result.isError())
+                    displayError(result, shimPath);
+                else
+                    qDebug() << "[RGBScript] Loaded LedFX compatibility shim";
+            }, Qt::BlockingQueuedConnection);
+        }
     }
     Q_ASSERT(s_jsThread->engine != NULL);
 }
@@ -180,6 +218,7 @@ bool RGBScript::evaluate()
     m_rgbMapStepCount = QJSValue();
     m_rgbMapSetColors = QJSValue();
     m_apiVersion = 0;
+    m_usesAudio = false;
 
     if (m_fileName.isEmpty() || m_contents.isEmpty())
     {
@@ -213,6 +252,10 @@ bool RGBScript::evaluate()
     m_apiVersion = m_script.property("apiVersion").toInt();
     if (m_apiVersion > 0)
     {
+        // Check if the script requests audio data
+        QJSValue usesAudioVal = m_script.property("usesAudio");
+        m_usesAudio = (!usesAudioVal.isUndefined() && usesAudioVal.toBool());
+
         if (m_apiVersion >= 3)
         {
             m_rgbMapSetColors = m_script.property(QStringLiteral("rgbMapSetColors"));
@@ -344,9 +387,28 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_rgbMap.isUndefined() == true)
         return;
 
+    // If this is an audio-aware script, set up audio capture on first call
+    // and inject audio data as a 5th argument
+    if (m_usesAudio)
+    {
+        setupAudioCapture();
+
+        // Register for the right number of bands based on grid width
+        if (m_audioBandsNumber != size.width() && m_audioInput != NULL)
+        {
+            if (m_audioBandsNumber > 0)
+                m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
+            m_audioBandsNumber = size.width();
+            m_audioInput->registerBandsNumber(m_audioBandsNumber);
+        }
+    }
+
     // Call the rgbMap function
     QJSValueList args;
     args << size.width() << size.height() << rgb << step;
+
+    if (m_usesAudio)
+        args << buildAudioDataObject();
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
@@ -453,6 +515,110 @@ bool RGBScript::saveXML(QXmlStreamWriter *doc) const
     {
         return false;
     }
+}
+
+bool RGBScript::usesAudio() const
+{
+    return m_usesAudio;
+}
+
+void RGBScript::postRun()
+{
+    teardownAudioCapture();
+}
+
+/****************************************************************************
+ * Audio support
+ ****************************************************************************/
+
+void RGBScript::setupAudioCapture()
+{
+    if (doc() == NULL)
+        return;
+
+    QSharedPointer<AudioCapture> capture = doc()->audioInputCapture();
+    if (capture.isNull())
+        return;
+
+    if (capture.data() != m_audioInput)
+    {
+        teardownAudioCapture();
+        m_audioInput = capture.data();
+
+        // Create a context QObject for lambda connections
+        m_audioReceiver = new QObject();
+
+        QObject::connect(m_audioInput, &AudioCapture::dataProcessed,
+            m_audioReceiver,
+            [this](double *spectrumBands, int size, double maxMagnitude, quint32 power)
+            {
+                if (size != m_audioBandsNumber)
+                    return;
+                QMutexLocker locker(&m_audioMutex);
+                m_audioSpectrum.clear();
+                for (int i = 0; i < m_audioBandsNumber; i++)
+                    m_audioSpectrum.append(spectrumBands[i]);
+                m_audioMaxMagnitude = maxMagnitude;
+                m_audioPower = power;
+            });
+        QObject::connect(m_audioInput, &AudioCapture::beatDetected,
+            m_audioReceiver,
+            [this]()
+            {
+                QMutexLocker locker(&m_audioMutex);
+                m_audioBeat = true;
+            });
+    }
+}
+
+void RGBScript::teardownAudioCapture()
+{
+    if (m_audioInput != NULL)
+    {
+        delete m_audioReceiver;
+        m_audioReceiver = NULL;
+
+        if (m_audioBandsNumber > 0)
+            m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
+        m_audioInput = NULL;
+        m_audioBandsNumber = -1;
+    }
+}
+
+QJSValue RGBScript::buildAudioDataObject()
+{
+    QMutexLocker locker(&m_audioMutex);
+
+    QJSValue audioObj = s_jsThread->engine->newObject();
+
+    // Build normalized spectrum array (0.0 - 1.0)
+    int specSize = m_audioSpectrum.size();
+    QJSValue spectrumArr = s_jsThread->engine->newArray(specSize);
+    for (int i = 0; i < specSize; i++)
+    {
+        double normalized = (m_audioMaxMagnitude > 0)
+            ? qMin(1.0, m_audioSpectrum[i] / m_audioMaxMagnitude) : 0.0;
+        spectrumArr.setProperty(i, QJSValue(normalized));
+    }
+    audioObj.setProperty("spectrum", spectrumArr);
+
+    // Volume: normalize power to 0.0-1.0
+    audioObj.setProperty("volume", QJSValue(double(m_audioPower) / 0x7FFF));
+
+    // Beat: consumed on read (reset after building object)
+    audioObj.setProperty("beat", QJSValue(m_audioBeat));
+    m_audioBeat = false;
+
+    // BPM from MasterTimer
+    int bpm = 120;
+    if (doc() && doc()->masterTimer())
+        bpm = doc()->masterTimer()->bpmNumber();
+    audioObj.setProperty("bpm", QJSValue(bpm));
+
+    // Raw maxMagnitude for scripts that want absolute values
+    audioObj.setProperty("maxMagnitude", QJSValue(m_audioMaxMagnitude));
+
+    return audioObj;
 }
 
 /************************************************************************
