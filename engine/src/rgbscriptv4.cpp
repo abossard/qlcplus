@@ -694,34 +694,50 @@ void RGBScript::applyTransforms(const RGBMap &src, const QSize &srcSize,
                                 const QSize &dstSize, int rotation, int mirror,
                                 RGBMap &dst)
 {
-    Q_UNUSED(dstSize);
-    int sh = srcSize.height();
-    int sw = srcSize.width();
+    int dw = dstSize.width();
+    int dh = dstSize.height();
 
-    // Step 1: Rotation
-    // 0° and 90°: output = src as-is (90° already got swapped dimensions)
-    // 180° and 270°: flip both axes (270° already got swapped dimensions)
-    if (rotation == 0 || rotation == 1)
+    // Step 1: Rotation — map from src (JS output) to dst (physical grid)
+    dst.resize(dh);
+    for (int y = 0; y < dh; y++)
     {
-        dst = src;
+        dst[y].resize(dw);
+        dst[y].fill(0);
     }
-    else // 180° or 270°: reverse rows and reverse each row
+
+    int sh = src.size();
+    int sw = (sh > 0) ? src[0].size() : 0;
+
+    for (int dy = 0; dy < dh; dy++)
     {
-        dst.resize(sh);
-        for (int y = 0; y < sh; y++)
+        for (int dx = 0; dx < dw; dx++)
         {
-            int sy = sh - 1 - y;
-            if (sy >= src.size()) continue;
-            dst[y].resize(sw);
-            for (int x = 0; x < sw && x < src[sy].size(); x++)
-                dst[y][x] = src[sy][sw - 1 - x];
+            int sx, sy;
+            switch (rotation)
+            {
+                case 0: // 0°: no change
+                    sx = dx; sy = dy;
+                    break;
+                case 1: // 90° CW: JS got (H,W), need to transpose back
+                    sx = dy; sy = sw - 1 - dx;
+                    break;
+                case 2: // 180°: flip both
+                    sx = dw - 1 - dx; sy = dh - 1 - dy;
+                    break;
+                case 3: // 270° CW: JS got (H,W), transpose other way
+                    sx = dh - 1 - dy; sy = dx;
+                    break;
+                default:
+                    sx = dx; sy = dy;
+                    break;
+            }
+
+            if (sy >= 0 && sy < sh && sx >= 0 && sx < (int)src[sy].size())
+                dst[dy][dx] = src[sy][sx];
         }
     }
 
     // Step 2: Mirror using max() blending (LedFX style)
-    int dw = dst.isEmpty() ? 0 : dst[0].size();
-    int dh = dst.size();
-
     if (mirror & 1) // Horizontal mirror
     {
         for (int y = 0; y < dh; y++)
