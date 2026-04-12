@@ -21,7 +21,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Fire";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 0;
+    algo.acceptColors = 2; // start + end for fire color gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -74,9 +74,21 @@ var testAlgo;
         lastTime = Date.now();
     }
 
+    // Colors for fire gradient (default: red → yellow)
+    var fireColorLow = [255, 0, 0];
+    var fireColorHigh = [255, 255, 0];
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() { return []; };
+    algo.rgbMapSetColors = function(rawColors) {
+        if (rawColors && rawColors.length >= 1)
+            fireColorLow = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
+        if (rawColors && rawColors.length >= 2)
+            fireColorHigh = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
+    };
+    algo.rgbMapGetColors = function() {
+        return [LedFx.rgb(fireColorLow[0], fireColorLow[1], fireColorLow[2]),
+                LedFx.rgb(fireColorHigh[0], fireColorHigh[1], fireColorHigh[2])];
+    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -150,22 +162,20 @@ var testAlgo;
             }
         }
 
-        // Map heat values to HSV colors and render into the 2D grid
+        // Map heat values to colors using fire gradient and render into 2D grid
         for (var y = 0; y < height; y++) {
             // Map row: bottom of grid = index 0 of fire
             var fireIdx = height - 1 - y;
             var heat = Math.max(0, Math.min(1, sparkPixels[fireIdx]));
 
-            // HSV mapping (fire palette):
-            // Hue: heat^2 * 0.1 + colorShift (red-orange-yellow)
-            // Saturation: 1 - (heat-1)*2 (white-hot at full heat)
-            // Value: heat * 2 (brightness from heat)
-            var h = heat * heat * 0.1 + colorShift;
-            var s = Math.max(0, Math.min(1, 1 - (heat - 1) * 2));
-            var v = Math.max(0, Math.min(1, heat * 2));
+            // Interpolate between fireColorLow and fireColorHigh based on heat
+            var r = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * heat;
+            var g = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * heat;
+            var b = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * heat;
 
-            var color = LedFx.hsv2rgb(h, s, v);
-            var packedColor = LedFx.rgb(color[0], color[1], color[2]);
+            // Apply heat as brightness
+            var brightness = Math.min(1, heat * 2);
+            var packedColor = LedFx.rgb(r * brightness, g * brightness, b * brightness);
 
             // Fill entire row with same color (fire column)
             for (var x = 0; x < width; x++)

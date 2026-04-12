@@ -22,7 +22,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Energy";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 0;
+    algo.acceptColors = 3; // lows, mids, highs colors
     algo.usesAudio = true;
     algo.properties = new Array();
 

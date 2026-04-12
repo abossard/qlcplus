@@ -1,0 +1,106 @@
+/*
+  Q Light Controller Plus
+  audiostrobe.js
+
+  Copyright (c) QLC+ contributors
+  Ported from LedFX "BPM Strobe" effect (MIT License)
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0.txt
+*/
+
+var testAlgo;
+
+(
+  function () {
+    var algo = new Object;
+    algo.apiVersion = 3;
+    algo.name = "Audio Strobe";
+    algo.author = "Ported from LedFx";
+    algo.acceptColors = 2;
+    algo.usesAudio = true;
+    algo.properties = new Array();
+
+    algo.presetDecay = 5;
+    algo.properties.push(
+      "name:presetDecay|type:range|display:Decay Speed|" +
+      "values:1,10|write:setDecay|read:getDecay");
+
+    algo.presetMode = 0;
+    algo.properties.push(
+      "name:presetMode|type:list|display:Trigger|" +
+      "values:Beat,Bass,Volume|write:setMode|read:getMode");
+
+    algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
+    algo.getDecay = function() { return algo.presetDecay; };
+    algo.setMode = function(_v) {
+        if (_v === "Bass") algo.presetMode = 1;
+        else if (_v === "Volume") algo.presetMode = 2;
+        else algo.presetMode = 0;
+    };
+    algo.getMode = function() {
+        if (algo.presetMode === 1) return "Bass";
+        if (algo.presetMode === 2) return "Volume";
+        return "Beat";
+    };
+
+    var strobeColor = [255, 255, 255];
+    var bgColor = [0, 0, 0];
+    var brightness = 0;
+    var initialized = false;
+
+    algo.rgbMapStepCount = function(width, height) { return 1; };
+
+    algo.rgbMapSetColors = function(rawColors) {
+        if (rawColors && rawColors.length >= 1)
+            strobeColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
+        if (rawColors && rawColors.length >= 2)
+            bgColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
+    };
+
+    algo.rgbMapGetColors = function() {
+        return [LedFx.rgb(strobeColor[0], strobeColor[1], strobeColor[2]),
+                LedFx.rgb(bgColor[0], bgColor[1], bgColor[2])];
+    };
+
+    algo.rgbMap = function(width, height, rgb, step, audio)
+    {
+        var map = LedFx.createMap(width, height);
+        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+
+        // Determine if we should flash
+        var trigger = false;
+        if (algo.presetMode === 0) {
+            trigger = audio.beat;
+        } else if (algo.presetMode === 1) {
+            trigger = LedFx.lows_power(audio) > 0.6;
+        } else {
+            trigger = audio.volume > 0.7;
+        }
+
+        if (trigger) brightness = 1.0;
+
+        // Decay
+        var decayRate = algo.presetDecay / 50.0;
+        brightness = Math.max(0, brightness - decayRate);
+
+        // Render
+        var r = bgColor[0] + (strobeColor[0] - bgColor[0]) * brightness;
+        var g = bgColor[1] + (strobeColor[1] - bgColor[1]) * brightness;
+        var b = bgColor[2] + (strobeColor[2] - bgColor[2]) * brightness;
+        var packed = LedFx.rgb(r, g, b);
+
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+                map[y][x] = packed;
+
+        return map;
+    };
+
+    testAlgo = algo;
+    return algo;
+  }
+)();
