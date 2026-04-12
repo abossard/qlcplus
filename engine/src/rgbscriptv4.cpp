@@ -428,7 +428,7 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_usesAudio)
     {
         QJSValue rotVal = m_script.property("presetRotation");
-        if (!rotVal.isUndefined()) rotation = rotVal.toInt() & 3;
+        if (!rotVal.isUndefined()) rotation = (rotVal.toInt() / 90) & 3;
         QJSValue mirVal = m_script.property("presetMirror");
         if (!mirVal.isUndefined()) mirror = mirVal.toInt() & 3;
     }
