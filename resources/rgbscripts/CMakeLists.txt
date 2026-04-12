@@ -2,25 +2,28 @@ project(scripts)
 
 set(SCRIPT_FILES
     alternate.js
+    audioaurora.js
+    audioblocks.js
+    audiochaser.js
+    audiocrawler.js
     audioenergy.js
     audioequalizer.js
     audiofire.js
     audioglitch.js
     audiolava.js
     audiomelt.js
+    audioplasma.js
     audiopower.js
     audioscan.js
-    audiospectrum.js
-    audiostrobe.js
-    audiowater.js
-    audiowavelength.js
-    audioblocks.js
-    audiochaser.js
-    audiocrawler.js
-    audioplasma.js
     audioscroll.js
     audioshot.js
     audiosoap.js
+    audiospectrum.js
+    audiostrobe.js
+    audiotunnel.js
+    audiovortex.js
+    audiowater.js
+    audiowavelength.js
     balls.js
     blinder.js
     circles.js

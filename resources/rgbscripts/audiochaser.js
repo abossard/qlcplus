@@ -74,11 +74,12 @@ var testAlgo;
     var lastTime = 0;
     var initialized = false;
 
-    function initDots(width, count) {
+    function initDots(width, height, count) {
         dots = [];
         for (var i = 0; i < count; i++) {
             dots.push({
                 pos: Math.random() * width,
+                row: Math.floor(Math.random() * height),
                 speed: 1 + Math.random() * 2,
                 dir: (Math.random() > 0.5) ? 1 : -1,
                 band: i % 3
@@ -115,7 +116,7 @@ var testAlgo;
             initialized = true;
         }
         if (!dots || dots.length !== algo.presetDotCount)
-            initDots(width, algo.presetDotCount);
+            initDots(width, height, algo.presetDotCount);
 
         var map = LedFx.createMap(width, height);
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
@@ -180,15 +181,22 @@ var testAlgo;
                 var trailFade = 1 - (t / (trailLen + 1));
                 var fade = brightness * trailFade * trailFade;
 
-                for (var y = 0; y < height; y++) {
-                    var existing = map[y][tx];
+                // 2D: render dot at its row with vertical spread
+                var centerY = dot.row;
+                var spread = Math.max(0, Math.ceil(height / 6));
+                for (var dy = -spread; dy <= spread; dy++) {
+                    var py = centerY + dy;
+                    if (py < 0 || py >= height) continue;
+                    var yFade = fade * (1 - Math.abs(dy) / (spread + 1));
+
+                    var existing = map[py][tx];
                     var er = (existing >> 16) & 0xFF;
                     var eg = (existing >> 8) & 0xFF;
                     var eb = existing & 0xFF;
-                    map[y][tx] = LedFx.rgb(
-                        Math.min(255, er + color[0] * fade),
-                        Math.min(255, eg + color[1] * fade),
-                        Math.min(255, eb + color[2] * fade)
+                    map[py][tx] = LedFx.rgb(
+                        Math.min(255, er + color[0] * yFade),
+                        Math.min(255, eg + color[1] * yFade),
+                        Math.min(255, eb + color[2] * yFade)
                     );
                 }
             }
