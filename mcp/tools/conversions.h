@@ -35,11 +35,152 @@
 #include "chaser.h"
 #include "collection.h"
 #include "scenevalue.h"
+#include "rgbmatrix.h"
+#include "rgbalgorithm.h"
+#include "fixturegroup.h"
+#include "universe.h"
 #include "doc.h"
 
 namespace mcp {
 
 using Json = nlohmann::json;
+
+// Beat string to internal value conversion.
+// QLC+ encodes beats as: 1 beat = 1000, sub-beats quantized to 125 units.
+// Accepts: "1/8"=125, "1/4"=250, "1/2"=500, "1"=1000, "2"=2000, etc.
+// Returns 0 on parse failure.
+inline uint beatStringToValue(const std::string &str)
+{
+    if (str.empty()) return 0;
+
+    // Try fraction format "N/D"
+    size_t slash = str.find('/');
+    if (slash != std::string::npos)
+    {
+        double num = std::stod(str.substr(0, slash));
+        double den = std::stod(str.substr(slash + 1));
+        if (den == 0) return 0;
+        double beats = num / den;
+        uint raw = static_cast<uint>(beats * 1000.0);
+        // Quantize to 125-unit granularity (1/8 beat)
+        return (raw / 125) * 125;
+    }
+
+    // Plain number (integer or decimal beats)
+    double beats = std::stod(str);
+    uint raw = static_cast<uint>(beats * 1000.0);
+    return (raw / 125) * 125;
+}
+
+// Internal beat value to human-readable string.
+inline std::string valueToBeatString(uint val)
+{
+    if (val == 0) return "0";
+    if (val % 1000 == 0) return std::to_string(val / 1000);
+    if (val == 125) return "1/8";
+    if (val == 250) return "1/4";
+    if (val == 375) return "3/8";
+    if (val == 500) return "1/2";
+    if (val == 625) return "5/8";
+    if (val == 750) return "3/4";
+    if (val == 875) return "7/8";
+    // For values > 1000 with fractional part
+    uint whole = val / 1000;
+    uint frac = val % 1000;
+    std::string fracStr;
+    if (frac == 125) fracStr = "1/8";
+    else if (frac == 250) fracStr = "1/4";
+    else if (frac == 375) fracStr = "3/8";
+    else if (frac == 500) fracStr = "1/2";
+    else if (frac == 625) fracStr = "5/8";
+    else if (frac == 750) fracStr = "3/4";
+    else if (frac == 875) fracStr = "7/8";
+    else fracStr = std::to_string(frac);
+    return std::to_string(whole) + "+" + fracStr;
+}
+
+// Parse a duration field that can be either integer (ms) or string (beat fraction).
+// Sets isBeat to true if a beat string was parsed.
+inline uint parseDurationField(const Json &val, bool &isBeat)
+{
+    if (val.is_string())
+    {
+        isBeat = true;
+        return beatStringToValue(val.get<std::string>());
+    }
+    return val.get<uint>();
+}
+
+// Convert RGBAlgorithm::Type to string
+inline std::string rgbAlgorithmTypeToString(RGBAlgorithm::Type type)
+{
+    switch (type)
+    {
+        case RGBAlgorithm::Text:   return "Text";
+        case RGBAlgorithm::Script: return "Script";
+        case RGBAlgorithm::Image:  return "Image";
+        case RGBAlgorithm::Audio:  return "Audio";
+        case RGBAlgorithm::Plain:  return "Plain";
+        default:                   return "Unknown";
+    }
+}
+
+// Convert an RGBMatrix to detailed JSON
+inline Json rgbMatrixToJson(RGBMatrix *matrix)
+{
+    Json entry;
+    entry["id"] = (int)matrix->id();
+    entry["name"] = matrix->name().toStdString();
+    if (!matrix->path().isEmpty())
+        entry["path"] = matrix->path().toStdString();
+    entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
+
+    bool isBeatMode = (matrix->tempoType() == Function::Beats);
+    entry["tempoType"] = isBeatMode ? "Beats" : "Time";
+
+    if (isBeatMode)
+    {
+        entry["duration"] = valueToBeatString(matrix->duration());
+        entry["fadeIn"] = valueToBeatString(matrix->fadeInSpeed());
+        entry["fadeOut"] = valueToBeatString(matrix->fadeOutSpeed());
+    }
+    else
+    {
+        entry["duration"] = (int)matrix->duration();
+        entry["fadeIn"] = (int)matrix->fadeInSpeed();
+        entry["fadeOut"] = (int)matrix->fadeOutSpeed();
+    }
+
+    entry["runOrder"] = Function::runOrderToString(matrix->runOrder()).toStdString();
+    entry["direction"] = Function::directionToString(matrix->direction()).toStdString();
+    entry["controlMode"] = RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
+    entry["blendMode"] = Universe::blendModeToString(matrix->blendMode()).toStdString();
+
+    // Algorithm
+    RGBAlgorithm *algo = matrix->algorithm();
+    if (algo)
+    {
+        Json algoJson;
+        algoJson["name"] = algo->name().toStdString();
+        algoJson["type"] = mcp::rgbAlgorithmTypeToString(algo->type());
+        algoJson["acceptColors"] = algo->acceptColors();
+        entry["algorithm"] = algoJson;
+    }
+
+    // Colors
+    QVector<QColor> colors = matrix->getColors();
+    Json colorsJson = Json::array();
+    for (const QColor &c : colors)
+    {
+        if (c.isValid())
+            colorsJson.push_back(c.name().toStdString());
+    }
+    entry["colors"] = colorsJson;
+
+    entry["stepsCount"] = matrix->stepsCount();
+
+    return entry;
+}
 
 // Pure function: Convert a QLCCapability to JSON
 inline Json capabilityToJson(const QLCCapability *cap)
@@ -282,6 +423,27 @@ inline Json functionToJson(Function *fn)
             for (quint32 fid : col->functions())
                 ids.push_back((int)fid);
             entry["functionIDs"] = ids;
+        }
+    }
+    else if (fn->type() == Function::RGBMatrixType)
+    {
+        RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
+        if (matrix)
+        {
+            entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
+            entry["tempoType"] = matrix->tempoType() == Function::Beats ? "Beats" : "Time";
+            entry["controlMode"] = RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
+            if (matrix->blendMode() != Universe::NormalBlend)
+                entry["blendMode"] = Universe::blendModeToString(matrix->blendMode()).toStdString();
+            RGBAlgorithm *algo = matrix->algorithm();
+            if (algo)
+                entry["algorithm"] = algo->name().toStdString();
+            QVector<QColor> colors = matrix->getColors();
+            Json colorsJson = Json::array();
+            for (const QColor &c : colors)
+                if (c.isValid()) colorsJson.push_back(c.name().toStdString());
+            if (!colorsJson.empty())
+                entry["colors"] = colorsJson;
         }
     }
 

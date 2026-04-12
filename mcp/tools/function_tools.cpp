@@ -19,6 +19,7 @@
 
 #include "tool_registry.h"
 #include "idempotency.h"
+#include "conversions.h"
 #include "functionmanager.h"
 #include "doc.h"
 #include "fixture.h"
@@ -33,6 +34,9 @@
 #include "efxfixture.h"
 #include "rgbmatrix.h"
 #include "rgbalgorithm.h"
+#include "rgbscriptv4.h"
+#include "rgbtext.h"
+#include "rgbimage.h"
 #include "fixturegroup.h"
 #include "scriptv4.h"
 #include "scenevalue.h"
@@ -840,9 +844,21 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"name", {{"type", "string"}}},
                 {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Effects/RGB'). Creates folders implicitly."}}},
                 {"fixtureGroupID", {{"type", "integer"}}},
-                {"algorithm", {{"type", "string"}}},
-                {"startColor", {{"type", "string"}, {"description", "Hex color e.g. #FF0000"}}},
-                {"endColor", {{"type", "string"}, {"description", "Hex color e.g. #0000FF"}}}
+                {"algorithm", {{"type", "string"}, {"description", "Algorithm name (use query_rgb_algorithms to discover)"}}},
+                {"startColor", {{"type", "string"}, {"description", "Hex color e.g. #FF0000 (shortcut for colors[0])"}}},
+                {"endColor", {{"type", "string"}, {"description", "Hex color e.g. #0000FF (shortcut for colors[1])"}}},
+                {"colors", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Array of hex colors (up to 3). Overrides startColor/endColor."}}},
+                {"duration", {{"description", "Step duration: integer ms OR beat string ('1/8','1/4','1/2','1','2','4'). Beat strings auto-set tempoType to Beats."}}},
+                {"fadeIn", {{"description", "Fade in: integer ms OR beat string."}}},
+                {"fadeOut", {{"description", "Fade out: integer ms OR beat string."}}},
+                {"tempoType", {{"type", "string"}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
+                {"runOrder", {{"type", "string"}, {"description", "Loop, SingleShot, PingPong, or Random"}}},
+                {"direction", {{"type", "string"}, {"description", "Forward or Backward"}}},
+                {"controlMode", {{"type", "string"}, {"description", "RGB, White, Amber, UV, Dimmer, or Shutter"}}},
+                {"blendMode", {{"type", "string"}, {"description", "Normal or Additive"}}},
+                {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs (e.g. {\"presetDecay\": \"10\", \"presetMode\": \"Mids\"})"}}},
+                {"text", {{"type", "string"}, {"description", "Text content (for RGBText algorithm)"}}},
+                {"animationStyle", {{"type", "string"}, {"description", "Static, Horizontal, or Vertical (for RGBText/RGBImage algorithms)"}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -851,7 +867,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm", "startColor", "endColor"});
+                auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm",
+                    "startColor", "endColor", "colors", "duration", "fadeIn", "fadeOut",
+                    "tempoType", "runOrder", "direction", "controlMode", "blendMode",
+                    "properties", "text", "animationStyle"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -874,6 +893,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
 
                 if (item.contains("fixtureGroupID"))
                     matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
+
+                // Algorithm
                 if (item.contains("algorithm"))
                 {
                     QString algoName = QString::fromStdString(item.at("algorithm").get<std::string>());
@@ -881,19 +902,169 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     if (algo)
                         matrix->setAlgorithm(algo);
                 }
-                if (item.contains("startColor"))
-                    matrix->setColor(0, QColor(QString::fromStdString(item.at("startColor").get<std::string>())));
-                if (item.contains("endColor"))
-                    matrix->setColor(1, QColor(QString::fromStdString(item.at("endColor").get<std::string>())));
+
+                // Colors: prefer 'colors' array, fall back to startColor/endColor
+                if (item.contains("colors") && item.at("colors").is_array())
+                {
+                    auto &colorsArr = item.at("colors");
+                    for (size_t i = 0; i < colorsArr.size() && i < 3; i++)
+                        matrix->setColor(i, QColor(QString::fromStdString(colorsArr[i].get<std::string>())));
+                }
+                else
+                {
+                    if (item.contains("startColor"))
+                        matrix->setColor(0, QColor(QString::fromStdString(item.at("startColor").get<std::string>())));
+                    if (item.contains("endColor"))
+                        matrix->setColor(1, QColor(QString::fromStdString(item.at("endColor").get<std::string>())));
+                }
+
+                // Timing: determine beat mode first, then set tempoType, then durations.
+                // This avoids the auto-conversion that setTempoType does on existing values.
+                bool useBeatMode = false;
+                uint durationVal = 0; bool hasDuration = false;
+                uint fadeInVal = 0; bool hasFadeIn = false;
+                uint fadeOutVal = 0; bool hasFadeOut = false;
+
+                if (item.contains("tempoType"))
+                {
+                    QString tt = QString::fromStdString(item.at("tempoType").get<std::string>());
+                    if (tt.compare("Beats", Qt::CaseInsensitive) == 0)
+                        useBeatMode = true;
+                }
+
+                // Auto-detect beat mode from Audio* algorithms
+                if (!useBeatMode && !item.contains("tempoType"))
+                {
+                    RGBAlgorithm *algo = matrix->algorithm();
+                    if (algo && algo->usesAudio())
+                        useBeatMode = true;
+                }
+
+                // Parse duration fields and detect beat strings
+                if (item.contains("duration"))
+                {
+                    bool isBeat = false;
+                    durationVal = mcp::parseDurationField(item.at("duration"), isBeat);
+                    if (isBeat) useBeatMode = true;
+                    hasDuration = true;
+                }
+                if (item.contains("fadeIn"))
+                {
+                    bool isBeat = false;
+                    fadeInVal = mcp::parseDurationField(item.at("fadeIn"), isBeat);
+                    if (isBeat) useBeatMode = true;
+                    hasFadeIn = true;
+                }
+                if (item.contains("fadeOut"))
+                {
+                    bool isBeat = false;
+                    fadeOutVal = mcp::parseDurationField(item.at("fadeOut"), isBeat);
+                    if (isBeat) useBeatMode = true;
+                    hasFadeOut = true;
+                }
+
+                // Set tempo type before durations
+                if (useBeatMode)
+                    matrix->setTempoType(Function::Beats);
+                else if (item.contains("tempoType"))
+                    matrix->setTempoType(Function::Time);
+
+                // Now apply durations (already in correct encoding)
+                if (hasDuration) matrix->setDuration(durationVal);
+                if (hasFadeIn) matrix->setFadeInSpeed(fadeInVal);
+                if (hasFadeOut) matrix->setFadeOutSpeed(fadeOutVal);
+
+                // Run order
+                if (item.contains("runOrder"))
+                {
+                    QString ro = QString::fromStdString(item.at("runOrder").get<std::string>());
+                    matrix->setRunOrder(Function::stringToRunOrder(ro));
+                }
+
+                // Direction
+                if (item.contains("direction"))
+                {
+                    QString dir = QString::fromStdString(item.at("direction").get<std::string>());
+                    matrix->setDirection(Function::stringToDirection(dir));
+                }
+
+                // Control mode
+                if (item.contains("controlMode"))
+                {
+                    QString cm = QString::fromStdString(item.at("controlMode").get<std::string>());
+                    matrix->setControlMode(RGBMatrix::stringToControlMode(cm));
+                }
+
+                // Blend mode
+                if (item.contains("blendMode"))
+                {
+                    QString bm = QString::fromStdString(item.at("blendMode").get<std::string>());
+                    matrix->setBlendMode(Universe::stringToBlendMode(bm));
+                }
+
+                // Algorithm-specific properties (for scripts)
+                if (item.contains("properties") && item.at("properties").is_object())
+                {
+                    for (auto &[key, val] : item.at("properties").items())
+                    {
+                        QString propName = QString::fromStdString(key);
+                        QString propVal = QString::fromStdString(val.get<std::string>());
+                        matrix->setProperty(propName, propVal);
+
+                        // Also set on the algorithm itself if it's a script
+                        RGBAlgorithm *algo = matrix->algorithm();
+                        if (algo && algo->type() == RGBAlgorithm::Script)
+                        {
+                            RGBScript *script = static_cast<RGBScript*>(algo);
+                            script->setProperty(propName, propVal);
+                        }
+                    }
+                }
+
+                // RGBText shortcuts
+                if (item.contains("text"))
+                {
+                    RGBAlgorithm *algo = matrix->algorithm();
+                    if (algo && algo->type() == RGBAlgorithm::Text)
+                    {
+                        RGBText *textAlgo = static_cast<RGBText*>(algo);
+                        textAlgo->setText(QString::fromStdString(item.at("text").get<std::string>()));
+                    }
+                }
+
+                // Animation style for RGBText/RGBImage
+                if (item.contains("animationStyle"))
+                {
+                    QString style = QString::fromStdString(item.at("animationStyle").get<std::string>());
+                    RGBAlgorithm *algo = matrix->algorithm();
+                    if (algo)
+                    {
+                        if (algo->type() == RGBAlgorithm::Text)
+                        {
+                            RGBText *textAlgo = static_cast<RGBText*>(algo);
+                            textAlgo->setAnimationStyle(RGBText::stringToAnimationStyle(style));
+                        }
+                        else if (algo->type() == RGBAlgorithm::Image)
+                        {
+                            RGBImage *imgAlgo = static_cast<RGBImage*>(algo);
+                            imgAlgo->setAnimationStyle(RGBImage::stringToAnimationStyle(style));
+                        }
+                    }
+                }
+
                 if (isNew)
                     doc->addFunction(matrix);
-                results.push_back({{"id", (int)matrix->id()}, {"name", matrix->name().toStdString()}, {"status", isNew ? "created" : "updated"}});
+                results.push_back(mcp::rgbMatrixToJson(matrix));
+                results.back()["status"] = isNew ? "created" : "updated";
             }
             return results.dump();
             });
         },
         std::nullopt,
-        std::string("Create RGB matrix color animations. Upserts. Batch."),
+        std::string("Create/update RGB matrix effects. Supports audio-reactive algorithms, beat-synced timing "
+                     "(use beat strings like '1/4', '1/2', '1' for duration/fadeIn/fadeOut — auto-sets Beats tempo), "
+                     "script properties (e.g. presetDecay, presetMode), blend modes (Additive for layering), "
+                     "and up to 3 colors. Use query_rgb_algorithms to discover algorithms and properties. Upserts. Batch."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

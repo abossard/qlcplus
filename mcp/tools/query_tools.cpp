@@ -27,6 +27,13 @@
 #include "qlcfixturemode.h"
 #include "qlcpalette.h"
 #include "scene.h"
+#include "rgbmatrix.h"
+#include "rgbalgorithm.h"
+#include "rgbscriptv4.h"
+#include "rgbtext.h"
+#include "rgbimage.h"
+#include "rgbaudio.h"
+#include "fixturegroup.h"
 #include "inputoutputmap.h"
 #include "inputpatch.h"
 #include "outputpatch.h"
@@ -494,6 +501,225 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List all palettes with their type, values, and which scenes reference them. "
                      "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // query_rgb_algorithms — list available RGB algorithms
+    tm.register_tool(Tool(
+        "query_rgb_algorithms",
+        Json{{"type", "object"}, {"properties", {
+            {"type", {{"type", "string"}, {"description", "Filter by type: Script, Text, Image, Audio, Plain"}}},
+            {"name", {{"type", "string"}, {"description", "Filter by name (substring, case-insensitive)"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"type", "name"});
+            if (!err.empty()) return err;
+
+            QString typeFilter = args.contains("type")
+                ? QString::fromStdString(args.at("type").get<std::string>()) : "";
+            QString nameFilter = args.contains("name")
+                ? QString::fromStdString(args.at("name").get<std::string>()).toLower() : "";
+
+            Json results = Json::array();
+            QStringList algoNames = RGBAlgorithm::algorithms(doc);
+            for (const QString &algoName : algoNames)
+            {
+                RGBAlgorithm *algo = RGBAlgorithm::algorithm(doc, algoName);
+                if (!algo) continue;
+
+                std::string typeStr = mcp::rgbAlgorithmTypeToString(algo->type());
+
+                // Apply filters
+                if (!typeFilter.isEmpty() && QString::fromStdString(typeStr).compare(typeFilter, Qt::CaseInsensitive) != 0)
+                { delete algo; continue; }
+                if (!nameFilter.isEmpty() && !algoName.toLower().contains(nameFilter))
+                { delete algo; continue; }
+
+                Json entry;
+                entry["name"] = algoName.toStdString();
+                entry["type"] = typeStr;
+                entry["acceptColors"] = algo->acceptColors();
+                entry["audioReactive"] = algo->usesAudio();
+
+                // Script properties
+                if (algo->type() == RGBAlgorithm::Script)
+                {
+                    RGBScript *script = static_cast<RGBScript*>(algo);
+                    QList<RGBScriptProperty> props = script->properties();
+                    if (!props.isEmpty())
+                    {
+                        Json propsJson = Json::array();
+                        for (const RGBScriptProperty &prop : props)
+                        {
+                            Json p;
+                            p["name"] = prop.m_name.toStdString();
+                            p["displayName"] = prop.m_displayName.toStdString();
+                            switch (prop.m_type)
+                            {
+                                case RGBScriptProperty::List:
+                                {
+                                    p["type"] = "list";
+                                    Json vals = Json::array();
+                                    for (const QString &v : prop.m_listValues)
+                                        vals.push_back(v.toStdString());
+                                    p["values"] = vals;
+                                    break;
+                                }
+                                case RGBScriptProperty::Range:
+                                    p["type"] = "range";
+                                    p["min"] = prop.m_rangeMinValue;
+                                    p["max"] = prop.m_rangeMaxValue;
+                                    break;
+                                case RGBScriptProperty::Float:
+                                    p["type"] = "float";
+                                    break;
+                                case RGBScriptProperty::String:
+                                    p["type"] = "string";
+                                    break;
+                                default:
+                                    p["type"] = "unknown";
+                                    break;
+                            }
+                            // Include current default value
+                            QString val = script->property(prop.m_name);
+                            if (!val.isEmpty())
+                                p["default"] = val.toStdString();
+                            propsJson.push_back(p);
+                        }
+                        entry["properties"] = propsJson;
+                    }
+                }
+
+                results.push_back(entry);
+                delete algo;
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("List available RGB algorithms (Plain, Script, Text, Image, Audio) with their types, "
+                     "accepted color count, audio-reactivity flag, and configurable properties (for scripts). "
+                     "Use to discover algorithms before creating RGB matrices. "
+                     "Beat durations supported: 1/8, 1/4, 1/2, 1, 2, 3, 4 beats."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // query_fixture_groups — list fixture groups
+    tm.register_tool(Tool(
+        "query_fixture_groups",
+        Json{{"type", "object"}, {"properties", {
+            {"name", {{"type", "string"}, {"description", "Filter by name (substring, case-insensitive)"}}},
+            {"minFixtures", {{"type", "integer"}, {"description", "Only groups with at least N fixtures"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"name", "minFixtures"});
+            if (!err.empty()) return err;
+
+            QString nameFilter = args.contains("name")
+                ? QString::fromStdString(args.at("name").get<std::string>()).toLower() : "";
+            int minFixtures = args.value("minFixtures", 0);
+
+            Json results = Json::array();
+            for (FixtureGroup *group : doc->fixtureGroups())
+            {
+                if (!nameFilter.isEmpty() && !group->name().toLower().contains(nameFilter))
+                    continue;
+                QList<quint32> fxList = group->fixtureList();
+                if ((int)fxList.size() < minFixtures)
+                    continue;
+
+                Json entry;
+                entry["id"] = (int)group->id();
+                entry["name"] = group->name().toStdString();
+                entry["columns"] = group->size().width();
+                entry["rows"] = group->size().height();
+                Json fxIds = Json::array();
+                for (quint32 fid : fxList)
+                    fxIds.push_back((int)fid);
+                entry["fixtureIDs"] = fxIds;
+                entry["fixtureCount"] = (int)fxList.size();
+                results.push_back(entry);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("List fixture groups with grid dimensions and fixture IDs. "
+                     "Fixture groups define the pixel layout for RGB matrices."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // query_rgb_matrices — list RGB matrix functions with full details
+    tm.register_tool(Tool(
+        "query_rgb_matrices",
+        Json{{"type", "object"}, {"properties", {
+            {"name", {{"type", "string"}, {"description", "Filter by name (substring, case-insensitive)"}}},
+            {"algorithm", {{"type", "string"}, {"description", "Filter by algorithm name (substring)"}}},
+            {"fixtureGroupID", {{"type", "integer"}, {"description", "Filter by fixture group ID"}}}
+        }}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"name", "algorithm", "fixtureGroupID"});
+            if (!err.empty()) return err;
+
+            QString nameFilter = args.contains("name")
+                ? QString::fromStdString(args.at("name").get<std::string>()).toLower() : "";
+            QString algoFilter = args.contains("algorithm")
+                ? QString::fromStdString(args.at("algorithm").get<std::string>()).toLower() : "";
+            int groupFilter = args.contains("fixtureGroupID")
+                ? args.at("fixtureGroupID").get<int>() : -1;
+
+            Json results = Json::array();
+            for (Function *fn : doc->functions())
+            {
+                if (fn->type() != Function::RGBMatrixType) continue;
+                RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
+                if (!matrix) continue;
+
+                if (!nameFilter.isEmpty() && !matrix->name().toLower().contains(nameFilter))
+                    continue;
+                if (!algoFilter.isEmpty())
+                {
+                    RGBAlgorithm *algo = matrix->algorithm();
+                    if (!algo || !algo->name().toLower().contains(algoFilter))
+                        continue;
+                }
+                if (groupFilter >= 0 && (int)matrix->fixtureGroup() != groupFilter)
+                    continue;
+
+                Json entry = mcp::rgbMatrixToJson(matrix);
+
+                // Also include algorithm properties if set
+                RGBAlgorithm *algo = matrix->algorithm();
+                if (algo && algo->type() == RGBAlgorithm::Script)
+                {
+                    RGBScript *script = static_cast<RGBScript*>(algo);
+                    QHash<QString, QString> props = script->propertiesAsStrings();
+                    if (!props.isEmpty())
+                    {
+                        Json propsJson = Json::object();
+                        for (auto it = props.constBegin(); it != props.constEnd(); ++it)
+                            propsJson[it.key().toStdString()] = it.value().toStdString();
+                        entry["properties"] = propsJson;
+                    }
+                }
+
+                results.push_back(entry);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("List all RGB matrix functions with full details: algorithm, colors, timing (beat strings when in Beats mode), "
+                     "control mode, blend mode, run order, direction, and script properties."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));
