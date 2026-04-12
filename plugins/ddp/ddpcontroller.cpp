@@ -54,16 +54,20 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data)
     }
 
     DDPUniverseInfo const& info = m_universeMap[universe];
+
+    // Deep-copy immediately: the engine passes a fromRawData() reference
+    // that can be overwritten by the next timer tick while we queue it.
+    QByteArray owned(data.constData(), data.size());
     QByteArray txData;
 
     if (info.transmissionMode == Full)
     {
         txData = QByteArray(512, 0);
-        txData.replace(0, data.length(), data);
+        txData.replace(0, owned.length(), owned);
     }
     else
     {
-        txData = data;
+        txData = owned;
     }
 
     // Find the first frame in the queue that doesn't have this universe yet
