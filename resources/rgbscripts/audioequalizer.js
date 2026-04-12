@@ -41,12 +41,26 @@ var testAlgo;
       "name:presetCenter|type:list|display:Centered|" +
       "values:Off,On|write:setCenter|read:getCenter");
 
+    algo.presetGap = 0;
+    algo.properties.push(
+      "name:presetGap|type:list|display:Bar Gap|" +
+      "values:Off,On|write:setGap|read:getGap");
+
+    algo.presetSensitivity = 5;
+    algo.properties.push(
+      "name:presetSensitivity|type:range|display:Sensitivity|" +
+      "values:1,10|write:setSensitivity|read:getSensitivity");
+
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function()  { return algo.presetDecay; };
     algo.setPeaks = function(_v) { algo.presetPeaks = (_v === "On") ? 1 : 0; };
     algo.getPeaks = function()  { return algo.presetPeaks ? "On" : "Off"; };
     algo.setCenter = function(_v) { algo.presetCenter = (_v === "On") ? 1 : 0; };
     algo.getCenter = function()  { return algo.presetCenter ? "On" : "Off"; };
+    algo.setGap = function(_v) { algo.presetGap = (_v === "On") ? 1 : 0; };
+    algo.getGap = function() { return algo.presetGap ? "On" : "Off"; };
+    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
+    algo.getSensitivity = function() { return algo.presetSensitivity; };
 
     // --- Internal state ---
     var barFilter = null;
@@ -109,6 +123,11 @@ var testAlgo;
         // Get spectrum interpolated to match grid width
         var rawBands = LedFx.melbank(audio, bandCount);
 
+        // Scale by sensitivity
+        var scale = algo.presetSensitivity / 5.0;
+        for (var i = 0; i < rawBands.length; i++)
+            rawBands[i] = Math.min(1, rawBands[i] * scale);
+
         // Apply smoothing
         var bands = barFilter.updateArray(rawBands);
 
@@ -116,6 +135,9 @@ var testAlgo;
 
         for (var x = 0; x < bandCount; x++)
         {
+            // Gap mode: leave every other column dark
+            if (algo.presetGap && (x % 2 === 1)) continue;
+
             var magnitude = Math.max(0, Math.min(1, bands[x]));
             var barHeight = Math.round(magnitude * height);
 

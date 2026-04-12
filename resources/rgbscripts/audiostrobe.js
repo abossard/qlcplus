@@ -34,6 +34,16 @@ var testAlgo;
       "name:presetMode|type:list|display:Trigger|" +
       "values:Beat,Bass,Volume|write:setMode|read:getMode");
 
+    algo.presetThreshold = 6;
+    algo.properties.push(
+      "name:presetThreshold|type:range|display:Threshold|" +
+      "values:1,10|write:setThreshold|read:getThreshold");
+
+    algo.presetRandomColor = 0;
+    algo.properties.push(
+      "name:presetRandomColor|type:list|display:Random Color|" +
+      "values:Off,On|write:setRandomColor|read:getRandomColor");
+
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setMode = function(_v) {
@@ -46,11 +56,15 @@ var testAlgo;
         if (algo.presetMode === 2) return "Volume";
         return "Beat";
     };
+    algo.setThreshold = function(_v) { algo.presetThreshold = parseInt(_v); };
+    algo.getThreshold = function() { return algo.presetThreshold; };
+    algo.setRandomColor = function(_v) { algo.presetRandomColor = (_v === "On") ? 1 : 0; };
+    algo.getRandomColor = function() { return algo.presetRandomColor ? "On" : "Off"; };
 
     var strobeColor = [255, 255, 255];
     var bgColor = [0, 0, 0];
+    var activeColor = [255, 255, 255];
     var brightness = 0;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -73,24 +87,33 @@ var testAlgo;
 
         // Determine if we should flash
         var trigger = false;
+        var thresh = algo.presetThreshold / 10.0;
         if (algo.presetMode === 0) {
             trigger = audio.beat;
         } else if (algo.presetMode === 1) {
-            trigger = LedFx.lows_power(audio) > 0.6;
+            trigger = LedFx.lows_power(audio) > thresh;
         } else {
-            trigger = audio.volume > 0.7;
+            trigger = audio.volume > thresh;
         }
 
-        if (trigger) brightness = 1.0;
+        if (trigger) {
+            brightness = 1.0;
+            if (algo.presetRandomColor) {
+                var c = LedFx.hsv2rgb(Math.random(), 1, 1);
+                activeColor = [c[0], c[1], c[2]];
+            } else {
+                activeColor = strobeColor;
+            }
+        }
 
         // Decay
         var decayRate = algo.presetDecay / 50.0;
         brightness = Math.max(0, brightness - decayRate);
 
         // Render
-        var r = bgColor[0] + (strobeColor[0] - bgColor[0]) * brightness;
-        var g = bgColor[1] + (strobeColor[1] - bgColor[1]) * brightness;
-        var b = bgColor[2] + (strobeColor[2] - bgColor[2]) * brightness;
+        var r = bgColor[0] + (activeColor[0] - bgColor[0]) * brightness;
+        var g = bgColor[1] + (activeColor[1] - bgColor[1]) * brightness;
+        var b = bgColor[2] + (activeColor[2] - bgColor[2]) * brightness;
         var packed = LedFx.rgb(r, g, b);
 
         for (var y = 0; y < height; y++)

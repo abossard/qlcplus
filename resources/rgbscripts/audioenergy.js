@@ -37,10 +37,24 @@ var testAlgo;
       "name:presetMixing|type:list|display:Mixing Mode|" +
       "values:Additive,Overlap|write:setMixing|read:getMixing");
 
+    algo.presetMirror = 0;
+    algo.properties.push(
+      "name:presetMirror|type:list|display:Mirror|" +
+      "values:Yes,No|write:setMirror|read:getMirror");
+
+    algo.presetMultiplier = 16;
+    algo.properties.push(
+      "name:presetMultiplier|type:range|display:Fill Amount|" +
+      "values:5,30|write:setMultiplier|read:getMultiplier");
+
     algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
     algo.getSensitivity = function()  { return algo.presetSensitivity; };
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
+    algo.setMirror = function(_v) { algo.presetMirror = (_v === "Yes") ? 1 : 0; };
+    algo.getMirror = function() { return algo.presetMirror ? "Yes" : "No"; };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
+    algo.getMultiplier = function() { return algo.presetMultiplier; };
 
     // --- Internal state ---
     var lowsFilter = null;
@@ -121,22 +135,24 @@ var testAlgo;
         var highs = highsFilter.update(rawHighs);
 
         // Calculate how many columns each band fills (from left)
-        var multiplier = 1.6;
+        var multiplier = algo.presetMultiplier / 10.0;
         var lowsIdx  = Math.min(width, Math.floor(multiplier * width * lows));
         var midsIdx  = Math.min(width, Math.floor(multiplier * width * mids));
         var highsIdx = Math.min(width, Math.floor(multiplier * width * highs));
 
-        // Build pixel array (1D concept mapped to columns, mirrored vertically)
+        // Build pixel array
         for (var y = 0; y < height; y++)
         {
-            // Mirror: fill from both edges toward center
-            var halfW = Math.floor(width / 2);
-
             for (var x = 0; x < width; x++)
             {
-                // Distance from center (for mirror effect)
-                var dist = Math.abs(x - halfW);
-                var pos = halfW - dist; // 0 at edges, halfW at center
+                var pos;
+                if (algo.presetMirror) {
+                    // Mirror: distance from center
+                    var halfW = Math.floor(width / 2);
+                    pos = halfW - Math.abs(x - halfW);
+                } else {
+                    pos = x;
+                }
 
                 var r = 0, g = 0, b = 0;
 

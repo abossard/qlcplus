@@ -33,20 +33,34 @@ var testAlgo;
 
     algo.presetIntensity = 8;
     algo.properties.push(
-      "name:presetIntensity|type:range|display:Intensity|" +
+      "name:presetIntensity|type:range|display:Spark Count|" +
       "values:1,20|write:setIntensity|read:getIntensity");
 
-    algo.presetColorShift = 15;
+    algo.presetCooling = 5;
     algo.properties.push(
-      "name:presetColorShift|type:range|display:Color Shift|" +
-      "values:0,100|write:setColorShift|read:getColorShift");
+      "name:presetCooling|type:range|display:Cooling|" +
+      "values:1,10|write:setCooling|read:getCooling");
+
+    algo.presetDirection = 0;
+    algo.properties.push(
+      "name:presetDirection|type:list|display:Direction|" +
+      "values:Up,Down|write:setDirection|read:getDirection");
+
+    algo.presetSpread = 0;
+    algo.properties.push(
+      "name:presetSpread|type:list|display:Per Column|" +
+      "values:No,Yes|write:setSpread|read:getSpread");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function()  { return algo.presetSpeed; };
     algo.setIntensity = function(_v) { algo.presetIntensity = parseInt(_v); };
     algo.getIntensity = function()  { return algo.presetIntensity; };
-    algo.setColorShift = function(_v) { algo.presetColorShift = parseInt(_v); };
-    algo.getColorShift = function()  { return algo.presetColorShift; };
+    algo.setCooling = function(_v) { algo.presetCooling = parseInt(_v); };
+    algo.getCooling = function() { return algo.presetCooling; };
+    algo.setDirection = function(_v) { algo.presetDirection = (_v === "Down") ? 1 : 0; };
+    algo.getDirection = function() { return algo.presetDirection ? "Down" : "Up"; };
+    algo.setSpread = function(_v) { algo.presetSpread = (_v === "Yes") ? 1 : 0; };
+    algo.getSpread = function() { return algo.presetSpread ? "Yes" : "No"; };
 
     // --- Internal state ---
     var sparkPixels = null;
@@ -107,13 +121,13 @@ var testAlgo;
         if (deltaMs <= 0 || deltaMs > 200) deltaMs = 25;
 
         var speed = algo.presetSpeed / 100.0;
-        var colorShift = algo.presetColorShift / 100.0;
+        var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
 
         // Audio influence: bass drives the fire
         var rawLows = LedFx.lows_power(audio);
         var lowsPower = lowsFilter.update(rawLows);
 
-        var cooling = 0.75 + lowsPower * 0.25;
+        var cooling = baseCooling + lowsPower * 0.15;
         var accel = 0.02 + lowsPower * 0.1;
         var adjustedSpeed = speed + lowsPower * 0.01;
         var deltaScaled = deltaMs * adjustedSpeed;
@@ -164,8 +178,8 @@ var testAlgo;
 
         // Map heat values to colors using fire gradient and render into 2D grid
         for (var y = 0; y < height; y++) {
-            // Map row: bottom of grid = index 0 of fire
-            var fireIdx = height - 1 - y;
+            // Direction: Up = bottom-to-top, Down = top-to-bottom
+            var fireIdx = algo.presetDirection ? y : (height - 1 - y);
             var heat = Math.max(0, Math.min(1, sparkPixels[fireIdx]));
 
             // Interpolate between fireColorLow and fireColorHigh based on heat
@@ -177,9 +191,21 @@ var testAlgo;
             var brightness = Math.min(1, heat * 2);
             var packedColor = LedFx.rgb(r * brightness, g * brightness, b * brightness);
 
-            // Fill entire row with same color (fire column)
-            for (var x = 0; x < width; x++)
-                map[y][x] = packedColor;
+            // Fill row — if "Per Column" is on, vary heat per column using spectrum
+            if (algo.presetSpread && audio.spectrum) {
+                var specBands = LedFx.melbank(audio, width);
+                for (var x = 0; x < width; x++) {
+                    var colHeat = heat * (0.3 + specBands[x] * 0.7);
+                    var cr = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * colHeat;
+                    var cg = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * colHeat;
+                    var cb = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * colHeat;
+                    var cb2 = Math.min(1, colHeat * 2);
+                    map[y][x] = LedFx.rgb(cr * cb2, cg * cb2, cb * cb2);
+                }
+            } else {
+                for (var x = 0; x < width; x++)
+                    map[y][x] = packedColor;
+            }
         }
 
         return map;
