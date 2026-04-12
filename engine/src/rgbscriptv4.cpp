@@ -254,6 +254,43 @@ bool RGBScript::evaluate()
         QJSValue usesAudioVal = m_script.property("usesAudio");
         m_usesAudio = (!usesAudioVal.isUndefined() && usesAudioVal.toBool());
 
+        // Auto-inject rotation and mirror properties for audio scripts
+        if (m_usesAudio)
+        {
+            // Set defaults if not already defined by the script
+            if (m_script.property("presetRotation").isUndefined())
+                m_script.setProperty("presetRotation", 0);
+            if (m_script.property("presetMirror").isUndefined())
+                m_script.setProperty("presetMirror", 0);
+
+            // Add setter/getter functions for the properties
+            s_jsThread->engine->evaluate(
+                "(function(a) {"
+                "  if (!a._rotSet) {"
+                "    a.setRotation = function(v) { a.presetRotation = parseInt(v); };"
+                "    a.getRotation = function() { return a.presetRotation; };"
+                "    a.setMirror = function(v) {"
+                "      if (v === 'Horizontal') a.presetMirror = 1;"
+                "      else if (v === 'Vertical') a.presetMirror = 2;"
+                "      else if (v === 'Both') a.presetMirror = 3;"
+                "      else a.presetMirror = 0;"
+                "    };"
+                "    a.getMirror = function() {"
+                "      if (a.presetMirror === 1) return 'Horizontal';"
+                "      if (a.presetMirror === 2) return 'Vertical';"
+                "      if (a.presetMirror === 3) return 'Both';"
+                "      return 'Off';"
+                "    };"
+                "    a.properties.push('name:presetRotation|type:list|display:Rotation|"
+                "values:0,90,180,270|write:setRotation|read:getRotation');"
+                "    a.properties.push('name:presetMirror|type:list|display:Mirror|"
+                "values:Off,Horizontal,Vertical,Both|write:setMirror|read:getMirror');"
+                "    a._rotSet = true;"
+                "  }"
+                "})"
+            ).call(QJSValueList() << m_script);
+        }
+
         if (m_apiVersion >= 3)
         {
             m_rgbMapSetColors = m_script.property(QStringLiteral("rgbMapSetColors"));
@@ -385,6 +422,22 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_rgbMap.isUndefined() == true)
         return;
 
+    // Read rotation/mirror for audio scripts (0=0°, 1=90°, 2=180°, 3=270°)
+    int rotation = 0;
+    int mirror = 0; // 0=off, 1=horizontal, 2=vertical, 3=both
+    if (m_usesAudio)
+    {
+        QJSValue rotVal = m_script.property("presetRotation");
+        if (!rotVal.isUndefined()) rotation = rotVal.toInt() & 3;
+        QJSValue mirVal = m_script.property("presetMirror");
+        if (!mirVal.isUndefined()) mirror = mirVal.toInt() & 3;
+    }
+
+    // For 90°/270° rotation, swap width↔height so JS renders in rotated space
+    QSize jsSize = size;
+    if (rotation == 1 || rotation == 3)
+        jsSize = QSize(size.height(), size.width());
+
     // If this is an audio-aware script, set up audio capture on first call
     // and inject audio data as a 5th argument
     if (m_usesAudio)
@@ -401,9 +454,9 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
         }
     }
 
-    // Call the rgbMap function
+    // Call the rgbMap function with (possibly swapped) dimensions
     QJSValueList args;
-    args << size.width() << size.height() << rgb << step;
+    args << jsSize.width() << jsSize.height() << rgb << step;
 
     if (m_usesAudio)
         args << buildAudioDataObject();
@@ -412,27 +465,35 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (yarray.isError())
         displayError(yarray, m_fileName);
 
-    // Check the matrix to be a valid matrix
+    // Parse the returned 2D array into a temporary map
+    RGBMap jsMap;
     if (yarray.isArray())
     {
         QVariantList yvArray = yarray.toVariant().toList();
         int ylen = yvArray.length();
-        map.resize(ylen);
+        jsMap.resize(ylen);
 
-        for (int y = 0; y < ylen && y < size.height(); y++)
+        for (int y = 0; y < ylen && y < jsSize.height(); y++)
         {
             QVariantList xvArray = yvArray.at(y).toList();
             int xlen = xvArray.length();
-            map[y].resize(xlen);
+            jsMap[y].resize(xlen);
 
-            for (int x = 0; x < xlen && x < size.width(); x++)
-                map[y][x] = xvArray.at(x).toUInt();
+            for (int x = 0; x < xlen && x < jsSize.width(); x++)
+                jsMap[y][x] = xvArray.at(x).toUInt();
         }
     }
     else
     {
         qWarning() << "Returned value is not an array within an array!";
+        return;
     }
+
+    // Apply rotation and mirror transforms
+    if (m_usesAudio && (rotation || mirror))
+        applyTransforms(jsMap, jsSize, size, rotation, mirror, map);
+    else
+        map = jsMap;
 }
 
 QString RGBScript::name() const
@@ -627,6 +688,94 @@ QJSValue RGBScript::buildAudioDataObject()
     audioObj.setProperty("maxMagnitude", QJSValue(m_audioMaxMagnitude));
 
     return audioObj;
+}
+
+void RGBScript::applyTransforms(const RGBMap &src, const QSize &srcSize,
+                                const QSize &dstSize, int rotation, int mirror,
+                                RGBMap &dst)
+{
+    int sw = srcSize.width();
+    int sh = srcSize.height();
+    int dw = dstSize.width();
+    int dh = dstSize.height();
+
+    // Step 1: Rotate src → rotated map with dst dimensions
+    dst.resize(dh);
+    for (int y = 0; y < dh; y++)
+    {
+        dst[y].resize(dw);
+        dst[y].fill(0);
+    }
+
+    for (int sy = 0; sy < sh && sy < src.size(); sy++)
+    {
+        for (int sx = 0; sx < sw && sx < src[sy].size(); sx++)
+        {
+            uint pixel = src[sy][sx];
+            int dx, dy;
+            switch (rotation)
+            {
+                case 0: // 0°
+                    dx = sx; dy = sy;
+                    break;
+                case 1: // 90° CW: (x,y) → (h-1-y, x)
+                    dx = sh - 1 - sy; dy = sx;
+                    break;
+                case 2: // 180°: (x,y) → (w-1-x, h-1-y)
+                    dx = sw - 1 - sx; dy = sh - 1 - sy;
+                    break;
+                case 3: // 270° CW: (x,y) → (y, w-1-x)
+                    dx = sy; dy = sw - 1 - sx;
+                    break;
+                default:
+                    dx = sx; dy = sy;
+                    break;
+            }
+
+            if (dx >= 0 && dx < dw && dy >= 0 && dy < dh)
+                dst[dy][dx] = pixel;
+        }
+    }
+
+    // Step 2: Mirror using max() blending (LedFX style)
+    if (mirror & 1) // Horizontal mirror
+    {
+        for (int y = 0; y < dh; y++)
+        {
+            for (int x = 0; x < dw / 2; x++)
+            {
+                int mx = dw - 1 - x;
+                uint left = dst[y][x];
+                uint right = dst[y][mx];
+                // max() per channel
+                uint r = qMax((left >> 16) & 0xFF, (right >> 16) & 0xFF);
+                uint g = qMax((left >> 8) & 0xFF, (right >> 8) & 0xFF);
+                uint b = qMax(left & 0xFF, right & 0xFF);
+                uint merged = (r << 16) | (g << 8) | b;
+                dst[y][x] = merged;
+                dst[y][mx] = merged;
+            }
+        }
+    }
+
+    if (mirror & 2) // Vertical mirror
+    {
+        for (int y = 0; y < dh / 2; y++)
+        {
+            int my = dh - 1 - y;
+            for (int x = 0; x < dw; x++)
+            {
+                uint top = dst[y][x];
+                uint bot = dst[my][x];
+                uint r = qMax((top >> 16) & 0xFF, (bot >> 16) & 0xFF);
+                uint g = qMax((top >> 8) & 0xFF, (bot >> 8) & 0xFF);
+                uint b = qMax(top & 0xFF, bot & 0xFF);
+                uint merged = (r << 16) | (g << 8) | b;
+                dst[y][x] = merged;
+                dst[my][x] = merged;
+            }
+        }
+    }
 }
 
 /************************************************************************

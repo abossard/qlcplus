@@ -149,6 +149,11 @@ private:
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
     QJSValue buildAudioDataObject();
 
+    /** Apply rotation and mirror transforms to the JS-rendered map */
+    static void applyTransforms(const RGBMap &src, const QSize &srcSize,
+                                const QSize &dstSize, int rotation, int mirror,
+                                RGBMap &dst);
+
     static const int AUDIO_FIXED_BANDS = 32; //! Fixed band count for audio scripts
 
 private:
