@@ -661,8 +661,9 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
 
         if (isPaused() == false)
         {
-            // Get a new map every time elapsed is reset to zero
-            if (elapsed() < MasterTimer::tick())
+            // Get a new map every time elapsed is reset to zero.
+            // Audio-reactive algorithms must re-render every tick for real-time response.
+            if (elapsed() < MasterTimer::tick() || m_runAlgorithm->usesAudio())
             {
                 if (tempoType() == Beats)
                     m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
