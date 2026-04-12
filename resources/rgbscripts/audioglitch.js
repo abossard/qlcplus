@@ -53,6 +53,7 @@ var testAlgo;
     var startColor = [255, 0, 128];
     var endColor = [0, 255, 255];
     var lowsPower = 0;
+    var lowsFilter = null;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
@@ -73,7 +74,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) { lastTime = Date.now(); initialized = true; }
+        if (!initialized) { lowsFilter = new LedFx.ExpFilter(0.05, 0.95); lastTime = Date.now(); initialized = true; }
 
         var map = LedFx.createMap(width, height);
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
@@ -83,7 +84,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = LedFx.lows_power(audio);
+        lowsPower = lowsFilter.update(LedFx.lows_power(audio));
 
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
