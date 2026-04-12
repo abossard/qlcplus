@@ -2,6 +2,9 @@ project(scripts)
 
 set(SCRIPT_FILES
     alternate.js
+    audioenergy.js
+    audioequalizer.js
+    audiofire.js
     balls.js
     blinder.js
     circles.js
@@ -15,6 +18,7 @@ set(SCRIPT_FILES
     fireworks.js
     flyingobjects.js
     gradient.js
+    ledfx_compat.js
     lines.js
     marquee.js
     noise.js
