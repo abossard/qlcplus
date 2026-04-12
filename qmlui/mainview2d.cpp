@@ -153,8 +153,6 @@ void MainView2D::createFixtureItem(quint32 fxID, quint16 headIndex, quint16 link
     if (m_gridItem == nullptr)
        initialize2DProperties();
 
-    qDebug() << "[MainView2D] Creating fixture with ID" << fxID << headIndex << linkedIndex << "pos:" << pos;
-
     Fixture *fixture = m_doc->fixture(fxID);
     if (fixture == nullptr)
         return;
@@ -280,8 +278,6 @@ QList<quint32> MainView2D::selectFixturesRect(QRectF rect) const
         qreal itemHeight = fxItem->property("height").toReal();
 
         QRectF itemRect(itemXPos, itemYPos, itemWidth, itemHeight);
-
-        qDebug() << "Rect:" << rect << "itemRect:" << itemRect;
 
         if (rect.contains(itemRect))
         {

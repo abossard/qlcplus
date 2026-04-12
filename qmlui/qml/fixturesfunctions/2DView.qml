@@ -227,7 +227,6 @@ Rectangle
 
                 onPressed: (mouse) =>
                 {
-                    console.log("button: " + mouse.button + ", mods: " + mouse.modifiers)
                     var itemID = View2D.itemIDAtPos(Qt.point(mouse.x, mouse.y))
 
                     // pressing on nothing starts to draw the selection rectangle

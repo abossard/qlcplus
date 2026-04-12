@@ -699,8 +699,6 @@ void ContextManager::setFixtureSelection(quint32 itemID, int headIndex, bool ena
     if (channels.keys().isEmpty())
         return;
 
-    qDebug() << "[ContextManager] found" << channels.keys().count() << "capabilities";
-
     QMultiHashIterator<int, SceneValue> it(channels);
     while (it.hasNext())
     {

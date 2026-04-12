@@ -701,7 +701,6 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             if (timer->isBeat())
             {
                 incrementElapsedBeats();
-                qDebug() << "Elapsed beats:" << elapsedBeats() << ", time elapsed:" << elapsed() << ", step time:" << m_stepBeatDuration;
                 if (elapsedBeats() % duration() == 0)
                 {
                     roundCheck();
@@ -710,7 +709,6 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             }
             else if (elapsed() >= m_stepBeatDuration && (uint)timer->timeToNextBeat() > m_stepBeatDuration / 16)
             {
-                qDebug() << "Elapsed exceeded";
                 roundCheck();
             }
         }

@@ -25,7 +25,7 @@
 #include "beattracker.h"
 
 // Enable this to get qDebug logs from the tracker
-#define BEAT_DEBUG
+// #define BEAT_DEBUG
 
 #ifdef BEAT_DEBUG
 #include <QDebug>
