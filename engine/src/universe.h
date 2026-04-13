@@ -330,6 +330,7 @@ public:
     enum FaderPriority
     {
         Auto = 0,
+        BlendOverlay, ///< For Mask/Subtractive faders — writes after Auto
         Override,
         Flashing, /** Priority to override slider values and running chasers by flash scene */
         SimpleDesk
@@ -514,6 +515,9 @@ public:
 
     /** Return a string from a blend mode, to be saved into a XML */
     static QString blendModeToString(BlendMode mode);
+
+    /** Return the fader priority appropriate for the given blend mode */
+    static FaderPriority blendModePriority(BlendMode mode);
 
     /************************************************************************
      * Writing

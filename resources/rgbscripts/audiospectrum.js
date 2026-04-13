@@ -39,11 +39,6 @@ var testAlgo;
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
 
-    algo.presetMirror = 0;
-    algo.properties.push(
-      "name:presetMirror|type:list|display:Mirror|" +
-      "values:Off,On|write:setMirror|read:getMirror");
-
     algo.setMode = function(_v) {
         if (_v === "Rainbow") algo.presetMode = 1;
         else if (_v === "RGB Mix") algo.presetMode = 2;
@@ -58,8 +53,6 @@ var testAlgo;
     algo.getSensitivity = function() { return algo.presetSensitivity; };
     algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); filterDirty = true; };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
-    algo.setMirror = function(_v) { algo.presetMirror = (_v === "On") ? 1 : 0; };
-    algo.getMirror = function() { return algo.presetMirror ? "On" : "Off"; };
 
     var startColor = [255, 0, 0];
     var endColor = [0, 0, 255];
@@ -104,13 +97,10 @@ var testAlgo;
         if (!prevBands) prevBands = bands.slice();
 
         for (var x = 0; x < width; x++) {
-            var srcX = algo.presetMirror
-                ? Math.abs(x - Math.floor(width / 2)) * 2 % width
-                : x;
-            var val = Math.min(1, filtered[srcX]);
-            var diff = Math.abs(bands[srcX] - prevBands[srcX]);
+            var val = Math.min(1, filtered[x]);
+            var diff = Math.abs(bands[x] - prevBands[x]);
             var barHeight = Math.round(val * height);
-            var t = srcX / Math.max(1, width - 1);
+            var t = x / Math.max(1, width - 1);
 
             for (var dy = 0; dy < barHeight; dy++) {
                 var y = height - 1 - dy;

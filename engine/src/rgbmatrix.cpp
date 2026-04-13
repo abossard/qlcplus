@@ -55,6 +55,10 @@
 #define KXMLQLCRGBMatrixControlModeDimmer   QStringLiteral("Dimmer")
 #define KXMLQLCRGBMatrixControlModeShutter  QStringLiteral("Shutter")
 
+#define KXMLQLCRGBMatrixRotation            QStringLiteral("Rotation")
+#define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
+#define KXMLQLCRGBMatrixMirrorBlend         QStringLiteral("MirrorBlend")
+
 /****************************************************************************
  * Initialization
  ****************************************************************************/
@@ -74,6 +78,9 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_stepsCount(0)
     , m_stepBeatDuration(0)
     , m_controlMode(RGBMatrix::ControlModeRgb)
+    , m_rotation(0)
+    , m_mirror(0)
+    , m_mirrorBlend(MirrorFlip)
 {
     setName(tr("New RGB Matrix"));
     setDuration(500);
@@ -108,7 +115,7 @@ void RGBMatrix::setTotalDuration(quint32 msec)
     if (grp == NULL)
         return;
 
-    int steps = m_algorithm->rgbMapStepCount(grp->size());
+    int steps = m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp));
     setDuration(msec / steps);
 }
 
@@ -124,7 +131,7 @@ quint32 RGBMatrix::totalDuration()
         return 0;
 
     //qDebug () << "Algorithm steps:" << m_algorithm->rgbMapStepCount(grp->size());
-    return m_algorithm->rgbMapStepCount(grp->size()) * duration();
+    return m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp)) * duration();
 }
 
 void RGBMatrix::setDimmerControl(bool dimmerControl)
@@ -179,6 +186,9 @@ bool RGBMatrix::copyFrom(const Function* function)
         setAlgorithm(NULL);
 
     setControlMode(mtx->controlMode());
+    setRotation(mtx->rotation());
+    setMirror(mtx->mirror());
+    setMirrorBlend(mtx->mirrorBlend());
 
     return Function::copyFrom(function);
 }
@@ -283,7 +293,7 @@ int RGBMatrix::algorithmStepsCount()
 
     FixtureGroup *grp = doc()->fixtureGroup(fixtureGroup());
     if (grp != NULL)
-        return m_algorithm->rgbMapStepCount(grp->size());
+        return m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp));
 
     return 0;
 }
@@ -299,8 +309,12 @@ void RGBMatrix::previewMap(int step, RGBMatrixStep *handler)
 
     if (m_group != NULL)
     {
+        QSize algoSize = effectiveAlgorithmSize(m_group);
         setMapColors(m_algorithm);
-        m_algorithm->rgbMap(m_group->size(), handler->stepColor().rgb(), step, handler->m_map);
+        m_algorithm->rgbMap(algoSize, handler->stepColor().rgb(), step, handler->m_map);
+        if (m_rotation || m_mirror)
+            applyTransforms(handler->m_map, algoSize, m_group->size(),
+                            m_rotation, m_mirror, m_mirrorBlend);
     }
 }
 
@@ -492,6 +506,18 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setDimmerControl(root.readElementText().toInt());
         }
+        else if (root.name() == KXMLQLCRGBMatrixRotation)
+        {
+            setRotation(root.readElementText().toInt());
+        }
+        else if (root.name() == KXMLQLCRGBMatrixMirror)
+        {
+            setMirror(root.readElementText().toInt());
+        }
+        else if (root.name() == KXMLQLCRGBMatrixMirrorBlend)
+        {
+            setMirrorBlend(stringToMirrorBlend(root.readElementText()));
+        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown RGB matrix tag:" << root.name();
@@ -560,6 +586,14 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLQLCRGBMatrixPropertyValue, it.value());
         doc->writeEndElement();
     }
+
+    /* Rotation & Mirror */
+    if (m_rotation != 0)
+        doc->writeTextElement(KXMLQLCRGBMatrixRotation, QString::number(m_rotation));
+    if (m_mirror != 0)
+        doc->writeTextElement(KXMLQLCRGBMatrixMirror, QString::number(m_mirror));
+    if (m_mirrorBlend != MirrorFlip)
+        doc->writeTextElement(KXMLQLCRGBMatrixMirrorBlend, mirrorBlendToString(m_mirrorBlend));
 
     /* End the <Function> tag */
     doc->writeEndElement();
@@ -669,8 +703,12 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
                     m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
 
                 //qDebug() << "RGBMatrix step" << m_stepHandler->currentStepIndex() << ", color:" << QString::number(m_stepHandler->stepColor().rgb(), 16);
-                m_runAlgorithm->rgbMap(m_group->size(), m_stepHandler->stepColor().rgb(),
+                QSize algoSize = effectiveAlgorithmSize(m_group);
+                m_runAlgorithm->rgbMap(algoSize, m_stepHandler->stepColor().rgb(),
                                        m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
+                if (m_rotation || m_mirror)
+                    applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
+                                    m_rotation, m_mirror, m_mirrorBlend);
                 updateMapChannels(m_stepHandler->m_map, m_group, universes);
             }
         }
@@ -776,7 +814,7 @@ QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
     QSharedPointer<GenericFader> fader = m_fadersMap.value(universe->id(), QSharedPointer<GenericFader>());
     if (fader.isNull())
     {
-        fader = universe->requestFader();
+        fader = universe->requestFader(Universe::blendModePriority(blendMode()));
         fader->adjustIntensity(getAttributeValue(Intensity));
         fader->setBlendMode(blendMode());
         fader->setName(name());
@@ -1032,6 +1070,202 @@ QString RGBMatrix::controlModeToString(RGBMatrix::ControlMode mode)
             return QString(KXMLQLCRGBMatrixControlModeShutter);
         break;
     }
+}
+
+/*************************************************************************
+ * Rotation & Mirror
+ *************************************************************************/
+
+int RGBMatrix::rotation() const
+{
+    return m_rotation;
+}
+
+void RGBMatrix::setRotation(int r)
+{
+    m_rotation = r & 3;
+    emit changed(id());
+}
+
+int RGBMatrix::mirror() const
+{
+    return m_mirror;
+}
+
+void RGBMatrix::setMirror(int m)
+{
+    m_mirror = m & 3;
+    emit changed(id());
+}
+
+RGBMatrix::MirrorBlend RGBMatrix::mirrorBlend() const
+{
+    return m_mirrorBlend;
+}
+
+void RGBMatrix::setMirrorBlend(MirrorBlend b)
+{
+    if (b < MirrorFlip || b > MirrorAdditive)
+        b = MirrorFlip;
+    m_mirrorBlend = b;
+    emit changed(id());
+}
+
+QSize RGBMatrix::effectiveAlgorithmSize() const
+{
+    if (m_group == NULL)
+        return QSize();
+    return effectiveAlgorithmSize(m_group);
+}
+
+QSize RGBMatrix::effectiveAlgorithmSize(const FixtureGroup *grp) const
+{
+    QSize s = grp->size();
+    if (m_rotation == 1 || m_rotation == 3)
+        s = QSize(s.height(), s.width());
+    return s;
+}
+
+QString RGBMatrix::mirrorBlendToString(MirrorBlend b)
+{
+    switch (b)
+    {
+        case MirrorMax: return QStringLiteral("Max");
+        case MirrorAverage: return QStringLiteral("Average");
+        case MirrorAdditive: return QStringLiteral("Additive");
+        default: return QStringLiteral("Flip");
+    }
+}
+
+RGBMatrix::MirrorBlend RGBMatrix::stringToMirrorBlend(const QString &s)
+{
+    if (s == QStringLiteral("Max")) return MirrorMax;
+    if (s == QStringLiteral("Average")) return MirrorAverage;
+    if (s == QStringLiteral("Additive")) return MirrorAdditive;
+    return MirrorFlip;
+}
+
+static inline uint blendPixels(uint a, uint b, RGBMatrix::MirrorBlend blend)
+{
+    uint ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
+    uint br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
+    uint r, g, bl;
+
+    switch (blend)
+    {
+        case RGBMatrix::MirrorMax:
+            r = qMax(ar, br); g = qMax(ag, bg); bl = qMax(ab, bb);
+            break;
+        case RGBMatrix::MirrorAverage:
+            r = (ar + br) / 2; g = (ag + bg) / 2; bl = (ab + bb) / 2;
+            break;
+        case RGBMatrix::MirrorAdditive:
+            r = qMin(255u, ar + br); g = qMin(255u, ag + bg); bl = qMin(255u, ab + bb);
+            break;
+        default: // MirrorFlip — caller handles this case directly
+            return a;
+    }
+    return (r << 16) | (g << 8) | bl;
+}
+
+void RGBMatrix::applyTransforms(RGBMap &map, const QSize &srcSize, const QSize &dstSize,
+                                int rotation, int mirror, MirrorBlend blend)
+{
+    int dw = dstSize.width();
+    int dh = dstSize.height();
+
+    // Source dimensions from the actual map data
+    int sh = map.size();
+    int sw = (sh > 0) ? map[0].size() : 0;
+
+    // Step 1: Rotation — build a new map with destination dimensions
+    RGBMap rotated;
+    rotated.resize(dh);
+    for (int y = 0; y < dh; y++)
+    {
+        rotated[y].resize(dw);
+        rotated[y].fill(0);
+    }
+
+    for (int dy = 0; dy < dh; dy++)
+    {
+        for (int dx = 0; dx < dw; dx++)
+        {
+            int sx, sy;
+            switch (rotation)
+            {
+                case 0: // 0°: identity
+                    sx = dx; sy = dy;
+                    break;
+                case 1: // 90° CW
+                    sx = dy; sy = sh - 1 - dx;
+                    break;
+                case 2: // 180°
+                    sx = dw - 1 - dx; sy = dh - 1 - dy;
+                    break;
+                case 3: // 270° CW
+                    sx = sw - 1 - dy; sy = dx;
+                    break;
+                default:
+                    sx = dx; sy = dy;
+                    break;
+            }
+
+            if (sy >= 0 && sy < sh && sx >= 0 && sx < (int)map[sy].size())
+                rotated[dy][dx] = map[sy][sx];
+        }
+    }
+
+    // Step 2: Mirror
+    if (mirror & 1) // Horizontal — mirror placed on vertical center line
+    {
+        if (blend == MirrorFlip)
+        {
+            // Pure flip: left half is source, copied to right half
+            for (int y = 0; y < dh; y++)
+                for (int x = 0; x < dw / 2; x++)
+                    rotated[y][dw - 1 - x] = rotated[y][x];
+        }
+        else
+        {
+            for (int y = 0; y < dh; y++)
+            {
+                for (int x = 0; x < dw / 2; x++)
+                {
+                    int mx = dw - 1 - x;
+                    uint merged = blendPixels(rotated[y][x], rotated[y][mx], blend);
+                    rotated[y][x] = merged;
+                    rotated[y][mx] = merged;
+                }
+            }
+        }
+    }
+
+    if (mirror & 2) // Vertical — mirror placed on horizontal center line
+    {
+        if (blend == MirrorFlip)
+        {
+            // Pure flip: top half is source, copied to bottom half
+            for (int y = 0; y < dh / 2; y++)
+                for (int x = 0; x < dw; x++)
+                    rotated[dh - 1 - y][x] = rotated[y][x];
+        }
+        else
+        {
+            for (int y = 0; y < dh / 2; y++)
+            {
+                int my = dh - 1 - y;
+                for (int x = 0; x < dw; x++)
+                {
+                    uint merged = blendPixels(rotated[y][x], rotated[my][x], blend);
+                    rotated[y][x] = merged;
+                    rotated[my][x] = merged;
+                }
+            }
+        }
+    }
+
+    map = rotated;
 }
 
 

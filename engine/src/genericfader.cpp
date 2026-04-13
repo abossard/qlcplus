@@ -403,6 +403,9 @@ void GenericFader::setFadeOut(bool enable, uint fadeTime)
 void GenericFader::setBlendMode(Universe::BlendMode mode)
 {
     m_blendMode = mode;
+    int blendPri = Universe::blendModePriority(mode);
+    if (blendPri > m_priority)
+        m_priority = blendPri;
 }
 
 void GenericFader::setMonitoring(bool enable)

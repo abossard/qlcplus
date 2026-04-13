@@ -1,0 +1,461 @@
+{
+  "setup": {
+    "labelId": 9,
+    "playBtnId": 10,
+    "audioTriggerId": 8,
+    "ratingFrameId": 4,
+    "ratingBtnIds": {
+      "star1": 11,
+      "star2": 12,
+      "star3": 13,
+      "star4": 14,
+      "star5": 15
+    },
+    "transportIds": {
+      "next": 16,
+      "stop": 17
+    },
+    "dimensionIds": {
+      "Colors": {
+        "frame": 18,
+        "bad": 19,
+        "ok": 20,
+        "good": 21
+      },
+      "Beat Sync": {
+        "frame": 22,
+        "bad": 23,
+        "ok": 24,
+        "good": 25
+      },
+      "Energy": {
+        "frame": 26,
+        "bad": 27,
+        "ok": 28,
+        "good": 29
+      },
+      "Creativity": {
+        "frame": 30,
+        "bad": 31,
+        "ok": 32,
+        "good": 33
+      }
+    },
+    "sceneIds": {
+      "Rating-1": 0,
+      "Rating-2": 1,
+      "Rating-3": 2,
+      "Rating-4": 3,
+      "Rating-5": 4,
+      "AL-Colors-Bad": 5,
+      "AL-Colors-Ok": 6,
+      "AL-Colors-Good": 7,
+      "AL-Beat Sync-Bad": 8,
+      "AL-Beat Sync-Ok": 9,
+      "AL-Beat Sync-Good": 10,
+      "AL-Energy-Bad": 11,
+      "AL-Energy-Ok": 12,
+      "AL-Energy-Good": 13,
+      "AL-Creativity-Bad": 14,
+      "AL-Creativity-Ok": 15,
+      "AL-Creativity-Good": 16,
+      "AL-Blackout": 17
+    },
+    "dimensions": [
+      "Colors",
+      "Beat Sync",
+      "Energy",
+      "Creativity"
+    ]
+  },
+  "briefing": null,
+  "currentRound": 6,
+  "currentExperiment": "r6-02",
+  "experiments": [
+    {
+      "id": "r1-01",
+      "name": "Audio Plasma Neon",
+      "recipe": {
+        "algorithm": "Audio Plasma",
+        "colors": [
+          "#ff00aa",
+          "#00d4ff"
+        ]
+      },
+      "ratings": {
+        "overall": 3,
+        "Colors": "bad",
+        "Beat Sync": "ok",
+        "Energy": "ok",
+        "Creativity": "ok"
+      },
+      "notes": "Gentle, coarse, just speeds up with volume. Basic.",
+      "status": "rated",
+      "round": 1
+    },
+    {
+      "id": "r2-01",
+      "name": "Audio Energy (preset)",
+      "recipe": {
+        "algorithm": "Audio Energy",
+        "type": "preset"
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "good",
+        "Beat Sync": "good",
+        "Energy": "ok",
+        "Creativity": "ok"
+      },
+      "notes": "Good reactive effect but still just a preset. Need custom compositions.",
+      "status": "rated",
+      "round": 2
+    },
+    {
+      "id": "r3-01",
+      "name": "Layered: chaser + audio texture + bass punch",
+      "recipe": {
+        "type": "layered",
+        "layers": [
+          "color chaser",
+          "Audio Energy additive",
+          "bass W-channel script"
+        ]
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "bad",
+        "Beat Sync": "good",
+        "Energy": "ok",
+        "Creativity": "ok"
+      },
+      "notes": "Too much white. White scene + W channel + additive = washed out. Bass script not visible.",
+      "status": "rated",
+      "round": 3
+    },
+    {
+      "id": "r4-01",
+      "name": "Clean Audio Energy (baseline)",
+      "recipe": {
+        "type": "rgb_matrix",
+        "algorithm": "Audio Energy",
+        "colors": [
+          "#cc00ff",
+          "#00ccff"
+        ]
+      },
+      "ratings": {
+        "overall": 3,
+        "Colors": "ok",
+        "Beat Sync": "ok",
+        "Energy": "ok",
+        "Creativity": "bad"
+      },
+      "notes": "Too much white, always similar, not creative. Just another preset.",
+      "status": "rated",
+      "round": 4
+    },
+    {
+      "id": "r4-02",
+      "name": "Audio Vortex (orange/blue)",
+      "recipe": {
+        "type": "rgb_matrix",
+        "algorithm": "Audio Vortex",
+        "colors": [
+          "#ff3300",
+          "#0033ff"
+        ]
+      },
+      "ratings": {
+        "overall": null
+      },
+      "notes": "Too dim, brightness changes only, not very audio reactive.",
+      "status": "rated",
+      "round": 4
+    },
+    {
+      "id": "r4-03",
+      "name": "Audio Shot (5-color bass bursts)",
+      "recipe": {
+        "type": "rgb_matrix",
+        "algorithm": "Audio Shot",
+        "colors": [
+          "#ff0066",
+          "#ff6600",
+          "#ffcc00",
+          "#00ff88",
+          "#6600ff"
+        ],
+        "properties": {
+          "presetDecay": "8",
+          "presetSize": "5",
+          "presetTrigger": "Bass",
+          "presetMaxShots": "8",
+          "presetColorMode": "Random"
+        },
+        "duration": "1/4",
+        "blendMode": "Normal",
+        "controlMode": "RGB"
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "good",
+        "Beat Sync": "good",
+        "Energy": "ok",
+        "Creativity": "good"
+      },
+      "notes": "Best effect so far! Bass-triggered particle bursts with saturated colors. Only Energy rated OK.",
+      "status": "rated",
+      "round": 4
+    },
+    {
+      "id": "r5-01",
+      "name": "Audio Shot + Strobe (energy boost)",
+      "recipe": {
+        "type": "layered",
+        "layers": [
+          {
+            "algorithm": "Audio Shot",
+            "colors": [
+              "#ff0066",
+              "#ff6600",
+              "#ffcc00",
+              "#00ff88",
+              "#6600ff"
+            ],
+            "blend": "Normal",
+            "properties": {
+              "presetDecay": "8",
+              "presetSize": "5",
+              "presetTrigger": "Bass",
+              "presetMaxShots": "8",
+              "presetColorMode": "Random"
+            }
+          },
+          {
+            "algorithm": "Audio Strobe",
+            "colors": [
+              "#ff0066",
+              "#ffcc00"
+            ],
+            "blend": "Additive",
+            "properties": {
+              "presetDecay": "4",
+              "presetMode": "Bass",
+              "presetThreshold": "7",
+              "presetRandomColor": "1"
+            }
+          }
+        ]
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "bad",
+        "Beat Sync": "good",
+        "Energy": "good",
+        "Creativity": "good"
+      },
+      "notes": "Good flow! But constant yellow background vs white/red lacks contrast.",
+      "status": "rated",
+      "round": 5
+    },
+    {
+      "id": "r5-02",
+      "name": "Dark Crawler + Shot bursts",
+      "recipe": {
+        "type": "layered",
+        "layers": [
+          {
+            "algorithm": "Audio Crawler",
+            "colors": [
+              "#220044",
+              "#003366"
+            ],
+            "blend": "Normal",
+            "properties": {
+              "presetSpeed": "6",
+              "presetSway": "8",
+              "presetChop": "3",
+              "presetReactivity": "10"
+            }
+          },
+          {
+            "algorithm": "Audio Shot",
+            "colors": [
+              "#ff0066",
+              "#ff6600",
+              "#ffcc00",
+              "#00ff88",
+              "#6600ff"
+            ],
+            "blend": "Additive",
+            "properties": {
+              "presetDecay": "8",
+              "presetSize": "5",
+              "presetTrigger": "Bass",
+              "presetMaxShots": "8",
+              "presetColorMode": "Random"
+            }
+          }
+        ]
+      },
+      "ratings": {
+        "overall": 5,
+        "Colors": "good",
+        "Beat Sync": "good",
+        "Energy": "good",
+        "Creativity": "good"
+      },
+      "notes": "Getting it good! Dark base + saturated bursts = strong contrast.",
+      "status": "rated",
+      "round": 5
+    },
+    {
+      "id": "r5-03",
+      "name": "Audio Chaser (bouncing dots with trails)",
+      "recipe": {
+        "type": "rgb_matrix",
+        "algorithm": "Audio Chaser",
+        "colors": [
+          "#ff0066",
+          "#00ff88",
+          "#6600ff"
+        ],
+        "properties": {
+          "presetBaseSpeed": "8",
+          "presetDotCount": "6",
+          "presetTrailLength": "12",
+          "presetSpeedMode": "Bass",
+          "presetBounce": "1"
+        }
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "ok",
+        "Beat Sync": "good",
+        "Energy": "good",
+        "Creativity": "good"
+      },
+      "notes": "Good but a bit too dim.",
+      "status": "rated",
+      "round": 5
+    },
+    {
+      "id": "r6-01",
+      "name": "Lava Lamp base + Shot bursts",
+      "recipe": {
+        "type": "layered",
+        "layers": [
+          {
+            "algorithm": "Audio Lava Lamp",
+            "colors": [
+              "#110022",
+              "#001133",
+              "#220011"
+            ],
+            "blend": "Normal"
+          },
+          {
+            "algorithm": "Audio Shot",
+            "colors": [
+              "#ff0066",
+              "#ff6600",
+              "#00ff88",
+              "#6600ff",
+              "#00ccff"
+            ],
+            "blend": "Additive"
+          }
+        ]
+      },
+      "ratings": {
+        "overall": 4,
+        "Colors": "ok",
+        "Beat Sync": "good",
+        "Energy": "good",
+        "Creativity": "good"
+      },
+      "notes": "Good! But contrast could be stronger. User wants bold/bright, can dim later.",
+      "status": "rated",
+      "round": 6
+    },
+    {
+      "id": "r6-02",
+      "name": "Mood Story + Audio Glitch",
+      "recipe": {
+        "type": "layered",
+        "layers": [
+          {
+            "algorithm": "chaser (ocean/ember/acid/violet)",
+            "blend": "Normal"
+          },
+          {
+            "algorithm": "Audio Glitch",
+            "blend": "Additive"
+          }
+        ]
+      },
+      "ratings": {
+        "overall": 2,
+        "Colors": "bad",
+        "Beat Sync": "bad",
+        "Energy": "bad",
+        "Creativity": "ok"
+      },
+      "notes": "Just noise. Additive blend doesnt work well \u2014 either full dark or full matrix, no real blending. Too little contrast even after tweaking params.",
+      "status": "rated",
+      "round": 6
+    }
+  ],
+  "winners": [
+    "r4-03",
+    "r5-02"
+  ],
+  "_r4": {
+    "r4-01": {
+      "collectionID": 32,
+      "matrixID": 31
+    },
+    "r4-02": {
+      "collectionID": 31,
+      "matrixID": 30
+    },
+    "r4-03": {
+      "collectionID": 33,
+      "matrixID": 32
+    }
+  },
+  "_r5": {
+    "r5-01": {
+      "collectionID": 36,
+      "ids": [
+        34,
+        35
+      ]
+    },
+    "r5-02": {
+      "collectionID": 39,
+      "ids": [
+        38,
+        37
+      ]
+    },
+    "r5-03": {
+      "collectionID": 41,
+      "ids": [
+        40
+      ]
+    }
+  },
+  "_r6": {
+    "r6-01": {
+      "collectionID": 44
+    },
+    "r6-02": {
+      "collectionID": 51
+    },
+    "r6-03": {
+      "collectionID": 54
+    }
+  }
+}

@@ -48,33 +48,6 @@ cd build && nohup ./qmlui/qlcplus-qml -d > /dev/null 2>&1 &
 
 If only the MCP server code changed, rebuilding `qlcplusmcp` alone is sufficient, but a restart is still needed since it's statically linked.
 
-### Plugin Symlinks (Dev Builds)
-
-In dev builds, I/O plugins are compiled into subdirectories (e.g. `build/plugins/midi/src/macx/`) but `IOPluginCache` scans only the flat `build/PlugIns/` directory. You must symlink them after a clean build or reconfigure:
-
-```bash
-cd build/PlugIns
-ln -sf ../plugins/artnet/src/libartnet.dylib .
-ln -sf ../plugins/dmxusb/src/libdmxusb.dylib .
-ln -sf ../plugins/E1.31/libe131.dylib .
-ln -sf ../plugins/enttecwing/src/libenttecwing.dylib .
-ln -sf ../plugins/hid/libhidplugin.dylib .
-ln -sf ../plugins/loopback/src/libloopback.dylib .
-ln -sf ../plugins/midi/src/macx/libmidiplugin.dylib .
-ln -sf ../plugins/os2l/libos2l.dylib .
-ln -sf ../plugins/osc/libosc.dylib .
-ln -sf ../plugins/peperoni/unix/libpeperoni.dylib .
-ln -sf ../plugins/udmx/src/libudmx.dylib .
-ln -sf ../plugins/velleman/src/libvelleman.dylib .
-
-# Audio plugin
-mkdir -p Audio
-cd Audio
-ln -sf ../../engine/audio/plugins/sndfile/libsndfileplugin.dylib .
-```
-
-If no plugins appear in the Input/Output section, these symlinks are likely missing.
-
 ### Reconfigure
 
 If you add new source files or CMakeLists.txt changes:

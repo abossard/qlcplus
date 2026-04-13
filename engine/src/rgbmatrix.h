@@ -313,6 +313,51 @@ public:
 
 private:
     RGBMatrix::ControlMode m_controlMode;
+
+    /*************************************************************************
+     * Rotation & Mirror
+     *************************************************************************/
+public:
+    /** Mirror blend algorithms */
+    enum MirrorBlend
+    {
+        MirrorFlip = 0,    ///< Pure reflection (copy one half to other)
+        MirrorMax,         ///< qMax per channel (LedFX-style bloom)
+        MirrorAverage,     ///< (a + b) / 2 per channel
+        MirrorAdditive     ///< min(255, a + b) per channel
+    };
+
+    /** Get/Set rotation: 0=0°, 1=90°CW, 2=180°, 3=270°CW */
+    int rotation() const;
+    void setRotation(int r);
+
+    /** Get/Set mirror: 0=off, 1=horizontal, 2=vertical, 3=both */
+    int mirror() const;
+    void setMirror(int m);
+
+    /** Get/Set mirror blend algorithm */
+    MirrorBlend mirrorBlend() const;
+    void setMirrorBlend(MirrorBlend b);
+
+    /** Return the effective algorithm size, accounting for 90/270 rotation */
+    QSize effectiveAlgorithmSize() const;
+
+    static QString mirrorBlendToString(MirrorBlend b);
+    static MirrorBlend stringToMirrorBlend(const QString &s);
+
+    /** Apply rotation and mirror transforms to a rendered RGB map.
+     *  srcSize = the size the algorithm was given (may be swapped for 90/270).
+     *  dstSize = the physical fixture group size. */
+    static void applyTransforms(RGBMap &map, const QSize &srcSize, const QSize &dstSize,
+                                int rotation, int mirror, MirrorBlend blend);
+
+private:
+    /** Return effective algorithm size for a given fixture group */
+    QSize effectiveAlgorithmSize(const FixtureGroup *grp) const;
+
+    int m_rotation;
+    int m_mirror;
+    MirrorBlend m_mirrorBlend;
 };
 
 /** @} */

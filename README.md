@@ -20,9 +20,92 @@
 > ### What this fork adds
 > - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 230 unit tests
 > - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
+> - `autolight/` directory: Iterative LED effect research loop (Python)
 > - Function Wizard for QML UI
 > - Launchpad controller integration support
 > - Audio capture / BPM detection for scripts
+> - **RGB Matrix rotation & mirroring** (engine-level, all algorithm types)
+> - **Blend mode ordering fix** for Mask/Subtractive blend modes
+>
+> ### Recent engine changes
+>
+> #### RGB Matrix Rotation & Mirroring
+> Rotation and mirroring are now engine-level properties on `RGBMatrix`, available
+> for **all** algorithm types (Plain, Script, Text, Image, Audio).
+>
+> | Property | Values | Description |
+> |----------|--------|-------------|
+> | Rotation | 0°, 90°, 180°, 270° | Rotates the rendered pattern. 90°/270° swap the algorithm's input dimensions so the pattern renders in rotated coordinate space. |
+> | Mirror | Off, Horizontal, Vertical, Both | Places a mirror at the midpoint of the axis. Rotation is applied first, then mirroring. |
+> | Mirror Blend | Flip, Max, Average, Additive | How mirrored halves are combined. **Flip** = pure reflection (default). **Max** = brighter pixel wins. **Average** = `(a+b)/2`. **Additive** = `min(255, a+b)`. |
+>
+> Previously, rotation/mirroring was only available for audio-reactive scripts
+> via auto-injected script properties. The 90° rotation had a bug
+> (`sw` vs `sh` coordinate index) that caused most pixels to be black on non-square grids.
+> That bug is now fixed.
+>
+> #### Blend Mode Ordering Fix (Mask / Subtractive)
+> **Mask** and **Subtractive** blend modes are order-dependent — they read the
+> current universe value and transform it, so the base layer must write before
+> the overlay. Previously, the write order depended on fader insertion order
+> (essentially random from the user's perspective), which meant Mask/Subtractive
+> often had no visible effect.
+>
+> **Fix:** A new `BlendOverlay` fader priority ensures Mask/Subtractive faders
+> always write **after** Normal/Additive faders. This makes blend modes work
+> correctly regardless of function start order or collection function list order.
+>
+> **How blend modes work:**
+>
+> | Mode | Formula | Use case |
+> |------|---------|----------|
+> | Normal | HTP: `max(current, new)` | Default — highest value wins |
+> | Additive | `min(current + new, 255)` | Layer effects on top of each other |
+> | Mask | `current × (new / 255)` | Function output = brightness multiplier. White=pass, Black=block. |
+> | Subtractive | `max(current − new, 0)` | Subtract function's values from existing output |
+>
+> **Example — RGB Matrix as a mask:**
+> Set the RGB Matrix's blend mode to **Mask**. Run it alongside a chaser in a
+> collection. The matrix's pixel pattern acts as a stencil — white areas show
+> the chaser's colors, dark areas are blocked.
+>
+> #### AutoLight — Iterative LED Effect Research
+> The `autolight/` directory is a Python CLI tool that uses the MCP server to
+> run structured A/B-style experiments on LED effects. It automates the
+> create → preview → rate → iterate loop for finding the best-looking effects
+> for your fixture setup.
+>
+> **How it works:**
+> 1. **Setup** — builds a rating UI in QLC+ Virtual Console (star buttons, dimension ratings)
+> 2. **Briefing** — interactive CLI questionnaire (genre, energy, palette, BPM)
+> 3. **Rounds** — each round generates 3–4 experiments (different algorithms, colors, timing)
+> 4. **Rate** — preview each experiment live, rate it 1–5 stars + per-dimension feedback
+> 5. **Iterate** — analysis picks winners, next round refines based on feedback
+>
+> Each round creates a git branch for safe rollback. State is persisted in
+> `autolight-state.json`.
+>
+> **Quick start:**
+> ```bash
+> # Install Python MCP SDK (one-time)
+> python3 -m venv /tmp/mcp-env
+> /tmp/mcp-env/bin/pip install mcp
+>
+> # Run the setup (creates rating UI in QLC+)
+> /tmp/mcp-env/bin/python3 -m autolight setup
+>
+> # Start the research loop
+> /tmp/mcp-env/bin/python3 -m autolight
+> ```
+>
+> **Architecture:**
+> | File | Purpose |
+> |------|---------|
+> | `qlc_client.py` | Async MCP client — wraps `ClientSession` with `streamablehttp_client` |
+> | `setup.py` | Creates rating VC widgets (star buttons, dimension solo-frames, transport) |
+> | `experiments.py` | Create/rate/analyze experiments — `create_experiment()`, `read_ratings()`, `pick_winners()` |
+> | `run.py` | Main CLI loop — briefing → rounds → experiments → analysis |
+> | `test_loop.py` | Smoke test — creates experiment, verifies, reads ratings, cleans up |
 >
 > ### Install from DMG (macOS)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
@@ -32,14 +115,38 @@
 > open /Applications/QLC+.app
 > ```
 >
-> ### Build from source
+> ### Build from source (macOS)
 > ```bash
-> mkdir build && cd build
-> cmake -Dqmlui=ON -Dmcp_server=ON ..
-> make -j$(sysctl -n hw.ncpu)
-> ./qmlui/qlcplus-qml   # MCP auto-starts on port 9696
+> # Configure (one-time, from repo root)
+> mkdir -p build && cd build
+> cmake .. -Dqmlui=ON -Dmcp_server=ON
+>
+> # Build
+> cmake --build . -j$(sysctl -n hw.ncpu)
+>
+> # Run (MCP auto-starts on port 9696)
+> ./qmlui/qlcplus-qml
 > ```
-> Disable MCP with `--no-mcp`, or change port with `--mcp-http <port>`.
+>
+> **Runtime flags:**
+> | Flag | Description |
+> |------|-------------|
+> | `--no-mcp` | Disable MCP server |
+> | `--mcp-http <port>` | Change MCP port (default: 9696) |
+> | `-d` | Enable debug output to stderr |
+> | `-g` | Log debug output to `~/QLC+.log` |
+>
+> **Dev cycle** — after code changes:
+> ```bash
+> # Rebuild only what changed
+> cd build && cmake --build . --target qlcplus-qml -j$(sysctl -n hw.ncpu)
+>
+> # If only MCP server code changed:
+> cmake --build . --target qlcplusmcp -j$(sysctl -n hw.ncpu)
+>
+> # Run tests
+> cmake --build . --target mcp_vc_query_filter_test -j8 && ./mcp/test/mcp_vc_query_filter_test
+> ```
 >
 > ### Connect your AI agent
 >

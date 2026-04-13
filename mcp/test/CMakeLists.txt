@@ -96,6 +96,25 @@ target_link_libraries(mcp_script_tool_test PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# RGB Transform tests — exercises RGBMatrix::applyTransforms rotation and mirroring
+add_executable(mcp_rgb_transform_test WIN32
+    rgb_transform_test.cpp rgb_transform_test.h
+)
+
+target_include_directories(mcp_rgb_transform_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_rgb_transform_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+)
+
 # VC Query Filter tests — exercises vc_query_pages filtering, validation, serialization
 add_executable(mcp_vc_query_filter_test WIN32
     vc_query_filter_test.cpp vc_query_filter_test.h

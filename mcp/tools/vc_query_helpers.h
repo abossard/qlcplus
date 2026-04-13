@@ -62,7 +62,7 @@ inline const std::set<std::string> kValidProperties = {
     "bgColor", "fgColor", "font", "backgroundImage", "disabled",
     // Button specific
     "iconPath", "startupIntensityEnabled", "startupIntensity",
-    "flashOverride", "flashForceLTP", "stopAllFadeTime",
+    "flashOverride", "flashForceLTP", "stopAllFadeTime", "buttonState",
     // CueList specific
     "nextPrevBehavior", "playbackLayout", "sideFaderMode",
     // Clock specific
@@ -93,7 +93,7 @@ inline std::set<std::string> expandCompoundGroups(const std::set<std::string> &p
     {
         expanded.erase("buttonConfig");
         for (auto &p : {"iconPath", "startupIntensityEnabled", "startupIntensity",
-                        "flashOverride", "flashForceLTP", "stopAllFadeTime"})
+                        "flashOverride", "flashForceLTP", "stopAllFadeTime", "buttonState"})
             expanded.insert(p);
     }
     if (expanded.count("cueListConfig"))
@@ -508,6 +508,12 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         w["flashForceLTP"] = true;
     if (has("stopAllFadeTime") && d.stopAllFadeTime > 0)
         w["stopAllFadeTime"] = d.stopAllFadeTime;
+    if (has("buttonState"))
+    {
+        static const char *stateNames[] = {"inactive", "monitoring", "active"};
+        int st = qBound(0, d.buttonState, 2);
+        w["buttonState"] = stateNames[st];
+    }
 
     // Frame extended
     if (has("multipageMode") && d.multipageMode)

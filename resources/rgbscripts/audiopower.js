@@ -29,15 +29,8 @@ var testAlgo;
       "name:presetSparks|type:list|display:Beat Sparks|" +
       "values:Off,On|write:setSparks|read:getSparks");
 
-    algo.presetMirror = 0;
-    algo.properties.push(
-      "name:presetMirror|type:list|display:Mirror|" +
-      "values:Off,On|write:setMirror|read:getMirror");
-
     algo.setSparks = function(_v) { algo.presetSparks = (_v === "On") ? 1 : 0; };
     algo.getSparks = function() { return algo.presetSparks ? "On" : "Off"; };
-    algo.setMirror = function(_v) { algo.presetMirror = (_v === "On") ? 1 : 0; };
-    algo.getMirror = function() { return algo.presetMirror ? "On" : "Off"; };
 
     var startColor = [255, 0, 0];
     var endColor = [0, 0, 255];
@@ -93,12 +86,8 @@ var testAlgo;
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var pos = algo.presetMirror
-                    ? Math.abs(x - Math.floor(width / 2)) * 2
-                    : x;
-
                 // Gradient color based on position
-                var t = pos / Math.max(1, width - 1);
+                var t = x / Math.max(1, width - 1);
                 var r = startColor[0] + (endColor[0] - startColor[0]) * t;
                 var g = startColor[1] + (endColor[1] - startColor[1]) * t;
                 var b = startColor[2] + (endColor[2] - startColor[2]) * t;
@@ -107,7 +96,7 @@ var testAlgo;
                 var specBright = Math.min(1, bands[x % bands.length] * 3);
 
                 // Bass overlay brightness
-                var bassBright = (pos < bassIdx) ? bass : 0;
+                var bassBright = (x < bassIdx) ? bass : 0;
 
                 // Combine
                 var bright = Math.max(specBright, bassBright);

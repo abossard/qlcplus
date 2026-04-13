@@ -284,6 +284,7 @@ public:
         bool flashOverride = false;
         bool flashForceLTP = false;
         int stopAllFadeTime = 0;
+        int buttonState = 0;          // 0=Inactive, 1=Monitoring, 2=Active
 
         // Slider extended
         QString widgetStyle;              // "slider"/"knob"
@@ -692,6 +693,7 @@ public:
             return hdrH + opts.pad;
 
         // Classify children by type, preserving order within each group
+        // Sort by x-position so reflow respects the intended left-to-right order
         QList<WidgetSnapshot *> buttons, sliders, frames, others;
         for (int i = 0; i < container.children.size(); ++i)
         {
@@ -709,6 +711,15 @@ public:
                     others.append(&c); break;
             }
         }
+
+        // Sort buttons and sliders by x then y so reflow preserves visual order
+        auto byPosition = [](const WidgetSnapshot *a, const WidgetSnapshot *b) {
+            if (a->geometry.y() != b->geometry.y())
+                return a->geometry.y() < b->geometry.y();
+            return a->geometry.x() < b->geometry.x();
+        };
+        std::sort(buttons.begin(), buttons.end(), byPosition);
+        std::sort(sliders.begin(), sliders.end(), byPosition);
 
         int parentWidth = container.geometry.width();
         int y = hdrH + opts.pad;  // gap between header and first content

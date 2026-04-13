@@ -44,6 +44,10 @@ class RGBMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int blendMode READ blendMode WRITE setBlendMode NOTIFY blendModeChanged)
     Q_PROPERTY(int controlMode READ controlMode WRITE setControlMode NOTIFY controlModeChanged)
 
+    Q_PROPERTY(int rotation READ rotation WRITE setRotation NOTIFY rotationChanged)
+    Q_PROPERTY(int mirror READ mirror WRITE setMirror NOTIFY mirrorChanged)
+    Q_PROPERTY(int mirrorBlend READ mirrorBlend WRITE setMirrorBlend NOTIFY mirrorBlendChanged)
+
     // Text Algorithm specific properties
     Q_PROPERTY(QString algoText READ algoText WRITE setAlgoText NOTIFY algoTextChanged)
     Q_PROPERTY(QFont algoTextFont READ algoTextFont WRITE setAlgoTextFont NOTIFY algoTextFontChanged)
@@ -161,6 +165,24 @@ public:
 
 signals:
     void controlModeChanged();
+
+    /************************************************************************
+     * Rotation & Mirror
+     ************************************************************************/
+public:
+    int rotation() const;
+    void setRotation(int r);
+
+    int mirror() const;
+    void setMirror(int m);
+
+    int mirrorBlend() const;
+    void setMirrorBlend(int b);
+
+signals:
+    void rotationChanged();
+    void mirrorChanged();
+    void mirrorBlendChanged();
 
     /************************************************************************
      * Preview

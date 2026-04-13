@@ -858,7 +858,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"blendMode", {{"type", "string"}, {"description", "Normal or Additive"}}},
                 {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs (e.g. {\"presetDecay\": \"10\", \"presetMode\": \"Mids\"})"}}},
                 {"text", {{"type", "string"}, {"description", "Text content (for RGBText algorithm)"}}},
-                {"animationStyle", {{"type", "string"}, {"description", "Static, Horizontal, or Vertical (for RGBText/RGBImage algorithms)"}}}
+                {"animationStyle", {{"type", "string"}, {"description", "Static, Horizontal, or Vertical (for RGBText/RGBImage algorithms)"}}},
+                {"rotation", {{"type", "integer"}, {"description", "Rotation in degrees: 0, 90, 180, or 270"}}},
+                {"mirror", {{"type", "string"}, {"description", "Mirror mode: Off, Horizontal, Vertical, or Both"}}},
+                {"mirrorBlend", {{"type", "string"}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -870,7 +873,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm",
                     "startColor", "endColor", "colors", "duration", "fadeIn", "fadeOut",
                     "tempoType", "runOrder", "direction", "controlMode", "blendMode",
-                    "properties", "text", "animationStyle"});
+                    "properties", "text", "animationStyle", "rotation", "mirror", "mirrorBlend"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -1050,6 +1053,29 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                             imgAlgo->setAnimationStyle(RGBImage::stringToAnimationStyle(style));
                         }
                     }
+                }
+
+                // Rotation & Mirror
+                if (item.contains("rotation"))
+                    matrix->setRotation((item.at("rotation").get<int>() / 90) & 3);
+
+                if (item.contains("mirror"))
+                {
+                    QString m = QString::fromStdString(item.at("mirror").get<std::string>());
+                    if (m.compare("Horizontal", Qt::CaseInsensitive) == 0)
+                        matrix->setMirror(1);
+                    else if (m.compare("Vertical", Qt::CaseInsensitive) == 0)
+                        matrix->setMirror(2);
+                    else if (m.compare("Both", Qt::CaseInsensitive) == 0)
+                        matrix->setMirror(3);
+                    else
+                        matrix->setMirror(0);
+                }
+
+                if (item.contains("mirrorBlend"))
+                {
+                    QString mb = QString::fromStdString(item.at("mirrorBlend").get<std::string>());
+                    matrix->setMirrorBlend(RGBMatrix::stringToMirrorBlend(mb));
                 }
 
                 if (isNew)

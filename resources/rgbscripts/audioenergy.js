@@ -37,11 +37,6 @@ var testAlgo;
       "name:presetMixing|type:list|display:Mixing Mode|" +
       "values:Additive,Overlap|write:setMixing|read:getMixing");
 
-    algo.presetMirror = 0;
-    algo.properties.push(
-      "name:presetMirror|type:list|display:Mirror|" +
-      "values:Yes,No|write:setMirror|read:getMirror");
-
     algo.presetMultiplier = 16;
     algo.properties.push(
       "name:presetMultiplier|type:range|display:Fill Amount|" +
@@ -51,8 +46,6 @@ var testAlgo;
     algo.getSensitivity = function()  { return algo.presetSensitivity; };
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
-    algo.setMirror = function(_v) { algo.presetMirror = (_v === "Yes") ? 1 : 0; };
-    algo.getMirror = function() { return algo.presetMirror ? "Yes" : "No"; };
     algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
@@ -145,37 +138,28 @@ var testAlgo;
         {
             for (var x = 0; x < width; x++)
             {
-                var pos;
-                if (algo.presetMirror) {
-                    // Mirror: distance from center
-                    var halfW = Math.floor(width / 2);
-                    pos = halfW - Math.abs(x - halfW);
-                } else {
-                    pos = x;
-                }
-
                 var r = 0, g = 0, b = 0;
 
                 if (algo.presetMixing === 0) {
                     // Additive mode: layer colors
-                    if (pos < lowsIdx) {
+                    if (x < lowsIdx) {
                         r += lowsColor[0]; g += lowsColor[1]; b += lowsColor[2];
                     }
-                    if (pos < midsIdx) {
+                    if (x < midsIdx) {
                         r += midsColor[0]; g += midsColor[1]; b += midsColor[2];
                     }
-                    if (pos < highsIdx) {
+                    if (x < highsIdx) {
                         r += highsColor[0]; g += highsColor[1]; b += highsColor[2];
                     }
                 } else {
                     // Overlap mode: last band wins
-                    if (pos < highsIdx) {
+                    if (x < highsIdx) {
                         r = highsColor[0]; g = highsColor[1]; b = highsColor[2];
                     }
-                    if (pos < midsIdx) {
+                    if (x < midsIdx) {
                         r = midsColor[0]; g = midsColor[1]; b = midsColor[2];
                     }
-                    if (pos < lowsIdx) {
+                    if (x < lowsIdx) {
                         r = lowsColor[0]; g = lowsColor[1]; b = lowsColor[2];
                     }
                 }

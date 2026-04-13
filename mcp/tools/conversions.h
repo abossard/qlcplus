@@ -179,6 +179,17 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
 
     entry["stepsCount"] = matrix->stepsCount();
 
+    // Rotation & Mirror
+    if (matrix->rotation() != 0)
+        entry["rotation"] = matrix->rotation() * 90; // 0, 90, 180, 270
+    if (matrix->mirror() != 0)
+    {
+        static const char *mirrorNames[] = {"Off", "Horizontal", "Vertical", "Both"};
+        entry["mirror"] = mirrorNames[matrix->mirror() & 3];
+    }
+    if (matrix->mirrorBlend() != RGBMatrix::MirrorFlip)
+        entry["mirrorBlend"] = RGBMatrix::mirrorBlendToString(matrix->mirrorBlend()).toStdString();
+
     return entry;
 }
 

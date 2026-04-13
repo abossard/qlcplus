@@ -867,6 +867,7 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     {
         d.functionID = button->functionID();
         d.action = VCButton::actionToString(button->actionType()).toLower();
+        d.buttonState = (int)button->state();
         d.startupIntensityEnabled = button->startupIntensityEnabled();
         d.startupIntensity = button->startupIntensity();
         d.flashOverride = button->flashOverrides();

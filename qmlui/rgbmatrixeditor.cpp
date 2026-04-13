@@ -609,6 +609,58 @@ void RGBMatrixEditor::setControlMode(int mode)
 }
 
 /************************************************************************
+ * Rotation & Mirror
+ ************************************************************************/
+
+int RGBMatrixEditor::rotation() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->rotation();
+}
+
+void RGBMatrixEditor::setRotation(int r)
+{
+    if (m_matrix == nullptr || r == m_matrix->rotation())
+        return;
+    m_matrix->setRotation(r);
+    initPreviewData();
+    emit rotationChanged();
+}
+
+int RGBMatrixEditor::mirror() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->mirror();
+}
+
+void RGBMatrixEditor::setMirror(int m)
+{
+    if (m_matrix == nullptr || m == m_matrix->mirror())
+        return;
+    m_matrix->setMirror(m);
+    initPreviewData();
+    emit mirrorChanged();
+}
+
+int RGBMatrixEditor::mirrorBlend() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->mirrorBlend();
+}
+
+void RGBMatrixEditor::setMirrorBlend(int b)
+{
+    if (m_matrix == nullptr || b == m_matrix->mirrorBlend())
+        return;
+    m_matrix->setMirrorBlend(RGBMatrix::MirrorBlend(b));
+    initPreviewData();
+    emit mirrorBlendChanged();
+}
+
+/************************************************************************
  * Save to Sequence
  ************************************************************************/
 
