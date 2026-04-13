@@ -164,6 +164,7 @@ VCWidgetItem
             MouseArea
             {
                 anchors.fill: parent
+                preventStealing: true
                 hoverEnabled: true
 
                 function clamp(num, min, max)

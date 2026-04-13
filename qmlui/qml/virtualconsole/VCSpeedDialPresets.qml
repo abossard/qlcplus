@@ -227,6 +227,7 @@ Rectangle
                         width: parent.width
                         height: count ? (count + 1) * UISettings.listItemHeight : UISettings.bigItemHeight
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
                         headerPositioning: ListView.OverlayHeader
 
                         property real nameColWidth: presetsList.width * 0.65

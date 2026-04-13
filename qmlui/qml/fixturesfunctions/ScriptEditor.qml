@@ -228,6 +228,7 @@ Rectangle
                 width: parent.width
                 height: parent.height - topBar.height
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
                 contentWidth: width //scriptEdit.paintedWidth
                 contentHeight: scriptEdit.paintedHeight

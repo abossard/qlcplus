@@ -97,6 +97,7 @@ Rectangle
 
         contentHeight: editorColumn.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         Column
         {
@@ -238,6 +239,7 @@ Rectangle
                             width: channelSection.width
                             height: UISettings.listItemHeight * (count + 1)
                             boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
                             currentIndex: -1
                             interactive: false
 

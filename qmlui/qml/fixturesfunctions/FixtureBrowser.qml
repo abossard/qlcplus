@@ -121,6 +121,7 @@ Rectangle
         focus: true
 
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         currentIndex: manufacturerIndex
 
         highlight: Component
@@ -230,6 +231,7 @@ Rectangle
 
             focus: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
             highlight:
                 Rectangle
                 {
@@ -280,6 +282,7 @@ Rectangle
         clip: true
         visible: fixtureBrowser.searchFilter.length >= 3 ? true : false
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         contentHeight: searchColumn.height
 

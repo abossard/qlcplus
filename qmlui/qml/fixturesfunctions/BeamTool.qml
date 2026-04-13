@@ -126,11 +126,7 @@ Rectangle
         }
     }
 
-    MouseArea
-    {
-        anchors.fill: parent
-        onWheel: { return false }
-    }
+    WheelEater { anchors.fill: parent }
 
     Rectangle
     {

@@ -124,6 +124,10 @@ public:
     /** Return the reference of the currently selected VC page */
     Q_INVOKABLE QQuickItem *currentPageItem() const;
 
+    /** Return the contentItem of the currently selected VC page Flickable.
+     *  Use this for drag reparenting to keep widgets in content-space. */
+    Q_INVOKABLE QQuickItem *currentPageContentItem() const;
+
     /** Return a list with the VC page names */
     int pagesCount() const;
 

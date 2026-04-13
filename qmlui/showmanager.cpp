@@ -740,7 +740,12 @@ void ShowManager::renderView(QQuickItem *parent)
 void ShowManager::enableFlicking(bool enable)
 {
     QQuickItem *flickable = qobject_cast<QQuickItem*>(m_view->rootObject()->findChild<QObject *>("showItemsArea"));
+    if (flickable == nullptr)
+        return;
+
     flickable->setProperty("interactive", enable);
+    if (enable)
+        QMetaObject::invokeMethod(flickable, "cancelFlick");
 }
 
 int ShowManager::showDuration() const

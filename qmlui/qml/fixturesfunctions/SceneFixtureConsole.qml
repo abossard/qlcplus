@@ -62,6 +62,7 @@ Rectangle
         orientation: ListView.Horizontal
         model: sceneEditor.fixtureList
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.HorizontalFlick
         highlightFollowsCurrentItem: false
         currentIndex: -1
         z: 1

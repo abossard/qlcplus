@@ -265,6 +265,7 @@ CustomPopupDialog
 
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 headerPositioning: ListView.OverlayHeader
 
                 header:

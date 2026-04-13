@@ -68,6 +68,7 @@ Rectangle
         height: parent.height - y
         contentHeight: contentsColumn.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         property color textColor: "black"
         property int textHeight: UISettings.iconSizeMedium

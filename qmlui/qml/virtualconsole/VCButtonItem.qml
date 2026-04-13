@@ -131,6 +131,8 @@ VCWidgetItem
         }
     }
 
+    WheelEater { anchors.fill: parent; z: 1 }
+
     MouseArea
     {
         anchors.fill: parent

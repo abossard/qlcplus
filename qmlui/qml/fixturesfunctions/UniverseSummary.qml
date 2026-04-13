@@ -114,6 +114,7 @@ Rectangle
         height: parent.height - y
         contentHeight: gridBox.height + summaryGrid.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         property color textColor: "black"
         property int totalChannels: 0

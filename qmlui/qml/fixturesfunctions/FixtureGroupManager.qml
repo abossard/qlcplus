@@ -484,6 +484,7 @@ Rectangle
             //        (propertiesHeader.visible ? propertiesHeader.height : 0)
             z: 4
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
             property bool dragActive: false
 

@@ -138,6 +138,7 @@ Rectangle
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
             model: cfRef ? cfRef.filtersList : null
             currentIndex: rootBox.currentFilterIndex

@@ -48,6 +48,7 @@ Rectangle
         id: uniListView
         anchors.fill: parent
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         delegate:
             Item
             {

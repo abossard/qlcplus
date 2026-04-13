@@ -128,6 +128,7 @@ CustomPopupDialog
                 Layout.columnSpan: 2
                 implicitHeight: UISettings.listItemHeight * 3
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
                 model: networkManager.serverList
 

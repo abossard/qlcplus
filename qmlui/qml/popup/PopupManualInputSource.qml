@@ -95,6 +95,7 @@ CustomPopupDialog
                 height: mainView.height * 0.6
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
                 Rectangle
                 {

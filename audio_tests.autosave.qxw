@@ -81,16 +81,6 @@
    <Address>0</Address>
    <Channels>320</Channels>
   </Fixture>
-  <Fixture>
-   <Manufacturer>Generic</Manufacturer>
-   <Model>Generic RGB</Model>
-   <Mode>RGB</Mode>
-   <ID>4</ID>
-   <Name>AL-Dummy</Name>
-   <Universe>0</Universe>
-   <Address>509</Address>
-   <Channels>3</Channels>
-  </Fixture>
   <FixtureGroup ID="0">
    <Name>WLED</Name>
    <Size X="80" Y="4"/>
@@ -431,75 +421,164 @@
   <Palette ID="13" Type="Color" Name="Dark" Value="#0a0a1a000000"/>
   <Function ID="0" Type="Scene" Name="Rating-1">
    <Speed FadeIn="0" FadeOut="500" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="0"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="1" Type="Scene" Name="Rating-2">
    <Speed FadeIn="0" FadeOut="500" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="1"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="2" Type="Scene" Name="Rating-3">
    <Speed FadeIn="0" FadeOut="500" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="2"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="3" Type="Scene" Name="Rating-4">
    <Speed FadeIn="0" FadeOut="500" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="3"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="4" Type="Scene" Name="Rating-5">
    <Speed FadeIn="0" FadeOut="500" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="4"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="5" Type="Scene" Name="AL-Colors-Bad">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="5"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="6" Type="Scene" Name="AL-Colors-Ok">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="6"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="7" Type="Scene" Name="AL-Colors-Good">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="7"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="8" Type="Scene" Name="AL-Beat Sync-Bad">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="5"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="9" Type="Scene" Name="AL-Beat Sync-Ok">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="6"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="10" Type="Scene" Name="AL-Beat Sync-Good">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="7"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="11" Type="Scene" Name="AL-Energy-Bad">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="5"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="12" Type="Scene" Name="AL-Energy-Ok">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="6"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="13" Type="Scene" Name="AL-Energy-Good">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="7"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="14" Type="Scene" Name="AL-Creativity-Bad">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="5"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="15" Type="Scene" Name="AL-Creativity-Ok">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="6"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="16" Type="Scene" Name="AL-Creativity-Good">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="7"/>
+   <Palette ID="8"/>
   </Function>
   <Function ID="17" Type="Scene" Name="AL-Blackout">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="4">0,128</FixtureVal>
+   <FixtureVal ID="0"/>
+   <FixtureVal ID="1"/>
+   <FixtureVal ID="2"/>
+   <FixtureVal ID="3"/>
+   <Palette ID="9"/>
   </Function>
   <Function ID="18" Type="RGBMatrix" Name="AL-r1-01-Audio Fire">
    <Speed FadeIn="0" FadeOut="0" Duration="80"/>
@@ -627,267 +706,6 @@
    <Step Number="1">27</Step>
    <Step Number="2">28</Step>
   </Function>
-  <Function ID="30" Type="RGBMatrix" Name="R4-02-AudioVortex">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="125" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Vortex</Algorithm>
-   <Color Index="0">4294914816</Color>
-   <Color Index="1">4278203391</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetArms" Value="4"/>
-   <Property Name="presetReactivity" Value="12"/>
-   <Property Name="presetSpeed" Value="8"/>
-   <Property Name="presetTightness" Value="6"/>
-  </Function>
-  <Function ID="31" Type="Collection" Name="AL-r4-02">
-   <Step Number="0">30</Step>
-  </Function>
-  <Function ID="32" Type="RGBMatrix" Name="R4-03-AudioShot">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Shot</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294927872</Color>
-   <Color Index="2">4294953984</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetColorMode" Value="Random"/>
-   <Property Name="presetDecay" Value="8"/>
-   <Property Name="presetMaxShots" Value="8"/>
-   <Property Name="presetMirror" Value="Off"/>
-   <Property Name="presetRotation" Value="0"/>
-   <Property Name="presetSize" Value="5"/>
-   <Property Name="presetTrigger" Value="Bass"/>
-  </Function>
-  <Function ID="33" Type="Collection" Name="AL-r4-03">
-   <Step Number="0">32</Step>
-  </Function>
-  <Function ID="34" Type="RGBMatrix" Name="R5-01-Shot">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Shot</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294927872</Color>
-   <Color Index="2">4294953984</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetColorMode" Value="Random"/>
-   <Property Name="presetDecay" Value="8"/>
-   <Property Name="presetMaxShots" Value="8"/>
-   <Property Name="presetSize" Value="5"/>
-   <Property Name="presetTrigger" Value="Bass"/>
-  </Function>
-  <Function ID="35" Type="RGBMatrix" Name="R5-01-Strobe" BlendMode="Additive">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="125"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Strobe</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294953984</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetDecay" Value="4"/>
-   <Property Name="presetMode" Value="Bass"/>
-   <Property Name="presetRandomColor" Value="1"/>
-   <Property Name="presetThreshold" Value="7"/>
-  </Function>
-  <Function ID="36" Type="Collection" Name="AL-r5-01">
-   <Step Number="0">34</Step>
-   <Step Number="1">35</Step>
-  </Function>
-  <Function ID="37" Type="RGBMatrix" Name="R5-02-Shot" BlendMode="Additive">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Shot</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294927872</Color>
-   <Color Index="2">4294953984</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetColorMode" Value="Random"/>
-   <Property Name="presetDecay" Value="8"/>
-   <Property Name="presetMaxShots" Value="8"/>
-   <Property Name="presetSize" Value="5"/>
-   <Property Name="presetTrigger" Value="Bass"/>
-  </Function>
-  <Function ID="38" Type="RGBMatrix" Name="R5-02-Crawler">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="250" FadeOut="0" Duration="500"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Crawler</Algorithm>
-   <Color Index="0">4280418372</Color>
-   <Color Index="1">4278203238</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetChop" Value="3"/>
-   <Property Name="presetReactivity" Value="10"/>
-   <Property Name="presetSpeed" Value="6"/>
-   <Property Name="presetSway" Value="8"/>
-  </Function>
-  <Function ID="39" Type="Collection" Name="AL-r5-02">
-   <Step Number="0">38</Step>
-   <Step Number="1">37</Step>
-  </Function>
-  <Function ID="40" Type="RGBMatrix" Name="R5-03-Chaser">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="125" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Chaser</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4278255496</Color>
-   <Color Index="2">4284875007</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetBaseSpeed" Value="8"/>
-   <Property Name="presetBounce" Value="1"/>
-   <Property Name="presetDotCount" Value="6"/>
-   <Property Name="presetSpeedMode" Value="Bass"/>
-   <Property Name="presetTrailLength" Value="12"/>
-  </Function>
-  <Function ID="41" Type="Collection" Name="AL-r5-03">
-   <Step Number="0">40</Step>
-  </Function>
-  <Function ID="42" Type="RGBMatrix" Name="R6-01-LavaBase">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="500" FadeOut="0" Duration="1000"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Lava Lamp</Algorithm>
-   <Color Index="0">4279304226</Color>
-   <Color Index="1">4278194483</Color>
-   <Color Index="2">4280418321</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetContrast" Value="8"/>
-   <Property Name="presetReactivity" Value="6"/>
-   <Property Name="presetSpeed" Value="4"/>
-  </Function>
-  <Function ID="43" Type="RGBMatrix" Name="R6-01-ShotBursts" BlendMode="Additive">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Shot</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294927872</Color>
-   <Color Index="2">4278255496</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetColorMode" Value="Random"/>
-   <Property Name="presetDecay" Value="6"/>
-   <Property Name="presetMaxShots" Value="6"/>
-   <Property Name="presetSize" Value="4"/>
-   <Property Name="presetTrigger" Value="Bass"/>
-  </Function>
-  <Function ID="44" Type="Collection" Name="AL-r6-01">
-   <Step Number="0">42</Step>
-   <Step Number="1">43</Step>
-  </Function>
-  <Function ID="45" Type="Scene" Name="R6-DeepOcean">
-   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="0">0,0,1,20,2,80,3,0</FixtureVal>
-   <FixtureVal ID="1">0,0,1,20,2,80,3,0</FixtureVal>
-   <FixtureVal ID="2">0,0,1,20,2,80,3,0</FixtureVal>
-   <FixtureVal ID="3">0,0,1,20,2,80,3,0</FixtureVal>
-  </Function>
-  <Function ID="46" Type="Scene" Name="R6-Ember">
-   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="0">0,120,1,15,2,0,3,5</FixtureVal>
-   <FixtureVal ID="1">0,120,1,15,2,0,3,5</FixtureVal>
-   <FixtureVal ID="2">0,120,1,15,2,0,3,5</FixtureVal>
-   <FixtureVal ID="3">0,120,1,15,2,0,3,5</FixtureVal>
-  </Function>
-  <Function ID="47" Type="Scene" Name="R6-Acid">
-   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="0">0,0,1,100,2,30,3,0</FixtureVal>
-   <FixtureVal ID="1">0,0,1,100,2,30,3,0</FixtureVal>
-   <FixtureVal ID="2">0,0,1,100,2,30,3,0</FixtureVal>
-   <FixtureVal ID="3">0,0,1,100,2,30,3,0</FixtureVal>
-  </Function>
-  <Function ID="48" Type="Scene" Name="R6-Violet">
-   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="0">0,80,1,0,2,100,3,0</FixtureVal>
-   <FixtureVal ID="1">0,80,1,0,2,100,3,0</FixtureVal>
-   <FixtureVal ID="2">0,80,1,0,2,100,3,0</FixtureVal>
-   <FixtureVal ID="3">0,80,1,0,2,100,3,0</FixtureVal>
-  </Function>
-  <Function ID="49" Type="Chaser" Name="R6-02-MoodCycle">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
-   <Step Number="0" FadeIn="2000" Hold="4000" FadeOut="0">45</Step>
-   <Step Number="1" FadeIn="2000" Hold="4000" FadeOut="0">46</Step>
-   <Step Number="2" FadeIn="2000" Hold="4000" FadeOut="0">47</Step>
-   <Step Number="3" FadeIn="2000" Hold="4000" FadeOut="0">48</Step>
-  </Function>
-  <Function ID="50" Type="RGBMatrix" Name="R6-02-Glitch">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="125"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Glitch</Algorithm>
-   <Color Index="0">4294967295</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetComplexity" Value="2"/>
-   <Property Name="presetMirror" Value="Off"/>
-   <Property Name="presetReactivity" Value="2"/>
-   <Property Name="presetRotation" Value="0"/>
-   <Property Name="presetSaturation" Value="3"/>
-   <Property Name="presetSpeed" Value="2"/>
-  </Function>
-  <Function ID="51" Type="Collection" Name="AL-r6-02">
-   <Step Number="0">50</Step>
-   <Step Number="1">49</Step>
-  </Function>
-  <Function ID="52" Type="RGBMatrix" Name="R6-03-Water">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="250" FadeOut="0" Duration="500"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Water</Algorithm>
-   <Color Index="0">4278203238</Color>
-   <Color Index="1">4278255530</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetBassSize" Value="10"/>
-   <Property Name="presetHighSize" Value="4"/>
-   <Property Name="presetSpeed" Value="7"/>
-   <Property Name="presetViscosity" Value="5"/>
-  </Function>
-  <Function ID="53" Type="RGBMatrix" Name="R6-03-Blocks" BlendMode="Additive">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="250"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Blocks</Algorithm>
-   <Color Index="0">4294901862</Color>
-   <Color Index="1">4294953984</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetBlockSize" Value="3"/>
-   <Property Name="presetDecay" Value="6"/>
-   <Property Name="presetFill" Value="0"/>
-   <Property Name="presetReactTo" Value="Bass"/>
-  </Function>
-  <Function ID="54" Type="Collection" Name="AL-r6-03">
-   <Step Number="0">52</Step>
-   <Step Number="1">53</Step>
-  </Function>
   <Monitor DisplayMode="0" ShowLabels="0">
    <Font>Arial,12,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
    <ChannelStyle>0</ChannelStyle>
@@ -898,7 +716,6 @@
    <FxItem ID="1" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
    <FxItem ID="2" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
    <FxItem ID="3" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
-   <FxItem ID="4" XPos="0" YPos="0" ZPos="1000"/>
   </Monitor>
  </Engine>
  <VirtualConsole>
@@ -912,6 +729,82 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
+   <Frame Caption="Experiment" ID="3">
+    <WindowState Visible="True" X="0" Y="0" Width="885" Height="75"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="▶ Play" ID="10">
+     <WindowState Visible="True" X="690" Y="45" Width="195" Height="30"/>
+     <Appearance>
+      <ForegroundColor>4278255360</ForegroundColor>
+      <BackgroundColor>4278203136</BackgroundColor>
+     </Appearance>
+     <Function ID="29"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Label Caption="R3-01: Layered — color chaser + audio texture + bass punch" ID="9">
+     <WindowState Visible="True" X="0" Y="45" Width="690" Height="30"/>
+     <Appearance>
+      <ForegroundColor>4278244607</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+    </Label>
+   </Frame>
+   <SoloFrame Caption="Overall Rating" ID="4">
+    <WindowState Visible="True" X="0" Y="75" Width="600" Height="90"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="⭐" ID="11">
+     <WindowState Visible="True" X="0" Y="45" Width="120" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4294901760</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+     <Function ID="0"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="⭐⭐⭐⭐⭐" ID="15">
+     <WindowState Visible="True" X="480" Y="45" Width="120" Height="45"/>
+     <Appearance>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+     <Function ID="4"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="⭐⭐" ID="12">
+     <WindowState Visible="True" X="120" Y="45" Width="120" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4294927872</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+     <Function ID="1"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="⭐⭐⭐" ID="13">
+     <WindowState Visible="True" X="240" Y="45" Width="120" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4294967040</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+     <Function ID="2"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="⭐⭐⭐⭐" ID="14">
+     <WindowState Visible="True" X="375" Y="45" Width="120" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4278255360</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+     <Function ID="3"/>
+     <Action>Toggle</Action>
+    </Button>
+   </SoloFrame>
    <Frame Caption="Transport" ID="5">
     <WindowState Visible="True" X="600" Y="75" Width="270" Height="90"/>
     <AllowResize>True</AllowResize>
@@ -939,12 +832,47 @@
     </Button>
    </Frame>
    <Frame Caption="Dimensions" ID="6">
-    <WindowState Visible="True" X="0" Y="165" Width="885" Height="375"/>
+    <WindowState Visible="True" X="0" Y="167" Width="1020" Height="411"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
+    <SoloFrame Caption="Energy" ID="26">
+     <WindowState Visible="True" X="0" Y="210" Width="870" Height="75"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>True</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="Energy: 👍 Good" ID="29">
+      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
+      <Appearance>
+       <ForegroundColor>4282711876</ForegroundColor>
+       <BackgroundColor>4279900718</BackgroundColor>
+      </Appearance>
+      <Function ID="13"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="Energy: 😐 OK" ID="28">
+      <WindowState Visible="True" X="300" Y="45" Width="300" Height="30"/>
+      <Appearance>
+       <ForegroundColor>4294945280</ForegroundColor>
+       <BackgroundColor>4279900718</BackgroundColor>
+      </Appearance>
+      <Function ID="12"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="Energy: 👎 Bad" ID="27">
+      <WindowState Visible="True" X="0" Y="45" Width="300" Height="30"/>
+      <Appearance>
+       <ForegroundColor>4294919236</ForegroundColor>
+       <BackgroundColor>4279900718</BackgroundColor>
+      </Appearance>
+      <Function ID="11"/>
+      <Action>Toggle</Action>
+     </Button>
+    </SoloFrame>
     <SoloFrame Caption="Creativity" ID="30">
      <WindowState Visible="True" X="0" Y="285" Width="870" Height="75"/>
      <AllowResize>True</AllowResize>
@@ -980,43 +908,8 @@
       <Action>Toggle</Action>
      </Button>
     </SoloFrame>
-    <SoloFrame Caption="Energy" ID="26">
-     <WindowState Visible="True" X="0" Y="210" Width="870" Height="75"/>
-     <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
-     <ShowEnableButton>True</ShowEnableButton>
-     <Collapsed>False</Collapsed>
-     <Disabled>False</Disabled>
-     <Button Caption="Energy: 😐 OK" ID="28">
-      <WindowState Visible="True" X="300" Y="45" Width="300" Height="30"/>
-      <Appearance>
-       <ForegroundColor>4294945280</ForegroundColor>
-       <BackgroundColor>4279900718</BackgroundColor>
-      </Appearance>
-      <Function ID="12"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Energy: 👎 Bad" ID="27">
-      <WindowState Visible="True" X="0" Y="45" Width="300" Height="30"/>
-      <Appearance>
-       <ForegroundColor>4294919236</ForegroundColor>
-       <BackgroundColor>4279900718</BackgroundColor>
-      </Appearance>
-      <Function ID="11"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Energy: 👍 Good" ID="29">
-      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
-      <Appearance>
-       <ForegroundColor>4282711876</ForegroundColor>
-       <BackgroundColor>4279900718</BackgroundColor>
-      </Appearance>
-      <Function ID="13"/>
-      <Action>Toggle</Action>
-     </Button>
-    </SoloFrame>
     <SoloFrame Caption="Colors" ID="18">
-     <WindowState Visible="True" X="0" Y="45" Width="870" Height="75"/>
+     <WindowState Visible="True" X="45" Y="137" Width="959" Height="76"/>
      <AllowResize>True</AllowResize>
      <ShowHeader>True</ShowHeader>
      <ShowEnableButton>True</ShowEnableButton>
@@ -1032,7 +925,7 @@
       <Action>Toggle</Action>
      </Button>
      <Button Caption="Colors: 👍 Good" ID="21">
-      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
+      <WindowState Visible="True" X="609" Y="30" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4282711876</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>
@@ -1051,7 +944,7 @@
      </Button>
     </SoloFrame>
     <SoloFrame Caption="Beat Sync" ID="22">
-     <WindowState Visible="True" X="0" Y="120" Width="870" Height="75"/>
+     <WindowState Visible="True" X="45" Y="60" Width="870" Height="75"/>
      <AllowResize>True</AllowResize>
      <ShowHeader>True</ShowHeader>
      <ShowEnableButton>True</ShowEnableButton>
@@ -1087,7 +980,7 @@
     </SoloFrame>
    </Frame>
    <Frame Caption="Audio" ID="7">
-    <WindowState Visible="True" X="0" Y="525" Width="885" Height="120"/>
+    <WindowState Visible="True" X="30" Y="594" Width="885" Height="120"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
     <ShowEnableButton>True</ShowEnableButton>
@@ -1100,82 +993,6 @@
      </Appearance>
     </AudioTriggers>
    </Frame>
-   <Frame Caption="Experiment" ID="3">
-    <WindowState Visible="True" X="0" Y="0" Width="885" Height="75"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Label Caption="R6-02: Mood Story (ocean/ember/acid/violet) + Glitch" ID="9">
-     <WindowState Visible="True" X="0" Y="45" Width="690" Height="30"/>
-     <Appearance>
-      <ForegroundColor>4278244607</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-    </Label>
-    <Button Caption="▶ Play" ID="10">
-     <WindowState Visible="True" X="690" Y="45" Width="195" Height="30"/>
-     <Appearance>
-      <ForegroundColor>4278255360</ForegroundColor>
-      <BackgroundColor>4278203136</BackgroundColor>
-     </Appearance>
-     <Function ID="51"/>
-     <Action>Toggle</Action>
-    </Button>
-   </Frame>
-   <SoloFrame Caption="Overall Rating" ID="4">
-    <WindowState Visible="True" X="0" Y="75" Width="600" Height="90"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="⭐⭐⭐⭐⭐" ID="15">
-     <WindowState Visible="True" X="480" Y="45" Width="120" Height="45"/>
-     <Appearance>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-     <Function ID="4"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="⭐⭐⭐⭐" ID="14">
-     <WindowState Visible="True" X="375" Y="45" Width="120" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4278255360</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-     <Function ID="3"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="⭐" ID="11">
-     <WindowState Visible="True" X="0" Y="45" Width="120" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4294901760</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-     <Function ID="0"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="⭐⭐" ID="12">
-     <WindowState Visible="True" X="120" Y="45" Width="120" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4294927872</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-     <Function ID="1"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="⭐⭐⭐" ID="13">
-     <WindowState Visible="True" X="240" Y="45" Width="120" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4294967040</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-     <Function ID="2"/>
-     <Action>Toggle</Action>
-    </Button>
-   </SoloFrame>
   </Frame>
   <Frame Caption="Page 2" ID="1">
    <Appearance>

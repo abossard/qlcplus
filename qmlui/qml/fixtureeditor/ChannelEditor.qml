@@ -222,6 +222,7 @@ GridLayout
             z: 1
             anchors.fill: parent
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
             headerPositioning: ListView.OverlayHeader
             clip: true
             model: editor ? editor.capabilities : null

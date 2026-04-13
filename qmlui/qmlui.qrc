@@ -50,6 +50,7 @@
     <file alias="RobotoText.qml">qml/RobotoText.qml</file>
     <file alias="SectionBox.qml">qml/SectionBox.qml</file>
     <file alias="SidePanel.qml">qml/SidePanel.qml</file>
+    <file alias="SmoothZoomHandler.qml">qml/SmoothZoomHandler.qml</file>
     <file alias="SimpleDesk.qml">qml/SimpleDesk.qml</file>
     <file alias="SingleAxisTool.qml">qml/SingleAxisTool.qml</file>
     <file alias="TimeEditTool.qml">qml/TimeEditTool.qml</file>
@@ -57,6 +58,7 @@
     <file alias="UISettings.qml">qml/UISettings.qml</file>
     <file alias="UISettingsEditor.qml">qml/UISettingsEditor.qml</file>
     <file alias="UsageList.qml">qml/UsageList.qml</file>
+    <file alias="WheelEater.qml">qml/WheelEater.qml</file>
     <file alias="WidgetDelegate.qml">qml/WidgetDelegate.qml</file>
     <file alias="WindowLoader.qml">qml/WindowLoader.qml</file>
     <file alias="ZoomItem.qml">qml/ZoomItem.qml</file>

@@ -340,6 +340,9 @@ void VirtualConsole::enableFlicking(bool enable)
     if (currPage == nullptr)
         return;
 
+    if (!enable)
+        QMetaObject::invokeMethod(currPage, "cancelFlick");
+
     currPage->setProperty("interactive", enable);
 }
 
@@ -370,6 +373,15 @@ QQuickItem *VirtualConsole::currentPageItem() const
         pageItem = qobject_cast<QQuickItem*>(m_view->rootObject()->findChild<QObject *>(currPage));
     }
     return pageItem;
+}
+
+QQuickItem *VirtualConsole::currentPageContentItem() const
+{
+    QQuickItem *flickable = currentPageItem();
+    if (flickable == nullptr)
+        return nullptr;
+
+    return flickable->property("contentItem").value<QQuickItem*>();
 }
 
 int VirtualConsole::pagesCount() const

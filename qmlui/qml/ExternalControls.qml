@@ -133,6 +133,7 @@ Column
         width: parent.width
         height: contentHeight
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         model: objRef ? objRef.inputSourcesList : null
 

@@ -580,6 +580,7 @@ ColumnLayout
         Layout.fillHeight: peContainer.currentTab === 0
         visible: peContainer.currentTab === 0
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         clip: true
         z: 1
 
@@ -687,6 +688,7 @@ ColumnLayout
         Layout.fillHeight: peContainer.currentTab === 1
         visible: peContainer.currentTab === 1
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         clip: true
         z: 1
 
@@ -787,6 +789,7 @@ ColumnLayout
         Layout.fillHeight: peContainer.currentTab === 2
         visible: peContainer.currentTab === 2
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         clip: true
         z: 1
 

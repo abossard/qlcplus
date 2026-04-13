@@ -155,6 +155,7 @@ Rectangle
 
             contentHeight: editorColumn.height
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
             SplitView.minimumWidth: editorRoot.width * 0.2
             SplitView.preferredWidth: editorRoot.width * 0.5
@@ -376,6 +377,7 @@ Rectangle
                                 width: channelSection.width
                                 height: UISettings.listItemHeight * count
                                 boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
                                 interactive: false
 
                                 property bool dragActive: false
@@ -595,6 +597,7 @@ Rectangle
                                 width: modeSection.width
                                 height: UISettings.listItemHeight * count
                                 boundsBehavior: Flickable.StopAtBounds
+                                flickableDirection: Flickable.VerticalFlick
                                 currentIndex: -1
                                 interactive: false
 

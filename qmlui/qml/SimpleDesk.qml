@@ -145,6 +145,7 @@ Rectangle
                 orientation: ListView.Horizontal
                 model: simpleDesk.channelList
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.HorizontalFlick
                 highlightFollowsCurrentItem: false
                 currentIndex: -1
 
@@ -317,6 +318,7 @@ Rectangle
                     height: parent.height - fixtureHeader.height
                     width: parent.width
                     boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
                     model: simpleDesk.fixtureList
                     currentIndex: -1
 
@@ -392,6 +394,7 @@ Rectangle
                     height: parent.height - historyHeader.height
                     width: parent.width - keypad.width
                     boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
                     model: simpleDesk.commandHistory
 
                     delegate:

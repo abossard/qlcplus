@@ -246,6 +246,7 @@ Rectangle
                 height: seContainer.height - UISettings.iconSizeMedium - speedSection.height
                 y: toolbar.height
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 model: sceneEditor ? sceneEditor.componentList : null
                 delegate:
                     Rectangle

@@ -202,6 +202,7 @@ Rectangle
             Layout.fillHeight: true
             z: 4
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
             property bool dragActive: false
 

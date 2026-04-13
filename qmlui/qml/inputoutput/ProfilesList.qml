@@ -220,6 +220,7 @@ Rectangle
             Layout.fillHeight: true
             z: 1
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
             visible: !profEditor.isEditing
 
             property int selectedIndex: -1

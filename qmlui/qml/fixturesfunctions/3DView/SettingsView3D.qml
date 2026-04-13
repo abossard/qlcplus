@@ -110,6 +110,7 @@ Rectangle
         height: parent.height
         contentHeight: settingsColumn.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         Column
         {
@@ -692,6 +693,7 @@ Rectangle
                             width: parent.width
                             height: UISettings.bigItemHeight * 4
                             boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
                             model: View3D.genericItemsList
 
                             delegate:

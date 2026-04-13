@@ -538,6 +538,7 @@ Rectangle
             clip: true
 
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
             contentHeight: showContents.contentHeight
             contentWidth: timelineHeader.contentWidth
             contentX: xViewOffset

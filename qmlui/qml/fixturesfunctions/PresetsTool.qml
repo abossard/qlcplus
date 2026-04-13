@@ -51,11 +51,7 @@ Rectangle
         prList.model = presetModel
     }
 
-    MouseArea
-    {
-        anchors.fill: parent
-        onWheel: { return false }
-    }
+    WheelEater { anchors.fill: parent }
 
     // toolbar area containing the available preset channels
     Rectangle
@@ -137,6 +133,7 @@ Rectangle
         height: parent.height - presetToolBar.height
         y: presetToolBar.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         contentWidth: width
         contentHeight: flowView.height
 

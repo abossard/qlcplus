@@ -93,6 +93,7 @@ Rectangle
             height: UISettings.bigItemHeight * 2
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
 
             delegate:
                 Rectangle

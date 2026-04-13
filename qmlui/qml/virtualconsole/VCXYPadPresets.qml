@@ -273,6 +273,7 @@ Rectangle
                         width: parent.width
                         height: count ? count * UISettings.listItemHeight : UISettings.bigItemHeight
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
                         model: widgetRef ? widgetRef.presetsList : null
 
                         delegate:

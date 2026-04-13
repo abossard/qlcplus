@@ -61,6 +61,7 @@ Rectangle
         //interactive: false
 
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         property string contextName: "DMX"
 

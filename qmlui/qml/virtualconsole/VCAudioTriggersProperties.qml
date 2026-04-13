@@ -129,6 +129,7 @@ Rectangle
                         //implicitWidth: audioTriggerPropsColumn.width
                         implicitHeight: count * gridItemsHeight
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
                         headerPositioning: ListView.OverlayHeader
                         model: widgetRef ? widgetRef.barsInfo : null
 

@@ -40,6 +40,7 @@ Rectangle
         id: acListView
         anchors.fill: parent
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         //model: ioManager.audioInputSources()
         delegate:
             Item

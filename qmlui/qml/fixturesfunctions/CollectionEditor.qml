@@ -150,6 +150,7 @@ Rectangle
                 height: ceContainer.height - UISettings.iconSizeMedium
                 y: UISettings.iconSizeMedium
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
 
                 property int dragInsertIndex: -1
 

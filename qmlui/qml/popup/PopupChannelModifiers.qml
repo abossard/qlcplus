@@ -433,6 +433,7 @@ CustomPopupDialog
                 Layout.fillHeight: true
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 headerPositioning: ListView.OverlayHeader
 
                 model: fixtureManager.channelModifiersList

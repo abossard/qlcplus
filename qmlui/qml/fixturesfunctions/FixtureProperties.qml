@@ -237,6 +237,7 @@ Rectangle
                 id: channelList
                 anchors.fill: parent
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 model: fixtureBrowser.modeChannelList
                 delegate:
                     IconTextEntry

@@ -398,6 +398,7 @@ Column
         width: parent.width
         height: widgetRoot.height - chListHeader.height
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         clip: true
         preferredHighlightBegin: 0
         preferredHighlightEnd: height / 2

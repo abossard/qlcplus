@@ -52,6 +52,7 @@ Rectangle
         id: widgetListView
         anchors.fill: parent
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         model: wModel
         delegate:
             Item

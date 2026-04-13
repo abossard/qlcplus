@@ -321,10 +321,15 @@ Rectangle
 
                 onWheel: (wheel)=>
                 {
-                    zoomVelocity += (wheel.angleDelta.y / 120.0) * 0.01
+                    var rawDelta = wheel.angleDelta.y / 120.0
+                    if (rawDelta === 0 && wheel.pixelDelta.y !== 0)
+                        rawDelta = wheel.pixelDelta.y / 120.0
+
+                    zoomVelocity += rawDelta * 0.01
                     zoomVelocity = Math.max(-0.05, Math.min(0.05, zoomVelocity))
                     if (!zoomTimer.running)
                         zoomTimer.start()
+                    wheel.accepted = true
                 }
             }
 

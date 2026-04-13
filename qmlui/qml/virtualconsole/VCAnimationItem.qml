@@ -31,6 +31,8 @@ VCWidgetItem
 
     clip: true
 
+    WheelEater { anchors.fill: parent; z: 1 }
+
     onAnimationObjChanged:
     {
         setCommonProperties(animationObj)

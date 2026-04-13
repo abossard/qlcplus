@@ -59,6 +59,7 @@ CustomPopupDialog
                 implicitHeight: UISettings.iconSizeDefault
                 orientation: ListView.Horizontal
                 boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
                 clip: true
                 spacing: 5
                 model: folderBrowser.pathModel
@@ -157,6 +158,7 @@ CustomPopupDialog
                     SplitView.fillWidth: true
                     implicitHeight: UISettings.listItemHeight * 8
                     boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
                     clip: true
 
                     model: folderBrowser.folderModel

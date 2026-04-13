@@ -120,6 +120,7 @@ Rectangle
             Layout.fillHeight: true
             clip: true
             boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
             model: filteredWidgetsList()
 
             property int selectedIndex: -1

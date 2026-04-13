@@ -161,6 +161,7 @@ Rectangle
               id: propsFlickable
               anchors.fill: parent
               boundsBehavior: Flickable.StopAtBounds
+              flickableDirection: Flickable.VerticalFlick
               contentHeight: propsContentsColumn.height
 
               Column

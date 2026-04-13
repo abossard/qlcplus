@@ -199,6 +199,7 @@ Rectangle
         height: parent.height - editToolbar.height - viewMargin
 
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         ScrollBar.vertical: CustomScrollBar { }
         ScrollBar.horizontal : CustomScrollBar { orientation: Qt.Horizontal }
 

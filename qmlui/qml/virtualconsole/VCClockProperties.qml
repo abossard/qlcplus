@@ -173,6 +173,7 @@ Rectangle
                         width: parent.width
                         height: model ? model.length * (countdownMode ? (gridItemsHeight + 8) : 180) : 0
                         boundsBehavior: Flickable.StopAtBounds
+                        flickableDirection: Flickable.VerticalFlick
 
                         model: widgetRef ? widgetRef.scheduleList : null
                         delegate:

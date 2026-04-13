@@ -54,6 +54,7 @@ Rectangle
         x: leftPanel.width
         z: 4
         boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
 
         contentHeight: ioList.height
 
