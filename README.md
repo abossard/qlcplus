@@ -26,6 +26,46 @@
 > - Audio capture / BPM detection for scripts
 > - **RGB Matrix rotation & mirroring** (engine-level, all algorithm types)
 > - **Blend mode ordering fix** for Mask/Subtractive blend modes
+> - **macOS trackpad scroll/drag fixes** for QML UI (see below)
+>
+> ### QML UI: macOS Trackpad Scroll & Drag Fixes
+>
+> The v5 QML UI had multiple issues with macOS trackpad scrolling and widget dragging:
+>
+> #### Scroll fixes
+> - **`flickableDirection`** added to 60 Flickable instances across 33 files — prevents
+>   cross-axis scroll interference (vertical scroll triggering horizontal jumps and vice versa)
+> - **`WheelEater.qml`** — new reusable component that properly consumes wheel events
+>   (`wheel.accepted = true` with `acceptedButtons: Qt.NoButton` to pass clicks through).
+>   Applied to VC buttons, cue lists, animations, clocks, and 5 tool windows to prevent
+>   scroll from accidentally activating widgets
+> - **Zoom handlers** in 2DView/3DView now consume wheel events and support trackpad
+>   `pixelDelta` (previously only handled mouse wheel `angleDelta`)
+> - **`preventStealing: true`** on VC widget drag areas and XY pad touch areas
+> - **`cancelFlick()`** called on drag start to stop kinetic scroll before coordinate remap
+> - Replaced broken `onWheel: { return false }` pattern in 5 tool windows (the `return false`
+>   never actually prevented event propagation — only `wheel.accepted = true` does)
+>
+> #### Widget drag fix (pre-existing bug)
+> Dragging a widget in VC edit mode caused it to jump to a wrong position and disappear
+> behind frames. Root cause: **QML property scoping bug** in binding restoration.
+>
+> After a drag-and-drop, the widget's `x`/`y` bindings to `wObj.geometry` are broken
+> (Qt's `drag.target` mechanism imperatively writes x/y). The code attempted to restore
+> them in `dragMouseArea.onReleased`:
+> ```qml
+> // BUG: bare x/y inside a MouseArea handler resolves to the
+> // MouseArea's x/y, not the parent wRoot's x/y
+> x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
+> ```
+> Fix: explicitly qualify with the target item ID:
+> ```qml
+> wRoot.x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
+> ```
+> Additional drag improvements:
+> - `drag.target = wRoot` moved inside `if (editMode)` guard
+> - `enableFlicking` only re-enabled if drag disabled it (via `flickingDisabled` flag)
+> - `currentPageContentItem()` added to C++ for content-space coordinate mapping
 >
 > ### Recent engine changes
 >

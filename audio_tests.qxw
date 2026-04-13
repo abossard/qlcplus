@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -812,15 +812,6 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Button Caption="⏭ Next" ID="16">
-     <WindowState Visible="True" X="0" Y="45" Width="135" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4278244607</ForegroundColor>
-      <BackgroundColor>4278203238</BackgroundColor>
-     </Appearance>
-     <Function ID="4294967295"/>
-     <Action Override="0" ForceLTP="0">Flash</Action>
-    </Button>
     <Button Caption="⏹ Stop All" ID="17">
      <WindowState Visible="True" X="135" Y="45" Width="135" Height="45"/>
      <Appearance>
@@ -829,6 +820,15 @@
      </Appearance>
      <Function ID="4294967295"/>
      <Action FadeOut="1000">StopAll</Action>
+    </Button>
+    <Button Caption="⏭ Next" ID="16">
+     <WindowState Visible="True" X="0" Y="45" Width="135" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4278244607</ForegroundColor>
+      <BackgroundColor>4278203238</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action Override="0" ForceLTP="0">Flash</Action>
     </Button>
    </Frame>
    <Frame Caption="Dimensions" ID="6">
@@ -951,7 +951,7 @@
      <Collapsed>False</Collapsed>
      <Disabled>False</Disabled>
      <Button Caption="Beat Sync: 😐 OK" ID="24">
-      <WindowState Visible="True" X="300" Y="45" Width="300" Height="30"/>
+      <WindowState Visible="True" X="304" Y="30" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4294945280</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>
@@ -960,7 +960,7 @@
       <Action>Toggle</Action>
      </Button>
      <Button Caption="Beat Sync: 👍 Good" ID="25">
-      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
+      <WindowState Visible="True" X="563" Y="45" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4282711876</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>

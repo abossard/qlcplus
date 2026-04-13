@@ -131,12 +131,17 @@ Column
                                                 nodeContainer, mouse.modifiers)
             onClicked: (mouse) =>
             {
+                console.log("[TREE] Clicked on: '" + textLabel + "' hasChildren=" + (cRef ? false : true) + " isExpanded=" + isExpanded)
                 nodeLabel.forceActiveFocus()
                 nodeContainer.mouseEvent(App.Clicked, cRef ? cRef.id : -1, nodeContainer.itemType,
                                          nodeContainer, mouse.modifiers)
             }
-            onDoubleClicked: (mouse) => nodeContainer.mouseEvent(App.DoubleClicked, cRef ? cRef.id : -1,
+            onDoubleClicked: (mouse) =>
+            {
+                console.log("[TREE] DoubleClicked on: '" + textLabel + "' hasChildren=" + (cRef ? false : true) + " isExpanded=" + isExpanded)
+                nodeContainer.mouseEvent(App.DoubleClicked, cRef ? cRef.id : -1,
                                                                  nodeContainer.itemType, nodeContainer, mouse.modifiers)
+            }
         }
 
         DropArea
@@ -223,6 +228,7 @@ Column
                                 case App.Clicked:
                                     if (qItem === item)
                                     {
+                                        console.log("[TREE-CHILD] Clicked: label='" + item.textLabel + "' hasChildren=" + model.hasChildren + " isExpanded=" + model.isExpanded + " item.isExpanded=" + item.isExpanded)
                                         model.isSelected = (mouseMods & Qt.ControlModifier) ? 2 : 1
                                         if (model.hasChildren)
                                             model.isExpanded = item.isExpanded
@@ -241,8 +247,12 @@ Column
                                     }
                                 break;
                                 case App.DoubleClicked:
+                                    console.log("[TREE-CHILD] DoubleClicked: label='" + item.textLabel + "' qItem===item=" + (qItem === item) + " hasChildren=" + model.hasChildren + " isExpanded=" + model.isExpanded)
                                     if (qItem === item && model.hasChildren)
+                                    {
                                         model.isExpanded = !model.isExpanded
+                                        console.log("[TREE-CHILD] Toggled isExpanded to: " + model.isExpanded)
+                                    }
                                 break;
                             }
 

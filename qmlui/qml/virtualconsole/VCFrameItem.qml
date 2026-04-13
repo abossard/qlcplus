@@ -212,9 +212,12 @@ VCWidgetItem
                 }
                 else
                 {
+                    console.log("[DROP] reparent to dropArea. Before: source.parent=" + drag.source.parent + " source pos=(" + drag.source.x + "," + drag.source.y + ")")
                     // reparent the QML item first
                     drag.source.parent = dropArea
+                    console.log("[DROP] after reparent: source.parent=" + drag.source.parent + " source pos=(" + drag.source.x + "," + drag.source.y + ")")
                     virtualConsole.moveWidget(drag.source.wObj, frameObj, pos)
+                    console.log("[DROP] after moveWidget: source pos=(" + drag.source.x + "," + drag.source.y + ") geometry=(" + drag.source.wObj.geometry.x + "," + drag.source.wObj.geometry.y + ")")
 
                 }
             }

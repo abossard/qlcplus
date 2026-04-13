@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -509,7 +509,7 @@
    <Palette ID="6"/>
    <Palette ID="8"/>
   </Function>
-  <Function ID="10" Type="Scene" Name="AL-Beat Sync-Good">
+  <Function ID="10" Type="Scene" Name="AL-Beat Sync-Good" Path="l4">
    <Speed FadeIn="0" FadeOut="200" Duration="0"/>
    <FixtureVal ID="0"/>
    <FixtureVal ID="1"/>
@@ -812,15 +812,6 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Button Caption="⏭ Next" ID="16">
-     <WindowState Visible="True" X="0" Y="45" Width="135" Height="45"/>
-     <Appearance>
-      <ForegroundColor>4278244607</ForegroundColor>
-      <BackgroundColor>4278203238</BackgroundColor>
-     </Appearance>
-     <Function ID="4294967295"/>
-     <Action Override="0" ForceLTP="0">Flash</Action>
-    </Button>
     <Button Caption="⏹ Stop All" ID="17">
      <WindowState Visible="True" X="135" Y="45" Width="135" Height="45"/>
      <Appearance>
@@ -830,9 +821,18 @@
      <Function ID="4294967295"/>
      <Action FadeOut="1000">StopAll</Action>
     </Button>
+    <Button Caption="⏭ Next" ID="16">
+     <WindowState Visible="True" X="0" Y="45" Width="135" Height="45"/>
+     <Appearance>
+      <ForegroundColor>4278244607</ForegroundColor>
+      <BackgroundColor>4278203238</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action Override="0" ForceLTP="0">Flash</Action>
+    </Button>
    </Frame>
    <Frame Caption="Dimensions" ID="6">
-    <WindowState Visible="True" X="0" Y="167" Width="1020" Height="411"/>
+    <WindowState Visible="True" X="0" Y="165" Width="885" Height="375"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
     <ShowEnableButton>True</ShowEnableButton>
@@ -909,7 +909,7 @@
      </Button>
     </SoloFrame>
     <SoloFrame Caption="Colors" ID="18">
-     <WindowState Visible="True" X="45" Y="137" Width="959" Height="76"/>
+     <WindowState Visible="True" X="0" Y="45" Width="870" Height="75"/>
      <AllowResize>True</AllowResize>
      <ShowHeader>True</ShowHeader>
      <ShowEnableButton>True</ShowEnableButton>
@@ -925,7 +925,7 @@
       <Action>Toggle</Action>
      </Button>
      <Button Caption="Colors: 👍 Good" ID="21">
-      <WindowState Visible="True" X="609" Y="30" Width="300" Height="30"/>
+      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4282711876</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>
@@ -944,14 +944,14 @@
      </Button>
     </SoloFrame>
     <SoloFrame Caption="Beat Sync" ID="22">
-     <WindowState Visible="True" X="45" Y="60" Width="870" Height="75"/>
+     <WindowState Visible="True" X="0" Y="120" Width="870" Height="75"/>
      <AllowResize>True</AllowResize>
      <ShowHeader>True</ShowHeader>
      <ShowEnableButton>True</ShowEnableButton>
      <Collapsed>False</Collapsed>
      <Disabled>False</Disabled>
      <Button Caption="Beat Sync: 😐 OK" ID="24">
-      <WindowState Visible="True" X="300" Y="45" Width="300" Height="30"/>
+      <WindowState Visible="True" X="304" Y="30" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4294945280</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>
@@ -960,7 +960,7 @@
       <Action>Toggle</Action>
      </Button>
      <Button Caption="Beat Sync: 👍 Good" ID="25">
-      <WindowState Visible="True" X="570" Y="45" Width="300" Height="30"/>
+      <WindowState Visible="True" X="563" Y="45" Width="300" Height="30"/>
       <Appearance>
        <ForegroundColor>4282711876</ForegroundColor>
        <BackgroundColor>4279900718</BackgroundColor>
@@ -980,7 +980,7 @@
     </SoloFrame>
    </Frame>
    <Frame Caption="Audio" ID="7">
-    <WindowState Visible="True" X="30" Y="594" Width="885" Height="120"/>
+    <WindowState Visible="True" X="0" Y="525" Width="885" Height="120"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
     <ShowEnableButton>True</ShowEnableButton>

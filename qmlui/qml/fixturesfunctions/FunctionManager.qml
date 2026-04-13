@@ -285,7 +285,7 @@ Rectangle
           z: 4
           boundsBehavior: Flickable.StopAtBounds
           flickableDirection: Flickable.VerticalFlick
-          cacheBuffer: contentHeight
+          cacheBuffer: Math.max(0, contentHeight)
           Layout.fillHeight: true
 
           Component.onCompleted: contentY = functionManager.viewPosition
@@ -348,8 +348,12 @@ Rectangle
                                         functionManager.selectFolder(qItem.nodePath, mouseMods & Qt.ControlModifier)
                                 break;
                                 case App.DoubleClicked:
+                                    console.log("[FM] DoubleClicked: qItem===item=" + (qItem === item) + " hasChildren=" + model.hasChildren + " isExpanded=" + model.isExpanded + " label='" + item.textLabel + "'")
                                     if (qItem === item && model.hasChildren)
+                                    {
                                         model.isExpanded = !model.isExpanded
+                                        console.log("[FM] Toggled top-level isExpanded to: " + model.isExpanded)
+                                    }
                                     else if (allowEditing)
                                         loadFunctionEditor(iID, iType)
                                     else

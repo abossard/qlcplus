@@ -153,8 +153,10 @@ Rectangle
                 if (drag.active && drag.target !== null && dragRemapped == false)
                 {
                     var remappedPos = wRoot.mapToItem(virtualConsole.currentPageItem(), 0, 0);
+                    console.log("[DRAG] remap: wRoot pos (" + wRoot.x + "," + wRoot.y + ") -> pageItem (" + remappedPos.x + "," + remappedPos.y + ")")
                     wObj.geometry = Qt.rect(remappedPos.x, remappedPos.y, wRoot.width, wRoot.height)
                     wRoot.parent = virtualConsole.currentPageItem()
+                    console.log("[DRAG] after reparent: wRoot.x=" + wRoot.x + " wRoot.y=" + wRoot.y + " parent=" + wRoot.parent)
                     dragRemapped = true
                     if (isSelected == false)
                     {
@@ -176,12 +178,11 @@ Rectangle
 
             onReleased: (mouse) =>
             {
+                console.log("[DRAG] onReleased: drag.active=" + drag.active + " drag.target=" + drag.target + " wRoot pos=(" + wRoot.x + "," + wRoot.y + ") parent=" + wRoot.parent)
                 if (drag.active && drag.target !== null)
                 {
-                    // A drag/drop sequence is always performed within a parent frame,
-                    // so the new geometry will be calculated by virtualConsole.moveWidget,
-                    // invoked by VCFrameItem DropArea
                     wRoot.Drag.drop()
+                    console.log("[DRAG] after drop: wRoot pos=(" + wRoot.x + "," + wRoot.y + ") parent=" + wRoot.parent + " wObj.geometry=" + wObj.geometry)
                     drag.target = null
                     dragRemapped = false
                 }
@@ -192,11 +193,11 @@ Rectangle
                 }
 
                 // Restore bindings broken by the drag mechanism
-                // (drag.target directly sets x/y, breaking declarative bindings)
-                x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
-                y = Qt.binding(function() { return wObj ? wObj.geometry.y : 0 })
-                width = Qt.binding(function() { return wObj ? wObj.geometry.width : 100 })
-                height = Qt.binding(function() { return wObj ? wObj.geometry.height : 100 })
+                wRoot.x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
+                wRoot.y = Qt.binding(function() { return wObj ? wObj.geometry.y : 0 })
+                wRoot.width = Qt.binding(function() { return wObj ? wObj.geometry.width : 100 })
+                wRoot.height = Qt.binding(function() { return wObj ? wObj.geometry.height : 100 })
+                console.log("[DRAG] after binding restore: wRoot pos=(" + wRoot.x + "," + wRoot.y + ") wObj.geometry=(" + wObj.geometry.x + "," + wObj.geometry.y + ")")
             }
         }
 
