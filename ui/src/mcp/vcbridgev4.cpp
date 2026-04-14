@@ -70,6 +70,32 @@ static VCFrame *resolveParentFrame(VirtualConsole *vc, int parentID)
 }
 
 // ---------------------------------------------------------------------------
+// Safe widget registration for programmatic creation.
+// Unlike VirtualConsole::setupWidget(), this does NOT call
+// clearWidgetSelection() (crashes on stale pointers) or
+// move(lastClickPoint()) (overwrites intended geometry).
+// ---------------------------------------------------------------------------
+
+static void registerWidget(VirtualConsole *vc, VCWidget *widget, VCFrame *parent)
+{
+    vc->addWidgetInMap(widget);
+
+    // Inline connectWidgetToParent logic (it's private in VirtualConsole)
+    if (parent->multipageMode())
+    {
+        widget->setPage(parent->currentPage());
+        parent->addWidgetToPageMap(widget);
+    }
+    else
+    {
+        widget->setPage(0);
+    }
+
+    widget->show();
+    widget->raise();
+}
+
+// ---------------------------------------------------------------------------
 // Source definition table — maps widget class → valid {name, ID, description}.
 // IDs match v4's static quint8 constants.
 // ---------------------------------------------------------------------------
@@ -359,7 +385,7 @@ int VCBridgeV4::addFrame(int pageIndex, const QRect &geometry,
     else
         widget = new VCFrame(root, m_doc);
 
-    m_vc->setupWidget(widget, root);
+    registerWidget(m_vc, widget, root);
 
     widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
@@ -386,7 +412,7 @@ int VCBridgeV4::addFrameInFrame(int parentID, const QRect &geometry,
     else
         widget = new VCFrame(frame, m_doc);
 
-    m_vc->setupWidget(widget, frame);
+    registerWidget(m_vc, widget, frame);
 
     widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
@@ -407,7 +433,7 @@ int VCBridgeV4::addButton(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCButton *button = new VCButton(frame, m_doc);
-    m_vc->setupWidget(button, frame);
+    registerWidget(m_vc, button, frame);
 
     button->setGeometry(snapRect(geometry));
     button->setCaption(caption);
@@ -441,7 +467,7 @@ int VCBridgeV4::addSlider(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCSlider *slider = new VCSlider(frame, m_doc);
-    m_vc->setupWidget(slider, frame);
+    registerWidget(m_vc, slider, frame);
 
     slider->setGeometry(snapRect(geometry));
     slider->setCaption(caption);
@@ -489,7 +515,7 @@ int VCBridgeV4::addXYPadEx(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCXYPad *xyPad = new VCXYPad(frame, m_doc);
-    m_vc->setupWidget(xyPad, frame);
+    registerWidget(m_vc, xyPad, frame);
     xyPad->setGeometry(snapRect(geometry));
 
     for (const XYPadFixtureConfig &cfg : fixtures)
@@ -577,7 +603,7 @@ int VCBridgeV4::addCueList(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCCueList *cuelist = new VCCueList(frame, m_doc);
-    m_vc->setupWidget(cuelist, frame);
+    registerWidget(m_vc, cuelist, frame);
 
     cuelist->setGeometry(snapRect(geometry));
     cuelist->setChaser(chaserID);
@@ -598,7 +624,7 @@ int VCBridgeV4::addLabel(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCLabel *label = new VCLabel(frame, m_doc);
-    m_vc->setupWidget(label, frame);
+    registerWidget(m_vc, label, frame);
 
     label->setGeometry(snapRect(geometry));
     label->setCaption(text);
@@ -766,7 +792,7 @@ int VCBridgeV4::addSpeedDial(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCSpeedDial *speedDial = new VCSpeedDial(frame, m_doc);
-    m_vc->setupWidget(speedDial, frame);
+    registerWidget(m_vc, speedDial, frame);
     speedDial->setGeometry(snapRect(geometry));
 
     QList<VCSpeedDialFunction> funcs;
@@ -787,7 +813,7 @@ int VCBridgeV4::addAudioTriggers(int parentID, const QRect &geometry)
     if (!frame) return -1;
 
     VCAudioTriggers *triggers = new VCAudioTriggers(frame, m_doc);
-    m_vc->setupWidget(triggers, frame);
+    registerWidget(m_vc, triggers, frame);
     triggers->setGeometry(snapRect(geometry));
 
     return triggers->id();
@@ -868,7 +894,7 @@ int VCBridgeV4::addClock(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCClock *clock = new VCClock(frame, m_doc);
-    m_vc->setupWidget(clock, frame);
+    registerWidget(m_vc, clock, frame);
     clock->setGeometry(snapRect(geometry));
 
     if (clockType == "stopwatch")
@@ -1491,7 +1517,7 @@ int VCBridgeV4::addMatrix(int parentID, const QRect &geometry,
     if (!frame) return -1;
 
     VCMatrix *matrix = new VCMatrix(frame, m_doc);
-    m_vc->setupWidget(matrix, frame);
+    registerWidget(m_vc, matrix, frame);
 
     matrix->setGeometry(snapRect(geometry));
     if (!caption.isEmpty())
