@@ -178,7 +178,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     continue;
                 }
 
-                int widgetType = VCType::fromDisplayString(details.type);
+                int widgetType = VCType::fromString(details.type.toStdString());
 
                 // 2. Validate fields for this widget type
                 auto validationErr = VCValidate::validate(item, widgetType, false);

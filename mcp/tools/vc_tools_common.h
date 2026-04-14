@@ -92,7 +92,9 @@ namespace VCType
         return (it != map.end()) ? it.value() : Unknown;
     }
 
-    /** Map enum → JSON type name (for error messages). */
+    /** Map enum → JSON type name. This is the CANONICAL MCP type vocabulary.
+     *  Used by both bridges (output) and all tools (input validation).
+     *  Every widget type string in the MCP protocol MUST come from here. */
     inline std::string toString(int type)
     {
         static const QMap<int, std::string> map = {
@@ -110,6 +112,32 @@ namespace VCType
         };
         auto it = map.find(type);
         return (it != map.end()) ? it.value() : "unknown";
+    }
+
+    /** Convert VCType enum → QString for use in VCBridge structs. */
+    inline QString toQString(int type)
+    {
+        return QString::fromStdString(toString(type));
+    }
+
+    /** Map a VCWidget::type() int (from either v4 or v5) → VCType enum.
+     *  Both v4 and v5 use the same enum values (0=Unknown, 1=Button, ...).
+     *  This is the bridge between Qt widget internals and MCP protocol. */
+    inline int fromWidgetInt(int widgetTypeInt)
+    {
+        // VCWidget enums match VCType values (by design, same order)
+        // 0=Unknown, 1=Button, 2=Slider, 3=XYPad, 4=Frame, 5=SoloFrame,
+        // 6=SpeedDial/Speed, 7=CueList, 8=Label, 9=AudioTriggers, 10=Animation, 11=Clock
+        if (widgetTypeInt >= Button && widgetTypeInt <= Clock)
+            return widgetTypeInt;
+        return Unknown;
+    }
+
+    /** Shortcut: VCWidget::type() int → MCP canonical type string.
+     *  Use this in bridge implementations instead of VCWidget::typeToString(). */
+    inline QString widgetTypeToMcp(int widgetTypeInt)
+    {
+        return toQString(fromWidgetInt(widgetTypeInt));
     }
 }
 

@@ -214,7 +214,7 @@ def test_create_scenes(c: McpClient, s: TestSuite):
         ]})
         assert len(result) == 3, f"expected 3 scenes, got {len(result)}"
         for r in result:
-            assert r.get("status") in ("created", "updated"), f"unexpected: {r}"
+            assert r.get("status") in ("created", "updated", "existing"), f"unexpected: {r}"
     run_test(s, "create_scenes (3 scenes)", t)
 
 
@@ -223,7 +223,7 @@ def test_create_chasers(c: McpClient, s: TestSuite):
         result = c.call_tool("create_chasers", {"items": [
             {"name": "RGB Chase", "steps": ["All Red", "All Blue", "All Off"]},
         ]})
-        assert result[0].get("status") in ("created", "updated"), f"unexpected: {result[0]}"
+        assert result[0].get("status") in ("created", "updated", "existing"), f"unexpected: {result[0]}"
     run_test(s, "create_chasers", t)
 
 
@@ -232,7 +232,7 @@ def test_create_collections(c: McpClient, s: TestSuite):
         result = c.call_tool("create_collections", {"items": [
             {"name": "All On", "functionNames": ["All Red"]},
         ]})
-        assert result[0].get("status") in ("created", "updated"), f"unexpected: {result[0]}"
+        assert result[0].get("status") in ("created", "updated", "existing"), f"unexpected: {result[0]}"
     run_test(s, "create_collections", t)
 
 
@@ -267,7 +267,7 @@ def test_create_palettes(c: McpClient, s: TestSuite):
         result = c.call_tool("create_palettes", {"items": [
             {"name": "Red Wash", "type": "Color", "rgb": "#FF0000"},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "create_palettes", t)
 
 
@@ -311,7 +311,7 @@ def test_vc_create_button(c: McpClient, s: TestSuite):
              "x": 10, "y": 10, "width": 120, "height": 60,
              "caption": "Run Chase", "functionName": "RGB Chase"},
         ]})
-        assert result[0].get("status") in ("created", "updated"), f"unexpected: {result[0]}"
+        assert result[0].get("status") in ("created", "updated", "existing"), f"unexpected: {result[0]}"
     run_test(s, "vc_create_widgets (button)", t)
 
 
@@ -328,7 +328,7 @@ def test_vc_create_slider(c: McpClient, s: TestSuite):
                  {"fixtureID": 3, "channel": 0},
              ]},
         ]})
-        assert result[0].get("status") in ("created", "updated"), f"unexpected: {result[0]}"
+        assert result[0].get("status") in ("created", "updated", "existing"), f"unexpected: {result[0]}"
     run_test(s, "vc_create_widgets (slider)", t)
 
 
@@ -339,7 +339,7 @@ def test_vc_create_frame(c: McpClient, s: TestSuite):
              "x": 230, "y": 10, "width": 250, "height": 200,
              "caption": "Controls"},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "vc_create_widgets (frame)", t)
 
 
@@ -350,7 +350,7 @@ def test_vc_create_label(c: McpClient, s: TestSuite):
              "x": 10, "y": 80, "width": 120, "height": 30,
              "caption": "MCP V4 Test"},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "vc_create_widgets (label)", t)
 
 
@@ -361,7 +361,7 @@ def test_vc_create_cuelist(c: McpClient, s: TestSuite):
              "x": 10, "y": 230, "width": 200, "height": 150,
              "caption": "My CueList", "chaserName": "RGB Chase"},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "vc_create_widgets (cuelist)", t)
 
 
@@ -376,7 +376,7 @@ def test_vc_create_speeddial(c: McpClient, s: TestSuite):
              "x": 500, "y": 10, "width": 150, "height": 150,
              "caption": "Speed", "functionIDs": fids},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "vc_create_widgets (speedDial)", t)
 
 
@@ -387,7 +387,7 @@ def test_vc_create_clock(c: McpClient, s: TestSuite):
              "x": 500, "y": 170, "width": 150, "height": 50,
              "caption": "Clock"},
         ]})
-        assert result[0].get("status") in ("created", "updated")
+        assert result[0].get("status") in ("created", "updated", "existing")
     run_test(s, "vc_create_widgets (clock)", t)
 
 
@@ -425,9 +425,12 @@ def test_vc_update_widgets(c: McpClient, s: TestSuite):
         button_id = _find_widget_id(pages, "button")
         assert button_id is not None, f"no button widget found. Pages: {json.dumps(pages)[:300]}"
         result = c.call_tool("vc_update_widgets", {"items": [
-            {"id": button_id, "caption": "🎵 Chase!", "bgColor": "#003366"},
+            {"widgetID": button_id, "caption": "🎵 Chase!", "bgColor": "#003366"},
         ]})
-        assert result[0].get("status") in ("updated", "ok"), f"unexpected: {result[0]}"
+        # Response can be {"status": "ok"} or {"changes": [...]}
+        r = result[0]
+        ok = r.get("status") in ("updated", "ok") or "changes" in r
+        assert ok, f"unexpected: {r}"
     run_test(s, "vc_update_widgets (caption+color)", t)
 
 
@@ -448,7 +451,7 @@ def test_vc_delete_widgets(c: McpClient, s: TestSuite):
         ]})
         wid = created[0].get("id") or created[0].get("widgetID")
         assert wid is not None and wid >= 0, f"no valid widget ID returned: {created}"
-        result = c.call_tool("vc_delete_widgets", {"widgetIDs": [wid]})
+        result = c.call_tool("vc_delete_widgets", {"ids": [wid]})
     run_test(s, "vc_delete_widgets", t)
 
 

@@ -18,6 +18,7 @@
 */
 
 #include "vcbridgev4.h"
+#include "vc_tools_common.h"
 #include "virtualconsole.h"
 #include "vcframe.h"
 #include "vcsoloframe.h"
@@ -47,6 +48,26 @@
 #include "qlcinputfeedback.h"
 
 #include <QDebug>
+
+// ---------------------------------------------------------------------------
+// Helper: resolve parentID to a VCFrame*. Falls back to root frame for
+// invalid IDs (including -1 / UINT_MAX). This is the single point of
+// parent resolution — all addWidget methods must use this.
+// ---------------------------------------------------------------------------
+
+static VCFrame *resolveParentFrame(VirtualConsole *vc, int parentID)
+{
+    // -1 (or any invalid ID) → root frame
+    if (parentID < 0)
+        return vc->contents();
+
+    VCWidget *w = vc->widget(static_cast<quint32>(parentID));
+    if (!w)
+        return vc->contents();
+
+    VCFrame *frame = qobject_cast<VCFrame *>(w);
+    return frame ? frame : vc->contents();
+}
 
 // ---------------------------------------------------------------------------
 // Source definition table — maps widget class → valid {name, ID, description}.
@@ -297,7 +318,7 @@ QList<VCBridge::PageInfo> VCBridgeV4::pages() const
 
             WidgetInfo wi;
             wi.id = w->id();
-            wi.type = VCWidget::typeToString(w->type());
+            wi.type = VCType::widgetTypeToMcp(w->type());
             wi.caption = w->caption();
             wi.geometry = w->geometry();
             wi.functionID = Function::invalidId();
@@ -356,8 +377,7 @@ int VCBridgeV4::addFrame(int pageIndex, const QRect &geometry,
 int VCBridgeV4::addFrameInFrame(int parentID, const QRect &geometry,
                                  const QString &caption, bool solo)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCWidget *widget;
@@ -383,8 +403,7 @@ int VCBridgeV4::addButton(int parentID, const QRect &geometry,
                           const QString &action,
                           int stopAllFadeTime)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCButton *button = new VCButton(frame, m_doc);
@@ -418,8 +437,7 @@ int VCBridgeV4::addSlider(int parentID, const QRect &geometry,
                           quint32 functionID,
                           const QList<QPair<quint32, quint32>> &channels)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCSlider *slider = new VCSlider(frame, m_doc);
@@ -467,8 +485,7 @@ int VCBridgeV4::addXYPadEx(int parentID, const QRect &geometry,
                             const QString &displayMode,
                             bool invertedAppearance)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCXYPad *xyPad = new VCXYPad(frame, m_doc);
@@ -556,8 +573,7 @@ bool VCBridgeV4::removeXYPadFixture(int widgetID, quint32 fixtureID, int head)
 int VCBridgeV4::addCueList(int parentID, const QRect &geometry,
                            quint32 chaserID, const QString &caption)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCCueList *cuelist = new VCCueList(frame, m_doc);
@@ -578,8 +594,7 @@ int VCBridgeV4::addCueList(int parentID, const QRect &geometry,
 int VCBridgeV4::addLabel(int parentID, const QRect &geometry,
                          const QString &text)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCLabel *label = new VCLabel(frame, m_doc);
@@ -747,8 +762,7 @@ bool VCBridgeV4::setWidgetColors(int widgetID, const QColor &bgColor, const QCol
 int VCBridgeV4::addSpeedDial(int parentID, const QRect &geometry,
                               const QList<quint32> &functionIDs)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCSpeedDial *speedDial = new VCSpeedDial(frame, m_doc);
@@ -769,8 +783,7 @@ int VCBridgeV4::addSpeedDial(int parentID, const QRect &geometry,
 
 int VCBridgeV4::addAudioTriggers(int parentID, const QRect &geometry)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCAudioTriggers *triggers = new VCAudioTriggers(frame, m_doc);
@@ -851,8 +864,7 @@ bool VCBridgeV4::setAudioTriggerBarsNumber(int widgetID, int count)
 int VCBridgeV4::addClock(int parentID, const QRect &geometry,
                           const QString &clockType)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCClock *clock = new VCClock(frame, m_doc);
@@ -890,22 +902,29 @@ int VCBridgeV4::findPageByName(const QString &name) const
 int VCBridgeV4::findWidgetByCaption(int parentID, const QString &widgetType,
                                      const QString &caption) const
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
-    int targetType = VCWidget::UnknownWidget;
-    if (widgetType == "Button") targetType = VCWidget::ButtonWidget;
-    else if (widgetType == "Slider") targetType = VCWidget::SliderWidget;
-    else if (widgetType == "XYPad") targetType = VCWidget::XYPadWidget;
-    else if (widgetType == "Frame") targetType = VCWidget::FrameWidget;
-    else if (widgetType == "Solo frame") targetType = VCWidget::SoloFrameWidget;
-    else if (widgetType == "Speed") targetType = VCWidget::SpeedDialWidget;
-    else if (widgetType == "CueList") targetType = VCWidget::CueListWidget;
-    else if (widgetType == "Label") targetType = VCWidget::LabelWidget;
-    else if (widgetType == "Audio Triggers") targetType = VCWidget::AudioTriggersWidget;
-    else if (widgetType == "Clock") targetType = VCWidget::ClockWidget;
-    else if (widgetType == "Animation") targetType = VCWidget::AnimationWidget;
+    // Accept both MCP names ("button", "soloframe") and display names ("Button", "Solo frame")
+    int vcType = VCType::fromString(widgetType.toStdString());
+    if (vcType == VCType::Unknown)
+        vcType = VCType::fromDisplayString(widgetType);
+
+    // Map VCType enum → v4 widget type int
+    static const QMap<int, int> typeMap = {
+        {VCType::Button,        VCWidget::ButtonWidget},
+        {VCType::Slider,        VCWidget::SliderWidget},
+        {VCType::XYPad,         VCWidget::XYPadWidget},
+        {VCType::Frame,         VCWidget::FrameWidget},
+        {VCType::SoloFrame,     VCWidget::SoloFrameWidget},
+        {VCType::SpeedDial,     VCWidget::SpeedDialWidget},
+        {VCType::CueList,       VCWidget::CueListWidget},
+        {VCType::Label,         VCWidget::LabelWidget},
+        {VCType::AudioTriggers, VCWidget::AudioTriggersWidget},
+        {VCType::Animation,     VCWidget::AnimationWidget},
+        {VCType::Clock,         VCWidget::ClockWidget},
+    };
+    int targetType = typeMap.value(vcType, VCWidget::UnknownWidget);
 
     // v4: iterate QWidget children
     for (QObject *obj : frame->children())
@@ -919,8 +938,7 @@ int VCBridgeV4::findWidgetByCaption(int parentID, const QString &widgetType,
 
 QRect VCBridgeV4::nextWidgetPosition(int parentID, int width, int height) const
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame)
         return QRect(5, 5, width, height);
 
@@ -940,8 +958,7 @@ QRect VCBridgeV4::nextWidgetPosition(int parentID, int width, int height) const
 QRect VCBridgeV4::nextWidgetPositionFlow(int parentID, int widgetWidth, int widgetHeight,
                                           int columns) const
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame)
         return QRect(5, 5, widgetWidth, widgetHeight);
 
@@ -993,7 +1010,7 @@ VCBridge::WidgetDetails VCBridgeV4::getWidgetDetails(int widgetID) const
 
     WidgetDetails d;
     d.id = widgetID;
-    d.type = VCWidget::typeToString(widget->type());
+    d.type = VCType::widgetTypeToMcp(widget->type());
     d.caption = widget->caption();
     d.geometry = widget->geometry();
     d.bgColor = widget->backgroundColor();
@@ -1470,8 +1487,7 @@ bool VCBridgeV4::reparentWidget(int widgetID, int newParentID, const QRect &geo)
 int VCBridgeV4::addMatrix(int parentID, const QRect &geometry,
                           quint32 functionID, const QString &caption)
 {
-    VCWidget *parent = m_vc->widget(parentID);
-    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    VCFrame *frame = resolveParentFrame(m_vc, parentID);
     if (!frame) return -1;
 
     VCMatrix *matrix = new VCMatrix(frame, m_doc);

@@ -314,7 +314,8 @@ inline bool filterWidget(const VCBridge::WidgetDetails &d, const Json &args)
     if (args.contains("typeFilter"))
     {
         const auto &tf = args["typeFilter"];
-        std::string wtype = d.type.toLower().toStdString();
+        // d.type is in MCP canonical form (from VCType::toString)
+        std::string wtype = d.type.toStdString();
         bool match = false;
         if (tf.is_string())
         {

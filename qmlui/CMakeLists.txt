@@ -250,6 +250,7 @@ if(mcp_server)
     target_compile_definitions(${module_name} PRIVATE HAS_MCP_SERVER)
     target_include_directories(${module_name} PRIVATE
         ${CMAKE_SOURCE_DIR}/mcp
+        ${CMAKE_SOURCE_DIR}/mcp/tools
         ${CMAKE_CURRENT_SOURCE_DIR}/mcp
     )
 endif()

@@ -238,7 +238,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                 {
                                     for (const auto &w : page.widgets)
                                     {
-                                        if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                                        if ((w.type == "frame" || w.type == "soloframe") && w.caption == caption)
                                         {
                                             existingId = w.id;
                                             break;
@@ -256,9 +256,9 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         else
                         {
                             int parentID = item.at("parentID").get<int>();
-                            int existingId = vcBridge->findWidgetByCaption(parentID, "Frame", caption);
+                            int existingId = vcBridge->findWidgetByCaption(parentID, "frame", caption);
                             if (existingId < 0)
-                                existingId = vcBridge->findWidgetByCaption(parentID, "Solo frame", caption);
+                                existingId = vcBridge->findWidgetByCaption(parentID, "soloframe", caption);
                             if (existingId >= 0)
                             {
                                 results.push_back({{"widgetID", existingId}, {"status", "existing"}});
@@ -318,7 +318,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Button", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "button", caption);
                         if (existingId >= 0)
                         {
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
@@ -382,7 +382,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     // Upsert: find existing slider by caption, update if found
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Slider", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "slider", caption);
                         if (existingId >= 0)
                         {
                             if (hasSliderConfig(sliderCfg))
@@ -515,7 +515,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "CueList", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "cuelist", caption);
                         if (existingId >= 0)
                         {
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
@@ -566,7 +566,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString text = QString::fromStdString(item.value("caption", item.value("text", "")));
                     if (!text.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Label", text);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "label", text);
                         if (existingId >= 0)
                         {
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});

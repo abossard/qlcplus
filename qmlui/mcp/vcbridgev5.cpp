@@ -18,6 +18,7 @@
 */
 
 #include "vcbridgev5.h"
+#include "vc_tools_common.h"
 #include "virtualconsole.h"
 #include "vcpage.h"
 #include "vcframe.h"
@@ -217,7 +218,7 @@ QList<VCBridge::PageInfo> VCBridgeV5::pages() const
         {
             WidgetInfo wi;
             wi.id = w->id();
-            wi.type = VCWidget::typeToString(w->type());
+            wi.type = VCType::widgetTypeToMcp(w->type());
             wi.caption = w->caption();
             wi.geometry = w->geometry().toRect();
             wi.functionID = Function::invalidId();
@@ -830,7 +831,7 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
 
     WidgetDetails d;
     d.id = widgetID;
-    d.type = VCWidget::typeToString(widget->type());
+    d.type = VCType::widgetTypeToMcp(widget->type());
     d.caption = widget->caption();
     d.geometry = widget->geometry().toRect();
     d.bgColor = widget->backgroundColor();
