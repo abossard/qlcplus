@@ -42,6 +42,12 @@ target_link_libraries(qlcplusmcp PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
 )
 target_compile_definitions(qlcplusmcp PUBLIC HAS_MCP_SERVER)
+if(qmlui OR (QT_VERSION_MAJOR GREATER 5))
+    target_compile_definitions(qlcplusmcp PRIVATE MCP_USE_QJSENGINE)
+endif()
+if(qmlui)
+    target_compile_definitions(qlcplusmcp PRIVATE MCP_SCRIPT_V5)
+endif()
 target_compile_features(qlcplusmcp PUBLIC cxx_std_17)
 
 add_subdirectory(test)

@@ -29,7 +29,11 @@
 #include "scene.h"
 #include "rgbmatrix.h"
 #include "rgbalgorithm.h"
+#ifdef MCP_USE_QJSENGINE
 #include "rgbscriptv4.h"
+#else
+#include "rgbscript.h"
+#endif
 #include "rgbtext.h"
 #include "rgbimage.h"
 #include "rgbaudio.h"

@@ -44,6 +44,11 @@ else()
     list(APPEND WEBACCESS_SOURCES
         webaccess.cpp webaccess.h
     )
+    # Prevent AUTOMOC from processing v5-only headers when building v4
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/webaccess-qml.h
+        PROPERTIES SKIP_AUTOMOC ON
+    )
 endif()
 
 if(qmlui)

@@ -46,6 +46,13 @@
 #include "app.h"
 #include "doc.h"
 
+#ifdef HAS_MCP_SERVER
+#include "mcpinit_v4.h"
+#include "vcbridgev4.h"
+#include "mcpserver.h"
+#include "function.h"
+#endif
+
 /* Use this namespace for command-line arguments so that we don't pollute
    the global namespace. */
 namespace QLCArgs
@@ -101,6 +108,14 @@ namespace QLCArgs
     bool logToFile = false;
 
     QFile logFile;
+
+#ifdef HAS_MCP_SERVER
+    /** MCP server port (0 = default 9696) */
+    int mcpPort = 9696;
+
+    /** If true, disable the MCP server */
+    bool noMcp = false;
+#endif
 
 #if defined(WIN32) || defined(__APPLE__)
     /** The debug windows for Windows and OSX */
@@ -175,6 +190,10 @@ void printUsage()
     cout << "  -wp or --web-port <port>\t\tSet the port to use for web access" << endl;
     cout << "  -wa or --web-auth\t\tEnable remote web access with users authentication" << endl;
     cout << "  -a or --web-auth-file <file>\tSpecify a file where to store web access basic authentication credentials" << endl;
+#ifdef HAS_MCP_SERVER
+    cout << "  --mcp-port <port>\t\tSet MCP HTTP server port (default 9696)" << endl;
+    cout << "  --no-mcp\t\t\tDisable the MCP HTTP server" << endl;
+#endif
     cout << endl;
 }
 
@@ -290,6 +309,17 @@ bool parseArgs()
                exit by returning false. */
             return false;
         }
+#ifdef HAS_MCP_SERVER
+        else if (arg == "--mcp-port")
+        {
+            if (it.hasNext() == true)
+                QLCArgs::mcpPort = it.next().toInt();
+        }
+        else if (arg == "--no-mcp")
+        {
+            QLCArgs::noMcp = true;
+        }
+#endif
     }
 
     return true;
@@ -373,6 +403,26 @@ int main(int argc, char** argv)
         QObject::connect(webAccess, SIGNAL(storeAutostartProject(QString)),
                 &app, SLOT(slotSaveAutostart(QString)));
     }
+
+#ifdef HAS_MCP_SERVER
+    if (!QLCArgs::noMcp)
+    {
+        VCBridgeV4 *vcBridge = nullptr;
+        VirtualConsole *vc = VirtualConsole::instance();
+        if (vc)
+            vcBridge = new VCBridgeV4(app.doc(), vc);
+
+        DeleteFunctionFn deleteFunc = [&app](quint32 id) {
+            Function *f = app.doc()->function(id);
+            if (f && f->isRunning())
+                f->stopAndWait();
+            app.doc()->deleteFunction(id);
+        };
+
+        McpServer *mcpServer = new McpServer(app.doc(), vcBridge, std::move(deleteFunc));
+        mcpServer->startHttp(QLCArgs::mcpPort);
+    }
+#endif
 
     return qapp.exec();
 }

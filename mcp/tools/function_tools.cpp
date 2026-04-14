@@ -33,14 +33,25 @@
 #include "efxfixture.h"
 #include "rgbmatrix.h"
 #include "rgbalgorithm.h"
-#include "rgbscriptv4.h"
 #include "rgbtext.h"
 #include "rgbimage.h"
 #include "fixturegroup.h"
-#include "scriptv4.h"
 #include "scenevalue.h"
 #include "inputoutputmap.h"
 #include "universe.h"
+
+// v5 uses scriptv4.h with QJSEngine; v4 uses script.h with QScriptEngine
+#ifdef MCP_SCRIPT_V5
+#include "scriptv4.h"
+#else
+#include "script.h"
+#endif
+// Qt6+ and qmlui use rgbscriptv4.h (QJSEngine); Qt5 v4 uses rgbscript.h (QScriptEngine)
+#ifdef MCP_USE_QJSENGINE
+#include "rgbscriptv4.h"
+#else
+#include "rgbscript.h"
+#endif
 
 #include <QRegularExpression>
 #include <fastmcpp/tools/manager.hpp>
@@ -1219,8 +1230,23 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, DeleteFun
                 QString qContent = QString::fromStdString(content);
                 script->setData(qContent);
 
-                QStringList syntaxErrors = script->syntaxErrorsLines();
-                if (!syntaxErrors.isEmpty())
+                auto syntaxErrors = script->syntaxErrorsLines();
+                bool hasSyntaxErrors = false;
+                Json errorList = Json::array();
+
+#ifdef MCP_SCRIPT_V5
+                // v5: syntaxErrorsLines() returns QStringList of error messages
+                hasSyntaxErrors = !syntaxErrors.isEmpty();
+                for (const QString &err : syntaxErrors)
+                    errorList.push_back(err.toStdString());
+#else
+                // v4: syntaxErrorsLines() returns QList<int> of error line numbers
+                hasSyntaxErrors = !syntaxErrors.isEmpty();
+                for (int lineNum : syntaxErrors)
+                    errorList.push_back("Syntax error at line " + std::to_string(lineNum));
+#endif
+
+                if (hasSyntaxErrors)
                 {
                     // Syntax errors — reject: restore previous state or discard
                     if (isNew)
@@ -1231,10 +1257,6 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, DeleteFun
                     {
                         script->setData(previousData);
                     }
-
-                    Json errorList = Json::array();
-                    for (const QString &err : syntaxErrors)
-                        errorList.push_back(err.toStdString());
 
                     results.push_back({
                         {"error", "JavaScript syntax check failed"},

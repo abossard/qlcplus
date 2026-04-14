@@ -144,6 +144,12 @@ if(qmlui)
     )
 else()
     target_sources(${module_name} PRIVATE script.cpp script.h)
+    # Prevent AUTOMOC from processing v5-only headers when building v4
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/scriptrunner.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/scriptv4.h
+        PROPERTIES SKIP_AUTOMOC ON
+    )
 endif()
 
 if((NOT ANDROID AND NOT IOS) AND (${FFTW3_FOUND}))

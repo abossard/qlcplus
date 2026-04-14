@@ -50,6 +50,19 @@ else()
     )
 endif()
 
+if(mcp_server)
+    target_sources(${module_name} PRIVATE
+        ../ui/src/mcp/vcbridgev4.cpp ../ui/src/mcp/vcbridgev4.h
+        ../ui/src/mcp/mcpinit_v4.cpp ../ui/src/mcp/mcpinit_v4.h
+    )
+    target_link_libraries(${module_name} PRIVATE qlcplusmcp)
+    target_compile_definitions(${module_name} PRIVATE HAS_MCP_SERVER)
+    target_include_directories(${module_name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/mcp
+        ${CMAKE_SOURCE_DIR}/ui/src/mcp
+    )
+endif()
+
 install(TARGETS ${module_name}
     DESTINATION ${INSTALLROOT}/${BINDIR}
 )
