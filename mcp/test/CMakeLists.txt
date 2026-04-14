@@ -76,6 +76,8 @@ target_link_libraries(mcp_palette_integration_test PRIVATE
 )
 
 # Script Tool tests — exercises JavaScript-only create_scripts MCP tool
+# Only built for v5 (qmlui) because it uses scriptv4.h / QJSEngine
+if(qmlui)
 add_executable(mcp_script_tool_test WIN32
     script_tool_test.cpp script_tool_test.h
 )
@@ -95,6 +97,7 @@ target_link_libraries(mcp_script_tool_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+endif()
 
 # RGB Transform tests — exercises RGBMatrix::applyTransforms rotation and mirroring
 add_executable(mcp_rgb_transform_test WIN32
