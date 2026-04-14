@@ -11,8 +11,6 @@ FetchContent_MakeAvailable(fastmcpp)
 set(MCP_SOURCES
     mcpserver.cpp mcpserver.h
     vcbridge.h
-    vcbridgev5.cpp vcbridgev5.h
-    mcpinit.cpp mcpinit.h
     tools/tool_registry.h
     tools/vc_query_helpers.h
     tools/query_tools.cpp
@@ -35,16 +33,12 @@ target_include_directories(qlcplusmcp PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/src
     ${CMAKE_SOURCE_DIR}/engine/audio/src
     ${CMAKE_SOURCE_DIR}/plugins/interfaces
-    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
-    ${CMAKE_SOURCE_DIR}/qmlui
 )
 
 target_link_libraries(qlcplusmcp PUBLIC fastmcpp_core qlcplusengine)
 target_link_libraries(qlcplusmcp PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
-    Qt${QT_VERSION_MAJOR}::Quick
-    Qt${QT_VERSION_MAJOR}::Qml
     Qt${QT_VERSION_MAJOR}::Widgets
 )
 target_compile_definitions(qlcplusmcp PUBLIC HAS_MCP_SERVER)

@@ -20,7 +20,6 @@
 #include "tool_registry.h"
 #include "idempotency.h"
 #include "conversions.h"
-#include "functionmanager.h"
 #include "doc.h"
 #include "fixture.h"
 #include "qlcchannel.h"
@@ -47,7 +46,7 @@
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
-void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionManager *funcMgr)
+void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, DeleteFunctionFn deleteFunc)
 {
     using Json = nlohmann::json;
     using Tool = fastmcpp::tools::Tool;
@@ -1404,7 +1403,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Function IDs to delete"}}}
         }}, {"required", {"ids"}}},
         Json{},
-        [doc, funcMgr](const Json &args) -> Json {
+        [doc, deleteFunc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"ids"});
             if (!err.empty()) return err;
@@ -1418,8 +1417,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     results.push_back({{"id", id}, {"status", "not found"}});
                     continue;
                 }
-                if (funcMgr)
-                    funcMgr->deleteFunction(id);
+                if (deleteFunc)
+                    deleteFunc(id);
                 else
                     doc->deleteFunction(id);
                 results.push_back({{"id", id}, {"status", "deleted"}});

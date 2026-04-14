@@ -240,9 +240,18 @@ target_sources(${module_name} PUBLIC
 )
 
 if(mcp_server)
+    target_sources(${module_name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/mcp/vcbridgev5.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mcp/vcbridgev5.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/mcp/mcpinit_v5.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mcp/mcpinit_v5.h
+    )
     target_link_libraries(${module_name} PRIVATE qlcplusmcp)
     target_compile_definitions(${module_name} PRIVATE HAS_MCP_SERVER)
-    target_include_directories(${module_name} PRIVATE ${CMAKE_SOURCE_DIR}/mcp)
+    target_include_directories(${module_name} PRIVATE
+        ${CMAKE_SOURCE_DIR}/mcp
+        ${CMAKE_CURRENT_SOURCE_DIR}/mcp
+    )
 endif()
 
 install(TARGETS ${module_name} DESTINATION ${INSTALLROOT}/${BINDIR})

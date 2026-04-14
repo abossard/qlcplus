@@ -23,16 +23,21 @@
 #include <QObject>
 #include <QString>
 #include <memory>
+#include <functional>
 
 class Doc;
 class VCBridge;
 class InputOutputMap;
-class FunctionManager;
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 namespace fastmcpp { namespace resources { class ResourceManager; } }
 namespace fastmcpp { namespace server { class Server; class StreamableHttpServerWrapper; } }
+
+/** Callback to delete a function by ID. Each UI provides its own implementation
+ *  to handle undo, sequence cleanup, etc. Falls back to Doc::deleteFunction
+ *  if not provided. */
+using DeleteFunctionFn = std::function<void(quint32)>;
 
 /**
  * MCP (Model Context Protocol) server for QLC+.
@@ -44,7 +49,7 @@ class McpServer : public QObject
     Q_OBJECT
 
 public:
-    McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr = nullptr,
+    McpServer(Doc *doc, VCBridge *vcBridge, DeleteFunctionFn deleteFunc = nullptr,
               QObject *parent = nullptr);
     ~McpServer();
 
@@ -55,7 +60,7 @@ public:
 private:
     Doc *m_doc;
     VCBridge *m_vcBridge;
-    FunctionManager *m_funcMgr;
+    DeleteFunctionFn m_deleteFunc;
     std::unique_ptr<fastmcpp::tools::ToolManager> m_toolManager;
     std::unique_ptr<fastmcpp::prompts::PromptManager> m_promptManager;
     std::unique_ptr<fastmcpp::resources::ResourceManager> m_resourceManager;

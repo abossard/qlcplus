@@ -29,11 +29,11 @@
 
 #include <QDebug>
 
-McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QObject *parent)
+McpServer::McpServer(Doc *doc, VCBridge *vcBridge, DeleteFunctionFn deleteFunc, QObject *parent)
     : QObject(parent)
     , m_doc(doc)
     , m_vcBridge(vcBridge)
-    , m_funcMgr(funcMgr)
+    , m_deleteFunc(std::move(deleteFunc))
     , m_toolManager(std::make_unique<fastmcpp::tools::ToolManager>())
     , m_promptManager(std::make_unique<fastmcpp::prompts::PromptManager>())
     , m_resourceManager(std::make_unique<fastmcpp::resources::ResourceManager>())
@@ -65,7 +65,7 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr, QOb
           )))
 {
     registerQueryTools(*m_toolManager, m_doc, m_vcBridge);
-    registerFunctionTools(*m_toolManager, m_doc, m_funcMgr);
+    registerFunctionTools(*m_toolManager, m_doc, m_deleteFunc);
     registerVCCreateTools(*m_toolManager, m_doc, m_vcBridge);
     registerVCUpdateTools(*m_toolManager, m_doc, m_vcBridge);
     registerVCInputTools(*m_toolManager, m_doc, m_vcBridge);

@@ -28,15 +28,18 @@
 #include <initializer_list>
 #include <string>
 #include <vector>
+#include <functional>
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
 class VCBridge;
-class FunctionManager;
+
+/** Callback to delete a function by ID (provided by UI layer). */
+using DeleteFunctionFn = std::function<void(quint32)>;
 
 // Each tool file exports one registration function.
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
-void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionManager *funcMgr = nullptr);
+void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, DeleteFunctionFn deleteFunc = nullptr);
 void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
 void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
