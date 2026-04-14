@@ -248,6 +248,9 @@ int VCBridgeV4::addPage(const QString &name)
 
     if (!root->multipageMode())
     {
+        // Ensure header layout exists before enabling multipage
+        // (setMultipageMode inserts widgets into m_hbox which is created by the header)
+        root->setHeaderVisible(true);
         root->setMultipageMode(true);
         root->setTotalPagesNumber(1);
     }
