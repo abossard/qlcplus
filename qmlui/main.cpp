@@ -22,6 +22,7 @@
 #include <QSurfaceFormat>
 #include <QCommandLineParser>
 #include <QQmlApplicationEngine>
+#include <QStyleHints>
 
 #include "app.h"
 #include "networkmanager.h"
@@ -53,6 +54,9 @@ void printVersion()
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+
+    /* Force dark mode so the macOS title bar and window chrome match the dark UI */
+    QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
 
     // Since Qt6, the default rendering backend is Rhi. 
     // QLC+ doesn't support it yet so OpenGL have to be forced.

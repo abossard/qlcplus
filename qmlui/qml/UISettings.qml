@@ -56,9 +56,16 @@ QtObject
     property color toolbarEnd:        "#111"
     property color toolbarHoverStart: "#444"
     property color toolbarHoverEnd:   "#171717"
+    property color toolbarPressedStart: "#6F6F6F"
+    property color toolbarPressedEnd:   "#333"
 
     property color toolbarSelectionMain: "#12B4FF"
     property color toolbarSelectionSub:  "yellow"
+
+    property color frameHeaderStart:      "#666666"
+    property color frameHeaderEnd:        "#000000"
+    property color soloFrameHeaderStart:  "#BC0A0A"
+    property color soloFrameHeaderEnd:    "#370303"
 
     /* Sizes */
     property int  textSizeDefault:  screenPixelDensity * scalingFactor * 4.5

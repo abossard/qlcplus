@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -729,31 +729,10 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
-   <Frame Caption="Experiment" ID="3">
-    <WindowState Visible="True" X="0" Y="0" Width="885" Height="75"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="▶ Play" ID="10">
-     <WindowState Visible="True" X="690" Y="45" Width="195" Height="30"/>
-     <Appearance>
-      <ForegroundColor>4278255360</ForegroundColor>
-      <BackgroundColor>4278203136</BackgroundColor>
-     </Appearance>
-     <Function ID="29"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Label Caption="R3-01: Layered — color chaser + audio texture + bass punch" ID="9">
-     <WindowState Visible="True" X="0" Y="45" Width="690" Height="30"/>
-     <Appearance>
-      <ForegroundColor>4278244607</ForegroundColor>
-      <BackgroundColor>4279900718</BackgroundColor>
-     </Appearance>
-    </Label>
-   </Frame>
    <SoloFrame Caption="Overall Rating" ID="4">
+    <Appearance>
+     <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,Regular,0,0</Font>
+    </Appearance>
     <WindowState Visible="True" X="0" Y="75" Width="600" Height="90"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
@@ -992,6 +971,30 @@
       <Font>Roboto Condensed,25,-1,5,700,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
      </Appearance>
     </AudioTriggers>
+   </Frame>
+   <Frame Caption="Experiment" ID="3">
+    <WindowState Visible="True" X="0" Y="0" Width="885" Height="75"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Label Caption="R3-01: Layered — color chaser + audio texture + bass punch" ID="9">
+     <WindowState Visible="True" X="0" Y="45" Width="690" Height="30"/>
+     <Appearance>
+      <ForegroundColor>4278244607</ForegroundColor>
+      <BackgroundColor>4279900718</BackgroundColor>
+     </Appearance>
+    </Label>
+    <Button Caption="▶ Play" ID="10">
+     <WindowState Visible="True" X="690" Y="45" Width="195" Height="30"/>
+     <Appearance>
+      <ForegroundColor>4278255360</ForegroundColor>
+      <BackgroundColor>4278203136</BackgroundColor>
+     </Appearance>
+     <Function ID="29"/>
+     <Action>Toggle</Action>
+    </Button>
    </Frame>
   </Frame>
   <Frame Caption="Page 2" ID="1">

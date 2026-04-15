@@ -87,8 +87,8 @@ VCWidgetItem
                 //radius: 3
                 gradient: Gradient
                 {
-                    GradientStop { position: 0; color: isSolo ? "#BC0A0A" : "#666666" }
-                    GradientStop { position: 1; color: isSolo ? "#370303" : "#000000" }
+                    GradientStop { position: 0; color: isSolo ? UISettings.soloFrameHeaderStart : UISettings.frameHeaderStart }
+                    GradientStop { position: 1; color: isSolo ? UISettings.soloFrameHeaderEnd : UISettings.frameHeaderEnd }
                 }
                 Layout.fillWidth: true
 

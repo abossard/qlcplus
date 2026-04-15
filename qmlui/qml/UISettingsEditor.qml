@@ -146,6 +146,33 @@ Rectangle
         columns: 4
         z: 1
 
+        // Row 0 - Theme Preset
+        RobotoText
+        {
+            height: origItemHeight
+            fontSize: origTextSizeDefault
+            label: qsTr("Theme preset")
+        }
+        RowLayout
+        {
+            Layout.columnSpan: 3
+
+            CustomComboBox
+            {
+                id: presetCombo
+                height: origItemHeight
+                implicitWidth: origIconMedium * 10
+                textRole: ""
+                model: uiManager.presetNames
+                currentIndex: model.indexOf(uiManager.currentPreset)
+                onActivated:
+                {
+                    var name = model[currentIndex]
+                    uiManager.applyPreset(name)
+                }
+            }
+        }
+
         // Row 1
         RobotoText
         {

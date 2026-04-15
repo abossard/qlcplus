@@ -134,3 +134,23 @@ target_link_libraries(mcp_vc_query_filter_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+
+# UiManager Preset tests — exercises theme preset infrastructure
+add_executable(mcp_uimanager_preset_test WIN32
+    uimanager_preset_test.cpp uimanager_preset_test.h
+    ${CMAKE_SOURCE_DIR}/qmlui/uimanager.cpp
+)
+
+target_include_directories(mcp_uimanager_preset_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/qmlui
+)
+
+target_link_libraries(mcp_uimanager_preset_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+)

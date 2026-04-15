@@ -64,8 +64,8 @@ Button
     Gradient
     {
         id: defPressedGradient
-        GradientStop { position: 0; color: UISettings.bgLight }
-        GradientStop { position: 1; color: UISettings.bgMedium }
+        GradientStop { position: 0; color: UISettings.toolbarPressedStart }
+        GradientStop { position: 1; color: UISettings.toolbarPressedEnd }
     }
 
     contentItem:

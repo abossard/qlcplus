@@ -35,6 +35,8 @@ class Doc;
 class UiManager final : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(QStringList presetNames READ presetNames CONSTANT)
+    Q_PROPERTY(QString currentPreset READ currentPreset WRITE setCurrentPreset NOTIFY currentPresetChanged)
 
 public:
     UiManager(QQuickView *view, Doc *doc, QObject *parent = nullptr);
@@ -51,7 +53,18 @@ public:
     Q_INVOKABLE QString userConfFilepath() const;
     Q_INVOKABLE bool saveSettings() const;
 
+    /** Theme preset support */
+    QStringList presetNames() const;
+    QString currentPreset() const;
+    void setCurrentPreset(const QString &name);
+    Q_INVOKABLE void applyPreset(const QString &name);
+
+signals:
+    void currentPresetChanged();
+
 private:
+    void initPresets();
+
     /** Reference to the QML view root */
     QQuickView *m_view;
 
@@ -64,6 +77,12 @@ private:
     /** A map ok key,value representing every UI parameter
      *  that can be changed at runtime */
     QMap<QString, UiProperty> m_parameterMap;
+
+    /** Built-in theme presets: name -> { colorName -> value } */
+    QMap<QString, QMap<QString, QVariant>> m_presets;
+
+    /** Currently active preset name */
+    QString m_currentPreset;
 };
 
 #endif // UIMANAGER_H

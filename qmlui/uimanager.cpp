@@ -33,7 +33,9 @@ UiManager::UiManager(QQuickView *view, Doc *doc, QObject *parent)
     : QObject(parent)
     , m_view(view)
     , m_doc(doc)
+    , m_currentPreset("Classic")
 {
+    initPresets();
 }
 
 UiManager::~UiManager()
@@ -83,9 +85,16 @@ void UiManager::initialize()
     setDefaultParameter("colors", "toolbarEnd", m_uiStyle->property("toolbarEnd"));
     setDefaultParameter("colors", "toolbarHoverStart", m_uiStyle->property("toolbarHoverStart"));
     setDefaultParameter("colors", "toolbarHoverEnd", m_uiStyle->property("toolbarHoverEnd"));
+    setDefaultParameter("colors", "toolbarPressedStart", m_uiStyle->property("toolbarPressedStart"));
+    setDefaultParameter("colors", "toolbarPressedEnd", m_uiStyle->property("toolbarPressedEnd"));
 
     setDefaultParameter("colors", "toolbarSelectionMain", m_uiStyle->property("toolbarSelectionMain"));
     setDefaultParameter("colors", "toolbarSelectionSub", m_uiStyle->property("toolbarSelectionSub"));
+
+    setDefaultParameter("colors", "frameHeaderStart", m_uiStyle->property("frameHeaderStart"));
+    setDefaultParameter("colors", "frameHeaderEnd", m_uiStyle->property("frameHeaderEnd"));
+    setDefaultParameter("colors", "soloFrameHeaderStart", m_uiStyle->property("soloFrameHeaderStart"));
+    setDefaultParameter("colors", "soloFrameHeaderEnd", m_uiStyle->property("soloFrameHeaderEnd"));
 
     /** Then load (if available) the user configuration */
     QFile jsonFile(userConfFilepath());
@@ -105,8 +114,22 @@ void UiManager::initialize()
         else
         {
             QJsonObject jsonObject = jsonDoc.object();
+
+            /** Apply saved preset first (if any) */
+            if (jsonObject.contains("preset"))
+            {
+                QString presetName = jsonObject.value("preset").toString();
+                if (presetName != "Classic" && m_presets.contains(presetName))
+                    applyPreset(presetName);
+                else
+                    setCurrentPreset(presetName);
+            }
+
             for (QString &category : jsonObject.keys())
             {
+                if (category == "preset")
+                    continue;
+
                 QJsonObject categoryObj = jsonObject.value(category).toObject();
                 for (QString &paramName : categoryObj.keys())
                 {
@@ -185,6 +208,9 @@ bool UiManager::saveSettings() const
         objRoot[cIt.key()] = *cIt.value();
     }
 
+    /** Store the active preset name */
+    objRoot["preset"] = m_currentPreset;
+
     /** Finally, store on file */
     QByteArray ba = QJsonDocument(objRoot).toJson();
     //QTextStream ts(stdout);
@@ -204,4 +230,88 @@ bool UiManager::saveSettings() const
     }
 
     return ret;
+}
+
+void UiManager::initPresets()
+{
+    /* VS Code Dark preset — flat, no gradients, muted foreground */
+    QMap<QString, QVariant> vscodeDark;
+    vscodeDark["bgStronger"]          = QColor("#111111");
+    vscodeDark["bgStrong"]            = QColor("#1E1E1E");
+    vscodeDark["bgMedium"]            = QColor("#252526");
+    vscodeDark["bgControl"]           = QColor("#3C3C3C");
+    vscodeDark["bgLight"]             = QColor("#4D4D4D");
+    vscodeDark["bgLighter"]           = QColor("#585858");
+    vscodeDark["fgMain"]              = QColor("#CCCCCC");
+    vscodeDark["fgMedium"]            = QColor("#858585");
+    vscodeDark["fgLight"]             = QColor("#C5C5C5");
+    vscodeDark["sectionHeader"]       = QColor("#04395E");
+    vscodeDark["sectionHeaderDiv"]    = QColor("#37373D");
+    vscodeDark["highlight"]           = QColor("#007ACC");
+    vscodeDark["highlightPressed"]    = QColor("#0E639C");
+    vscodeDark["hover"]               = QColor("#2A2D2E");
+    vscodeDark["selection"]           = QColor("#264F78");
+    vscodeDark["activeDropArea"]      = QColor("#062F4A");
+    vscodeDark["borderColorDark"]     = QColor("#1E1E1E");
+    vscodeDark["toolbarStartMain"]    = QColor("#252526");
+    vscodeDark["toolbarStartSub"]     = QColor("#252526");
+    vscodeDark["toolbarEnd"]          = QColor("#252526");
+    vscodeDark["toolbarHoverStart"]   = QColor("#2A2D2E");
+    vscodeDark["toolbarHoverEnd"]     = QColor("#2A2D2E");
+    vscodeDark["toolbarPressedStart"] = QColor("#1B1B1F");
+    vscodeDark["toolbarPressedEnd"]   = QColor("#1B1B1F");
+    vscodeDark["toolbarSelectionMain"] = QColor("#007ACC");
+    vscodeDark["toolbarSelectionSub"] = QColor("#007ACC");
+    vscodeDark["frameHeaderStart"]     = QColor("#333333");
+    vscodeDark["frameHeaderEnd"]       = QColor("#333333");
+    vscodeDark["soloFrameHeaderStart"] = QColor("#6C1A1A");
+    vscodeDark["soloFrameHeaderEnd"]   = QColor("#6C1A1A");
+    m_presets.insert("VS Code Dark", vscodeDark);
+}
+
+QStringList UiManager::presetNames() const
+{
+    QStringList names;
+    names << "Classic";
+    names << m_presets.keys();
+    return names;
+}
+
+QString UiManager::currentPreset() const
+{
+    return m_currentPreset;
+}
+
+void UiManager::setCurrentPreset(const QString &name)
+{
+    if (m_currentPreset == name)
+        return;
+    m_currentPreset = name;
+    emit currentPresetChanged();
+}
+
+void UiManager::applyPreset(const QString &name)
+{
+    if (name == "Classic")
+    {
+        /* Restore all colors to their original defaults */
+        QMapIterator<QString, UiProperty> it(m_parameterMap);
+        while (it.hasNext())
+        {
+            it.next();
+            if (it.value().m_category == "colors")
+                setModified(it.key(), it.value().m_default);
+        }
+    }
+    else if (m_presets.contains(name))
+    {
+        const QMap<QString, QVariant> &preset = m_presets.value(name);
+        QMapIterator<QString, QVariant> it(preset);
+        while (it.hasNext())
+        {
+            it.next();
+            setModified(it.key(), it.value());
+        }
+    }
+    setCurrentPreset(name);
 }
