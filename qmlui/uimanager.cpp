@@ -140,6 +140,11 @@ void UiManager::initialize()
         }
         jsonFile.close();
     }
+    else
+    {
+        /** No saved config — apply VS Code Dark as the default theme */
+        applyPreset("VS Code Dark");
+    }
 }
 
 void UiManager::setDefaultParameter(QString category, QString name, QVariant value)
@@ -314,4 +319,5 @@ void UiManager::applyPreset(const QString &name)
         }
     }
     setCurrentPreset(name);
+    saveSettings();
 }

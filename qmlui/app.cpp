@@ -712,6 +712,9 @@ void App::loadLastWorkspace()
     if (m_recentFiles.isEmpty())
         return;
 
+    if (!QFile::exists(m_recentFiles.first()))
+        return;
+
     loadWorkspace(m_recentFiles.first());
 }
 

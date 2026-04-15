@@ -225,8 +225,8 @@ int main(int argc, char *argv[])
             qlcplusApp.loadWorkspace(filename);
     }
 
-    // open last file
-    if (parser.isSet(openLastOption))
+    // open last file (explicit flag or automatic default)
+    if (filename.isEmpty())
         qlcplusApp.loadLastWorkspace();
 
     if (enableWebAccess && qlcplusApp.networkManager() != nullptr)

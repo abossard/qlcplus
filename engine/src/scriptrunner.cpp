@@ -327,7 +327,7 @@ bool ScriptRunner::setFixture(quint32 fxID, quint32 channel, uchar value, uint t
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     Fixture *fxi = m_doc->fixture(fxID);
     if (fxi == NULL)
@@ -448,7 +448,7 @@ bool ScriptRunner::systemCommand(QString command)
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     // tokenize the command by splitting the base
     // program name and the arguments
@@ -510,7 +510,7 @@ bool ScriptRunner::waitTime(uint ms)
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     while (m_waitCount > 0)
     {
@@ -530,7 +530,7 @@ bool ScriptRunner::waitTime(QString time)
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     while (m_waitCount > 0)
     {
@@ -558,7 +558,7 @@ bool ScriptRunner::setBlackout(bool enable)
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     m_doc->inputOutputMap()->requestBlackout(enable ? InputOutputMap::BlackoutRequestOn :
                                                       InputOutputMap::BlackoutRequestOff);
@@ -571,7 +571,7 @@ bool ScriptRunner::setBPM(int bpm)
     if (m_running == false)
         return false;
 
-    qDebug() << Q_FUNC_INFO;
+    // qDebug() << Q_FUNC_INFO;
 
     m_doc->inputOutputMap()->setBpmNumber(bpm);
 
