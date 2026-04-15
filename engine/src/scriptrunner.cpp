@@ -169,6 +169,9 @@ bool ScriptRunner::write(MasterTimer *timer, QList<Universe *> universes)
         {
             FixtureValue val = m_fixtureValueQueue.dequeue();
 
+            if (val.m_universe >= (quint32)universes.size())
+                continue;
+
             QSharedPointer<GenericFader> fader = m_fadersMap.value(val.m_universe, QSharedPointer<GenericFader>());
             if (fader.isNull())
             {
