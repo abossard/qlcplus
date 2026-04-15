@@ -9,6 +9,7 @@
     <file alias="ChaserStepDelegate.qml">qml/ChaserStepDelegate.qml</file>
     <file alias="ChaserWidget.qml">qml/ChaserWidget.qml</file>
     <file alias="ColorTool.qml">qml/ColorTool.qml</file>
+    <file alias="WheelEater.qml">qml/WheelEater.qml</file>
     <file alias="ColorToolBasic.qml">qml/ColorToolBasic.qml</file>
     <file alias="ColorToolFilters.qml">qml/ColorToolFilters.qml</file>
     <file alias="ColorToolFull.qml">qml/ColorToolFull.qml</file>

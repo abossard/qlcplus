@@ -341,6 +341,15 @@ void VirtualConsole::enableFlicking(bool enable)
         return;
 
     currPage->setProperty("interactive", enable);
+
+    // Kill kinetic scroll momentum when disabling, otherwise the
+    // Flickable keeps moving during widget drag operations
+    if (!enable)
+    {
+        QQuickItem *content = currPage->property("contentItem").value<QQuickItem *>();
+        if (content)
+            QMetaObject::invokeMethod(currPage, "cancelFlick");
+    }
 }
 
 VCPage *VirtualConsole::page(int page) const

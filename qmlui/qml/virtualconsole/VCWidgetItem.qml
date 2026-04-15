@@ -129,8 +129,10 @@ Rectangle
             id: dragMouseArea
             anchors.fill: parent
             drag.threshold: 10
+            preventStealing: true
 
             property bool dragRemapped: false
+            property bool flickingDisabled: false
 
             onPressed: (mouse) =>
             {
@@ -138,10 +140,11 @@ Rectangle
                 {
                     isSelected = !isSelected
                     virtualConsole.enableFlicking(false)
+                    flickingDisabled = true
                     virtualConsole.setWidgetSelection(wObj.id, wRoot, isSelected, mouse.modifiers & Qt.ControlModifier)
+                    drag.target = wRoot
                 }
 
-                drag.target = wRoot
                 dragRemapped = false
             }
 
@@ -175,14 +178,21 @@ Rectangle
             {
                 if (drag.active && drag.target !== null)
                 {
-                    // A drag/drop sequence is always performed within a parent frame,
-                    // so the new geometry will be calculated by virtualConsole.moveWidget,
-                    // invoked by VCFrameItem DropArea
                     wRoot.Drag.drop()
                     drag.target = null
                     dragRemapped = false
                 }
-                virtualConsole.enableFlicking(true)
+                if (flickingDisabled)
+                {
+                    virtualConsole.enableFlicking(true)
+                    flickingDisabled = false
+                }
+
+                // Restore bindings broken by Qt's drag mechanism
+                wRoot.x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
+                wRoot.y = Qt.binding(function() { return wObj ? wObj.geometry.y : 0 })
+                wRoot.width = Qt.binding(function() { return wObj ? wObj.geometry.width : 100 })
+                wRoot.height = Qt.binding(function() { return wObj ? wObj.geometry.height : 100 })
             }
         }
 
