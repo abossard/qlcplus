@@ -12,25 +12,77 @@
 <H2>Introduction</H2>
 <P>
 The OS2L plugin allows direct communication between QLC+ and an OS2L capable host.<br>
-OS2L specifications can be found at: <a href="http://os2l.org/">http://os2l.org</a><br>
-At the moment the only OS2L host supported is <a href="https://www.virtualdj.com/">Virtual DJ</a>.<br>
+OS2L specifications can be found at: <a href="https://os2l.org/">https://os2l.org</a><br>
+At the moment the main OS2L host supported is <a href="https://www.virtualdj.com/">VirtualDJ</a>.<br>
 QLC+ OS2L plugin will work either on the same host (127.0.0.1) or on a different host with
-an OS of your choice (Windows, macOS, Linux)
+an OS of your choice (Windows, macOS, Linux).
 </P>
 
-<H2>Configuration - Virtual DJ</H2>
-
+<H2>Automatic Discovery (macOS)</H2>
 <P>
-First and foremost, you need to tell VDJ where to send OS2L messages.<br>
-Open VDJ settings, go to the 'Options' panel and type 'os2l' in the top search box.<br>
-Modify the 'os2lDirectIp' field by setting the IP:port where VDJ can reach QLC+.
-For example, '127.0.0.1:9996' should work if QLC+ runs on the same (Windows) PC of VDJ.<br>
-Once done, restart VDJ.<br>
-<br>
-Now go to QLC+, enable the OS2L plugin on any universe. If you have set a specific port in VDJ,
-open the OS2L configuration dialog and set the same port there.<br>
-Once done, QLC+ will start receiving signals from VDJ (joystick icon will blink beside the Universe box)
+On <B>macOS</B>, the plugin automatically registers QLC+ as a Bonjour service
+(<code>_os2l._tcp</code>) using the native
+<a href="https://developer.apple.com/documentation/dnssd">dns_sd API</a>.<br>
+This means VirtualDJ can find QLC+ when its OS2L mode is set to <B>Auto</B> &mdash;
+no manual IP configuration is needed.
 </P>
+<P>
+<B>Setup:</B>
+<OL>
+<LI>In VirtualDJ settings, search for <code>os2l</code> and set <code>os2lDirectIp</code>
+    to <B>Auto</B> (or leave it empty).</LI>
+<LI>In QLC+, enable the OS2L plugin on any universe (Input/Output panel).</LI>
+<LI>VirtualDJ will discover QLC+ via Bonjour and start sending messages automatically.</LI>
+</OL>
+</P>
+
+<H2>Configuration &mdash; Manual (all platforms)</H2>
+<P>
+If Bonjour is unavailable (Linux, Windows) or you prefer manual configuration:<br>
+<OL>
+<LI>Open VDJ settings &rarr; Options &rarr; type <code>os2l</code> in the search box.</LI>
+<LI>Set <code>os2lDirectIp</code> to the IP:port where VDJ can reach QLC+
+    (e.g. <code>127.0.0.1:9996</code> for same machine).</LI>
+<LI>Restart VDJ.</LI>
+<LI>Enable the OS2L plugin on a QLC+ universe.</LI>
+<LI>The joystick icon will blink when messages are received.</LI>
+</OL>
+</P>
+
+<H2>Song Metadata</H2>
+<P>
+When VirtualDJ sends a <code>song</code> event (see
+<a href="https://os2l.org/">OS2L spec</a> and
+<a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L wiki</a>),
+the plugin logs all available fields:
+<PRE>
+[OS2L] ==================== SONG METADATA ====================
+[OS2L] Song Name: Shape of You
+[OS2L] Artist: Ed Sheeran
+[OS2L] BPM: 96.0
+[OS2L] Key: 8B
+[OS2L] ======================================================
+</PRE>
+Supported fields: <code>name</code>, <code>artist</code>, <code>album</code>,
+<code>genre</code>, <code>year</code>, <code>remix</code>, <code>status</code>,
+<code>bpm</code>, <code>key</code>, <code>elapsed</code>, <code>duration</code>,
+<code>deck</code>.
+</P>
+
+<H2>Viewing Logs</H2>
+<P>
+Run QLC+ with the <code>-d</code> flag to see all OS2L messages in the console:
+<PRE>qlcplus-qml -d</PRE>
+</P>
+
+<H2>References</H2>
+<UL>
+<LI><a href="https://os2l.org/">OS2L Specification</a> &mdash; protocol and message types</LI>
+<LI><a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L Documentation</a> &mdash; Auto mode and metadata fields</LI>
+<LI><a href="https://developer.apple.com/documentation/dnssd">Apple DNS-SD API</a> &mdash; macOS Bonjour service registration</LI>
+<LI><a href="https://tools.ietf.org/html/rfc6762">RFC 6762 &mdash; mDNS</a></LI>
+<LI><a href="https://tools.ietf.org/html/rfc6763">RFC 6763 &mdash; DNS-SD</a></LI>
+</UL>
 
 </BODY>
 </HTML>

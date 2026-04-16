@@ -28,6 +28,7 @@
 #define OS2L_DEFAULT_PORT 9996
 
 class QTcpServer;
+class OS2LBonjour;
 
 class OS2LPlugin final : public QLCIOPlugin
 {
@@ -94,6 +95,12 @@ protected:
 
     /** Reference to the TCP listener for incoming connections */
     QTcpServer *m_tcpServer;
+
+    /**
+     * Bonjour service registration (macOS only).
+     * Advertises QLC+ as "_os2l._tcp" so VirtualDJ Auto mode can find it.
+     */
+    OS2LBonjour *m_bonjour;
 
     /** Every time a OS2L message is received, the plugin will calculate a 16 bit checksum
       * of the OS2L command string and add it to

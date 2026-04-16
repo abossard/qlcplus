@@ -26,6 +26,7 @@ add_library(${module_name} SHARED
 target_sources(${module_name} PRIVATE
     ../interfaces/qlcioplugin.cpp ../interfaces/qlcioplugin.h
     os2lconfiguration.cpp os2lconfiguration.h os2lconfiguration.ui
+    os2lbonjour.cpp os2lbonjour.h
     os2lplugin.cpp os2lplugin.h
 )
 target_include_directories(${module_name} PRIVATE
@@ -38,6 +39,13 @@ target_link_libraries(${module_name} PRIVATE
     Qt${QT_MAJOR_VERSION}::Network
     Qt${QT_MAJOR_VERSION}::Widgets
 )
+
+# On macOS, link the system dns_sd library for native Bonjour service
+# registration (DNSServiceRegister). This is part of the macOS SDK and
+# does not require any additional packages.
+if(APPLE)
+    target_link_libraries(${module_name} PRIVATE "-ldns_sd")
+endif()
 
 install(TARGETS ${module_name}
     LIBRARY DESTINATION ${INSTALLROOT}/${PLUGINDIR}

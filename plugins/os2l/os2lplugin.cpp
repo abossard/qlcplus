@@ -25,6 +25,7 @@
 #include "utils.h"
 #include "os2lplugin.h"
 #include "os2lconfiguration.h"
+#include "os2lbonjour.h"
 
 /*****************************************************************************
  * Initialization
@@ -40,6 +41,7 @@ void OS2LPlugin::init()
     m_inputUniverse = UINT_MAX;
     m_hostPort = OS2L_DEFAULT_PORT;
     m_tcpServer = NULL;
+    m_bonjour = NULL;
 }
 
 QString OS2LPlugin::name() const
@@ -67,6 +69,9 @@ QString OS2LPlugin::pluginInfo() const
     str += QString("<P>");
     str += QString("<H3>%1</H3>").arg(name());
     str += tr("This plugin provides support for one OS2L host.");
+    str += QString("<BR>");
+    str += tr("On macOS, the plugin registers itself via Bonjour so VirtualDJ "
+              "can discover QLC+ automatically (OS2L set to Auto).");
     str += QString("</P>");
 
     return str;
@@ -87,12 +92,37 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
 
     enableTCPServer(true);
 
+    // Register as a Bonjour service so VirtualDJ Auto mode discovers QLC+.
+    // On macOS this uses the native dns_sd API; on other platforms it is a no-op.
+    // Reference: https://www.virtualdj.com/wiki/OS2L.html (Auto mode)
+    if (m_bonjour == NULL)
+    {
+        m_bonjour = new OS2LBonjour(this);
+        connect(m_bonjour, &OS2LBonjour::serviceRegistered,
+                this, [](const QString &name, quint16 port) {
+                    qDebug() << "[OS2L] Bonjour: registered as" << name << "on port" << port;
+                    qDebug() << "[OS2L] VirtualDJ can now discover QLC+ in Auto mode";
+                });
+        connect(m_bonjour, &OS2LBonjour::serviceRegistrationFailed,
+                this, [](const QString &err) {
+                    qWarning() << "[OS2L] Bonjour registration failed:" << err;
+                });
+        m_bonjour->registerService("QLC+", m_hostPort);
+    }
+
     return true;
 }
 
 void OS2LPlugin::closeInput(quint32 input, quint32 universe)
 {
     enableTCPServer(false);
+
+    if (m_bonjour != NULL)
+    {
+        m_bonjour->unregisterService();
+        delete m_bonjour;
+        m_bonjour = NULL;
+    }
 
     removeFromMap(input, universe, Input);
 
@@ -222,8 +252,27 @@ void OS2LPlugin::slotProcessTCPPackets()
         m_packetLeftOver.remove(0, endIndex + 1);
         QJsonDocument json = QJsonDocument::fromJson(message);
 
-        qDebug() << "[TCP] Received" << message.length() << "bytes from" << senderAddress.toString();
+        // Enhanced logging: show raw message and all parsed fields.
+        // Useful for debugging the OS2L protocol (https://os2l.org).
+        qDebug() << "[OS2L] Received" << message.length() << "bytes from" << senderAddress.toString();
+        qDebug() << "[OS2L] Raw message:" << message;
+
         QJsonObject jsonObj = json.object();
+
+        // Log every JSON key/value so the user can inspect all OS2L data.
+        for (const QString &key : jsonObj.keys())
+        {
+            QJsonValue val = jsonObj.value(key);
+            if (val.isString())
+                qDebug() << "[OS2L]  " << key << "=" << val.toString();
+            else if (val.isDouble())
+                qDebug() << "[OS2L]  " << key << "=" << val.toDouble();
+            else if (val.isBool())
+                qDebug() << "[OS2L]  " << key << "=" << val.toBool();
+        }
+
+        // OS2L protocol: every message carries an "evt" field.
+        // Source: OS2L specification — https://os2l.org
         QJsonValue jEvent = jsonObj.value("evt");
         if (jEvent.isUndefined())
             return;
@@ -232,25 +281,77 @@ void OS2LPlugin::slotProcessTCPPackets()
 
         if (event == "btn")
         {
+            // "btn" event — button press/release.
+            // Fields: "name" (string), "state" ("on"/"off").
+            // Source: https://os2l.org
             QJsonValue jName = jsonObj.value("name");
             QJsonValue jState = jsonObj.value("state");
-            qDebug() << "Got button event with name" << jName.toString() << "and state" << jState.toString();
+            qDebug() << "[OS2L] Button:" << jName.toString() << "state:" << jState.toString();
             uchar value = jState.toString() == "off" ? 0 : 255;
             emit valueChanged(m_inputUniverse, 0, getHash(jName.toString()), value, jName.toString());
         }
         else if (event == "cmd")
         {
+            // "cmd" event — numeric command with value.
+            // Fields: "id" (int), "param" (float 0.0–1.0).
+            // Source: https://os2l.org
             QJsonValue jId = jsonObj.value("id");
             QJsonValue jParam = jsonObj.value("param");
-            qDebug() << "Got CMD message" << jId.toInt() << "with param" << jParam.toDouble();
+            qDebug() << "[OS2L] CMD id:" << jId.toInt() << "param:" << jParam.toDouble();
             quint32 channel = quint32(jId.toInt());
             QString cmd = QString("cmd%1").arg(channel);
             emit valueChanged(m_inputUniverse, 0, quint32(jId.toInt()), uchar(jParam.toDouble()), cmd);
         }
         else if (event == "beat")
         {
-           qDebug() << "Got beat message" << message;
+           // "beat" event — BPM synchronization.
+           // Source: https://os2l.org
+           qDebug() << "[OS2L] Beat message received";
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
+        }
+        else if (event == "song")
+        {
+            // "song" event — track metadata sent when a new song loads or info changes.
+            // Field names sourced from:
+            //   - OS2L specification: https://os2l.org
+            //   - VirtualDJ OS2L wiki: https://www.virtualdj.com/wiki/OS2L.html
+            QString songName = jsonObj.value("name").toString();    // Track title
+            QString artist   = jsonObj.value("artist").toString();  // Artist name
+            QString album    = jsonObj.value("album").toString();   // Album name
+            QString genre    = jsonObj.value("genre").toString();   // Music genre
+            QString year     = jsonObj.value("year").toString();    // Release year
+            QString status   = jsonObj.value("status").toString();  // "play" / "pause" / "stop"
+            double  bpm      = jsonObj.value("bpm").toDouble();     // Beats per minute
+            QString key      = jsonObj.value("key").toString();     // Camelot key (e.g. "8B")
+            double  elapsed  = jsonObj.value("elapsed").toDouble(); // Elapsed time (seconds)
+            double  duration = jsonObj.value("duration").toDouble();// Total duration (seconds)
+            QString remix    = jsonObj.value("remix").toString();   // Remix/edit version
+            int     deck     = jsonObj.value("deck").toInt();       // Deck number (1 or 2)
+
+            qDebug() << "[OS2L] ==================== SONG METADATA ====================";
+            if (!songName.isEmpty()) qDebug() << "[OS2L] Song Name:" << songName;
+            if (!artist.isEmpty())   qDebug() << "[OS2L] Artist:" << artist;
+            if (!album.isEmpty())    qDebug() << "[OS2L] Album:" << album;
+            if (!genre.isEmpty())    qDebug() << "[OS2L] Genre:" << genre;
+            if (!year.isEmpty())     qDebug() << "[OS2L] Year:" << year;
+            if (!remix.isEmpty())    qDebug() << "[OS2L] Remix:" << remix;
+            if (!status.isEmpty())   qDebug() << "[OS2L] Status:" << status;
+            if (bpm > 0)             qDebug() << "[OS2L] BPM:" << bpm;
+            if (!key.isEmpty())      qDebug() << "[OS2L] Key:" << key;
+            if (elapsed > 0)         qDebug() << "[OS2L] Elapsed:" << elapsed << "seconds";
+            if (duration > 0)        qDebug() << "[OS2L] Duration:" << duration << "seconds";
+            if (deck > 0)            qDebug() << "[OS2L] Deck:" << deck;
+            qDebug() << "[OS2L] ======================================================";
+
+            if (!songName.isEmpty())
+            {
+                QString songId = QString("%1 - %2").arg(artist, songName);
+                emit valueChanged(m_inputUniverse, 0, getHash(songId), 255, songId);
+            }
+        }
+        else
+        {
+            qDebug() << "[OS2L] Unknown event type:" << event;
         }
     }
 }
@@ -292,6 +393,13 @@ void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
             /** restart the TCP server and listen on new port */
             enableTCPServer(false);
             enableTCPServer(true);
+
+            // Re-register Bonjour on the new port
+            if (m_bonjour != NULL)
+            {
+                m_bonjour->unregisterService();
+                m_bonjour->registerService("QLC+", m_hostPort);
+            }
         }
     }
 
