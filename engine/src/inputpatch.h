@@ -58,6 +58,7 @@ class InputPatch : public QObject
     Q_PROPERTY(QString inputName READ inputName NOTIFY inputNameChanged)
     Q_PROPERTY(QString pluginName READ pluginName NOTIFY pluginNameChanged)
     Q_PROPERTY(QString profileName READ profileName NOTIFY profileNameChanged)
+    Q_PROPERTY(int pluginStatus READ pluginStatus NOTIFY pluginStatusChanged)
 
     /************************************************************************
      * Initialization
@@ -123,6 +124,9 @@ public:
     /** Retrieve the map of custom parameters set to the patched plugin */
     QMap<QString, QVariant> getPluginParameters();
 
+    /** Returns the connection status of the patched plugin (0=idle, 1=advertising, 2=connected) */
+    int pluginStatus() const;
+
 signals:
     void inputValueChanged(quint32 inputUniverse, quint32 channel,
                            uchar value, const QString& key = 0);
@@ -130,10 +134,13 @@ signals:
     void inputNameChanged();
     void pluginNameChanged();
     void profileNameChanged();
+    void pluginStatusChanged();
 
 private slots:
     void slotValueChanged(quint32 universe, quint32 input,
                           quint32 channel, uchar value, const QString& key = 0);
+
+    void slotConnectionStatusChanged(quint32 universe, quint32 input);
 
 private:
     /** The reference of the plugin associated by this Input patch */

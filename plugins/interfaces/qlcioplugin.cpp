@@ -95,6 +95,12 @@ void QLCIOPlugin::sendFeedBack(quint32 universe, quint32 inputLine,
     Q_UNUSED(params)
 }
 
+int QLCIOPlugin::connectionStatus(quint32 input)
+{
+    Q_UNUSED(input)
+    return Idle;
+}
+
 /*************************************************************************
  * Configure
  *************************************************************************/

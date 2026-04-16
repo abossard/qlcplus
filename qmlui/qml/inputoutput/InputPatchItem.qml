@@ -97,13 +97,17 @@ Rectangle
             radius: height / 2
             border.width: 2
             border.color: UISettings.bgMedium
-            color: UISettings.bgLight
+
+            // Persistent color based on plugin connection status:
+            // 0 (Idle) = dark, 1 (Advertising) = orange, 2 (Connected) = green
+            property int pStatus: patch ? patch.pluginStatus : 0
+            color: pStatus === 2 ? "#00FF00" : pStatus === 1 ? "orange" : UISettings.bgLight
 
             ColorAnimation on color
             {
                 id: cAnim
                 from: "#00FF00"
-                to: UISettings.bgLight
+                to: valueChangeBox.pStatus === 2 ? "#00FF00" : valueChangeBox.pStatus === 1 ? "orange" : UISettings.bgLight
                 duration: 500
                 running: false
             }

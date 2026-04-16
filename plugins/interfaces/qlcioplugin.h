@@ -266,6 +266,23 @@ public:
     virtual void sendFeedBack(quint32 universe, quint32 inputLine,
                               quint32 channel, uchar value, const QVariant &params);
 
+    /** Connection status values for connectionStatus() */
+    enum ConnectionStatus
+    {
+        Idle = 0,        ///< Plugin line not active or no special status
+        Advertising = 1, ///< Waiting for a remote peer (e.g. Bonjour advertising)
+        Connected = 2    ///< Remote peer is connected and communicating
+    };
+
+    /**
+     * Return the current connection status for the given input line.
+     * The default implementation returns Idle for all lines.
+     *
+     * @param input The input line to query
+     * @return ConnectionStatus enum value
+     */
+    virtual int connectionStatus(quint32 input);
+
 signals:
     /**
      * Tells that the value of a channel in an input line has changed and needs
@@ -283,6 +300,15 @@ signals:
      * @param key a string to identify a channel by name (ATM used only by OSC)
      */
     void valueChanged(quint32 universe, quint32 input, quint32 channel, uchar value, const QString& key = 0);
+
+    /**
+     * Tells that the connection status of a plugin line has changed.
+     * This is separate from configurationChanged() which triggers I/O re-patching.
+     *
+     * @param universe The QLC+ universe index
+     * @param input The input line whose status changed
+     */
+    void connectionStatusChanged(quint32 universe, quint32 input);
 
     /*************************************************************************
      * Configure

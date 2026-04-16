@@ -42,6 +42,10 @@ void OS2LPlugin::init()
     m_hostPort = OS2L_DEFAULT_PORT;
     m_tcpServer = NULL;
     m_bonjour = NULL;
+    m_bonjourEnabled = true;
+    m_bonjourRegistered = false;
+    m_clientConnected = false;
+    m_clientSocket = NULL;
 }
 
 QString OS2LPlugin::name() const
@@ -90,22 +94,28 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
 
     addToMap(universe, input, Input);
 
-    enableTCPServer(true);
+    if (!enableTCPServer(true))
+    {
+        qWarning() << "[OS2L] Failed to start TCP server — not advertising via Bonjour";
+        return false;
+    }
 
     // Register as a Bonjour service so VirtualDJ Auto mode discovers QLC+.
-    // On macOS this uses the native dns_sd API; on other platforms it is a no-op.
-    // Reference: https://www.virtualdj.com/wiki/OS2L.html (Auto mode)
-    if (m_bonjour == NULL)
+    // Only if user has enabled Bonjour and the TCP server started successfully.
+    if (m_bonjourEnabled && m_bonjour == NULL)
     {
         m_bonjour = new OS2LBonjour(this);
         connect(m_bonjour, &OS2LBonjour::serviceRegistered,
-                this, [](const QString &name, quint16 port) {
+                this, [this](const QString &name, quint16 port) {
                     qDebug() << "[OS2L] Bonjour: registered as" << name << "on port" << port;
-                    qDebug() << "[OS2L] VirtualDJ can now discover QLC+ in Auto mode";
+                    m_bonjourRegistered = true;
+                    emit connectionStatusChanged(m_inputUniverse, 0);
                 });
         connect(m_bonjour, &OS2LBonjour::serviceRegistrationFailed,
-                this, [](const QString &err) {
+                this, [this](const QString &err) {
                     qWarning() << "[OS2L] Bonjour registration failed:" << err;
+                    m_bonjourRegistered = false;
+                    emit connectionStatusChanged(m_inputUniverse, 0);
                 });
         m_bonjour->registerService("QLC+", m_hostPort);
     }
@@ -115,6 +125,9 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
 
 void OS2LPlugin::closeInput(quint32 input, quint32 universe)
 {
+    m_clientConnected = false;
+    m_clientSocket = NULL;
+
     enableTCPServer(false);
 
     if (m_bonjour != NULL)
@@ -122,11 +135,14 @@ void OS2LPlugin::closeInput(quint32 input, quint32 universe)
         m_bonjour->unregisterService();
         delete m_bonjour;
         m_bonjour = NULL;
+        m_bonjourRegistered = false;
     }
 
     removeFromMap(input, universe, Input);
 
     m_inputUniverse = UINT_MAX;
+
+    emit connectionStatusChanged(universe, input);
 }
 
 QStringList OS2LPlugin::inputs()
@@ -161,6 +177,26 @@ QString OS2LPlugin::inputInfo(quint32 input)
 quint32 OS2LPlugin::universe() const
 {
     return m_inputUniverse;
+}
+
+bool OS2LPlugin::bonjourEnabled() const
+{
+    return m_bonjourEnabled;
+}
+
+int OS2LPlugin::connectionStatus(quint32 input)
+{
+    Q_UNUSED(input)
+
+    // Connected takes priority (works even with Bonjour disabled via direct IP)
+    if (m_clientConnected)
+        return Connected;
+
+    // Bonjour advertising but no client yet
+    if (m_bonjourRegistered)
+        return Advertising;
+
+    return Idle;
 }
 
 bool OS2LPlugin::enableTCPServer(bool enable)
@@ -214,17 +250,42 @@ void OS2LPlugin::slotProcessNewTCPConnection()
     if (clientConnection == NULL)
         return;
 
+    // Enforce single client: close any existing connection
+    if (m_clientSocket != NULL && m_clientSocket != clientConnection)
+    {
+        qDebug() << "[OS2L] Closing previous client connection";
+        m_clientSocket->disconnectFromHost();
+        m_clientSocket->deleteLater();
+    }
+
+    m_clientSocket = clientConnection;
+    m_clientConnected = true;
+
     QHostAddress senderAddress = clientConnection->peerAddress();
-    qDebug() << "[slotProcessNewTCPConnection] Host connected:" << senderAddress.toString();
+    qDebug() << "[OS2L] Host connected:" << senderAddress.toString();
     connect(clientConnection, SIGNAL(readyRead()), this, SLOT(slotProcessTCPPackets()));
-    connect(clientConnection, SIGNAL(disconnected()), this, SLOT(slotProcessTCPPackets()));
+    connect(clientConnection, SIGNAL(disconnected()), this, SLOT(slotHostDisconnected()));
+
+    emit connectionStatusChanged(m_inputUniverse, 0);
 }
 
 void OS2LPlugin::slotHostDisconnected()
 {
-    QTcpSocket *socket = (QTcpSocket *)sender();
-    QHostAddress senderAddress = socket->peerAddress();
-    qDebug() << "Host with address" << senderAddress.toString() << "disconnected!";
+    QTcpSocket *socket = qobject_cast<QTcpSocket *>(sender());
+    if (socket != NULL)
+    {
+        QHostAddress senderAddress = socket->peerAddress();
+        qDebug() << "[OS2L] Host disconnected:" << senderAddress.toString();
+        socket->deleteLater();
+    }
+
+    if (socket == m_clientSocket)
+    {
+        m_clientSocket = NULL;
+        m_clientConnected = false;
+        m_packetLeftOver.clear();
+        emit connectionStatusChanged(m_inputUniverse, 0);
+    }
 }
 
 void OS2LPlugin::slotProcessTCPPackets()
@@ -374,15 +435,9 @@ bool OS2LPlugin::canConfigure() const
 void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
                              QString name, QVariant value)
 {
-    /** This method is provided to QLC+ to set the plugin specific settings.
-     *  Those settings are saved in a project workspace and when it is loaded,
-     *  this method is called after QLC+ has opened the input/output lines
-     *  mapped in the project workspace as well.
-     */
-
     if (name == OS2L_HOST_ADDRESS)
     {
-
+        // Placeholder — host address is not used (we listen on all interfaces)
     }
     else if (name == OS2L_HOST_PORT)
     {
@@ -390,20 +445,56 @@ void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
         {
             m_hostPort = quint16(value.toUInt());
 
-            /** restart the TCP server and listen on new port */
-            enableTCPServer(false);
-            enableTCPServer(true);
+            // Only restart if the input is currently active
+            if (m_inputUniverse != UINT_MAX)
+            {
+                enableTCPServer(false);
+                enableTCPServer(true);
 
-            // Re-register Bonjour on the new port
-            if (m_bonjour != NULL)
+                // Re-register Bonjour on the new port
+                if (m_bonjour != NULL)
+                {
+                    m_bonjour->unregisterService();
+                    m_bonjourRegistered = false;
+                    m_bonjour->registerService("QLC+", m_hostPort);
+                }
+            }
+        }
+    }
+    else if (name == OS2L_BONJOUR_ENABLED)
+    {
+        m_bonjourEnabled = value.toBool();
+
+        // Only do runtime changes if the input is currently active
+        if (m_inputUniverse != UINT_MAX)
+        {
+            if (m_bonjourEnabled && m_bonjour == NULL)
+            {
+                m_bonjour = new OS2LBonjour(this);
+                connect(m_bonjour, &OS2LBonjour::serviceRegistered,
+                        this, [this](const QString &name, quint16 port) {
+                            qDebug() << "[OS2L] Bonjour: registered as" << name << "on port" << port;
+                            m_bonjourRegistered = true;
+                            emit connectionStatusChanged(m_inputUniverse, 0);
+                        });
+                connect(m_bonjour, &OS2LBonjour::serviceRegistrationFailed,
+                        this, [this](const QString &err) {
+                            qWarning() << "[OS2L] Bonjour registration failed:" << err;
+                            m_bonjourRegistered = false;
+                            emit connectionStatusChanged(m_inputUniverse, 0);
+                        });
+                m_bonjour->registerService("QLC+", m_hostPort);
+            }
+            else if (!m_bonjourEnabled && m_bonjour != NULL)
             {
                 m_bonjour->unregisterService();
-                m_bonjour->registerService("QLC+", m_hostPort);
+                delete m_bonjour;
+                m_bonjour = NULL;
+                m_bonjourRegistered = false;
+                emit connectionStatusChanged(m_inputUniverse, 0);
             }
         }
     }
 
-    /** Remember to call the base QLCIOPlugin method to actually inform
-     *  QLC+ to store the parameter in the project workspace XML */
     QLCIOPlugin::setParameter(universe, line, type, name, value);
 }

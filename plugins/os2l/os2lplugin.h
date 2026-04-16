@@ -22,12 +22,14 @@
 
 #include "qlcioplugin.h"
 
-#define OS2L_HOST_ADDRESS "hostAddress"
-#define OS2L_HOST_PORT    "hostPort"
+#define OS2L_HOST_ADDRESS     "hostAddress"
+#define OS2L_HOST_PORT        "hostPort"
+#define OS2L_BONJOUR_ENABLED  "bonjourEnabled"
 
 #define OS2L_DEFAULT_PORT 9996
 
 class QTcpServer;
+class QTcpSocket;
 class OS2LBonjour;
 
 class OS2LPlugin final : public QLCIOPlugin
@@ -71,7 +73,11 @@ public:
     /** @reimp */
     QString inputInfo(quint32 input) override;
 
+    /** @reimp */
+    int connectionStatus(quint32 input) override;
+
     quint32 universe() const;
+    bool bonjourEnabled() const;
 
 protected:
     bool enableTCPServer(bool enable);
@@ -101,6 +107,18 @@ protected:
      * Advertises QLC+ as "_os2l._tcp" so VirtualDJ Auto mode can find it.
      */
     OS2LBonjour *m_bonjour;
+
+    /** Whether Bonjour advertising is enabled (user-configurable) */
+    bool m_bonjourEnabled;
+
+    /** Whether Bonjour has actually registered successfully */
+    bool m_bonjourRegistered;
+
+    /** Whether a remote host (e.g. VirtualDJ) is connected via TCP */
+    bool m_clientConnected;
+
+    /** The currently connected TCP client socket (single client) */
+    QTcpSocket *m_clientSocket;
 
     /** Every time a OS2L message is received, the plugin will calculate a 16 bit checksum
       * of the OS2L command string and add it to

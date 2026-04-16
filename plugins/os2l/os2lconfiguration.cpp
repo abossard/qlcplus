@@ -42,6 +42,19 @@ OS2LConfiguration::OS2LConfiguration(OS2LPlugin* plugin, QWidget* parent)
     else
         m_activateLabel->hide();
 
+    /* Initialize controls from current plugin state */
+    m_portSpin->setValue(m_plugin->universe() != UINT_MAX ? m_plugin->universe() : OS2L_DEFAULT_PORT);
+    m_bonjourCheck->setChecked(m_plugin->bonjourEnabled());
+
+    /* Restore port from plugin parameters if available */
+    if (m_plugin->universe() != UINT_MAX)
+    {
+        QMap<QString, QVariant> params = m_plugin->getParameters(
+            m_plugin->universe(), 0, QLCIOPlugin::Input);
+        if (params.contains(OS2L_HOST_PORT))
+            m_portSpin->setValue(params[OS2L_HOST_PORT].toInt());
+    }
+
     QSettings settings;
     QVariant geometrySettings = settings.value(SETTINGS_GEOMETRY);
     if (geometrySettings.isValid() == true)
@@ -62,6 +75,7 @@ void OS2LConfiguration::accept()
 {
     m_plugin->setParameter(m_plugin->universe(), 0, QLCIOPlugin::Input, OS2L_HOST_ADDRESS, m_ipAddrEdit->text());
     m_plugin->setParameter(m_plugin->universe(), 0, QLCIOPlugin::Input, OS2L_HOST_PORT, m_portSpin->value());
+    m_plugin->setParameter(m_plugin->universe(), 0, QLCIOPlugin::Input, OS2L_BONJOUR_ENABLED, m_bonjourCheck->isChecked());
 
     QDialog::accept();
 }

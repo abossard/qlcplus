@@ -81,6 +81,8 @@ bool InputPatch::set(QLCIOPlugin* plugin, quint32 input, QLCInputProfile* profil
     {
         disconnect(m_plugin, SIGNAL(valueChanged(quint32,quint32,quint32,uchar,QString)),
                    this, SLOT(slotValueChanged(quint32,quint32,quint32,uchar,QString)));
+        disconnect(m_plugin, SIGNAL(connectionStatusChanged(quint32,quint32)),
+                   this, SLOT(slotConnectionStatusChanged(quint32,quint32)));
         m_plugin->closeInput(m_pluginLine, m_universe);
     }
 
@@ -102,7 +104,11 @@ bool InputPatch::set(QLCIOPlugin* plugin, quint32 input, QLCInputProfile* profil
     {
         connect(m_plugin, SIGNAL(valueChanged(quint32,quint32,quint32,uchar,QString)),
                 this, SLOT(slotValueChanged(quint32,quint32,quint32,uchar,QString)));
+        connect(m_plugin, SIGNAL(connectionStatusChanged(quint32,quint32)),
+                this, SLOT(slotConnectionStatusChanged(quint32,quint32)));
         result = m_plugin->openInput(m_pluginLine, m_universe);
+
+        emit pluginStatusChanged();
 
         if (m_profile != NULL)
             setProfilePageControls();
@@ -209,6 +215,19 @@ QMap<QString, QVariant> InputPatch::getPluginParameters()
         return m_plugin->getParameters(m_universe, m_pluginLine, QLCIOPlugin::Input);
 
     return QMap<QString, QVariant>();
+}
+
+int InputPatch::pluginStatus() const
+{
+    if (m_plugin != NULL && m_pluginLine != QLCIOPlugin::invalidLine())
+        return m_plugin->connectionStatus(m_pluginLine);
+    return QLCIOPlugin::Idle;
+}
+
+void InputPatch::slotConnectionStatusChanged(quint32 universe, quint32 input)
+{
+    if (input == m_pluginLine && (universe == UINT_MAX || universe == m_universe))
+        emit pluginStatusChanged();
 }
 
 void InputPatch::slotValueChanged(quint32 universe, quint32 input, quint32 channel,
