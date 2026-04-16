@@ -17,8 +17,8 @@
   limitations under the License.
 */
 
-#ifndef OS2LDISCOVERY_H
-#define OS2LDISCOVERY_H
+#ifndef OS2LBONJOUR_H
+#define OS2LBONJOUR_H
 
 #include <QObject>
 
@@ -35,7 +35,9 @@ class QSocketNotifier;
  * their OS2L mode is set to "Auto".
  *
  * On macOS the native dns_sd.h API is used (DNSServiceRegister).
- * On all other platforms the class compiles but is a no-op.
+ * On all other platforms the class compiles but is a no-op
+ * (native Bonjour would require platform-specific implementations
+ * or external libraries such as Avahi on Linux).
  *
  * Protocol / API references:
  *   - OS2L service type "_os2l._tcp": https://os2l.org
@@ -100,4 +102,4 @@ private:
     quint16 m_port;
 };
 
-#endif // OS2LDISCOVERY_H
+#endif // OS2LBONJOUR_H

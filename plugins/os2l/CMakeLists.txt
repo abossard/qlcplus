@@ -26,7 +26,7 @@ add_library(${module_name} SHARED
 target_sources(${module_name} PRIVATE
     ../interfaces/qlcioplugin.cpp ../interfaces/qlcioplugin.h
     os2lconfiguration.cpp os2lconfiguration.h os2lconfiguration.ui
-    os2ldiscovery.cpp os2ldiscovery.h
+    os2lbonjour.cpp os2lbonjour.h
     os2lplugin.cpp os2lplugin.h
 )
 target_include_directories(${module_name} PRIVATE

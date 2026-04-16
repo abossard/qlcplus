@@ -25,7 +25,7 @@
 #include "utils.h"
 #include "os2lplugin.h"
 #include "os2lconfiguration.h"
-#include "os2ldiscovery.h"
+#include "os2lbonjour.h"
 
 /*****************************************************************************
  * Initialization

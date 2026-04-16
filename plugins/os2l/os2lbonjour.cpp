@@ -17,7 +17,7 @@
   limitations under the License.
 */
 
-#include "os2ldiscovery.h"
+#include "os2lbonjour.h"
 
 #include <QDebug>
 
