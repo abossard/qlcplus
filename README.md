@@ -116,7 +116,7 @@
 > toolbar, frame header, and panel colors.
 >
 > #### AutoLight — Iterative LED Effect Research
-> The `autolight/` directory is a Python CLI tool that uses the MCP server to
+> The [`autolight/`](autolight/) directory is a Python CLI tool that uses the MCP server to
 > run structured A/B-style experiments on LED effects. It automates the
 > create → preview → rate → iterate loop for finding the best-looking effects
 > for your fixture setup.
@@ -131,27 +131,26 @@
 > Each round creates a git branch for safe rollback. State is persisted in
 > `autolight-state.json`.
 >
+> **Prerequisites:** QLC+ running with MCP enabled, fixtures patched, Python 3.10+.
+>
 > **Quick start:**
 > ```bash
-> # Install Python MCP SDK (one-time)
-> python3 -m venv /tmp/mcp-env
-> /tmp/mcp-env/bin/pip install mcp
+> # Install dependencies (one-time)
+> python3 -m venv .venv && source .venv/bin/activate
+> pip install -r autolight/requirements.txt
 >
-> # Run the setup (creates rating UI in QLC+)
-> /tmp/mcp-env/bin/python3 -m autolight setup
+> # Create rating UI in QLC+ Virtual Console
+> python3 -m autolight setup
 >
-> # Start the research loop
-> /tmp/mcp-env/bin/python3 -m autolight
+> # Start the research loop (briefing → experiments → rating → iterate)
+> python3 -m autolight
+>
+> # Smoke test (verify setup end-to-end, no manual interaction)
+> python3 autolight/test_loop.py
 > ```
 >
-> **Architecture:**
-> | File | Purpose |
-> |------|---------|
-> | `qlc_client.py` | Async MCP client — wraps `ClientSession` with `streamablehttp_client` |
-> | `setup.py` | Creates rating VC widgets (star buttons, dimension solo-frames, transport) |
-> | `experiments.py` | Create/rate/analyze experiments — `create_experiment()`, `read_ratings()`, `pick_winners()` |
-> | `run.py` | Main CLI loop — briefing → rounds → experiments → analysis |
-> | `test_loop.py` | Smoke test — creates experiment, verifies, reads ratings, cleans up |
+> See [`autolight/README.md`](autolight/README.md) for full documentation
+> (custom dimensions, architecture, color palettes, state file format).
 >
 > ### Install from DMG (macOS)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
