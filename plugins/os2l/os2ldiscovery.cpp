@@ -18,297 +18,175 @@
 */
 
 #include "os2ldiscovery.h"
-#include <QNetworkDatagram>
-#include <QDateTime>
+
 #include <QDebug>
 
-const char* OS2LDiscovery::MDNS_ADDR = "224.0.0.251";
+#ifdef Q_OS_MACOS
+#include <QSocketNotifier>
+#include <arpa/inet.h>   // htons
+#endif
 
-OS2LDiscovery::OS2LDiscovery(QObject *parent)
+/*********************************************************************
+ * Construction / destruction
+ *********************************************************************/
+
+OS2LBonjour::OS2LBonjour(QObject *parent)
     : QObject(parent)
-    , m_socket(nullptr)
-    , m_queryTimer(nullptr)
-    , m_timeoutTimer(nullptr)
-    , m_active(false)
+#ifdef Q_OS_MACOS
+    , m_dnssRef(nullptr)
+    , m_notifier(nullptr)
+#endif
+    , m_registered(false)
+    , m_port(0)
 {
 }
 
-OS2LDiscovery::~OS2LDiscovery()
+OS2LBonjour::~OS2LBonjour()
 {
-    stopDiscovery();
+    unregisterService();
 }
 
-bool OS2LDiscovery::startDiscovery()
+/*********************************************************************
+ * macOS — native Bonjour via dns_sd.h
+ *
+ * DNSServiceRegister() advertises QLC+ as "_os2l._tcp" so that
+ * VirtualDJ's Auto mode discovers it on the local network.
+ *
+ * References:
+ *   - Apple DNS-SD API: https://developer.apple.com/documentation/dnssd
+ *   - dns_sd.h header: DNSServiceRegister, DNSServiceRefSockFD,
+ *     DNSServiceProcessResult, DNSServiceRefDeallocate
+ *   - RFC 6763 §7 (service naming): https://tools.ietf.org/html/rfc6763#section-7
+ *   - OS2L service type "_os2l._tcp": https://os2l.org
+ *********************************************************************/
+
+#ifdef Q_OS_MACOS
+
+bool OS2LBonjour::registerService(const QString &serviceName, quint16 port)
 {
-    if (m_active)
+    if (m_registered)
         return true;
 
-    qDebug() << "[OS2L Discovery] Starting mDNS service discovery for _os2l._tcp.local.";
+    m_port = port;
 
-    m_socket = new QUdpSocket(this);
+    // DNSServiceRegister() — register a named service of type "_os2l._tcp"
+    // on the given port.  The Bonjour daemon will respond to mDNS queries
+    // for this service type, allowing VirtualDJ Auto mode to find QLC+.
+    //
+    // See: https://developer.apple.com/documentation/dnssd/1804733-dnsserviceregister
+    DNSServiceErrorType err = DNSServiceRegister(
+        &m_dnssRef,                          // DNSServiceRef output
+        0,                                   // no flags
+        kDNSServiceInterfaceIndexAny,        // all interfaces
+        serviceName.toUtf8().constData(),     // human-readable instance name
+        "_os2l._tcp",                        // service type (OS2L spec)
+        "",                                  // domain (default = "local.")
+        NULL,                                // host   (this machine)
+        htons(port),                         // port in network byte order
+        0,                                   // TXT record length
+        NULL,                                // TXT record data
+        registerCallback,                    // async reply callback
+        this);                               // context pointer
 
-    // Bind to mDNS port and join multicast group
-    if (!m_socket->bind(QHostAddress::AnyIPv4, MDNS_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
+    if (err != kDNSServiceErr_NoError)
     {
-        qWarning() << "[OS2L Discovery] Failed to bind to mDNS port" << MDNS_PORT;
-        delete m_socket;
-        m_socket = nullptr;
+        QString msg = QString("DNSServiceRegister failed with error %1").arg(err);
+        qWarning() << "[OS2L Bonjour]" << msg;
+        emit serviceRegistrationFailed(msg);
         return false;
     }
 
-    if (!m_socket->joinMulticastGroup(QHostAddress(MDNS_ADDR)))
+    // Integrate the dns_sd file descriptor with the Qt event loop so the
+    // callback fires without blocking.
+    int fd = DNSServiceRefSockFD(m_dnssRef);
+    if (fd != -1)
     {
-        qWarning() << "[OS2L Discovery] Failed to join mDNS multicast group";
-        m_socket->close();
-        delete m_socket;
-        m_socket = nullptr;
-        return false;
+        m_notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
+        connect(m_notifier, &QSocketNotifier::activated,
+                this, &OS2LBonjour::bonjourSocketReadyRead);
     }
 
-    connect(m_socket, &QUdpSocket::readyRead, this, &OS2LDiscovery::processPendingDatagrams);
-
-    // Setup periodic query timer
-    m_queryTimer = new QTimer(this);
-    connect(m_queryTimer, &QTimer::timeout, this, &OS2LDiscovery::sendQuery);
-    m_queryTimer->start(QUERY_INTERVAL_MS);
-
-    // Setup service timeout checker
-    m_timeoutTimer = new QTimer(this);
-    connect(m_timeoutTimer, &QTimer::timeout, this, &OS2LDiscovery::checkServiceTimeout);
-    m_timeoutTimer->start(5000); // Check every 5 seconds
-
-    m_active = true;
-
-    // Send initial query
-    sendQuery();
-
-    qDebug() << "[OS2L Discovery] mDNS discovery started successfully";
+    qDebug() << "[OS2L Bonjour] Registering service" << serviceName
+             << "(_os2l._tcp) on port" << port << "...";
     return true;
 }
 
-void OS2LDiscovery::stopDiscovery()
+void OS2LBonjour::unregisterService()
 {
-    if (!m_active)
-        return;
-
-    qDebug() << "[OS2L Discovery] Stopping mDNS service discovery";
-
-    if (m_queryTimer)
+    if (m_notifier)
     {
-        m_queryTimer->stop();
-        delete m_queryTimer;
-        m_queryTimer = nullptr;
+        m_notifier->setEnabled(false);
+        delete m_notifier;
+        m_notifier = nullptr;
     }
 
-    if (m_timeoutTimer)
+    if (m_dnssRef)
     {
-        m_timeoutTimer->stop();
-        delete m_timeoutTimer;
-        m_timeoutTimer = nullptr;
+        DNSServiceRefDeallocate(m_dnssRef);
+        m_dnssRef = nullptr;
+        qDebug() << "[OS2L Bonjour] Service unregistered";
     }
 
-    if (m_socket)
-    {
-        m_socket->leaveMulticastGroup(QHostAddress(MDNS_ADDR));
-        m_socket->close();
-        delete m_socket;
-        m_socket = nullptr;
-    }
-
-    m_services.clear();
-    m_serviceLastSeen.clear();
-    m_active = false;
+    m_registered = false;
 }
 
-void OS2LDiscovery::sendQuery()
+void OS2LBonjour::bonjourSocketReadyRead()
 {
-    if (!m_socket)
-        return;
-
-    // Construct a DNS-SD PTR query for _os2l._tcp.local. sent as an mDNS multicast packet.
-    //
-    // Protocol references:
-    //   - DNS wire format (header + question section): RFC 1035 §4
-    //     https://tools.ietf.org/html/rfc1035#section-4
-    //   - mDNS multicast (224.0.0.251:5353): RFC 6762
-    //     https://tools.ietf.org/html/rfc6762
-    //   - DNS-SD PTR query to enumerate service instances: RFC 6763 §4.1
-    //     https://tools.ietf.org/html/rfc6763#section-4.1
-    //   - Service type naming convention (_service._tcp.local.): RFC 6763 §7
-    //     https://tools.ietf.org/html/rfc6763#section-7
-    //   - OS2L service type _os2l._tcp: https://os2l.org
-    QByteArray query;
-
-    // DNS Header (RFC 1035 §4.1.1)
-    query.append('\x00'); query.append('\x00'); // Transaction ID (0 for mDNS, RFC 6762 §18.1)
-    query.append('\x00'); query.append('\x00'); // Flags: Standard query (QR=0, OPCODE=0)
-    query.append('\x00'); query.append('\x01'); // QDCOUNT: 1 question
-    query.append('\x00'); query.append('\x00'); // ANCOUNT: 0 answer RRs
-    query.append('\x00'); query.append('\x00'); // NSCOUNT: 0 authority RRs
-    query.append('\x00'); query.append('\x00'); // ARCOUNT: 0 additional RRs
-
-    // Question section (RFC 1035 §4.1.2):
-    // QNAME = _os2l._tcp.local. encoded as length-prefixed labels
-    query.append('\x05'); query.append("_os2l");  // label "_os2l" (5 bytes)
-    query.append('\x04'); query.append("_tcp");   // label "_tcp"  (4 bytes)
-    query.append('\x05'); query.append("local");  // label "local" (5 bytes)
-    query.append('\x00');                          // root label (end of name)
-
-    query.append('\x00'); query.append('\x0c');   // QTYPE  = PTR (12) — RFC 6763 §4.1
-    query.append('\x00'); query.append('\x01');   // QCLASS = IN  (1)
-
-    qint64 sent = m_socket->writeDatagram(query, QHostAddress(MDNS_ADDR), MDNS_PORT);
-    if (sent < 0)
+    // Let the dns_sd daemon process its socket data and invoke our callback.
+    if (m_dnssRef)
     {
-        qWarning() << "[OS2L Discovery] Failed to send mDNS query:" << m_socket->errorString();
+        DNSServiceErrorType err = DNSServiceProcessResult(m_dnssRef);
+        if (err != kDNSServiceErr_NoError)
+            qWarning() << "[OS2L Bonjour] DNSServiceProcessResult error:" << err;
+    }
+}
+
+/* static */
+void DNSSD_API OS2LBonjour::registerCallback(
+    DNSServiceRef /* sdRef */,
+    DNSServiceFlags /* flags */,
+    DNSServiceErrorType errorCode,
+    const char *name,
+    const char *regtype,
+    const char *domain,
+    void *context)
+{
+    OS2LBonjour *self = static_cast<OS2LBonjour *>(context);
+
+    if (errorCode == kDNSServiceErr_NoError)
+    {
+        self->m_registered = true;
+        QString svcName = QString::fromUtf8(name);
+        qDebug() << "[OS2L Bonjour] *** Service registered successfully ***";
+        qDebug() << "[OS2L Bonjour]   Name:" << svcName;
+        qDebug() << "[OS2L Bonjour]   Type:" << regtype;
+        qDebug() << "[OS2L Bonjour]   Domain:" << domain;
+        qDebug() << "[OS2L Bonjour]   Port:" << self->m_port;
+        qDebug() << "[OS2L Bonjour]   VirtualDJ can now discover QLC+ in Auto mode";
+        emit self->serviceRegistered(svcName, self->m_port);
     }
     else
     {
-        qDebug() << "[OS2L Discovery] Sent mDNS query for _os2l._tcp.local. (" << sent << "bytes)";
+        QString msg = QString("Registration callback error %1").arg(errorCode);
+        qWarning() << "[OS2L Bonjour]" << msg;
+        emit self->serviceRegistrationFailed(msg);
     }
 }
 
-void OS2LDiscovery::processPendingDatagrams()
+#else // !Q_OS_MACOS — stub implementation for non-macOS platforms
+
+bool OS2LBonjour::registerService(const QString &serviceName, quint16 port)
 {
-    while (m_socket && m_socket->hasPendingDatagrams())
-    {
-        QNetworkDatagram datagram = m_socket->receiveDatagram();
-        QByteArray data = datagram.data();
-        QHostAddress sender = datagram.senderAddress();
-
-        qDebug() << "[OS2L Discovery] Received mDNS packet from" << sender.toString()
-                 << "(" << data.size() << "bytes)";
-
-        parseResponse(data, sender);
-    }
+    Q_UNUSED(serviceName);
+    Q_UNUSED(port);
+    qDebug() << "[OS2L Bonjour] Bonjour service registration is only available on macOS.";
+    qDebug() << "[OS2L Bonjour] On this platform, configure VirtualDJ's os2lDirectIp manually.";
+    return false;
 }
 
-void OS2LDiscovery::parseResponse(const QByteArray &data, const QHostAddress &sender)
+void OS2LBonjour::unregisterService()
 {
-    if (data.size() < 12)
-        return;
-
-    // Parse DNS header
-    quint16 flags = (static_cast<quint8>(data[2]) << 8) | static_cast<quint8>(data[3]);
-    bool isResponse = (flags & 0x8000) != 0;
-
-    if (!isResponse)
-        return; // Not a response
-
-    quint16 questions = (static_cast<quint8>(data[4]) << 8) | static_cast<quint8>(data[5]);
-    quint16 answers = (static_cast<quint8>(data[6]) << 8) | static_cast<quint8>(data[7]);
-
-    qDebug() << "[OS2L Discovery] DNS response: questions=" << questions << "answers=" << answers;
-
-    if (answers == 0)
-        return;
-
-    // Simple heuristic: if we see _os2l in the packet, assume it's a valid service
-    QString dataStr = QString::fromUtf8(data);
-    if (dataStr.contains("_os2l", Qt::CaseInsensitive) ||
-        dataStr.contains("os2l", Qt::CaseInsensitive))
-    {
-        qDebug() << "[OS2L Discovery] Found OS2L service announcement from" << sender.toString();
-
-        // Try to extract port information (look for common OS2L port 9996 or parse SRV record)
-        // For simplicity, we'll use the default port
-        quint16 port = 9996;
-
-        ServiceInfo service;
-        service.name = QString("OS2L@%1").arg(sender.toString());
-        service.address = sender;
-        service.port = port;
-        service.hostName = sender.toString();
-
-        // Check if this is a new service
-        bool isNew = true;
-        for (const ServiceInfo &existing : m_services)
-        {
-            if (existing.address == service.address)
-            {
-                isNew = false;
-                break;
-            }
-        }
-
-        if (isNew)
-        {
-            qDebug() << "[OS2L Discovery] *** NEW OS2L SERVICE DISCOVERED ***";
-            qDebug() << "[OS2L Discovery]   Name:" << service.name;
-            qDebug() << "[OS2L Discovery]   Address:" << service.address.toString();
-            qDebug() << "[OS2L Discovery]   Port:" << service.port;
-            m_services.append(service);
-            emit serviceDiscovered(service);
-        }
-
-        // Update last seen timestamp
-        m_serviceLastSeen[service.name] = QDateTime::currentMSecsSinceEpoch();
-    }
+    m_registered = false;
 }
 
-void OS2LDiscovery::checkServiceTimeout()
-{
-    qint64 now = QDateTime::currentMSecsSinceEpoch();
-    QStringList toRemove;
-
-    for (auto it = m_serviceLastSeen.begin(); it != m_serviceLastSeen.end(); ++it)
-    {
-        if (now - it.value() > SERVICE_TIMEOUT_MS)
-        {
-            toRemove.append(it.key());
-        }
-    }
-
-    for (const QString &serviceName : toRemove)
-    {
-        qDebug() << "[OS2L Discovery] Service timed out:" << serviceName;
-        m_serviceLastSeen.remove(serviceName);
-
-        // Remove from services list
-        for (int i = 0; i < m_services.size(); ++i)
-        {
-            if (m_services[i].name == serviceName)
-            {
-                m_services.removeAt(i);
-                break;
-            }
-        }
-
-        emit serviceRemoved(serviceName);
-    }
-}
-
-QString OS2LDiscovery::extractServiceName(const QByteArray &data, int offset, int &newOffset)
-{
-    QString name;
-    int pos = offset;
-
-    while (pos < data.size())
-    {
-        quint8 len = static_cast<quint8>(data[pos]);
-
-        if (len == 0)
-        {
-            newOffset = pos + 1;
-            break;
-        }
-
-        if (len >= 0xc0) // Compressed name pointer
-        {
-            newOffset = pos + 2;
-            break;
-        }
-
-        pos++;
-        if (pos + len > data.size())
-            break;
-
-        if (!name.isEmpty())
-            name += ".";
-
-        name += QString::fromUtf8(data.mid(pos, len));
-        pos += len;
-    }
-
-    return name;
-}
+#endif // Q_OS_MACOS

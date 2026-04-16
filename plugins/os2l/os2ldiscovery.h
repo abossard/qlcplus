@@ -21,86 +21,83 @@
 #define OS2LDISCOVERY_H
 
 #include <QObject>
-#include <QUdpSocket>
-#include <QTimer>
-#include <QHostAddress>
+
+#ifdef Q_OS_MACOS
+#include <dns_sd.h>
+class QSocketNotifier;
+#endif
 
 /**
- * @brief OS2L Service Discovery using mDNS/Bonjour
+ * @brief Bonjour service registration for the OS2L plugin (macOS only).
  *
- * This class implements mDNS-based service discovery for OS2L hosts.
- * It discovers VirtualDJ or other OS2L-compatible software on the local network
- * by querying and listening for _os2l._tcp.local. service announcements.
+ * Registers QLC+ as a "_os2l._tcp" Bonjour/DNS-SD service so that
+ * VirtualDJ (and other OS2L hosts) can discover it automatically when
+ * their OS2L mode is set to "Auto".
  *
- * Protocol references:
- *  - OS2L service type "_os2l._tcp": https://os2l.org
- *  - mDNS (RFC 6762): https://tools.ietf.org/html/rfc6762
- *    Defines UDP port 5353 and multicast group 224.0.0.251 used here.
- *  - DNS-SD (RFC 6763): https://tools.ietf.org/html/rfc6763
- *    Defines the PTR query pattern and "_service._tcp.local." naming convention.
- *  - DNS wire format (RFC 1035): https://tools.ietf.org/html/rfc1035
- *    Binary packet structure used in sendQuery().
- *  - Apple Bonjour (native macOS): https://developer.apple.com/bonjour/
- *    For production macOS use, consider replacing this implementation with
- *    DNSServiceBrowse / DNSServiceResolve from <dns_sd.h>.
+ * On macOS the native dns_sd.h API is used (DNSServiceRegister).
+ * On all other platforms the class compiles but is a no-op.
+ *
+ * Protocol / API references:
+ *   - OS2L service type "_os2l._tcp": https://os2l.org
+ *   - VirtualDJ OS2L Auto mode: https://www.virtualdj.com/wiki/OS2L.html
+ *   - Apple DNS-SD C API: https://developer.apple.com/documentation/dnssd
+ *   - RFC 6762 (mDNS): https://tools.ietf.org/html/rfc6762
+ *   - RFC 6763 (DNS-SD): https://tools.ietf.org/html/rfc6763
  */
-class OS2LDiscovery : public QObject
+class OS2LBonjour : public QObject
 {
     Q_OBJECT
 
 public:
-    struct ServiceInfo
-    {
-        QString name;           // Service instance name
-        QHostAddress address;   // IP address
-        quint16 port;          // Port number
-        QString hostName;       // Hostname
-        QMap<QString, QString> txtRecords; // TXT record key-value pairs
-    };
+    explicit OS2LBonjour(QObject *parent = nullptr);
+    ~OS2LBonjour();
 
-    explicit OS2LDiscovery(QObject *parent = nullptr);
-    virtual ~OS2LDiscovery();
+    /**
+     * Register QLC+ as a "_os2l._tcp" Bonjour service on @p port.
+     * On macOS this calls DNSServiceRegister(); on other platforms it
+     * returns false immediately.
+     */
+    bool registerService(const QString &serviceName, quint16 port);
 
-    /** Start mDNS service discovery */
-    bool startDiscovery();
+    /** Remove the Bonjour registration. */
+    void unregisterService();
 
-    /** Stop mDNS service discovery */
-    void stopDiscovery();
-
-    /** Check if discovery is active */
-    bool isActive() const { return m_active; }
-
-    /** Get list of discovered services */
-    QList<ServiceInfo> discoveredServices() const { return m_services; }
+    /** @return true when a registration is active. */
+    bool isRegistered() const { return m_registered; }
 
 signals:
-    /** Emitted when a new OS2L service is discovered */
-    void serviceDiscovered(const OS2LDiscovery::ServiceInfo &service);
+    /** Emitted after Bonjour confirms the registration. */
+    void serviceRegistered(const QString &name, quint16 port);
 
-    /** Emitted when an OS2L service is no longer available */
-    void serviceRemoved(const QString &serviceName);
+    /** Emitted if registration fails. */
+    void serviceRegistrationFailed(const QString &errorMessage);
 
+#ifdef Q_OS_MACOS
 private slots:
-    void processPendingDatagrams();
-    void sendQuery();
-    void checkServiceTimeout();
+    /** Called by QSocketNotifier when the dns_sd socket is readable. */
+    void bonjourSocketReadyRead();
 
 private:
-    void parseResponse(const QByteArray &data, const QHostAddress &sender);
-    QString extractServiceName(const QByteArray &data, int offset, int &newOffset);
+    /**
+     * Callback invoked by the dns_sd daemon when registration completes.
+     * See DNSServiceRegisterReply in dns_sd.h.
+     */
+    static void DNSSD_API registerCallback(
+        DNSServiceRef sdRef,
+        DNSServiceFlags flags,
+        DNSServiceErrorType errorCode,
+        const char *name,
+        const char *regtype,
+        const char *domain,
+        void *context);
 
-    QUdpSocket *m_socket;
-    QTimer *m_queryTimer;
-    QTimer *m_timeoutTimer;
-    bool m_active;
+    DNSServiceRef m_dnssRef;
+    QSocketNotifier *m_notifier;
+#endif
 
-    QList<ServiceInfo> m_services;
-    QMap<QString, qint64> m_serviceLastSeen; // Service name -> timestamp
-
-    static const quint16 MDNS_PORT = 5353;
-    static const char* MDNS_ADDR;
-    static const int SERVICE_TIMEOUT_MS = 30000; // 30 seconds
-    static const int QUERY_INTERVAL_MS = 5000;   // 5 seconds
+private:
+    bool m_registered;
+    quint16 m_port;
 };
 
 #endif // OS2LDISCOVERY_H
