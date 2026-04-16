@@ -24,8 +24,12 @@
 > - Function Wizard for QML UI
 > - Launchpad controller integration support
 > - Audio capture / BPM detection for scripts
+> - **22 audio-reactive RGB scripts** (LedFX-ported atmospheric effects, strobes, motion, EQ visualizers)
 > - **RGB Matrix rotation & mirroring** (engine-level, all algorithm types)
 > - **Blend mode ordering fix** for Mask/Subtractive blend modes
+> - **Enhanced OS2L plugin** — Bonjour/mDNS auto-discovery, song metadata, connection status LED
+> - **Auto-reload last workspace** on startup (no `--openlast` flag needed)
+> - **Theme preset infrastructure** — switchable UI themes (includes "VS Code Dark")
 >
 > ### Recent engine changes
 >
@@ -68,6 +72,48 @@
 > Set the RGB Matrix's blend mode to **Mask**. Run it alongside a chaser in a
 > collection. The matrix's pixel pattern acts as a stencil — white areas show
 > the chaser's colors, dark areas are blocked.
+>
+> #### Enhanced OS2L Plugin — Bonjour Auto-Discovery
+> The OS2L (Open Sound 2 Light) plugin now supports **Bonjour/mDNS service
+> discovery** on macOS. VirtualDJ's OS2L "Auto" mode finds QLC+ automatically
+> — no manual IP configuration needed.
+>
+> | Feature | Description |
+> |---------|-------------|
+> | Bonjour discovery | Registers `_os2l._tcp` service via native macOS `dns_sd.h` API. VirtualDJ discovers QLC+ automatically. |
+> | Song metadata | Parses `song` events — title, artist, BPM, key, duration available for scripting. |
+> | Connection status LED | Input patch shows orange (advertising) / green (connected) status indicator. |
+> | Bonjour checkbox | Enable/disable Bonjour from the OS2L config dialog (default: ON). |
+> | Single-client enforcement | Tracks TCP connection state; only one DJ app connects at a time. |
+>
+> **Quick setup:** Enable OS2L on a universe → set VirtualDJ OS2L to **Auto** → done.
+> See [`plugins/os2l/README.md`](plugins/os2l/README.md) for details.
+>
+> #### Audio-Reactive RGB Scripts (22 effects)
+> A complete library of audio-reactive RGB Matrix algorithms, including ports
+> from the LedFX project. All scripts accept audio frequency data via
+> `Engine.getAudioFrequency()` and support customizable parameters
+> (palette, speed, sensitivity, trigger mode).
+>
+> | Category | Scripts |
+> |----------|---------|
+> | Atmospheric | aurora, lava, plasma, fire, water, soap, melt |
+> | Motion | crawler, chaser, scroll, tunnel, vortex |
+> | Visualizers | spectrum, equalizer, wavelength, scan |
+> | Beat-reactive | strobe, shot, energy, power, glitch, blocks |
+>
+> All effects support engine-level rotation (0°/90°/180°/270°), mirroring,
+> and customizable color palettes.
+>
+> #### Auto-Reload Last Workspace
+> QLC+ now automatically loads the most recent workspace file on startup
+> when no file is specified on the command line. Skips gracefully if the
+> file no longer exists on disk.
+>
+> #### Theme Presets
+> New theme preset infrastructure in UiManager allows switching between
+> UI color schemes. Ships with a "VS Code Dark" preset. Presets control
+> toolbar, frame header, and panel colors.
 >
 > #### AutoLight — Iterative LED Effect Research
 > The `autolight/` directory is a Python CLI tool that uses the MCP server to
