@@ -40,11 +40,12 @@ target_link_libraries(${module_name} PRIVATE
     Qt${QT_MAJOR_VERSION}::Widgets
 )
 
-# On macOS, link the system dns_sd library for native Bonjour service
-# registration (DNSServiceRegister). This is part of the macOS SDK and
-# does not require any additional packages.
+# On macOS, link CoreServices for Bonjour (dns_sd.h / DNSServiceRegister).
+# On modern macOS (Ventura+), the standalone libdns_sd is in the shared
+# dyld cache and cannot be linked directly with -ldns_sd; CoreServices is
+# Apple's umbrella framework that provides these APIs.
 if(APPLE)
-    target_link_libraries(${module_name} PRIVATE "-ldns_sd")
+    target_link_libraries(${module_name} PRIVATE "-framework CoreServices")
 endif()
 
 install(TARGETS ${module_name}
