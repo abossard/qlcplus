@@ -30,7 +30,19 @@
  *
  * This class implements mDNS-based service discovery for OS2L hosts.
  * It discovers VirtualDJ or other OS2L-compatible software on the local network
- * by listening for _os2l._tcp.local. service announcements.
+ * by querying and listening for _os2l._tcp.local. service announcements.
+ *
+ * Protocol references:
+ *  - OS2L service type "_os2l._tcp": https://os2l.org
+ *  - mDNS (RFC 6762): https://tools.ietf.org/html/rfc6762
+ *    Defines UDP port 5353 and multicast group 224.0.0.251 used here.
+ *  - DNS-SD (RFC 6763): https://tools.ietf.org/html/rfc6763
+ *    Defines the PTR query pattern and "_service._tcp.local." naming convention.
+ *  - DNS wire format (RFC 1035): https://tools.ietf.org/html/rfc1035
+ *    Binary packet structure used in sendQuery().
+ *  - Apple Bonjour (native macOS): https://developer.apple.com/bonjour/
+ *    For production macOS use, consider replacing this implementation with
+ *    DNSServiceBrowse / DNSServiceResolve from <dns_sd.h>.
  */
 class OS2LDiscovery : public QObject
 {

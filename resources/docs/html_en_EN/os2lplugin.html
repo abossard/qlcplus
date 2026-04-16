@@ -11,22 +11,34 @@
 
 <H2>Introduction</H2>
 <P>
-The OS2L plugin allows direct communication between QLC+ and an OS2L capable host.<br>
-OS2L specifications can be found at: <a href="http://os2l.org/">http://os2l.org</a><br>
-At the moment the main OS2L host supported is <a href="https://www.virtualdj.com/">Virtual DJ</a>.<br>
+The OS2L (Open Sound 2 Light) plugin allows direct communication between QLC+ and an OS2L capable host.<br>
+The OS2L specification is published at <a href="https://os2l.org/">https://os2l.org</a> and defines
+a JSON-over-TCP protocol for DJ software to send lighting control messages.<br>
+The main OS2L host supported today is <a href="https://www.virtualdj.com/">VirtualDJ</a>;
+its OS2L implementation is documented at
+<a href="https://www.virtualdj.com/wiki/OS2L.html">https://www.virtualdj.com/wiki/OS2L.html</a>.<br>
 QLC+ OS2L plugin will work either on the same host (127.0.0.1) or on a different host with
-an OS of your choice (Windows, macOS, Linux)
+an OS of your choice (Windows, macOS, Linux).
 </P>
 
 <H2>New Features</H2>
 <P>
 The enhanced OS2L plugin now includes:
 <UL>
-<LI><B>Automatic Service Discovery:</B> Uses Bonjour/mDNS to automatically discover VirtualDJ and other OS2L-compatible software on your local network</LI>
-<LI><B>Enhanced Logging:</B> Displays all incoming OS2L messages with detailed information in the console output</LI>
-<LI><B>Song Metadata:</B> Extracts and logs song information including name, artist, album, BPM, key, elapsed time, duration, genre, and more</LI>
-<LI><B>Bidirectional Communication:</B> Support for sending feedback messages back to VirtualDJ (experimental)</LI>
-<LI><B>Beat Detection:</B> Receives and processes beat messages for synchronization</LI>
+<LI><B>Automatic Service Discovery:</B> Uses Bonjour/mDNS (<a href="https://tools.ietf.org/html/rfc6762">RFC&nbsp;6762</a>
+    / <a href="https://tools.ietf.org/html/rfc6763">RFC&nbsp;6763</a>) to automatically discover VirtualDJ and
+    other OS2L-compatible software on your local network, searching for the <code>_os2l._tcp.local.</code> service type</LI>
+<LI><B>Enhanced Logging:</B> Displays all incoming OS2L messages with detailed information in the console output
+    (source: <a href="https://os2l.org/">OS2L spec</a>)</LI>
+<LI><B>Song Metadata:</B> Extracts and logs song information — name, artist, album, BPM, key, elapsed time,
+    duration, genre, deck number, and more
+    (source: <a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L wiki</a> /
+    <a href="https://os2l.org/">OS2L spec</a>)</LI>
+<LI><B>Bidirectional Communication:</B> Support for sending feedback messages back to VirtualDJ — see
+    the <a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L documentation</a> for the list
+    of supported output commands (experimental)</LI>
+<LI><B>Beat Detection:</B> Receives and processes <code>beat</code> messages for synchronization
+    (source: <a href="https://os2l.org/">OS2L spec</a>)</LI>
 </UL>
 </P>
 
@@ -73,7 +85,10 @@ Look for messages like:<br>
 
 <H2>Song Metadata Display</H2>
 <P>
-When VirtualDJ sends song information, the plugin will log all available metadata:
+When VirtualDJ sends a <code>song</code> event (as defined in the
+<a href="https://os2l.org/">OS2L specification</a> and the
+<a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L wiki</a>),
+the plugin will log all available metadata fields:
 <PRE>
 [OS2L] ==================== SONG METADATA ====================
 [OS2L] Song Name: Shape of You
@@ -86,7 +101,53 @@ When VirtualDJ sends song information, the plugin will log all available metadat
 [OS2L] Deck: 1
 [OS2L] ======================================================
 </PRE>
+Supported <code>song</code> event fields (source:
+<a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L wiki</a> /
+<a href="https://os2l.org/">OS2L spec</a>):
+<TABLE BORDER="1" CELLPADDING="4">
+<TR><TH>Field</TH><TH>Type</TH><TH>Description</TH></TR>
+<TR><TD><code>name</code></TD><TD>string</TD><TD>Track title</TD></TR>
+<TR><TD><code>artist</code></TD><TD>string</TD><TD>Artist name</TD></TR>
+<TR><TD><code>album</code></TD><TD>string</TD><TD>Album name</TD></TR>
+<TR><TD><code>genre</code></TD><TD>string</TD><TD>Music genre</TD></TR>
+<TR><TD><code>year</code></TD><TD>string</TD><TD>Release year</TD></TR>
+<TR><TD><code>remix</code></TD><TD>string</TD><TD>Remix/edit version</TD></TR>
+<TR><TD><code>status</code></TD><TD>string</TD><TD>Playback status: <code>play</code>, <code>pause</code>, or <code>stop</code></TD></TR>
+<TR><TD><code>bpm</code></TD><TD>number</TD><TD>Beats per minute (float)</TD></TR>
+<TR><TD><code>key</code></TD><TD>string</TD><TD>Musical key in Camelot notation (e.g. <code>8B</code>)</TD></TR>
+<TR><TD><code>elapsed</code></TD><TD>number</TD><TD>Elapsed playback time in seconds</TD></TR>
+<TR><TD><code>duration</code></TD><TD>number</TD><TD>Total track duration in seconds</TD></TR>
+<TR><TD><code>deck</code></TD><TD>integer</TD><TD>Deck number (1 or 2)</TD></TR>
+</TABLE>
+<BR>
 This information can be used to trigger lighting cues based on song changes, BPM, or other metadata.
+</P>
+
+<H2>Feedback Commands (Output to VirtualDJ)</H2>
+<P>
+The plugin supports sending OS2L feedback messages back to VirtualDJ.
+The full list of supported commands is documented at
+<a href="https://www.virtualdj.com/wiki/OS2L.html">https://www.virtualdj.com/wiki/OS2L.html</a>.
+Examples:
+<UL>
+<LI><code>/os2l/button "&lt;name&gt;"</code> &mdash; trigger a named button</LI>
+<LI><code>/os2l/midi/cue N</code> &mdash; trigger cue point N</LI>
+<LI><code>/os2l/midi/play_pause</code> &mdash; toggle playback</LI>
+<LI><code>/os2l/sampler/slot N play</code> &mdash; trigger sampler slot N</LI>
+<LI><code>/os2l/crossfader &lt;value&gt;</code> &mdash; set crossfader (0.0&ndash;1.0)</LI>
+</UL>
+</P>
+
+<H2>References</H2>
+<P>
+<UL>
+<LI><a href="https://os2l.org/">OS2L Official Specification</a> &mdash; primary source for all OS2L message types and protocol details</LI>
+<LI><a href="https://www.virtualdj.com/wiki/OS2L.html">VirtualDJ OS2L Documentation</a> &mdash; VirtualDJ-specific implementation, song metadata fields, and feedback commands</LI>
+<LI><a href="https://tools.ietf.org/html/rfc6762">RFC 6762 &mdash; Multicast DNS</a> &mdash; defines the mDNS protocol used for Bonjour service discovery (UDP port 5353, multicast 224.0.0.251)</LI>
+<LI><a href="https://tools.ietf.org/html/rfc6763">RFC 6763 &mdash; DNS-Based Service Discovery</a> &mdash; defines the <code>_service._tcp.local.</code> naming convention; the OS2L service type is <code>_os2l._tcp.local.</code></LI>
+<LI><a href="https://developer.apple.com/bonjour/">Apple Bonjour</a> &mdash; Apple's brand for mDNS+DNS-SD; on macOS the native APIs are <code>DNSServiceBrowse</code> / <code>DNSServiceResolve</code> from <code>&lt;dns_sd.h&gt;</code></LI>
+<LI><a href="https://tools.ietf.org/html/rfc1035">RFC 1035 &mdash; DNS Wire Format</a> &mdash; binary packet format used when constructing mDNS query packets</LI>
+</UL>
 </P>
 
 </BODY>

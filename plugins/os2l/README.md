@@ -231,12 +231,84 @@ dns-sd -B _os2l._tcp
 5. **Metadata Channels**: Map song metadata to specific DMX channels
 6. **Web Interface**: Provide a web UI for monitoring OS2L messages
 
-## References
+## References and Sources
 
-- [OS2L Official Website](https://os2l.org)
-- [VirtualDJ OS2L Documentation](https://www.virtualdj.com/wiki/OS2L.html)
-- [QLC+ Documentation](https://www.qlcplus.org/docs)
-- [mDNS/Bonjour Specification](https://tools.ietf.org/html/rfc6762)
+### OS2L Protocol Specification
+
+The OS2L protocol is documented at:
+- **OS2L Official Website**: https://os2l.org — primary protocol reference for all message types
+  (`evt`, `btn`, `cmd`, `beat`, `song`) and the JSON-over-TCP framing on port 9996.
+
+#### Message Types Reference
+
+All OS2L message types and their fields were derived from the OS2L specification at https://os2l.org:
+
+| Event | Source |
+|-------|--------|
+| `btn` | https://os2l.org — button on/off events with `name` and `state` fields |
+| `cmd` | https://os2l.org — numeric command with `id` (integer) and `param` (0.0–1.0) fields |
+| `beat` | https://os2l.org — beat/tempo synchronization event |
+| `song` | https://os2l.org — song metadata event (see below) |
+
+#### Song Metadata Fields
+
+The `song` event fields and their semantics are documented by the OS2L specification (https://os2l.org) and the VirtualDJ OS2L implementation (https://www.virtualdj.com/wiki/OS2L.html):
+
+| Field | Type | Source | Description |
+|-------|------|--------|-------------|
+| `name` | string | OS2L spec / VirtualDJ wiki | Track title |
+| `artist` | string | OS2L spec / VirtualDJ wiki | Artist name |
+| `album` | string | VirtualDJ wiki | Album name |
+| `genre` | string | VirtualDJ wiki | Music genre |
+| `year` | string | VirtualDJ wiki | Release year |
+| `remix` | string | VirtualDJ wiki | Remix/edit version |
+| `status` | string | OS2L spec | Playback status: `play`, `pause`, or `stop` |
+| `bpm` | number | OS2L spec / VirtualDJ wiki | Beats per minute (float) |
+| `key` | string | VirtualDJ wiki | Musical key in Camelot notation (e.g. `8B`) |
+| `elapsed` | number | VirtualDJ wiki | Elapsed playback time in seconds |
+| `duration` | number | VirtualDJ wiki | Total track duration in seconds |
+| `deck` | integer | VirtualDJ wiki | Deck number (1 or 2) |
+
+#### Feedback / Output Commands
+
+OS2L output messages (commands sent back to VirtualDJ) are documented in the VirtualDJ OS2L wiki:
+- **VirtualDJ OS2L Documentation**: https://www.virtualdj.com/wiki/OS2L.html
+
+Supported feedback commands include:
+- `/os2l/button "<name>"` — triggers a named button
+- `/os2l/midi/cue N` — triggers cue point N
+- `/os2l/midi/play_pause` — toggle playback
+- `/os2l/sampler/slot N play` — trigger sampler slot N
+- `/os2l/crossfader <value>` — set crossfader position (0.0–1.0)
+
+### Automatic Discovery (Bonjour/mDNS)
+
+The mDNS-based service discovery implementation follows these specifications:
+
+- **RFC 6762 — Multicast DNS**: https://tools.ietf.org/html/rfc6762
+  Defines the mDNS protocol (UDP port 5353, multicast group 224.0.0.251) used to discover
+  services on the local link without a DNS server.
+
+- **RFC 6763 — DNS-Based Service Discovery (DNS-SD)**: https://tools.ietf.org/html/rfc6763
+  Defines the `_service._tcp.local.` naming convention for service types. The OS2L service
+  type is `_os2l._tcp.local.` following this convention.
+
+- **Apple Bonjour / Zero-configuration networking**: https://developer.apple.com/bonjour/
+  Bonjour is Apple's brand name for the combination of mDNS (RFC 6762) and DNS-SD (RFC 6763).
+  The native macOS APIs for Bonjour are `DNSServiceBrowse`, `DNSServiceResolve`, and
+  `DNSServiceGetAddrInfo` from `<dns_sd.h>` (part of the Bonjour SDK / system library).
+
+- **DNS packet format**: https://tools.ietf.org/html/rfc1035 — RFC 1035 defines the binary
+  DNS wire format used when constructing mDNS query packets in `OS2LDiscovery::sendQuery()`.
+
+### Qt Networking APIs
+
+The implementation uses the following Qt 6 classes:
+- `QUdpSocket` — for mDNS multicast (Qt docs: https://doc.qt.io/qt-6/qudpsocket.html)
+- `QTcpServer` / `QTcpSocket` — for OS2L TCP server (Qt docs: https://doc.qt.io/qt-6/qtcpserver.html)
+- `QJsonDocument` / `QJsonObject` — for parsing OS2L JSON messages (Qt docs: https://doc.qt.io/qt-6/qjsondocument.html)
+
+---
 
 ## License
 
@@ -244,8 +316,8 @@ This plugin is part of QLC+ and is licensed under the Apache License 2.0.
 
 ## Author
 
-Original OS2L plugin: Massimo Callegari
-Enhanced features: Added as part of the QLC+ project
+Original OS2L plugin: Massimo Callegari  
+Enhanced features (Bonjour/mDNS discovery, song metadata, bidirectional support): Added as part of the QLC+ project
 
 ## Support
 

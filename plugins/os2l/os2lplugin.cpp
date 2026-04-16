@@ -351,6 +351,8 @@ void OS2LPlugin::slotProcessTCPPackets()
                 qDebug() << "[OS2L]  " << key << "= [array]";
         }
 
+        // OS2L protocol: every message carries an "evt" field identifying the event type.
+        // Source: OS2L specification — https://os2l.org
         QJsonValue jEvent = jsonObj.value("evt");
         if (jEvent.isUndefined())
         {
@@ -363,6 +365,9 @@ void OS2LPlugin::slotProcessTCPPackets()
 
         if (event == "btn")
         {
+            // "btn" event: button press/release.
+            // Fields: "name" (string) — button identifier; "state" ("on"/"off").
+            // Source: OS2L specification — https://os2l.org
             QJsonValue jName = jsonObj.value("name");
             QJsonValue jState = jsonObj.value("state");
             qDebug() << "[OS2L] Button event: name=" << jName.toString() << "state=" << jState.toString();
@@ -371,6 +376,9 @@ void OS2LPlugin::slotProcessTCPPackets()
         }
         else if (event == "cmd")
         {
+            // "cmd" event: numeric command with a value.
+            // Fields: "id" (integer) — command identifier; "param" (float 0.0–1.0) — command value.
+            // Source: OS2L specification — https://os2l.org
             QJsonValue jId = jsonObj.value("id");
             QJsonValue jParam = jsonObj.value("param");
             qDebug() << "[OS2L] CMD message: id=" << jId.toInt() << "param=" << jParam.toDouble();
@@ -380,24 +388,29 @@ void OS2LPlugin::slotProcessTCPPackets()
         }
         else if (event == "beat")
         {
+           // "beat" event: sent on every beat for BPM synchronization.
+           // Source: OS2L specification — https://os2l.org
            qDebug() << "[OS2L] Beat message received";
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
         }
         else if (event == "song" || event.isEmpty())
         {
-            // Handle song metadata
-            QString songName = jsonObj.value("name").toString();
-            QString artist = jsonObj.value("artist").toString();
-            QString album = jsonObj.value("album").toString();
-            QString genre = jsonObj.value("genre").toString();
-            QString year = jsonObj.value("year").toString();
-            QString status = jsonObj.value("status").toString();
-            double bpm = jsonObj.value("bpm").toDouble();
-            QString key = jsonObj.value("key").toString();
-            double elapsed = jsonObj.value("elapsed").toDouble();
-            double duration = jsonObj.value("duration").toDouble();
-            QString remix = jsonObj.value("remix").toString();
-            int deck = jsonObj.value("deck").toInt();
+            // "song" event: sent whenever a new track is loaded or track info changes.
+            // All field names and semantics below are sourced from:
+            //   - OS2L specification: https://os2l.org
+            //   - VirtualDJ OS2L wiki: https://www.virtualdj.com/wiki/OS2L.html
+            QString songName = jsonObj.value("name").toString();    // Track title
+            QString artist   = jsonObj.value("artist").toString();  // Artist name
+            QString album    = jsonObj.value("album").toString();   // Album name
+            QString genre    = jsonObj.value("genre").toString();   // Music genre
+            QString year     = jsonObj.value("year").toString();    // Release year (string)
+            QString status   = jsonObj.value("status").toString();  // "play" / "pause" / "stop"
+            double  bpm      = jsonObj.value("bpm").toDouble();     // Beats per minute
+            QString key      = jsonObj.value("key").toString();     // Camelot key notation (e.g. "8B")
+            double  elapsed  = jsonObj.value("elapsed").toDouble(); // Elapsed playback time (seconds)
+            double  duration = jsonObj.value("duration").toDouble();// Total track duration (seconds)
+            QString remix    = jsonObj.value("remix").toString();   // Remix/edit version
+            int     deck     = jsonObj.value("deck").toInt();       // Deck number (1 or 2)
 
             qDebug() << "[OS2L] ==================== SONG METADATA ====================";
             if (!songName.isEmpty())

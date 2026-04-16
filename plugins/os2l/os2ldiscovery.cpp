@@ -125,25 +125,37 @@ void OS2LDiscovery::sendQuery()
     if (!m_socket)
         return;
 
-    // Construct mDNS query for _os2l._tcp.local.
+    // Construct a DNS-SD PTR query for _os2l._tcp.local. sent as an mDNS multicast packet.
+    //
+    // Protocol references:
+    //   - DNS wire format (header + question section): RFC 1035 §4
+    //     https://tools.ietf.org/html/rfc1035#section-4
+    //   - mDNS multicast (224.0.0.251:5353): RFC 6762
+    //     https://tools.ietf.org/html/rfc6762
+    //   - DNS-SD PTR query to enumerate service instances: RFC 6763 §4.1
+    //     https://tools.ietf.org/html/rfc6763#section-4.1
+    //   - Service type naming convention (_service._tcp.local.): RFC 6763 §7
+    //     https://tools.ietf.org/html/rfc6763#section-7
+    //   - OS2L service type _os2l._tcp: https://os2l.org
     QByteArray query;
 
-    // DNS Header
-    query.append('\x00'); query.append('\x00'); // Transaction ID
-    query.append('\x00'); query.append('\x00'); // Flags: Standard query
-    query.append('\x00'); query.append('\x01'); // Questions: 1
-    query.append('\x00'); query.append('\x00'); // Answer RRs: 0
-    query.append('\x00'); query.append('\x00'); // Authority RRs: 0
-    query.append('\x00'); query.append('\x00'); // Additional RRs: 0
+    // DNS Header (RFC 1035 §4.1.1)
+    query.append('\x00'); query.append('\x00'); // Transaction ID (0 for mDNS, RFC 6762 §18.1)
+    query.append('\x00'); query.append('\x00'); // Flags: Standard query (QR=0, OPCODE=0)
+    query.append('\x00'); query.append('\x01'); // QDCOUNT: 1 question
+    query.append('\x00'); query.append('\x00'); // ANCOUNT: 0 answer RRs
+    query.append('\x00'); query.append('\x00'); // NSCOUNT: 0 authority RRs
+    query.append('\x00'); query.append('\x00'); // ARCOUNT: 0 additional RRs
 
-    // Question: _os2l._tcp.local.
-    query.append('\x05'); query.append("_os2l");  // Label: _os2l
-    query.append('\x04'); query.append("_tcp");   // Label: _tcp
-    query.append('\x05'); query.append("local");  // Label: local
-    query.append('\x00');                          // End of name
+    // Question section (RFC 1035 §4.1.2):
+    // QNAME = _os2l._tcp.local. encoded as length-prefixed labels
+    query.append('\x05'); query.append("_os2l");  // label "_os2l" (5 bytes)
+    query.append('\x04'); query.append("_tcp");   // label "_tcp"  (4 bytes)
+    query.append('\x05'); query.append("local");  // label "local" (5 bytes)
+    query.append('\x00');                          // root label (end of name)
 
-    query.append('\x00'); query.append('\x0c');   // Type: PTR
-    query.append('\x00'); query.append('\x01');   // Class: IN
+    query.append('\x00'); query.append('\x0c');   // QTYPE  = PTR (12) — RFC 6763 §4.1
+    query.append('\x00'); query.append('\x01');   // QCLASS = IN  (1)
 
     qint64 sent = m_socket->writeDatagram(query, QHostAddress(MDNS_ADDR), MDNS_PORT);
     if (sent < 0)
