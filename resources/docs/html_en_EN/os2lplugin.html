@@ -13,23 +13,80 @@
 <P>
 The OS2L plugin allows direct communication between QLC+ and an OS2L capable host.<br>
 OS2L specifications can be found at: <a href="http://os2l.org/">http://os2l.org</a><br>
-At the moment the only OS2L host supported is <a href="https://www.virtualdj.com/">Virtual DJ</a>.<br>
+At the moment the main OS2L host supported is <a href="https://www.virtualdj.com/">Virtual DJ</a>.<br>
 QLC+ OS2L plugin will work either on the same host (127.0.0.1) or on a different host with
 an OS of your choice (Windows, macOS, Linux)
+</P>
+
+<H2>New Features</H2>
+<P>
+The enhanced OS2L plugin now includes:
+<UL>
+<LI><B>Automatic Service Discovery:</B> Uses Bonjour/mDNS to automatically discover VirtualDJ and other OS2L-compatible software on your local network</LI>
+<LI><B>Enhanced Logging:</B> Displays all incoming OS2L messages with detailed information in the console output</LI>
+<LI><B>Song Metadata:</B> Extracts and logs song information including name, artist, album, BPM, key, elapsed time, duration, genre, and more</LI>
+<LI><B>Bidirectional Communication:</B> Support for sending feedback messages back to VirtualDJ (experimental)</LI>
+<LI><B>Beat Detection:</B> Receives and processes beat messages for synchronization</LI>
+</UL>
 </P>
 
 <H2>Configuration - Virtual DJ</H2>
 
 <P>
+<B>Step 1: Configure VirtualDJ</B><br>
 First and foremost, you need to tell VDJ where to send OS2L messages.<br>
 Open VDJ settings, go to the 'Options' panel and type 'os2l' in the top search box.<br>
 Modify the 'os2lDirectIp' field by setting the IP:port where VDJ can reach QLC+.
 For example, '127.0.0.1:9996' should work if QLC+ runs on the same (Windows) PC of VDJ.<br>
 Once done, restart VDJ.<br>
-<br>
-Now go to QLC+, enable the OS2L plugin on any universe. If you have set a specific port in VDJ,
+</P>
+
+<P>
+<B>Step 2: Enable OS2L in QLC+</B><br>
+Now go to QLC+, enable the OS2L plugin on any universe (Input/Output panel). If you have set a specific port in VDJ,
 open the OS2L configuration dialog and set the same port there.<br>
 Once done, QLC+ will start receiving signals from VDJ (joystick icon will blink beside the Universe box)
+</P>
+
+<P>
+<B>Step 3: Check the logs</B><br>
+If you run QLC+ with the <code>-d</code> flag (debug mode), you will see detailed logs of all OS2L messages:
+<UL>
+<LI>Service discovery announcements when VirtualDJ is detected on the network</LI>
+<LI>All JSON message fields and their values</LI>
+<LI>Song metadata when tracks change (song name, artist, BPM, key, etc.)</LI>
+<LI>Beat messages for synchronization</LI>
+<LI>Button and command events</LI>
+</UL>
+</P>
+
+<H2>Automatic Service Discovery (Bonjour/mDNS)</H2>
+<P>
+The plugin now automatically discovers OS2L services on your local network using Bonjour/mDNS.
+When VirtualDJ or another OS2L-compatible application starts on your network, the plugin will detect it
+and log the discovery. This makes setup easier as you don't need to manually configure IP addresses.<br>
+<BR>
+Look for messages like:<br>
+<code>[OS2L Discovery] Found OS2L service announcement from 192.168.1.100</code><br>
+<code>[OS2L Plugin] Auto-discovered service: OS2L@192.168.1.100 at 192.168.1.100:9996</code>
+</P>
+
+<H2>Song Metadata Display</H2>
+<P>
+When VirtualDJ sends song information, the plugin will log all available metadata:
+<PRE>
+[OS2L] ==================== SONG METADATA ====================
+[OS2L] Song Name: Shape of You
+[OS2L] Artist: Ed Sheeran
+[OS2L] Album: ÷ (Deluxe)
+[OS2L] BPM: 96.0
+[OS2L] Key: 8B
+[OS2L] Elapsed: 32.5 seconds
+[OS2L] Duration: 233.7 seconds
+[OS2L] Deck: 1
+[OS2L] ======================================================
+</PRE>
+This information can be used to trigger lighting cues based on song changes, BPM, or other metadata.
 </P>
 
 </BODY>

@@ -28,6 +28,7 @@
 #define OS2L_DEFAULT_PORT 9996
 
 class QTcpServer;
+class OS2LDiscovery;
 
 class OS2LPlugin final : public QLCIOPlugin
 {
@@ -72,6 +73,25 @@ public:
 
     quint32 universe() const;
 
+    /*************************************************************************
+     * Outputs
+     *************************************************************************/
+public:
+    /** @reimp */
+    bool openOutput(quint32 output, quint32 universe) override;
+
+    /** @reimp */
+    void closeOutput(quint32 output, quint32 universe) override;
+
+    /** @reimp */
+    QStringList outputs() override;
+
+    /** @reimp */
+    QString outputInfo(quint32 output) override;
+
+    /** @reimp */
+    void writeUniverse(quint32 universe, quint32 output, const QByteArray& data, bool dataChanged) override;
+
 protected:
     bool enableTCPServer(bool enable);
     quint16 getHash(QString channel);
@@ -85,15 +105,29 @@ protected slots:
     /** Async event raised when unicast packets are received */
     void slotProcessTCPPackets();
 
+    /** Handle OS2L service discovery */
+    void slotServiceDiscovered(const QHostAddress &address, quint16 port);
+
 protected:
     /** Universe selected for this plugin */
     quint32 m_inputUniverse;
+    quint32 m_outputUniverse;
 
     /** Port to listen for incoming packets */
     quint16 m_hostPort;
 
+    /** Host address and port for sending feedback messages */
+    QHostAddress m_remoteAddress;
+    quint16 m_remotePort;
+
     /** Reference to the TCP listener for incoming connections */
     QTcpServer *m_tcpServer;
+
+    /** TCP socket for sending feedback messages to VirtualDJ */
+    QTcpSocket *m_outputSocket;
+
+    /** Bonjour/mDNS service discovery */
+    OS2LDiscovery *m_discovery;
 
     /** Every time a OS2L message is received, the plugin will calculate a 16 bit checksum
       * of the OS2L command string and add it to

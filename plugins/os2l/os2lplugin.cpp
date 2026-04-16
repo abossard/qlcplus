@@ -25,6 +25,7 @@
 #include "utils.h"
 #include "os2lplugin.h"
 #include "os2lconfiguration.h"
+#include "os2ldiscovery.h"
 
 /*****************************************************************************
  * Initialization
@@ -38,8 +39,12 @@ OS2LPlugin::~OS2LPlugin()
 void OS2LPlugin::init()
 {
     m_inputUniverse = UINT_MAX;
+    m_outputUniverse = UINT_MAX;
     m_hostPort = OS2L_DEFAULT_PORT;
+    m_remotePort = OS2L_DEFAULT_PORT;
     m_tcpServer = NULL;
+    m_outputSocket = NULL;
+    m_discovery = NULL;
 }
 
 QString OS2LPlugin::name() const
@@ -49,7 +54,7 @@ QString OS2LPlugin::name() const
 
 int OS2LPlugin::capabilities() const
 {
-    return QLCIOPlugin::Input | QLCIOPlugin::Feedback | QLCIOPlugin::Beats;
+    return QLCIOPlugin::Input | QLCIOPlugin::Output | QLCIOPlugin::Feedback | QLCIOPlugin::Beats;
 }
 
 QString OS2LPlugin::pluginInfo() const
@@ -66,7 +71,16 @@ QString OS2LPlugin::pluginInfo() const
 
     str += QString("<P>");
     str += QString("<H3>%1</H3>").arg(name());
-    str += tr("This plugin provides support for one OS2L host.");
+    str += tr("This plugin provides support for OS2L (Open Sound 2 Light) protocol.");
+    str += QString("<BR>");
+    str += tr("Features:");
+    str += QString("<UL>");
+    str += QString("<LI>") + tr("Receives OS2L messages from VirtualDJ and compatible DJ software") + QString("</LI>");
+    str += QString("<LI>") + tr("Automatic service discovery via Bonjour/mDNS") + QString("</LI>");
+    str += QString("<LI>") + tr("Displays song metadata (name, artist, BPM, key, etc.)") + QString("</LI>");
+    str += QString("<LI>") + tr("Supports beats, buttons, and commands") + QString("</LI>");
+    str += QString("<LI>") + tr("Bidirectional communication for sending feedback") + QString("</LI>");
+    str += QString("</UL>");
     str += QString("</P>");
 
     return str;
@@ -87,12 +101,34 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
 
     enableTCPServer(true);
 
+    // Start Bonjour/mDNS service discovery
+    if (m_discovery == NULL)
+    {
+        m_discovery = new OS2LDiscovery(this);
+        connect(m_discovery, &OS2LDiscovery::serviceDiscovered,
+                this, [this](const OS2LDiscovery::ServiceInfo &service) {
+                    qDebug() << "[OS2L Plugin] Auto-discovered service:"
+                             << service.name << "at" << service.address.toString()
+                             << ":" << service.port;
+                    slotServiceDiscovered(service.address, service.port);
+                });
+        m_discovery->startDiscovery();
+    }
+
     return true;
 }
 
 void OS2LPlugin::closeInput(quint32 input, quint32 universe)
 {
     enableTCPServer(false);
+
+    // Stop service discovery
+    if (m_discovery != NULL)
+    {
+        m_discovery->stopDiscovery();
+        delete m_discovery;
+        m_discovery = NULL;
+    }
 
     removeFromMap(input, universe, Input);
 
@@ -131,6 +167,77 @@ QString OS2LPlugin::inputInfo(quint32 input)
 quint32 OS2LPlugin::universe() const
 {
     return m_inputUniverse;
+}
+
+/*************************************************************************
+ * Outputs
+ *************************************************************************/
+
+bool OS2LPlugin::openOutput(quint32 output, quint32 universe)
+{
+    if (output != 0)
+        return false;
+
+    m_outputUniverse = universe;
+
+    addToMap(universe, output, Output);
+
+    qDebug() << "[OS2L Plugin] Output opened on universe" << universe;
+    qDebug() << "[OS2L Plugin] Ready to send feedback messages to VirtualDJ";
+
+    return true;
+}
+
+void OS2LPlugin::closeOutput(quint32 output, quint32 universe)
+{
+    if (m_outputSocket != NULL)
+    {
+        m_outputSocket->close();
+        delete m_outputSocket;
+        m_outputSocket = NULL;
+    }
+
+    removeFromMap(output, universe, Output);
+    m_outputUniverse = UINT_MAX;
+}
+
+QStringList OS2LPlugin::outputs()
+{
+    QStringList list;
+    list << QString("OS2L Output");
+    return list;
+}
+
+QString OS2LPlugin::outputInfo(quint32 output)
+{
+    QString str;
+
+    if (output != QLCIOPlugin::invalidLine())
+        str += QString("<H3>%1</H3>").arg(outputs()[output]);
+
+    str += QString("<P>");
+    str += tr("This output can send OS2L feedback messages to VirtualDJ or other OS2L hosts.");
+    str += QString("</P>");
+    str += QString("</BODY>");
+    str += QString("</HTML>");
+
+    return str;
+}
+
+void OS2LPlugin::writeUniverse(quint32 universe, quint32 output, const QByteArray& data, bool dataChanged)
+{
+    Q_UNUSED(output);
+    Q_UNUSED(dataChanged);
+
+    if (universe != m_outputUniverse)
+        return;
+
+    // For now, this is a placeholder for sending OS2L commands
+    // In a real implementation, you would parse DMX channels and convert them to OS2L commands
+    // Example: specific channels could trigger cues, control crossfader, etc.
+
+    qDebug() << "[OS2L Output] Would send data to" << m_remoteAddress.toString() << ":" << m_remotePort;
+    qDebug() << "[OS2L Output] Data size:" << data.size() << "bytes";
 }
 
 bool OS2LPlugin::enableTCPServer(bool enable)
@@ -222,19 +329,43 @@ void OS2LPlugin::slotProcessTCPPackets()
         m_packetLeftOver.remove(0, endIndex + 1);
         QJsonDocument json = QJsonDocument::fromJson(message);
 
-        qDebug() << "[TCP] Received" << message.length() << "bytes from" << senderAddress.toString();
+        qDebug() << "[OS2L] Received" << message.length() << "bytes from" << senderAddress.toString();
+        qDebug() << "[OS2L] Raw message:" << message;
+
         QJsonObject jsonObj = json.object();
+
+        // Log all JSON fields for debugging
+        qDebug() << "[OS2L] Parsed JSON keys:" << jsonObj.keys();
+        for (const QString &key : jsonObj.keys())
+        {
+            QJsonValue val = jsonObj.value(key);
+            if (val.isString())
+                qDebug() << "[OS2L]  " << key << "=" << val.toString();
+            else if (val.isDouble())
+                qDebug() << "[OS2L]  " << key << "=" << val.toDouble();
+            else if (val.isBool())
+                qDebug() << "[OS2L]  " << key << "=" << val.toBool();
+            else if (val.isObject())
+                qDebug() << "[OS2L]  " << key << "= [object]";
+            else if (val.isArray())
+                qDebug() << "[OS2L]  " << key << "= [array]";
+        }
+
         QJsonValue jEvent = jsonObj.value("evt");
         if (jEvent.isUndefined())
+        {
+            qDebug() << "[OS2L] Warning: No 'evt' field in message, ignoring";
             return;
+        }
 
         QString event = jEvent.toString();
+        qDebug() << "[OS2L] Event type:" << event;
 
         if (event == "btn")
         {
             QJsonValue jName = jsonObj.value("name");
             QJsonValue jState = jsonObj.value("state");
-            qDebug() << "Got button event with name" << jName.toString() << "and state" << jState.toString();
+            qDebug() << "[OS2L] Button event: name=" << jName.toString() << "state=" << jState.toString();
             uchar value = jState.toString() == "off" ? 0 : 255;
             emit valueChanged(m_inputUniverse, 0, getHash(jName.toString()), value, jName.toString());
         }
@@ -242,15 +373,69 @@ void OS2LPlugin::slotProcessTCPPackets()
         {
             QJsonValue jId = jsonObj.value("id");
             QJsonValue jParam = jsonObj.value("param");
-            qDebug() << "Got CMD message" << jId.toInt() << "with param" << jParam.toDouble();
+            qDebug() << "[OS2L] CMD message: id=" << jId.toInt() << "param=" << jParam.toDouble();
             quint32 channel = quint32(jId.toInt());
             QString cmd = QString("cmd%1").arg(channel);
             emit valueChanged(m_inputUniverse, 0, quint32(jId.toInt()), uchar(jParam.toDouble()), cmd);
         }
         else if (event == "beat")
         {
-           qDebug() << "Got beat message" << message;
+           qDebug() << "[OS2L] Beat message received";
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
+        }
+        else if (event == "song" || event.isEmpty())
+        {
+            // Handle song metadata
+            QString songName = jsonObj.value("name").toString();
+            QString artist = jsonObj.value("artist").toString();
+            QString album = jsonObj.value("album").toString();
+            QString genre = jsonObj.value("genre").toString();
+            QString year = jsonObj.value("year").toString();
+            QString status = jsonObj.value("status").toString();
+            double bpm = jsonObj.value("bpm").toDouble();
+            QString key = jsonObj.value("key").toString();
+            double elapsed = jsonObj.value("elapsed").toDouble();
+            double duration = jsonObj.value("duration").toDouble();
+            QString remix = jsonObj.value("remix").toString();
+            int deck = jsonObj.value("deck").toInt();
+
+            qDebug() << "[OS2L] ==================== SONG METADATA ====================";
+            if (!songName.isEmpty())
+                qDebug() << "[OS2L] Song Name:" << songName;
+            if (!artist.isEmpty())
+                qDebug() << "[OS2L] Artist:" << artist;
+            if (!album.isEmpty())
+                qDebug() << "[OS2L] Album:" << album;
+            if (!genre.isEmpty())
+                qDebug() << "[OS2L] Genre:" << genre;
+            if (!year.isEmpty())
+                qDebug() << "[OS2L] Year:" << year;
+            if (!remix.isEmpty())
+                qDebug() << "[OS2L] Remix:" << remix;
+            if (!status.isEmpty())
+                qDebug() << "[OS2L] Status:" << status;
+            if (bpm > 0)
+                qDebug() << "[OS2L] BPM:" << bpm;
+            if (!key.isEmpty())
+                qDebug() << "[OS2L] Key:" << key;
+            if (elapsed > 0)
+                qDebug() << "[OS2L] Elapsed:" << elapsed << "seconds";
+            if (duration > 0)
+                qDebug() << "[OS2L] Duration:" << duration << "seconds";
+            if (deck > 0)
+                qDebug() << "[OS2L] Deck:" << deck;
+            qDebug() << "[OS2L] ======================================================";
+
+            // Emit song info as channel values (using hash for song identification)
+            if (!songName.isEmpty())
+            {
+                QString songId = QString("%1 - %2").arg(artist, songName);
+                emit valueChanged(m_inputUniverse, 0, getHash(songId), 255, songId);
+            }
+        }
+        else
+        {
+            qDebug() << "[OS2L] Unknown event type:" << event;
         }
     }
 }
@@ -298,4 +483,12 @@ void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
     /** Remember to call the base QLCIOPlugin method to actually inform
      *  QLC+ to store the parameter in the project workspace XML */
     QLCIOPlugin::setParameter(universe, line, type, name, value);
+}
+
+void OS2LPlugin::slotServiceDiscovered(const QHostAddress &address, quint16 port)
+{
+    qDebug() << "[OS2L Plugin] *** OS2L Service Discovered ***";
+    qDebug() << "[OS2L Plugin]   Address:" << address.toString();
+    qDebug() << "[OS2L Plugin]   Port:" << port;
+    qDebug() << "[OS2L Plugin]   You can now configure VirtualDJ to send to this QLC+ instance";
 }

@@ -27,6 +27,7 @@ target_sources(${module_name} PRIVATE
     ../interfaces/qlcioplugin.cpp ../interfaces/qlcioplugin.h
     os2lconfiguration.cpp os2lconfiguration.h os2lconfiguration.ui
     os2lplugin.cpp os2lplugin.h
+    os2ldiscovery.cpp os2ldiscovery.h
 )
 target_include_directories(${module_name} PRIVATE
     ../interfaces
