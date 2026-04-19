@@ -344,18 +344,70 @@ int App::defaultMask() const
 
 void App::keyPressEvent(QKeyEvent *e)
 {
-    if (m_contextManager)
+    e->ignore();
+
+    if (m_contextManager && !isTextInputShortcut(e))
         m_contextManager->handleKeyPress(e);
 
-    QQuickView::keyPressEvent(e);
+    if (!e->isAccepted())
+        QQuickView::keyPressEvent(e);
+}
+
+bool App::isTextInputShortcut(QKeyEvent *e) const
+{
+    if (!(e->modifiers() & Qt::ControlModifier))
+    {
+        // Also guard bare Delete key when text input has focus
+        if (e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace)
+            return isTextInputFocused();
+        return false;
+    }
+
+    switch (e->key())
+    {
+        case Qt::Key_A:  // Select All
+        case Qt::Key_Z:  // Undo / Redo
+        case Qt::Key_C:  // Copy
+        case Qt::Key_V:  // Paste
+        case Qt::Key_X:  // Cut
+            return isTextInputFocused();
+        default:
+            return false;
+    }
+}
+
+bool App::isTextInputFocused() const
+{
+    QQuickItem *focusItem = activeFocusItem();
+    if (!focusItem)
+        return false;
+
+    // Check for QML text input types (covers QQuickTextInput, QQuickTextField,
+    // QQuickTextEdit, QQuickTextArea, and any subclasses)
+    if (!focusItem->inherits("QQuickTextInput") && !focusItem->inherits("QQuickTextEdit"))
+        return false;
+
+    // Don't suppress global shortcuts for read-only or disabled text controls
+    // (e.g. ComboBox internal TextField when not editable)
+    if (!focusItem->isEnabled())
+        return false;
+
+    QVariant readOnly = focusItem->property("readOnly");
+    if (readOnly.isValid() && readOnly.toBool())
+        return false;
+
+    return true;
 }
 
 void App::keyReleaseEvent(QKeyEvent *e)
 {
-    if (m_contextManager)
+    e->ignore();
+
+    if (m_contextManager && !isTextInputShortcut(e))
         m_contextManager->handleKeyRelease(e);
 
-    QQuickView::keyReleaseEvent(e);
+    if (!e->isAccepted())
+        QQuickView::keyReleaseEvent(e);
 }
 
 void App::mousePressEvent(QMouseEvent *e)

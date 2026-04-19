@@ -29,6 +29,7 @@ Popup
 {
     id: menuRoot
     padding: 0
+    closePolicy: submenuItem !== null ? Popup.CloseOnEscape : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
 
     property Item submenuItem: null
     property int flagSize: UISettings.iconSizeDefault * 1.5

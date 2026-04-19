@@ -196,6 +196,12 @@ protected:
     void mousePressEvent(QMouseEvent *e) override;
     bool event(QEvent *event) override;
 
+private:
+    /** Returns true if the event is a text-editing shortcut and a text input has focus */
+    bool isTextInputShortcut(QKeyEvent *e) const;
+    /** Returns true if the current QML active-focus item is a text input or text edit */
+    bool isTextInputFocused() const;
+
 protected slots:
     void slotSceneGraphInitialized();
     void slotScreenChanged(QScreen *screen);

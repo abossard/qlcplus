@@ -494,22 +494,27 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
         {
             case Qt::Key_A:
                 toggleFixturesSelection();
-            break;
+                e->accept();
+                return;
             case Qt::Key_P:
                 setPositionPicking(true);
-            break;
+                e->accept();
+                return;
             case Qt::Key_R:
                 resetDumpValues();
-            break;
+                e->accept();
+                return;
             case Qt::Key_S:
                 QMetaObject::invokeMethod(m_view->rootObject(), "saveProject");
-            break;
+                e->accept();
+                return;
             case Qt::Key_Z:
                 if (e->modifiers() & Qt::ShiftModifier)
                     Tardis::instance()->redoAction();
                 else
                     Tardis::instance()->undoAction();
-            break;
+                e->accept();
+                return;
             default:
             break;
         }
@@ -561,6 +566,7 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
         }
 
         // Don't let it go through
+        e->accept();
         return;
     }
 
