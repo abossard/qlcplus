@@ -21,13 +21,14 @@
 > - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 230 unit tests
 > - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
 > - `autolight/` directory: Iterative LED effect research loop (Python)
-> - Function Wizard for QML UI
+> - **Enhanced Function Wizard** — rainbow/warm/cool palettes, beat-synced chasers, movement patterns, prism/focus/zoom detection, per-fixture VC pages, QLCPalette generation
 > - Launchpad controller integration support
 > - Audio capture / BPM detection for scripts
 > - **22 audio-reactive RGB scripts** (LedFX-ported atmospheric effects, strobes, motion, EQ visualizers)
 > - **RGB Matrix rotation & mirroring** (engine-level, all algorithm types)
+> - **RGB Matrix low-latency step transitions** (~3ms vs ~22ms previously)
 > - **Blend mode ordering fix** for Mask/Subtractive blend modes
-> - **Enhanced OS2L plugin** — Bonjour/mDNS auto-discovery, song metadata, connection status LED
+> - **Enhanced OS2L plugin** — Bonjour/mDNS auto-discovery, song metadata, connection status LED, web diagnostics dashboard
 > - **Auto-reload last workspace** on startup (no `--openlast` flag needed)
 > - **Theme preset infrastructure** — switchable UI themes (includes "VS Code Dark")
 >
@@ -88,6 +89,65 @@
 >
 > **Quick setup:** Enable OS2L on a universe → set VirtualDJ OS2L to **Auto** → done.
 > See [`plugins/os2l/README.md`](plugins/os2l/README.md) for details.
+>
+> #### OS2L Diagnostics Dashboard
+> When running with `-d` (debug mode), a live web dashboard is available at
+> `http://localhost:9999/os2l` showing real-time OS2L traffic:
+>
+> | Feature | Description |
+> |---------|-------------|
+> | Event log | 1000-event ring buffer with timestamps, event types, and payloads |
+> | Beat indicator | Green flash on every beat event |
+> | Song metadata | Current track title, artist, BPM, key |
+> | Connection stats | Message counts by type, bytes received, uptime |
+> | JSON API | `/os2l.json` endpoint for programmatic access |
+>
+> The dashboard auto-polls at 500ms and is gated behind debug mode (not exposed in production).
+>
+> #### Enhanced Function Wizard
+> The Function Wizard now generates richer output with beat-synced timing,
+> thematic color palettes, movement patterns, and per-fixture VC pages.
+>
+> **New palette types:**
+>
+> | Type | What it creates |
+> |------|----------------|
+> | Rainbow Chase | 8 spectral color scenes (R→O→Y→G→C→B→P→M) with beat-synced chaser |
+> | Warm Colours | 5 warm tones (Red→Orange→Amber→Yellow→WarmWhite) with PingPong chaser |
+> | Cool Colours | 5 cool tones (Blue→Cyan→Indigo→Purple→CoolWhite) with PingPong chaser |
+> | Prism Effects | Per-capability scenes from prism channel (Off, On, CW/CCW rotation) |
+>
+> **Beat-synced chasers:** All generated chasers now default to beat-based
+> tempo (syncs with OS2L beat events). Per-type timing profiles:
+> colors = 4-beat hold / 2-beat fade, gobos = 8-beat, movement = 4-beat.
+>
+> **Movement chasers (Pan/Tilt):** In addition to 9 static position presets,
+> the wizard now generates 4 movement chasers: Pan Sweep (Loop), Tilt Sweep
+> (Loop), Nod (PingPong), and Shake (PingPong fast).
+>
+> **QLCPalette generation:** Alongside scenes and chasers, the wizard now
+> creates reusable QLC+ Palette objects for Color, Position, Dimmer, Gobo,
+> and Shutter presets.
+>
+> **Per-fixture pages:** When multiple fixtures are selected, each fixture
+> gets its own Virtual Console page (caption = fixture name) with all
+> widgets scoped to that fixture.
+>
+> **SoloFrame grouping:** Color, gobo, and prism scene buttons are wrapped
+> in VCSoloFrame so only one can be active at a time.
+>
+> **Focus/Zoom sliders:** Automatically detected via channel preset
+> (BeamFocusNearFar, BeamZoomSmallBig, etc.) and created as VCSliders.
+>
+> **New Step 3 options:**
+> - "Beat-synced chasers" checkbox (default: on)
+> - "One page per fixture" checkbox (default: on)
+>
+> #### RGB Matrix Step-Transition Latency
+> Reduced step-transition latency from ~22ms to ~3ms. Previously, the
+> GenericFader cleanup between chaser steps introduced a full frame delay.
+> The fix ensures the new step's values are written in the same DMX frame
+> as the old step's cleanup.
 >
 > #### Audio-Reactive RGB Scripts (22 effects)
 > A complete library of audio-reactive RGB Matrix algorithms, including ports
