@@ -27,7 +27,7 @@
           <button class="nav-btn" id="loadProjectBtn" type="button">Load project</button>
           <a class="nav-btn" href="/simpleDesk">Simple Desk</a>
           <a class="nav-btn" href="/config">Configuration</a>
-          <a class="nav-btn" href="/os2l" id="os2lLink" style="display:none">OS2L Diagnostics</a>
+          <a class="nav-btn" href="/diagnostics" id="diagLink">Diagnostics</a>
         </div>
         <div class="status disconnected" id="wsStatus" aria-label="Disconnected" title="Disconnected"></div>
       </div>
@@ -37,10 +37,7 @@
   </div>
   <script src="webaccess-v5.js"></script>
   <script>
-    // Show OS2L Diagnostics link only when QLC+ is running with -d flag
-    fetch('/debug-mode.json').then(function(r){return r.json()}).then(function(d){
-      if(d&&d.debug){var el=document.getElementById('os2lLink');if(el)el.style.display='';}
-    }).catch(function(){});
+    // Diagnostics link is always visible (dashboard handles enable/disable)
   </script>
 </body>
 </html>

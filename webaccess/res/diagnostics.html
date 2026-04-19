@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QLC+ Diagnostics</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1e1e2e;color:#cdd6f4;min-height:100vh}
+.header{background:#181825;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #313244}
+.header h1{font-size:18px;color:#89b4fa}
+.header .controls{display:flex;gap:10px;align-items:center}
+.toggle-btn{padding:6px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600}
+.toggle-btn.on{background:#a6e3a1;color:#1e1e2e}
+.toggle-btn.off{background:#45475a;color:#cdd6f4}
+.status-bar{background:#181825;padding:8px 20px;display:flex;gap:20px;font-size:12px;color:#6c7086;border-bottom:1px solid #313244}
+.status-bar .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge-green{background:#a6e3a1;color:#1e1e2e}
+.badge-orange{background:#fab387;color:#1e1e2e}
+.badge-gray{background:#45475a;color:#bac2de}
+.badge-blue{background:#89b4fa;color:#1e1e2e}
+.container{padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px}
+.card{background:#181825;border:1px solid #313244;border-radius:8px;overflow:hidden}
+.card-header{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;background:#11111b;border-bottom:1px solid #313244}
+.card-header h3{font-size:14px;color:#cdd6f4}
+.card-body{padding:14px}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{text-align:center;padding:8px;background:#11111b;border-radius:6px}
+.stat .value{font-size:20px;font-weight:700;color:#89b4fa}
+.stat .label{font-size:11px;color:#6c7086;margin-top:2px}
+.device-list{list-style:none;padding:0}
+.device-list li{padding:6px 0;border-bottom:1px solid #313244;font-size:13px;color:#bac2de}
+.device-list li:last-child{border-bottom:none}
+.universe-table{width:100%;border-collapse:collapse;font-size:13px}
+.universe-table th{text-align:left;padding:6px 8px;background:#11111b;color:#6c7086;font-weight:600}
+.universe-table td{padding:6px 8px;border-bottom:1px solid #313244}
+.event-log{max-height:200px;overflow-y:auto;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:11px}
+.event-log .entry{padding:3px 0;border-bottom:1px solid #1e1e2e}
+.event-log .ts{color:#6c7086;margin-right:8px}
+.event-log .type{font-weight:600;margin-right:8px}
+.type-connection{color:#a6e3a1}
+.type-message{color:#89b4fa}
+.type-error{color:#f38ba8}
+.type-bonjour{color:#fab387}
+.full-width{grid-column:1/-1}
+.disabled-msg{text-align:center;padding:40px;color:#6c7086;font-size:14px}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>⚡ QLC+ Diagnostics</h1>
+  <div class="controls">
+    <span id="pollStatus" style="font-size:12px;color:#6c7086">—</span>
+    <button id="toggleBtn" class="toggle-btn off" onclick="toggleDiag()">Enable</button>
+  </div>
+</div>
+<div class="status-bar" id="statusBar">Loading…</div>
+<div class="container" id="dashboard"></div>
+
+<script>
+let pollTimer = null;
+let enabled = false;
+
+async function toggleDiag() {
+  try {
+    const resp = await fetch(enabled ? '/diagnostics/disable' : '/diagnostics/enable');
+    const data = await resp.json();
+    enabled = data.enabled;
+    updateToggle();
+    if (enabled) poll();
+  } catch(e) { console.error(e); }
+}
+
+function updateToggle() {
+  const btn = document.getElementById('toggleBtn');
+  btn.className = 'toggle-btn ' + (enabled ? 'on' : 'off');
+  btn.textContent = enabled ? 'Disable' : 'Enable';
+}
+
+async function checkInitialState() {
+  try {
+    const resp = await fetch('/diagnostics.json');
+    const data = await resp.json();
+    enabled = data.enabled;
+    updateToggle();
+    render(data);
+    if (enabled) startPolling();
+  } catch(e) {
+    document.getElementById('dashboard').innerHTML = '<div class="disabled-msg">Cannot connect to QLC+ web server</div>';
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(poll, 1000);
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function poll() {
+  try {
+    const resp = await fetch('/diagnostics.json');
+    const data = await resp.json();
+    enabled = data.enabled;
+    updateToggle();
+    render(data);
+    if (enabled && !pollTimer) startPolling();
+    if (!enabled) stopPolling();
+    document.getElementById('pollStatus').textContent = new Date().toLocaleTimeString();
+  } catch(e) { console.error(e); }
+}
+
+function render(data) {
+  if (!data.enabled) {
+    document.getElementById('statusBar').innerHTML = '<span class="badge badge-gray">Disabled</span> Diagnostics are off — click Enable to start collecting data';
+    document.getElementById('dashboard').innerHTML = '<div class="disabled-msg">Click <strong>Enable</strong> to start collecting diagnostics data.<br>No performance overhead when disabled.</div>';
+    return;
+  }
+
+  const plugins = data.plugins || {};
+  const universes = data.universes || {};
+  const names = Object.keys(plugins);
+
+  // Status bar
+  let activeCount = 0;
+  names.forEach(n => {
+    const p = plugins[n];
+    if (p.status === 'connected' || p.status === 'active' || (p.totalPacketsSent && p.totalPacketsSent > 0))
+      activeCount++;
+  });
+  document.getElementById('statusBar').innerHTML =
+    `<span class="badge badge-green">${activeCount} active</span>` +
+    `<span>${names.length} plugins loaded</span>` +
+    `<span>${Object.keys(universes).length} universes</span>`;
+
+  let html = '';
+
+  // Plugin cards
+  names.forEach(name => {
+    const p = plugins[name];
+    html += renderPluginCard(name, p);
+  });
+
+  // Universe map card
+  if (Object.keys(universes).length > 0) {
+    html += '<div class="card full-width"><div class="card-header"><h3>🌐 Universe Map</h3></div><div class="card-body">';
+    html += '<table class="universe-table"><tr><th>#</th><th>Name</th><th>Input</th><th>Output</th></tr>';
+    Object.keys(universes).forEach(id => {
+      const u = universes[id];
+      html += `<tr><td>${id}</td><td>${u.name||'—'}</td><td>${u.input||'—'}</td><td>${u.output||'—'}</td></tr>`;
+    });
+    html += '</table></div></div>';
+  }
+
+  document.getElementById('dashboard').innerHTML = html;
+}
+
+function renderPluginCard(name, p) {
+  let statusBadge = '<span class="badge badge-gray">idle</span>';
+  if (p.status === 'connected') statusBadge = '<span class="badge badge-green">connected</span>';
+  else if (p.status === 'advertising') statusBadge = '<span class="badge badge-orange">advertising</span>';
+  else if (p.totalPacketsSent > 0) statusBadge = '<span class="badge badge-blue">active</span>';
+
+  let body = '';
+
+  // Network plugin stats (ArtNet, E1.31)
+  if (p.totalPacketsSent !== undefined) {
+    body += '<div class="stat-grid">';
+    body += `<div class="stat"><div class="value">${fmtNum(p.totalPacketsSent)}</div><div class="label">Packets Sent</div></div>`;
+    body += `<div class="stat"><div class="value">${fmtNum(p.totalPacketsReceived)}</div><div class="label">Packets Received</div></div>`;
+    body += '</div>';
+    if (p.controllers) {
+      body += '<ul class="device-list">';
+      p.controllers.forEach(c => {
+        body += `<li>📡 ${c.interface} (${c.address}) — ↑${fmtNum(c.packetsSent||0)} ↓${fmtNum(c.packetsReceived||0)}</li>`;
+      });
+      body += '</ul>';
+    }
+  }
+
+  // OS2L specific
+  if (p.port !== undefined) {
+    body += '<div class="stat-grid">';
+    body += `<div class="stat"><div class="value">${p.port}</div><div class="label">Port</div></div>`;
+    body += `<div class="stat"><div class="value">${p.clientConnected ? '✅' : '—'}</div><div class="label">Client</div></div>`;
+    body += '</div>';
+    if (p.clientAddress) body += `<p style="font-size:12px;margin-top:6px;color:#a6e3a1">Connected: ${p.clientAddress}</p>`;
+  }
+
+  // Device lists (MIDI, DMX USB)
+  if (p.inputDevices || p.outputDevices || p.devices) {
+    const devs = p.devices || [];
+    const inDevs = p.inputDevices || [];
+    const outDevs = p.outputDevices || [];
+    if (devs.length > 0) {
+      body += '<ul class="device-list">';
+      devs.forEach(d => body += `<li>🔌 ${d.name||d} ${d.serial ? '('+d.serial+')' : ''}</li>`);
+      body += '</ul>';
+    }
+    if (inDevs.length > 0 || outDevs.length > 0) {
+      body += '<ul class="device-list">';
+      inDevs.forEach(d => body += `<li>⬅️ ${d}</li>`);
+      outDevs.forEach(d => body += `<li>➡️ ${d}</li>`);
+      body += '</ul>';
+    }
+  }
+
+  // Generic inputs/outputs for basic plugins
+  if (p.inputs && Array.isArray(p.inputs) && !p.inputDevices) {
+    const items = [...(p.inputs||[]), ...(p.outputs||[])];
+    if (items.length > 0) {
+      body += '<ul class="device-list">';
+      items.forEach(i => body += `<li>📌 ${i}</li>`);
+      body += '</ul>';
+    }
+  }
+
+  // Event log (OS2L)
+  if (p.events && p.events.length > 0) {
+    body += '<div class="event-log">';
+    p.events.slice(0, 20).forEach(e => {
+      const ts = new Date(e.ts).toLocaleTimeString();
+      const cls = 'type-' + (e.type || 'message');
+      body += `<div class="entry"><span class="ts">${ts}</span><span class="type ${cls}">${e.type}</span>${e.detail}</div>`;
+    });
+    body += '</div>';
+  }
+
+  // Stats counters (OS2L)
+  if (p.stats && Object.keys(p.stats).length > 0) {
+    body += '<div class="stat-grid" style="margin-top:8px">';
+    Object.keys(p.stats).forEach(k => {
+      body += `<div class="stat"><div class="value">${fmtNum(p.stats[k])}</div><div class="label">${k}</div></div>`;
+    });
+    body += '</div>';
+  }
+
+  if (!body) body = '<p style="color:#6c7086;font-size:12px">No detailed diagnostics available</p>';
+
+  return `<div class="card"><div class="card-header"><h3>${name}</h3>${statusBadge}</div><div class="card-body">${body}</div></div>`;
+}
+
+function fmtNum(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+checkInitialState();
+</script>
+</body>
+</html>

@@ -19,6 +19,9 @@
 
 #include <QSettings>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "oscplugin.h"
 #include "configureosc.h"
@@ -97,6 +100,20 @@ QString OSCPlugin::pluginInfo() const
     str += QString("</P>");
 
     return str;
+}
+
+QByteArray OSCPlugin::pluginDiagnostics() const
+{
+    if (!isDiagnosticsEnabled())
+        return QByteArray();
+
+    QJsonObject root;
+    root["type"] = name();
+    root["inputs"] = QJsonArray::fromStringList(const_cast<OSCPlugin*>(this)->inputs());
+    root["outputs"] = QJsonArray::fromStringList(const_cast<OSCPlugin*>(this)->outputs());
+    root["lines"] = m_IOmapping.count();
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 bool OSCPlugin::requestLine(quint32 line)

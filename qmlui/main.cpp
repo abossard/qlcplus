@@ -26,6 +26,8 @@
 
 #include "app.h"
 #include "networkmanager.h"
+#include "ioplugincache.h"
+#include "qlcioplugin.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
 
@@ -213,6 +215,17 @@ int main(int argc, char *argv[])
         qlcplusApp.enableKioskMode();
 
     qlcplusApp.startup();
+
+    // Enable diagnostics on all plugins when -d flag is active
+    if (parser.isSet(debugOption))
+    {
+        IOPluginCache *cache = qlcplusApp.doc()->ioPluginCache();
+        if (cache)
+        {
+            for (QLCIOPlugin *plugin : cache->plugins())
+                plugin->setDiagnosticsEnabled(true);
+        }
+    }
 
     // open file
     QString filename;

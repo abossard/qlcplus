@@ -50,6 +50,9 @@ public:
     /** @reimp */
     QString pluginInfo() const override;
 
+    /** @reimp */
+    QByteArray pluginDiagnostics() const override;
+
     /** Find out what kinds of widgets there are currently connected */
     bool rescanWidgets();
 

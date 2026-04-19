@@ -19,6 +19,9 @@
 
 #include <QSettings>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "e131plugin.h"
 #include "configuree131.h"
@@ -98,6 +101,43 @@ QString E131Plugin::pluginInfo() const
     str += QString("</P>");
 
     return str;
+}
+
+QByteArray E131Plugin::pluginDiagnostics() const
+{
+    if (!isDiagnosticsEnabled())
+        return QByteArray();
+
+    QJsonObject root;
+    root["type"] = name();
+
+    quint64 totalSent = 0, totalRecv = 0;
+    QJsonArray controllersArr;
+
+    for (const E131IO &io : m_IOmapping)
+    {
+        QJsonObject ctrlObj;
+        ctrlObj["interface"] = io.iface.humanReadableName();
+        ctrlObj["address"] = io.address.ip().toString();
+
+        if (io.controller)
+        {
+            quint64 sent = io.controller->getPacketSentNumber();
+            quint64 recv = io.controller->getPacketReceivedNumber();
+            ctrlObj["packetsSent"] = (qint64)sent;
+            ctrlObj["packetsReceived"] = (qint64)recv;
+            totalSent += sent;
+            totalRecv += recv;
+        }
+        controllersArr.append(ctrlObj);
+    }
+
+    root["controllers"] = controllersArr;
+    root["totalPacketsSent"] = (qint64)totalSent;
+    root["totalPacketsReceived"] = (qint64)totalRecv;
+    root["lines"] = m_IOmapping.count();
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 bool E131Plugin::requestLine(quint32 line)

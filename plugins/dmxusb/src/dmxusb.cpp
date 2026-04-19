@@ -21,6 +21,9 @@
 #include <QStringList>
 #include <QMessageBox>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "dmxusbconfig.h"
 #include "dmxusbwidget.h"
@@ -157,6 +160,31 @@ QString DMXUSB::pluginInfo() const
     str += QString("</P>");
 
     return str;
+}
+
+QByteArray DMXUSB::pluginDiagnostics() const
+{
+    if (!isDiagnosticsEnabled())
+        return QByteArray();
+
+    QJsonObject root;
+    root["type"] = name();
+
+    QJsonArray devicesArr;
+    for (DMXUSBWidget *widget : m_widgets)
+    {
+        QJsonObject devObj;
+        devObj["name"] = widget->name();
+        devObj["serial"] = widget->serial();
+        devObj["vendor"] = widget->vendor();
+        devicesArr.append(devObj);
+    }
+
+    root["devices"] = devicesArr;
+    root["inputLines"] = QJsonArray::fromStringList(const_cast<DMXUSB*>(this)->inputs());
+    root["outputLines"] = QJsonArray::fromStringList(const_cast<DMXUSB*>(this)->outputs());
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 QString DMXUSB::outputInfo(quint32 output)

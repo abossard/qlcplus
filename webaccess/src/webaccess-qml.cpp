@@ -58,6 +58,9 @@
 #include "simpledesk.h"
 #include "ioplugincache.h"
 #include "qlcioplugin.h"
+#include "inputoutputmap.h"
+#include "inputpatch.h"
+#include "outputpatch.h"
 
 #include "qhttprequest.h"
 #include "qhttpresponse.h"
@@ -455,36 +458,76 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
         sendHtmlResponse(resp, content);
         return;
     }
-    else if (reqUrl == "/os2l.json")
+    else if (reqUrl == "/diagnostics.json" || reqUrl == "/os2l.json")
     {
-        // OS2L diagnostics JSON — gated behind -d flag
-        bool debugMode = QCoreApplication::instance() &&
-                         QCoreApplication::instance()->property("debugMode").toBool();
-        if (!debugMode)
+        // Unified diagnostics JSON — gated behind diagnostics enabled
+        // Check if ANY plugin has diagnostics enabled
+        IOPluginCache *cache = m_doc->ioPluginCache();
+        bool anyEnabled = false;
+        for (QLCIOPlugin *p : cache->plugins())
         {
-            sendNotFound(resp);
-            return;
+            if (p->isDiagnosticsEnabled())
+            {
+                anyEnabled = true;
+                break;
+            }
         }
-        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
-        QByteArray json = os2l ? os2l->pluginDiagnostics() : QByteArray("{}");
-        if (json.isEmpty())
-            json = QByteArray("{}");
+
+        QJsonObject root;
+        root["enabled"] = anyEnabled;
+
+        QJsonObject pluginsObj;
+        for (QLCIOPlugin *p : cache->plugins())
+        {
+            QByteArray diag = p->pluginDiagnostics();
+            if (!diag.isEmpty())
+            {
+                QJsonDocument pluginDoc = QJsonDocument::fromJson(diag);
+                if (!pluginDoc.isNull())
+                    pluginsObj[p->name()] = pluginDoc.object();
+            }
+            else
+            {
+                // Provide basic info even if no diagnostics override
+                QJsonObject basic;
+                basic["capabilities"] = p->capabilities();
+                basic["inputs"] = QJsonArray::fromStringList(p->inputs());
+                basic["outputs"] = QJsonArray::fromStringList(p->outputs());
+                basic["diagnosticsEnabled"] = p->isDiagnosticsEnabled();
+                pluginsObj[p->name()] = basic;
+            }
+        }
+        root["plugins"] = pluginsObj;
+
+        // Universe mapping
+        QJsonObject universesObj;
+        InputOutputMap *ioMap = m_doc->inputOutputMap();
+        for (quint32 uni = 0; uni < ioMap->universesCount(); uni++)
+        {
+            QJsonObject uniObj;
+            uniObj["name"] = ioMap->getUniverseNameByIndex(uni);
+            InputPatch *inPatch = ioMap->inputPatch(uni);
+            OutputPatch *outPatch = ioMap->outputPatch(uni);
+            if (inPatch)
+                uniObj["input"] = inPatch->pluginName();
+            if (outPatch)
+                uniObj["output"] = outPatch->pluginName();
+            universesObj[QString::number(uni)] = uniObj;
+        }
+        root["universes"] = universesObj;
+
+        QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
         resp->setHeader("Content-Type", "application/json");
         resp->setHeader("Content-Length", QString::number(json.size()));
         resp->writeHead(200);
         resp->end(json);
         return;
     }
-    else if (reqUrl == "/os2l")
+    else if (reqUrl == "/os2l" || reqUrl == "/diagnostics")
     {
-        // OS2L diagnostics dashboard page — gated behind -d flag
-        bool debugMode = QCoreApplication::instance() &&
-                         QCoreApplication::instance()->property("debugMode").toBool();
-        if (!debugMode)
-        {
-            sendNotFound(resp);
+        if (serveWebFile(resp, "/diagnostics.html", "text/html"))
             return;
-        }
+        // Fallback to old name
         if (serveWebFile(resp, "/os2l-diag.html", "text/html"))
             return;
         sendNotFound(resp);
@@ -496,6 +539,20 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
         bool debugMode = QCoreApplication::instance() &&
                          QCoreApplication::instance()->property("debugMode").toBool();
         QByteArray json = debugMode ? QByteArray("{\"debug\":true}") : QByteArray("{\"debug\":false}");
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
+        return;
+    }
+    else if (reqUrl == "/diagnostics/enable" || reqUrl == "/diagnostics/disable")
+    {
+        bool enable = (reqUrl == "/diagnostics/enable");
+        IOPluginCache *cache = m_doc->ioPluginCache();
+        for (QLCIOPlugin *p : cache->plugins())
+            p->setDiagnosticsEnabled(enable);
+
+        QByteArray json = enable ? QByteArray("{\"enabled\":true}") : QByteArray("{\"enabled\":false}");
         resp->setHeader("Content-Type", "application/json");
         resp->setHeader("Content-Length", QString::number(json.size()));
         resp->writeHead(200);

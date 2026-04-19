@@ -291,6 +291,18 @@ public:
      */
     virtual QByteArray pluginDiagnostics() const;
 
+    /**
+     * Enable or disable diagnostics data collection for this plugin.
+     * When disabled, diagnostic logging should be skipped for zero overhead.
+     * Default: false (disabled).
+     */
+    void setDiagnosticsEnabled(bool enabled);
+
+    /**
+     * Check if diagnostics collection is currently enabled.
+     */
+    bool isDiagnosticsEnabled() const;
+
 signals:
     /**
      * Tells that the value of a channel in an input line has changed and needs
@@ -416,6 +428,9 @@ protected:
      * network controllers (PluginUniverseDescriptor)
      */
     QMap<quint32, PluginUniverseDescriptor> m_universesMap;
+
+    /** Whether diagnostics collection is enabled for this plugin */
+    bool m_diagnosticsEnabled = false;
 
     /*************************************************************************
      * RDM

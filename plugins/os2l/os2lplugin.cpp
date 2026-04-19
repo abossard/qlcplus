@@ -49,7 +49,7 @@ bool OS2LPlugin::isDebugMode() const
 
 void OS2LPlugin::diagLog(const QString &type, const QString &detail)
 {
-    if (!isDebugMode())
+    if (!isDiagnosticsEnabled())
         return;
 
     QMutexLocker locker(&m_diagMutex);
@@ -70,7 +70,7 @@ void OS2LPlugin::diagLog(const QString &type, const QString &detail)
 
 QByteArray OS2LPlugin::pluginDiagnostics() const
 {
-    if (!isDebugMode())
+    if (!isDiagnosticsEnabled())
         return QByteArray();
 
     QMutexLocker locker(&m_diagMutex);

@@ -73,6 +73,9 @@ public:
     /** @reimp */
     QString pluginInfo() const override;
 
+    /** @reimp */
+    QByteArray pluginDiagnostics() const override;
+
 private:
     bool requestLine(quint32 line);
 

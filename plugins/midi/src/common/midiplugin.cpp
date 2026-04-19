@@ -24,6 +24,9 @@
 #endif
 
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "configuremidiplugin.h"
 #include "midioutputdevice.h"
@@ -139,6 +142,19 @@ QString MidiPlugin::pluginInfo() const
     str += QString("</P>");
 
     return str;
+}
+
+QByteArray MidiPlugin::pluginDiagnostics() const
+{
+    if (!isDiagnosticsEnabled())
+        return QByteArray();
+
+    QJsonObject root;
+    root["type"] = name();
+    root["inputDevices"] = QJsonArray::fromStringList(const_cast<MidiPlugin*>(this)->inputs());
+    root["outputDevices"] = QJsonArray::fromStringList(const_cast<MidiPlugin*>(this)->outputs());
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 QString MidiPlugin::outputInfo(quint32 output)

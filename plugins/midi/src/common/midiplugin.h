@@ -67,6 +67,9 @@ public:
     /** @reimp */
     QString pluginInfo() const override;
 
+    /** @reimp */
+    QByteArray pluginDiagnostics() const override;
+
 private:
     MidiEnumerator* m_enumerator;
 

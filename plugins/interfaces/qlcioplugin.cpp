@@ -106,6 +106,16 @@ QByteArray QLCIOPlugin::pluginDiagnostics() const
     return QByteArray();
 }
 
+void QLCIOPlugin::setDiagnosticsEnabled(bool enabled)
+{
+    m_diagnosticsEnabled = enabled;
+}
+
+bool QLCIOPlugin::isDiagnosticsEnabled() const
+{
+    return m_diagnosticsEnabled;
+}
+
 /*************************************************************************
  * Configure
  *************************************************************************/
