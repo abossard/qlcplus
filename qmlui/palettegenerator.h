@@ -28,6 +28,7 @@
 #include "scenevalue.h"
 
 class FixtureGroup;
+class QLCPalette;
 class RGBMatrix;
 class Fixture;
 class Chaser;
@@ -58,7 +59,11 @@ public:
         ColourMacro,
         Animation,
         PanTilt,
-        Dimmer
+        Dimmer,
+        RainbowChaser,
+        WarmColors,
+        CoolColors,
+        Prism
     };
 
     enum PaletteSubType
@@ -114,6 +119,7 @@ public:
     QList<Scene *> scenes() const;
     QList<Chaser *> chasers() const;
     QList<RGBMatrix *> matrices() const;
+    QList<QLCPalette *> palettes() const;
 
     void addToDoc();
 
@@ -125,17 +131,33 @@ private:
                            QList<SceneValue> byMap,
                            QString name, bool rgb, PaletteSubType subType);
 
+    void createThemedRGBScenes(QList<SceneValue> rcMap,
+                               QList<SceneValue> gmMap,
+                               QList<SceneValue> byMap,
+                               PaletteType themeType, PaletteSubType subType);
+
     void createCapabilityScene(QHash<quint32, quint32> chMap, PaletteSubType subType);
 
     void createPanTiltScenes(QHash<quint32, quint32> panMap,
                              QHash<quint32, quint32> tiltMap,
                              PaletteSubType subType);
 
+    void createPanTiltChasers();
+
     void createDimmerScenes(QList<SceneValue> dimmerMap, PaletteSubType subType);
 
     void createRGBMatrices(QList<SceneValue> rgbMap);
 
     void createChaser(QString name);
+
+    /** Create a chaser with specific timing and run order.
+     *  sceneIndices: if non-empty, only these scenes (by index in m_scenes) are used as steps.
+     *  fadeIn/duration/fadeOut: timing in beats (1000=1beat) when tempoType is Beats, or ms when Time.
+     */
+    void createChaser(QString name, uint fadeIn, uint duration, uint fadeOut,
+                      int tempoType, int runOrder, QList<int> sceneIndices = QList<int>());
+
+    void createPalettes(PaletteType type);
 
     /**
      * This is the heart of PaletteGenerator. It creates a set of functions
@@ -160,6 +182,10 @@ private:
     QList <Scene*> m_scenes;
     QList <Chaser*> m_chasers;
     QList <RGBMatrix*> m_matrices;
+    QList <QLCPalette*> m_palettes;
+    /** Maps chaser to specific scene indices (into m_scenes).
+     *  If a chaser is not in this map, addToDoc() uses all scenes. */
+    QHash<Chaser*, QList<int>> m_chaserSceneMap;
 };
 
 /** @} */

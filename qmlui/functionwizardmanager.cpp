@@ -47,6 +47,8 @@ FunctionWizardManager::FunctionWizardManager(QQuickView *view, Doc *doc,
     , m_doc(doc)
     , m_vc(vc)
     , m_createDedicatedPage(true)
+    , m_perFixturePage(true)
+    , m_beatSync(true)
     , m_widgetsPerLine(8)
     , m_sliderWidth(60)
     , m_sliderHeight(200)
@@ -195,6 +197,9 @@ void FunctionWizardManager::updateCapabilities()
     {
         m_capabilities.append({tr("Primary Colors"), PaletteGenerator::PrimaryColors, true});
         m_capabilities.append({tr("16 Colors"), PaletteGenerator::SixteenColors, true});
+        m_capabilities.append({tr("Rainbow Chase"), PaletteGenerator::RainbowChaser, false});
+        m_capabilities.append({tr("Warm Colours"), PaletteGenerator::WarmColors, false});
+        m_capabilities.append({tr("Cool Colours"), PaletteGenerator::CoolColors, false});
     }
 
     if (caps.contains(QLCChannel::groupToString(QLCChannel::Shutter)))
@@ -205,6 +210,9 @@ void FunctionWizardManager::updateCapabilities()
 
     if (caps.contains(QLCChannel::groupToString(QLCChannel::Colour)))
         m_capabilities.append({tr("Colour Macros"), PaletteGenerator::ColourMacro, true});
+
+    if (caps.contains(QLCChannel::groupToString(QLCChannel::Prism)))
+        m_capabilities.append({tr("Prism Effects"), PaletteGenerator::Prism, true});
 
     if (caps.contains(KQLCChannelRGB))
         m_capabilities.append({tr("Animations"), PaletteGenerator::Animation, true});
@@ -256,6 +264,32 @@ void FunctionWizardManager::setCreateDedicatedPage(bool create)
         return;
     m_createDedicatedPage = create;
     emit createDedicatedPageChanged();
+}
+
+bool FunctionWizardManager::perFixturePage() const
+{
+    return m_perFixturePage;
+}
+
+void FunctionWizardManager::setPerFixturePage(bool perFixture)
+{
+    if (m_perFixturePage == perFixture)
+        return;
+    m_perFixturePage = perFixture;
+    emit perFixturePageChanged();
+}
+
+bool FunctionWizardManager::beatSync() const
+{
+    return m_beatSync;
+}
+
+void FunctionWizardManager::setBeatSync(bool sync)
+{
+    if (m_beatSync == sync)
+        return;
+    m_beatSync = sync;
+    emit beatSyncChanged();
 }
 
 int FunctionWizardManager::widgetsPerLine() const
@@ -320,6 +354,66 @@ VCFrame *FunctionWizardManager::getTargetFrame()
     return page;
 }
 
+VCFrame *FunctionWizardManager::createFixturePage(const QString &name)
+{
+    int newPageIdx = m_vc->pagesCount();
+    m_vc->addPage(newPageIdx);
+    VCPage *page = m_vc->page(newPageIdx);
+    if (page)
+    {
+        page->setCaption(name);
+        m_vc->setSelectedPage(newPageIdx);
+    }
+    return page;
+}
+
+void FunctionWizardManager::createFocusZoomSliders(VCFrame *targetFrame, int &xPos, int &yPos)
+{
+    if (m_fixtures.isEmpty())
+        return;
+
+    qreal pd = m_vc->pixelDensity();
+
+    for (Fixture *fxi : m_fixtures)
+    {
+        for (quint32 ch = 0; ch < fxi->channels(); ch++)
+        {
+            const QLCChannel *channel = fxi->channel(ch);
+            if (channel == nullptr)
+                continue;
+
+            if (channel->group() != QLCChannel::Beam)
+                continue;
+
+            QLCChannel::Preset preset = channel->preset();
+            bool isFocus = (preset == QLCChannel::BeamFocusNearFar ||
+                            preset == QLCChannel::BeamFocusFarNear);
+            bool isZoom = (preset == QLCChannel::BeamZoomSmallBig ||
+                           preset == QLCChannel::BeamZoomBigSmall);
+
+            // Skip fine channels
+            if (preset == QLCChannel::BeamFocusFine ||
+                preset == QLCChannel::BeamZoomFine)
+                continue;
+
+            if (!isFocus && !isZoom)
+                continue;
+
+            VCSlider *slider = new VCSlider(m_doc, targetFrame);
+            slider->setCaption(isFocus ? tr("Focus") : tr("Zoom"));
+            slider->setSliderMode(VCSlider::Level);
+            slider->addLevelChannel(fxi->id(), ch);
+
+            int sw = static_cast<int>(pd * 15);
+            int sh = static_cast<int>(pd * 50);
+            slider->setGeometry(QRect(xPos, yPos, sw, sh));
+            targetFrame->addWidget(nullptr, slider, QPoint(xPos, yPos));
+
+            xPos += sw + 10;
+        }
+    }
+}
+
 bool FunctionWizardManager::execute()
 {
     if (m_fixtures.isEmpty())
@@ -337,38 +431,92 @@ bool FunctionWizardManager::execute()
     if (!anyEnabled)
         return false;
 
-    // Step 1: Create PaletteGenerators for each enabled capability
-    QList<PaletteGenerator *> palettes;
-    for (const CapabilityEntry &cap : m_capabilities)
+    if (m_perFixturePage && m_fixtures.count() > 1)
     {
-        if (!cap.enabled)
-            continue;
+        // Per-fixture mode: each fixture gets its own page
+        QList<Fixture *> allFixtures = m_fixtures;
 
-        PaletteGenerator *pg = new PaletteGenerator(
-            m_doc, m_fixtures,
-            static_cast<PaletteGenerator::PaletteType>(cap.paletteType),
-            PaletteGenerator::All);
+        for (Fixture *fxi : allFixtures)
+        {
+            m_fixtures.clear();
+            m_fixtures.append(fxi);
 
-        if (pg->scenes().count() > 0 || pg->chasers().count() > 0 || pg->matrices().count() > 0)
-        {
-            pg->addToDoc();
-            palettes.append(pg);
+            QList<PaletteGenerator *> palettes;
+            for (const CapabilityEntry &cap : m_capabilities)
+            {
+                if (!cap.enabled)
+                    continue;
+
+                PaletteGenerator *pg = new PaletteGenerator(
+                    m_doc, m_fixtures,
+                    static_cast<PaletteGenerator::PaletteType>(cap.paletteType),
+                    PaletteGenerator::All);
+
+                if (pg->scenes().count() > 0 || pg->chasers().count() > 0 ||
+                    pg->matrices().count() > 0 || pg->palettes().count() > 0)
+                {
+                    pg->addToDoc();
+                    palettes.append(pg);
+                }
+                else
+                {
+                    delete pg;
+                }
+            }
+
+            if (!palettes.isEmpty())
+            {
+                // Force dedicated page for this fixture
+                bool savedDedicatedPage = m_createDedicatedPage;
+                m_createDedicatedPage = true;
+                createVCWidgets(palettes);
+                m_createDedicatedPage = savedDedicatedPage;
+
+                // Set page caption to fixture name
+                VCPage *page = m_vc->page(m_vc->selectedPage());
+                if (page)
+                    page->setCaption(fxi->name());
+            }
+
+            qDeleteAll(palettes);
         }
-        else
+
+        // Restore the full fixture list
+        m_fixtures = allFixtures;
+    }
+    else
+    {
+        // Original behavior: all fixtures together
+        QList<PaletteGenerator *> palettes;
+        for (const CapabilityEntry &cap : m_capabilities)
         {
-            delete pg;
+            if (!cap.enabled)
+                continue;
+
+            PaletteGenerator *pg = new PaletteGenerator(
+                m_doc, m_fixtures,
+                static_cast<PaletteGenerator::PaletteType>(cap.paletteType),
+                PaletteGenerator::All);
+
+            if (pg->scenes().count() > 0 || pg->chasers().count() > 0 ||
+                pg->matrices().count() > 0 || pg->palettes().count() > 0)
+            {
+                pg->addToDoc();
+                palettes.append(pg);
+            }
+            else
+            {
+                delete pg;
+            }
         }
+
+        if (!palettes.isEmpty())
+            createVCWidgets(palettes);
+
+        qDeleteAll(palettes);
     }
 
-    // Step 2: Create VC widgets
-    if (!palettes.isEmpty())
-        createVCWidgets(palettes);
-
     m_doc->setModified();
-
-    // Clean up
-    qDeleteAll(palettes);
-
     return true;
 }
 
@@ -394,56 +542,112 @@ void FunctionWizardManager::createVCWidgets(QList<PaletteGenerator *> &palettes)
         int innerY = 30; // leave room for frame header
         int colCount = 0;
 
-        // Create buttons for scenes
-        for (Scene *scene : palette->scenes())
-        {
-            VCButton *button = new VCButton(m_doc, groupFrame);
-            button->setFunctionID(scene->id());
-            button->setCaption(scene->name());
-            int bw = static_cast<int>(pd * 17);
-            int bh = static_cast<int>(pd * 17);
-            button->setGeometry(QRect(innerX, innerY, bw, bh));
-            groupFrame->addWidget(nullptr, button, QPoint(innerX, innerY));
+        // Determine if scene buttons should be wrapped in a SoloFrame
+        bool useSoloForScenes = (palette->type() == PaletteGenerator::PrimaryColors ||
+                                 palette->type() == PaletteGenerator::SixteenColors ||
+                                 palette->type() == PaletteGenerator::RainbowChaser ||
+                                 palette->type() == PaletteGenerator::WarmColors ||
+                                 palette->type() == PaletteGenerator::CoolColors ||
+                                 palette->type() == PaletteGenerator::Gobos ||
+                                 palette->type() == PaletteGenerator::ColourMacro ||
+                                 palette->type() == PaletteGenerator::Prism);
 
-            innerX += bw + 5;
-            colCount++;
-            if (colCount >= m_widgetsPerLine)
+        // Create buttons for scenes (optionally in a SoloFrame)
+        if (palette->scenes().count() > 0)
+        {
+            VCFrame *buttonContainer = groupFrame;
+            int containerInnerX = innerX;
+            int containerInnerY = innerY;
+
+            if (useSoloForScenes)
             {
-                colCount = 0;
-                innerX = 5;
-                innerY += bh + 5;
+                VCSoloFrame *soloFrame = new VCSoloFrame(m_doc, m_vc, groupFrame);
+                soloFrame->setCaption(palette->fullName());
+                buttonContainer = soloFrame;
+                containerInnerX = 5;
+                containerInnerY = 30;
             }
 
-            if (innerX + bw > frameWidth)
-                frameWidth = innerX + bw;
-            if (innerY + bh > frameHeight)
-                frameHeight = innerY + bh;
+            int sfWidth = 0;
+            int sfHeight = 0;
+            int sfColCount = 0;
+
+            for (Scene *scene : palette->scenes())
+            {
+                VCButton *button = new VCButton(m_doc, buttonContainer);
+                button->setFunctionID(scene->id());
+                button->setCaption(scene->name());
+                int bw = static_cast<int>(pd * 17);
+                int bh = static_cast<int>(pd * 17);
+                button->setGeometry(QRect(containerInnerX, containerInnerY, bw, bh));
+                buttonContainer->addWidget(nullptr, button, QPoint(containerInnerX, containerInnerY));
+
+                containerInnerX += bw + 5;
+                sfColCount++;
+                if (sfColCount >= m_widgetsPerLine)
+                {
+                    sfColCount = 0;
+                    containerInnerX = 5;
+                    containerInnerY += bh + 5;
+                }
+
+                if (containerInnerX + bw > sfWidth)
+                    sfWidth = containerInnerX + bw;
+                if (containerInnerY + bh > sfHeight)
+                    sfHeight = containerInnerY + bh;
+            }
+
+            if (useSoloForScenes)
+            {
+                VCSoloFrame *soloFrame = qobject_cast<VCSoloFrame *>(buttonContainer);
+                sfWidth = qMax(sfWidth + 5, 200);
+                sfHeight = qMax(sfHeight + 5, 60);
+                soloFrame->setGeometry(QRect(innerX, innerY, sfWidth, sfHeight));
+                groupFrame->addWidget(nullptr, soloFrame, QPoint(innerX, innerY));
+
+                frameWidth = qMax(frameWidth, innerX + sfWidth);
+                frameHeight = innerY + sfHeight;
+                innerY = frameHeight + 10;
+                innerX = 5;
+                colCount = 0;
+            }
+            else
+            {
+                frameWidth = qMax(frameWidth, sfWidth);
+                frameHeight = sfHeight;
+                innerX = containerInnerX;
+                innerY = containerInnerY;
+                colCount = sfColCount;
+            }
         }
 
         // Create cue lists for chasers
-        if (colCount > 0)
+        if (palette->chasers().count() > 0)
         {
-            innerX = 5;
-            innerY = frameHeight + 10;
-            colCount = 0;
-        }
+            if (colCount > 0)
+            {
+                innerX = 5;
+                innerY = frameHeight + 10;
+                colCount = 0;
+            }
 
-        for (Chaser *chaser : palette->chasers())
-        {
-            VCCueList *cuelist = new VCCueList(m_doc, groupFrame);
-            cuelist->setChaserID(chaser->id());
-            cuelist->setCaption(chaser->name());
-            int cw = static_cast<int>(pd * 80);
-            int ch = static_cast<int>(pd * 40);
-            cuelist->setGeometry(QRect(innerX, innerY, cw, ch));
-            groupFrame->addWidget(nullptr, cuelist, QPoint(innerX, innerY));
+            for (Chaser *chaser : palette->chasers())
+            {
+                VCCueList *cuelist = new VCCueList(m_doc, groupFrame);
+                cuelist->setChaserID(chaser->id());
+                cuelist->setCaption(chaser->name());
+                int cw = static_cast<int>(pd * 80);
+                int ch = static_cast<int>(pd * 40);
+                cuelist->setGeometry(QRect(innerX, innerY, cw, ch));
+                groupFrame->addWidget(nullptr, cuelist, QPoint(innerX, innerY));
 
-            innerX += cw + 5;
+                innerX += cw + 5;
 
-            if (innerX > frameWidth)
-                frameWidth = innerX;
-            if (innerY + ch > frameHeight)
-                frameHeight = innerY + ch;
+                if (innerX > frameWidth)
+                    frameWidth = innerX;
+                if (innerY + ch > frameHeight)
+                    frameHeight = innerY + ch;
+            }
         }
 
         // Create buttons for RGB matrices in a solo frame
@@ -559,6 +763,9 @@ void FunctionWizardManager::createVCWidgets(QList<PaletteGenerator *> &palettes)
         yPos += frameHeight + 10;
     }
 
+    // Add Focus/Zoom sliders at the end
+    createFocusZoomSliders(targetFrame, xPos, yPos);
+
     // Grow the page height if widgets exceed the default bounds
     VCPage *page = qobject_cast<VCPage *>(targetFrame);
     if (page)
@@ -570,6 +777,8 @@ void FunctionWizardManager::reset()
     m_fixtures.clear();
     m_capabilities.clear();
     m_createDedicatedPage = true;
+    m_perFixturePage = true;
+    m_beatSync = true;
     m_widgetsPerLine = 8;
     m_sliderWidth = 60;
     m_sliderHeight = 200;
@@ -578,6 +787,8 @@ void FunctionWizardManager::reset()
     emit availableFixturesChanged();
     emit capabilitiesListChanged();
     emit createDedicatedPageChanged();
+    emit perFixturePageChanged();
+    emit beatSyncChanged();
     emit widgetsPerLineChanged();
     emit sliderWidthChanged();
     emit sliderHeightChanged();

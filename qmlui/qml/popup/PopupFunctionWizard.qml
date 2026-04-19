@@ -296,12 +296,43 @@ CustomPopupDialog
                     rowSpacing: 8
                     Layout.fillWidth: true
 
+                    // Beat-synced chasers
+                    CheckBox
+                    {
+                        id: beatSyncCheck
+                        checked: functionWizardManager ? functionWizardManager.beatSync : true
+                        onToggled: functionWizardManager.setBeatSync(checked)
+                    }
+                    Label
+                    {
+                        text: qsTr("Beat-synced chasers (auto-sync with BPM)")
+                        color: "white"
+                        font.family: UISettings.robotoFontName
+                        font.pixelSize: UISettings.textSizeDefault
+                    }
+
+                    // Per-fixture pages
+                    CheckBox
+                    {
+                        id: perFixturePageCheck
+                        checked: functionWizardManager ? functionWizardManager.perFixturePage : true
+                        onToggled: functionWizardManager.setPerFixturePage(checked)
+                    }
+                    Label
+                    {
+                        text: qsTr("One page per fixture")
+                        color: "white"
+                        font.family: UISettings.robotoFontName
+                        font.pixelSize: UISettings.textSizeDefault
+                    }
+
                     // Dedicated page
                     CheckBox
                     {
                         id: dedicatedPageCheck
                         checked: functionWizardManager ? functionWizardManager.createDedicatedPage : true
                         onToggled: functionWizardManager.setCreateDedicatedPage(checked)
+                        visible: !perFixturePageCheck.checked
                     }
                     Label
                     {
@@ -309,6 +340,7 @@ CustomPopupDialog
                         color: "white"
                         font.family: UISettings.robotoFontName
                         font.pixelSize: UISettings.textSizeDefault
+                        visible: !perFixturePageCheck.checked
                     }
 
                     // Widgets per line

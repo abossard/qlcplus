@@ -39,6 +39,8 @@ class FunctionWizardManager : public QObject
     Q_PROPERTY(QVariantList availableFixtures READ availableFixtures NOTIFY availableFixturesChanged)
     Q_PROPERTY(QVariantList capabilitiesList READ capabilitiesList NOTIFY capabilitiesListChanged)
     Q_PROPERTY(bool createDedicatedPage READ createDedicatedPage WRITE setCreateDedicatedPage NOTIFY createDedicatedPageChanged)
+    Q_PROPERTY(bool perFixturePage READ perFixturePage WRITE setPerFixturePage NOTIFY perFixturePageChanged)
+    Q_PROPERTY(bool beatSync READ beatSync WRITE setBeatSync NOTIFY beatSyncChanged)
     Q_PROPERTY(int widgetsPerLine READ widgetsPerLine WRITE setWidgetsPerLine NOTIFY widgetsPerLineChanged)
     Q_PROPERTY(int sliderWidth READ sliderWidth WRITE setSliderWidth NOTIFY sliderWidthChanged)
     Q_PROPERTY(int sliderHeight READ sliderHeight WRITE setSliderHeight NOTIFY sliderHeightChanged)
@@ -65,6 +67,12 @@ public:
     bool createDedicatedPage() const;
     void setCreateDedicatedPage(bool create);
 
+    bool perFixturePage() const;
+    void setPerFixturePage(bool perFixture);
+
+    bool beatSync() const;
+    void setBeatSync(bool sync);
+
     int widgetsPerLine() const;
     void setWidgetsPerLine(int count);
 
@@ -85,6 +93,8 @@ signals:
     void availableFixturesChanged();
     void capabilitiesListChanged();
     void createDedicatedPageChanged();
+    void perFixturePageChanged();
+    void beatSyncChanged();
     void widgetsPerLineChanged();
     void sliderWidthChanged();
     void sliderHeightChanged();
@@ -98,7 +108,9 @@ private:
 
     void updateCapabilities();
     void createVCWidgets(QList<PaletteGenerator *> &palettes);
+    void createFocusZoomSliders(VCFrame *targetFrame, int &xPos, int &yPos);
     VCFrame *getTargetFrame();
+    VCFrame *createFixturePage(const QString &name);
 
     QQuickView *m_view;
     Doc *m_doc;
@@ -108,6 +120,8 @@ private:
     QList<CapabilityEntry> m_capabilities;
 
     bool m_createDedicatedPage;
+    bool m_perFixturePage;
+    bool m_beatSync;
     int m_widgetsPerLine;
     int m_sliderWidth;
     int m_sliderHeight;

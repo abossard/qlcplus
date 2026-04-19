@@ -1,0 +1,480 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE Workspace>
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
+ <Creator>
+  <Name>Q Light Controller Plus</Name>
+  <Version>5.2.2 GIT bc4a89d</Version>
+  <Author>Andre Bossard</Author>
+ </Creator>
+ <Engine>
+  <InputOutputMap>
+   <BeatGenerator BeatType="Internal" BPM="130"/>
+   <NetworkServer Type="Native" AutoStart="False" Name="QLC+_C0A8014A" Password=""/>
+   <Universe Name="Universe 1" ID="0">
+    <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
+   </Universe>
+   <Universe Name="Universe 2" ID="1">
+    <Input Plugin="OSC" UID="127.0.0.1" Line="1" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="0" ddpPort="4048" ddpTransmitMode="Partial"/>
+    </Output>
+   </Universe>
+   <Universe Name="Universe 3" ID="2">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="320" ddpPort="4048" ddpTransmitMode="Partial"/>
+    </Output>
+   </Universe>
+   <Universe Name="Universe 4" ID="3">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="640" ddpPort="4048" ddpTransmitMode="Partial"/>
+    </Output>
+    <Feedback Plugin="MIDI" UID="None" Line="2"/>
+   </Universe>
+   <Universe Name="Universe 5" ID="4">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="960" ddpPort="4048" ddpTransmitMode="Partial"/>
+    </Output>
+   </Universe>
+  </InputOutputMap>
+  <Fixture>
+   <Manufacturer>Varytec</Manufacturer>
+   <Model>Hero Spot Wash 140 2in1 RGBW+W</Model>
+   <Mode>23 Channel</Mode>
+   <ID>0</ID>
+   <Name>HERO [1]</Name>
+   <Universe>0</Universe>
+   <Address>0</Address>
+   <Channels>23</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Stairville</Manufacturer>
+   <Model>Hz-200 DMX</Model>
+   <Mode>Default</Mode>
+   <ID>1</ID>
+   <Name>HZ [2]</Name>
+   <Universe>0</Universe>
+   <Address>24</Address>
+   <Channels>2</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Cameo</Manufacturer>
+   <Model>Thunderwash 600 UV</Model>
+   <Mode>4 Channel</Mode>
+   <ID>2</ID>
+   <Name>UV [3]</Name>
+   <Universe>0</Universe>
+   <Address>26</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>5000</Width>
+   <Height>250</Height>
+   <ID>3</ID>
+   <Name>WLED - Row 1</Name>
+   <Universe>1</Universe>
+   <Address>0</Address>
+   <Channels>320</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>5000</Width>
+   <Height>250</Height>
+   <ID>4</ID>
+   <Name>WLED - Row 2</Name>
+   <Universe>2</Universe>
+   <Address>0</Address>
+   <Channels>320</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>5000</Width>
+   <Height>250</Height>
+   <ID>5</ID>
+   <Name>WLED - Row 3</Name>
+   <Universe>3</Universe>
+   <Address>0</Address>
+   <Channels>320</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>5000</Width>
+   <Height>250</Height>
+   <ID>6</ID>
+   <Name>WLED - Row 4</Name>
+   <Universe>4</Universe>
+   <Address>0</Address>
+   <Channels>320</Channels>
+  </Fixture>
+  <FixtureGroup ID="0">
+   <Name>WLED</Name>
+   <Size X="80" Y="4"/>
+   <Head X="0" Y="0" Fixture="3">0</Head>
+   <Head X="1" Y="0" Fixture="3">1</Head>
+   <Head X="2" Y="0" Fixture="3">2</Head>
+   <Head X="3" Y="0" Fixture="3">3</Head>
+   <Head X="4" Y="0" Fixture="3">4</Head>
+   <Head X="5" Y="0" Fixture="3">5</Head>
+   <Head X="6" Y="0" Fixture="3">6</Head>
+   <Head X="7" Y="0" Fixture="3">7</Head>
+   <Head X="8" Y="0" Fixture="3">8</Head>
+   <Head X="9" Y="0" Fixture="3">9</Head>
+   <Head X="10" Y="0" Fixture="3">10</Head>
+   <Head X="11" Y="0" Fixture="3">11</Head>
+   <Head X="12" Y="0" Fixture="3">12</Head>
+   <Head X="13" Y="0" Fixture="3">13</Head>
+   <Head X="14" Y="0" Fixture="3">14</Head>
+   <Head X="15" Y="0" Fixture="3">15</Head>
+   <Head X="16" Y="0" Fixture="3">16</Head>
+   <Head X="17" Y="0" Fixture="3">17</Head>
+   <Head X="18" Y="0" Fixture="3">18</Head>
+   <Head X="19" Y="0" Fixture="3">19</Head>
+   <Head X="20" Y="0" Fixture="3">20</Head>
+   <Head X="21" Y="0" Fixture="3">21</Head>
+   <Head X="22" Y="0" Fixture="3">22</Head>
+   <Head X="23" Y="0" Fixture="3">23</Head>
+   <Head X="24" Y="0" Fixture="3">24</Head>
+   <Head X="25" Y="0" Fixture="3">25</Head>
+   <Head X="26" Y="0" Fixture="3">26</Head>
+   <Head X="27" Y="0" Fixture="3">27</Head>
+   <Head X="28" Y="0" Fixture="3">28</Head>
+   <Head X="29" Y="0" Fixture="3">29</Head>
+   <Head X="30" Y="0" Fixture="3">30</Head>
+   <Head X="31" Y="0" Fixture="3">31</Head>
+   <Head X="32" Y="0" Fixture="3">32</Head>
+   <Head X="33" Y="0" Fixture="3">33</Head>
+   <Head X="34" Y="0" Fixture="3">34</Head>
+   <Head X="35" Y="0" Fixture="3">35</Head>
+   <Head X="36" Y="0" Fixture="3">36</Head>
+   <Head X="37" Y="0" Fixture="3">37</Head>
+   <Head X="38" Y="0" Fixture="3">38</Head>
+   <Head X="39" Y="0" Fixture="3">39</Head>
+   <Head X="40" Y="0" Fixture="3">40</Head>
+   <Head X="41" Y="0" Fixture="3">41</Head>
+   <Head X="42" Y="0" Fixture="3">42</Head>
+   <Head X="43" Y="0" Fixture="3">43</Head>
+   <Head X="44" Y="0" Fixture="3">44</Head>
+   <Head X="45" Y="0" Fixture="3">45</Head>
+   <Head X="46" Y="0" Fixture="3">46</Head>
+   <Head X="47" Y="0" Fixture="3">47</Head>
+   <Head X="48" Y="0" Fixture="3">48</Head>
+   <Head X="49" Y="0" Fixture="3">49</Head>
+   <Head X="50" Y="0" Fixture="3">50</Head>
+   <Head X="51" Y="0" Fixture="3">51</Head>
+   <Head X="52" Y="0" Fixture="3">52</Head>
+   <Head X="53" Y="0" Fixture="3">53</Head>
+   <Head X="54" Y="0" Fixture="3">54</Head>
+   <Head X="55" Y="0" Fixture="3">55</Head>
+   <Head X="56" Y="0" Fixture="3">56</Head>
+   <Head X="57" Y="0" Fixture="3">57</Head>
+   <Head X="58" Y="0" Fixture="3">58</Head>
+   <Head X="59" Y="0" Fixture="3">59</Head>
+   <Head X="60" Y="0" Fixture="3">60</Head>
+   <Head X="61" Y="0" Fixture="3">61</Head>
+   <Head X="62" Y="0" Fixture="3">62</Head>
+   <Head X="63" Y="0" Fixture="3">63</Head>
+   <Head X="64" Y="0" Fixture="3">64</Head>
+   <Head X="65" Y="0" Fixture="3">65</Head>
+   <Head X="66" Y="0" Fixture="3">66</Head>
+   <Head X="67" Y="0" Fixture="3">67</Head>
+   <Head X="68" Y="0" Fixture="3">68</Head>
+   <Head X="69" Y="0" Fixture="3">69</Head>
+   <Head X="70" Y="0" Fixture="3">70</Head>
+   <Head X="71" Y="0" Fixture="3">71</Head>
+   <Head X="72" Y="0" Fixture="3">72</Head>
+   <Head X="73" Y="0" Fixture="3">73</Head>
+   <Head X="74" Y="0" Fixture="3">74</Head>
+   <Head X="75" Y="0" Fixture="3">75</Head>
+   <Head X="76" Y="0" Fixture="3">76</Head>
+   <Head X="77" Y="0" Fixture="3">77</Head>
+   <Head X="78" Y="0" Fixture="3">78</Head>
+   <Head X="79" Y="0" Fixture="3">79</Head>
+   <Head X="0" Y="1" Fixture="4">0</Head>
+   <Head X="1" Y="1" Fixture="4">1</Head>
+   <Head X="2" Y="1" Fixture="4">2</Head>
+   <Head X="3" Y="1" Fixture="4">3</Head>
+   <Head X="4" Y="1" Fixture="4">4</Head>
+   <Head X="5" Y="1" Fixture="4">5</Head>
+   <Head X="6" Y="1" Fixture="4">6</Head>
+   <Head X="7" Y="1" Fixture="4">7</Head>
+   <Head X="8" Y="1" Fixture="4">8</Head>
+   <Head X="9" Y="1" Fixture="4">9</Head>
+   <Head X="10" Y="1" Fixture="4">10</Head>
+   <Head X="11" Y="1" Fixture="4">11</Head>
+   <Head X="12" Y="1" Fixture="4">12</Head>
+   <Head X="13" Y="1" Fixture="4">13</Head>
+   <Head X="14" Y="1" Fixture="4">14</Head>
+   <Head X="15" Y="1" Fixture="4">15</Head>
+   <Head X="16" Y="1" Fixture="4">16</Head>
+   <Head X="17" Y="1" Fixture="4">17</Head>
+   <Head X="18" Y="1" Fixture="4">18</Head>
+   <Head X="19" Y="1" Fixture="4">19</Head>
+   <Head X="20" Y="1" Fixture="4">20</Head>
+   <Head X="21" Y="1" Fixture="4">21</Head>
+   <Head X="22" Y="1" Fixture="4">22</Head>
+   <Head X="23" Y="1" Fixture="4">23</Head>
+   <Head X="24" Y="1" Fixture="4">24</Head>
+   <Head X="25" Y="1" Fixture="4">25</Head>
+   <Head X="26" Y="1" Fixture="4">26</Head>
+   <Head X="27" Y="1" Fixture="4">27</Head>
+   <Head X="28" Y="1" Fixture="4">28</Head>
+   <Head X="29" Y="1" Fixture="4">29</Head>
+   <Head X="30" Y="1" Fixture="4">30</Head>
+   <Head X="31" Y="1" Fixture="4">31</Head>
+   <Head X="32" Y="1" Fixture="4">32</Head>
+   <Head X="33" Y="1" Fixture="4">33</Head>
+   <Head X="34" Y="1" Fixture="4">34</Head>
+   <Head X="35" Y="1" Fixture="4">35</Head>
+   <Head X="36" Y="1" Fixture="4">36</Head>
+   <Head X="37" Y="1" Fixture="4">37</Head>
+   <Head X="38" Y="1" Fixture="4">38</Head>
+   <Head X="39" Y="1" Fixture="4">39</Head>
+   <Head X="40" Y="1" Fixture="4">40</Head>
+   <Head X="41" Y="1" Fixture="4">41</Head>
+   <Head X="42" Y="1" Fixture="4">42</Head>
+   <Head X="43" Y="1" Fixture="4">43</Head>
+   <Head X="44" Y="1" Fixture="4">44</Head>
+   <Head X="45" Y="1" Fixture="4">45</Head>
+   <Head X="46" Y="1" Fixture="4">46</Head>
+   <Head X="47" Y="1" Fixture="4">47</Head>
+   <Head X="48" Y="1" Fixture="4">48</Head>
+   <Head X="49" Y="1" Fixture="4">49</Head>
+   <Head X="50" Y="1" Fixture="4">50</Head>
+   <Head X="51" Y="1" Fixture="4">51</Head>
+   <Head X="52" Y="1" Fixture="4">52</Head>
+   <Head X="53" Y="1" Fixture="4">53</Head>
+   <Head X="54" Y="1" Fixture="4">54</Head>
+   <Head X="55" Y="1" Fixture="4">55</Head>
+   <Head X="56" Y="1" Fixture="4">56</Head>
+   <Head X="57" Y="1" Fixture="4">57</Head>
+   <Head X="58" Y="1" Fixture="4">58</Head>
+   <Head X="59" Y="1" Fixture="4">59</Head>
+   <Head X="60" Y="1" Fixture="4">60</Head>
+   <Head X="61" Y="1" Fixture="4">61</Head>
+   <Head X="62" Y="1" Fixture="4">62</Head>
+   <Head X="63" Y="1" Fixture="4">63</Head>
+   <Head X="64" Y="1" Fixture="4">64</Head>
+   <Head X="65" Y="1" Fixture="4">65</Head>
+   <Head X="66" Y="1" Fixture="4">66</Head>
+   <Head X="67" Y="1" Fixture="4">67</Head>
+   <Head X="68" Y="1" Fixture="4">68</Head>
+   <Head X="69" Y="1" Fixture="4">69</Head>
+   <Head X="70" Y="1" Fixture="4">70</Head>
+   <Head X="71" Y="1" Fixture="4">71</Head>
+   <Head X="72" Y="1" Fixture="4">72</Head>
+   <Head X="73" Y="1" Fixture="4">73</Head>
+   <Head X="74" Y="1" Fixture="4">74</Head>
+   <Head X="75" Y="1" Fixture="4">75</Head>
+   <Head X="76" Y="1" Fixture="4">76</Head>
+   <Head X="77" Y="1" Fixture="4">77</Head>
+   <Head X="78" Y="1" Fixture="4">78</Head>
+   <Head X="79" Y="1" Fixture="4">79</Head>
+   <Head X="0" Y="2" Fixture="5">0</Head>
+   <Head X="1" Y="2" Fixture="5">1</Head>
+   <Head X="2" Y="2" Fixture="5">2</Head>
+   <Head X="3" Y="2" Fixture="5">3</Head>
+   <Head X="4" Y="2" Fixture="5">4</Head>
+   <Head X="5" Y="2" Fixture="5">5</Head>
+   <Head X="6" Y="2" Fixture="5">6</Head>
+   <Head X="7" Y="2" Fixture="5">7</Head>
+   <Head X="8" Y="2" Fixture="5">8</Head>
+   <Head X="9" Y="2" Fixture="5">9</Head>
+   <Head X="10" Y="2" Fixture="5">10</Head>
+   <Head X="11" Y="2" Fixture="5">11</Head>
+   <Head X="12" Y="2" Fixture="5">12</Head>
+   <Head X="13" Y="2" Fixture="5">13</Head>
+   <Head X="14" Y="2" Fixture="5">14</Head>
+   <Head X="15" Y="2" Fixture="5">15</Head>
+   <Head X="16" Y="2" Fixture="5">16</Head>
+   <Head X="17" Y="2" Fixture="5">17</Head>
+   <Head X="18" Y="2" Fixture="5">18</Head>
+   <Head X="19" Y="2" Fixture="5">19</Head>
+   <Head X="20" Y="2" Fixture="5">20</Head>
+   <Head X="21" Y="2" Fixture="5">21</Head>
+   <Head X="22" Y="2" Fixture="5">22</Head>
+   <Head X="23" Y="2" Fixture="5">23</Head>
+   <Head X="24" Y="2" Fixture="5">24</Head>
+   <Head X="25" Y="2" Fixture="5">25</Head>
+   <Head X="26" Y="2" Fixture="5">26</Head>
+   <Head X="27" Y="2" Fixture="5">27</Head>
+   <Head X="28" Y="2" Fixture="5">28</Head>
+   <Head X="29" Y="2" Fixture="5">29</Head>
+   <Head X="30" Y="2" Fixture="5">30</Head>
+   <Head X="31" Y="2" Fixture="5">31</Head>
+   <Head X="32" Y="2" Fixture="5">32</Head>
+   <Head X="33" Y="2" Fixture="5">33</Head>
+   <Head X="34" Y="2" Fixture="5">34</Head>
+   <Head X="35" Y="2" Fixture="5">35</Head>
+   <Head X="36" Y="2" Fixture="5">36</Head>
+   <Head X="37" Y="2" Fixture="5">37</Head>
+   <Head X="38" Y="2" Fixture="5">38</Head>
+   <Head X="39" Y="2" Fixture="5">39</Head>
+   <Head X="40" Y="2" Fixture="5">40</Head>
+   <Head X="41" Y="2" Fixture="5">41</Head>
+   <Head X="42" Y="2" Fixture="5">42</Head>
+   <Head X="43" Y="2" Fixture="5">43</Head>
+   <Head X="44" Y="2" Fixture="5">44</Head>
+   <Head X="45" Y="2" Fixture="5">45</Head>
+   <Head X="46" Y="2" Fixture="5">46</Head>
+   <Head X="47" Y="2" Fixture="5">47</Head>
+   <Head X="48" Y="2" Fixture="5">48</Head>
+   <Head X="49" Y="2" Fixture="5">49</Head>
+   <Head X="50" Y="2" Fixture="5">50</Head>
+   <Head X="51" Y="2" Fixture="5">51</Head>
+   <Head X="52" Y="2" Fixture="5">52</Head>
+   <Head X="53" Y="2" Fixture="5">53</Head>
+   <Head X="54" Y="2" Fixture="5">54</Head>
+   <Head X="55" Y="2" Fixture="5">55</Head>
+   <Head X="56" Y="2" Fixture="5">56</Head>
+   <Head X="57" Y="2" Fixture="5">57</Head>
+   <Head X="58" Y="2" Fixture="5">58</Head>
+   <Head X="59" Y="2" Fixture="5">59</Head>
+   <Head X="60" Y="2" Fixture="5">60</Head>
+   <Head X="61" Y="2" Fixture="5">61</Head>
+   <Head X="62" Y="2" Fixture="5">62</Head>
+   <Head X="63" Y="2" Fixture="5">63</Head>
+   <Head X="64" Y="2" Fixture="5">64</Head>
+   <Head X="65" Y="2" Fixture="5">65</Head>
+   <Head X="66" Y="2" Fixture="5">66</Head>
+   <Head X="67" Y="2" Fixture="5">67</Head>
+   <Head X="68" Y="2" Fixture="5">68</Head>
+   <Head X="69" Y="2" Fixture="5">69</Head>
+   <Head X="70" Y="2" Fixture="5">70</Head>
+   <Head X="71" Y="2" Fixture="5">71</Head>
+   <Head X="72" Y="2" Fixture="5">72</Head>
+   <Head X="73" Y="2" Fixture="5">73</Head>
+   <Head X="74" Y="2" Fixture="5">74</Head>
+   <Head X="75" Y="2" Fixture="5">75</Head>
+   <Head X="76" Y="2" Fixture="5">76</Head>
+   <Head X="77" Y="2" Fixture="5">77</Head>
+   <Head X="78" Y="2" Fixture="5">78</Head>
+   <Head X="79" Y="2" Fixture="5">79</Head>
+   <Head X="0" Y="3" Fixture="6">0</Head>
+   <Head X="1" Y="3" Fixture="6">1</Head>
+   <Head X="2" Y="3" Fixture="6">2</Head>
+   <Head X="3" Y="3" Fixture="6">3</Head>
+   <Head X="4" Y="3" Fixture="6">4</Head>
+   <Head X="5" Y="3" Fixture="6">5</Head>
+   <Head X="6" Y="3" Fixture="6">6</Head>
+   <Head X="7" Y="3" Fixture="6">7</Head>
+   <Head X="8" Y="3" Fixture="6">8</Head>
+   <Head X="9" Y="3" Fixture="6">9</Head>
+   <Head X="10" Y="3" Fixture="6">10</Head>
+   <Head X="11" Y="3" Fixture="6">11</Head>
+   <Head X="12" Y="3" Fixture="6">12</Head>
+   <Head X="13" Y="3" Fixture="6">13</Head>
+   <Head X="14" Y="3" Fixture="6">14</Head>
+   <Head X="15" Y="3" Fixture="6">15</Head>
+   <Head X="16" Y="3" Fixture="6">16</Head>
+   <Head X="17" Y="3" Fixture="6">17</Head>
+   <Head X="18" Y="3" Fixture="6">18</Head>
+   <Head X="19" Y="3" Fixture="6">19</Head>
+   <Head X="20" Y="3" Fixture="6">20</Head>
+   <Head X="21" Y="3" Fixture="6">21</Head>
+   <Head X="22" Y="3" Fixture="6">22</Head>
+   <Head X="23" Y="3" Fixture="6">23</Head>
+   <Head X="24" Y="3" Fixture="6">24</Head>
+   <Head X="25" Y="3" Fixture="6">25</Head>
+   <Head X="26" Y="3" Fixture="6">26</Head>
+   <Head X="27" Y="3" Fixture="6">27</Head>
+   <Head X="28" Y="3" Fixture="6">28</Head>
+   <Head X="29" Y="3" Fixture="6">29</Head>
+   <Head X="30" Y="3" Fixture="6">30</Head>
+   <Head X="31" Y="3" Fixture="6">31</Head>
+   <Head X="32" Y="3" Fixture="6">32</Head>
+   <Head X="33" Y="3" Fixture="6">33</Head>
+   <Head X="34" Y="3" Fixture="6">34</Head>
+   <Head X="35" Y="3" Fixture="6">35</Head>
+   <Head X="36" Y="3" Fixture="6">36</Head>
+   <Head X="37" Y="3" Fixture="6">37</Head>
+   <Head X="38" Y="3" Fixture="6">38</Head>
+   <Head X="39" Y="3" Fixture="6">39</Head>
+   <Head X="40" Y="3" Fixture="6">40</Head>
+   <Head X="41" Y="3" Fixture="6">41</Head>
+   <Head X="42" Y="3" Fixture="6">42</Head>
+   <Head X="43" Y="3" Fixture="6">43</Head>
+   <Head X="44" Y="3" Fixture="6">44</Head>
+   <Head X="45" Y="3" Fixture="6">45</Head>
+   <Head X="46" Y="3" Fixture="6">46</Head>
+   <Head X="47" Y="3" Fixture="6">47</Head>
+   <Head X="48" Y="3" Fixture="6">48</Head>
+   <Head X="49" Y="3" Fixture="6">49</Head>
+   <Head X="50" Y="3" Fixture="6">50</Head>
+   <Head X="51" Y="3" Fixture="6">51</Head>
+   <Head X="52" Y="3" Fixture="6">52</Head>
+   <Head X="53" Y="3" Fixture="6">53</Head>
+   <Head X="54" Y="3" Fixture="6">54</Head>
+   <Head X="55" Y="3" Fixture="6">55</Head>
+   <Head X="56" Y="3" Fixture="6">56</Head>
+   <Head X="57" Y="3" Fixture="6">57</Head>
+   <Head X="58" Y="3" Fixture="6">58</Head>
+   <Head X="59" Y="3" Fixture="6">59</Head>
+   <Head X="60" Y="3" Fixture="6">60</Head>
+   <Head X="61" Y="3" Fixture="6">61</Head>
+   <Head X="62" Y="3" Fixture="6">62</Head>
+   <Head X="63" Y="3" Fixture="6">63</Head>
+   <Head X="64" Y="3" Fixture="6">64</Head>
+   <Head X="65" Y="3" Fixture="6">65</Head>
+   <Head X="66" Y="3" Fixture="6">66</Head>
+   <Head X="67" Y="3" Fixture="6">67</Head>
+   <Head X="68" Y="3" Fixture="6">68</Head>
+   <Head X="69" Y="3" Fixture="6">69</Head>
+   <Head X="70" Y="3" Fixture="6">70</Head>
+   <Head X="71" Y="3" Fixture="6">71</Head>
+   <Head X="72" Y="3" Fixture="6">72</Head>
+   <Head X="73" Y="3" Fixture="6">73</Head>
+   <Head X="74" Y="3" Fixture="6">74</Head>
+   <Head X="75" Y="3" Fixture="6">75</Head>
+   <Head X="76" Y="3" Fixture="6">76</Head>
+   <Head X="77" Y="3" Fixture="6">77</Head>
+   <Head X="78" Y="3" Fixture="6">78</Head>
+   <Head X="79" Y="3" Fixture="6">79</Head>
+  </FixtureGroup>
+  <Monitor DisplayMode="0" ShowLabels="0">
+   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
+   <ChannelStyle>0</ChannelStyle>
+   <ValueStyle>0</ValueStyle>
+   <Grid Width="5" Height="3" Depth="5" Units="0" POV="2"/>
+   <StageItem>0</StageItem>
+   <FxItem ID="0" XPos="0" YPos="0" ZPos="0"/>
+   <FxItem ID="1" XPos="0" YPos="0" ZPos="0"/>
+   <FxItem ID="2" XPos="0" YPos="0" ZPos="0"/>
+   <FxItem ID="3" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="4" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="5" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="6" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+  </Monitor>
+ </Engine>
+ <VirtualConsole>
+  <Frame Caption="Page 1" ID="3">
+   <Appearance>
+    <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
+   </Appearance>
+   <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
+   <AllowResize>False</AllowResize>
+   <ShowHeader>False</ShowHeader>
+   <ShowEnableButton>True</ShowEnableButton>
+   <Collapsed>False</Collapsed>
+   <Disabled>False</Disabled>
+  </Frame>
+  <Frame Caption="Page 2" ID="1">
+   <Appearance>
+    <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
+   </Appearance>
+   <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
+   <AllowResize>False</AllowResize>
+   <ShowHeader>False</ShowHeader>
+   <ShowEnableButton>True</ShowEnableButton>
+   <Collapsed>False</Collapsed>
+   <Disabled>False</Disabled>
+  </Frame>
+ </VirtualConsole>
+</Workspace>

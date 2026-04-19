@@ -24,6 +24,7 @@
 #include "qlcfixturedef.h"
 #include "qlcfixturehead.h"
 #include "qlcchannel.h"
+#include "qlcpalette.h"
 
 #include "palettegenerator.h"
 #include "rgbscriptscache.h"
@@ -91,6 +92,8 @@ PaletteGenerator::~PaletteGenerator()
     m_scenes.clear();
     m_chasers.clear();
     m_matrices.clear();
+    m_palettes.clear();
+    m_chaserSceneMap.clear();
 }
 
 void PaletteGenerator::setName(QString name)
@@ -135,6 +138,10 @@ QString PaletteGenerator::typetoString(PaletteGenerator::PaletteType type)
         case Animation: return tr("Animations");
         case PanTilt: return tr("Pan/Tilt positions");
         case Dimmer: return tr("Dimmer levels");
+        case RainbowChaser: return tr("Rainbow chase");
+        case WarmColors: return tr("Warm colours");
+        case CoolColors: return tr("Cool colours");
+        case Prism: return tr("Prism effects");
         case Undefined:
         default:
             return tr("Unknown");
@@ -162,6 +169,7 @@ QStringList PaletteGenerator::getCapabilities(const Fixture *fixture)
             case QLCChannel::Colour:
             case QLCChannel::Gobo:
             case QLCChannel::Shutter:
+            case QLCChannel::Prism:
             {
                 if (channel->capabilities().size() > 1)
                 {
@@ -232,6 +240,11 @@ QList<RGBMatrix *> PaletteGenerator::matrices() const
     return m_matrices;
 }
 
+QList<QLCPalette *> PaletteGenerator::palettes() const
+{
+    return m_palettes;
+}
+
 void PaletteGenerator::addToDoc()
 {
     foreach (Scene *scene, m_scenes)
@@ -239,10 +252,26 @@ void PaletteGenerator::addToDoc()
 
     foreach (Chaser *chaser, m_chasers)
     {
-        foreach (Scene *scene, m_scenes)
+        if (m_chaserSceneMap.contains(chaser))
         {
-            qDebug() << "Add chaser step:" << scene->id();
-            chaser->addStep(ChaserStep(scene->id()));
+            // Use specific scene subset for this chaser
+            for (int idx : m_chaserSceneMap[chaser])
+            {
+                if (idx >= 0 && idx < m_scenes.count())
+                {
+                    qDebug() << "Add chaser step (mapped):" << m_scenes.at(idx)->id();
+                    chaser->addStep(ChaserStep(m_scenes.at(idx)->id()));
+                }
+            }
+        }
+        else
+        {
+            // Default: add all scenes
+            foreach (Scene *scene, m_scenes)
+            {
+                qDebug() << "Add chaser step:" << scene->id();
+                chaser->addStep(ChaserStep(scene->id()));
+            }
         }
         m_doc->addFunction(chaser);
     }
@@ -255,6 +284,9 @@ void PaletteGenerator::addToDoc()
         matrix->setFixtureGroup(m_fixtureGroup->id());
         m_doc->addFunction(matrix);
     }
+
+    foreach (QLCPalette *palette, m_palettes)
+        m_doc->addPalette(palette);
 }
 
 void PaletteGenerator::createColorScene(QList<SceneValue> chMap, QString name, PaletteSubType subType)
@@ -648,6 +680,330 @@ void PaletteGenerator::createChaser(QString name)
     m_chasers.append(chaser);
 }
 
+void PaletteGenerator::createChaser(QString name, uint fadeIn, uint duration, uint fadeOut,
+                                    int tempoType, int runOrder, QList<int> sceneIndices)
+{
+    if (m_scenes.count() == 0)
+        return;
+
+    Chaser *chaser = new Chaser(m_doc);
+    chaser->setTempoType(static_cast<Function::TempoType>(tempoType));
+    chaser->setFadeInMode(Chaser::Common);
+    chaser->setFadeInSpeed(fadeIn);
+    chaser->setFadeOutMode(Chaser::Common);
+    chaser->setFadeOutSpeed(fadeOut);
+    chaser->setDurationMode(Chaser::Common);
+    chaser->setDuration(duration);
+    chaser->setRunOrder(static_cast<Function::RunOrder>(runOrder));
+    chaser->setName(tr("%1 chaser - %2").arg(name).arg(m_model));
+
+    if (!sceneIndices.isEmpty())
+        m_chaserSceneMap[chaser] = sceneIndices;
+
+    m_chasers.append(chaser);
+}
+
+void PaletteGenerator::createThemedRGBScenes(QList<SceneValue> rcMap,
+                                             QList<SceneValue> gmMap,
+                                             QList<SceneValue> byMap,
+                                             PaletteType themeType,
+                                             PaletteSubType subType)
+{
+    if (rcMap.size() == 0 || gmMap.size() == 0 || byMap.size() == 0)
+        return;
+
+    struct ColorPreset {
+        const char *name;
+        uchar r, g, b;
+    };
+
+    QList<ColorPreset> colors;
+
+    switch (themeType)
+    {
+        case RainbowChaser:
+            colors = {
+                {"Red",     255,   0,   0},
+                {"Orange",  255, 127,   0},
+                {"Yellow",  255, 255,   0},
+                {"Green",     0, 255,   0},
+                {"Cyan",      0, 255, 255},
+                {"Blue",      0,   0, 255},
+                {"Purple",  127,   0, 255},
+                {"Magenta", 255,   0, 255}
+            };
+            break;
+        case WarmColors:
+            colors = {
+                {"Red",        255,   0,   0},
+                {"Orange",     255, 100,   0},
+                {"Amber",      255, 180,   0},
+                {"Yellow",     255, 255,   0},
+                {"Warm White", 255, 255, 200}
+            };
+            break;
+        case CoolColors:
+            colors = {
+                {"Blue",       0,   0, 255},
+                {"Cyan",       0, 255, 255},
+                {"Indigo",    75,   0, 130},
+                {"Purple",   128,   0, 255},
+                {"Cool White", 200, 220, 255}
+            };
+            break;
+        default:
+            return;
+    }
+
+    bool even = false;
+
+    for (const auto &preset : colors)
+    {
+        Scene *scene = new Scene(m_doc);
+        Scene *evenScene = nullptr;
+        Scene *oddScene = nullptr;
+
+        if (subType == OddEven)
+        {
+            evenScene = new Scene(m_doc);
+            oddScene = new Scene(m_doc);
+        }
+
+        for (const SceneValue &scv : rcMap)
+        {
+            Fixture *fxi = m_doc->fixture(scv.fxi);
+            int gmCh = -1, byCh = -1;
+
+            for (int i = 0; i < fxi->heads(); i++)
+            {
+                QLCFixtureHead head = fxi->head(i);
+                if (head.channels().contains(scv.channel))
+                {
+                    if (head.rgbChannels().count() == 3)
+                    {
+                        gmCh = head.rgbChannels().at(1);
+                        byCh = head.rgbChannels().at(2);
+                    }
+                    break;
+                }
+            }
+
+            if (gmCh == -1 || byCh == -1)
+                continue;
+
+            scene->setValue(scv.fxi, scv.channel, preset.r);
+            scene->setValue(scv.fxi, gmCh, preset.g);
+            scene->setValue(scv.fxi, byCh, preset.b);
+
+            if (subType == OddEven)
+            {
+                if (even)
+                {
+                    evenScene->setValue(scv.fxi, scv.channel, preset.r);
+                    evenScene->setValue(scv.fxi, gmCh, preset.g);
+                    evenScene->setValue(scv.fxi, byCh, preset.b);
+                }
+                else
+                {
+                    oddScene->setValue(scv.fxi, scv.channel, preset.r);
+                    oddScene->setValue(scv.fxi, gmCh, preset.g);
+                    oddScene->setValue(scv.fxi, byCh, preset.b);
+                }
+                even = !even;
+            }
+        }
+
+        scene->setName(getNamePrefix(tr(preset.name), typetoString(themeType)));
+        m_scenes.append(scene);
+
+        if (subType == OddEven)
+        {
+            evenScene->setName(tr("%1 (Even)").arg(getNamePrefix(tr(preset.name), typetoString(themeType))));
+            oddScene->setName(tr("%1 (Odd)").arg(getNamePrefix(tr(preset.name), typetoString(themeType))));
+            m_scenes.append(evenScene);
+            m_scenes.append(oddScene);
+        }
+    }
+}
+
+void PaletteGenerator::createPanTiltChasers()
+{
+    if (m_scenes.count() < 9)
+        return;
+
+    // Scene indices for position presets (from createPanTiltScenes):
+    // 0=Center, 1=Top, 2=Bottom, 3=Left, 4=Right, 5=TL, 6=TR, 7=BL, 8=BR
+
+    // Pan Sweep: Left → Center → Right → Center (Loop, 4-beat hold, 4-beat fade)
+    createChaser(tr("Pan Sweep"), 4000, 4000, 0,
+                 Function::Beats, Function::Loop, {3, 0, 4, 0});
+
+    // Tilt Sweep: Top → Center → Bottom → Center (Loop, 4-beat hold, 4-beat fade)
+    createChaser(tr("Tilt Sweep"), 4000, 4000, 0,
+                 Function::Beats, Function::Loop, {1, 0, 2, 0});
+
+    // Nod: Top ↔ Bottom (PingPong, 2-beat hold, 2-beat fade)
+    createChaser(tr("Nod"), 2000, 2000, 0,
+                 Function::Beats, Function::PingPong, {1, 2});
+
+    // Shake: Left ↔ Right small range (PingPong, 1-beat, no fade)
+    createChaser(tr("Shake"), 0, 1000, 0,
+                 Function::Beats, Function::PingPong, {3, 4});
+}
+
+void PaletteGenerator::createPalettes(PaletteType type)
+{
+    switch (type)
+    {
+        case PrimaryColors:
+        {
+            // PrimaryColors creates single-channel scenes (e.g., Red ch=255)
+            // Infer the RGB from the channel's colour property
+            for (Scene *scene : m_scenes)
+            {
+                QList<SceneValue> values = scene->values();
+                if (values.isEmpty()) continue;
+
+                quint32 fxID = values.at(0).fxi;
+                Fixture *fxi = m_doc->fixture(fxID);
+                if (fxi == nullptr) continue;
+
+                const QLCChannel *ch = fxi->channel(values.at(0).channel);
+                if (ch == nullptr || ch->group() != QLCChannel::Intensity) continue;
+
+                QColor color;
+                switch (ch->colour())
+                {
+                    case QLCChannel::Red: color = QColor(255, 0, 0); break;
+                    case QLCChannel::Green: color = QColor(0, 255, 0); break;
+                    case QLCChannel::Blue: color = QColor(0, 0, 255); break;
+                    case QLCChannel::Cyan: color = QColor(0, 255, 255); break;
+                    case QLCChannel::Magenta: color = QColor(255, 0, 255); break;
+                    case QLCChannel::Yellow: color = QColor(255, 255, 0); break;
+                    case QLCChannel::White: color = QColor(255, 255, 255); break;
+                    default: continue;
+                }
+
+                QLCPalette *palette = new QLCPalette(QLCPalette::Color);
+                palette->setName(scene->name());
+                palette->setValue(color);
+                m_palettes.append(palette);
+            }
+        }
+        break;
+
+        case SixteenColors:
+        case RainbowChaser:
+        case WarmColors:
+        case CoolColors:
+        {
+            // Create color palettes for all scenes
+            for (Scene *scene : m_scenes)
+            {
+                QList<SceneValue> values = scene->values();
+                if (values.isEmpty())
+                    continue;
+
+                // Determine RGB from scene values for the first fixture
+                int r = -1, g = -1, b = -1;
+                quint32 fxID = values.at(0).fxi;
+                Fixture *fxi = m_doc->fixture(fxID);
+                if (fxi == nullptr) continue;
+
+                for (const SceneValue &sv : values)
+                {
+                    if (sv.fxi != fxID) continue;
+                    const QLCChannel *ch = fxi->channel(sv.channel);
+                    if (ch == nullptr) continue;
+                    if (ch->group() == QLCChannel::Intensity)
+                    {
+                        if (ch->colour() == QLCChannel::Red) r = sv.value;
+                        else if (ch->colour() == QLCChannel::Green) g = sv.value;
+                        else if (ch->colour() == QLCChannel::Blue) b = sv.value;
+                    }
+                }
+
+                if (r >= 0 && g >= 0 && b >= 0)
+                {
+                    QLCPalette *palette = new QLCPalette(QLCPalette::Color);
+                    palette->setName(scene->name());
+                    palette->setValue(QColor(r, g, b));
+                    m_palettes.append(palette);
+                }
+            }
+        }
+        break;
+
+        case PanTilt:
+        {
+            struct PosPreset {
+                const char *name;
+                int pan, tilt;
+            };
+            PosPreset presets[] = {
+                {"Center", 127, 127}, {"Top", 127, 0}, {"Bottom", 127, 255},
+                {"Left", 0, 127}, {"Right", 255, 127},
+                {"Top Left", 0, 0}, {"Top Right", 255, 0},
+                {"Bottom Left", 0, 255}, {"Bottom Right", 255, 255},
+            };
+            for (const auto &p : presets)
+            {
+                QLCPalette *palette = new QLCPalette(QLCPalette::PanTilt);
+                palette->setName(getNamePrefix("Position", tr(p.name)));
+                palette->setValue(p.pan, p.tilt);
+                m_palettes.append(palette);
+            }
+        }
+        break;
+
+        case Dimmer:
+        {
+            struct LevelPreset { const char *name; int value; };
+            LevelPreset presets[] = {
+                {"Full", 255}, {"75%", 191}, {"50%", 127}, {"25%", 64}, {"Off", 0}
+            };
+            for (const auto &p : presets)
+            {
+                QLCPalette *palette = new QLCPalette(QLCPalette::Dimmer);
+                palette->setName(getNamePrefix("Dimmer", tr(p.name)));
+                palette->setValue(p.value);
+                m_palettes.append(palette);
+            }
+        }
+        break;
+
+        case Gobos:
+        {
+            // Create gobo palettes from scene values
+            for (Scene *scene : m_scenes)
+            {
+                if (scene->values().isEmpty()) continue;
+                QLCPalette *palette = new QLCPalette(QLCPalette::Gobo);
+                palette->setName(scene->name());
+                palette->setValue(scene->values().at(0).value);
+                m_palettes.append(palette);
+            }
+        }
+        break;
+
+        case Shutter:
+        {
+            for (Scene *scene : m_scenes)
+            {
+                if (scene->values().isEmpty()) continue;
+                QLCPalette *palette = new QLCPalette(QLCPalette::Shutter);
+                palette->setName(scene->name());
+                palette->setValue(scene->values().at(0).value);
+                m_palettes.append(palette);
+            }
+        }
+        break;
+
+        default:
+            break;
+    }
+}
+
 void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
                                        PaletteGenerator::PaletteSubType subType)
 {
@@ -669,6 +1025,7 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
     QHash<quint32, quint32> m_goboList;
     QHash<quint32, quint32> m_shutterList;
     QHash<quint32, quint32> m_colorMacroList;
+    QHash<quint32, quint32> m_prismList;
 
     for (int i = 0; i < m_fixtures.count(); i++)
     {
@@ -688,6 +1045,7 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
                 case QLCChannel::Gobo: m_goboList[fxID] = ch; break;
                 case QLCChannel::Shutter: m_shutterList[fxID] = ch; break;
                 case QLCChannel::Colour: m_colorMacroList[fxID] = ch; break;
+                case QLCChannel::Prism: m_prismList[fxID] = ch; break;
                 case QLCChannel::Intensity:
                 {
                     QLCChannel::PrimaryColour col = channel->colour();
@@ -722,7 +1080,8 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
             createColorScene(m_magentaList, tr("Magenta scene"), subType);
             createColorScene(m_yellowList, tr("Yellow scene"), subType);
             createColorScene(m_whiteList, tr("White scene"), subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::Loop);
+            createPalettes(type);
         }
         break;
         case SixteenColors:
@@ -731,7 +1090,32 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
                 createRGBCMYScene(m_redList, m_greenList, m_blueList, tr("Scene"), true, subType);
             else if (m_cyanList.size() > 0 && m_magentaList.size() == m_cyanList.size() && m_yellowList.size() ==  m_cyanList.size())
                 createRGBCMYScene(m_cyanList, m_magentaList, m_yellowList, tr("Scene"), false, subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::Loop);
+            createPalettes(type);
+        }
+        break;
+        case RainbowChaser:
+        {
+            if (m_redList.size() > 0 && m_greenList.size() == m_redList.size() && m_blueList.size() == m_redList.size())
+                createThemedRGBScenes(m_redList, m_greenList, m_blueList, RainbowChaser, subType);
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::Loop);
+            createPalettes(type);
+        }
+        break;
+        case WarmColors:
+        {
+            if (m_redList.size() > 0 && m_greenList.size() == m_redList.size() && m_blueList.size() == m_redList.size())
+                createThemedRGBScenes(m_redList, m_greenList, m_blueList, WarmColors, subType);
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::PingPong);
+            createPalettes(type);
+        }
+        break;
+        case CoolColors:
+        {
+            if (m_redList.size() > 0 && m_greenList.size() == m_redList.size() && m_blueList.size() == m_redList.size())
+                createThemedRGBScenes(m_redList, m_greenList, m_blueList, CoolColors, subType);
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::PingPong);
+            createPalettes(type);
         }
         break;
         case Animation:
@@ -743,31 +1127,42 @@ void PaletteGenerator::createFunctions(PaletteGenerator::PaletteType type,
         case Gobos:
         {
             createCapabilityScene(m_goboList, subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 0, 8000, 0, Function::Beats, Function::Loop);
+            createPalettes(type);
         }
         break;
         case Shutter:
         {
             createCapabilityScene(m_shutterList, subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 0, 4000, 0, Function::Beats, Function::Loop);
+            createPalettes(type);
         }
         break;
         case ColourMacro:
         {
             createCapabilityScene(m_colorMacroList, subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 2000, 4000, 0, Function::Beats, Function::Loop);
         }
         break;
         case PanTilt:
         {
             createPanTiltScenes(m_panList, m_tiltList, subType);
-            createChaser(typetoString(type));
+            createChaser(typetoString(type), 4000, 4000, 0, Function::Beats, Function::Loop);
+            createPanTiltChasers();
+            createPalettes(type);
+        }
+        break;
+        case Prism:
+        {
+            createCapabilityScene(m_prismList, subType);
+            createChaser(typetoString(type), 0, 4000, 0, Function::Beats, Function::Loop);
         }
         break;
         case Dimmer:
         {
             createDimmerScenes(m_dimmerList, subType);
             createChaser(typetoString(type));
+            createPalettes(type);
         }
         break;
         case Undefined:
