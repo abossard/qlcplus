@@ -249,6 +249,11 @@ private:
     /** Check what should be done when elapsed() >= duration() */
     void roundCheck();
 
+    /** Same as roundCheck but assumes m_algorithmMutex is already held.
+      * Returns true if the step actually advanced, false if the function
+      * stopped (SingleShot end) or algorithm is null. */
+    bool roundCheckLocked();
+
     /** Check if the engine needs to be re-created */
     void checkEngineCreation();
 

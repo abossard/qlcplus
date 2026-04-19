@@ -671,8 +671,6 @@ void RGBMatrix::preRun(MasterTimer *timer)
 
 void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
 {
-    Q_UNUSED(timer);
-
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
         if (m_group == NULL)
@@ -693,46 +691,22 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
         if (m_runAlgorithm == NULL || m_runAlgorithm->apiVersion() == 0)
             return;
 
-        if (isPaused() == false)
-        {
-            // Get a new map every time elapsed is reset to zero.
-            // Audio-reactive algorithms must re-render every tick for real-time response.
-            if (elapsed() < MasterTimer::tick() || m_runAlgorithm->usesAudio())
-            {
-                if (tempoType() == Beats)
-                    m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
+        if (isPaused())
+            return;
 
-                //qDebug() << "RGBMatrix step" << m_stepHandler->currentStepIndex() << ", color:" << QString::number(m_stepHandler->stepColor().rgb(), 16);
-                QSize algoSize = effectiveAlgorithmSize(m_group);
-                m_runAlgorithm->rgbMap(algoSize, m_stepHandler->stepColor().rgb(),
-                                       m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
-                if (m_rotation || m_mirror)
-                    applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
-                                    m_rotation, m_mirror, m_mirrorBlend);
-                updateMapChannels(m_stepHandler->m_map, m_group, universes);
-            }
-        }
-    }
+        // Refresh beat duration before any beat checks
+        if (tempoType() == Beats)
+            m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
 
-    if (isPaused() == false)
-    {
-        // Increment the ms elapsed time
+        // --- Step 1: Advance step if due (BEFORE map computation) ---
+        // Save pre-increment elapsed for the map-compute guard below
+        quint32 prevElapsed = elapsed();
         incrementElapsed();
+        bool stepChanged = false;
 
-        /* Check if we need to change direction, stop completely or go to next step
-         * The cases are:
-         * 1- time tempo type: act normally, on ms elapsed time
-         * 2- beat tempo type, beat occurred: check if the elapsed beats is a multiple of
-         *    the step beat duration. If so, proceed to the next step
-         * 3- beat tempo type, not beat: if the ms elapsed time reached the step beat
-         *    duration in ms, and the ms time to the next beat is not less than 1/16 of
-         *    the step beat duration in ms, then proceed to the next step. If the ms time to the
-         *    next beat is less than 1/16 of the step beat duration in ms, then defer the step
-         *    change to case #2, to resync the matrix to the next beat
-         */
         if (tempoType() == Time && elapsed() >= duration())
         {
-            roundCheck();
+            stepChanged = roundCheckLocked();
         }
         else if (tempoType() == Beats)
         {
@@ -741,14 +715,27 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
                 incrementElapsedBeats();
                 if (elapsedBeats() % duration() == 0)
                 {
-                    roundCheck();
+                    stepChanged = roundCheckLocked();
                     resetElapsed();
                 }
             }
             else if (elapsed() >= m_stepBeatDuration && (uint)timer->timeToNextBeat() > m_stepBeatDuration / 16)
             {
-                roundCheck();
+                stepChanged = roundCheckLocked();
             }
+        }
+
+        // --- Step 2: Compute and output map (now always for the correct step) ---
+        // Recompute when: step just changed, first tick of a step, or audio-reactive
+        if (stepChanged || prevElapsed < MasterTimer::tick() || m_runAlgorithm->usesAudio())
+        {
+            QSize algoSize = effectiveAlgorithmSize(m_group);
+            m_runAlgorithm->rgbMap(algoSize, m_stepHandler->stepColor().rgb(),
+                                   m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
+            if (m_rotation || m_mirror)
+                applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
+                                m_rotation, m_mirror, m_mirrorBlend);
+            updateMapChannels(m_stepHandler->m_map, m_group, universes);
         }
     }
 }
@@ -788,14 +775,17 @@ void RGBMatrix::postRun(MasterTimer *timer, QList<Universe *> universes)
     Function::postRun(timer, universes);
 }
 
-void RGBMatrix::roundCheck()
+bool RGBMatrix::roundCheckLocked()
 {
-    QMutexLocker algorithmLocker(&m_algorithmMutex);
     if (m_algorithm == NULL)
-        return;
+        return false;
 
-    if (m_stepHandler->checkNextStep(runOrder(), m_rgbColors[0], m_rgbColors[1], m_stepsCount) == false)
+    bool advanced = m_stepHandler->checkNextStep(runOrder(), m_rgbColors[0], m_rgbColors[1], m_stepsCount);
+    if (advanced == false)
+    {
         stop(FunctionParent::master());
+        return false;
+    }
 
     m_roundTime.restart();
 
@@ -803,6 +793,14 @@ void RGBMatrix::roundCheck()
         roundElapsed(m_stepBeatDuration);
     else
         roundElapsed(duration());
+
+    return true;
+}
+
+void RGBMatrix::roundCheck()
+{
+    QMutexLocker algorithmLocker(&m_algorithmMutex);
+    roundCheckLocked();
 }
 
 QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
