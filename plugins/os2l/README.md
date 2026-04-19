@@ -50,6 +50,51 @@ manually (e.g. `127.0.0.1:9996`).
 3. The plugin starts listening on TCP port 9996 and registers via Bonjour.
 4. Run with `-d` flag to see detailed OS2L logs in the console.
 
+## Web Diagnostics Dashboard
+
+When running with `-d` (debug mode) and `-w` (web access), a live diagnostics
+dashboard is available at:
+
+- **Dashboard:** `http://localhost:9999/os2l`
+- **JSON API:** `http://localhost:9999/os2l.json`
+
+The dashboard shows:
+
+- **Connection status** — Bonjour registration, TCP client connection
+- **Live event log** — scrolling table of all OS2L events with timestamps
+- **Message statistics** — counts per event type (beat, btn, cmd, song)
+- **Song metadata** — currently playing track info (when VDJ sends song events)
+- **Beat indicator** — flashes on each beat event
+
+A link to the dashboard also appears in the main QLC+ web interface menu
+bar (only when running with `-d`).
+
+The dashboard polls `/os2l.json` every 500ms. The plugin maintains a
+ring buffer of the last 1000 diagnostic events.
+
+## Show Control via OS2L
+
+VirtualDJ can trigger QLC+ functions via OS2L button events:
+
+| VDJ Script | OS2L Message | QLC+ Action |
+|------------|-------------|-------------|
+| `os2l_button 'fog'` | `{"evt":"btn","name":"fog","state":"on"}` | VCButton activates → starts Scene |
+| `os2l_button 'fog'` (again) | `{"evt":"btn","name":"fog","state":"off"}` | VCButton deactivates → stops Scene |
+| `os2l_button 'strobe' while_pressed` | on while held, off on release | VCButton flash mode |
+| `os2l_cmd 1 0.5` | `{"evt":"cmd","id":1,"param":0.5}` | VCSlider → fader control |
+
+### Song-Triggered Light Shows
+
+Use VDJ's `on_load` script to send the song title as a button event:
+
+```
+on_load ? os2l_button get_title
+```
+
+In QLC+, create VCButtons in a **SoloFrame** (so only one runs at a time),
+each bound to the OS2L channel for a song title. When a song loads in VDJ,
+the matching button fires and starts its chaser/scene.
+
 ## Supported OS2L Events
 
 All event types and fields are documented at
