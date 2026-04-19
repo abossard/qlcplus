@@ -17,6 +17,7 @@ set(WEBFILES_QML
     webaccess-v5.css
     webaccess-v5.js
     webaccess-v5.html
+    os2l-diag.html
 )
 
 set(WEBFILES_CLASSIC

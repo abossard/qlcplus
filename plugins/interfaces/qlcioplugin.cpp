@@ -101,6 +101,11 @@ int QLCIOPlugin::connectionStatus(quint32 input)
     return Idle;
 }
 
+QByteArray QLCIOPlugin::pluginDiagnostics() const
+{
+    return QByteArray();
+}
+
 /*************************************************************************
  * Configure
  *************************************************************************/

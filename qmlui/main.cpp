@@ -172,6 +172,8 @@ int main(int argc, char *argv[])
 
     // logging option
     if (parser.isSet(debugOption))
+    {
+        QCoreApplication::instance()->setProperty("debugMode", true);
         qInstallMessageHandler(
             [](QtMsgType, const QMessageLogContext &, const QString &msg) {
                 QByteArray localMsg = msg.toLocal8Bit();
@@ -188,6 +190,7 @@ int main(int argc, char *argv[])
                     fflush(stderr);
                 }
         });
+    }
 
     // language settings
     QString locale = parser.value(localeOption);

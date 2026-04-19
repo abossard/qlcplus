@@ -21,6 +21,7 @@
 #include <QTcpSocket>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCoreApplication>
 
 #include "utils.h"
 #include "os2lplugin.h"
@@ -36,6 +37,83 @@ OS2LPlugin::~OS2LPlugin()
     enableTCPServer(false);
 }
 
+/*********************************************************************
+ * Diagnostics
+ *********************************************************************/
+
+bool OS2LPlugin::isDebugMode() const
+{
+    QCoreApplication *app = QCoreApplication::instance();
+    return app && app->property("debugMode").toBool();
+}
+
+void OS2LPlugin::diagLog(const QString &type, const QString &detail)
+{
+    if (!isDebugMode())
+        return;
+
+    QMutexLocker locker(&m_diagMutex);
+
+    OS2LDiagEvent evt;
+    evt.timestamp = QDateTime::currentMSecsSinceEpoch();
+    evt.type = type;
+    evt.detail = detail;
+    m_diagEvents.append(evt);
+
+    // Cap at OS2L_DIAG_MAX_EVENTS
+    while (m_diagEvents.size() > OS2L_DIAG_MAX_EVENTS)
+        m_diagEvents.removeFirst();
+
+    // Update stats counter
+    m_diagStats[type] = m_diagStats.value(type, 0) + 1;
+}
+
+QByteArray OS2LPlugin::pluginDiagnostics() const
+{
+    if (!isDebugMode())
+        return QByteArray();
+
+    QMutexLocker locker(&m_diagMutex);
+
+    QJsonObject root;
+
+    // Status
+    QString statusStr = "idle";
+    if (m_clientConnected)
+        statusStr = "connected";
+    else if (m_bonjourRegistered)
+        statusStr = "advertising";
+    root["status"] = statusStr;
+
+    root["bonjourEnabled"] = m_bonjourEnabled;
+    root["bonjourRegistered"] = m_bonjourRegistered;
+    root["port"] = m_hostPort;
+    root["clientConnected"] = m_clientConnected;
+    root["clientAddress"] = m_clientAddress;
+    root["universe"] = m_inputUniverse == UINT_MAX ? -1 : (int)m_inputUniverse;
+
+    // Events (newest first)
+    QJsonArray eventsArr;
+    for (int i = m_diagEvents.size() - 1; i >= 0; --i)
+    {
+        const OS2LDiagEvent &e = m_diagEvents[i];
+        QJsonObject obj;
+        obj["ts"] = e.timestamp;
+        obj["type"] = e.type;
+        obj["detail"] = e.detail;
+        eventsArr.append(obj);
+    }
+    root["events"] = eventsArr;
+
+    // Stats
+    QJsonObject statsObj;
+    for (auto it = m_diagStats.constBegin(); it != m_diagStats.constEnd(); ++it)
+        statsObj[it.key()] = it.value();
+    root["stats"] = statsObj;
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
+}
+
 void OS2LPlugin::init()
 {
     m_inputUniverse = UINT_MAX;
@@ -46,6 +124,7 @@ void OS2LPlugin::init()
     m_bonjourRegistered = false;
     m_clientConnected = false;
     m_clientSocket = NULL;
+    m_clientAddress.clear();
 }
 
 QString OS2LPlugin::name() const
@@ -97,6 +176,7 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
     if (!enableTCPServer(true))
     {
         qWarning() << "[OS2L] Failed to start TCP server — not advertising via Bonjour";
+        diagLog("error", "Failed to start TCP server — not advertising via Bonjour");
         return false;
     }
 
@@ -108,16 +188,19 @@ bool OS2LPlugin::openInput(quint32 input, quint32 universe)
         connect(m_bonjour, &OS2LBonjour::serviceRegistered,
                 this, [this](const QString &name, quint16 port) {
                     qDebug() << "[OS2L] Bonjour: registered as" << name << "on port" << port;
+                    diagLog("bonjour", QString("Registered as %1 on port %2").arg(name).arg(port));
                     m_bonjourRegistered = true;
                     emit connectionStatusChanged(m_inputUniverse, 0);
                 });
         connect(m_bonjour, &OS2LBonjour::serviceRegistrationFailed,
                 this, [this](const QString &err) {
                     qWarning() << "[OS2L] Bonjour registration failed:" << err;
+                    diagLog("bonjour", QString("Registration failed: %1").arg(err));
                     m_bonjourRegistered = false;
                     emit connectionStatusChanged(m_inputUniverse, 0);
                 });
         m_bonjour->registerService("QLC+", m_hostPort);
+        diagLog("bonjour", QString("Registering service on port %1...").arg(m_hostPort));
     }
 
     return true;
@@ -136,6 +219,7 @@ void OS2LPlugin::closeInput(quint32 input, quint32 universe)
         delete m_bonjour;
         m_bonjour = NULL;
         m_bonjourRegistered = false;
+        diagLog("bonjour", "Service unregistered");
     }
 
     removeFromMap(input, universe, Input);
@@ -208,10 +292,12 @@ bool OS2LPlugin::enableTCPServer(bool enable)
         if (m_tcpServer->listen(QHostAddress::Any, m_hostPort) == false)
         {
             qDebug() << "[OS2L] Error listening TCP socket on" << m_hostPort;
+            diagLog("error", QString("Error listening TCP socket on port %1").arg(m_hostPort));
             return false;
         }
         connect(m_tcpServer, SIGNAL(newConnection()), this, SLOT(slotProcessNewTCPConnection()));
         qDebug() << "[OS2L] listening on TCP port" << m_hostPort;
+        diagLog("connection", QString("TCP server listening on port %1").arg(m_hostPort));
     }
     else
     {
@@ -223,6 +309,7 @@ bool OS2LPlugin::enableTCPServer(bool enable)
         delete m_tcpServer;
         m_tcpServer = NULL;
         qDebug() << "[OS2L] stop listening on TCP";
+        diagLog("connection", "TCP server stopped");
     }
 
     return true;
@@ -262,7 +349,9 @@ void OS2LPlugin::slotProcessNewTCPConnection()
     m_clientConnected = true;
 
     QHostAddress senderAddress = clientConnection->peerAddress();
-    qDebug() << "[OS2L] Host connected:" << senderAddress.toString();
+    m_clientAddress = senderAddress.toString();
+    qDebug() << "[OS2L] Host connected:" << m_clientAddress;
+    diagLog("connection", QString("Host connected: %1").arg(m_clientAddress));
     connect(clientConnection, SIGNAL(readyRead()), this, SLOT(slotProcessTCPPackets()));
     connect(clientConnection, SIGNAL(disconnected()), this, SLOT(slotHostDisconnected()));
 
@@ -276,6 +365,7 @@ void OS2LPlugin::slotHostDisconnected()
     {
         QHostAddress senderAddress = socket->peerAddress();
         qDebug() << "[OS2L] Host disconnected:" << senderAddress.toString();
+        diagLog("connection", QString("Host disconnected: %1").arg(senderAddress.toString()));
         socket->deleteLater();
     }
 
@@ -283,6 +373,7 @@ void OS2LPlugin::slotHostDisconnected()
     {
         m_clientSocket = NULL;
         m_clientConnected = false;
+        m_clientAddress.clear();
         m_packetLeftOver.clear();
         emit connectionStatusChanged(m_inputUniverse, 0);
     }
@@ -343,22 +434,20 @@ void OS2LPlugin::slotProcessTCPPackets()
         if (event == "btn")
         {
             // "btn" event — button press/release.
-            // Fields: "name" (string), "state" ("on"/"off").
-            // Source: https://os2l.org
             QJsonValue jName = jsonObj.value("name");
             QJsonValue jState = jsonObj.value("state");
             qDebug() << "[OS2L] Button:" << jName.toString() << "state:" << jState.toString();
+            diagLog("message", QString("btn: %1 = %2").arg(jName.toString(), jState.toString()));
             uchar value = jState.toString() == "off" ? 0 : 255;
             emit valueChanged(m_inputUniverse, 0, getHash(jName.toString()), value, jName.toString());
         }
         else if (event == "cmd")
         {
             // "cmd" event — numeric command with value.
-            // Fields: "id" (int), "param" (float 0.0–1.0).
-            // Source: https://os2l.org
             QJsonValue jId = jsonObj.value("id");
             QJsonValue jParam = jsonObj.value("param");
             qDebug() << "[OS2L] CMD id:" << jId.toInt() << "param:" << jParam.toDouble();
+            diagLog("message", QString("cmd: id=%1 param=%2").arg(jId.toInt()).arg(jParam.toDouble()));
             quint32 channel = quint32(jId.toInt());
             QString cmd = QString("cmd%1").arg(channel);
             emit valueChanged(m_inputUniverse, 0, quint32(jId.toInt()), uchar(jParam.toDouble()), cmd);
@@ -366,28 +455,25 @@ void OS2LPlugin::slotProcessTCPPackets()
         else if (event == "beat")
         {
            // "beat" event — BPM synchronization.
-           // Source: https://os2l.org
            qDebug() << "[OS2L] Beat message received";
+           diagLog("message", "beat");
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
         }
         else if (event == "song")
         {
-            // "song" event — track metadata sent when a new song loads or info changes.
-            // Field names sourced from:
-            //   - OS2L specification: https://os2l.org
-            //   - VirtualDJ OS2L wiki: https://www.virtualdj.com/wiki/OS2L.html
-            QString songName = jsonObj.value("name").toString();    // Track title
-            QString artist   = jsonObj.value("artist").toString();  // Artist name
-            QString album    = jsonObj.value("album").toString();   // Album name
-            QString genre    = jsonObj.value("genre").toString();   // Music genre
-            QString year     = jsonObj.value("year").toString();    // Release year
-            QString status   = jsonObj.value("status").toString();  // "play" / "pause" / "stop"
-            double  bpm      = jsonObj.value("bpm").toDouble();     // Beats per minute
-            QString key      = jsonObj.value("key").toString();     // Camelot key (e.g. "8B")
-            double  elapsed  = jsonObj.value("elapsed").toDouble(); // Elapsed time (seconds)
-            double  duration = jsonObj.value("duration").toDouble();// Total duration (seconds)
-            QString remix    = jsonObj.value("remix").toString();   // Remix/edit version
-            int     deck     = jsonObj.value("deck").toInt();       // Deck number (1 or 2)
+            // "song" event — track metadata
+            QString songName = jsonObj.value("name").toString();
+            QString artist   = jsonObj.value("artist").toString();
+            QString album    = jsonObj.value("album").toString();
+            QString genre    = jsonObj.value("genre").toString();
+            QString year     = jsonObj.value("year").toString();
+            QString status   = jsonObj.value("status").toString();
+            double  bpm      = jsonObj.value("bpm").toDouble();
+            QString key      = jsonObj.value("key").toString();
+            double  elapsed  = jsonObj.value("elapsed").toDouble();
+            double  duration = jsonObj.value("duration").toDouble();
+            QString remix    = jsonObj.value("remix").toString();
+            int     deck     = jsonObj.value("deck").toInt();
 
             qDebug() << "[OS2L] ==================== SONG METADATA ====================";
             if (!songName.isEmpty()) qDebug() << "[OS2L] Song Name:" << songName;
@@ -404,6 +490,18 @@ void OS2LPlugin::slotProcessTCPPackets()
             if (deck > 0)            qDebug() << "[OS2L] Deck:" << deck;
             qDebug() << "[OS2L] ======================================================";
 
+            // Build a rich diagnostic string for the ring buffer
+            QStringList parts;
+            if (!artist.isEmpty()) parts << QString("artist=%1").arg(artist);
+            if (!songName.isEmpty()) parts << QString("title=%1").arg(songName);
+            if (!album.isEmpty()) parts << QString("album=%1").arg(album);
+            if (!status.isEmpty()) parts << QString("status=%1").arg(status);
+            if (bpm > 0) parts << QString("bpm=%1").arg(bpm);
+            if (!key.isEmpty()) parts << QString("key=%1").arg(key);
+            if (deck > 0) parts << QString("deck=%1").arg(deck);
+            if (duration > 0) parts << QString("duration=%1s").arg(duration);
+            diagLog("message", QString("song: %1").arg(parts.join(", ")));
+
             if (!songName.isEmpty())
             {
                 QString songId = QString("%1 - %2").arg(artist, songName);
@@ -413,6 +511,7 @@ void OS2LPlugin::slotProcessTCPPackets()
         else
         {
             qDebug() << "[OS2L] Unknown event type:" << event;
+            diagLog("message", QString("unknown: %1").arg(event));
         }
     }
 }
@@ -474,16 +573,19 @@ void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
                 connect(m_bonjour, &OS2LBonjour::serviceRegistered,
                         this, [this](const QString &name, quint16 port) {
                             qDebug() << "[OS2L] Bonjour: registered as" << name << "on port" << port;
+                            diagLog("bonjour", QString("Registered as %1 on port %2").arg(name).arg(port));
                             m_bonjourRegistered = true;
                             emit connectionStatusChanged(m_inputUniverse, 0);
                         });
                 connect(m_bonjour, &OS2LBonjour::serviceRegistrationFailed,
                         this, [this](const QString &err) {
                             qWarning() << "[OS2L] Bonjour registration failed:" << err;
+                            diagLog("bonjour", QString("Registration failed: %1").arg(err));
                             m_bonjourRegistered = false;
                             emit connectionStatusChanged(m_inputUniverse, 0);
                         });
                 m_bonjour->registerService("QLC+", m_hostPort);
+                diagLog("bonjour", "Bonjour enabled at runtime");
             }
             else if (!m_bonjourEnabled && m_bonjour != NULL)
             {
@@ -491,6 +593,7 @@ void OS2LPlugin::setParameter(quint32 universe, quint32 line, Capability type,
                 delete m_bonjour;
                 m_bonjour = NULL;
                 m_bonjourRegistered = false;
+                diagLog("bonjour", "Bonjour disabled at runtime");
                 emit connectionStatusChanged(m_inputUniverse, 0);
             }
         }

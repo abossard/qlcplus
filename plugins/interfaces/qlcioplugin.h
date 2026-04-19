@@ -283,6 +283,14 @@ public:
      */
     virtual int connectionStatus(quint32 input);
 
+    /**
+     * Return plugin-specific diagnostic data as JSON.
+     * Plugins can override this to provide structured diagnostics
+     * accessible via the web interface (e.g., /os2l.json).
+     * The default implementation returns an empty QByteArray.
+     */
+    virtual QByteArray pluginDiagnostics() const;
+
 signals:
     /**
      * Tells that the value of a channel in an input line has changed and needs

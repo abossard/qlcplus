@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QLC+ OS2L Diagnostics</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#1e1e2e;color:#cdd6f4;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+a{color:#89b4fa;text-decoration:none}
+a:hover{text-decoration:underline}
+
+.topbar{background:#181825;padding:10px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #313244}
+.topbar h1{font-size:18px;font-weight:600;color:#cba6f7}
+.topbar .back{font-size:13px;color:#89b4fa}
+.topbar .status-pill{padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;text-transform:uppercase}
+.pill-idle{background:#45475a;color:#a6adc8}
+.pill-advertising{background:#f9e2af;color:#1e1e2e}
+.pill-connected{background:#a6e3a1;color:#1e1e2e}
+
+.container{max-width:1200px;margin:0 auto;padding:16px}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+
+.card{background:#181825;border:1px solid #313244;border-radius:8px;padding:16px}
+.card h2{font-size:15px;color:#89b4fa;margin-bottom:12px;border-bottom:1px solid #313244;padding-bottom:8px}
+.card .row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+.card .row .label{color:#a6adc8}
+.card .row .value{color:#cdd6f4;font-weight:500}
+
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
+.stat-box{background:#11111b;border-radius:6px;padding:12px;text-align:center}
+.stat-box .num{font-size:24px;font-weight:700;color:#cba6f7}
+.stat-box .lbl{font-size:11px;color:#a6adc8;margin-top:4px;text-transform:uppercase}
+
+.beat-indicator{width:24px;height:24px;border-radius:50%;background:#45475a;display:inline-block;vertical-align:middle;margin-left:8px;transition:background 0.05s}
+.beat-indicator.flash{background:#f38ba8}
+
+.song-card{background:linear-gradient(135deg,#1e1e2e 0%,#181825 100%)}
+.song-title{font-size:18px;font-weight:700;color:#cdd6f4}
+.song-artist{font-size:15px;color:#a6adc8;margin-top:2px}
+.song-meta{display:flex;gap:16px;margin-top:8px;flex-wrap:wrap}
+.song-meta .tag{background:#313244;padding:3px 8px;border-radius:4px;font-size:12px}
+
+.log-wrap{max-height:500px;overflow-y:auto;background:#11111b;border-radius:6px}
+table{width:100%;border-collapse:collapse}
+th{background:#181825;position:sticky;top:0;padding:8px 10px;text-align:left;font-size:12px;color:#a6adc8;border-bottom:1px solid #313244}
+td{padding:6px 10px;font-size:12px;border-bottom:1px solid #1e1e2e;font-family:'Cascadia Code','Fira Code',monospace}
+tr:hover td{background:#181825}
+.type-bonjour{color:#f9e2af}
+.type-connection{color:#a6e3a1}
+.type-message{color:#89b4fa}
+.type-error{color:#f38ba8}
+
+.no-data{text-align:center;padding:40px;color:#585b70;font-size:13px}
+.poll-indicator{font-size:11px;color:#585b70;margin-left:auto}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🎛 OS2L Diagnostics</h1>
+  <a class="back" href="/">← Back to QLC+</a>
+  <span class="status-pill pill-idle" id="statusPill">idle</span>
+  <span class="beat-indicator" id="beatDot" title="Beat indicator"></span>
+  <span class="poll-indicator" id="pollInfo">polling...</span>
+</div>
+
+<div class="container">
+  <!-- Status + Song row -->
+  <div class="grid">
+    <div class="card" id="statusCard">
+      <h2>Connection Status</h2>
+      <div class="row"><span class="label">Status</span><span class="value" id="vStatus">—</span></div>
+      <div class="row"><span class="label">Port</span><span class="value" id="vPort">—</span></div>
+      <div class="row"><span class="label">Bonjour</span><span class="value" id="vBonjour">—</span></div>
+      <div class="row"><span class="label">Bonjour Registered</span><span class="value" id="vBonjourReg">—</span></div>
+      <div class="row"><span class="label">Client</span><span class="value" id="vClient">—</span></div>
+      <div class="row"><span class="label">Universe</span><span class="value" id="vUniverse">—</span></div>
+    </div>
+
+    <div class="card song-card" id="songCard">
+      <h2>🎵 Now Playing</h2>
+      <div class="song-title" id="songTitle">No track loaded</div>
+      <div class="song-artist" id="songArtist"></div>
+      <div class="song-meta" id="songMeta"></div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card" style="margin-bottom:16px">
+    <h2>Message Statistics</h2>
+    <div class="stats-grid" id="statsGrid">
+      <div class="no-data">No messages yet</div>
+    </div>
+  </div>
+
+  <!-- Event Log -->
+  <div class="card">
+    <h2>Event Log <span style="font-weight:normal;font-size:12px;color:#585b70" id="eventCount">(0 events)</span></h2>
+    <div class="log-wrap" id="logWrap">
+      <table>
+        <thead><tr><th style="width:160px">Time</th><th style="width:100px">Type</th><th>Detail</th></tr></thead>
+        <tbody id="logBody">
+          <tr><td colspan="3" class="no-data">Waiting for events...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var lastEventCount = 0;
+  var lastBeatTs = 0;
+  var lastSong = {};
+  var pollInterval = 500;
+  var pollTimer = null;
+
+  function $(id){ return document.getElementById(id); }
+
+  function formatTime(ts){
+    var d = new Date(ts);
+    return d.toLocaleTimeString('en-GB',{hour12:false}) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  }
+
+  function typeClass(type){
+    if(type==='bonjour') return 'type-bonjour';
+    if(type==='connection') return 'type-connection';
+    if(type==='message') return 'type-message';
+    if(type==='error') return 'type-error';
+    return '';
+  }
+
+  function updateStatus(data){
+    var status = data.status || 'idle';
+    $('vStatus').textContent = status;
+    $('vPort').textContent = data.port || '—';
+    $('vBonjour').textContent = data.bonjourEnabled ? 'Enabled' : 'Disabled';
+    $('vBonjourReg').textContent = data.bonjourRegistered ? '✅ Yes' : '❌ No';
+    $('vClient').textContent = data.clientConnected ? (data.clientAddress || 'connected') : 'none';
+    $('vUniverse').textContent = data.universe >= 0 ? data.universe : 'not assigned';
+
+    var pill = $('statusPill');
+    pill.textContent = status;
+    pill.className = 'status-pill pill-' + status;
+  }
+
+  function updateStats(stats){
+    var grid = $('statsGrid');
+    if(!stats || Object.keys(stats).length === 0){
+      grid.innerHTML = '<div class="no-data">No messages yet</div>';
+      return;
+    }
+    var html = '';
+    var keys = Object.keys(stats).sort();
+    for(var i=0;i<keys.length;i++){
+      html += '<div class="stat-box"><div class="num">' + stats[keys[i]] + '</div><div class="lbl">' + keys[i] + '</div></div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  function updateSong(events){
+    // Find the latest song event
+    for(var i=0;i<events.length;i++){
+      var e = events[i];
+      if(e.type==='message' && e.detail.indexOf('song:')===0){
+        var parts = e.detail.substring(6).split(', ');
+        var song = {};
+        for(var j=0;j<parts.length;j++){
+          var kv = parts[j].split('=');
+          if(kv.length===2) song[kv[0].trim()] = kv[1].trim();
+        }
+        if(song.title || song.artist){
+          $('songTitle').textContent = song.title || 'Unknown';
+          $('songArtist').textContent = song.artist || '';
+          var meta = '';
+          if(song.album) meta += '<span class="tag">💿 '+song.album+'</span>';
+          if(song.bpm) meta += '<span class="tag">🥁 '+song.bpm+' BPM</span>';
+          if(song.key) meta += '<span class="tag">🎵 '+song.key+'</span>';
+          if(song.status) meta += '<span class="tag">▶ '+song.status+'</span>';
+          if(song.deck) meta += '<span class="tag">🎚 Deck '+song.deck+'</span>';
+          if(song.duration) meta += '<span class="tag">⏱ '+song.duration+'</span>';
+          $('songMeta').innerHTML = meta;
+        }
+        return;
+      }
+    }
+  }
+
+  function checkBeat(events){
+    for(var i=0;i<events.length;i++){
+      if(events[i].type==='message' && events[i].detail==='beat'){
+        if(events[i].ts > lastBeatTs){
+          lastBeatTs = events[i].ts;
+          var dot = $('beatDot');
+          dot.classList.add('flash');
+          setTimeout(function(){ dot.classList.remove('flash'); }, 120);
+        }
+        return;
+      }
+    }
+  }
+
+  function updateLog(events){
+    var count = events.length;
+    $('eventCount').textContent = '(' + count + ' events)';
+
+    if(count === lastEventCount) return;
+    lastEventCount = count;
+
+    if(count === 0){
+      $('logBody').innerHTML = '<tr><td colspan="3" class="no-data">Waiting for events...</td></tr>';
+      return;
+    }
+
+    // Show most recent 200 in the table for performance
+    var show = events.slice(0, 200);
+    var html = '';
+    for(var i=0;i<show.length;i++){
+      var e = show[i];
+      html += '<tr><td>' + formatTime(e.ts) + '</td><td class="' + typeClass(e.type) + '">' + e.type + '</td><td>' + escapeHtml(e.detail) + '</td></tr>';
+    }
+    $('logBody').innerHTML = html;
+  }
+
+  function escapeHtml(s){
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(s));
+    return div.innerHTML;
+  }
+
+  function poll(){
+    fetch('/os2l.json')
+      .then(function(r){
+        if(!r.ok) throw new Error(r.status);
+        return r.json();
+      })
+      .then(function(data){
+        $('pollInfo').textContent = 'last update: ' + new Date().toLocaleTimeString('en-GB',{hour12:false});
+        updateStatus(data);
+        updateStats(data.stats);
+        updateLog(data.events || []);
+        updateSong(data.events || []);
+        checkBeat(data.events || []);
+      })
+      .catch(function(err){
+        $('pollInfo').textContent = 'error: ' + err.message;
+      });
+  }
+
+  poll();
+  pollTimer = setInterval(poll, pollInterval);
+})();
+</script>
+</body>
+</html>

@@ -56,6 +56,8 @@
 #include "qlccapability.h"
 #include "listmodel.h"
 #include "simpledesk.h"
+#include "ioplugincache.h"
+#include "qlcioplugin.h"
 
 #include "qhttprequest.h"
 #include "qhttpresponse.h"
@@ -451,6 +453,53 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
             return;
         content = getSimpleDeskQmlHtml(m_doc, m_sd);
         sendHtmlResponse(resp, content);
+        return;
+    }
+    else if (reqUrl == "/os2l.json")
+    {
+        // OS2L diagnostics JSON — gated behind -d flag
+        bool debugMode = QCoreApplication::instance() &&
+                         QCoreApplication::instance()->property("debugMode").toBool();
+        if (!debugMode)
+        {
+            sendNotFound(resp);
+            return;
+        }
+        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
+        QByteArray json = os2l ? os2l->pluginDiagnostics() : QByteArray("{}");
+        if (json.isEmpty())
+            json = QByteArray("{}");
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
+        return;
+    }
+    else if (reqUrl == "/os2l")
+    {
+        // OS2L diagnostics dashboard page — gated behind -d flag
+        bool debugMode = QCoreApplication::instance() &&
+                         QCoreApplication::instance()->property("debugMode").toBool();
+        if (!debugMode)
+        {
+            sendNotFound(resp);
+            return;
+        }
+        if (serveWebFile(resp, "/os2l-diag.html", "text/html"))
+            return;
+        sendNotFound(resp);
+        return;
+    }
+    else if (reqUrl == "/debug-mode.json")
+    {
+        // Lightweight check for whether debug mode is active (used by the menu link)
+        bool debugMode = QCoreApplication::instance() &&
+                         QCoreApplication::instance()->property("debugMode").toBool();
+        QByteArray json = debugMode ? QByteArray("{\"debug\":true}") : QByteArray("{\"debug\":false}");
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
         return;
     }
     CommonRequestResult commonResult = handleCommonHTTPRequest(req, resp, user, reqUrl, content);

@@ -20,6 +20,12 @@
 #ifndef OS2LPLUGIN_H
 #define OS2LPLUGIN_H
 
+#include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QMutex>
+
 #include "qlcioplugin.h"
 
 #define OS2L_HOST_ADDRESS     "hostAddress"
@@ -27,10 +33,19 @@
 #define OS2L_BONJOUR_ENABLED  "bonjourEnabled"
 
 #define OS2L_DEFAULT_PORT 9996
+#define OS2L_DIAG_MAX_EVENTS 1000
 
 class QTcpServer;
 class QTcpSocket;
 class OS2LBonjour;
+
+/** A single diagnostic event for the OS2L web dashboard. */
+struct OS2LDiagEvent
+{
+    qint64  timestamp;  // msecs since epoch
+    QString type;       // "bonjour", "connection", "message", "error"
+    QString detail;     // human-readable description
+};
 
 class OS2LPlugin final : public QLCIOPlugin
 {
@@ -141,6 +156,29 @@ public:
 
     /** @reimp */
     void setParameter(quint32 universe, quint32 line, Capability type, QString name, QVariant value) override;
+
+    /*********************************************************************
+     * Diagnostics (gated behind -d / debugMode)
+     *********************************************************************/
+public:
+    /** @reimp */
+    QByteArray pluginDiagnostics() const override;
+
+protected:
+    /** Push a diagnostic event into the ring buffer (only when debugMode is active). */
+    void diagLog(const QString &type, const QString &detail);
+
+    /** Whether the app was started with -d (cached on first check). */
+    bool isDebugMode() const;
+
+    mutable QMutex m_diagMutex;
+    QList<OS2LDiagEvent> m_diagEvents;
+
+    /** Per-type message counters for the stats panel. */
+    QHash<QString, int> m_diagStats;
+
+    /** Cached client address string for diagnostics. */
+    QString m_clientAddress;
 };
 
 #endif
