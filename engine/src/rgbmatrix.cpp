@@ -59,6 +59,8 @@
 #define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
 #define KXMLQLCRGBMatrixMirrorBlend         QStringLiteral("MirrorBlend")
 
+static const int RGBMatrixColorMask = 0x00FFFFFF;
+
 /****************************************************************************
  * Initialization
  ****************************************************************************/
@@ -77,6 +79,7 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_stepHandler(new RGBMatrixStep())
     , m_stepsCount(0)
     , m_stepBeatDuration(0)
+    , m_applyingStyleAttributes(false)
     , m_controlMode(RGBMatrix::ControlModeRgb)
     , m_rotation(0)
     , m_mirror(0)
@@ -89,6 +92,15 @@ RGBMatrix::RGBMatrix(Doc *doc)
     setColor(0, Qt::red);
 
     setAlgorithm(RGBAlgorithm::algorithm(doc, "Stripes"));
+
+    for (int i = 0; i < ColorAttributeCount; ++i)
+    {
+        registerAttribute(tr("Color %1").arg(i + 1), LastWins | Single, -1.0, 16777215.0,
+                          getColor(i).isValid() ? int(getColor(i).rgb() & RGBMatrixColorMask) : -1);
+    }
+
+    int algoCount = RGBAlgorithm::algorithms(doc).count();
+    registerAttribute(tr("Pattern"), LastWins | Single, 0.0, algoCount > 0 ? algoCount - 1 : 0, algorithmIndex());
 }
 
 RGBMatrix::~RGBMatrix()
@@ -102,6 +114,16 @@ RGBMatrix::~RGBMatrix()
 QIcon RGBMatrix::getIcon() const
 {
     return QIcon(":/rgbmatrix.png");
+}
+
+int RGBMatrix::algorithmIndex() const
+{
+    if (m_algorithm == NULL || doc() == NULL)
+        return 0;
+
+    QStringList algoList = RGBAlgorithm::algorithms(doc());
+    int idx = algoList.indexOf(m_algorithm->name());
+    return idx >= 0 ? idx : 0;
 }
 
 void RGBMatrix::setTotalDuration(quint32 msec)
@@ -258,6 +280,9 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
     }
     m_stepsCount = algorithmStepsCount();
 
+    if (m_applyingStyleAttributes == false)
+        Function::adjustAttribute(algorithmIndex(), PatternAttr);
+
     emit changed(id());
 }
 
@@ -340,6 +365,10 @@ void RGBMatrix::setColor(int i, QColor c)
         }
     }
     setMapColors(m_algorithm);
+
+    if (m_applyingStyleAttributes == false && i >= 0 && i < ColorAttributeCount)
+        Function::adjustAttribute(c.isValid() ? int(c.rgb() & RGBMatrixColorMask) : -1, Color1Attr + i);
+
     emit changed(id());
 }
 
@@ -988,8 +1017,74 @@ int RGBMatrix::adjustAttribute(qreal fraction, int attributeId)
                 fader->adjustIntensity(getAttributeValue(Function::Intensity));
         }
     }
+    else if (attrIndex >= Color1Attr && attrIndex <= ColorLastAttr)
+    {
+        applyColorAttribute(attrIndex - Color1Attr, getAttributeValue(attrIndex));
+    }
+    else if (attrIndex == PatternAttr)
+    {
+        applyPatternAttribute(getAttributeValue(PatternAttr));
+    }
 
     return attrIndex;
+}
+
+void RGBMatrix::applyStyleAttributes()
+{
+    for (int i = 0; i < ColorAttributeCount; ++i)
+        applyColorAttribute(i, getAttributeValue(Color1Attr + i));
+
+    applyPatternAttribute(getAttributeValue(PatternAttr));
+}
+
+void RGBMatrix::applyColorAttribute(int colorIndex, qreal packedColor)
+{
+    if (colorIndex < 0 || colorIndex >= ColorAttributeCount)
+        return;
+
+    int packed = qRound(packedColor);
+    QColor targetColor = packed < 0 ? QColor() :
+                                      QColor::fromRgb(static_cast<QRgb>((packed & RGBMatrixColorMask) | 0xFF000000));
+    if (getColor(colorIndex) == targetColor)
+        return;
+
+    bool previous = m_applyingStyleAttributes;
+    m_applyingStyleAttributes = true;
+    setColor(colorIndex, targetColor);
+    m_applyingStyleAttributes = previous;
+}
+
+void RGBMatrix::applyPatternAttribute(qreal patternIndex)
+{
+    if (doc() == NULL)
+        return;
+
+    QStringList algoList = RGBAlgorithm::algorithms(doc());
+    if (algoList.isEmpty())
+        return;
+
+    int idx = qRound(patternIndex);
+    if (idx < 0)
+        idx = 0;
+    else if (idx >= algoList.count())
+        idx = algoList.count() - 1;
+
+    RGBAlgorithm *algo = RGBAlgorithm::algorithm(doc(), algoList.at(idx));
+    if (algo == NULL)
+        return;
+
+    if (m_algorithm != NULL && m_algorithm->name() == algo->name())
+    {
+        delete algo;
+        return;
+    }
+
+    algo->setColors(getColors());
+
+    bool previous = m_applyingStyleAttributes;
+    m_applyingStyleAttributes = true;
+    setAlgorithm(algo);
+    m_applyingStyleAttributes = previous;
 }
 
 /*************************************************************************
