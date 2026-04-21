@@ -161,6 +161,7 @@ public:
     {
         std::optional<quint32> functionID;
         std::optional<QColor> color1, color2, color3, color4, color5;
+        std::optional<QVector<QColor>> colors;   // dynamic colors array (takes precedence over colorN)
         std::optional<QString> animation;        // algorithm name
         std::optional<bool> instantApply;
         std::optional<quint32> visibilityMask;
@@ -324,6 +325,8 @@ public:
         quint32 matrixVisibilityMask = 0;
         bool matrixInstantApply = false;
         QColor matrixColor1, matrixColor2, matrixColor3, matrixColor4, matrixColor5;
+        QVector<QColor> matrixColors;  // all colors as dynamic array
+        int matrixColorCount = 0;
         QString matrixAnimation;
 
         // XY Pad presets

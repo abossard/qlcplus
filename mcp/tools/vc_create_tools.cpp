@@ -185,7 +185,14 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {"minute", {{"type", "integer"}}},
                     {"second", {{"type", "integer"}}}
                 }}}}, {"description", "Clock: scheduled function triggers"}}},
-                {"instantApply", {{"type", "boolean"}, {"description", "Matrix: instant apply changes"}}}
+                {"instantApply", {{"type", "boolean"}, {"description", "Matrix: instant apply changes"}}},
+                {"color1", {{"type", "string"}, {"description", "Matrix: color 1 hex (e.g. '#ff0000')"}}},
+                {"color2", {{"type", "string"}, {"description", "Matrix: color 2 hex"}}},
+                {"color3", {{"type", "string"}, {"description", "Matrix: color 3 hex"}}},
+                {"color4", {{"type", "string"}, {"description", "Matrix: color 4 hex"}}},
+                {"color5", {{"type", "string"}, {"description", "Matrix: color 5 hex"}}},
+                {"colors", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Matrix: colors array (overrides individual colorN fields)"}}},
+                {"animation", {{"type", "string"}, {"description", "Matrix: animation algorithm name"}}}
             }}, {"required", {"type"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -778,6 +785,23 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         bool hasMatCfg = false;
                         if (item.contains("instantApply")) { matCfg.instantApply = item["instantApply"].get<bool>(); hasMatCfg = true; }
                         if (item.contains("visibilityMask")) { matCfg.visibilityMask = item["visibilityMask"].get<int>(); hasMatCfg = true; }
+                        if (item.contains("colors"))
+                        {
+                            QVector<QColor> cv;
+                            for (auto &c : item["colors"])
+                                cv.append(QColor(QString::fromStdString(c.get<std::string>())));
+                            matCfg.colors = cv;
+                            hasMatCfg = true;
+                        }
+                        else
+                        {
+                            if (item.contains("color1")) { matCfg.color1 = QColor(QString::fromStdString(item["color1"].get<std::string>())); hasMatCfg = true; }
+                            if (item.contains("color2")) { matCfg.color2 = QColor(QString::fromStdString(item["color2"].get<std::string>())); hasMatCfg = true; }
+                            if (item.contains("color3")) { matCfg.color3 = QColor(QString::fromStdString(item["color3"].get<std::string>())); hasMatCfg = true; }
+                            if (item.contains("color4")) { matCfg.color4 = QColor(QString::fromStdString(item["color4"].get<std::string>())); hasMatCfg = true; }
+                            if (item.contains("color5")) { matCfg.color5 = QColor(QString::fromStdString(item["color5"].get<std::string>())); hasMatCfg = true; }
+                        }
+                        if (item.contains("animation")) { matCfg.animation = QString::fromStdString(item["animation"].get<std::string>()); hasMatCfg = true; }
                         if (hasMatCfg) vcBridge->configureMatrix(id, matCfg);
                     }
                     break;

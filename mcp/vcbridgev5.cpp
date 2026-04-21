@@ -1076,6 +1076,18 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         d.matrixColor3 = animation->getColor3();
         d.matrixColor4 = animation->getColor4();
         d.matrixColor5 = animation->getColor5();
+
+        // Build dynamic colors array and count valid colors
+        QColor allColors[5] = { d.matrixColor1, d.matrixColor2, d.matrixColor3, d.matrixColor4, d.matrixColor5 };
+        for (int i = 0; i < 5; i++)
+        {
+            if (allColors[i].isValid())
+            {
+                d.matrixColors.append(allColors[i]);
+                d.matrixColorCount = i + 1;
+            }
+        }
+
         QStringList algos = animation->algorithms();
         int algIdx = animation->algorithmIndex();
         if (algIdx >= 0 && algIdx < algos.size())
@@ -1401,16 +1413,29 @@ bool VCBridgeV5::configureMatrix(int widgetID, const MatrixConfig &config)
 
     if (config.functionID.has_value())
         animation->setFunctionID(config.functionID.value());
-    if (config.color1.has_value())
-        animation->setColor1(config.color1.value());
-    if (config.color2.has_value())
-        animation->setColor2(config.color2.value());
-    if (config.color3.has_value())
-        animation->setColor3(config.color3.value());
-    if (config.color4.has_value())
-        animation->setColor4(config.color4.value());
-    if (config.color5.has_value())
-        animation->setColor5(config.color5.value());
+    if (config.colors.has_value())
+    {
+        const auto &cv = config.colors.value();
+        // Map dynamic array to hardcoded setColor1–5
+        if (cv.size() > 0) animation->setColor1(cv.at(0));
+        if (cv.size() > 1) animation->setColor2(cv.at(1));
+        if (cv.size() > 2) animation->setColor3(cv.at(2));
+        if (cv.size() > 3) animation->setColor4(cv.at(3));
+        if (cv.size() > 4) animation->setColor5(cv.at(4));
+    }
+    else
+    {
+        if (config.color1.has_value())
+            animation->setColor1(config.color1.value());
+        if (config.color2.has_value())
+            animation->setColor2(config.color2.value());
+        if (config.color3.has_value())
+            animation->setColor3(config.color3.value());
+        if (config.color4.has_value())
+            animation->setColor4(config.color4.value());
+        if (config.color5.has_value())
+            animation->setColor5(config.color5.value());
+    }
     if (config.animation.has_value())
     {
         QStringList algos = animation->algorithms();

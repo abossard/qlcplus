@@ -73,7 +73,7 @@ inline const std::set<std::string> kValidProperties = {
     "resetFactorOnDialChange",
     // Matrix specific
     "visibilityMask", "instantApply",
-    "color1", "color2", "color3", "color4", "color5", "animation",
+    "color1", "color2", "color3", "color4", "color5", "colors", "colorCount", "animation",
     // XY Pad specific
     "displayMode", "fixtures", "position", "presets",
     // Audio Triggers specific
@@ -122,7 +122,7 @@ inline std::set<std::string> expandCompoundGroups(const std::set<std::string> &p
         expanded.erase("matrixConfig");
         for (auto &p : {"visibilityMask", "instantApply",
                         "color1", "color2", "color3", "color4", "color5",
-                        "animation"})
+                        "colors", "colorCount", "animation"})
             expanded.insert(p);
     }
     if (expanded.count("xyPadConfig"))
@@ -606,6 +606,15 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         w["color5"] = d.matrixColor5.name().toStdString();
     if (has("animation") && !d.matrixAnimation.isEmpty())
         w["animation"] = d.matrixAnimation.toStdString();
+    if (has("colorCount") && d.matrixColorCount > 0)
+        w["colorCount"] = d.matrixColorCount;
+    if (has("colors") && !d.matrixColors.isEmpty())
+    {
+        Json arr = Json::array();
+        for (const auto &c : d.matrixColors)
+            arr.push_back(c.isValid() ? c.name().toStdString() : "");
+        w["colors"] = arr;
+    }
 
     // XY Pad extended
     if (has("displayMode") && !d.displayMode.isEmpty())

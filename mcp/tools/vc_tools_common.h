@@ -184,7 +184,8 @@ namespace VCFields
                 "captureEnabled", "volumeLevel", "barsNumber"
             }},
             {Animation, {
-                "instantApply", "visibilityMask"
+                "color1", "color2", "color3", "color4", "color5",
+                "colors", "animation", "instantApply", "visibilityMask"
             }},
             {Clock, {
                 "clockType",
@@ -244,7 +245,7 @@ namespace VCFields
             {Animation, {
                 "functionID", "functionName",
                 "color1", "color2", "color3", "color4", "color5",
-                "animation", "instantApply",
+                "colors", "animation", "instantApply",
                 "visibilityMask", "customControls"
             }},
             {Clock, {
