@@ -169,6 +169,8 @@ private:
     int m_webServerPort;
     bool m_webServerAuth;
     QString m_webServerPasswordFile;
+    /** True if web server was started via CLI -w flag (workspace must not override) */
+    bool m_cliWebServer = false;
 
     /*********************************************************************
      * Server

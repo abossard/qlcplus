@@ -18,6 +18,9 @@
 */
 
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "ddpplugin.h"
 #include "configureddp.h"
@@ -89,6 +92,39 @@ QString DDPPlugin::pluginInfo() const
     str += QString("</P>");
 
     return str;
+}
+
+QByteArray DDPPlugin::pluginDiagnostics() const
+{
+    if (!isDiagnosticsEnabled())
+        return QByteArray();
+
+    QJsonObject root;
+    root["type"] = name();
+
+    quint64 totalSent = 0;
+    QJsonArray controllersArr;
+
+    for (const DDPIO &io : m_IOmapping)
+    {
+        QJsonObject ctrlObj;
+        ctrlObj["interface"] = io.iface.humanReadableName();
+        ctrlObj["address"] = io.address.ip().toString();
+
+        if (io.controller)
+        {
+            quint64 sent = io.controller->getPacketSentNumber();
+            ctrlObj["packetsSent"] = (qint64)sent;
+            totalSent += sent;
+        }
+        controllersArr.append(ctrlObj);
+    }
+
+    root["controllers"] = controllersArr;
+    root["totalPacketsSent"] = (qint64)totalSent;
+    root["lines"] = m_IOmapping.count();
+
+    return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
 
 /*********************************************************************

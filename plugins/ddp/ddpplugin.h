@@ -68,6 +68,9 @@ public:
     /** @reimp */
     QString pluginInfo() const override;
 
+    /** @reimp */
+    QByteArray pluginDiagnostics() const override;
+
     /*********************************************************************
      * Outputs
      *********************************************************************/

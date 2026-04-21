@@ -172,6 +172,7 @@ void NetworkManager::setWebServerConfiguration(int portNumber, bool enableAuth, 
     m_webServerPort = portNumber;
     m_webServerAuth = enableAuth;
     m_webServerPasswordFile = passwordFile;
+    m_cliWebServer = true;
 }
 
 int NetworkManager::connectionsCount() const
@@ -889,7 +890,9 @@ void NetworkManager::slotDocLoaded()
 
     InputOutputMap *ioMap = m_doc->inputOutputMap();
 
-    setServerType(ioMap->networkServerType() == InputOutputMap::WebServer ? WebServer : NativeServer);
+    // If web server was started from CLI (-w flag), don't let workspace override it
+    if (!m_cliWebServer)
+        setServerType(ioMap->networkServerType() == InputOutputMap::WebServer ? WebServer : NativeServer);
     setStartAutomatically(ioMap->networkServerAutoStart());
     setServerPassword(ioMap->networkServerPassword());
 
