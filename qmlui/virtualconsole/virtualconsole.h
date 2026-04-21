@@ -47,7 +47,7 @@ class VirtualConsole final : public PreviewContext
     Q_PROPERTY(int selectedPage READ selectedPage WRITE setSelectedPage NOTIFY selectedPageChanged)
     Q_PROPERTY(bool editMode READ editMode WRITE setEditMode NOTIFY editModeChanged)
     Q_PROPERTY(bool snapping READ snapping WRITE setSnapping NOTIFY snappingChanged)
-    Q_PROPERTY(qreal snappingSize READ snappingSize CONSTANT)
+    Q_PROPERTY(qreal snappingSize READ snappingSize WRITE setSnappingSize NOTIFY snappingSizeChanged)
     Q_PROPERTY(VCWidget *selectedWidget READ selectedWidget NOTIFY selectedWidgetChanged)
     Q_PROPERTY(int selectedWidgetsCount READ selectedWidgetsCount NOTIFY selectedWidgetsCountChanged)
     Q_PROPERTY(int clipboardItemsCount READ clipboardItemsCount NOTIFY clipboardItemsCountChanged)
@@ -69,8 +69,9 @@ public:
     bool snapping() const;
     void setSnapping(bool enable);
 
-    /** Get the VC widget position snapping size */
+    /** Get/Set the VC widget position snapping size */
     qreal snappingSize() const;
+    void setSnappingSize(qreal size);
 
     enum LoadStatus
     {
@@ -95,10 +96,12 @@ public:
 signals:
     void editModeChanged(bool editMode);
     void snappingChanged(bool enable);
+    void snappingSizeChanged(qreal size);
 
 protected:
     bool m_editMode;
     bool m_snapping;
+    qreal m_snappingSize;
 
     /** The current VC load status */
     LoadStatus m_loadStatus;
@@ -209,6 +212,18 @@ public:
 
     /** Delete the VC widgets with the IDs specified in $IDList */
     Q_INVOKABLE void deleteVCWidgets(QVariantList IDList);
+
+    /** Select all widgets on the current page */
+    Q_INVOKABLE void selectAll();
+
+    /** Duplicate currently selected widgets with a small offset */
+    Q_INVOKABLE void duplicateSelection();
+
+    /** Nudge all selected widgets by dx,dy (in grid units) */
+    Q_INVOKABLE void nudgeWidgets(int dx, int dy);
+
+    /** Auto-layout all widgets on the current page */
+    Q_INVOKABLE void autoLayoutPage();
 
     /** Return a reference to the currently selected VC widget */
     VCWidget *selectedWidget() const;

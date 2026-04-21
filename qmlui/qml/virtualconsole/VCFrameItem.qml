@@ -182,6 +182,59 @@ VCWidgetItem
         objectName: frameObj ? "frameDropArea" + frameObj.id : ""
         z: 5 // children must be above the VCWidget resizeLayer
 
+        // Visual grid overlay
+        Canvas
+        {
+            id: gridCanvas
+            anchors.fill: parent
+            visible: virtualConsole && virtualConsole.editMode && virtualConsole.snapping
+            z: 0
+            opacity: 0.15
+
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+
+            Connections
+            {
+                target: virtualConsole
+                function onSnappingSizeChanged() { gridCanvas.requestPaint() }
+                function onSnappingChanged() { gridCanvas.requestPaint() }
+                function onEditModeChanged() { gridCanvas.requestPaint() }
+            }
+
+            onPaint:
+            {
+                var ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+
+                if (!visible) return
+
+                var s = virtualConsole.snappingSize
+                if (s < 3) return
+
+                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.5)
+                ctx.lineWidth = 0.5
+
+                // Vertical lines
+                for (var x = s; x < width; x += s)
+                {
+                    ctx.beginPath()
+                    ctx.moveTo(x, 0)
+                    ctx.lineTo(x, height)
+                    ctx.stroke()
+                }
+
+                // Horizontal lines
+                for (var y = s; y < height; y += s)
+                {
+                    ctx.beginPath()
+                    ctx.moveTo(0, y)
+                    ctx.lineTo(width, y)
+                    ctx.stroke()
+                }
+            }
+        }
+
         onEntered: frameRoot.dropActive = true
         onExited: frameRoot.dropActive = false
         onDropped: (drop) =>

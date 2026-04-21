@@ -67,6 +67,7 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
     : PreviewContext(view, doc, "VC", parent)
     , m_editMode(false)
     , m_snapping(true)
+    , m_snappingSize(0)
     , m_loadStatus(Cleared)
     , m_contextManager(ctxManager)
     , m_selectedPage(0)
@@ -189,7 +190,18 @@ void VirtualConsole::setSnapping(bool enable)
 
 qreal VirtualConsole::snappingSize() const
 {
+    if (m_snappingSize > 0)
+        return m_snappingSize;
     return qMax(pixelDensity() * 3, 5.0);
+}
+
+void VirtualConsole::setSnappingSize(qreal size)
+{
+    size = qMax(size, 5.0);
+    if (qFuzzyCompare(m_snappingSize, size))
+        return;
+    m_snappingSize = size;
+    emit snappingSizeChanged(size);
 }
 
 VirtualConsole::LoadStatus VirtualConsole::loadStatus() const
@@ -868,6 +880,120 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
         delete w;
     }
     m_itemsMap.clear();
+}
+
+void VirtualConsole::selectAll()
+{
+    if (m_selectedPage >= m_pages.count())
+        return;
+
+    VCFrame *page = m_pages.at(m_selectedPage);
+    QList<VCWidget *> children = page->children(false);
+    for (VCWidget *child : children)
+    {
+        QQuickItem *item = qobject_cast<QQuickItem *>(m_view->rootObject()->findChild<QObject *>(
+            QString("vcWidget_%1").arg(child->id())));
+        if (item)
+            setWidgetSelection(child->id(), item, true, true);
+    }
+}
+
+void VirtualConsole::duplicateSelection()
+{
+    if (m_itemsMap.isEmpty())
+        return;
+
+    copyToClipboard();
+    pasteFromClipboard();
+}
+
+void VirtualConsole::nudgeWidgets(int dx, int dy)
+{
+    if (m_itemsMap.isEmpty())
+        return;
+
+    qreal step = snappingSize();
+    for (auto it = m_itemsMap.begin(); it != m_itemsMap.end(); ++it)
+    {
+        VCWidget *w = m_widgetsMap.value(it.key());
+        if (w == nullptr)
+            continue;
+
+        QRectF geo = w->geometry();
+        geo.translate(qRound(dx * step), qRound(dy * step));
+        if (geo.x() < 0) geo.moveLeft(0);
+        if (geo.y() < 0) geo.moveTop(0);
+        w->setGeometry(geo);
+
+        QQuickItem *item = it.value();
+        if (item)
+        {
+            item->setX(geo.x());
+            item->setY(geo.y());
+        }
+    }
+}
+
+void VirtualConsole::autoLayoutPage()
+{
+    if (m_selectedPage >= m_pages.count())
+        return;
+
+    VCFrame *page = m_pages.at(m_selectedPage);
+    QList<VCWidget *> children = page->children(false);
+    if (children.isEmpty())
+        return;
+
+    // Group widgets by type: buttons, sliders, then others
+    QList<VCWidget *> buttons, sliders, others;
+    for (VCWidget *w : children)
+    {
+        if (w->type() == VCWidget::ButtonWidget)
+            buttons.append(w);
+        else if (w->type() == VCWidget::SliderWidget)
+            sliders.append(w);
+        else
+            others.append(w);
+    }
+
+    qreal padding = snappingSize();
+    qreal pageWidth = page->geometry().width();
+    qreal curY = padding;
+
+    auto flowLayout = [&](QList<VCWidget *> &widgets) {
+        if (widgets.isEmpty()) return;
+        qreal curX = padding;
+        qreal rowMaxH = 0;
+
+        for (VCWidget *w : widgets)
+        {
+            QRectF geo = w->geometry();
+            if (curX + geo.width() > pageWidth - padding && curX > padding)
+            {
+                curX = padding;
+                curY += rowMaxH + padding;
+                rowMaxH = 0;
+            }
+            geo.moveTo(qRound(curX), qRound(curY));
+            w->setGeometry(geo);
+
+            QQuickItem *item = qobject_cast<QQuickItem *>(m_view->rootObject()->findChild<QObject *>(
+                QString("vcWidget_%1").arg(w->id())));
+            if (item)
+            {
+                item->setX(geo.x());
+                item->setY(geo.y());
+            }
+
+            curX += geo.width() + padding;
+            rowMaxH = qMax(rowMaxH, (qreal)geo.height());
+        }
+        curY += rowMaxH + padding;
+    };
+
+    flowLayout(buttons);
+    flowLayout(sliders);
+    flowLayout(others);
 }
 
 VCWidget *VirtualConsole::selectedWidget() const

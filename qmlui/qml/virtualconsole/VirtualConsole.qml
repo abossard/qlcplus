@@ -28,6 +28,48 @@ Rectangle
 {
     id: vcContainer
     anchors.fill: parent
+    focus: true
+
+    Keys.enabled: virtualConsole ? virtualConsole.editMode : false
+    Keys.onPressed: (event) =>
+    {
+        if (!virtualConsole || !virtualConsole.editMode)
+            return
+
+        if (event.modifiers & Qt.ControlModifier)
+        {
+            if (event.key === Qt.Key_C) {
+                virtualConsole.copyToClipboard()
+                event.accepted = true
+            } else if (event.key === Qt.Key_V) {
+                virtualConsole.pasteFromClipboard()
+                event.accepted = true
+            } else if (event.key === Qt.Key_D) {
+                virtualConsole.duplicateSelection()
+                event.accepted = true
+            } else if (event.key === Qt.Key_A) {
+                virtualConsole.selectAll()
+                event.accepted = true
+            }
+        }
+        else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
+        {
+            virtualConsole.deleteVCWidgets(virtualConsole.selectedWidgetIDs())
+            event.accepted = true
+        }
+        else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right ||
+                 event.key === Qt.Key_Up || event.key === Qt.Key_Down)
+        {
+            var step = (event.modifiers & Qt.ShiftModifier) ? 5 : 1
+            var dx = 0, dy = 0
+            if (event.key === Qt.Key_Left) dx = -step
+            else if (event.key === Qt.Key_Right) dx = step
+            else if (event.key === Qt.Key_Up) dy = -step
+            else if (event.key === Qt.Key_Down) dy = step
+            virtualConsole.nudgeWidgets(dx, dy)
+            event.accepted = true
+        }
+    }
     color: "transparent"
     objectName: "virtualConsole"
 
@@ -196,6 +238,43 @@ Rectangle
                     checkable: true
                     checked: virtualConsole.snapping
                     onToggled: virtualConsole.snapping = checked
+                }
+
+                CustomComboBox
+                {
+                    id: gridSizeCombo
+                    width: UISettings.iconSizeMedium * 1.5
+                    height: vcToolbar.height - 4
+                    visible: virtualConsole.snapping
+                    model: ["5", "10", "15", "20", "25", "30"]
+                    currentIndex: {
+                        var s = Math.round(virtualConsole.snappingSize)
+                        var vals = [5, 10, 15, 20, 25, 30]
+                        var idx = vals.indexOf(s)
+                        return idx >= 0 ? idx : 2
+                    }
+                    onCurrentTextChanged:
+                    {
+                        var val = parseInt(currentText)
+                        if (val > 0)
+                            virtualConsole.snappingSize = val
+                    }
+                }
+
+                IconButton
+                {
+                    width: vcToolbar.height
+                    height: width
+                    visible: virtualConsole.editMode
+                    imgSource: "qrc:/grid.svg"
+                    tooltip: qsTr("Auto-layout all widgets on this page")
+                    onClicked: virtualConsole.autoLayoutPage()
+                    RobotoText
+                    {
+                        anchors.centerIn: parent
+                        label: "A"
+                        fontSize: UISettings.textSizeDefault * 0.8
+                    }
                 }
 
                 ZoomItem
