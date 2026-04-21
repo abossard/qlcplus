@@ -120,3 +120,7 @@ Known types (case-sensitive strings used in MCP): `button`, `slider`, `xypad`, `
 - **macOS Tahoe (26.x)**: Ad-hoc codesigning with `--options runtime` causes dyld Team ID mismatch crashes. Do NOT use `--options runtime` for ad-hoc signed dev builds.
 - The app binary is at `build/qmlui/qlcplus-qml` (no `.app` bundle in dev builds).
 - Use `-d` flag for debug output when running.
+
+## Sub-Agent Model Policy
+
+When using the task tool to spawn sub-agents (explore, task, general-purpose, rubber-duck, code-review), always set the `model` parameter to match the model currently in use for the main conversation. Do not rely on default sub-agent models.
