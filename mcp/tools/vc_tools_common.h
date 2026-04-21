@@ -538,6 +538,24 @@ namespace VCValidate
             }
         }
 
+        // Dynamic colors array validation
+        if (item.contains("colors"))
+        {
+            if (!item["colors"].is_array())
+                return mkErr("colors", "must be an array of hex color strings");
+            if (item["colors"].size() > 5)
+                return mkErr("colors", "maximum 5 colors allowed");
+            for (size_t ci = 0; ci < item["colors"].size(); ci++)
+            {
+                if (!item["colors"][ci].is_string())
+                    return mkErr("colors[" + std::to_string(ci) + "]", "must be a string");
+                auto v = item["colors"][ci].get<std::string>();
+                if (!isValidHexColor(v))
+                    return mkErr("colors[" + std::to_string(ci) + "]",
+                        "invalid hex color '" + v + "'. Must be format #rrggbb");
+            }
+        }
+
         // Font object validation
         if (item.contains("font"))
         {

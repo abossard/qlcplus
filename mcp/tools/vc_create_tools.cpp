@@ -191,7 +191,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"color3", {{"type", "string"}, {"description", "Matrix: color 3 hex"}}},
                 {"color4", {{"type", "string"}, {"description", "Matrix: color 4 hex"}}},
                 {"color5", {{"type", "string"}, {"description", "Matrix: color 5 hex"}}},
-                {"colors", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Matrix: colors array (overrides individual colorN fields)"}}},
+                {"colors", {{"type", "array"}, {"items", {{"type", "string"}}}, {"maxItems", 5}, {"description", "Matrix: colors array (overrides individual colorN fields)"}}},
                 {"animation", {{"type", "string"}, {"description", "Matrix: animation algorithm name"}}}
             }}, {"required", {"type"}}}}}}
         }}, {"required", {"items"}}},

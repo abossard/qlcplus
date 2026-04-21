@@ -1082,11 +1082,9 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         for (int i = 0; i < 5; i++)
         {
             if (allColors[i].isValid())
-            {
                 d.matrixColors.append(allColors[i]);
-                d.matrixColorCount = i + 1;
-            }
         }
+        d.matrixColorCount = d.matrixColors.size();
 
         QStringList algos = animation->algorithms();
         int algIdx = animation->algorithmIndex();
