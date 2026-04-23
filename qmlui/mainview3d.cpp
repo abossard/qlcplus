@@ -700,7 +700,11 @@ void MainView3D::createFixtureItem(quint32 fxID, quint16 headIndex, quint16 link
             newItem->setProperty("meshType", FixtureMeshType::ParMeshType);
         break;
         case QLCFixtureDef::MovingHead:
-            meshPath.append("moving_head.dae");
+            if (fixture->fixtureDef() &&
+                fixture->fixtureDef()->model().contains("Beam Ball", Qt::CaseInsensitive))
+                meshPath.append("ball_moving_head.dae");
+            else
+                meshPath.append("moving_head.dae");
             newItem->setProperty("meshType", FixtureMeshType::MovingHeadMeshType);
         break;
         case QLCFixtureDef::Scanner:
