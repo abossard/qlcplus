@@ -30,7 +30,8 @@ ComboBox
     /*! model: provides a data model for the popup.
         A model can be either a string list (QStringList) or a named model
         to provide icons and values (QVariant)
-        In case of a QStringList, textRole should be set to ""
+        In case of a QStringList, the plain strings are displayed automatically
+        (textRole may be left at its default or explicitly set to "").
         A QML model with icons should look like this:
         [
             { mLabel: qsTr("Foo"), mIcon: "qrc:/foo.svg", mValue: 0 },
@@ -153,7 +154,15 @@ ComboBox
             required property int index
 
             property int currentIdx: control.currentIndex
-            text: control.textRole ? (Array.isArray(control.model) ? modelData[control.textRole] : model[control.textRole]) : modelData
+            text: {
+                if (control.textRole) {
+                    var src = Array.isArray(control.model) ? modelData : model
+                    var val = src ? src[control.textRole] : undefined
+                    if (val !== undefined && val !== null)
+                        return val
+                }
+                return (modelData !== undefined && modelData !== null) ? modelData : ""
+            }
             property string itemIcon: model.mIcon ? model.mIcon : (typeof modelData !== 'undefined' ? modelData.mIcon ? modelData.mIcon : "" : "")
             property string itemFAIcon: model.faIcon ? model.faIcon : (typeof modelData !== 'undefined' ? (modelData.faIcon ? modelData.faIcon : "") : "")
             property int itemValue: (model.mValue !== undefined) ? model.mValue : ((modelData.mValue !== undefined) ? modelData.mValue : index)
