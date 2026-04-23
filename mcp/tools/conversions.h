@@ -28,6 +28,7 @@
 #include "qlccapability.h"
 #include "qlcfixturedef.h"
 #include "qlcfixturemode.h"
+#include "qlcfixturehead.h"
 #include "qlcphysical.h"
 #include "qlcpalette.h"
 #include "channelmodifier.h"
@@ -296,13 +297,20 @@ inline Json physicalToJson(const QLCPhysical &phy)
     return entry;
 }
 
-// Pure function: Extract fixture capabilities as JSON array
+// Pure function: Extract fixture capabilities as JSON array (deduped)
 inline Json fixtureCapabilities(const Fixture *fxi)
 {
+    QSet<QString> seen;
     Json caps = Json::array();
     bool hasPan = false, hasTilt = false;
     bool hasR = false, hasG = false, hasB = false;
     bool hasC = false, hasM = false, hasY = false;
+    bool hasW = false, hasA = false, hasUV = false;
+    bool hasContinuousPan = false, hasContinuousTilt = false;
+
+    auto addOnce = [&](const QString &cap) {
+        if (!seen.contains(cap)) { seen.insert(cap); caps.push_back(cap.toStdString()); }
+    };
 
     for (quint32 ch = 0; ch < fxi->channels(); ch++)
     {
@@ -310,11 +318,35 @@ inline Json fixtureCapabilities(const Fixture *fxi)
         if (!channel) continue;
         switch (channel->group())
         {
-            case QLCChannel::Pan: hasPan = true; break;
-            case QLCChannel::Tilt: hasTilt = true; break;
-            case QLCChannel::Colour: caps.push_back("Colour"); break;
-            case QLCChannel::Gobo: caps.push_back("Gobo"); break;
-            case QLCChannel::Shutter: caps.push_back("Shutter"); break;
+            case QLCChannel::Pan:
+                hasPan = true;
+                if (!hasContinuousPan)
+                {
+                    for (const QLCCapability *cap : channel->capabilities())
+                    {
+                        auto p = cap->preset();
+                        if (p >= QLCCapability::RotationClockwise && p <= QLCCapability::RotationCounterClockwiseFastToSlow)
+                            { hasContinuousPan = true; break; }
+                    }
+                }
+                break;
+            case QLCChannel::Tilt:
+                hasTilt = true;
+                if (!hasContinuousTilt)
+                {
+                    for (const QLCCapability *cap : channel->capabilities())
+                    {
+                        auto p = cap->preset();
+                        if (p >= QLCCapability::RotationClockwise && p <= QLCCapability::RotationCounterClockwiseFastToSlow)
+                            { hasContinuousTilt = true; break; }
+                    }
+                }
+                break;
+            case QLCChannel::Colour: addOnce("Colour"); break;
+            case QLCChannel::Gobo: addOnce("Gobo"); break;
+            case QLCChannel::Shutter: addOnce("Shutter"); break;
+            case QLCChannel::Beam: addOnce("Beam"); break;
+            case QLCChannel::Prism: addOnce("Prism"); break;
             case QLCChannel::Intensity:
                 switch (channel->colour())
                 {
@@ -324,6 +356,9 @@ inline Json fixtureCapabilities(const Fixture *fxi)
                     case QLCChannel::Cyan: hasC = true; break;
                     case QLCChannel::Magenta: hasM = true; break;
                     case QLCChannel::Yellow: hasY = true; break;
+                    case QLCChannel::White: hasW = true; break;
+                    case QLCChannel::Amber: hasA = true; break;
+                    case QLCChannel::UV: hasUV = true; break;
                     default: break;
                 }
                 break;
@@ -331,8 +366,16 @@ inline Json fixtureCapabilities(const Fixture *fxi)
         }
     }
     if (hasPan && hasTilt) caps.push_back("Pan/Tilt");
-    if (hasR && hasG && hasB) caps.push_back("RGB");
+    if (hasR && hasG && hasB)
+    {
+        if (hasW) caps.push_back("RGBW");
+        else caps.push_back("RGB");
+    }
     if (hasC && hasM && hasY) caps.push_back("CMY");
+    if (hasA) caps.push_back("Amber");
+    if (hasUV) caps.push_back("UV");
+    if (hasContinuousPan) caps.push_back("ContinuousPanRotation");
+    if (hasContinuousTilt) caps.push_back("ContinuousTiltRotation");
     return caps;
 }
 
@@ -350,9 +393,42 @@ inline Json fixtureToJson(const Fixture *fxi)
     {
         entry["manufacturer"] = fxi->fixtureDef()->manufacturer().toStdString();
         entry["model"] = fxi->fixtureDef()->model().toStdString();
+        entry["type"] = QLCFixtureDef::typeToString(fxi->fixtureDef()->type()).toStdString();
     }
     if (fxi->fixtureMode())
+    {
         entry["mode"] = fxi->fixtureMode()->name().toStdString();
+
+        // Per-head channel mapping
+        const auto &modeHeads = fxi->fixtureMode()->heads();
+        if (!modeHeads.isEmpty())
+        {
+            Json headMap = Json::array();
+            for (int h = 0; h < modeHeads.size(); h++)
+            {
+                const QLCFixtureHead &head = modeHeads[h];
+                Json hEntry;
+                hEntry["index"] = h;
+                Json chList = Json::array();
+                for (quint32 c : head.channels())
+                    chList.push_back((int)c);
+                hEntry["channels"] = chList;
+
+                QVector<quint32> rgb = fxi->rgbChannels(h);
+                if (rgb.size() == 3)
+                {
+                    hEntry["rgbChannels"] = Json::array({(int)rgb[0], (int)rgb[1], (int)rgb[2]});
+                }
+                QVector<quint32> cmy = fxi->cmyChannels(h);
+                if (cmy.size() == 3)
+                {
+                    hEntry["cmyChannels"] = Json::array({(int)cmy[0], (int)cmy[1], (int)cmy[2]});
+                }
+                headMap.push_back(hEntry);
+            }
+            entry["headMap"] = headMap;
+        }
+    }
     entry["capabilities"] = fixtureCapabilities(fxi);
 
     if (fxi->fixtureMode())
@@ -479,12 +555,14 @@ inline Json channelToJson(Fixture *fxi, quint32 chIndex)
     ChannelModifier *mod = fxi->channelModifier(chIndex);
     if (mod) modName = mod->name().toStdString();
 
-    return {
+    Json entry = {
         {"index", (int)chIndex},
         {"name", channel->name().toStdString()},
         {"group", QLCChannel::groupToString(channel->group()).toStdString()},
         {"colour", QLCChannel::colourToString(channel->colour()).toStdString()},
         {"preset", QLCChannel::presetToString(channel->preset()).toStdString()},
+        {"controlByte", channel->controlByte() == QLCChannel::MSB ? "coarse" : "fine"},
+        {"defaultValue", (int)channel->defaultValue()},
         {"canFade", fxi->channelCanFade((int)chIndex)},
         {"precedence", precedence},
         {"modifier", modName},
@@ -496,6 +574,16 @@ inline Json channelToJson(Fixture *fxi, quint32 chIndex)
             return caps;
         }()}
     };
+
+    // Head index for this channel (-1 means not in any head)
+    if (fxi->fixtureMode())
+    {
+        int headIdx = fxi->fixtureMode()->headForChannel(chIndex);
+        if (headIdx >= 0)
+            entry["headIndex"] = headIdx;
+    }
+
+    return entry;
 }
 
 } // namespace mcp

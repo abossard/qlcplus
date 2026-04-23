@@ -62,7 +62,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("List all patched fixtures with capabilities and physical properties. Returns IDs needed for other tools."),
+        std::string("List all patched fixtures with capabilities and physical properties. Returns IDs needed for other tools. "
+                    "Includes type (Moving Head, Dimmer, etc.), capabilities (RGBW, ContinuousTiltRotation, Pan/Tilt, UV, Amber), "
+                    "headMap with per-head channel indices and rgbChannels for multi-head fixtures, and physical properties."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

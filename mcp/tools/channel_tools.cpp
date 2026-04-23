@@ -78,7 +78,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types."),
+        std::string("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types. "
+                    "Each channel includes controlByte (coarse/fine for 16-bit pairs), defaultValue, and headIndex (which head the channel belongs to)."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));
