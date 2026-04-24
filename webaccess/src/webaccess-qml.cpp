@@ -1215,26 +1215,35 @@ QString WebAccessQml::webFilePath(const QString &relativePath) const
 
 bool WebAccessQml::serveVCNextFile(QHttpResponse *resp, const QString &relativePath) const
 {
+    // Security: reject path traversal attempts
+    if (relativePath.contains("..") || relativePath.contains('\\'))
+        return false;
+
     // Resolve the vc-next/dist directory by walking up from executable
-    QStringList candidates;
-    candidates << QDir::cleanPath(QString("%1/webaccess/vc-next/dist%2")
-                                  .arg(QDir::currentPath())
-                                  .arg(relativePath));
+    QStringList distRoots;
+    distRoots << QDir::cleanPath(QString("%1/webaccess/vc-next/dist")
+                                  .arg(QDir::currentPath()));
     QDir probeDir(QCoreApplication::applicationDirPath());
     for (int i = 0; i < 6; i++)
     {
-        candidates << QDir::cleanPath(QString("%1/webaccess/vc-next/dist%2")
-                                      .arg(probeDir.absolutePath())
-                                      .arg(relativePath));
+        distRoots << QDir::cleanPath(QString("%1/webaccess/vc-next/dist")
+                                      .arg(probeDir.absolutePath()));
         if (probeDir.cdUp() == false)
             break;
     }
 
-    for (const QString &path : candidates)
+    for (const QString &root : distRoots)
     {
-        if (!QFile::exists(path))
+        QString candidate = QDir::cleanPath(root + relativePath);
+        // Security: verify resolved path is still within the dist directory
+        QString canonicalRoot = QDir(root).canonicalPath();
+        if (canonicalRoot.isEmpty())
             continue;
-        return sendFile(resp, path, mimeTypeForPath(path));
+        QFileInfo fi(candidate);
+        QString canonicalFile = fi.canonicalFilePath();
+        if (canonicalFile.isEmpty() || !canonicalFile.startsWith(canonicalRoot + "/"))
+            continue;
+        return sendFile(resp, canonicalFile, mimeTypeForPath(canonicalFile));
     }
     return false;
 }
