@@ -270,6 +270,96 @@
 > Server instructions now include guidance on RGBW independence, continuous rotation
 > interpretation, coarse/fine pairing, and multi-head control.
 >
+> ### MCP Feature Documentation
+>
+> #### Fixture Intelligence — Live MCP Output
+>
+> `query_fixtures` returns rich fixture metadata for AI agents:
+> ```json
+> {
+>   "type": "Moving Head",
+>   "capabilities": ["Shutter", "Pan/Tilt", "RGBW", "ContinuousTiltRotation"],
+>   "heads": 10,
+>   "headMap": [
+>     {"index": 0, "channels": [7,8,9,10], "rgbChannels": [7,8,9]},
+>     {"index": 1, "channels": [11,12,13,14], "rgbChannels": [11,12,13]},
+>     ...
+>   ],
+>   "physical": {
+>     "focusPanMax": 540, "focusTiltMax": 360,
+>     "lensDegreesMin": 4.0, "lensDegreesMax": 11.0,
+>     "focusType": "Head"
+>   }
+> }
+> ```
+>
+> `query_fixture_channels` shows per-channel details including coarse/fine pairing and head assignment:
+> ```
+> ch0:  Pan          | controlByte=coarse | group=Pan
+> ch1:  Pan Fine     | controlByte=fine   | group=Pan
+> ch2:  Tilt         | controlByte=coarse | capabilities: Fixed position (0-191),
+>                                           Endless rotation CW (192-222),
+>                                           Stop (223-224),
+>                                           Endless rotation CCW (225-255)
+> ch7:  Red LED 1    | colour=Red   | headIndex=0
+> ch8:  Green LED 1  | colour=Green | headIndex=0
+> ch9:  Blue LED 1   | colour=Blue  | headIndex=0
+> ch10: White LED 1  | colour=White | headIndex=0
+> ```
+>
+> #### Grid Layout — MCP Tools (51 total)
+>
+> **`vc_set_grid_layout`** — Configure Grafana-style grid per frame:
+> ```json
+> {"items": [{"frameID": 0, "layoutMode": "grid", "columns": 8, "rowHeight": 40}]}
+> → [{"frameID": 0, "layoutMode": "grid", "columns": 8, "rowHeight": 40, "compact": true, "status": "ok"}]
+> ```
+>
+> **`vc_reflow_frame`** with `algorithm="gridCompact"` — Vertical compaction:
+> ```json
+> {"frameID": 0, "algorithm": "gridCompact", "dryRun": true}
+> → {"algorithm": "gridCompact", "applied": false, "changes": [
+>     {"widgetID": 1, "geometry": {"x": 0, "y": 40, "width": 105, "height": 60}},
+>     {"widgetID": 4, "geometry": {"x": 0, "y": 100, "width": 60, "height": 195}},
+>     ...
+>   ]}
+> ```
+>
+> **`vc_query_pages`** with `properties=["grid"]` — Read grid config:
+> ```json
+> {"grid": {"layoutMode": "grid", "columns": 8, "rowHeight": 40, "compact": true}}
+> ```
+>
+> #### Stairville Beam Ball 100 Quad LED
+>
+> Custom fixture definition with 4 DMX modes:
+>
+> | Mode | Channels | Color control | Heads |
+> |------|----------|---------------|-------|
+> | 7-Channel | 7 | Color macros only | — |
+> | 11-Channel | 11 | Master RGBW | 1 |
+> | 15-Channel | 15 | Side A + Side B RGBW | 2 |
+> | 49-Channel | 49 | 10 individual RGBW LEDs | 10 |
+>
+> **Infinite tilt rotation**: DMX 0–191 = fixed position, 192–222 = CW rotation,
+> 223–224 = stop, 225–255 = CCW rotation.
+>
+> **Custom 3D model**: Ball-shaped head (procedurally generated `ball_moving_head.dae`)
+> replaces the standard rectangular moving head model in the 3D view.
+>
+> #### Undo for Layout Operations
+>
+> All layout operations (auto-layout button, MCP reflow) are grouped into a single
+> undo step via Tardis batch markers. Keyboard shortcuts:
+> - **Ctrl+Z** — Undo (edit mode only, respects text field focus)
+> - **Ctrl+Shift+Z** — Redo
+>
+> #### ComboBox Dropdown Fix
+>
+> Fixed blank items in `CustomComboBox` dropdown when using plain string list models
+> (e.g., grid snapping size selector). The delegate now falls back to `modelData`
+> when the `textRole` lookup returns undefined.
+>
 > ### Install from DMG (macOS)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
 > After mounting the DMG and dragging QLC+ to `/Applications`:
