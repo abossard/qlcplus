@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useDmxStore } from '../../store/dmx-store';
 import ChannelFader from './ChannelFader';
-import { clamp } from '../../lib/utils';
+import { clamp, haptic } from '../../lib/utils';
 
 interface ExtraChannel {
   channel: number;
@@ -105,6 +105,7 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     draggingSquare.current = true;
     setActive(fixtureId, rgbChannels[0]);
+    haptic();
     onSquareMove(e);
   };
   const onSquareMove = (e: React.PointerEvent) => {
@@ -127,6 +128,7 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     draggingHue.current = true;
     setActive(fixtureId, rgbChannels[0]);
+    haptic();
     onHueMove(e);
   };
   const onHueMove = (e: React.PointerEvent) => {

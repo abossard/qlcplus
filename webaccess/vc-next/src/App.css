@@ -1100,8 +1100,11 @@ input, select {
   align-items: center;
   gap: 10px;
   padding: 0 0 12px 0;
+  flex-wrap: wrap;
 }
 .dmx-search {
+  flex: 1 1 180px;
+  min-width: 140px;
   flex: 1 1 auto;
   min-height: var(--min-hit);
   padding: 8px 12px;
@@ -1119,6 +1122,64 @@ input, select {
   font-size: 11px;
   color: var(--text-muted);
   font-family: 'SF Mono', 'Monaco', monospace;
+  white-space: nowrap;
+}
+
+.dmx-type-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.dmx-badge {
+  padding: 4px 10px;
+  background: var(--bg-widget);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dmx-badge:hover { background: var(--bg-widget-hover); color: var(--text); }
+.dmx-badge.active {
+  background: var(--active-bg);
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+.dmx-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.dmx-group-btn {
+  width: 32px;
+  height: 32px;
+  background: var(--bg-widget);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dmx-group-btn:hover { background: var(--bg-widget-hover); color: var(--text); }
+.dmx-group-btn.active {
+  background: var(--active-bg);
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+.dmx-group-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 8px 0 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 /* Fixture panel - larger than placeholder card to host real controls */

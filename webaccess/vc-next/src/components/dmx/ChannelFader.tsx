@@ -1,7 +1,7 @@
 import { memo, useCallback, useRef } from 'react';
 import { useDmxStore } from '../../store/dmx-store';
 import type { CapabilityInfo } from '../../lib/dmx-types';
-import { clamp } from '../../lib/utils';
+import { clamp, haptic } from '../../lib/utils';
 
 interface Props {
   fixtureId: number;
@@ -49,6 +49,7 @@ function ChannelFaderImpl({
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     draggingRef.current = true;
     setActive(fixtureId, channelIndex);
+    haptic();
     updateFromEvent(e);
   };
   const onMove = (e: React.PointerEvent) => {

@@ -1,6 +1,6 @@
 import { memo, useCallback, useRef } from 'react';
 import { useDmxStore } from '../../store/dmx-store';
-import { clamp } from '../../lib/utils';
+import { clamp, haptic } from '../../lib/utils';
 
 interface Axis { coarse: number; fine?: number }
 
@@ -80,6 +80,7 @@ function PositionControlImpl({ fixtureId, pan, tilt, panMax = 540, tiltMax = 270
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     draggingPad.current = true;
     setActive(fixtureId, pan.coarse);
+    haptic();
     padUpdate(e);
   };
   const onPadMove = (e: React.PointerEvent) => {

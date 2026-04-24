@@ -59,6 +59,11 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/** Haptic pulse for touch interactions — no-op when Vibration API is absent. */
+export function haptic(ms = 10): void {
+  try { navigator?.vibrate?.(ms); } catch { /* unsupported */ }
+}
+
 export function cssFont(font?: { family?: string; size?: number; bold?: boolean; italic?: boolean }): React.CSSProperties {
   if (!font) return {};
   const style: React.CSSProperties = {};
