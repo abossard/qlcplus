@@ -166,7 +166,12 @@ public:
     // Layout analysis
     WidgetSnapshot snapshotFrame(int frameID) const override;
     WidgetSnapshot snapshotPage(int pageIndex) const override;
-    void applyLayoutPlan(const LayoutPlan &plan) override;
+    void applyLayoutPlan(const LayoutPlan &plan, bool skipSnap = false) override;
+
+    // Frame grid layout
+    bool setFrameGridLayout(int frameID, const QString &mode,
+                            int columns, int rowHeight, bool compact) override;
+    FrameGridLayout getFrameGridLayout(int frameID) const override;
 
     int snappingSize() const override;
 

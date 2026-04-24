@@ -159,6 +159,11 @@ bool VCFrame::copyFrom(const VCWidget *widget)
     setTotalPagesNumber(frame->totalPagesNumber());
     setPagesLoop(frame->pagesLoop());
 
+    setLayoutMode(frame->layoutMode());
+    setGridColumns(frame->gridColumns());
+    setGridRowHeight(frame->gridRowHeight());
+    setGridCompact(frame->gridCompact());
+
     QListIterator <VCWidget*> it(widget->findChildren<VCWidget*>());
     while (it.hasNext() == true)
     {
@@ -1002,6 +1007,84 @@ void VCFrame::applySubmasterValue(qreal submasterValue, VCWidget *submaster)
 }
 
 /*********************************************************************
+ * Grid Layout
+ *********************************************************************/
+
+VCFrame::LayoutMode VCFrame::layoutMode() const
+{
+    return m_layoutMode;
+}
+
+void VCFrame::setLayoutMode(LayoutMode mode)
+{
+    if (m_layoutMode == mode)
+        return;
+
+    enqueueTardisAction(Tardis::VCFrameLayoutMode,
+                        QVariant((int)m_layoutMode), QVariant((int)mode));
+    m_layoutMode = mode;
+    emit layoutModeChanged();
+    setDocModified();
+}
+
+int VCFrame::gridColumns() const
+{
+    return m_gridColumns;
+}
+
+void VCFrame::setGridColumns(int columns)
+{
+    if (columns <= 0)
+        columns = 12;
+
+    if (m_gridColumns == columns)
+        return;
+
+    enqueueTardisAction(Tardis::VCFrameGridColumns,
+                        QVariant(m_gridColumns), QVariant(columns));
+    m_gridColumns = columns;
+    emit gridColumnsChanged();
+    setDocModified();
+}
+
+int VCFrame::gridRowHeight() const
+{
+    return m_gridRowHeight;
+}
+
+void VCFrame::setGridRowHeight(int rowHeight)
+{
+    if (rowHeight < 0)
+        rowHeight = 0;
+
+    if (m_gridRowHeight == rowHeight)
+        return;
+
+    enqueueTardisAction(Tardis::VCFrameGridRowHeight,
+                        QVariant(m_gridRowHeight), QVariant(rowHeight));
+    m_gridRowHeight = rowHeight;
+    emit gridRowHeightChanged();
+    setDocModified();
+}
+
+bool VCFrame::gridCompact() const
+{
+    return m_gridCompact;
+}
+
+void VCFrame::setGridCompact(bool compact)
+{
+    if (m_gridCompact == compact)
+        return;
+
+    enqueueTardisAction(Tardis::VCFrameGridCompact,
+                        QVariant(m_gridCompact), QVariant(compact));
+    m_gridCompact = compact;
+    emit gridCompactChanged();
+    setDocModified();
+}
+
+/*********************************************************************
  * External input
  *********************************************************************/
 
@@ -1379,6 +1462,29 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
 
             //root.skipCurrentElement();
         }
+        else if (root.name() == KXMLQLCVCFrameGridLayout)
+        {
+            QXmlStreamAttributes attrs = root.attributes();
+            QString mode = attrs.value(KXMLQLCVCFrameGridMode).toString();
+            m_layoutMode = (mode == KXMLQLCVCFrameGridModeGrid) ? LayoutGrid : LayoutFree;
+
+            if (attrs.hasAttribute(KXMLQLCVCFrameGridColumns))
+            {
+                int cols = attrs.value(KXMLQLCVCFrameGridColumns).toInt();
+                m_gridColumns = (cols > 0) ? cols : 12;
+            }
+
+            if (attrs.hasAttribute(KXMLQLCVCFrameGridRowHeight))
+            {
+                int rh = attrs.value(KXMLQLCVCFrameGridRowHeight).toInt();
+                m_gridRowHeight = (rh >= 0) ? rh : 0;
+            }
+
+            if (attrs.hasAttribute(KXMLQLCVCFrameGridCompact))
+                m_gridCompact = (attrs.value(KXMLQLCVCFrameGridCompact).toString() != KXMLQLCFalse);
+
+            root.skipCurrentElement();
+        }
         else
         {
             if (loadWidgetXML(root) == false)
@@ -1474,6 +1580,18 @@ bool VCFrame::saveXML(QXmlStreamWriter *doc) const
 
             doc->writeEndElement();
         }
+    }
+
+    /* Grid layout */
+    if (m_layoutMode != LayoutFree || m_gridColumns != 12 || m_gridRowHeight != 0 || m_gridCompact != true)
+    {
+        doc->writeStartElement(KXMLQLCVCFrameGridLayout);
+        doc->writeAttribute(KXMLQLCVCFrameGridMode,
+                            m_layoutMode == LayoutGrid ? KXMLQLCVCFrameGridModeGrid : KXMLQLCVCFrameGridModeFree);
+        doc->writeAttribute(KXMLQLCVCFrameGridColumns, QString::number(m_gridColumns));
+        doc->writeAttribute(KXMLQLCVCFrameGridRowHeight, QString::number(m_gridRowHeight));
+        doc->writeAttribute(KXMLQLCVCFrameGridCompact, m_gridCompact ? KXMLQLCTrue : KXMLQLCFalse);
+        doc->writeEndElement();
     }
 
     /* Save children */

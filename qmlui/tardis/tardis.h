@@ -210,6 +210,11 @@ public:
 
         VCCueListSetChaserID,
 
+        VCFrameLayoutMode,
+        VCFrameGridColumns,
+        VCFrameGridRowHeight,
+        VCFrameGridCompact,
+
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,
         FixtureResetDumpValues,
@@ -264,6 +269,14 @@ public:
 
     /** Redo an action or a batch of actions taken from history */
     Q_INVOKABLE void redoAction();
+
+    /** Begin a batch: all actions enqueued until the matching endBatch()
+     *  share one timestamp and collapse into a single undo step.
+     *  Re-entrant: nested batches reuse the outermost timestamp. */
+    Q_INVOKABLE void beginBatch(const QString &name = QString());
+
+    /** End a batch started with beginBatch(). */
+    Q_INVOKABLE void endBatch();
 
     /** Process an action and return the reversed action if undoing */
     int processAction(TardisAction &action, bool undo);
@@ -333,6 +346,11 @@ private:
 
     /** Flag to prevent actions looping */
     bool m_busy;
+
+    /** Batch nesting counter for beginBatch/endBatch */
+    int m_batchDepth = 0;
+    /** Shared timestamp for actions enqueued inside a batch */
+    qint64 m_batchTimestamp = -1;
 };
 
 #endif /* TARDIS_H */

@@ -187,9 +187,11 @@ VCWidgetItem
         {
             id: gridCanvas
             anchors.fill: parent
-            visible: virtualConsole && virtualConsole.editMode && virtualConsole.snapping
+            visible: virtualConsole && virtualConsole.editMode &&
+                     (virtualConsole.snapping ||
+                      (frameObj && frameObj.layoutMode === VCFrame.LayoutGrid))
             z: 0
-            opacity: 0.15
+            opacity: frameObj && frameObj.layoutMode === VCFrame.LayoutGrid ? 1.0 : 0.15
 
             onWidthChanged: requestPaint()
             onHeightChanged: requestPaint()
@@ -202,12 +204,52 @@ VCWidgetItem
                 function onEditModeChanged() { gridCanvas.requestPaint() }
             }
 
+            Connections
+            {
+                target: frameObj
+                ignoreUnknownSignals: true
+                function onLayoutModeChanged() { gridCanvas.requestPaint() }
+                function onGridColumnsChanged() { gridCanvas.requestPaint() }
+                function onGridRowHeightChanged() { gridCanvas.requestPaint() }
+            }
+
             onPaint:
             {
                 var ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
 
                 if (!visible) return
+
+                var gridMode = frameObj && frameObj.layoutMode === VCFrame.LayoutGrid
+
+                if (gridMode)
+                {
+                    var cols = frameObj.gridColumns > 0 ? frameObj.gridColumns : 12
+                    var cellW = width / cols
+                    var cellH = frameObj.gridRowHeight > 0 ? frameObj.gridRowHeight : virtualConsole.snappingSize
+                    if (cellW < 2 || cellH < 2) return
+
+                    ctx.strokeStyle = Qt.rgba(0.39, 0.59, 1.0, 0.3) // rgba(100,150,255,0.3)
+                    ctx.lineWidth = 1.0
+
+                    for (var gi = 1; gi < cols; gi++)
+                    {
+                        var gx = gi * cellW
+                        ctx.beginPath()
+                        ctx.moveTo(gx, 0)
+                        ctx.lineTo(gx, height)
+                        ctx.stroke()
+                    }
+
+                    for (var gy = cellH; gy < height; gy += cellH)
+                    {
+                        ctx.beginPath()
+                        ctx.moveTo(0, gy)
+                        ctx.lineTo(width, gy)
+                        ctx.stroke()
+                    }
+                    return
+                }
 
                 var s = virtualConsole.snappingSize
                 if (s < 3) return
@@ -252,6 +294,11 @@ VCWidgetItem
 
             var pos = drag.source.mapToItem(frameRoot, 0, 0)
             console.log("Item dropped in frame " + frameObj.id + " at pos " + pos)
+
+            // TODO: when frameObj.layoutMode === VCFrame.LayoutGrid, call a
+            // (not-yet-exposed) relayoutGrid() hook on the C++ VCFrame to
+            // re-pack children using GridLayout after drop. Requires additional
+            // C++ integration; deferred.
 
             //console.log("Drop keys: " + drop.keys)
             if (drop.keys[0] === "vcwidget")

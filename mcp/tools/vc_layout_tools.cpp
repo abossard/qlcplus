@@ -20,6 +20,7 @@
 #include "tool_registry.h"
 #include "vcbridge.h"
 #include "doc.h"
+#include "gridlayout.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -167,6 +168,9 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         {"pageIndex", {{"type", "integer"}, {"description",
             "Page index (0-based). Auto-detects column layout from x-positions and reflows within each column. "
             "Defaults to dryRun=true. Used only if frameID is not provided."}}},
+        {"algorithm", {{"type", "string"}, {"enum", {"flow", "gridCompact"}}, {"description",
+            "Layout algorithm. flow (default) = existing flow layout. "
+            "gridCompact = grid-based Grafana-style vertical compaction using the frame's grid settings."}}},
         {"columns", {{"type", "integer"}, {"description",
             "Number of columns for flow grid. 0 or omit for auto-compute from width."}}},
         {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels (default 5)"}}},
@@ -184,9 +188,11 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
-            auto err = validateFields(args, {"frameID", "pageIndex", "columns", "pad", "framePad",
+            auto err = validateFields(args, {"frameID", "pageIndex", "algorithm", "columns", "pad", "framePad",
                 "buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight", "dryRun"});
             if (!err.empty()) return err;
+
+            std::string algorithm = args.value("algorithm", std::string("flow"));
 
             VCBridge::ReflowOptions opts;
             opts.columns = args.value("columns", 0);
@@ -219,8 +225,76 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 return std::string("{\"error\": \"Frame/page not found\"}");
 
             VCBridge::LayoutPlan plan;
-            if (isPage)
+
+            if (algorithm == "gridCompact")
+            {
+                if (isPage)
+                    return std::string("{\"error\": \"gridCompact requires frameID (not pageIndex)\"}");
+                if (snap.children.isEmpty())
+                {
+                    Json result;
+                    result["applied"] = false;
+                    result["algorithm"] = "gridCompact";
+                    result["widgetsMoved"] = 0;
+                    result["changes"] = Json::array();
+                    result["remainingOverlaps"] = Json::array();
+                    return result.dump();
+                }
+
+                // Pull grid configuration from the frame (fallback to defaults)
+                auto gridInfo = vcBridge->getFrameGridLayout(snap.id);
+                int columns = gridInfo.found && gridInfo.columns > 0 ? gridInfo.columns : 12;
+                int rowHeight = gridInfo.found ? gridInfo.rowHeight : 0;
+                if (rowHeight <= 0)
+                    rowHeight = opts.gridSize > 0 ? opts.gridSize : 20;
+
+                int frameWidth = snap.geometry.width();
+                int cellW = GridLayout::cellWidth(frameWidth, columns);
+                if (cellW <= 0)
+                    cellW = opts.gridSize > 0 ? opts.gridSize : 20;
+
+                // Convert child geometries to cells (positions are relative to the frame)
+                int hdrH = snap.showHeader ? opts.headerHeight : 0;
+                QVector<GridLayout::GridItem> items;
+                items.reserve(snap.children.size());
+                for (const auto &child : snap.children)
+                {
+                    QRect rel = child.geometry;
+                    rel.translate(0, -hdrH);
+                    if (rel.y() < 0) rel.moveTop(0);
+                    GridLayout::GridItem gi;
+                    gi.id = child.id;
+                    gi.cell = GridLayout::pixelsToCells(rel, cellW, rowHeight);
+                    items.append(gi);
+                }
+
+                QVector<GridLayout::GridItem> compacted = GridLayout::compactVertical(items);
+
+                // Map back to pixel geometries, preserving original widths/heights in px
+                QHash<int, QRect> originalGeo;
+                for (const auto &child : snap.children)
+                    originalGeo.insert(child.id, child.geometry);
+
+                QList<VCBridge::WidgetSnapshot> newChildren;
+                for (const auto &it : compacted)
+                {
+                    QRect cellRect = GridLayout::cellsToPixels(it.cell, cellW, rowHeight);
+                    QRect orig = originalGeo.value(it.id);
+                    QRect out(cellRect.x(), cellRect.y() + hdrH,
+                              orig.width(), orig.height());
+                    plan.geometries.insert(it.id, out);
+
+                    VCBridge::WidgetSnapshot copy;
+                    copy.id = it.id;
+                    copy.geometry = out;
+                    newChildren.append(copy);
+                }
+                plan.overlaps = VCBridge::detectOverlaps(newChildren);
+            }
+            else if (isPage)
+            {
                 plan = VCBridge::reflowPage(snap, opts);
+            }
             else
             {
                 int requiredHeight = VCBridge::reflowChildren(snap, opts);
@@ -231,11 +305,12 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
 
             if (!dryRun)
-                vcBridge->applyLayoutPlan(plan);
+                vcBridge->applyLayoutPlan(plan, algorithm == "gridCompact");
 
             // Build response
             Json result;
             result["applied"] = !dryRun;
+            result["algorithm"] = algorithm;
             result["widgetsMoved"] = (int)plan.geometries.size();
 
             Json changes = Json::array();
@@ -265,8 +340,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             });
         },
         std::nullopt,
-        std::string("Reflow widgets within a frame or page using flow layout. "
-                     "With frameID: arranges buttons/sliders in a grid, recursively reflows nested frames, resizes the frame to fit. "
+        std::string("Reflow widgets within a frame or page. "
+                     "algorithm=flow (default): arranges buttons/sliders in a grid, recursively reflows nested frames, resizes the frame to fit. "
+                     "algorithm=gridCompact (frameID only): Grafana-style vertical compaction using the frame's gridColumns/gridRowHeight — "
+                     "snaps widgets to cells and drops them as far up as possible without overlapping. "
                      "With pageIndex: auto-detects column groupings from x-positions, preserves multi-column layouts, "
                      "reflows within each column independently. Page-level reflow defaults to dryRun=true (pass dryRun=false to apply). "
                      "Never reparents or creates widgets — only repositions existing children within their current parent."),
@@ -274,4 +351,73 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
     )
     .set_annotations(mcp::kAnnotIdempotent));
     } // end vc_reflow_frame schema scope
+
+    // vc_set_grid_layout — set grid layout mode on frames (batch)
+    tm.register_tool(Tool(
+        "vc_set_grid_layout",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"frameID", {{"type", "integer"}}},
+                {"layoutMode", {{"type", "string"}, {"enum", {"free", "grid"}}}},
+                {"columns", {{"type", "integer"}, {"description", "Grid columns (default 12)"}}},
+                {"rowHeight", {{"type", "integer"}, {"description", "Row height in pixels (0 = auto)"}}},
+                {"compact", {{"type", "boolean"}, {"description", "Enable vertical compaction (default true)"}}}
+            }}, {"required", {"frameID"}}}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto topErr = validateFields(args, {"items"});
+            if (!topErr.empty()) return topErr;
+
+            Json results = Json::array();
+            for (auto &item : args.at("items"))
+            {
+                auto err = validateFields(item, {"frameID", "layoutMode", "columns", "rowHeight", "compact"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                int frameID = item.at("frameID").get<int>();
+
+                // Read current to fill missing fields
+                auto current = vcBridge->getFrameGridLayout(frameID);
+                QString mode = current.found ? current.layoutMode : QString("free");
+                int columns = current.found ? current.columns : 12;
+                int rowHeight = current.found ? current.rowHeight : 0;
+                bool compact = current.found ? current.compact : true;
+
+                if (item.contains("layoutMode"))
+                    mode = QString::fromStdString(item.at("layoutMode").get<std::string>());
+                if (item.contains("columns"))
+                    columns = item.at("columns").get<int>();
+                if (item.contains("rowHeight"))
+                    rowHeight = item.at("rowHeight").get<int>();
+                if (item.contains("compact"))
+                    compact = item.at("compact").get<bool>();
+
+                bool ok = vcBridge->setFrameGridLayout(frameID, mode, columns, rowHeight, compact);
+                Json r;
+                r["frameID"] = frameID;
+                r["status"] = ok ? "ok" : "failed";
+                if (ok)
+                {
+                    r["layoutMode"] = mode.toStdString();
+                    r["columns"] = columns;
+                    r["rowHeight"] = rowHeight;
+                    r["compact"] = compact;
+                }
+                else
+                {
+                    r["error"] = "frame not found";
+                }
+                results.push_back(r);
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Set grid layout mode on frames. Enables Grafana-style vertical compaction and collision push-down. "
+                    "Use with vc_reflow_frame algorithm=gridCompact to apply the compaction. Batch."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
 }

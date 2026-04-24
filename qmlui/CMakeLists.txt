@@ -70,6 +70,7 @@ set(SRC_FILES
     virtualconsole/vcbutton.cpp virtualconsole/vcbutton.h
     virtualconsole/vcclock.cpp virtualconsole/vcclock.h
     virtualconsole/vccuelist.cpp virtualconsole/vccuelist.h
+    virtualconsole/gridlayout.cpp virtualconsole/gridlayout.h
     virtualconsole/vcframe.cpp virtualconsole/vcframe.h
     virtualconsole/vclabel.cpp virtualconsole/vclabel.h
     virtualconsole/vcpage.cpp virtualconsole/vcpage.h
@@ -81,6 +82,7 @@ set(SRC_FILES
     virtualconsole/vcspeeddial.cpp virtualconsole/vcspeeddial.h
     virtualconsole/vcspeeddialpreset.cpp virtualconsole/vcspeeddialpreset.h
     virtualconsole/virtualconsole.cpp virtualconsole/virtualconsole.h
+    virtualconsole/vclayoutadapter.cpp virtualconsole/vclayoutadapter.h
 )
 
 # This is most of the Android deployment code
@@ -114,6 +116,7 @@ endif()
 target_include_directories(${module_name} PRIVATE
     ../engine/audio/src
     ../engine/src
+    ../mcp
     ../plugins/interfaces
     ../plugins/midi/src/common
     fixtureeditor

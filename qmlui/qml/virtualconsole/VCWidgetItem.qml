@@ -67,8 +67,38 @@ Rectangle
         bgImage.anchors.margins = m
     }
 
+    function getGridFrame()
+    {
+        // Walk up parent chain to find a VCFrame in Grid layout mode
+        var p = wRoot.parent
+        while (p)
+        {
+            if (p.frameObj !== undefined && p.frameObj !== null &&
+                p.frameObj.layoutMode === VCFrame.LayoutGrid)
+                return p.frameObj
+            p = p.parent
+        }
+        return null
+    }
+
     function snapToGrid()
     {
+        var gf = getGridFrame()
+        if (gf !== null)
+        {
+            var cols = gf.gridColumns > 0 ? gf.gridColumns : 12
+            var cellW = wRoot.parent ? wRoot.parent.width / cols : 0
+            var cellH = gf.gridRowHeight > 0 ? gf.gridRowHeight : virtualConsole.snappingSize
+            if (cellW > 0 && cellH > 0)
+            {
+                x = Math.round(x / cellW) * cellW
+                y = Math.round(y / cellH) * cellH
+                width = Math.max(Math.round(width / cellW) * cellW, cellW)
+                height = Math.max(Math.round(height / cellH) * cellH, cellH)
+            }
+            return
+        }
+
         if (virtualConsole.snapping)
         {
             var s = virtualConsole.snappingSize
@@ -163,13 +193,28 @@ Rectangle
                     }
                 }
 
-                if (drag.active && virtualConsole.snapping)
+                if (drag.active)
                 {
-                    var s = virtualConsole.snappingSize
-                    if (s > 0)
+                    var gf = getGridFrame()
+                    if (gf !== null)
                     {
-                        wRoot.x = Math.round(wRoot.x / s) * s
-                        wRoot.y = Math.round(wRoot.y / s) * s
+                        var cols = gf.gridColumns > 0 ? gf.gridColumns : 12
+                        var cellW = wRoot.parent ? wRoot.parent.width / cols : 0
+                        var cellH = gf.gridRowHeight > 0 ? gf.gridRowHeight : virtualConsole.snappingSize
+                        if (cellW > 0 && cellH > 0)
+                        {
+                            wRoot.x = Math.round(wRoot.x / cellW) * cellW
+                            wRoot.y = Math.round(wRoot.y / cellH) * cellH
+                        }
+                    }
+                    else if (virtualConsole.snapping)
+                    {
+                        var s = virtualConsole.snappingSize
+                        if (s > 0)
+                        {
+                            wRoot.x = Math.round(wRoot.x / s) * s
+                            wRoot.y = Math.round(wRoot.y / s) * s
+                        }
                     }
                 }
             }

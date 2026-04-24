@@ -56,6 +56,7 @@ inline const std::set<std::string> kValidProperties = {
     "multipageMode", "totalPages", "currentPage", "pagesLoop", "pageLabels",
     "headerVisible", "enableButtonVisible", "collapsed",
     "soloframeMixing", "excludeMonitoredFunctions",
+    "grid",
     // Input/feedback
     "inputMappings", "validSources",
     // Appearance
@@ -540,6 +541,18 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         w["soloframeMixing"] = true;
     if (has("excludeMonitoredFunctions") && d.excludeMonitoredFunctions)
         w["excludeMonitoredFunctions"] = true;
+
+    // Frame grid layout (only for frame/soloframe)
+    if (has("grid") && (d.type == "frame" || d.type == "soloframe"))
+    {
+        Json g;
+        g["layoutMode"] = d.gridLayoutMode.isEmpty()
+            ? std::string("free") : d.gridLayoutMode.toStdString();
+        g["columns"]    = d.gridColumns;
+        g["rowHeight"]  = d.gridRowHeight;
+        g["compact"]    = d.gridCompact;
+        w["grid"] = g;
+    }
 
     // CueList extended
     if (has("nextPrevBehavior") && !d.nextPrevBehavior.isEmpty())

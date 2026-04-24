@@ -38,6 +38,8 @@
 #include "vcslider.h"
 #include "vcframe.h"
 #include "vclabel.h"
+#include "vclayoutadapter.h"
+#include "gridlayout.h"
 #include "vcxypad.h"
 #include "vcclock.h"
 #include "vcpage.h"
@@ -939,6 +941,71 @@ void VirtualConsole::autoLayoutPage()
     if (m_selectedPage >= m_pages.count())
         return;
 
+    VCPage *page = m_pages.at(m_selectedPage);
+    if (!page)
+        return;
+
+    Tardis::instance()->beginBatch("autoLayoutPage");
+
+    VCBridge::WidgetSnapshot snap = VCLayoutAdapter::snapshotFrame(page);
+    VCBridge::ReflowOptions opts;
+    opts.pad = snappingSize();
+    opts.gridSize = snappingSize();
+
+    if (page->layoutMode() == VCFrame::LayoutGrid)
+    {
+        int cellW = GridLayout::cellWidth((int)page->geometry().width(), page->gridColumns());
+        int cellH = page->gridRowHeight() > 0 ? page->gridRowHeight() : snappingSize();
+        if (cellW <= 0)
+            cellW = snappingSize() > 0 ? snappingSize() : 20;
+        if (cellH <= 0)
+            cellH = 20;
+
+        QVector<GridLayout::GridItem> gridItems;
+        gridItems.reserve(snap.children.size());
+        for (const auto &child : snap.children)
+        {
+            GridLayout::GridItem gi;
+            gi.id = child.id;
+            gi.cell = GridLayout::pixelsToCells(child.geometry, cellW, cellH);
+            gridItems.append(gi);
+        }
+
+        gridItems = GridLayout::compactVertical(gridItems);
+
+        VCBridge::LayoutPlan plan;
+        for (const auto &gi : gridItems)
+        {
+            QRect pixelRect = GridLayout::cellsToPixels(gi.cell, cellW, cellH);
+            // Preserve original width/height in pixels — don't force to cell multiples
+            auto origIt = std::find_if(snap.children.begin(), snap.children.end(),
+                [&](const VCBridge::WidgetSnapshot &s) { return s.id == gi.id; });
+            if (origIt != snap.children.end())
+            {
+                pixelRect.setWidth(origIt->geometry.width());
+                pixelRect.setHeight(origIt->geometry.height());
+            }
+            plan.geometries.insert(gi.id, pixelRect);
+        }
+        VCLayoutAdapter::applyPlan(this, plan);
+    }
+    else
+    {
+        VCBridge::LayoutPlan plan = VCBridge::reflowPage(snap, opts);
+        VCLayoutAdapter::applyPlan(this, plan);
+    }
+
+    Tardis::instance()->endBatch();
+}
+
+#if 0
+// Previous flow-layout implementation — kept for reference. Superseded by the
+// unified VCBridge::reflowPage() algorithm shared with the MCP reflow tool.
+void VirtualConsole::autoLayoutPage()
+{
+    if (m_selectedPage >= m_pages.count())
+        return;
+
     VCFrame *page = m_pages.at(m_selectedPage);
     QList<VCWidget *> children = page->children(false);
     if (children.isEmpty())
@@ -991,10 +1058,13 @@ void VirtualConsole::autoLayoutPage()
         curY += rowMaxH + padding;
     };
 
+    Tardis::instance()->beginBatch("autoLayoutPage");
     flowLayout(buttons);
     flowLayout(sliders);
     flowLayout(others);
+    Tardis::instance()->endBatch();
 }
+#endif
 
 VCWidget *VirtualConsole::selectedWidget() const
 {

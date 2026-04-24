@@ -268,7 +268,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     {"description", "Property names to include per widget (id always included). "
                      "Omit for all. Core: type, caption, pageIndex, parentID, geometry. "
                      "Function: functionID, action. Slider: sliderMode, channels, widgetStyle. "
-                     "Frame: multipageMode, totalPages, currentPage, collapsed. "
+                     "Frame: multipageMode, totalPages, currentPage, collapsed, grid. "
                      "Input: inputMappings, validSources. Appearance: bgColor, fgColor, font, disabled. "
                      "Groups: buttonConfig, cueListConfig, clockConfig, speedDialConfig, matrixConfig, xyPadConfig."
                     }}}

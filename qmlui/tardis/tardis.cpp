@@ -112,7 +112,9 @@ void Tardis::enqueueAction(int code, quint32 objID, QVariant oldVal, QVariant ne
         return;
 
     TardisAction action;
-    action.m_timestamp = m_uptime.elapsed();
+    action.m_timestamp = (m_batchDepth > 0 && m_batchTimestamp >= 0)
+                             ? quint64(m_batchTimestamp)
+                             : m_uptime.elapsed();
     action.m_action = code;
     action.m_objID = objID;
     action.m_oldValue = oldVal;
@@ -134,6 +136,22 @@ QString Tardis::actionToString(int action)
 {
     int index = staticMetaObject.indexOfEnumerator("ActionCodes");
     return staticMetaObject.enumerator(index).valueToKey(action);
+}
+
+void Tardis::beginBatch(const QString &name)
+{
+    Q_UNUSED(name)
+    if (m_batchDepth == 0)
+        m_batchTimestamp = m_uptime.elapsed();
+    m_batchDepth++;
+}
+
+void Tardis::endBatch()
+{
+    if (m_batchDepth > 0)
+        m_batchDepth--;
+    if (m_batchDepth == 0)
+        m_batchTimestamp = -1;
 }
 
 void Tardis::undoAction()
@@ -1425,6 +1443,32 @@ int Tardis::processAction(TardisAction &action, bool undo)
         {
             auto member = std::mem_fn(&VCCueList::setChaserID);
             member(qobject_cast<VCCueList *>(m_virtualConsole->widget(action.m_objID)), value->toUInt());
+        }
+        break;
+
+        case VCFrameLayoutMode:
+        {
+            auto member = std::mem_fn(&VCFrame::setLayoutMode);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)),
+                   VCFrame::LayoutMode(value->toInt()));
+        }
+        break;
+        case VCFrameGridColumns:
+        {
+            auto member = std::mem_fn(&VCFrame::setGridColumns);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toInt());
+        }
+        break;
+        case VCFrameGridRowHeight:
+        {
+            auto member = std::mem_fn(&VCFrame::setGridRowHeight);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toInt());
+        }
+        break;
+        case VCFrameGridCompact:
+        {
+            auto member = std::mem_fn(&VCFrame::setGridCompact);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
         }
         break;
 

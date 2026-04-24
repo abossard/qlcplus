@@ -135,6 +135,41 @@ target_link_libraries(mcp_vc_query_filter_test PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# Reflow Column Detection tests — exercises overlap-with-tolerance column clustering
+add_executable(mcp_reflow_column_test WIN32
+    mcp_reflow_column_test.cpp mcp_reflow_column_test.h
+)
+
+target_include_directories(mcp_reflow_column_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_reflow_column_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+)
+
+# Grid Layout tests — exercises pure grid layout algorithms (compaction, collision resolution)
+add_executable(gridlayout_test WIN32
+    gridlayout_test.cpp gridlayout_test.h
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole/gridlayout.cpp
+)
+
+target_include_directories(gridlayout_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+)
+
+target_link_libraries(gridlayout_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+)
+
 # UiManager Preset tests — exercises theme preset infrastructure
 add_executable(mcp_uimanager_preset_test WIN32
     uimanager_preset_test.cpp uimanager_preset_test.h

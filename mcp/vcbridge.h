@@ -303,6 +303,12 @@ public:
         bool soloframeMixing = false;
         bool excludeMonitoredFunctions = false;
 
+        // Frame grid layout
+        QString gridLayoutMode;               // "free" (default) / "grid"
+        int gridColumns = 12;
+        int gridRowHeight = 0;                // 0 = auto from snapping
+        bool gridCompact = true;
+
         // CueList extended
         QString nextPrevBehavior;
         QString playbackLayout;
@@ -645,6 +651,7 @@ public:
         int defaultSliderWidth = 60;
         int defaultSliderHeight = 200;
         int gridSize = 0;           // snap-to-grid size (0 = disabled)
+        int overlapTolerance = 0;   // 0 = auto-compute from pad/gridSize
     };
 
     /** The result of a layout computation: proposed geometry changes + detected overlaps. */
@@ -802,27 +809,39 @@ public:
             return page.children[a].geometry.x() < page.children[b].geometry.x();
         });
 
+        const int tol = (opts.overlapTolerance > 0) ? opts.overlapTolerance
+            : qMax(qMax(opts.pad * 2, opts.gridSize * 2), 10);
+
         for (int idx : sortedIdx)
         {
             WidgetSnapshot &child = page.children[idx];
-            int cx = child.geometry.x();
-            int cr = cx + child.geometry.width();
+            const int cx = child.geometry.x();
+            const int cr = cx + child.geometry.width();
 
-            // Try to place into an existing column with x-overlap
-            bool placed = false;
-            for (auto &col : columns)
+            int bestCol = -1;
+            int bestOverlap = tol - 1;  // must exceed threshold
+
+            for (int i = 0; i < columns.size(); ++i)
             {
-                if (cx < col.right && cr > col.x)
+                const auto &col = columns[i];
+                const int overlap = qMin(cr, col.right) - qMax(cx, col.x);
+                if (overlap > bestOverlap)
                 {
-                    col.children.append(&child);
-                    col.x = qMin(col.x, cx);
-                    col.right = qMax(col.right, cr);
-                    placed = true;
-                    break;
+                    bestOverlap = overlap;
+                    bestCol = i;
                 }
             }
-            if (!placed)
+
+            if (bestCol >= 0)
+            {
+                columns[bestCol].children.append(&child);
+                columns[bestCol].x     = qMin(columns[bestCol].x, cx);
+                columns[bestCol].right = qMax(columns[bestCol].right, cr);
+            }
+            else
+            {
                 columns.append({cx, cr, {&child}});
+            }
         }
 
         // Sort columns left-to-right
@@ -898,8 +917,25 @@ public:
         { Q_UNUSED(frameID); return WidgetSnapshot(); }
     virtual WidgetSnapshot snapshotPage(int pageIndex) const
         { Q_UNUSED(pageIndex); return WidgetSnapshot(); }
-    virtual void applyLayoutPlan(const LayoutPlan &plan)
-        { Q_UNUSED(plan); }
+    virtual void applyLayoutPlan(const LayoutPlan &plan, bool skipSnap = false)
+        { Q_UNUSED(plan); Q_UNUSED(skipSnap); }
+
+    // Frame grid layout accessors. Implementations should locate the frame by id
+    // and cast to VCFrame. Return false / empty result when the widget is not a frame.
+    struct FrameGridLayout
+    {
+        bool found = false;
+        QString layoutMode;   // "free" / "grid"
+        int columns = 12;
+        int rowHeight = 0;
+        bool compact = true;
+    };
+    virtual bool setFrameGridLayout(int frameID, const QString &mode,
+                                     int columns, int rowHeight, bool compact)
+    { Q_UNUSED(frameID); Q_UNUSED(mode); Q_UNUSED(columns);
+      Q_UNUSED(rowHeight); Q_UNUSED(compact); return false; }
+    virtual FrameGridLayout getFrameGridLayout(int frameID) const
+    { Q_UNUSED(frameID); return FrameGridLayout(); }
 };
 
 #endif // VCBRIDGE_H

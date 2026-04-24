@@ -20,6 +20,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Window
 
 import org.qlcplus.classes 1.0
 import "."
@@ -72,6 +73,27 @@ Rectangle
     }
     color: "transparent"
     objectName: "virtualConsole"
+
+    Shortcut {
+        sequence: StandardKey.Undo
+        enabled: virtualConsole ? virtualConsole.editMode : false
+        onActivated: {
+            var focused = Window.activeFocusItem
+            if (focused && (focused instanceof TextInput || focused instanceof TextEdit))
+                return
+            tardis.undoAction()
+        }
+    }
+    Shortcut {
+        sequence: StandardKey.Redo
+        enabled: virtualConsole ? virtualConsole.editMode : false
+        onActivated: {
+            var focused = Window.activeFocusItem
+            if (focused && (focused instanceof TextInput || focused instanceof TextEdit))
+                return
+            tardis.redoAction()
+        }
+    }
 
     property string contextName: "VC"
     property int selectedPage: virtualConsole.selectedPage

@@ -34,6 +34,8 @@
 #include "vcclock.h"
 #include "vcanimation.h"
 #include "vcwidget.h"
+#include "vclayoutadapter.h"
+#include "tardis.h"
 #include "doc.h"
 #include "fixture.h"
 #include "function.h"
@@ -1058,6 +1060,16 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         d.enableButtonVisible = frame->showEnable();
         d.collapsed = frame->isCollapsed();
 
+        // Grid layout properties
+        switch (frame->layoutMode())
+        {
+            case VCFrame::LayoutGrid: d.gridLayoutMode = "grid"; break;
+            default:                  d.gridLayoutMode = "free"; break;
+        }
+        d.gridColumns = frame->gridColumns();
+        d.gridRowHeight = frame->gridRowHeight();
+        d.gridCompact = frame->gridCompact();
+
         VCSoloFrame *soloFrame = qobject_cast<VCSoloFrame*>(widget);
         if (soloFrame)
         {
@@ -1851,12 +1863,53 @@ VCBridge::WidgetSnapshot VCBridgeV5::snapshotPage(int pageIndex) const
     return snapshotWidget(page);
 }
 
-void VCBridgeV5::applyLayoutPlan(const LayoutPlan &plan)
+void VCBridgeV5::applyLayoutPlan(const LayoutPlan &plan, bool skipSnap)
 {
+    Tardis::instance()->beginBatch("applyLayoutPlan");
+    // Snap geometries to the VC grid before delegating to the shared adapter
+    // so MCP callers preserve the historical snap-to-grid behaviour. Callers
+    // (e.g. gridCompact) that already produced grid-aligned coordinates can
+    // pass skipSnap=true to avoid a second snap that would misalign them.
+    LayoutPlan snapped;
+    snapped.overlaps = plan.overlaps;
     for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
-    {
-        VCWidget *widget = m_vc->widget(it.key());
-        if (widget)
-            widget->setGeometry(QRectF(snapRect(it.value())));
-    }
+        snapped.geometries.insert(it.key(), skipSnap ? it.value() : snapRect(it.value()));
+
+    VCLayoutAdapter::applyPlan(m_vc, snapped);
+    Tardis::instance()->endBatch();
+}
+
+bool VCBridgeV5::setFrameGridLayout(int frameID, const QString &mode,
+                                     int columns, int rowHeight, bool compact)
+{
+    VCWidget *widget = m_vc->widget(frameID);
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (!frame) return false;
+
+    VCFrame::LayoutMode lm = VCFrame::LayoutFree;
+    if (mode.compare("grid", Qt::CaseInsensitive) == 0)
+        lm = VCFrame::LayoutGrid;
+
+    frame->setLayoutMode(lm);
+    if (columns > 0)
+        frame->setGridColumns(columns);
+    if (rowHeight >= 0)
+        frame->setGridRowHeight(rowHeight);
+    frame->setGridCompact(compact);
+    return true;
+}
+
+VCBridge::FrameGridLayout VCBridgeV5::getFrameGridLayout(int frameID) const
+{
+    FrameGridLayout out;
+    VCWidget *widget = m_vc->widget(frameID);
+    VCFrame *frame = qobject_cast<VCFrame *>(widget);
+    if (!frame) return out;
+
+    out.found = true;
+    out.layoutMode = (frame->layoutMode() == VCFrame::LayoutGrid) ? "grid" : "free";
+    out.columns = frame->gridColumns();
+    out.rowHeight = frame->gridRowHeight();
+    out.compact = frame->gridCompact();
+    return out;
 }

@@ -36,6 +36,7 @@ target_include_directories(qlcplusmcp PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/audio/src
     ${CMAKE_SOURCE_DIR}/plugins/interfaces
     ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+    ${CMAKE_SOURCE_DIR}/qmlui/tardis
     ${CMAKE_SOURCE_DIR}/qmlui
 )
 

@@ -43,6 +43,14 @@
 #define KXMLQLCVCFrameShortcutPage  QStringLiteral("Page")
 #define KXMLQLCVCFrameShortcutName  QStringLiteral("Name")
 
+#define KXMLQLCVCFrameGridLayout    QStringLiteral("GridLayout")
+#define KXMLQLCVCFrameGridMode      QStringLiteral("Mode")
+#define KXMLQLCVCFrameGridColumns   QStringLiteral("Columns")
+#define KXMLQLCVCFrameGridRowHeight QStringLiteral("RowHeight")
+#define KXMLQLCVCFrameGridCompact   QStringLiteral("Compact")
+#define KXMLQLCVCFrameGridModeGrid  QStringLiteral("Grid")
+#define KXMLQLCVCFrameGridModeFree  QStringLiteral("Free")
+
 #define INPUT_NEXT_PAGE_ID      0
 #define INPUT_PREVIOUS_PAGE_ID  1
 #define INPUT_ENABLE_ID         2
@@ -65,10 +73,18 @@ class VCFrame : public VCWidget
     Q_PROPERTY(int PIN READ PIN WRITE setPIN NOTIFY PINChanged)
     Q_PROPERTY(QStringList pageLabels READ pageLabels NOTIFY pageLabelsChanged)
 
+    Q_PROPERTY(LayoutMode layoutMode READ layoutMode WRITE setLayoutMode NOTIFY layoutModeChanged)
+    Q_PROPERTY(int gridColumns READ gridColumns WRITE setGridColumns NOTIFY gridColumnsChanged)
+    Q_PROPERTY(int gridRowHeight READ gridRowHeight WRITE setGridRowHeight NOTIFY gridRowHeightChanged)
+    Q_PROPERTY(bool gridCompact READ gridCompact WRITE setGridCompact NOTIFY gridCompactChanged)
+
     /*********************************************************************
      * Initialization
      *********************************************************************/
 public:
+    enum LayoutMode { LayoutFree = 0, LayoutGrid = 1 };
+    Q_ENUM(LayoutMode)
+
     VCFrame(Doc* doc = nullptr, VirtualConsole *vc = nullptr, QObject *parent = nullptr);
     virtual ~VCFrame();
 
@@ -313,6 +329,35 @@ public:
 public slots:
     /** @reimp */
     void slotInputValueChanged(quint8 id, uchar value) override;
+
+    /*********************************************************************
+     * Grid Layout
+     *********************************************************************/
+public:
+    LayoutMode layoutMode() const;
+    void setLayoutMode(LayoutMode mode);
+
+    int gridColumns() const;
+    void setGridColumns(int columns);
+
+    /** Row height in pixels. 0 = auto (derive from snapping size) */
+    int gridRowHeight() const;
+    void setGridRowHeight(int rowHeight);
+
+    bool gridCompact() const;
+    void setGridCompact(bool compact);
+
+signals:
+    void layoutModeChanged();
+    void gridColumnsChanged();
+    void gridRowHeightChanged();
+    void gridCompactChanged();
+
+protected:
+    LayoutMode m_layoutMode = LayoutFree;
+    int m_gridColumns = 12;
+    int m_gridRowHeight = 0;
+    bool m_gridCompact = true;
 
     /*********************************************************************
      * Load & Save
