@@ -2,58 +2,19 @@
 // Loads fixtures, attaches DMX WS subscriptions, and renders a grid of
 // fixture cards (controls themselves arrive in Phase C/D).
 
-import { memo, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useDmxStore } from '../store/dmx-store';
-import type { FixtureInfo, ControlPlan } from '../lib/dmx-types';
-
-function planSummary(plans: ControlPlan[]): string {
-  const counts = new Map<string, number>();
-  for (const p of plans) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
-  return Array.from(counts.entries())
-    .map(([k, v]) => `${v}× ${k}`)
-    .join(', ');
-}
-
-interface CardProps {
-  fixture: FixtureInfo;
-  plans: ControlPlan[];
-}
-
-const FixtureCard = memo(function FixtureCard({ fixture, plans }: CardProps) {
-  const summary = plans.length ? planSummary(plans) : 'no controls';
-  const subtitle = [fixture.manufacturer, fixture.model, fixture.mode]
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <article className="fixture-card" aria-label={fixture.name}>
-      <header className="fixture-card-header">
-        <h3 className="fixture-card-title">{fixture.name}</h3>
-        <span className="fixture-card-addr">U{fixture.universe + 1} · {fixture.address + 1}</span>
-      </header>
-      {subtitle && <div className="fixture-card-sub">{subtitle}</div>}
-      <div className="fixture-card-meta">
-        <span>{fixture.channels} ch</span>
-        {fixture.type && <span>{fixture.type}</span>}
-        {fixture.headMap?.length ? (
-          <span>
-            {fixture.headMap.length} head{fixture.headMap.length > 1 ? 's' : ''}
-          </span>
-        ) : null}
-      </div>
-      <div className="fixture-card-plans">{summary}</div>
-    </article>
-  );
-});
+import FixturePanel from '../components/dmx/FixturePanel';
 
 export default function DmxView() {
   const fixtures = useDmxStore(s => s.fixtures);
-  const plans = useDmxStore(s => s.plans);
   const loading = useDmxStore(s => s.loading);
   const error = useDmxStore(s => s.error);
   const loadFixtures = useDmxStore(s => s.loadFixtures);
   const attachWS = useDmxStore(s => s.attachWS);
   const subscribeFixtures = useDmxStore(s => s.subscribeFixtures);
   const unsubscribeFixtures = useDmxStore(s => s.unsubscribeFixtures);
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     void loadFixtures();
@@ -72,11 +33,16 @@ export default function DmxView() {
   }, [fixtures, subscribeFixtures, unsubscribeFixtures]);
 
   const sorted = useMemo(() => {
-    return Array.from(fixtures.values()).sort((a, b) => {
-      if (a.universe !== b.universe) return a.universe - b.universe;
-      return a.address - b.address;
-    });
-  }, [fixtures]);
+    const needle = filter.trim().toLowerCase();
+    return Array.from(fixtures.values())
+      .filter(fx => !needle || fx.name.toLowerCase().includes(needle)
+        || (fx.model?.toLowerCase().includes(needle) ?? false)
+        || (fx.manufacturer?.toLowerCase().includes(needle) ?? false))
+      .sort((a, b) => {
+        if (a.universe !== b.universe) return a.universe - b.universe;
+        return a.address - b.address;
+      });
+  }, [fixtures, filter]);
 
   if (loading && sorted.length === 0) {
     return <div className="dmx-view dmx-view-empty">Loading fixtures…</div>;
@@ -91,15 +57,27 @@ export default function DmxView() {
       </div>
     );
   }
-  if (sorted.length === 0) {
+  const totalFixtures = fixtures.size;
+  if (totalFixtures === 0) {
     return <div className="dmx-view dmx-view-empty">No fixtures patched.</div>;
   }
 
   return (
     <div className="dmx-view" role="region" aria-label="DMX Control Panel">
+      <div className="dmx-toolbar">
+        <input
+          type="search"
+          className="dmx-search"
+          placeholder="Filter fixtures…"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          aria-label="Filter fixtures"
+        />
+        <span className="dmx-count">{sorted.length} / {totalFixtures}</span>
+      </div>
       <div className="dmx-grid">
         {sorted.map(fx => (
-          <FixtureCard key={fx.id} fixture={fx} plans={plans.get(fx.id) ?? []} />
+          <FixturePanel key={fx.id} fixture={fx} />
         ))}
       </div>
     </div>
