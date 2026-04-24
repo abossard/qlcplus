@@ -31,6 +31,13 @@
 > - **Enhanced OS2L plugin** — Bonjour/mDNS auto-discovery, song metadata, connection status LED, web diagnostics dashboard
 > - **Auto-reload last workspace** on startup (no `--openlast` flag needed)
 > - **Theme preset infrastructure** — switchable UI themes (includes "VS Code Dark")
+> - **Stairville Beam Ball 100 Quad LED fixture** — 4 DMX modes (7/11/15/49ch), infinite tilt rotation, 10 RGBW LED heads, custom ball-shaped 3D model
+> - **MCP fixture intelligence** — fixture type, RGBW/UV/Amber capabilities, per-head channel mapping (`headMap`), coarse/fine pairing, continuous rotation flags, server-instruction guidance
+> - **Virtual Console grid layout** — opt-in Grafana-style grid per frame with vertical compaction, collision push-down, cell snapping on drag/resize
+> - **Unified reflow** — QML auto-layout button and MCP `vc_reflow_frame` now use the same algorithm
+> - **Improved column detection** — overlap-tolerance + best-match prevents false column merges
+> - **Undo for layout operations** — Tardis batch support + Ctrl+Z/Ctrl+Shift+Z keyboard shortcuts
+> - **ComboBox dropdown fix** — string list models now show text in dropdown items
 >
 > ### Recent engine changes
 >
@@ -211,6 +218,57 @@
 >
 > See [`autolight/README.md`](autolight/README.md) for full documentation
 > (custom dimensions, architecture, color palettes, state file format).
+>
+> #### Virtual Console Grid Layout
+> Frames now support an opt-in **Grafana-style grid layout** mode with vertical
+> compaction and collision push-down. Widgets snap to grid cells during drag and resize.
+>
+> | Property | Default | Description |
+> |----------|---------|-------------|
+> | `layoutMode` | Free | `Free` (pixel positioning) or `Grid` (cell-based) |
+> | `gridColumns` | 12 | Number of grid columns |
+> | `gridRowHeight` | 0 (auto) | Row height in pixels (0 = use snapping size) |
+> | `gridCompact` | true | Vertical compaction — pull widgets up to fill gaps |
+>
+> **MCP tools:** `vc_set_grid_layout` (set per-frame), `vc_reflow_frame` with `algorithm="gridCompact"`.
+> Pixels remain the source of truth on disk — grid coordinates are derived at runtime.
+> Existing `.qxw` files load unchanged (absent `GridLayout` element = `LayoutFree`).
+>
+> #### Unified Reflow & Column Detection
+> The QML auto-layout button and MCP `vc_reflow_frame` now use the **same algorithm**
+> (previously they were separate implementations with different behavior).
+>
+> Column detection was improved with **overlap-tolerance + best-match**:
+> - Widgets with <10px overlap are treated as separate columns (fixes 1px false merges)
+> - When a widget overlaps multiple columns, it joins the one with the largest overlap
+> - Configurable via `overlapTolerance` in `ReflowOptions`
+>
+> #### Undo for Layout Operations
+> Layout operations (auto-layout, MCP reflow) are now **fully undoable** via the
+> existing Tardis undo engine. Keyboard shortcuts added:
+>
+> | Shortcut | Action |
+> |----------|--------|
+> | Ctrl+Z | Undo (edit mode only) |
+> | Ctrl+Shift+Z | Redo (edit mode only) |
+>
+> A `beginBatch`/`endBatch` mechanism groups all widget moves from a single reflow
+> into one undo step. Text input fields retain their own Ctrl+Z behavior.
+>
+> #### MCP Fixture Intelligence
+> `query_fixtures` and `query_fixture_channels` now return richer data for AI agents:
+>
+> | New field | Where | Example |
+> |-----------|-------|---------|
+> | `type` | fixture | `"Moving Head"`, `"Dimmer"`, `"LED Bar (Beams)"` |
+> | `capabilities` | fixture | `["RGBW", "Pan/Tilt", "ContinuousTiltRotation", "UV"]` |
+> | `headMap` | fixture | `[{index: 0, channels: [7,8,9,10], rgbChannels: [7,8,9]}]` |
+> | `controlByte` | channel | `"coarse"` or `"fine"` (16-bit pair identification) |
+> | `headIndex` | channel | Which head/LED pixel the channel belongs to |
+> | `defaultValue` | channel | DMX default value for safe scene building |
+>
+> Server instructions now include guidance on RGBW independence, continuous rotation
+> interpretation, coarse/fine pairing, and multi-head control.
 >
 > ### Install from DMG (macOS)
 > Download the latest DMG from [Actions artifacts](https://github.com/abossard/qlcplus/actions).
