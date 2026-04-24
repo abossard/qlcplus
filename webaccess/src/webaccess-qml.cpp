@@ -246,6 +246,7 @@ static QString sliderDisplayValue(VCSlider *slider)
 static QString mimeTypeForPath(const QString &path)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
+    if (ext == "html" || ext == "htm") return "text/html";
     if (ext == "otf") return "font/otf";
     if (ext == "ttf") return "font/ttf";
     if (ext == "woff") return "font/woff";
