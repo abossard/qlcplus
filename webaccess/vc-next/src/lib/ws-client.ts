@@ -58,8 +58,15 @@ export function createWSClient(getUrl?: () => string): WSClient {
       };
 
       socket.onmessage = (ev: MessageEvent) => {
-        const parts = String(ev.data).split('|');
-        client.onMessage?.(parts);
+        const raw = String(ev.data);
+        // JSON frames (used by the DMX channel) are delivered intact as a
+        // single-element array so downstream handlers can JSON.parse them
+        // without losing data to the pipe split.
+        if (raw.length > 0 && raw.charCodeAt(0) === 0x7b /* '{' */) {
+          client.onMessage?.([raw]);
+          return;
+        }
+        client.onMessage?.(raw.split('|'));
       };
     },
 

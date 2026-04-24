@@ -21,10 +21,13 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QColor>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QTimer>
 #include <qmath.h>
 
 #include "webaccess-qml.h"
@@ -47,6 +50,15 @@
 #include "vcclock.h"
 #include "vcxypad.h"
 #include "vcpage.h"
+
+#include "doc.h"
+#include "fixture.h"
+#include "qlcchannel.h"
+#include "qlccapability.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
+#include "qlcfixturehead.h"
+#include "qlcphysical.h"
 
 #include "function.h"
 #include "chaser.h"
@@ -413,6 +425,9 @@ WebAccessQml::WebAccessQml(Doc *doc, VirtualConsole *vcInstance, SimpleDesk *sdI
     connect(m_doc->inputOutputMap(), SIGNAL(grandMasterValueChanged(uchar)),
             this, SLOT(slotGrandMasterValueChanged(uchar)));
 
+    connect(m_doc->inputOutputMap(), &InputOutputMap::universeWritten,
+            this, &WebAccessQml::slotUniverseWritten, Qt::QueuedConnection);
+
     connect(m_vc, SIGNAL(selectedPageChanged(int)),
             this, SLOT(slotSelectedPageChanged(int)));
 }
@@ -461,6 +476,41 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
         if (serveVCNextFile(resp, "/index.html"))
             return;
         sendNotFound(resp);
+        return;
+    }
+    else if (reqUrl == "/api/fixtures")
+    {
+        QByteArray json = buildFixturesJson();
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
+        return;
+    }
+    else if (reqUrl == "/api/channels")
+    {
+        QList<quint32> ids;
+        QString idsParam = req->url().query(QUrl::FullyDecoded);
+        // Parse "fixtureIDs=0,1,2" from query string
+        QStringList pairs = idsParam.split('&', Qt::SkipEmptyParts);
+        for (const QString &pair : pairs)
+        {
+            if (pair.startsWith("fixtureIDs="))
+            {
+                QString val = pair.mid(QString("fixtureIDs=").length());
+                for (const QString &part : val.split(',', Qt::SkipEmptyParts))
+                {
+                    bool ok = false;
+                    quint32 id = part.trimmed().toUInt(&ok);
+                    if (ok) ids.append(id);
+                }
+            }
+        }
+        QByteArray json = buildChannelsJson(ids);
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
         return;
     }
     else if (reqUrl.startsWith("/qrc/"))
@@ -602,6 +652,17 @@ void WebAccessQml::slotHandleWebSocketRequest(QHttpConnection *conn, QString dat
 {
     if (conn == nullptr)
         return;
+
+    // Handle JSON messages (DMX_* protocol)
+    if (data.startsWith('{'))
+    {
+        QJsonDocument doc = QJsonDocument::fromJson(data.toUtf8());
+        if (!doc.isNull() && doc.isObject())
+        {
+            handleDmxJson(conn, doc.object());
+            return;
+        }
+    }
 
     WebAccessUser *user = static_cast<WebAccessUser*>(conn->userData);
 
@@ -1146,6 +1207,7 @@ void WebAccessQml::slotHandleWebSocketRequest(QHttpConnection *conn, QString dat
 void WebAccessQml::slotHandleWebSocketClose(QHttpConnection *conn)
 {
     qDebug() << "Websocket Connection closed";
+    cleanupDmxSubscription(conn);
     if (conn->userData)
     {
         WebAccessUser* user = static_cast<WebAccessUser*>(conn->userData);
@@ -1984,4 +2046,486 @@ void WebAccessQml::slotGrandMasterValueChanged(uchar value)
 void WebAccessQml::handleAutostartProject(const QString &path)
 {
     emit storeAutostartProject(path);
+}
+
+// ---------- REST API: /api/fixtures and /api/channels ----------
+
+namespace {
+
+QJsonObject physicalToJsonObj(const QLCPhysical &phy)
+{
+    QJsonObject o;
+    if (phy.weight() > 0) o.insert("weight", phy.weight());
+    if (phy.width() > 0) o.insert("width", phy.width());
+    if (phy.height() > 0) o.insert("height", phy.height());
+    if (phy.depth() > 0) o.insert("depth", phy.depth());
+    if (!phy.bulbType().isEmpty()) o.insert("bulbType", phy.bulbType());
+    if (phy.bulbLumens() > 0) o.insert("bulbLumens", phy.bulbLumens());
+    if (phy.bulbColourTemperature() > 0) o.insert("bulbColourTemperature", phy.bulbColourTemperature());
+    if (!phy.lensName().isEmpty()) o.insert("lensName", phy.lensName());
+    if (phy.lensDegreesMin() > 0) o.insert("lensDegreesMin", phy.lensDegreesMin());
+    if (phy.lensDegreesMax() > 0) o.insert("lensDegreesMax", phy.lensDegreesMax());
+    if (!phy.focusType().isEmpty()) o.insert("focusType", phy.focusType());
+    if (phy.focusPanMax() > 0) o.insert("focusPanMax", phy.focusPanMax());
+    if (phy.focusTiltMax() > 0) o.insert("focusTiltMax", phy.focusTiltMax());
+    if (phy.powerConsumption() > 0) o.insert("powerConsumption", (int)phy.powerConsumption());
+    if (!phy.dmxConnector().isEmpty()) o.insert("dmxConnector", phy.dmxConnector());
+    return o;
+}
+
+QJsonArray fixtureCapabilitiesArr(const Fixture *fxi)
+{
+    QSet<QString> seen;
+    QJsonArray caps;
+    bool hasPan = false, hasTilt = false;
+    bool hasR = false, hasG = false, hasB = false;
+    bool hasC = false, hasM = false, hasY = false;
+    bool hasW = false, hasA = false, hasUV = false;
+    bool hasContinuousPan = false, hasContinuousTilt = false;
+
+    auto addOnce = [&](const QString &c) {
+        if (!seen.contains(c)) { seen.insert(c); caps.append(c); }
+    };
+
+    for (quint32 ch = 0; ch < fxi->channels(); ch++)
+    {
+        const QLCChannel *channel = fxi->channel(ch);
+        if (!channel) continue;
+        switch (channel->group())
+        {
+            case QLCChannel::Pan:
+                hasPan = true;
+                if (!hasContinuousPan)
+                {
+                    for (const QLCCapability *cap : channel->capabilities())
+                    {
+                        auto p = cap->preset();
+                        if (p >= QLCCapability::RotationClockwise && p <= QLCCapability::RotationCounterClockwiseFastToSlow)
+                            { hasContinuousPan = true; break; }
+                    }
+                }
+                break;
+            case QLCChannel::Tilt:
+                hasTilt = true;
+                if (!hasContinuousTilt)
+                {
+                    for (const QLCCapability *cap : channel->capabilities())
+                    {
+                        auto p = cap->preset();
+                        if (p >= QLCCapability::RotationClockwise && p <= QLCCapability::RotationCounterClockwiseFastToSlow)
+                            { hasContinuousTilt = true; break; }
+                    }
+                }
+                break;
+            case QLCChannel::Colour: addOnce("Colour"); break;
+            case QLCChannel::Gobo: addOnce("Gobo"); break;
+            case QLCChannel::Shutter: addOnce("Shutter"); break;
+            case QLCChannel::Beam: addOnce("Beam"); break;
+            case QLCChannel::Prism: addOnce("Prism"); break;
+            case QLCChannel::Intensity:
+                switch (channel->colour())
+                {
+                    case QLCChannel::Red: hasR = true; break;
+                    case QLCChannel::Green: hasG = true; break;
+                    case QLCChannel::Blue: hasB = true; break;
+                    case QLCChannel::Cyan: hasC = true; break;
+                    case QLCChannel::Magenta: hasM = true; break;
+                    case QLCChannel::Yellow: hasY = true; break;
+                    case QLCChannel::White: hasW = true; break;
+                    case QLCChannel::Amber: hasA = true; break;
+                    case QLCChannel::UV: hasUV = true; break;
+                    default: break;
+                }
+                break;
+            default: break;
+        }
+    }
+    if (hasPan && hasTilt) caps.append("Pan/Tilt");
+    if (hasR && hasG && hasB)
+    {
+        if (hasW) caps.append("RGBW");
+        else caps.append("RGB");
+    }
+    if (hasC && hasM && hasY) caps.append("CMY");
+    if (hasA) caps.append("Amber");
+    if (hasUV) caps.append("UV");
+    if (hasContinuousPan) caps.append("ContinuousPanRotation");
+    if (hasContinuousTilt) caps.append("ContinuousTiltRotation");
+    return caps;
+}
+
+QJsonObject fixtureToJsonObj(const Fixture *fxi)
+{
+    QJsonObject entry;
+    entry.insert("id", (qint64)fxi->id());
+    entry.insert("name", fxi->name());
+    entry.insert("universe", (int)fxi->universe());
+    entry.insert("address", (int)fxi->address());
+    entry.insert("channels", (int)fxi->channels());
+    entry.insert("heads", fxi->heads());
+
+    if (fxi->fixtureDef())
+    {
+        entry.insert("manufacturer", fxi->fixtureDef()->manufacturer());
+        entry.insert("model", fxi->fixtureDef()->model());
+        entry.insert("type", QLCFixtureDef::typeToString(fxi->fixtureDef()->type()));
+    }
+
+    if (fxi->fixtureMode())
+    {
+        entry.insert("mode", fxi->fixtureMode()->name());
+
+        const auto &modeHeads = fxi->fixtureMode()->heads();
+        if (!modeHeads.isEmpty())
+        {
+            QJsonArray headMap;
+            for (int h = 0; h < modeHeads.size(); h++)
+            {
+                const QLCFixtureHead &head = modeHeads[h];
+                QJsonObject hEntry;
+                hEntry.insert("index", h);
+                QJsonArray chList;
+                for (quint32 c : head.channels())
+                    chList.append((int)c);
+                hEntry.insert("channels", chList);
+
+                QVector<quint32> rgb = fxi->rgbChannels(h);
+                if (rgb.size() == 3)
+                {
+                    QJsonArray a;
+                    a.append((int)rgb[0]); a.append((int)rgb[1]); a.append((int)rgb[2]);
+                    hEntry.insert("rgbChannels", a);
+                }
+                QVector<quint32> cmy = fxi->cmyChannels(h);
+                if (cmy.size() == 3)
+                {
+                    QJsonArray a;
+                    a.append((int)cmy[0]); a.append((int)cmy[1]); a.append((int)cmy[2]);
+                    hEntry.insert("cmyChannels", a);
+                }
+                headMap.append(hEntry);
+            }
+            entry.insert("headMap", headMap);
+        }
+
+        QJsonObject phyJson = physicalToJsonObj(fxi->fixtureMode()->physical());
+        if (!phyJson.isEmpty())
+            entry.insert("physical", phyJson);
+    }
+
+    entry.insert("capabilities", fixtureCapabilitiesArr(fxi));
+    return entry;
+}
+
+QJsonObject capabilityToJsonObj(const QLCCapability *cap)
+{
+    QJsonObject o;
+    o.insert("min", (int)cap->min());
+    o.insert("max", (int)cap->max());
+    o.insert("name", cap->name());
+    QString presetStr = QLCCapability::presetToString(cap->preset());
+    if (!presetStr.isEmpty() && cap->preset() != QLCCapability::Custom)
+        o.insert("preset", presetStr);
+
+    switch (cap->presetType())
+    {
+        case QLCCapability::SingleColor:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                o.insert("color1", res.value<QColor>().name());
+            break;
+        }
+        case QLCCapability::DoubleColor:
+        {
+            QVariant res0 = cap->resource(0);
+            QVariant res1 = cap->resource(1);
+            if (res0.isValid()) o.insert("color1", res0.value<QColor>().name());
+            if (res1.isValid()) o.insert("color2", res1.value<QColor>().name());
+            break;
+        }
+        case QLCCapability::Picture:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                o.insert("image", res.toString());
+            break;
+        }
+        case QLCCapability::SingleValue:
+        {
+            QVariant res = cap->resource(0);
+            if (res.isValid())
+                o.insert("value", res.toFloat());
+            QString units = cap->presetUnits();
+            if (!units.isEmpty()) o.insert("unit", units);
+            break;
+        }
+        case QLCCapability::DoubleValue:
+        {
+            QVariant res0 = cap->resource(0);
+            QVariant res1 = cap->resource(1);
+            if (res0.isValid()) o.insert("valueMin", res0.toFloat());
+            if (res1.isValid()) o.insert("valueMax", res1.toFloat());
+            QString units = cap->presetUnits();
+            if (!units.isEmpty()) o.insert("unit", units);
+            break;
+        }
+        default:
+            break;
+    }
+    return o;
+}
+
+} // namespace
+
+QByteArray WebAccessQml::buildFixturesJson()
+{
+    QJsonArray arr;
+    if (m_doc)
+    {
+        for (Fixture *fxi : m_doc->fixtures())
+        {
+            if (!fxi) continue;
+            arr.append(fixtureToJsonObj(fxi));
+        }
+    }
+    return QJsonDocument(arr).toJson(QJsonDocument::Compact);
+}
+
+QByteArray WebAccessQml::buildChannelsJson(const QList<quint32> &fixtureIDs)
+{
+    QJsonArray arr;
+    if (!m_doc) return QJsonDocument(arr).toJson(QJsonDocument::Compact);
+
+    QList<Fixture *> targets;
+    if (fixtureIDs.isEmpty())
+    {
+        targets = m_doc->fixtures();
+    }
+    else
+    {
+        for (quint32 id : fixtureIDs)
+        {
+            Fixture *f = m_doc->fixture(id);
+            if (f) targets.append(f);
+        }
+    }
+
+    for (Fixture *fxi : targets)
+    {
+        if (!fxi) continue;
+        for (quint32 ch = 0; ch < fxi->channels(); ch++)
+        {
+            const QLCChannel *channel = fxi->channel(ch);
+            if (!channel) continue;
+
+            QJsonObject entry;
+            entry.insert("fixtureID", (qint64)fxi->id());
+            entry.insert("index", (int)ch);
+            entry.insert("name", channel->name());
+            entry.insert("group", QLCChannel::groupToString(channel->group()));
+            entry.insert("colour", QLCChannel::colourToString(channel->colour()));
+            entry.insert("preset", QLCChannel::presetToString(channel->preset()));
+            entry.insert("controlByte", channel->controlByte() == QLCChannel::MSB ? "coarse" : "fine");
+            entry.insert("defaultValue", (int)channel->defaultValue());
+
+            if (fxi->fixtureMode())
+            {
+                int headIdx = fxi->fixtureMode()->headForChannel(ch);
+                if (headIdx >= 0)
+                    entry.insert("headIndex", headIdx);
+            }
+
+            QJsonArray caps;
+            for (const QLCCapability *cap : channel->capabilities())
+                caps.append(capabilityToJsonObj(cap));
+            entry.insert("capabilities", caps);
+
+            arr.append(entry);
+        }
+    }
+    return QJsonDocument(arr).toJson(QJsonDocument::Compact);
+}
+
+// ─── DMX subscription / push implementation ────────────────────────────
+
+void WebAccessQml::handleDmxJson(QHttpConnection *conn, const QJsonObject &msg)
+{
+    QString cmd = msg["cmd"].toString();
+
+    if (cmd == "DMX_SUB")
+    {
+        QJsonArray ids = msg["fixtureIDs"].toArray();
+        DmxSubscription &sub = m_dmxSubs[conn];
+        sub.lastActivity = QDateTime::currentMSecsSinceEpoch();
+        for (const QJsonValue &v : ids)
+            sub.fixtureIDs.insert(v.toInt());
+        rebuildSubscribedAddrs(conn);
+        for (const QJsonValue &v : ids)
+            sendDmxSnapshot(conn, v.toInt());
+        if (!sub.flushTimer)
+        {
+            sub.flushTimer = new QTimer(this);
+            sub.flushTimer->setInterval(50);
+            sub.flushTimer->setSingleShot(false);
+            connect(sub.flushTimer, &QTimer::timeout, this, [this, conn]() {
+                slotFlushDmxDeltas(conn);
+            });
+            sub.flushTimer->start();
+        }
+    }
+    else if (cmd == "DMX_UNSUB")
+    {
+        QJsonArray ids = msg["fixtureIDs"].toArray();
+        if (m_dmxSubs.contains(conn))
+        {
+            DmxSubscription &sub = m_dmxSubs[conn];
+            for (const QJsonValue &v : ids)
+                sub.fixtureIDs.remove(v.toInt());
+            rebuildSubscribedAddrs(conn);
+            if (sub.fixtureIDs.isEmpty())
+                cleanupDmxSubscription(conn);
+        }
+    }
+    else if (cmd == "DMX_UNSUB_ALL")
+    {
+        cleanupDmxSubscription(conn);
+    }
+    else if (cmd == "DMX_HEARTBEAT")
+    {
+        if (m_dmxSubs.contains(conn))
+            m_dmxSubs[conn].lastActivity = QDateTime::currentMSecsSinceEpoch();
+    }
+}
+
+void WebAccessQml::rebuildSubscribedAddrs(QHttpConnection *conn)
+{
+    DmxSubscription &sub = m_dmxSubs[conn];
+    sub.subscribedAddrs.clear();
+    for (quint32 fxID : qAsConst(sub.fixtureIDs))
+    {
+        Fixture *fxi = m_doc->fixture(fxID);
+        if (!fxi) continue;
+        quint32 uni = fxi->universe();
+        int addr = fxi->address();
+        int count = fxi->channels();
+        if (!sub.subscribedAddrs.contains(uni))
+            sub.subscribedAddrs[uni] = QBitArray(512, false);
+        QBitArray &mask = sub.subscribedAddrs[uni];
+        for (int i = 0; i < count && (addr + i) < 512; ++i)
+            mask.setBit(addr + i, true);
+    }
+}
+
+void WebAccessQml::sendDmxSnapshot(QHttpConnection *conn, quint32 fixtureID)
+{
+    Fixture *fxi = m_doc->fixture(fixtureID);
+    if (!fxi) return;
+
+    InputOutputMap *io = m_doc->inputOutputMap();
+    QList<Universe *> unis = io->claimUniverses();
+    quint32 uniIdx = fxi->universe();
+    if ((int)uniIdx >= unis.size()) { io->releaseUniverses(false); return; }
+
+    const QByteArray preGM = unis[uniIdx]->preGMValues();
+    io->releaseUniverses(false);
+
+    int addr = fxi->address();
+    int count = fxi->channels();
+
+    QJsonArray values;
+    for (int i = 0; i < count && (addr + i) < preGM.size(); ++i)
+        values.append((int)(uchar)preGM.at(addr + i));
+
+    QJsonObject state;
+    state["cmd"] = QString("DMX_STATE");
+    state["universe"] = (int)uniIdx;
+    state["fixtureID"] = (int)fixtureID;
+    state["address"] = addr;
+    state["count"] = count;
+    state["values"] = values;
+
+    conn->webSocketWrite(QString::fromUtf8(QJsonDocument(state).toJson(QJsonDocument::Compact)));
+
+    DmxSubscription &sub = m_dmxSubs[conn];
+    if (!sub.lastSent.contains(uniIdx))
+        sub.lastSent[uniIdx] = QByteArray(512, 0);
+    QByteArray &last = sub.lastSent[uniIdx];
+    for (int i = 0; i < count && (addr + i) < last.size(); ++i)
+        last[addr + i] = preGM.at(addr + i);
+}
+
+void WebAccessQml::cleanupDmxSubscription(QHttpConnection *conn)
+{
+    if (!m_dmxSubs.contains(conn)) return;
+    DmxSubscription &sub = m_dmxSubs[conn];
+    if (sub.flushTimer)
+    {
+        sub.flushTimer->stop();
+        sub.flushTimer->deleteLater();
+    }
+    m_dmxSubs.remove(conn);
+}
+
+void WebAccessQml::slotUniverseWritten(quint32 uniIdx, QByteArray data)
+{
+    for (auto it = m_dmxSubs.begin(); it != m_dmxSubs.end(); ++it)
+    {
+        DmxSubscription &sub = it.value();
+        if (!sub.subscribedAddrs.contains(uniIdx)) continue;
+        const QBitArray &mask = sub.subscribedAddrs[uniIdx];
+        QByteArray &last = sub.lastSent[uniIdx];
+        if (last.size() != data.size())
+            last = QByteArray(data.size(), 0);
+
+        auto &deltas = sub.pendingDeltas[uniIdx];
+        for (int a = 0; a < qMin(data.size(), 512); ++a)
+        {
+            if (!mask.testBit(a)) continue;
+            if (data.at(a) != last.at(a))
+            {
+                last[a] = data.at(a);
+                deltas.append(qMakePair(a, (uchar)data.at(a)));
+            }
+        }
+    }
+}
+
+void WebAccessQml::slotFlushDmxDeltas(QHttpConnection *conn)
+{
+    if (!m_dmxSubs.contains(conn)) return;
+    DmxSubscription &sub = m_dmxSubs[conn];
+
+    // Heartbeat TTL: auto-release after 30s idle
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - sub.lastActivity > 30000)
+    {
+        for (quint32 fxID : qAsConst(sub.fixtureIDs))
+        {
+            Fixture *fxi = m_doc->fixture(fxID);
+            if (!fxi) continue;
+            for (quint32 i = 0; i < fxi->channels(); ++i)
+                m_sd->resetAbsoluteChannel(fxi->universe() * 512 + fxi->address() + i);
+        }
+        cleanupDmxSubscription(conn);
+        return;
+    }
+
+    for (auto uniIt = sub.pendingDeltas.begin(); uniIt != sub.pendingDeltas.end(); ++uniIt)
+    {
+        auto &deltas = uniIt.value();
+        if (deltas.isEmpty()) continue;
+
+        QJsonArray changes;
+        for (const auto &pair : qAsConst(deltas))
+            changes.append(QJsonArray{pair.first, (int)pair.second});
+
+        QJsonObject msg;
+        msg["cmd"] = QString("DMX_DELTA");
+        msg["universe"] = (int)uniIt.key();
+        msg["changes"] = changes;
+
+        conn->webSocketWrite(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));
+        deltas.clear();
+    }
 }

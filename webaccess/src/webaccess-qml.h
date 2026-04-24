@@ -21,8 +21,18 @@
 #define WEBACCESS_QML_H
 
 #include <QSet>
+#include <QHash>
+#include <QBitArray>
+#include <QVector>
+#include <QPair>
+#include <QByteArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 #include "webaccessbase.h"
+
+class QTimer;
 
 class VirtualConsole;
 class SimpleDesk;
@@ -62,6 +72,9 @@ protected slots:
     void slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp) override;
     void slotHandleWebSocketRequest(QHttpConnection *conn, QString data) override;
     void slotHandleWebSocketClose(QHttpConnection *conn) override;
+
+    void slotUniverseWritten(quint32 universeIdx, QByteArray data);
+    void slotFlushDmxDeltas(QHttpConnection *conn);
 
     void slotFunctionStarted(quint32 fid) override;
     void slotFunctionStopped(quint32 fid) override;
@@ -105,6 +118,8 @@ protected:
     void handleProjectLoad(const QByteArray &projectXml) override;
 
     QByteArray getVCJson();
+    QByteArray buildFixturesJson();
+    QByteArray buildChannelsJson(const QList<quint32> &fixtureIDs);
     QJsonObject baseWidgetToJson(const VCWidget *widget);
     QJsonObject widgetToJson(const VCWidget *widget);
     QJsonObject frameToJson(const VCFrame *frame);
@@ -115,6 +130,24 @@ protected:
 
 protected:
     QSet<quint32> m_connectedWidgets;
+
+    // ---- DMX subscription / push -----------------------------------------
+    struct DmxSubscription
+    {
+        QSet<quint32> fixtureIDs;
+        QHash<quint32, QBitArray> subscribedAddrs;          // universe -> address mask
+        QHash<quint32, QByteArray> lastSent;                // universe -> last sent values
+        QHash<quint32, QVector<QPair<int, uchar>>> pendingDeltas; // universe -> [(addr,val)]
+        QTimer *flushTimer = nullptr;
+        qint64 lastActivity = 0;
+    };
+
+    void handleDmxJson(QHttpConnection *conn, const QJsonObject &msg);
+    void rebuildSubscribedAddrs(QHttpConnection *conn);
+    void sendDmxSnapshot(QHttpConnection *conn, quint32 fixtureID);
+    void cleanupDmxSubscription(QHttpConnection *conn);
+
+    QHash<QHttpConnection *, DmxSubscription> m_dmxSubs;
 };
 
 #endif // WEBACCESS_QML_H
