@@ -1,0 +1,929 @@
+:root {
+  --bg-app: #0f1419;
+  --bg-page: #16213e;
+  --bg-panel: #1a1a2e;
+  --bg-widget: #24263b;
+  --bg-widget-hover: #2d3050;
+  --bg-elev: #2a2d4a;
+  --bg-track: #0a0c14;
+  --bg-track-fill: #1f2940;
+  --border: #2d3050;
+  --border-strong: #3d4070;
+  --text: #e7e9ef;
+  --text-dim: #9aa0b4;
+  --text-muted: #6b7080;
+  --accent: #53b8e0;
+  --accent-strong: #3aa0cc;
+  --accent-bright: #7dd3fc;
+  --danger: #e94560;
+  --success: #4ade80;
+  --warn: #f59e0b;
+  --active: #53b8e0;
+  --active-bg: rgba(83, 184, 224, 0.18);
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-hi: 0 4px 14px rgba(0, 0, 0, 0.55);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  --transition: 120ms ease;
+  --min-hit: 44px;
+  --header-grad: linear-gradient(180deg, #21243e 0%, #181a2c 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-app);
+  color: var(--text);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+input, select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ────────────── App Shell ────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  min-height: 48px;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.2);
+  transition: background var(--transition), box-shadow var(--transition);
+  flex-shrink: 0;
+}
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25);
+}
+.status-dot.demo {
+  background: var(--warn);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+}
+.status-text {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.compact-toggle {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  background: var(--bg-widget);
+  color: var(--text-dim);
+  display: none; /* visible on mobile */
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  margin-left: 6px;
+}
+.compact-toggle:hover { background: var(--bg-widget-hover); color: var(--text); }
+.compact-toggle.on { background: var(--accent); color: white; }
+
+.page-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex: 1 1 auto;
+  padding: 2px;
+}
+.page-tabs::-webkit-scrollbar { height: 4px; }
+.page-tabs::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+.page-tab {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  min-height: 36px;
+  border-radius: var(--radius);
+  background: var(--bg-widget);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+.page-tab:hover { background: var(--bg-widget-hover); color: var(--text); }
+.page-tab.active {
+  background: var(--active-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ────────────── Viewport / Scaled Page ────────────── */
+.viewport {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.scale-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.page-root {
+  position: relative;
+  background: var(--bg-page);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px;
+}
+
+/* ────────────── Grand Master ────────────── */
+.grand-master {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+.grand-master label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.grand-master .gm-value {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+  min-width: 44px;
+  text-align: right;
+}
+.grand-master input[type="range"] {
+  flex: 1 1 auto;
+  accent-color: var(--accent);
+  height: 32px;
+}
+
+/* ────────────── Widget Base ────────────── */
+.vc-widget-pos {
+  position: absolute;
+  box-sizing: border-box;
+}
+.vc-widget {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: var(--bg-widget);
+  color: var(--text);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  transition: background var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+.vc-widget.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ────────────── Button ────────────── */
+.vc-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  transition: background var(--transition), transform 80ms ease, box-shadow var(--transition);
+  /* Don't force 44px when widget itself is smaller — hit area scales with widget. */
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.vc-button:hover { filter: brightness(1.15); }
+.vc-button:active { transform: scale(0.97); }
+.vc-button.state-active {
+  box-shadow:
+    inset 0 0 0 2px var(--accent-bright),
+    inset 0 0 0 4px rgba(0, 0, 0, 0.4),
+    0 0 18px rgba(83, 184, 224, 0.55);
+}
+/* Stronger feedback when bg is bright — invert the glow. */
+.vc-button.bright-bg.state-active {
+  box-shadow:
+    inset 0 0 0 2px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 4px rgba(255, 255, 255, 0.35),
+    0 0 18px rgba(255, 255, 255, 0.4);
+}
+.vc-button .btn-icon {
+  width: 26px;
+  height: 26px;
+  display: block;
+  flex-shrink: 0;
+}
+.vc-button .btn-caption {
+  font-size: 13px;
+  line-height: 1.2;
+  /* Two-line clamp with ellipsis — works for both tight and wide buttons. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+/* ────────────── Slider ────────────── */
+.vc-slider {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 4px;
+  gap: 4px;
+}
+.vc-slider .s-value {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 12px;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 3px 4px;
+  flex-shrink: 0;
+  background: var(--bg-track);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  /* Reserve consistent width so 0..255 doesn't jiggle */
+  min-width: 44px;
+  align-self: center;
+  letter-spacing: 0.02em;
+}
+.vc-slider .s-track {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  position: relative;
+  padding: 6px 2px;
+  min-height: 60px;
+}
+.vc-slider .s-caption {
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-dim);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.vc-slider .s-cng {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+  z-index: 2;
+}
+.vc-slider .s-monitor {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 6px;
+  width: 4px;
+  background: var(--warn);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow: 0 0 6px var(--warn);
+}
+.vc-slider .s-override {
+  flex: 0 0 auto;
+  margin: 4px auto 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  background: var(--danger);
+  color: white;
+  border-radius: var(--radius);
+  min-height: 28px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.vc-slider .s-override:hover { filter: brightness(1.1); }
+
+/* Pro vertical fader: dark recessed track, bright tactile thumb. */
+.vslider {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 36px;
+  height: 100%;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  /* Native accent-color won't render the tactile look we want — use webkit pseudo. */
+  accent-color: var(--accent);
+}
+.vslider:active { cursor: grabbing; }
+
+/* WebKit / Blink — track + thumb */
+.vslider::-webkit-slider-runnable-track {
+  width: 8px;
+  background: linear-gradient(180deg, var(--bg-track) 0%, var(--bg-track-fill) 100%);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-inset);
+}
+.vslider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 18px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #f0f3fa 0%, #b8c1d6 50%, #8a92a8 100%);
+  border: 1px solid #2a2d4a;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  /* Center thumb on the 8px track */
+  margin-left: -10px;
+}
+.vslider::-webkit-slider-thumb:active { cursor: grabbing; }
+
+/* Firefox */
+.vslider::-moz-range-track {
+  width: 8px;
+  background: linear-gradient(180deg, var(--bg-track) 0%, var(--bg-track-fill) 100%);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.vslider::-moz-range-thumb {
+  width: 28px;
+  height: 18px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #f0f3fa 0%, #b8c1d6 50%, #8a92a8 100%);
+  border: 1px solid #2a2d4a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
+
+/* Knob */
+.vc-knob {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, var(--bg-widget-hover), var(--bg-elev) 70%);
+  border: 2px solid var(--border-strong);
+  position: relative;
+  margin: auto;
+  touch-action: none;
+  cursor: grab;
+  box-shadow: var(--shadow), inset 0 1px 2px rgba(255, 255, 255, 0.08);
+}
+.vc-knob:active { cursor: grabbing; }
+.vc-knob::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 3px;
+  height: 32%;
+  background: var(--accent-bright);
+  border-radius: 2px;
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) rotate(var(--knob-angle, 0deg));
+  box-shadow: 0 0 6px var(--accent);
+}
+
+/* ────────────── Frame ────────────── */
+.vc-frame {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.vc-frame.soloframe {
+  border-color: var(--accent);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(83, 184, 224, 0.2);
+}
+.frame-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--header-grad);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 4px rgba(0, 0, 0, 0.3);
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  /* Sit above body content so it can never be visually overlapped. */
+  position: relative;
+  z-index: 2;
+}
+.frame-header .frame-caption {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.frame-header .frame-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
+  font-size: 14px;
+  transition: background var(--transition), color var(--transition);
+}
+.frame-header .frame-btn:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+.frame-header .frame-btn.enable.on {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 0 8px rgba(83, 184, 224, 0.5);
+}
+.frame-header .frame-page-label {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(83, 184, 224, 0.1);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.frame-body {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+  /* Children are absolutely positioned by WidgetRenderer; clip anything that
+     would otherwise spill across the frame border. */
+}
+.frame-collapsed .frame-body { display: none; }
+
+/* ────────────── CueList ────────────── */
+.vc-cuelist {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-widget);
+}
+.cuelist-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+.cuelist-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-width: 0;
+}
+.cuelist-scroll::-webkit-scrollbar { width: 6px; }
+.cuelist-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+.cuelist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cuelist-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  text-align: left;
+  padding: 6px 8px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cuelist-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.cuelist-table tr { cursor: pointer; transition: background var(--transition); }
+.cuelist-table tr:hover { background: var(--bg-widget-hover); }
+.cuelist-table tr.current {
+  background: var(--active-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+.cuelist-side {
+  flex: 0 0 auto;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  gap: 4px;
+}
+.cuelist-side .side-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  min-height: 14px;
+}
+.cuelist-side .side-label.active { color: var(--accent); font-weight: 600; }
+.cuelist-controls {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.cuelist-controls button {
+  flex: 1 1 0;
+  min-height: var(--min-hit);
+  border-radius: var(--radius);
+  background: var(--bg-widget);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background var(--transition);
+}
+.cuelist-controls button:hover { background: var(--bg-widget-hover); }
+.cuelist-controls button.playing { background: var(--accent); color: white; }
+.cuelist-controls .icon { width: 16px; height: 16px; }
+
+/* ────────────── XYPad ────────────── */
+.vc-xypad {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 4px;
+}
+.xypad-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.xypad-canvas {
+  flex: 1 1 auto;
+  position: relative;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+  min-height: 80px;
+}
+.xypad-canvas .grid-v,
+.xypad-canvas .grid-h {
+  position: absolute;
+  background: var(--border);
+  pointer-events: none;
+}
+.xypad-canvas .grid-v { width: 1px; height: 100%; top: 0; }
+.xypad-canvas .grid-h { height: 1px; width: 100%; left: 0; }
+.xypad-cursor {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid white;
+  box-shadow: 0 0 8px rgba(83, 184, 224, 0.65);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: background var(--transition);
+}
+.xypad-display {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 11px;
+  text-align: center;
+  color: var(--accent);
+}
+.xypad-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0 0;
+}
+.xypad-presets button {
+  flex: 1 1 auto;
+  padding: 6px 8px;
+  min-height: 32px;
+  font-size: 11px;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+}
+.xypad-presets button:hover { background: var(--bg-widget-hover); color: var(--text); }
+
+/* ────────────── Label ────────────── */
+.vc-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  text-align: center;
+  word-break: break-word;
+  font-weight: 500;
+}
+
+/* ────────────── Clock ────────────── */
+.vc-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  gap: 4px;
+}
+.clock-time {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: clamp(18px, 4vw, 28px);
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+.clock-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.clock-controls {
+  display: flex;
+  gap: 4px;
+}
+.clock-controls button {
+  padding: 6px 10px;
+  min-height: 32px;
+  min-width: 40px;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  font-size: 11px;
+  color: var(--text);
+}
+.clock-controls button:hover { background: var(--bg-widget-hover); }
+.clock-controls button.on { background: var(--accent); color: white; }
+
+/* ────────────── Speed Dial ────────────── */
+.vc-speed {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 4px;
+  align-items: stretch;
+}
+.speed-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+}
+.speed-time {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+  flex: 1 1 auto;
+  font-variant-numeric: tabular-nums;
+}
+.speed-btn {
+  min-width: 36px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 12px;
+}
+.speed-btn:hover { background: var(--bg-widget-hover); }
+.speed-btn.active { background: var(--accent); color: white; }
+.speed-factors {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+}
+.speed-factors button {
+  font-size: 10px;
+  padding: 4px 2px;
+  min-height: 28px;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+}
+.speed-factors button:hover { color: var(--text); background: var(--bg-widget-hover); }
+.speed-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* ────────────── Matrix ────────────── */
+.vc-matrix {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 6px;
+}
+.matrix-caption {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.matrix-colors {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.matrix-color {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.matrix-color input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.matrix-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.matrix-row label {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.matrix-row input[type="range"] { flex: 1 1 auto; accent-color: var(--accent); }
+.matrix-row select {
+  flex: 1 1 auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  padding: 6px;
+  border-radius: var(--radius);
+  min-height: 32px;
+}
+
+/* ────────────── Audio Triggers ────────────── */
+.vc-audio {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 6px;
+}
+.audio-header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.audio-toggle {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  min-height: 32px;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+.audio-toggle.on { background: var(--success); color: black; }
+.audio-volume { flex: 1 1 auto; accent-color: var(--accent); }
+.audio-bars {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  min-height: 40px;
+  padding: 4px;
+  background: var(--bg-elev);
+  border-radius: var(--radius);
+}
+.audio-bar {
+  flex: 1 1 auto;
+  background: linear-gradient(to top, var(--accent), var(--danger));
+  border-radius: 1px;
+  min-height: 2px;
+  transition: height 60ms ease;
+}
+
+/* ────────────── Responsive ────────────── */
+@media (max-width: 700px) {
+  .topbar {
+    padding: 4px 6px;
+    min-height: 44px;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .page-tab { padding: 8px 10px; font-size: 12px; min-height: 32px; }
+  .status-text { display: none; }
+  .compact-toggle { display: flex; }
+  .grand-master {
+    padding: 6px 8px;
+    gap: 8px;
+    /* Stay visible at the bottom; never collapse height. */
+    min-height: 44px;
+  }
+  .grand-master label { font-size: 10px; }
+  .grand-master .gm-value { min-width: 36px; font-size: 12px; }
+}
+
+/* Compact mode — user-toggled; shrinks chrome aggressively for tight screens. */
+.app.compact .topbar { min-height: 36px; padding: 2px 6px; }
+.app.compact .page-tab { padding: 4px 8px; font-size: 11px; min-height: 28px; }
+.app.compact .grand-master {
+  padding: 3px 8px;
+  min-height: 36px;
+  gap: 6px;
+}
+.app.compact .grand-master label { font-size: 9px; }
+.app.compact .grand-master input[type="range"] { height: 24px; }

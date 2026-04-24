@@ -444,6 +444,25 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
         resp->end(json);
         return;
     }
+    // Modern VC web app (vc-next): serve built files from webaccess/vc-next/dist/
+    else if (reqUrl == "/vc" || reqUrl == "/vc/")
+    {
+        if (serveVCNextFile(resp, "/index.html"))
+            return;
+        sendNotFound(resp);
+        return;
+    }
+    else if (reqUrl.startsWith("/vc/"))
+    {
+        QString filePath = reqUrl.mid(3); // strip "/vc" prefix, keep leading "/"
+        if (serveVCNextFile(resp, filePath))
+            return;
+        // SPA fallback: serve index.html for unmatched routes
+        if (serveVCNextFile(resp, "/index.html"))
+            return;
+        sendNotFound(resp);
+        return;
+    }
     else if (reqUrl.startsWith("/qrc/"))
     {
         QString qrcPath = ":/" + reqUrl.mid(5);
@@ -1192,6 +1211,32 @@ QString WebAccessQml::webFilePath(const QString &relativePath) const
     }
 
     return candidates.last();
+}
+
+bool WebAccessQml::serveVCNextFile(QHttpResponse *resp, const QString &relativePath) const
+{
+    // Resolve the vc-next/dist directory by walking up from executable
+    QStringList candidates;
+    candidates << QDir::cleanPath(QString("%1/webaccess/vc-next/dist%2")
+                                  .arg(QDir::currentPath())
+                                  .arg(relativePath));
+    QDir probeDir(QCoreApplication::applicationDirPath());
+    for (int i = 0; i < 6; i++)
+    {
+        candidates << QDir::cleanPath(QString("%1/webaccess/vc-next/dist%2")
+                                      .arg(probeDir.absolutePath())
+                                      .arg(relativePath));
+        if (probeDir.cdUp() == false)
+            break;
+    }
+
+    for (const QString &path : candidates)
+    {
+        if (!QFile::exists(path))
+            continue;
+        return sendFile(resp, path, mimeTypeForPath(path));
+    }
+    return false;
 }
 
 void WebAccessQml::sendMatrixState(const VCAnimation *animation) const
