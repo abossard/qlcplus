@@ -6,7 +6,20 @@ FetchContent_Declare(
 )
 set(FASTMCPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(FASTMCPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+# Suppress -Werror for third-party dependencies (fastmcpp, cpp_httplib)
+# which have unused-parameter warnings on MinGW/GCC.
+set(CMAKE_COMPILE_WARNING_AS_ERROR OFF)
+set(_saved_cxx_flags "${CMAKE_CXX_FLAGS}")
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    string(REPLACE "-Werror" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error")
+endif()
+
 FetchContent_MakeAvailable(fastmcpp)
+
+# Restore flags for our own code.
+set(CMAKE_CXX_FLAGS "${_saved_cxx_flags}")
 
 set(MCP_SOURCES
     mcpserver.cpp mcpserver.h
