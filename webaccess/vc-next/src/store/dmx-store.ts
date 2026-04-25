@@ -287,10 +287,9 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
 
   subscribeFixtures(ids) {
     const ws = useVCStore.getState().wsClient;
-    if (ws && ids.length) {
-      sendDmxSubscribe(ws, ids);
-      sendDmxHeartbeat(ws);
-    }
+    if (!ws) return;
+    if (ids.length) sendDmxSubscribe(ws, ids);
+    sendDmxHeartbeat(ws);
   },
 
   unsubscribeFixtures(ids) {

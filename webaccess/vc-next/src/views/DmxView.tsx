@@ -67,7 +67,21 @@ export default function DmxView() {
     const ids = Array.from(fixtures.keys());
     if (!ids.length) return;
     subscribeFixtures(ids);
-    return () => unsubscribeFixtures(ids);
+    // Send periodic heartbeats to prevent 30s timeout cleanup.
+    const hbInterval = setInterval(() => {
+      subscribeFixtures([]); // empty subscribe acts as heartbeat
+    }, 15_000);
+    // Resubscribe when tab regains focus (browsers throttle setInterval
+    // in background tabs, which can miss the 30s server TTL).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') subscribeFixtures(ids);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(hbInterval);
+      document.removeEventListener('visibilitychange', onVisible);
+      unsubscribeFixtures(ids);
+    };
   }, [fixtures, subscribeFixtures, unsubscribeFixtures]);
 
   const toggleUniverse = useCallback((u: number) => {

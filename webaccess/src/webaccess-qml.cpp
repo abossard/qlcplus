@@ -2509,17 +2509,13 @@ void WebAccessQml::slotFlushDmxDeltas(QHttpConnection *conn)
     qDebug() << "[DMX-WS] flushDmxDeltas conn has"
              << sub.pendingDeltas.size() << "universes with pending deltas";
 
-    // Heartbeat TTL: auto-release after 30s idle
+    // Heartbeat TTL: auto-release subscription after 30s idle.
+    // Do NOT reset Simple Desk channels — the user's fader values should persist
+    // even if the web client disconnects. Only clean up the subscription.
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - sub.lastActivity > 30000)
     {
-        for (quint32 fxID : qAsConst(sub.fixtureIDs))
-        {
-            Fixture *fxi = m_doc->fixture(fxID);
-            if (!fxi) continue;
-            for (quint32 i = 0; i < fxi->channels(); ++i)
-                m_sd->resetAbsoluteChannel(fxi->universe() * 512 + fxi->address() + i);
-        }
+        qDebug() << "[DMX-WS] heartbeat timeout — removing subscription (no fader reset)";
         cleanupDmxSubscription(conn);
         return;
     }

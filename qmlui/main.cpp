@@ -118,8 +118,12 @@ int main(int argc, char *argv[])
     parser.addOption(noWmOption);
 
     QCommandLineOption webAccessOption(QStringList() << "w" << "web",
-                                      "Enable remote web access");
+                                      "Enable remote web access (on by default)");
     parser.addOption(webAccessOption);
+
+    QCommandLineOption noWebOption(QStringList() << "nw" << "no-web",
+                                      "Disable remote web access");
+    parser.addOption(noWebOption);
 
     QCommandLineOption webPortOption(QStringList() << "wp" << "web-port",
                                       "Set the port to use for web access",
@@ -141,12 +145,7 @@ int main(int argc, char *argv[])
 
     parser.process(app);
 
-    bool enableWebAccess = true;  // Web access enabled by default
-    if (parser.isSet(webAccessOption)
-        || parser.isSet(webPortOption)
-        || parser.isSet(webAuthOption)
-        || parser.isSet(webAuthFileOption))
-        enableWebAccess = true;  // also enabled explicitly via flags
+    bool enableWebAccess = !parser.isSet(noWebOption);  // on by default, --no-web disables
     bool enableWebAuth = parser.isSet(webAuthOption);
     int webAccessPort = parser.value(webPortOption).toInt();
     QString webAccessPasswordFile = parser.value(webAuthFileOption);
