@@ -74,14 +74,15 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
 
   // Maintain local hue because converting grey/near-grey RGB back to HSV loses it.
   const [hue, setHue] = useState(() => rgbToHsv(r, g, b).h);
-  const syncedRef = useRef(false);
 
-  // One-time sync on mount when live values arrive from server.
+  // Continuously sync hue from incoming RGB when not actively dragging.
+  // Grey/near-grey (s ≈ 0) can't reconstruct hue, so keep local value in that case.
+  const draggingSquareRef = useRef(false);
+  const draggingHueRef = useRef(false);
   useEffect(() => {
-    if (syncedRef.current) return;
-    if (r === 0 && g === 0 && b === 0) return;
-    syncedRef.current = true;
-    setHue(rgbToHsv(r, g, b).h);
+    if (draggingHueRef.current || draggingSquareRef.current) return;
+    const hsv = rgbToHsv(r, g, b);
+    if (hsv.s > 0.01) setHue(hsv.h);
   }, [r, g, b]);
 
   const currentSV = rgbToHsv(r, g, b);
@@ -90,8 +91,6 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
 
   const squareRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
-  const draggingSquare = useRef(false);
-  const draggingHue = useRef(false);
 
   const writeRGB = useCallback((rr: number, gg: number, bb: number) => {
     setChannels(fixtureId, [
@@ -103,13 +102,13 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
 
   const onSquareDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    draggingSquare.current = true;
+    draggingSquareRef.current = true;
     setActive(fixtureId, rgbChannels[0]);
     haptic();
     onSquareMove(e);
   };
   const onSquareMove = (e: React.PointerEvent) => {
-    if (!draggingSquare.current) return;
+    if (!draggingSquareRef.current) return;
     const el = squareRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -120,19 +119,19 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
   };
   const onSquareUp = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
-    draggingSquare.current = false;
+    draggingSquareRef.current = false;
     clearActive();
   };
 
   const onHueDown = (e: React.PointerEvent) => {
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    draggingHue.current = true;
+    draggingHueRef.current = true;
     setActive(fixtureId, rgbChannels[0]);
     haptic();
     onHueMove(e);
   };
   const onHueMove = (e: React.PointerEvent) => {
-    if (!draggingHue.current) return;
+    if (!draggingHueRef.current) return;
     const el = hueRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -144,7 +143,7 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
   };
   const onHueUp = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
-    draggingHue.current = false;
+    draggingHueRef.current = false;
     clearActive();
   };
 
