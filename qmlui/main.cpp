@@ -141,10 +141,12 @@ int main(int argc, char *argv[])
 
     parser.process(app);
 
-    bool enableWebAccess = parser.isSet(webAccessOption)
+    bool enableWebAccess = true;  // Web access enabled by default
+    if (parser.isSet(webAccessOption)
         || parser.isSet(webPortOption)
         || parser.isSet(webAuthOption)
-        || parser.isSet(webAuthFileOption);
+        || parser.isSet(webAuthFileOption))
+        enableWebAccess = true;  // also enabled explicitly via flags
     bool enableWebAuth = parser.isSet(webAuthOption);
     int webAccessPort = parser.value(webPortOption).toInt();
     QString webAccessPasswordFile = parser.value(webAuthFileOption);
