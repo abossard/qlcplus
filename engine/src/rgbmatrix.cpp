@@ -1261,7 +1261,7 @@ static inline uint blendPixels(uint a, uint b, RGBMatrix::MirrorBlend blend)
     return (r << 16) | (g << 8) | bl;
 }
 
-void RGBMatrix::applyTransforms(RGBMap &map, const QSize &srcSize, const QSize &dstSize,
+void RGBMatrix::applyTransforms(RGBMap &map, const QSize & /* srcSize */, const QSize &dstSize,
                                 int rotation, int mirror, MirrorBlend blend)
 {
     int dw = dstSize.width();
