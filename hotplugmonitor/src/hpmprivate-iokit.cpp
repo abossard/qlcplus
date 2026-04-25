@@ -118,13 +118,21 @@ void HPMPrivate::run()
     io_iterator_t rawAddedIter = 0;
     io_iterator_t rawRemovedIter = 0;
 
-    // Create an IOMainPort for accessing IOKit
-    // IOMainPort is only available on macOS 12.0+; suppress availability warning
-    // since we already require macOS 12+ as a build target.
+    kern_return_t kr = KERN_FAILURE;
+    // IOMainPort requires macOS 12+; fall back to deprecated IOMasterPort on older systems.
+#if defined(__MAC_12_0)
+    if (__builtin_available(macOS 12.0, *))
+    {
+        kr = IOMainPort(MACH_PORT_NULL, &masterPort);
+    }
+    else
+#endif
+    {
 #pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability-new"
-    kern_return_t kr = IOMainPort(MACH_PORT_NULL, &masterPort);
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        kr = IOMasterPort(MACH_PORT_NULL, &masterPort);
 #pragma clang diagnostic pop
+    }
     if (kr || !masterPort)
     {
         qWarning() << Q_FUNC_INFO << "Unable to create a master I/O Kit port" << kr;
