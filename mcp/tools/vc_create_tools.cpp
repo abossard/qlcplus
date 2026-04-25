@@ -230,7 +230,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     bool solo = (widgetType == VCType::SoloFrame) || item.value("solo", false);
                     bool hasPage = item.contains("pageIndex");
-                    bool hasParent = item.contains("parentID");
 
                     // Check for existing frame with same caption
                     if (!caption.isEmpty())

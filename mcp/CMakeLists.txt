@@ -54,6 +54,14 @@ target_include_directories(qlcplusmcp PRIVATE
 )
 
 target_link_libraries(qlcplusmcp PUBLIC fastmcpp_core qlcplusengine)
+
+# Treat fastmcpp/cpp_httplib headers as SYSTEM to suppress their warnings
+# when included transitively from our .cpp files.
+get_target_property(_fastmcpp_inc fastmcpp_core INTERFACE_INCLUDE_DIRECTORIES)
+if(_fastmcpp_inc)
+    target_include_directories(qlcplusmcp SYSTEM PUBLIC ${_fastmcpp_inc})
+endif()
+
 target_link_libraries(qlcplusmcp PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui

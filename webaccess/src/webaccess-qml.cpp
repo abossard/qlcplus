@@ -2403,7 +2403,7 @@ void WebAccessQml::rebuildSubscribedAddrs(QHttpConnection *conn)
 {
     DmxSubscription &sub = m_dmxSubs[conn];
     sub.subscribedAddrs.clear();
-    for (quint32 fxID : qAsConst(sub.fixtureIDs))
+    for (quint32 fxID : std::as_const(sub.fixtureIDs))
     {
         Fixture *fxi = m_doc->fixture(fxID);
         if (!fxi) continue;
@@ -2526,7 +2526,7 @@ void WebAccessQml::slotFlushDmxDeltas(QHttpConnection *conn)
         if (deltas.isEmpty()) continue;
 
         QJsonArray changes;
-        for (const auto &pair : qAsConst(deltas))
+        for (const auto &pair : std::as_const(deltas))
             changes.append(QJsonArray{pair.first, (int)pair.second});
 
         QJsonObject msg;
