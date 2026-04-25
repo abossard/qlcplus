@@ -53,3 +53,6 @@ coverage/
 # CMake build
 CMakeLists.txt.user
 build*
+.playwright-mcp/
+.DS_Store
+.playwright-mcp/
