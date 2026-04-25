@@ -180,27 +180,58 @@ export default class MarkdownReporter implements Reporter {
     const md = lines.join('\n');
     fs.writeFileSync(this.outputFile, md);
 
-    // Also write a self-contained HTML version with proper charset.
+    // Generate HTML using the 'marked' library.
     const htmlPath = this.outputFile.replace(/\.md$/, '.html');
-    const htmlContent = md
-      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`(.+?)`/g, '<code>$1</code>')
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<figure><img src="$2" alt="$1"><figcaption>$1</figcaption></figure>')
-      .replace(/^\| (.+) \|$/gm, (_, row) => {
-        const cells = row.split(' | ').map((c: string) => `<td>${c.trim()}</td>`).join('');
-        return `<tr>${cells}</tr>`;
-      })
-      .replace(/^\|[-| ]+\|$/gm, '')
-      .replace(/^- (.+)$/gm, '<li>$1</li>')
-      .replace(/^---$/gm, '<hr>')
-      .replace(/\n{2,}/g, '\n');
+    let htmlBody: string;
+    try {
+      const { execSync } = require('node:child_process');
+      const mdEscaped = md.replace(/'/g, "'\\''");
+      htmlBody = execSync(
+        `node -e "const {marked}=require('marked');process.stdout.write(marked(require('fs').readFileSync(0,'utf8')))"`,
+        { input: md, encoding: 'utf-8', timeout: 10_000, cwd: process.cwd() },
+      );
+    } catch {
+      htmlBody = md
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`(.+?)`/g, '<code>$1</code>')
+        .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
+        .replace(/^---$/gm, '<hr>')
+        .replace(/\n/g, '<br>\n');
+    }
 
-    const style = `body{font-family:system-ui,sans-serif;max-width:960px;margin:2em auto;padding:0 1em;color:#e7e9ef;background:#0f1419;line-height:1.6}img{max-width:100%;border:1px solid #333;border-radius:6px;margin:0.5em 0}table{border-collapse:collapse;width:100%}th,td{border:1px solid #333;padding:6px 10px;text-align:left}h1,h2,h3{color:#53b8e0}code{background:#1a1a2e;padding:2px 6px;border-radius:3px;font-size:0.9em}blockquote{border-left:3px solid #53b8e0;margin:0;padding:0.5em 1em;color:#9aa0b4}hr{border:none;border-top:1px solid #333;margin:1.5em 0}figure{margin:0.5em 0}figcaption{font-size:0.85em;color:#6b7080;margin-top:4px}li{margin:2px 0}`;
-    const html = `<!DOCTYPE html>\n<html lang="en">\n<head><meta charset="utf-8"><title>DMX Web Control — Test Report</title><style>${style}</style></head>\n<body>\n${htmlContent}\n</body>\n</html>`;
+    const style = [
+      'body{font-family:system-ui,sans-serif;max-width:960px;margin:2em auto;padding:0 1em;color:#e7e9ef;background:#0f1419;line-height:1.6}',
+      'img{max-width:100%;border:1px solid #333;border-radius:6px;margin:0.5em 0}',
+      'table{border-collapse:collapse;width:100%;margin:1em 0}',
+      'th,td{border:1px solid #333;padding:8px 12px;text-align:left}',
+      'th{background:#1a1a2e;color:#53b8e0;font-weight:600}',
+      'tr:nth-child(even){background:#16213e}',
+      'h1,h2,h3{color:#53b8e0}',
+      'code{background:#1a1a2e;padding:2px 6px;border-radius:3px;font-size:0.9em}',
+      'blockquote{border-left:3px solid #53b8e0;margin:0;padding:0.5em 1em;color:#9aa0b4}',
+      'hr{border:none;border-top:1px solid #333;margin:1.5em 0}',
+      'figure{margin:0.5em 0}',
+      'figcaption{font-size:0.85em;color:#6b7080;margin-top:4px}',
+      'li{margin:2px 0}',
+      'details{margin:0.5em 0;padding:0.5em;background:#1a1a2e;border-radius:4px}',
+      'summary{cursor:pointer;color:#53b8e0}',
+      'a{color:#7dd3fc}',
+    ].join('\n');
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DMX Web Control — Test Report</title>
+  <style>${style}</style>
+</head>
+<body>
+${htmlBody}
+</body>
+</html>`;
     fs.writeFileSync(htmlPath, html);
   }
 }

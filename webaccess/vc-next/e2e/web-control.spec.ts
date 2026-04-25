@@ -328,7 +328,7 @@ test.describe('DMX Panel — Controls', () => {
     await fader.scrollIntoViewIfNeeded();
 
     // Use helper that stubs setPointerCapture (synthetic events have no
-     // active pointer state, which would otherwise make React's handler throw).
+    // active pointer state, which would otherwise make React's handler throw).
     await pointerClickAt(fader, 0.025);
 
     // Poll because WS DMX_DELTA echoes can briefly override optimistic state.
@@ -590,10 +590,12 @@ test.describe('DMX Panel — Fader Drag', () => {
 
     // Drag from the bottom to the top via pointer-event helper.
     await pointerDragRange(track, 0.975, 0.025, 16);
-    await page.waitForTimeout(200);
 
-    const value = Number(await track.getAttribute('aria-valuenow'));
-    expect(value).toBeGreaterThan(100);
+    // Poll because WS DMX_DELTA echoes can briefly override optimistic state.
+    await expect.poll(
+      async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
+      { timeout: 3_000, intervals: [50, 100, 200] }
+    ).toBeGreaterThan(100);
   });
 });
 
