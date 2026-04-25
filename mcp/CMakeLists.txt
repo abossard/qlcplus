@@ -69,6 +69,10 @@ target_link_libraries(qlcplusmcp PRIVATE
     Qt${QT_VERSION_MAJOR}::Qml
     Qt${QT_VERSION_MAJOR}::Widgets
 )
+# fastmcpp/cpp_httplib uses Winsock on Windows.
+if(WIN32)
+    target_link_libraries(qlcplusmcp PRIVATE ws2_32)
+endif()
 target_compile_definitions(qlcplusmcp PUBLIC HAS_MCP_SERVER)
 target_compile_features(qlcplusmcp PUBLIC cxx_std_17)
 

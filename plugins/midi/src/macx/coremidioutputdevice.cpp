@@ -19,6 +19,8 @@
 
 #include <QDebug>
 
+#include <vector>
+
 #include "coremidioutputdevice.h"
 #include "midiprotocol.h"
 
@@ -209,8 +211,8 @@ void CoreMidiOutputDevice::writeSysEx(QByteArray message)
 
     int bufferSize = message.length() + 100; // Todo this is not correct
 
-    Byte buffer[bufferSize];    // osx max=65536
-    MIDIPacketList* list = (MIDIPacketList*) buffer;
+    std::vector<Byte> buffer(bufferSize);
+    MIDIPacketList* list = (MIDIPacketList*) buffer.data();
     MIDIPacket* packet = MIDIPacketListInit(list);
 
     /* Add the MIDI command to the packet list */
