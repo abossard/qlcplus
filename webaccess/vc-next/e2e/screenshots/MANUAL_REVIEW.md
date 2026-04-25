@@ -423,7 +423,56 @@ curl -sI http://localhost:9999/vc/assets/index-<hash>.css | grep -i content-type
 
 ---
 
-## 8. Known Issues / Limitations
+## 8. Beat-Based Timing (1/16 Subdivision)
+
+### 8.1 Verify 1/16 in Chaser Editor
+
+- **Do:** Create a new Chaser (Functions → + → Chaser). Add a few steps (scenes).
+- **Do:** In the Chaser Editor, click the tempo toggle from **T** (Time) to **B** (Beats).
+- **Verify:** Step timings switch to beat notation (e.g., `1`, `1/2`, `1/4`).
+
+### 8.2 Set 1/16 fade time
+
+- **Do:** Click a step's **Fade In** time to open the Time Editor.
+- **Verify:** In Beats mode, there is a **+1/16** / **-1/16** button visible.
+- **Do:** Click **+1/16** once.
+- **Expected:** The fade time shows **1/16**. Click again → **1/8** (= 2/16). Click 4 times from zero → **1/4**.
+
+### 8.3 Set 1/16 hold time
+
+- **Do:** Click a step's **Hold** time in the Chaser Editor.
+- **Verify:** Fraction buttons are now available (previously Hold was locked to whole beats only).
+- **Do:** Set Hold to **3/16**.
+- **Expected:** Display shows `3/16`. The step should hold for 3/16 of a beat.
+
+### 8.4 Verify display of all fractions
+
+- **Do:** Step through fraction values from 0 to 15/16 using +1/16.
+- **Expected display sequence:** `1/16`, `1/8`, `3/16`, `1/4`, `5/16`, `3/8`, `7/16`, `1/2`, `9/16`, `5/8`, `11/16`, `3/4`, `13/16`, `7/8`, `15/16`, then wraps to `1`.
+
+### 8.5 Playback at 120 BPM
+
+- **Do:** Set BPM to 120 (VC → Speed Dial or internal tempo).
+- **Do:** Create a 2-step chaser with Hold = 1/16 beat (= ~31ms at 120 BPM).
+- **Do:** Start the chaser.
+- **Expected:** Steps alternate very rapidly (~32 times per beat). Visually, you should see the two scenes flickering. The timing doesn't need to be sample-accurate — ±10ms jitter is acceptable for lighting.
+
+### 8.6 Backward compatibility
+
+- **Do:** Open an existing workspace that uses 1/8 beat timings.
+- **Verify:** All timings display and play correctly (1/8 values are preserved in the new 16-step quantizer).
+
+### 8.7 Unit tests
+
+```bash
+cd build && ./engine/test/beatquantize/beatquantize_test
+```
+
+- **Expected:** `11 passed, 0 failed`.
+
+---
+
+## 9. Known Issues / Limitations
 
 - **WebSocket reconnect:** If QLC+ is restarted while `/vc/` is open, the page may take up to ~5 s to reconnect. A manual page refresh always recovers.
 - **Cross-tab sync race:** Rapid simultaneous edits on the *same* control from two tabs can briefly show a flicker as the last-write-wins value propagates. Steady-state is always consistent.
@@ -436,7 +485,7 @@ curl -sI http://localhost:9999/vc/assets/index-<hash>.css | grep -i content-type
 
 ---
 
-## 9. Sign-off
+## 10. Sign-off
 
 | Area                     | Tester | Date | Pass / Fail | Notes |
 |--------------------------|--------|------|-------------|-------|
@@ -446,6 +495,7 @@ curl -sI http://localhost:9999/vc/assets/index-<hash>.css | grep -i content-type
 | Beam Ball fixture        |        |      |             |       |
 | Security                 |        |      |             |       |
 | Performance / diagnostics|        |      |             |       |
+| Beat timing (1/16)       |        |      |             |       |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 
