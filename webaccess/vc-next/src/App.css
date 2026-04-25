@@ -1613,7 +1613,7 @@ input, select {
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
-  background: black;
+  background: radial-gradient(circle, #fff 0%, #e0e0e0 100%);
 }
 .gobo-label {
   display: flex;
