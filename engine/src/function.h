@@ -25,6 +25,7 @@
 #include <QObject>
 #include <QString>
 #include <QMutex>
+#include <QPair>
 #include <QList>
 #include <QIcon>
 #include <QMap>
@@ -452,6 +453,16 @@ public:
 
     /** Convert a beat value to a time value in milliseconds */
     static uint beatsToTime(uint beats, int beatDuration);
+
+    /** Returns the canonical beat-encoded value for count x subdivision.
+     *  subdivision must be 1, 2, 4, 8, or 16.
+     *  E.g., musicalBeatValue(3, 4) = 750 (three quarter notes). */
+    static quint32 musicalBeatValue(int count, int subdivision);
+
+    /** Decompose a beat value into count x subdivision.
+     *  Returns {count, subdivision} where subdivision is in {1,2,4,8,16}.
+     *  Returns {-1, -1} if the value is not on the musical grid. */
+    static QPair<int, int> beatValueToMusical(quint32 value);
 
     /** Get the override speed type (done by a Chaser) */
     TempoType overrideTempoType() const;

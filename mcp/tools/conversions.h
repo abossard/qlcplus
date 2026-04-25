@@ -47,56 +47,97 @@ namespace mcp {
 using Json = nlohmann::json;
 
 // Beat string to internal value conversion.
-// QLC+ encodes beats as: 1 beat = 1000, sub-beats quantized to 125 units.
-// Accepts: "1/8"=125, "1/4"=250, "1/2"=500, "1"=1000, "2"=2000, etc.
+// QLC+ encodes beats as: 1 beat = 1000, with 1/16 grid quantization.
+// Accepts: "1/16"=63, "1/8"=125, "1/4"=250, "3/8"=375, "1/2"=500, "1"=1000, "2"=2000, etc.
 // Returns 0 on parse failure.
 inline uint beatStringToValue(const std::string &str)
 {
     if (str.empty()) return 0;
 
-    // Try fraction format "N/D"
-    size_t slash = str.find('/');
-    if (slash != std::string::npos)
+    try
     {
-        double num = std::stod(str.substr(0, slash));
-        double den = std::stod(str.substr(slash + 1));
-        if (den == 0) return 0;
-        double beats = num / den;
-        uint raw = static_cast<uint>(beats * 1000.0);
-        // Quantize to 125-unit granularity (1/8 beat)
-        return (raw / 125) * 125;
-    }
+        // Try fraction format "N/D"
+        size_t slash = str.find('/');
+        if (slash != std::string::npos)
+        {
+            int num = std::stoi(str.substr(0, slash));
+            int den = std::stoi(str.substr(slash + 1));
+            if (den == 0 || num <= 0) return 0;
 
-    // Plain number (integer or decimal beats)
-    double beats = std::stod(str);
-    uint raw = static_cast<uint>(beats * 1000.0);
-    return (raw / 125) * 125;
+            // If denominator is a supported subdivision, use the engine helper directly.
+            if (den == 1 || den == 2 || den == 4 || den == 8 || den == 16)
+                return Function::musicalBeatValue(num, den);
+
+            // Generic fallback: convert to beats then quantize via timeToBeats with 1000ms beat.
+            double beats = (double)num / (double)den;
+            uint raw = static_cast<uint>(beats * 1000.0);
+            return Function::timeToBeats(raw, 1000);
+        }
+
+        // Plain number (integer or decimal beats)
+        double beats = std::stod(str);
+        if (beats <= 0) return 0;
+        uint raw = static_cast<uint>(beats * 1000.0);
+        // Quantize via the engine's 1/16 table (1000ms-per-beat reference frame).
+        return Function::timeToBeats(raw, 1000);
+    }
+    catch (...)
+    {
+        return 0;
+    }
 }
 
-// Internal beat value to human-readable string.
+// Internal beat value to human-readable string. Uses Function::beatValueToMusical
+// to decompose into count x subdivision on the 1/16 grid.
 inline std::string valueToBeatString(uint val)
 {
     if (val == 0) return "0";
-    if (val % 1000 == 0) return std::to_string(val / 1000);
-    if (val == 125) return "1/8";
-    if (val == 250) return "1/4";
-    if (val == 375) return "3/8";
-    if (val == 500) return "1/2";
-    if (val == 625) return "5/8";
-    if (val == 750) return "3/4";
-    if (val == 875) return "7/8";
-    // For values > 1000 with fractional part
+
+    QPair<int, int> m = Function::beatValueToMusical(val);
+    int count = m.first;
+    int subdiv = m.second;
+
+    if (count > 0 && subdiv > 0)
+    {
+        // Whole beats: "1", "2", "4", ...
+        if (subdiv == 1)
+            return std::to_string(count);
+
+        // Reduce common factors so e.g. 2/4 -> 1/2, 4/8 -> 1/2, 2/16 -> 1/8.
+        int n = count;
+        int d = subdiv;
+        auto gcd = [](int a, int b) { while (b) { int t = b; b = a % b; a = t; } return a; };
+        int g = gcd(n, d);
+        n /= g;
+        d /= g;
+
+        if (d == 1)
+            return std::to_string(n);
+
+        return std::to_string(n) + "/" + std::to_string(d);
+    }
+
+    // Off-grid: split into whole + fractional remainder.
     uint whole = val / 1000;
     uint frac = val % 1000;
+    QPair<int, int> mf = Function::beatValueToMusical(frac);
     std::string fracStr;
-    if (frac == 125) fracStr = "1/8";
-    else if (frac == 250) fracStr = "1/4";
-    else if (frac == 375) fracStr = "3/8";
-    else if (frac == 500) fracStr = "1/2";
-    else if (frac == 625) fracStr = "5/8";
-    else if (frac == 750) fracStr = "3/4";
-    else if (frac == 875) fracStr = "7/8";
-    else fracStr = std::to_string(frac);
+    if (mf.first > 0 && mf.second > 0 && mf.second != 1)
+    {
+        int n = mf.first;
+        int d = mf.second;
+        auto gcd = [](int a, int b) { while (b) { int t = b; b = a % b; a = t; } return a; };
+        int g = gcd(n, d);
+        n /= g;
+        d /= g;
+        fracStr = std::to_string(n) + "/" + std::to_string(d);
+    }
+    else
+    {
+        fracStr = std::to_string(frac);
+    }
+    if (whole == 0)
+        return fracStr;
     return std::to_string(whole) + "+" + fracStr;
 }
 

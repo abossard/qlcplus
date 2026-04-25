@@ -548,6 +548,13 @@ Function::TempoType Function::stringToTempoType(const QString &str)
         return Beats;
 }
 
+// Shared 1/16 quantizer table — single source of truth.
+// Values = round(N/16 * 1000) for N=0..15.
+static const int s_beatSixteenths[16] = {
+    0,   63,  125, 188, 250, 313, 375, 438,
+    500, 563, 625, 688, 750, 813, 875, 938
+};
+
 uint Function::timeToBeats(uint time, int beatDuration)
 {
     if (time == 0 || time == infiniteSpeed())
@@ -560,12 +567,7 @@ uint Function::timeToBeats(uint time, int beatDuration)
 
     beats -= floor(beats);
 
-    // 1/16 beat subdivision quantizer table (N/16 * 1000, adjusted to 938 max)
-    static const int s_beatSixteenths[16] = {
-        0,   63,  125, 188, 250, 313, 375, 438,
-        500, 563, 625, 688, 750, 813, 875, 938
-    };
-
+    // Use the shared s_beatSixteenths table (defined above musicalBeatValue)
     int rawFrac = qRound(beats * 1000.0f);
     int best = 0;
     int bestDist = 99999;
@@ -588,6 +590,61 @@ uint Function::beatsToTime(uint beats, int beatDuration)
         return beats;
 
     return ((float)beats / 1000.0) * beatDuration;
+}
+
+quint32 Function::musicalBeatValue(int count, int subdivision)
+{
+    if (count < 0 || subdivision <= 0)
+        return 0;
+
+    // For 1/16 subdivisions, use the canonical table to avoid drift
+    if (subdivision == 16)
+    {
+        int wholeBeats = count / 16;
+        int sixteenths = count % 16;
+        return static_cast<quint32>(wholeBeats * 1000 + s_beatSixteenths[sixteenths]);
+    }
+
+    int unitsPerNote = 0;
+    switch (subdivision) {
+        case 1:  unitsPerNote = 1000; break;
+        case 2:  unitsPerNote = 500;  break;
+        case 4:  unitsPerNote = 250;  break;
+        case 8:  unitsPerNote = 125;  break;
+        default: return 0;
+    }
+    return static_cast<quint32>(count * unitsPerNote);
+}
+
+QPair<int, int> Function::beatValueToMusical(quint32 value)
+{
+    // Try whole beats and power-of-2 subdivisions (coarsest first)
+    static const int subdivs[] = {1, 2, 4, 8};
+    static const int units[]   = {1000, 500, 250, 125};
+
+    for (int i = 0; i < 4; i++)
+    {
+        if (value >= (quint32)units[i] && value % units[i] == 0)
+        {
+            int count = value / units[i];
+            if (count > 0)
+                return qMakePair(count, subdivs[i]);
+        }
+    }
+
+    // Try 1/16: check if the fractional part matches a table entry
+    quint32 wholeBeats = value / 1000;
+    quint32 frac = value % 1000;
+    for (int i = 1; i < 16; i++)  // skip 0 (handled by coarser subdivisions)
+    {
+        if (frac == (quint32)s_beatSixteenths[i])
+            return qMakePair(static_cast<int>(wholeBeats * 16 + i), 16);
+    }
+    // Exact whole beat with no fraction (already caught above, but safety)
+    if (frac == 0 && wholeBeats > 0)
+        return qMakePair(static_cast<int>(wholeBeats), 1);
+
+    return qMakePair(-1, -1);
 }
 
 Function::TempoType Function::overrideTempoType() const

@@ -56,6 +56,90 @@ GridLayout
     property int allowFractions: QLCFunction.NoFractions
     property int currentFraction: 0
 
+    /* Beats-mode count spinner + subdivision selector state.
+       The composed value is beatCount * subdivisions[subdivIdx].units. */
+    readonly property var subdivisions: [
+        { label: "1/1",  units: 1000 },
+        { label: "1/2",  units: 500  },
+        { label: "1/4",  units: 250  },
+        { label: "1/8",  units: 125  },
+        { label: "1/16", units: 63   }
+    ]
+    // Canonical 1/16 table — must match engine s_beatSixteenths
+    readonly property var sixteenthsTable: [
+        0, 63, 125, 188, 250, 313, 375, 438,
+        500, 563, 625, 688, 750, 813, 875, 938
+    ]
+    property int beatCount: 1
+    property int subdivIdx: 2 // default 1/4
+    property bool _suppressBeatsSync: false
+
+    function applyBeatValue()
+    {
+        if (beatCount < 1)
+            beatCount = 1
+        if (beatCount > 32)
+            beatCount = 32
+        _suppressBeatsSync = true
+        // For 1/16 subdivisions, use the canonical table to match the engine
+        var v
+        if (subdivIdx === 4) {
+            var wholeBeats = Math.floor(beatCount / 16)
+            var sixteenths = beatCount % 16
+            v = wholeBeats * 1000 + sixteenthsTable[sixteenths]
+        } else {
+            v = beatCount * subdivisions[subdivIdx].units
+        }
+        updateTime(v, "")
+        _suppressBeatsSync = false
+    }
+
+    function decomposeBeats(v)
+    {
+        if (v <= 0)
+            return { count: 1, idx: subdivIdx }
+        // Try coarse subdivisions first (1/1, 1/2, 1/4, 1/8)
+        for (var i = 0; i < 4; i++)
+        {
+            var u = subdivisions[i].units
+            if (u > 0 && v >= u && v % u === 0)
+                return { count: v / u, idx: i }
+        }
+        // Try 1/16: check if fractional part matches the canonical table
+        var wholeBeats = Math.floor(v / 1000)
+        var frac = v % 1000
+        for (var j = 1; j < 16; j++)
+        {
+            if (frac === sixteenthsTable[j])
+                return { count: wholeBeats * 16 + j, idx: 4 }
+        }
+        if (frac === 0 && wholeBeats > 0)
+            return { count: wholeBeats, idx: 0 }
+        // Fallback: snap to nearest 1/16
+        return { count: Math.max(1, Math.round(v / 63)), idx: 4 }
+    }
+
+    onTimeValueChanged:
+    {
+        if (_suppressBeatsSync || tempoType !== QLCFunction.Beats)
+            return
+        if (timeValue <= 0)
+            return
+        var d = decomposeBeats(timeValue)
+        beatCount = d.count
+        subdivIdx = d.idx
+    }
+
+    onTempoTypeChanged:
+    {
+        if (tempoType === QLCFunction.Beats && timeValue > 0)
+        {
+            var d = decomposeBeats(timeValue)
+            beatCount = d.count
+            subdivIdx = d.idx
+        }
+    }
+
     /* If needed, this can be the reference index of an item in a list */
     property int indexInList
 
@@ -253,51 +337,67 @@ GridLayout
         onClicked: updateTime(timeValue + 1, "")
     }
 
-    GenericButton
+    // === BEATS MODE: Count spinner row (top) ===
+    RowLayout
     {
         visible: tempoType === QLCFunction.Beats
-        height: UISettings.iconSizeDefault
         Layout.fillWidth: true
-        Layout.columnSpan: allowFractions !== QLCFunction.NoFractions ? 2 : 4
-        border.color: UISettings.bgMedium
-        bgColor: buttonsBgColor
-        fontSize: btnFontSize
-        label: "+"
-        repetition: true
-        onClicked: updateTime(timeValue + 1000, "")
-    }
+        Layout.fillHeight: true
+        Layout.columnSpan: 4
+        Layout.preferredHeight: UISettings.iconSizeDefault
+        spacing: 0
 
-    GenericButton
-    {
-        visible: tempoType === QLCFunction.Beats && allowFractions !== QLCFunction.NoFractions
-        height: UISettings.iconSizeDefault
-        Layout.fillWidth: true
-        Layout.columnSpan: 2
-        border.color: UISettings.bgMedium
-        bgColor: buttonsBgColor
-        fontSize: btnFontSize
-        label: allowFractions === QLCFunction.AllFractions ? "+1/8" : (allowFractions === QLCFunction.FineFractions ? "+1/16" : "+2x")
-        repetition: true
-        onClicked:
+        GenericButton
         {
-            if (allowFractions === QLCFunction.AllFractions)
-                updateTime(timeValue + 125, "")
-            else if (allowFractions === QLCFunction.FineFractions)
-                updateTime(timeValue + 63, "")
-            else
+            Layout.fillHeight: true
+            Layout.preferredWidth: UISettings.iconSizeDefault
+            border.color: UISettings.bgMedium
+            bgColor: buttonsBgColor
+            fontSize: btnFontSize
+            label: "-"
+            repetition: true
+            onClicked:
             {
-                var tmpTime = timeValue
-                var newfraction = 0
-                if (currentFraction == 0)
-                    newfraction = 125
-                else if (currentFraction != 500)
-                    newfraction = currentFraction * 2
+                if (beatCount > 1)
+                {
+                    beatCount--
+                    applyBeatValue()
+                }
+            }
+        }
 
-                if (newfraction == 0)
-                    tmpTime += 1000
+        Rectangle
+        {
+            Layout.fillHeight: true
+            Layout.fillWidth: true
+            color: "#444"
+            border.color: UISettings.bgMedium
 
-                updateTime(tmpTime - currentFraction + newfraction, "")
-                currentFraction = newfraction
+            RobotoText
+            {
+                anchors.fill: parent
+                label: beatCount + " \u00d7 " + subdivisions[subdivIdx].label
+                fontSize: btnFontSize
+                textHAlign: Text.AlignHCenter
+            }
+        }
+
+        GenericButton
+        {
+            Layout.fillHeight: true
+            Layout.preferredWidth: UISettings.iconSizeDefault
+            border.color: UISettings.bgMedium
+            bgColor: buttonsBgColor
+            fontSize: btnFontSize
+            label: "+"
+            repetition: true
+            onClicked:
+            {
+                if (beatCount < 32)
+                {
+                    beatCount++
+                    applyBeatValue()
+                }
             }
         }
     }
@@ -408,62 +508,33 @@ GridLayout
         }
     }
 
-    GenericButton
+    // === BEATS MODE: Subdivision selector row (bottom) ===
+    RowLayout
     {
         visible: tempoType === QLCFunction.Beats
-        height: UISettings.iconSizeDefault
         Layout.fillWidth: true
-        Layout.columnSpan: allowFractions !== QLCFunction.NoFractions ? 2 : 4
-        border.color: UISettings.bgMedium
-        bgColor: buttonsBgColor
-        fontSize: btnFontSize
-        label: "-"
-        repetition: true
-        onClicked: updateTime(timeValue - 1000, "")
-    }
+        Layout.fillHeight: true
+        Layout.columnSpan: 4
+        Layout.preferredHeight: UISettings.iconSizeDefault
+        spacing: 0
 
-    GenericButton
-    {
-        visible: tempoType === QLCFunction.Beats && allowFractions !== QLCFunction.NoFractions
-        height: UISettings.iconSizeDefault
-        Layout.fillWidth: true
-        Layout.columnSpan: 2
-        border.color: UISettings.bgMedium
-        bgColor: buttonsBgColor
-        fontSize: btnFontSize
-        label: allowFractions === QLCFunction.AllFractions ? "-1/8" : (allowFractions === QLCFunction.FineFractions ? "-1/16" : "-x/2")
-        repetition: true
-        onClicked:
+        Repeater
         {
-            if (allowFractions === QLCFunction.AllFractions)
-            {
-                if (timeValue == 0)
-                    return
+            model: subdivisions
 
-                updateTime(timeValue - 125, "")
-            }
-            else if (allowFractions === QLCFunction.FineFractions)
+            GenericButton
             {
-                if (timeValue == 0)
-                    return
-
-                updateTime(timeValue - 63, "")
-            }
-            else
-            {
-                var tmpTime = timeValue
-                var newfraction = 0
-                if (currentFraction == 0)
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                border.color: UISettings.bgMedium
+                bgColor: index === subdivIdx ? UISettings.highlight : buttonsBgColor
+                fontSize: btnFontSize
+                label: modelData.label
+                onClicked:
                 {
-                    newfraction = 500
-                    if (tmpTime > 0)
-                        tmpTime -= 1000
+                    subdivIdx = index
+                    applyBeatValue()
                 }
-                else if (currentFraction != 125)
-                    newfraction = currentFraction / 2
-
-                updateTime(tmpTime - currentFraction + newfraction, "")
-                currentFraction = newfraction
             }
         }
     }

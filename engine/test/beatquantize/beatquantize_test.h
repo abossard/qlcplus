@@ -28,6 +28,16 @@ private slots:
     void roundTrip_sixteenth();
     void sixteenthsSumToWholeBeat();
     void quantizerTable_coversAllSixteenths();
+
+    // musicalBeatValue / beatValueToMusical helpers
+    void musicalBeatValue_allSubdivisions();
+    void musicalBeatValue_sixteenthsUseCanonicalTable();
+    void musicalBeatValue_multibeat();
+    void beatValueToMusical_wholeBeats();
+    void beatValueToMusical_allCanonicalSixteenths();
+    void beatValueToMusical_compositeSixteenths();
+    void beatValueToMusical_offGrid();
+    void musicalBeatValue_roundTrip_allSubdivisions();
 };
 
 #endif // BEATQUANTIZE_TEST_H
