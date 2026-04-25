@@ -156,11 +156,6 @@ void RGBTransform_Test::rotation_roundTrip()
     // actually produce the swapped map first, then rotate
     // Actually, in the engine flow, each rotation pass swaps dims.
     // 4 consecutive 90° rotations = identity.
-
-    // Pass 1: srcSize=(2,4), dstSize=(4,2) → 90° CW
-    QSize s1(2, 4);
-    RGBMap m1 = makeTestMap(2, 4); // simulated swapped render
-    // This test verifies 90+90+90+90 = identity differently.
     // Let's just do 180+180 = identity on the same map:
     RGBMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, RGBMatrix::MirrorFlip);
     RGBMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, RGBMatrix::MirrorFlip);

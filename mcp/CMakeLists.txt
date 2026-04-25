@@ -18,6 +18,15 @@ endif()
 
 FetchContent_MakeAvailable(fastmcpp)
 
+# Workaround: fastmcpp_core uses Winsock but doesn't link ws2_32 itself.
+if(WIN32)
+    target_link_libraries(fastmcpp_core PRIVATE ws2_32)
+endif()
+# Exclude fastmcpp CLI binary from ALL target (it's not needed and fails to link).
+if(TARGET fastmcpp)
+    set_target_properties(fastmcpp PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
 # Restore flags for our own code.
 set(CMAKE_CXX_FLAGS "${_saved_cxx_flags}")
 
