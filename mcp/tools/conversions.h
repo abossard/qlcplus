@@ -20,6 +20,7 @@
 #ifndef MCP_CONVERSIONS_H
 #define MCP_CONVERSIONS_H
 
+#include <cmath>
 #include <nlohmann/json.hpp>
 
 #include "fixture.h"
@@ -63,6 +64,7 @@ inline uint beatStringToValue(const std::string &str)
             int num = std::stoi(str.substr(0, slash));
             int den = std::stoi(str.substr(slash + 1));
             if (den == 0 || num <= 0) return 0;
+            if (num > 100000) return 0;
 
             // If denominator is a supported subdivision, use the engine helper directly.
             if (den == 1 || den == 2 || den == 4 || den == 8 || den == 16)
@@ -70,14 +72,15 @@ inline uint beatStringToValue(const std::string &str)
 
             // Generic fallback: convert to beats then quantize via timeToBeats with 1000ms beat.
             double beats = (double)num / (double)den;
-            uint raw = static_cast<uint>(beats * 1000.0);
+            uint raw = static_cast<uint>(std::round(beats * 1000.0));
             return Function::timeToBeats(raw, 1000);
         }
 
         // Plain number (integer or decimal beats)
         double beats = std::stod(str);
         if (beats <= 0) return 0;
-        uint raw = static_cast<uint>(beats * 1000.0);
+        if (beats > 100000) return 0;
+        uint raw = static_cast<uint>(std::round(beats * 1000.0));
         // Quantize via the engine's 1/16 table (1000ms-per-beat reference frame).
         return Function::timeToBeats(raw, 1000);
     }
@@ -117,28 +120,20 @@ inline std::string valueToBeatString(uint val)
         return std::to_string(n) + "/" + std::to_string(d);
     }
 
-    // Off-grid: split into whole + fractional remainder.
-    uint whole = val / 1000;
-    uint frac = val % 1000;
-    QPair<int, int> mf = Function::beatValueToMusical(frac);
-    std::string fracStr;
-    if (mf.first > 0 && mf.second > 0 && mf.second != 1)
+    // Off-grid: snap to nearest 1/16 via the engine quantizer, then re-format.
+    uint snapped = Function::timeToBeats(val, 1000);
+    if (snapped > 0 && snapped != val)
     {
-        int n = mf.first;
-        int d = mf.second;
-        auto gcd = [](int a, int b) { while (b) { int t = b; b = a % b; a = t; } return a; };
-        int g = gcd(n, d);
-        n /= g;
-        d /= g;
-        fracStr = std::to_string(n) + "/" + std::to_string(d);
+        // Recurse once with the snapped value (guaranteed on-grid now).
+        return valueToBeatString(snapped);
     }
-    else
-    {
-        fracStr = std::to_string(frac);
-    }
-    if (whole == 0)
-        return fracStr;
-    return std::to_string(whole) + "+" + fracStr;
+
+    // Tiny values (< half a 1/16 step) snap to 0 — treat as zero.
+    if (snapped == 0)
+        return "0";
+
+    // Fallback: return numeric value (should not be reached in practice).
+    return std::to_string(val);
 }
 
 // Parse a duration field that can be either integer (ms) or string (beat fraction).

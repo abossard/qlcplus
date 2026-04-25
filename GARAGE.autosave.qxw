@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="SDESK">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -509,6 +509,17 @@
    <Step Number="0" FadeIn="0" Hold="188" FadeOut="0">3</Step>
    <Step Number="1" FadeIn="0" Hold="375" FadeOut="0">7</Step>
    <Step Number="2" FadeIn="0" Hold="938" FadeOut="0">5</Step>
+  </Function>
+  <Function ID="9" Type="Scene" Name="SMOKE_TEST_SCENE">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+  </Function>
+  <Function ID="10" Type="Chaser" Name="SMOKE_BEAT_TEST4">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="188000" Hold="250000" FadeOut="63000">9</Step>
   </Function>
   <Monitor DisplayMode="0" ShowLabels="0">
    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>

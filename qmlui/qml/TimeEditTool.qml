@@ -65,11 +65,13 @@ GridLayout
         { label: "1/8",  units: 125  },
         { label: "1/16", units: 63   }
     ]
-    // Canonical 1/16 table — must match engine s_beatSixteenths
-    readonly property var sixteenthsTable: [
-        0, 63, 125, 188, 250, 313, 375, 438,
-        500, 563, 625, 688, 750, 813, 875, 938
-    ]
+    // Max subdivision index based on allowFractions
+    readonly property int maxSubdivIdx: {
+        if (allowFractions === QLCFunction.FineFractions) return 4   // 1/16
+        if (allowFractions === QLCFunction.AllFractions) return 3    // 1/8
+        if (allowFractions === QLCFunction.ByTwoFractions) return 1  // 1/2
+        return 0  // NoFractions: whole beats only
+    }
     property int beatCount: 1
     property int subdivIdx: 2 // default 1/4
     property bool _suppressBeatsSync: false
@@ -80,16 +82,11 @@ GridLayout
             beatCount = 1
         if (beatCount > 32)
             beatCount = 32
+        if (subdivIdx > maxSubdivIdx)
+            subdivIdx = maxSubdivIdx
         _suppressBeatsSync = true
-        // For 1/16 subdivisions, use the canonical table to match the engine
-        var v
-        if (subdivIdx === 4) {
-            var wholeBeats = Math.floor(beatCount / 16)
-            var sixteenths = beatCount % 16
-            v = wholeBeats * 1000 + sixteenthsTable[sixteenths]
-        } else {
-            v = beatCount * subdivisions[subdivIdx].units
-        }
+        var subdiv = [1, 2, 4, 8, 16][subdivIdx]
+        var v = QLCFunction.musicalBeatValue(beatCount, subdiv)
         updateTime(v, "")
         _suppressBeatsSync = false
     }
@@ -98,25 +95,26 @@ GridLayout
     {
         if (v <= 0)
             return { count: 1, idx: subdivIdx }
-        // Try coarse subdivisions first (1/1, 1/2, 1/4, 1/8)
-        for (var i = 0; i < 4; i++)
+        var pt = QLCFunction.beatValueToMusicalPoint(v)
+        if (pt.x > 0 && pt.y > 0)
         {
-            var u = subdivisions[i].units
-            if (u > 0 && v >= u && v % u === 0)
-                return { count: v / u, idx: i }
+            // Map subdivision value to index: 1→0, 2→1, 4→2, 8→3, 16→4
+            var subdivToIdx = { 1: 0, 2: 1, 4: 2, 8: 3, 16: 4 }
+            var idx = subdivToIdx[pt.y]
+            if (idx !== undefined)
+            {
+                // Clamp to allowed range
+                if (idx > maxSubdivIdx)
+                {
+                    var coarseUnits = [1000, 500, 250, 125, 63][maxSubdivIdx]
+                    var count = Math.max(1, Math.min(32, Math.round(v / coarseUnits)))
+                    return { count: count, idx: maxSubdivIdx }
+                }
+                return { count: Math.min(32, pt.x), idx: idx }
+            }
         }
-        // Try 1/16: check if fractional part matches the canonical table
-        var wholeBeats = Math.floor(v / 1000)
-        var frac = v % 1000
-        for (var j = 1; j < 16; j++)
-        {
-            if (frac === sixteenthsTable[j])
-                return { count: wholeBeats * 16 + j, idx: 4 }
-        }
-        if (frac === 0 && wholeBeats > 0)
-            return { count: wholeBeats, idx: 0 }
-        // Fallback: snap to nearest 1/16
-        return { count: Math.max(1, Math.round(v / 63)), idx: 4 }
+        // Fallback: whole beats
+        return { count: Math.max(1, Math.round(v / 1000)), idx: 0 }
     }
 
     onTimeValueChanged:
@@ -138,6 +136,12 @@ GridLayout
             beatCount = d.count
             subdivIdx = d.idx
         }
+    }
+
+    onAllowFractionsChanged:
+    {
+        if (subdivIdx > maxSubdivIdx)
+            subdivIdx = maxSubdivIdx
     }
 
     /* If needed, this can be the reference index of an item in a list */
@@ -511,7 +515,7 @@ GridLayout
     // === BEATS MODE: Subdivision selector row (bottom) ===
     RowLayout
     {
-        visible: tempoType === QLCFunction.Beats
+        visible: tempoType === QLCFunction.Beats && maxSubdivIdx > 0
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.columnSpan: 4
@@ -520,7 +524,7 @@ GridLayout
 
         Repeater
         {
-            model: subdivisions
+            model: maxSubdivIdx + 1
 
             GenericButton
             {
@@ -529,7 +533,7 @@ GridLayout
                 border.color: UISettings.bgMedium
                 bgColor: index === subdivIdx ? UISettings.highlight : buttonsBgColor
                 fontSize: btnFontSize
-                label: modelData.label
+                label: subdivisions[index].label
                 onClicked:
                 {
                     subdivIdx = index

@@ -597,6 +597,9 @@ quint32 Function::musicalBeatValue(int count, int subdivision)
     if (count < 0 || subdivision <= 0)
         return 0;
 
+    if (count > 100000)
+        return 0;
+
     // For 1/16 subdivisions, use the canonical table to avoid drift
     if (subdivision == 16)
     {
@@ -618,6 +621,9 @@ quint32 Function::musicalBeatValue(int count, int subdivision)
 
 QPair<int, int> Function::beatValueToMusical(quint32 value)
 {
+    if (value == 0)
+        return qMakePair(0, 1);
+
     // Try whole beats and power-of-2 subdivisions (coarsest first)
     static const int subdivs[] = {1, 2, 4, 8};
     static const int units[]   = {1000, 500, 250, 125};
@@ -645,6 +651,14 @@ QPair<int, int> Function::beatValueToMusical(quint32 value)
         return qMakePair(static_cast<int>(wholeBeats), 1);
 
     return qMakePair(-1, -1);
+}
+
+QPoint Function::beatValueToMusicalPoint(int value)
+{
+    if (value < 0)
+        return QPoint(-1, -1);
+    QPair<int, int> r = beatValueToMusical(static_cast<quint32>(value));
+    return QPoint(r.first, r.second);
 }
 
 Function::TempoType Function::overrideTempoType() const

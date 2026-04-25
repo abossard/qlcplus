@@ -18,7 +18,7 @@
 > (Copilot, Claude, Cursor, etc.) design and control lighting shows via natural language.
 >
 > ### What this fork adds
-> - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 230 unit tests
+> - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 252 unit tests
 > - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
 > - `autolight/` directory: Iterative LED effect research loop (Python)
 > - **Enhanced Function Wizard** — rainbow/warm/cool palettes, beat-synced chasers, movement patterns, prism/focus/zoom detection, per-fixture VC pages, QLCPalette generation
@@ -38,6 +38,7 @@
 > - **Improved column detection** — overlap-tolerance + best-match prevents false column merges
 > - **Undo for layout operations** — Tardis batch support + Ctrl+Z/Ctrl+Shift+Z keyboard shortcuts
 > - **ComboBox dropdown fix** — string list models now show text in dropdown items
+> - **1/16 beat subdivision** — canonical quantizer table (single source of truth), `musicalBeatValue`/`beatValueToMusical` helpers exposed to QML, TimeEditTool count×subdivision UI with `allowFractions` gating, 63 unit tests (20 engine + 43 MCP conversions)
 >
 > ### Recent engine changes
 >
@@ -717,6 +718,44 @@ QLC+ owes its success to the dedication and expertise of numerous individuals wh
   <img src="https://contrib.rocks/image?repo=mcallegari/qlcplus" />
 </a>
 </p>
+
+---
+
+
+## Testing
+
+### Unit tests
+
+```bash
+cd build
+
+# Engine tests (beat quantization)
+cmake --build . --target beatquantize_test -j8 && ./engine/test/beatquantize/beatquantize_test
+
+# MCP tests
+cmake --build . --target mcp_conversions_test -j8 && ./mcp/test/mcp_conversions_test
+cmake --build . --target mcp_vc_query_filter_test -j8 && ./mcp/test/mcp_vc_query_filter_test
+cmake --build . --target mcp_vc_validation_test -j8 && ./mcp/test/mcp_vc_validation_test
+```
+
+| Suite | Tests | Covers |
+|-------|-------|--------|
+| `beatquantize_test` | 20 | 1/16 quantizer table, `musicalBeatValue`, `beatValueToMusical`, round-trips, overflow guards |
+| `mcp_conversions_test` | 43 | Beat string parsing/formatting, decimal precision, off-grid snapping, GCD reduction, round-trips |
+| `mcp_vc_query_filter_test` | — | VC widget query filtering and pagination |
+| `mcp_vc_validation_test` | — | Widget type/field validation |
+
+### E2E tests (Web DMX Control Panel)
+
+```bash
+cd webaccess/vc-next && npx playwright test
+```
+
+35+ Playwright tests covering fixture panels, cross-tab sync, presets, and REST API.
+
+### Manual review
+
+See [`MANUAL_REVIEW.md`](MANUAL_REVIEW.md) for a checklist of items requiring human verification (visual layout, timing perception, 3D model rendering, OS2L diagnostics).
 
 ---
 

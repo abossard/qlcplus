@@ -243,4 +243,19 @@ void BeatQuantize_Test::musicalBeatValue_roundTrip_allSubdivisions()
     }
 }
 
+void BeatQuantize_Test::beatValueToMusical_zero()
+{
+    auto r = Function::beatValueToMusical(0);
+    QCOMPARE(r.first, 0);
+    QCOMPARE(r.second, 1);
+
+    // Round-trip: musicalBeatValue(0, 1) should also be 0
+    QCOMPARE(Function::musicalBeatValue(0, 1), 0u);
+
+    // Overflow guard: count > 100000 returns 0
+    QCOMPARE(Function::musicalBeatValue(100001, 4), 0u);
+    // At limit should work
+    QVERIFY(Function::musicalBeatValue(100000, 1) != 0u);
+}
+
 QTEST_MAIN(BeatQuantize_Test)

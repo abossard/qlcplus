@@ -26,6 +26,7 @@
 #include <QString>
 #include <QMutex>
 #include <QPair>
+#include <QPoint>
 #include <QList>
 #include <QIcon>
 #include <QMap>
@@ -457,12 +458,18 @@ public:
     /** Returns the canonical beat-encoded value for count x subdivision.
      *  subdivision must be 1, 2, 4, 8, or 16.
      *  E.g., musicalBeatValue(3, 4) = 750 (three quarter notes). */
-    static quint32 musicalBeatValue(int count, int subdivision);
+    Q_INVOKABLE static quint32 musicalBeatValue(int count, int subdivision);
 
     /** Decompose a beat value into count x subdivision.
      *  Returns {count, subdivision} where subdivision is in {1,2,4,8,16}.
+     *  Returns {0, 1} for value 0 (identity).
      *  Returns {-1, -1} if the value is not on the musical grid. */
     static QPair<int, int> beatValueToMusical(quint32 value);
+
+    /** QML-friendly variant of beatValueToMusical that returns a QPoint
+     *  (x = count, y = subdivision). Returns (-1, -1) for negative input
+     *  or values not on the musical grid. */
+    Q_INVOKABLE static QPoint beatValueToMusicalPoint(int value);
 
     /** Get the override speed type (done by a Chaser) */
     TempoType overrideTempoType() const;

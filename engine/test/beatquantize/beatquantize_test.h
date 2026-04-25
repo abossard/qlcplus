@@ -38,6 +38,7 @@ private slots:
     void beatValueToMusical_compositeSixteenths();
     void beatValueToMusical_offGrid();
     void musicalBeatValue_roundTrip_allSubdivisions();
+    void beatValueToMusical_zero();
 };
 
 #endif // BEATQUANTIZE_TEST_H
