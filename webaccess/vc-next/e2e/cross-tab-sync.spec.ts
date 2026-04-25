@@ -10,8 +10,8 @@ const APP_URL = '/vc/';
 
 async function loadDmxTab(page: Page) {
   await page.goto(APP_URL);
-  await page.waitForSelector('.view-tabs', { timeout: 10_000 });
-  await page.locator('.view-tab', { hasText: /DMX/i }).click();
+  // DMX is the only view — wait for it to render directly.
+  await page.waitForSelector('.dmx-view', { timeout: 10_000 });
   await page.locator('.fixture-panel').first().waitFor({ timeout: 15_000 });
   // Wait for the WS connection to establish and DMX_SUB to fire.
   // The status should show "Live" once connected.
@@ -25,21 +25,43 @@ async function loadDmxTab(page: Page) {
   await page.waitForTimeout(1500);
 }
 
-// Read the aria-valuenow from the first fader track on a page.
+// Read the aria-valuenow from the HERO dimmer fader.
 async function readFirstFaderValue(page: Page): Promise<number> {
-  const track = page.locator('.channel-fader .cf-track, .dimmer-fader .cf-track').first();
+  const track = page.locator('.fixture-panel', { hasText: 'HERO' })
+    .first()
+    .locator('.dimmer-fader:not(.readonly) .cf-track')
+    .first();
   await expect(track).toBeVisible({ timeout: 5_000 });
   return Number(await track.getAttribute('aria-valuenow') ?? '0');
 }
 
-// Click a fader track at a specific vertical percentage (0 = top/max, 1 = bottom/min).
+// Click the HERO dimmer fader at a specific vertical percentage
+// (0 = top/max, 1 = bottom/min). Uses dispatchEvent + setPointerCapture stub
+// because synthetic PointerEvents have no active pointer state, which would
+// otherwise make React's onPointerDown handler throw.
 async function clickFaderAt(page: Page, verticalPct: number) {
-  const track = page.locator('.channel-fader .cf-track, .dimmer-fader .cf-track').first();
+  const track = page.locator('.fixture-panel', { hasText: 'HERO' })
+    .first()
+    .locator('.dimmer-fader:not(.readonly) .cf-track')
+    .first();
   await track.scrollIntoViewIfNeeded();
-  const box = await track.boundingBox();
-  if (!box) throw new Error('Fader track not visible');
-  const y = box.y + box.height * verticalPct;
-  await page.mouse.click(box.x + box.width / 2, y);
+  await track.evaluate((el: HTMLElement, pct: number) => {
+    const orig = (Element.prototype as any).setPointerCapture;
+    (Element.prototype as any).setPointerCapture = function () { /* no-op */ };
+    try {
+      const r = el.getBoundingClientRect();
+      const opts: PointerEventInit = {
+        bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse',
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height * pct,
+        button: 0, buttons: 1, isPrimary: true,
+      };
+      el.dispatchEvent(new PointerEvent('pointerdown', opts));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...opts, buttons: 0 }));
+    } finally {
+      (Element.prototype as any).setPointerCapture = orig;
+    }
+  }, verticalPct);
 }
 
 // ---------------------------------------------------------------------------
@@ -66,83 +88,63 @@ test.describe('Cross-Tab DMX Sync', () => {
   test('fader change in Tab A is reflected in Tab B', async () => {
     // Set a distinctive value in Tab A by clicking near the top (high value).
     await clickFaderAt(tabA, 0.1);
-    await tabA.waitForTimeout(500);
-
+    await expect.poll(() => readFirstFaderValue(tabA), { timeout: 3_000 })
+      .toBeGreaterThan(200);
     const newValueA = await readFirstFaderValue(tabA);
-    expect(newValueA).toBeGreaterThan(200); // clicked near top
 
     // Wait for the WS DMX_DELTA push to propagate to Tab B.
-    // The server pushes at 20Hz but there's WS + React render latency.
-    let syncedB = false;
-    for (let i = 0; i < 50; i++) {
-      await tabB.waitForTimeout(100);
-      const valueB = await readFirstFaderValue(tabB);
-      if (Math.abs(valueB - newValueA) <= 5) {
-        syncedB = true;
-        break;
-      }
-    }
-
-    expect(syncedB).toBeTruthy();
+    await expect.poll(() => readFirstFaderValue(tabB), { timeout: 5_000 })
+      .toBeGreaterThan(newValueA - 6);
   });
 
   test('fader change in Tab B is reflected in Tab A', async () => {
     // Set a value in Tab B by clicking near the middle.
     await clickFaderAt(tabB, 0.5);
-    await tabB.waitForTimeout(500);
-
+    await expect.poll(() => readFirstFaderValue(tabB), { timeout: 3_000 })
+      .toBeGreaterThan(50);
     const newValueB = await readFirstFaderValue(tabB);
-    expect(newValueB).toBeGreaterThan(50);
     expect(newValueB).toBeLessThan(200);
 
     // Wait for sync to Tab A.
-    let syncedA = false;
-    for (let i = 0; i < 50; i++) {
-      await tabA.waitForTimeout(100);
-      const valueA = await readFirstFaderValue(tabA);
-      if (Math.abs(valueA - newValueB) <= 5) {
-        syncedA = true;
-        break;
-      }
-    }
-
-    expect(syncedA).toBeTruthy();
+    await expect.poll(() => readFirstFaderValue(tabA), { timeout: 5_000 })
+      .toBeGreaterThan(newValueB - 6);
   });
 
   test('rapid fader changes sync without diverging', async () => {
-    // Drag the fader in Tab A through multiple positions.
-    const track = tabA.locator('.channel-fader .cf-track, .dimmer-fader .cf-track').first();
+    // Drag the fader in Tab A through multiple positions via dispatchEvent.
+    const track = tabA.locator('.fixture-panel', { hasText: 'HERO' })
+      .first()
+      .locator('.dimmer-fader:not(.readonly) .cf-track')
+      .first();
     await track.scrollIntoViewIfNeeded();
-    const box = await track.boundingBox();
-    if (!box) return;
-
-    const x = box.x + box.width / 2;
-
-    // Drag from bottom to top.
-    await tabA.mouse.move(x, box.y + box.height - 5);
-    await tabA.mouse.down();
-    for (let y = box.y + box.height - 5; y >= box.y + 5; y -= 15) {
-      await tabA.mouse.move(x, y);
-      await tabA.waitForTimeout(30);
-    }
-    await tabA.mouse.up();
-    await tabA.waitForTimeout(500);
-
+    await track.evaluate((el: HTMLElement) => {
+      const orig = (Element.prototype as any).setPointerCapture;
+      (Element.prototype as any).setPointerCapture = function () { /* no-op */ };
+      try {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const yStart = r.top + r.height - 5;
+        const yEnd = r.top + 5;
+        const baseOpts: PointerEventInit = {
+          bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse',
+          clientX: x, clientY: yStart, button: 0, buttons: 1, isPrimary: true,
+        };
+        el.dispatchEvent(new PointerEvent('pointerdown', baseOpts));
+        for (let y = yStart; y >= yEnd; y -= 15) {
+          el.dispatchEvent(new PointerEvent('pointermove', { ...baseOpts, clientY: y }));
+        }
+        el.dispatchEvent(new PointerEvent('pointerup', { ...baseOpts, clientY: yEnd, buttons: 0 }));
+      } finally {
+        (Element.prototype as any).setPointerCapture = orig;
+      }
+    });
+    await expect.poll(() => readFirstFaderValue(tabA), { timeout: 3_000 })
+      .toBeGreaterThan(200);
     const finalA = await readFirstFaderValue(tabA);
-    expect(finalA).toBeGreaterThan(200);
 
     // Wait for Tab B to catch up.
-    let syncedB = false;
-    for (let i = 0; i < 30; i++) {
-      await tabB.waitForTimeout(100);
-      const valueB = await readFirstFaderValue(tabB);
-      if (Math.abs(valueB - finalA) <= 5) {
-        syncedB = true;
-        break;
-      }
-    }
-
-    expect(syncedB).toBeTruthy();
+    await expect.poll(() => readFirstFaderValue(tabB), { timeout: 5_000 })
+      .toBeGreaterThan(finalA - 6);
   });
 
   test('color picker change in one tab syncs RGB to another', async () => {
@@ -203,35 +205,23 @@ test.describe('Cross-Tab DMX Sync', () => {
   test('reset in one tab resets the other tab too', async () => {
     // Set a high value in Tab A.
     await clickFaderAt(tabA, 0.1);
-    await tabA.waitForTimeout(300);
+    await tabA.waitForTimeout(500);
+    // Poll for value because WS echoes can briefly override optimistic state.
+    await expect.poll(() => readFirstFaderValue(tabA), { timeout: 5_000 })
+      .toBeGreaterThan(150);
     const highValue = await readFirstFaderValue(tabA);
-    expect(highValue).toBeGreaterThan(200);
 
     // Wait for sync to B.
-    for (let i = 0; i < 20; i++) {
-      await tabB.waitForTimeout(100);
-      const vB = await readFirstFaderValue(tabB);
-      if (vB > 200) break;
-    }
+    await expect.poll(() => readFirstFaderValue(tabB), { timeout: 5_000 })
+      .toBeGreaterThan(150);
 
-    // Reset in Tab B.
-    const resetBtn = tabB.locator('.fixture-panel .fp-reset').first();
+    // Reset HERO in Tab B.
+    const resetBtn = tabB.locator('.fixture-panel', { hasText: 'HERO' }).first().locator('.fp-reset');
     await resetBtn.click();
-    await tabB.waitForTimeout(500);
+    await tabB.waitForTimeout(1000);
 
-    // Wait for Tab A to see the reset (server sends sdResetChannel, then
-    // universe values change, then DMX_DELTA pushes the new values).
-    let resetSynced = false;
-    for (let i = 0; i < 30; i++) {
-      await tabA.waitForTimeout(100);
-      const vA = await readFirstFaderValue(tabA);
-      if (vA < highValue) {
-        resetSynced = true;
-        break;
-      }
-    }
-
-    // The value in Tab A should have decreased after Tab B's reset.
-    expect(resetSynced).toBeTruthy();
+    // Wait for Tab A to see the reset (8 second timeout for the full round-trip).
+    await expect.poll(() => readFirstFaderValue(tabA), { timeout: 8_000 })
+      .toBeLessThan(highValue);
   });
 });

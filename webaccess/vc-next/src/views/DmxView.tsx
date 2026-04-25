@@ -2,14 +2,20 @@
 // Loads fixtures, attaches DMX WS subscriptions, and renders a grid of
 // fixture cards (controls themselves arrive in Phase C/D).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDmxStore } from '../store/dmx-store';
 import FixturePanel from '../components/dmx/FixturePanel';
 import type { FixtureInfo } from '../lib/dmx-types';
 
-function uniqueTypes(fixtures: Map<number, FixtureInfo>): string[] {
+const COLLAPSED_KEY = 'qlcplus.dmx.collapsed-universes';
+
+function fixtureModelLabel(fx: FixtureInfo): string {
+  return fx.model && fx.model.trim() ? fx.model : fx.name;
+}
+
+function uniqueModels(fixtures: Map<number, FixtureInfo>): string[] {
   const s = new Set<string>();
-  for (const fx of fixtures.values()) if (fx.type) s.add(fx.type);
+  for (const fx of fixtures.values()) s.add(fixtureModelLabel(fx));
   return Array.from(s).sort();
 }
 
@@ -17,6 +23,22 @@ function uniqueUniverses(fixtures: Map<number, FixtureInfo>): number[] {
   const s = new Set<number>();
   for (const fx of fixtures.values()) s.add(fx.universe);
   return Array.from(s).sort((a, b) => a - b);
+}
+
+function loadCollapsed(): Set<number> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return new Set(arr.filter((n: unknown) => typeof n === 'number'));
+  } catch { /* noop */ }
+  return new Set();
+}
+
+function persistCollapsed(set: Set<number>) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(Array.from(set)));
+  } catch { /* noop */ }
 }
 
 export default function DmxView() {
@@ -28,8 +50,9 @@ export default function DmxView() {
   const subscribeFixtures = useDmxStore(s => s.subscribeFixtures);
   const unsubscribeFixtures = useDmxStore(s => s.unsubscribeFixtures);
   const [filter, setFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string | null>(null);
+  const [modelFilter, setModelFilter] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<'none' | 'universe'>('none');
+  const [collapsedUniverses, setCollapsedUniverses] = useState<Set<number>>(() => loadCollapsed());
 
   useEffect(() => {
     void loadFixtures();
@@ -47,14 +70,23 @@ export default function DmxView() {
     return () => unsubscribeFixtures(ids);
   }, [fixtures, subscribeFixtures, unsubscribeFixtures]);
 
-  const types = useMemo(() => uniqueTypes(fixtures), [fixtures]);
+  const toggleUniverse = useCallback((u: number) => {
+    setCollapsedUniverses(prev => {
+      const next = new Set(prev);
+      if (next.has(u)) next.delete(u); else next.add(u);
+      persistCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const models = useMemo(() => uniqueModels(fixtures), [fixtures]);
   const universes = useMemo(() => uniqueUniverses(fixtures), [fixtures]);
 
   const sorted = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     return Array.from(fixtures.values())
       .filter(fx => {
-        if (typeFilter && fx.type !== typeFilter) return false;
+        if (modelFilter && fixtureModelLabel(fx) !== modelFilter) return false;
         if (!needle) return true;
         return fx.name.toLowerCase().includes(needle)
           || (fx.model?.toLowerCase().includes(needle) ?? false)
@@ -64,7 +96,7 @@ export default function DmxView() {
         if (a.universe !== b.universe) return a.universe - b.universe;
         return a.address - b.address;
       });
-  }, [fixtures, filter, typeFilter]);
+  }, [fixtures, filter, modelFilter]);
 
   if (loading && sorted.length === 0) {
     return <div className="dmx-view dmx-view-empty">Loading fixtures…</div>;
@@ -84,12 +116,16 @@ export default function DmxView() {
     return <div className="dmx-view dmx-view-empty">No fixtures patched.</div>;
   }
 
-  const grouped = groupBy === 'universe'
-    ? universes.map(u => ({
-        label: `Universe ${u + 1}`,
-        items: sorted.filter(fx => fx.universe === u),
-      })).filter(g => g.items.length > 0)
-    : [{ label: '', items: sorted }];
+  const grouped: { label: string; universe: number | null; items: FixtureInfo[] }[] =
+    groupBy === 'universe'
+      ? universes
+          .map(u => ({
+            label: `Universe ${u + 1}`,
+            universe: u,
+            items: sorted.filter(fx => fx.universe === u),
+          }))
+          .filter(g => g.items.length > 0)
+      : [{ label: '', universe: null, items: sorted }];
 
   return (
     <div className="dmx-view" role="region" aria-label="DMX Control Panel">
@@ -102,20 +138,21 @@ export default function DmxView() {
           onChange={e => setFilter(e.target.value)}
           aria-label="Filter fixtures"
         />
-        {types.length > 1 && (
+        {models.length > 1 && (
           <div className="dmx-type-badges">
             <button
               type="button"
-              className={`dmx-badge${typeFilter === null ? ' active' : ''}`}
-              onClick={() => setTypeFilter(null)}
+              className={`dmx-badge${modelFilter === null ? ' active' : ''}`}
+              onClick={() => setModelFilter(null)}
             >All</button>
-            {types.map(t => (
+            {models.map(m => (
               <button
-                key={t}
+                key={m}
                 type="button"
-                className={`dmx-badge${typeFilter === t ? ' active' : ''}`}
-                onClick={() => setTypeFilter(typeFilter === t ? null : t)}
-              >{t}</button>
+                className={`dmx-badge${modelFilter === m ? ' active' : ''}`}
+                onClick={() => setModelFilter(modelFilter === m ? null : m)}
+                title={m}
+              >{m}</button>
             ))}
           </div>
         )}
@@ -131,16 +168,44 @@ export default function DmxView() {
           <span className="dmx-count">{sorted.length} / {totalFixtures}</span>
         </div>
       </div>
-      {grouped.map(({ label, items }) => (
-        <div key={label || 'all'} className="dmx-group">
-          {label && <h2 className="dmx-group-label">{label}</h2>}
-          <div className="dmx-grid">
-            {items.map(fx => (
-              <FixturePanel key={fx.id} fixture={fx} />
-            ))}
+      {grouped.map(({ label, universe, items }) => {
+        const collapsible = universe !== null;
+        const collapsed = collapsible && collapsedUniverses.has(universe);
+        return (
+          <div key={label || 'all'} className="dmx-group">
+            {label && (
+              collapsible ? (
+                <h2
+                  className={`dmx-group-label dmx-group-label-toggle${collapsed ? ' collapsed' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={!collapsed}
+                  onClick={() => toggleUniverse(universe!)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleUniverse(universe!);
+                    }
+                  }}
+                >
+                  <span className="dmx-group-chevron" aria-hidden="true">{collapsed ? '▸' : '▾'}</span>
+                  {' '}{label}{' '}
+                  <span className="dmx-group-count">({items.length} fixture{items.length === 1 ? '' : 's'})</span>
+                </h2>
+              ) : (
+                <h2 className="dmx-group-label">{label}</h2>
+              )
+            )}
+            {!collapsed && (
+              <div className="dmx-grid">
+                {items.map(fx => (
+                  <FixturePanel key={fx.id} fixture={fx} />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

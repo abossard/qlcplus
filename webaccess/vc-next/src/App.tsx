@@ -1,10 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useVCStore } from './store/vc-store';
 
-const VCView = lazy(() => import('./views/VCView'));
 const DmxView = lazy(() => import('./views/DmxView'));
-
-type Tab = 'vc' | 'dmx';
 
 export default function App() {
   const connected = useVCStore(s => s.connected);
@@ -13,7 +10,6 @@ export default function App() {
   const init = useVCStore(s => s.init);
   const cleanup = useVCStore(s => s.cleanup);
 
-  const [tab, setTab] = useState<Tab>('vc');
   const [compact, setCompact] = useState(false);
 
   useEffect(() => {
@@ -50,27 +46,6 @@ export default function App() {
         />
         <span className="status-text">{statusText}</span>
 
-        <nav className="view-tabs" role="tablist" aria-label="Top-level views">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'vc'}
-            className={`view-tab${tab === 'vc' ? ' active' : ''}`}
-            onClick={() => setTab('vc')}
-          >
-            Virtual Console
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === 'dmx'}
-            className={`view-tab${tab === 'dmx' ? ' active' : ''}`}
-            onClick={() => setTab('dmx')}
-          >
-            DMX Control
-          </button>
-        </nav>
-
         <button
           type="button"
           className={`compact-toggle${compact ? ' on' : ''}`}
@@ -84,7 +59,7 @@ export default function App() {
 
       <main className="viewport-shell">
         <Suspense fallback={<div className="empty-state">Loading…</div>}>
-          {tab === 'vc' ? <VCView /> : <DmxView />}
+          <DmxView />
         </Suspense>
       </main>
 

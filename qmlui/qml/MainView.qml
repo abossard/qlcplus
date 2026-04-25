@@ -505,6 +505,21 @@ Rectangle
                 color: "transparent"
             }
 
+            // ################## OPEN WEB CONTROL ##################
+            IconButton
+            {
+                id: webControlBtn
+                visible: networkManager.webAccessPort > 0
+                implicitWidth: UISettings.iconSizeDefault
+                implicitHeight: UISettings.iconSizeDefault
+                Layout.alignment: Qt.AlignTop
+                bgColor: "transparent"
+                imgSource: "qrc:/network.svg"
+                imgMargins: 8
+                tooltip: qsTr("Open DMX Web Control")
+                onClicked: Qt.openUrlExternally("http://localhost:" + networkManager.webAccessPort + "/vc/")
+            }
+
             // ################## STOP ALL FUNCTIONS ##################
             IconButton
             {

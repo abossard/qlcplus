@@ -14,6 +14,7 @@ interface Props {
   variant?: 'default' | 'dimmer';
   displayValue?: (raw: number) => string;
   accent?: string;
+  readOnly?: boolean;
 }
 
 function ChannelFaderImpl({
@@ -27,6 +28,7 @@ function ChannelFaderImpl({
   variant = 'default',
   displayValue,
   accent,
+  readOnly = false,
 }: Props) {
   const setChannel = useDmxStore(s => s.setChannel);
   const setActive = useDmxStore(s => s.setActiveChannel);
@@ -46,6 +48,7 @@ function ChannelFaderImpl({
   }, [fixtureId, channelIndex, min, max, setChannel]);
 
   const onDown = (e: React.PointerEvent) => {
+    if (readOnly) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     draggingRef.current = true;
     setActive(fixtureId, channelIndex);
@@ -53,10 +56,12 @@ function ChannelFaderImpl({
     updateFromEvent(e);
   };
   const onMove = (e: React.PointerEvent) => {
+    if (readOnly) return;
     if (!draggingRef.current) return;
     updateFromEvent(e);
   };
   const onUp = (e: React.PointerEvent) => {
+    if (readOnly) return;
     try { (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
     draggingRef.current = false;
     clearActive();
@@ -67,8 +72,8 @@ function ChannelFaderImpl({
   const style: React.CSSProperties = accent ? ({ ['--fader-accent' as never]: accent } as React.CSSProperties) : {};
 
   return (
-    <div className={`channel-fader${variant === 'dimmer' ? ' dimmer-fader' : ''}`} style={style}>
-      <div className="cf-value" aria-live="off">{readout}</div>
+    <div className={`channel-fader${variant === 'dimmer' ? ' dimmer-fader' : ''}${readOnly ? ' readonly' : ''}`} style={style}>
+      <div className="cf-value" aria-live="off">{readOnly ? `🔒 ${readout}` : readout}</div>
       <div
         ref={trackRef}
         className="cf-track"

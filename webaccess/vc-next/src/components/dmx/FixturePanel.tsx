@@ -94,17 +94,55 @@ function groupPlans(plans: ControlPlan[]) {
   return { primary, generic };
 }
 
-function sectionOrderKey(p: ControlPlan): number {
-  const order: Record<ControlPlan['kind'], number> = {
-    dimmer: 0,
-    color: 1,
-    position: 2,
-    gobo: 3,
-    shutter: 4,
-    colorMacro: 5,
-    generic: 6,
-  };
-  return order[p.kind];
+function planChannelIndex(plan: ControlPlan): number {
+  switch (plan.kind) {
+    case 'dimmer':
+      return plan.channel;
+    case 'color':
+      return Math.min(...plan.rgbChannels);
+    case 'position':
+      return Math.min(plan.pan.coarse, plan.tilt.coarse);
+    case 'gobo':
+    case 'shutter':
+    case 'colorMacro':
+    case 'generic':
+      return plan.channel;
+  }
+}
+
+function coveredChannelIndices(plans: ControlPlan[]): Set<number> {
+  const set = new Set<number>();
+  for (const p of plans) {
+    switch (p.kind) {
+      case 'dimmer':
+        set.add(p.channel);
+        if (p.fine !== undefined) set.add(p.fine);
+        break;
+      case 'color':
+        for (const idx of p.rgbChannels) set.add(idx);
+        for (const e of p.extra) {
+          set.add(e.channel);
+          if (e.fine !== undefined) set.add(e.fine);
+        }
+        break;
+      case 'position':
+        set.add(p.pan.coarse);
+        if (p.pan.fine !== undefined) set.add(p.pan.fine);
+        set.add(p.tilt.coarse);
+        if (p.tilt.fine !== undefined) set.add(p.tilt.fine);
+        break;
+      case 'gobo':
+      case 'shutter':
+      case 'colorMacro':
+        set.add(p.channel);
+        break;
+      case 'generic':
+        set.add(p.channel);
+        if (p.fine !== undefined) set.add(p.fine);
+        break;
+    }
+  }
+  return set;
 }
 
 function FixturePanelImpl({ fixture }: Props) {
@@ -113,7 +151,12 @@ function FixturePanelImpl({ fixture }: Props) {
   const liveValues = useDmxStore(s => s.liveValues.get(fixture.id));
 
   const [presets, setPresets] = useState<PresetEntry[]>([]);
-  const [rawOpen, setRawOpen] = useState(false);
+
+  const sorted = [...plans].sort((a, b) => planChannelIndex(a) - planChannelIndex(b));
+  const { primary, generic } = groupPlans(sorted);
+  const hasUncoveredChannels = generic.length > 0;
+
+  const [rawOpen, setRawOpen] = useState(primary.length === 0);
 
   useEffect(() => {
     setPresets(getPresets(fixture));
@@ -138,10 +181,12 @@ function FixturePanelImpl({ fixture }: Props) {
     setPresets(getPresets(fixture));
   }, [fixture]);
 
-  const sorted = [...plans].sort((a, b) => sectionOrderKey(a) - sectionOrderKey(b));
-  const { primary, generic } = groupPlans(sorted);
-
   const subtitle = [fixture.manufacturer, fixture.model, fixture.mode].filter(Boolean).join(' · ');
+
+  const coveredIdx = coveredChannelIndices(primary);
+  const allChannels = (fixture.channelsDetail ?? [])
+    .slice()
+    .sort((a, b) => a.index - b.index);
 
   return (
     <article className="fixture-panel" aria-label={fixture.name}>
@@ -151,7 +196,12 @@ function FixturePanelImpl({ fixture }: Props) {
           {subtitle && <div className="fp-subtitle">{subtitle}</div>}
         </div>
         <div className="fp-meta">
-          {fixture.type && <span className="fp-badge">{fixture.type}</span>}
+          {fixture.type && (
+            <span className="fp-badge">
+              {fixture.type}
+              {hasUncoveredChannels && <span className="fp-badge-star" title="Has uncovered channels"> ★</span>}
+            </span>
+          )}
           <span className="fp-addr">U{fixture.universe + 1}·{fixture.address + 1}</span>
           <button
             type="button"
@@ -190,7 +240,7 @@ function FixturePanelImpl({ fixture }: Props) {
           </section>
         ))}
 
-        {generic.length > 0 && (
+        {allChannels.length > 0 && (
           <section className={`raw-channels${rawOpen ? ' open' : ''}`}>
             <button
               type="button"
@@ -198,12 +248,19 @@ function FixturePanelImpl({ fixture }: Props) {
               onClick={() => setRawOpen(o => !o)}
               aria-expanded={rawOpen}
             >
-              {rawOpen ? '▾' : '▸'} Raw Channels ({generic.length})
+              {rawOpen ? '▾' : '▸'} Raw Channels ({allChannels.length})
             </button>
             {rawOpen && (
               <div className="rc-grid">
-                {generic.map((plan, i) => (
-                  <PlanRenderer key={`g-${i}`} fixture={fixture} plan={plan} />
+                {allChannels.map(ch => (
+                  <ChannelFader
+                    key={`raw-${ch.index}`}
+                    fixtureId={fixture.id}
+                    channelIndex={ch.index}
+                    name={ch.name}
+                    capabilities={ch.capabilities}
+                    readOnly={coveredIdx.has(ch.index)}
+                  />
                 ))}
               </div>
             )}

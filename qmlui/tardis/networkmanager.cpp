@@ -169,10 +169,17 @@ void NetworkManager::setServerPassword(QString password)
 
 void NetworkManager::setWebServerConfiguration(int portNumber, bool enableAuth, const QString &passwordFile)
 {
-    m_webServerPort = portNumber;
+    // Default to 9999 (DEFAULT_PORT_NUMBER in webaccessbase.cpp) when -w is used without -wp
+    m_webServerPort = portNumber > 0 ? portNumber : 9999;
     m_webServerAuth = enableAuth;
     m_webServerPasswordFile = passwordFile;
     m_cliWebServer = true;
+    emit webAccessPortChanged();
+}
+
+int NetworkManager::webAccessPort() const
+{
+    return m_webServerPort;
 }
 
 int NetworkManager::connectionsCount() const

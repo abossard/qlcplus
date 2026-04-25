@@ -62,6 +62,7 @@ class NetworkManager final : public QObject
     Q_PROPERTY(QVariant serverList READ serverList NOTIFY serverListChanged)
     Q_PROPERTY(int clientStatus READ clientStatus WRITE setClientStatus NOTIFY clientStatusChanged)
     Q_PROPERTY(int connectionsCount READ connectionsCount NOTIFY connectionsCountChanged)
+    Q_PROPERTY(int webAccessPort READ webAccessPort NOTIFY webAccessPortChanged)
 
 public:
     explicit NetworkManager(QObject *parent = nullptr, Doc *doc = nullptr,
@@ -98,6 +99,8 @@ public:
 
     int connectionsCount() const;
 
+    int webAccessPort() const;
+
 public slots:
     void sendAction(int code, TardisAction action);
 
@@ -113,6 +116,7 @@ signals:
     void startAutomaticallyChanged(bool startAutomatically);
     void serverPasswordChanged(QString password);
     void connectionsCountChanged();
+    void webAccessPortChanged();
     void actionReady(int code, quint32 id, QVariant value);
 
 protected slots:

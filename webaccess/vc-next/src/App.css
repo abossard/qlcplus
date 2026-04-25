@@ -1139,6 +1139,9 @@ input, select {
   font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dmx-badge:hover { background: var(--bg-widget-hover); color: var(--text); }
 .dmx-badge.active {
@@ -1180,6 +1183,28 @@ input, select {
   border-bottom: 1px solid var(--border);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+.dmx-group-label-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.dmx-group-label-toggle:hover { color: var(--accent-bright); }
+.dmx-group-label-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.dmx-group-chevron {
+  display: inline-block;
+  width: 1em;
+  color: var(--text-dim);
+}
+.dmx-group-count {
+  font-weight: 400;
+  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  margin-left: 4px;
 }
 
 /* Fixture panel - larger than placeholder card to host real controls */
@@ -1234,6 +1259,10 @@ input, select {
   background: var(--bg-track);
   padding: 3px 6px;
   border-radius: var(--radius-sm);
+}
+.fp-badge-star {
+  color: var(--accent-bright, var(--accent));
+  font-weight: 700;
 }
 .fp-addr {
   font-family: 'SF Mono', 'Monaco', monospace;
@@ -1723,3 +1752,8 @@ input, select {
 
 .app.compact .fixture-panel .fp-body { padding: 8px; gap: 10px; }
 .app.compact .fp-section { padding: 8px; }
+
+/* Read-only channel fader (covered by a typed control above) */
+.channel-fader.readonly { opacity: 0.6; }
+.channel-fader.readonly .cf-track { pointer-events: none; cursor: not-allowed; }
+.channel-fader.readonly .cf-value { font-style: italic; }
