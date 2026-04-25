@@ -254,14 +254,13 @@ jobs:
           path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage
 
   build-windows:
-    if: false
     continue-on-error: true
     runs-on: windows-latest
     name: QLCplus Windows ${{matrix.task}}
     strategy:
       fail-fast: false
       matrix:
-        task: [build-v4, build-v5, build-v5-mcp]
+        task: [build-v5-mcp]
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
