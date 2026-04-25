@@ -162,13 +162,22 @@ function qlcStringToTime(str, type)
 
         if (tokens.length > 1)
         {
-            if (tokens[0] === " 1/8") { finalTime += 125; }
-            else if (tokens[0] === " 1/4") { finalTime += 250; }
-            else if (tokens[0] === " 3/8") { finalTime += 375; }
-            else if (tokens[0] === " 1/2") { finalTime += 500; }
-            else if (tokens[0] === " 5/8") { finalTime += 625; }
-            else if (tokens[0] === " 3/4") { finalTime += 750; }
-            else if (tokens[0] === " 7/8") { finalTime += 875; }
+            var frac = tokens[1];
+            if (frac === "1/16") { finalTime += 63; }
+            else if (frac === "1/8") { finalTime += 125; }
+            else if (frac === "3/16") { finalTime += 188; }
+            else if (frac === "1/4") { finalTime += 250; }
+            else if (frac === "5/16") { finalTime += 313; }
+            else if (frac === "3/8") { finalTime += 375; }
+            else if (frac === "7/16") { finalTime += 438; }
+            else if (frac === "1/2") { finalTime += 500; }
+            else if (frac === "9/16") { finalTime += 563; }
+            else if (frac === "5/8") { finalTime += 625; }
+            else if (frac === "11/16") { finalTime += 688; }
+            else if (frac === "3/4") { finalTime += 750; }
+            else if (frac === "13/16") { finalTime += 813; }
+            else if (frac === "7/8") { finalTime += 875; }
+            else if (frac === "15/16") { finalTime += 938; }
         }
     }
 
@@ -231,7 +240,7 @@ function timeToQlcString(value, type)
     }
     else if (type === 1 /* QLCFunction.Beats */)
     {
-        if (value < 125)
+        if (value < 63)
         {
             return value;
         }
@@ -243,13 +252,22 @@ function timeToQlcString(value, type)
         }
         value -= (beats * 1000);
 
-        if (value === 125) { timeString += " 1/8"; }
+        if (value === 63) { timeString += " 1/16"; }
+        else if (value === 125) { timeString += " 1/8"; }
+        else if (value === 188) { timeString += " 3/16"; }
         else if (value === 250) { timeString += " 1/4"; }
+        else if (value === 313) { timeString += " 5/16"; }
         else if (value === 375) { timeString += " 3/8"; }
+        else if (value === 438) { timeString += " 7/16"; }
         else if (value === 500) { timeString += " 1/2"; }
+        else if (value === 563) { timeString += " 9/16"; }
         else if (value === 625) { timeString += " 5/8"; }
+        else if (value === 688) { timeString += " 11/16"; }
         else if (value === 750) { timeString += " 3/4"; }
+        else if (value === 813) { timeString += " 13/16"; }
         else if (value === 875) { timeString += " 7/8"; }
+        else if (value === 938) { timeString += " 15/16"; }
+        else if (value > 0) { timeString += " " + value; } // off-grid fallback
     }
 
     //console.log("Final time string: " + timeString)

@@ -276,12 +276,14 @@ GridLayout
         border.color: UISettings.bgMedium
         bgColor: buttonsBgColor
         fontSize: btnFontSize
-        label: allowFractions === QLCFunction.AllFractions ? "+1/8" : "+2x"
+        label: allowFractions === QLCFunction.AllFractions ? "+1/8" : (allowFractions === QLCFunction.FineFractions ? "+1/16" : "+2x")
         repetition: true
         onClicked:
         {
             if (allowFractions === QLCFunction.AllFractions)
                 updateTime(timeValue + 125, "")
+            else if (allowFractions === QLCFunction.FineFractions)
+                updateTime(timeValue + 63, "")
             else
             {
                 var tmpTime = timeValue
@@ -429,7 +431,7 @@ GridLayout
         border.color: UISettings.bgMedium
         bgColor: buttonsBgColor
         fontSize: btnFontSize
-        label: allowFractions === QLCFunction.AllFractions ? "-1/8" : "-x/2"
+        label: allowFractions === QLCFunction.AllFractions ? "-1/8" : (allowFractions === QLCFunction.FineFractions ? "-1/16" : "-x/2")
         repetition: true
         onClicked:
         {
@@ -439,6 +441,13 @@ GridLayout
                     return
 
                 updateTime(timeValue - 125, "")
+            }
+            else if (allowFractions === QLCFunction.FineFractions)
+            {
+                if (timeValue == 0)
+                    return
+
+                updateTime(timeValue - 63, "")
             }
             else
             {

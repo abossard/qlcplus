@@ -1,5 +1,6 @@
 project(test)
 
+add_subdirectory(beatquantize)
 add_subdirectory(bus)
 add_subdirectory(channelsgroup)
 add_subdirectory(channelmodifier)

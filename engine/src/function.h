@@ -410,7 +410,8 @@ public:
     {
         NoFractions = 0,
         ByTwoFractions,
-        AllFractions
+        AllFractions,
+        FineFractions
     };
 #if QT_VERSION >= 0x050500
     Q_ENUM(TempoType)

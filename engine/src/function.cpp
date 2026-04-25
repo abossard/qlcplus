@@ -559,9 +559,27 @@ uint Function::timeToBeats(uint time, int beatDuration)
     value = floor(beats) * 1000;
 
     beats -= floor(beats);
-    beats = floor((beats * 1000) / 125) * 125;
 
-    return value + beats;
+    // 1/16 beat subdivision quantizer table (N/16 * 1000, adjusted to 938 max)
+    static const int s_beatSixteenths[16] = {
+        0,   63,  125, 188, 250, 313, 375, 438,
+        500, 563, 625, 688, 750, 813, 875, 938
+    };
+
+    int rawFrac = qRound(beats * 1000.0f);
+    int best = 0;
+    int bestDist = 99999;
+    for (int i = 0; i < 16; i++)
+    {
+        int dist = qAbs(rawFrac - s_beatSixteenths[i]);
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            best = s_beatSixteenths[i];
+        }
+    }
+
+    return value + (uint)best;
 }
 
 uint Function::beatsToTime(uint beats, int beatDuration)
