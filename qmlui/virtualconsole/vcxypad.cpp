@@ -448,7 +448,7 @@ bool VCXYPad::removeHead(quint32 fixtureID, int headIndex)
     int fIdx = 0;
     for (XYPadFixture &fixture : m_fixtures)
     {
-        if (fixture.m_head.fxi == (int)fixtureID && fixture.m_head.head == headIndex)
+        if (fixture.m_head.fxi == static_cast<int>(fixtureID) && fixture.m_head.head == headIndex)
         {
             m_fixtures.takeAt(fIdx);
             m_doc->setModified();
@@ -466,7 +466,7 @@ bool VCXYPad::setFixtureRange(quint32 fixtureID, int head,
 {
     for (XYPadFixture &fixture : m_fixtures)
     {
-        if (fixture.m_head.fxi == (int)fixtureID && fixture.m_head.head == head)
+        if (fixture.m_head.fxi == static_cast<int>(fixtureID) && fixture.m_head.head == head)
         {
             fixture.m_xMin = xMin;
             fixture.m_xMax = xMax;
