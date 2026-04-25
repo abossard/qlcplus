@@ -1,162 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>DMX Web Control — Test Report</title><style>body{font-family:system-ui,sans-serif;max-width:960px;margin:2em auto;padding:0 1em;color:#e7e9ef;background:#0f1419;line-height:1.6}img{max-width:100%;border:1px solid #333;border-radius:6px;margin:0.5em 0}table{border-collapse:collapse;width:100%}th,td{border:1px solid #333;padding:6px 10px;text-align:left}h1,h2,h3{color:#53b8e0}code{background:#1a1a2e;padding:2px 6px;border-radius:3px;font-size:0.9em}blockquote{border-left:3px solid #53b8e0;margin:0;padding:0.5em 1em;color:#9aa0b4}hr{border:none;border-top:1px solid #333;margin:1.5em 0}figure{margin:0.5em 0}figcaption{font-size:0.85em;color:#6b7080;margin-top:4px}li{margin:2px 0}</style></head>
+<body>
 <h1>🎛️ DMX Web Control — Test Report</h1>
-<blockquote>
-<p>Generated: <strong>2026-04-25 12:23:03</strong><br>Duration: <strong>31.0s</strong> | Status: <strong>passed</strong><br>Tests: <strong>10</strong> passed, <strong>0</strong> failed, <strong>0</strong> skipped — <strong>10</strong> total</p>
-</blockquote>
+<blockquote>Generated: <strong>2026-04-25 12:38:37</strong>  </blockquote>
+<blockquote>Duration: <strong>31.1s</strong> | Status: <strong>passed</strong>  </blockquote>
+<blockquote>Tests: <strong>14</strong> passed, <strong>0</strong> failed, <strong>0</strong> skipped — <strong>14</strong> total</blockquote>
 <h2>Summary</h2>
-<table>
-<thead>
-<tr>
-<th>Status</th>
-<th>Test</th>
-<th>Duration</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>✅</td>
-<td>T1+T3: DMX Control loads directly — no VC tab 📸×1</td>
-<td>1523ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T5: Fixtures sorted by DMX address 📸×1</td>
-<td>1416ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T9: Model-based filter badges 📸×2</td>
-<td>2036ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T6: Collapsible universe groups 📸×2</td>
-<td>2453ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T4: Controls sorted by channel index 📸×1</td>
-<td>1891ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T7: Auto-open raw + star for raw-only fixtures 📸×1</td>
-<td>1863ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>T8: Raw channels = ALL channels with read-only monitors 📸×1</td>
-<td>2123ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>Cross-tab sync: color picker change propagates 📸×3</td>
-<td>6089ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>Cross-tab sync: position pad change propagates 📸×3</td>
-<td>5520ms</td>
-</tr>
-<tr>
-<td>✅</td>
-<td>Cross-tab sync: fader change propagates 📸×3</td>
-<td>5502ms</td>
-</tr>
-</tbody></table>
+<tr><td>Status</td><td>Test</td><td>Duration</td></tr>
+<tr><td>✅</td><td>T1+T3: DMX Control loads directly — no VC tab 📸×1</td><td>1598ms</td></tr>
+<tr><td>✅</td><td>T5: Fixtures sorted by DMX address 📸×1</td><td>1441ms</td></tr>
+<tr><td>✅</td><td>T9: Model-based filter badges 📸×2</td><td>2007ms</td></tr>
+<tr><td>✅</td><td>T6: Collapsible universe groups 📸×2</td><td>2456ms</td></tr>
+<tr><td>✅</td><td>Cross-tab color sync animation 📸×6</td><td>8998ms</td></tr>
+<tr><td>✅</td><td>T4: Controls sorted by channel index 📸×1</td><td>1886ms</td></tr>
+<tr><td>✅</td><td>T7: Auto-open raw + star for raw-only fixtures 📸×1</td><td>1868ms</td></tr>
+<tr><td>✅</td><td>T8: Raw channels = ALL channels with read-only monitors 📸×1</td><td>2123ms</td></tr>
+<tr><td>✅</td><td>Cross-tab position sync animation 📸×6</td><td>8222ms</td></tr>
+<tr><td>✅</td><td>Cross-tab sync: color picker change propagates 📸×3</td><td>5944ms</td></tr>
+<tr><td>✅</td><td>Cross-tab sync: position pad change propagates 📸×3</td><td>5573ms</td></tr>
+<tr><td>✅</td><td>Cross-tab fader sync animation 📸×6</td><td>8179ms</td></tr>
+<tr><td>✅</td><td>Feature walkthrough animation 📸×7</td><td>4826ms</td></tr>
+<tr><td>✅</td><td>Cross-tab sync: fader change propagates 📸×3</td><td>5584ms</td></tr>
 <hr>
 <h2>chromium › screenshot-docs.spec.ts › Feature Screenshots</h2>
 <h3>✅ T1+T3: DMX Control loads directly — no VC tab</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:43</code></li>
-<li><strong>Duration:</strong> 1523ms</li>
-</ul>
-<p><strong>01-dmx-only</strong></p>
-<p><img src="01-dmx-only.png" alt="01-dmx-only"></p>
+<li><strong>Duration:</strong> 1598ms</li>
+<strong>01-dmx-only</strong>
+<figure><img src="01-dmx-only.png" alt="01-dmx-only"><figcaption>01-dmx-only</figcaption></figure>
 <hr>
 <h3>✅ T5: Fixtures sorted by DMX address</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:49</code></li>
-<li><strong>Duration:</strong> 1416ms</li>
-</ul>
-<p><strong>02-fixture-order</strong></p>
-<p><img src="02-fixture-order.png" alt="02-fixture-order"></p>
+<li><strong>Duration:</strong> 1441ms</li>
+<strong>02-fixture-order</strong>
+<figure><img src="02-fixture-order.png" alt="02-fixture-order"><figcaption>02-fixture-order</figcaption></figure>
 <hr>
 <h3>✅ T9: Model-based filter badges</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:54</code></li>
-<li><strong>Duration:</strong> 2036ms</li>
-</ul>
-<p><strong>03-model-filter-all</strong></p>
-<p><img src="03-model-filter-all.png" alt="03-model-filter-all"></p>
-<p><strong>03-model-filter-active</strong></p>
-<p><img src="03-model-filter-active.png" alt="03-model-filter-active"></p>
+<li><strong>Duration:</strong> 2007ms</li>
+<strong>03-model-filter-all</strong>
+<figure><img src="03-model-filter-all.png" alt="03-model-filter-all"><figcaption>03-model-filter-all</figcaption></figure>
+<strong>03-model-filter-active</strong>
+<figure><img src="03-model-filter-active.png" alt="03-model-filter-active"><figcaption>03-model-filter-active</figcaption></figure>
 <hr>
 <h3>✅ T6: Collapsible universe groups</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:66</code></li>
-<li><strong>Duration:</strong> 2453ms</li>
-</ul>
-<p><strong>04-universe-expanded</strong></p>
-<p><img src="04-universe-expanded.png" alt="04-universe-expanded"></p>
-<p><strong>04-universe-collapsed</strong></p>
-<p><img src="04-universe-collapsed.png" alt="04-universe-collapsed"></p>
+<li><strong>Duration:</strong> 2456ms</li>
+<strong>04-universe-expanded</strong>
+<figure><img src="04-universe-expanded.png" alt="04-universe-expanded"><figcaption>04-universe-expanded</figcaption></figure>
+<strong>04-universe-collapsed</strong>
+<figure><img src="04-universe-collapsed.png" alt="04-universe-collapsed"><figcaption>04-universe-collapsed</figcaption></figure>
 <hr>
 <h3>✅ T4: Controls sorted by channel index</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:80</code></li>
-<li><strong>Duration:</strong> 1891ms</li>
-</ul>
-<p><strong>05-channel-order</strong></p>
-<p><img src="05-channel-order.png" alt="05-channel-order"></p>
+<li><strong>Duration:</strong> 1886ms</li>
+<strong>05-channel-order</strong>
+<figure><img src="05-channel-order.png" alt="05-channel-order"><figcaption>05-channel-order</figcaption></figure>
 <hr>
 <h3>✅ T7: Auto-open raw + star for raw-only fixtures</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:88</code></li>
-<li><strong>Duration:</strong> 1863ms</li>
-</ul>
-<p><strong>06-raw-auto-open</strong></p>
-<p><img src="06-raw-auto-open.png" alt="06-raw-auto-open"></p>
+<li><strong>Duration:</strong> 1868ms</li>
+<strong>06-raw-auto-open</strong>
+<figure><img src="06-raw-auto-open.png" alt="06-raw-auto-open"><figcaption>06-raw-auto-open</figcaption></figure>
 <hr>
 <h3>✅ T8: Raw channels = ALL channels with read-only monitors</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:96</code></li>
 <li><strong>Duration:</strong> 2123ms</li>
-</ul>
-<p><strong>07-raw-all-channels</strong></p>
-<p><img src="07-raw-all-channels.png" alt="07-raw-all-channels"></p>
+<strong>07-raw-all-channels</strong>
+<figure><img src="07-raw-all-channels.png" alt="07-raw-all-channels"><figcaption>07-raw-all-channels</figcaption></figure>
 <hr>
 <h3>✅ Cross-tab sync: color picker change propagates</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:113</code></li>
-<li><strong>Duration:</strong> 6089ms</li>
-</ul>
-<p><strong>08-sync-color-before-tabB</strong></p>
-<p><img src="08-sync-color-before-tabB.png" alt="08-sync-color-before-tabB"></p>
-<p><strong>08-sync-color-tabA-changed</strong></p>
-<p><img src="08-sync-color-tabA-changed.png" alt="08-sync-color-tabA-changed"></p>
-<p><strong>08-sync-color-after-tabB</strong></p>
-<p><img src="08-sync-color-after-tabB.png" alt="08-sync-color-after-tabB"></p>
+<li><strong>Duration:</strong> 5944ms</li>
+<strong>08-sync-color-before-tabB</strong>
+<figure><img src="08-sync-color-before-tabB.png" alt="08-sync-color-before-tabB"><figcaption>08-sync-color-before-tabB</figcaption></figure>
+<strong>08-sync-color-tabA-changed</strong>
+<figure><img src="08-sync-color-tabA-changed.png" alt="08-sync-color-tabA-changed"><figcaption>08-sync-color-tabA-changed</figcaption></figure>
+<strong>08-sync-color-after-tabB</strong>
+<figure><img src="08-sync-color-after-tabB.png" alt="08-sync-color-after-tabB"><figcaption>08-sync-color-after-tabB</figcaption></figure>
 <hr>
 <h3>✅ Cross-tab sync: position pad change propagates</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:152</code></li>
-<li><strong>Duration:</strong> 5520ms</li>
-</ul>
-<p><strong>09-sync-pos-before-tabB</strong></p>
-<p><img src="09-sync-pos-before-tabB.png" alt="09-sync-pos-before-tabB"></p>
-<p><strong>09-sync-pos-tabA-changed</strong></p>
-<p><img src="09-sync-pos-tabA-changed.png" alt="09-sync-pos-tabA-changed"></p>
-<p><strong>09-sync-pos-after-tabB</strong></p>
-<p><img src="09-sync-pos-after-tabB.png" alt="09-sync-pos-after-tabB"></p>
+<li><strong>Duration:</strong> 5573ms</li>
+<strong>09-sync-pos-before-tabB</strong>
+<figure><img src="09-sync-pos-before-tabB.png" alt="09-sync-pos-before-tabB"><figcaption>09-sync-pos-before-tabB</figcaption></figure>
+<strong>09-sync-pos-tabA-changed</strong>
+<figure><img src="09-sync-pos-tabA-changed.png" alt="09-sync-pos-tabA-changed"><figcaption>09-sync-pos-tabA-changed</figcaption></figure>
+<strong>09-sync-pos-after-tabB</strong>
+<figure><img src="09-sync-pos-after-tabB.png" alt="09-sync-pos-after-tabB"><figcaption>09-sync-pos-after-tabB</figcaption></figure>
 <hr>
 <h3>✅ Cross-tab sync: fader change propagates</h3>
-<ul>
 <li><strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:184</code></li>
-<li><strong>Duration:</strong> 5502ms</li>
-</ul>
-<p><strong>10-sync-fader-before-tabB</strong></p>
-<p><img src="10-sync-fader-before-tabB.png" alt="10-sync-fader-before-tabB"></p>
-<p><strong>10-sync-fader-tabA-changed</strong></p>
-<p><img src="10-sync-fader-tabA-changed.png" alt="10-sync-fader-tabA-changed"></p>
-<p><strong>10-sync-fader-after-tabB</strong></p>
-<p><img src="10-sync-fader-after-tabB.png" alt="10-sync-fader-after-tabB"></p>
+<li><strong>Duration:</strong> 5584ms</li>
+<strong>10-sync-fader-before-tabB</strong>
+<figure><img src="10-sync-fader-before-tabB.png" alt="10-sync-fader-before-tabB"><figcaption>10-sync-fader-before-tabB</figcaption></figure>
+<strong>10-sync-fader-tabA-changed</strong>
+<figure><img src="10-sync-fader-tabA-changed.png" alt="10-sync-fader-tabA-changed"><figcaption>10-sync-fader-tabA-changed</figcaption></figure>
+<strong>10-sync-fader-after-tabB</strong>
+<figure><img src="10-sync-fader-after-tabB.png" alt="10-sync-fader-after-tabB"><figcaption>10-sync-fader-after-tabB</figcaption></figure>
 <hr>
+<h2>chromium › animated-docs.spec.ts › Animated Documentation</h2>
+<h3>✅ Cross-tab color sync animation</h3>
+<li><strong>File:</strong> <code>e2e/animated-docs.spec.ts:52</code></li>
+<li><strong>Duration:</strong> 8998ms</li>
+<strong>color-sync-01-before</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/color-sync-01-before-bcffb0085f6ba30244203f4dcea7697868cab208.png" alt="color-sync-01-before"><figcaption>color-sync-01-before</figcaption></figure>
+<strong>color-sync-02-tabA-set</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/color-sync-02-tabA-set-3c5e23ae8fc7b6acb6f6c62a74fbe4d890c1aff3.png" alt="color-sync-02-tabA-set"><figcaption>color-sync-02-tabA-set</figcaption></figure>
+<strong>color-sync-03-tabB-synced</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/color-sync-03-tabB-synced-8357d2f84bf0aabd6848c3e6b8e4e74649f7cd98.png" alt="color-sync-03-tabB-synced"><figcaption>color-sync-03-tabB-synced</figcaption></figure>
+<strong>color-sync-04-tabA-changed</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/color-sync-04-tabA-changed-725bfb801506f230a206a7c301f139c53bcee4aa.png" alt="color-sync-04-tabA-changed"><figcaption>color-sync-04-tabA-changed</figcaption></figure>
+<strong>color-sync-05-tabB-updated</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/color-sync-05-tabB-updated-670e3186667d84b8638e4c1d4322cb2c98176e0b.png" alt="color-sync-05-tabB-updated"><figcaption>color-sync-05-tabB-updated</figcaption></figure>
+<strong>cross-tab-color-sync</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-501d2-ss-tab-color-sync-animation-chromium/attachments/cross-tab-color-sync-75d1034778a2a905aada19508f44719b19138e09.gif" alt="cross-tab-color-sync"><figcaption>cross-tab-color-sync</figcaption></figure>
+<hr>
+<h3>✅ Cross-tab position sync animation</h3>
+<li><strong>File:</strong> <code>e2e/animated-docs.spec.ts:114</code></li>
+<li><strong>Duration:</strong> 8222ms</li>
+<strong>pos-sync-01-before</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/pos-sync-01-before-9c395264d0eabf1be1afce25eed3a2dad261aeff.png" alt="pos-sync-01-before"><figcaption>pos-sync-01-before</figcaption></figure>
+<strong>pos-sync-02-tabA-moved</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/pos-sync-02-tabA-moved-98b12151d67ab603f2dae505c6bc6fbe6002ab58.png" alt="pos-sync-02-tabA-moved"><figcaption>pos-sync-02-tabA-moved</figcaption></figure>
+<strong>pos-sync-03-tabB-synced</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/pos-sync-03-tabB-synced-66032ba0be8d98f6aed1289cc7efc625577ab7ff.png" alt="pos-sync-03-tabB-synced"><figcaption>pos-sync-03-tabB-synced</figcaption></figure>
+<strong>pos-sync-04-tabA-moved2</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/pos-sync-04-tabA-moved2-0f2849d3110be856879169cda49832978739928e.png" alt="pos-sync-04-tabA-moved2"><figcaption>pos-sync-04-tabA-moved2</figcaption></figure>
+<strong>pos-sync-05-tabB-synced2</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/pos-sync-05-tabB-synced2-3b3358c7e7729a5cf15fde906eca343ebef3ebd3.png" alt="pos-sync-05-tabB-synced2"><figcaption>pos-sync-05-tabB-synced2</figcaption></figure>
+<strong>cross-tab-position-sync</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5a711-tab-position-sync-animation-chromium/attachments/cross-tab-position-sync-34c5c31a18bb1c09c8a7b1f7214fff84c63703ce.gif" alt="cross-tab-position-sync"><figcaption>cross-tab-position-sync</figcaption></figure>
+<hr>
+<h3>✅ Cross-tab fader sync animation</h3>
+<li><strong>File:</strong> <code>e2e/animated-docs.spec.ts:164</code></li>
+<li><strong>Duration:</strong> 8179ms</li>
+<strong>fader-sync-01-before</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/fader-sync-01-before-5aadcf59ad663217da00dca781e3cb668a8d9ef1.png" alt="fader-sync-01-before"><figcaption>fader-sync-01-before</figcaption></figure>
+<strong>fader-sync-02-tabA-high</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/fader-sync-02-tabA-high-1d7c92f8d96325e8ca8286839515678522a0fec9.png" alt="fader-sync-02-tabA-high"><figcaption>fader-sync-02-tabA-high</figcaption></figure>
+<strong>fader-sync-03-tabB-synced</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/fader-sync-03-tabB-synced-8c90cd8cd05634c12c7e11fb3ea6d78e57eb6869.png" alt="fader-sync-03-tabB-synced"><figcaption>fader-sync-03-tabB-synced</figcaption></figure>
+<strong>fader-sync-04-tabA-mid</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/fader-sync-04-tabA-mid-9cf8e5bdad36d276a20175203222fdbb5bc46b21.png" alt="fader-sync-04-tabA-mid"><figcaption>fader-sync-04-tabA-mid</figcaption></figure>
+<strong>fader-sync-05-tabB-synced2</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/fader-sync-05-tabB-synced2-eeae1ff3ec7b9be25f026c70353ace9f4bd6a6cd.png" alt="fader-sync-05-tabB-synced2"><figcaption>fader-sync-05-tabB-synced2</figcaption></figure>
+<strong>cross-tab-fader-sync</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-5af2d-ss-tab-fader-sync-animation-chromium/attachments/cross-tab-fader-sync-c56bad50560582f23ce055b422520aad40ff7acb.gif" alt="cross-tab-fader-sync"><figcaption>cross-tab-fader-sync</figcaption></figure>
+<hr>
+<h3>✅ Feature walkthrough animation</h3>
+<li><strong>File:</strong> <code>e2e/animated-docs.spec.ts:214</code></li>
+<li><strong>Duration:</strong> 4826ms</li>
+<strong>walkthrough-01-initial</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-01-initial-a02c1a63e79b48890f05db975ade7791fb2963fb.png" alt="walkthrough-01-initial"><figcaption>walkthrough-01-initial</figcaption></figure>
+<strong>walkthrough-02-filtered</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-02-filtered-4a94c3e49fb67585fbae8767839cfbff40f4ae7e.png" alt="walkthrough-02-filtered"><figcaption>walkthrough-02-filtered</figcaption></figure>
+<strong>walkthrough-03-grouped</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-03-grouped-5ea85000d5af5d2cedaa7b2868d4a34e52a48376.png" alt="walkthrough-03-grouped"><figcaption>walkthrough-03-grouped</figcaption></figure>
+<strong>walkthrough-04-collapsed</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-04-collapsed-7c0bfd1d0de4210adcb4b22d30b8238f89eca177.png" alt="walkthrough-04-collapsed"><figcaption>walkthrough-04-collapsed</figcaption></figure>
+<strong>walkthrough-05-hero-controls</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-05-hero-controls-a7f54d7dc6a89c2de4fd45368e45e397aa8aaa2f.png" alt="walkthrough-05-hero-controls"><figcaption>walkthrough-05-hero-controls</figcaption></figure>
+<strong>walkthrough-06-raw-open</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/walkthrough-06-raw-open-cdfcc05b4190e286dd09af7d69bea29435be0d14.png" alt="walkthrough-06-raw-open"><figcaption>walkthrough-06-raw-open</figcaption></figure>
+<strong>feature-walkthrough</strong>
+<figure><img src="../../test-results/animated-docs-Animated-Doc-099d7-ature-walkthrough-animation-chromium/attachments/feature-walkthrough-767083194131d83c881a8084b7f3557ea6c47885.gif" alt="feature-walkthrough"><figcaption>feature-walkthrough</figcaption></figure>
+<hr>
+
+</body>
+</html>
