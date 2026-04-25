@@ -147,6 +147,9 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
     clearActive();
   };
 
+  const whiteChannels = extraChannels.filter(ex => ex.colour === 'White');
+  const otherExtras = extraChannels.filter(ex => ex.colour !== 'White');
+
   const [hueR, hueG, hueB] = hsvToRgb(hue, 1, 1);
   const hueColor = `rgb(${hueR}, ${hueG}, ${hueB})`;
   const swatchColor = `rgb(${r}, ${g}, ${b})`;
@@ -192,11 +195,26 @@ function ColorPickerImpl({ fixtureId, rgbChannels, extraChannels = [] }: Props) 
         <div className="cp-hue-cursor" style={{ left: `${huePct}%` }} />
       </div>
 
+      {whiteChannels.length > 0 && (
+        <div className="cp-white-row">
+          {whiteChannels.map(ex => (
+            <ChannelFader
+              key={ex.channel}
+              fixtureId={fixtureId}
+              channelIndex={ex.channel}
+              name="W"
+              height={140}
+              accent="#f5f5f5"
+            />
+          ))}
+        </div>
+      )}
+
       <div className="cp-channels">
         <ChannelFader fixtureId={fixtureId} channelIndex={rgbChannels[0]} name="R" height={140} accent="#ef4444" />
         <ChannelFader fixtureId={fixtureId} channelIndex={rgbChannels[1]} name="G" height={140} accent="#22c55e" />
         <ChannelFader fixtureId={fixtureId} channelIndex={rgbChannels[2]} name="B" height={140} accent="#3b82f6" />
-        {extraChannels.map(ex => (
+        {otherExtras.map(ex => (
           <ChannelFader
             key={ex.channel}
             fixtureId={fixtureId}

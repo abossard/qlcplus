@@ -1489,6 +1489,13 @@ input, select {
   margin-top: 4px;
 }
 
+.cp-white-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
 /* PositionControl */
 .position-control { display: flex; flex-direction: column; gap: 8px; }
 .pc-pad {

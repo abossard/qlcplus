@@ -2428,15 +2428,20 @@ void WebAccessQml::sendDmxSnapshot(QHttpConnection *conn, quint32 fixtureID)
     quint32 uniIdx = fxi->universe();
     if ((int)uniIdx >= unis.size()) { io->releaseUniverses(false); return; }
 
-    const QByteArray preGM = unis[uniIdx]->preGMValues();
+    const QByteArray *postGMPtr = unis[uniIdx]->postGMValues();
+    const QByteArray postGM = postGMPtr ? QByteArray(*postGMPtr) : QByteArray();
     io->releaseUniverses(false);
 
     int addr = fxi->address();
     int count = fxi->channels();
 
+    qDebug() << "[DMX-WS] sendDmxSnapshot fxID=" << fixtureID
+             << "uni=" << uniIdx << "addr=" << addr << "count=" << count
+             << "usingPostGM=true";
+
     QJsonArray values;
-    for (int i = 0; i < count && (addr + i) < preGM.size(); ++i)
-        values.append((int)(uchar)preGM.at(addr + i));
+    for (int i = 0; i < count && (addr + i) < postGM.size(); ++i)
+        values.append((int)(uchar)postGM.at(addr + i));
 
     QJsonObject state;
     state["cmd"] = QString("DMX_STATE");
@@ -2452,8 +2457,8 @@ void WebAccessQml::sendDmxSnapshot(QHttpConnection *conn, quint32 fixtureID)
     if (!sub.lastSent.contains(uniIdx))
         sub.lastSent[uniIdx] = QByteArray(512, 0);
     QByteArray &last = sub.lastSent[uniIdx];
-    for (int i = 0; i < count && (addr + i) < last.size(); ++i)
-        last[addr + i] = preGM.at(addr + i);
+    for (int i = 0; i < count && (addr + i) < last.size() && (addr + i) < postGM.size(); ++i)
+        last[addr + i] = postGM.at(addr + i);
 }
 
 void WebAccessQml::cleanupDmxSubscription(QHttpConnection *conn)
@@ -2470,6 +2475,8 @@ void WebAccessQml::cleanupDmxSubscription(QHttpConnection *conn)
 
 void WebAccessQml::slotUniverseWritten(quint32 uniIdx, QByteArray data)
 {
+    qDebug() << "[DMX-WS] slotUniverseWritten uni=" << uniIdx
+             << "subs=" << m_dmxSubs.size() << "dataLen=" << data.size();
     for (auto it = m_dmxSubs.begin(); it != m_dmxSubs.end(); ++it)
     {
         DmxSubscription &sub = it.value();
@@ -2485,6 +2492,8 @@ void WebAccessQml::slotUniverseWritten(quint32 uniIdx, QByteArray data)
             if (!mask.testBit(a)) continue;
             if (data.at(a) != last.at(a))
             {
+                qDebug() << "[DMX-WS] delta uni=" << uniIdx << "addr=" << a
+                         << "old=" << (uchar)last.at(a) << "new=" << (uchar)data.at(a);
                 last[a] = data.at(a);
                 deltas.append(qMakePair(a, (uchar)data.at(a)));
             }
@@ -2496,6 +2505,9 @@ void WebAccessQml::slotFlushDmxDeltas(QHttpConnection *conn)
 {
     if (!m_dmxSubs.contains(conn)) return;
     DmxSubscription &sub = m_dmxSubs[conn];
+
+    qDebug() << "[DMX-WS] flushDmxDeltas conn has"
+             << sub.pendingDeltas.size() << "universes with pending deltas";
 
     // Heartbeat TTL: auto-release after 30s idle
     qint64 now = QDateTime::currentMSecsSinceEpoch();

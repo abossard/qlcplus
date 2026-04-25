@@ -110,7 +110,7 @@ function isColorMacro(c: ChannelInfo): boolean {
 }
 
 function isDimmer(c: ChannelInfo, headChannelCount: number): boolean {
-  if (c.preset === 'IntensityDimmer') return true;
+  if (c.preset === 'IntensityDimmer' || c.preset === 'IntensityMasterDimmer') return true;
   if (c.group === 'Intensity' && headChannelCount === 1) return true;
   return false;
 }
@@ -137,7 +137,11 @@ function planForHead(
     const extras: { channel: number; colour: string; fine?: number }[] = [];
     for (const c of channels) {
       if (consumed.has(c.index)) continue;
-      if (c.group !== 'Colour') continue;
+      // Accept both Colour-group and Intensity-group channels with known extra colours
+      const isColourGroup = c.group === 'Colour';
+      const isExtraIntensity = c.group === 'Intensity'
+        && ['White', 'Amber', 'UV', 'Lime', 'Indigo'].includes(c.colour);
+      if (!isColourGroup && !isExtraIntensity) continue;
       if (c.controlByte === 'fine') continue;
       // Skip macros/swatches — they get their own colorMacro plan.
       if (isColorMacro(c)) continue;
