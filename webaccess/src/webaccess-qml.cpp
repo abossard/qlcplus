@@ -1296,10 +1296,14 @@ bool WebAccessQml::serveVCNextFile(QHttpResponse *resp, const QString &relativeP
     if (relativePath.contains("..") || relativePath.contains('\\'))
         return false;
 
-    // Resolve the vc-next/dist directory by walking up from executable
+    // Resolve the vc-next directory from multiple candidate locations
     QStringList distRoots;
+
+    // Dev: source tree relative to cwd
     distRoots << QDir::cleanPath(QString("%1/webaccess/vc-next/dist")
                                   .arg(QDir::currentPath()));
+
+    // Dev: walk up from executable (handles build/ subdirectory)
     QDir probeDir(QCoreApplication::applicationDirPath());
     for (int i = 0; i < 6; i++)
     {
@@ -1308,6 +1312,10 @@ bool WebAccessQml::serveVCNextFile(QHttpResponse *resp, const QString &relativeP
         if (probeDir.cdUp() == false)
             break;
     }
+
+    // Installed: system directory (e.g. Contents/Resources/Web/vc-next on macOS)
+    distRoots << QDir::cleanPath(
+        QLCFile::systemDirectory(WEBFILESDIR).path() + "/vc-next");
 
     for (const QString &root : distRoots)
     {

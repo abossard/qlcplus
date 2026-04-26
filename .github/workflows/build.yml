@@ -533,6 +533,17 @@ jobs:
         with:
           key: ${{ github.job }}-${{ matrix.task }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webaccess/vc-next/package-lock.json
+
+      - name: Build vc-next web app
+        run: npm ci && npm run build
+        working-directory: webaccess/vc-next
+
       - name: Configure v4 build
         shell: bash
         if: ${{ matrix.task == 'build-v4' }}
