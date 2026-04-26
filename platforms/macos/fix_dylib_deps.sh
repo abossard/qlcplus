@@ -33,6 +33,7 @@ otool -L "$SRC_DYLIB" | grep opt | awk '{print $1}' | while read -r dep; do
             echo "Dependency missing: $subst. Adding it to target..."
             cp "$dep" "$FRAMEWORKS_DIR/"
         fi
+        chmod u+w "$FRAMEWORKS_DIR/$subst"
 
         # Update the source dylib's reference to the dependency
         install_name_tool -change "$dep" "@executable_path/../Frameworks/$subst" "$SRC_DYLIB"
@@ -51,6 +52,7 @@ otool -L "$SRC_DYLIB" | grep opt | awk '{print $1}' | while read -r dep; do
                 echo "Dependency missing: $subst. Copying resolved @loader_path dependency..."
                 cp "$resolved_path" "$FRAMEWORKS_DIR/"
             fi
+            chmod u+w "$FRAMEWORKS_DIR/$subst"
 
             # Update the source dylib's reference to the dependency
             install_name_tool -change "$dep" "@executable_path/../Frameworks/$subst" "$SRC_DYLIB"
