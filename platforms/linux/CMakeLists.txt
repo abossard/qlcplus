@@ -245,7 +245,13 @@ if(appimage)
             ${QT_QML_PATH}/Qt3D
             ${QT_QML_PATH}/QtMultimedia
         )
-        install(DIRECTORY ${qmldeps_files} OPTIONAL DESTINATION ${INSTALLROOT}/bin)
+        # Use EXISTS check instead of OPTIONAL (OPTIONAL on DIRECTORY requires CMake 3.22,
+        # but cmake_minimum_required is 3.16; CI runners have 3.22+ but protect older builds)
+        foreach(_qml_dir ${qmldeps_files})
+            if(EXISTS "${_qml_dir}")
+                install(DIRECTORY "${_qml_dir}" DESTINATION ${INSTALLROOT}/bin)
+            endif()
+        endforeach()
 
     endif()
 
