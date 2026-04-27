@@ -172,10 +172,13 @@ jobs:
       # them to AppDir/usr/lib.  linuxdeploy-plugin-qt additionally copies Qt
       # platform plugins, image-format plugins, QML imports, and creates a
       # qt.conf so Qt finds its plugins at runtime inside the AppImage.
+      # LD_LIBRARY_PATH must include AppDir/usr/lib so linuxdeploy can resolve
+      # libqlcplusengine.so and other QLC+ libraries installed by cmake --install.
       - name: Bundle dependencies with linuxdeploy
         env:
           QMAKE: ${{ env.QMAKE }}
           QML_SOURCES_PATHS: ${{ github.workspace }}/qmlui
+          LD_LIBRARY_PATH: ${{ github.workspace }}/AppDir/usr/lib
         run: |
           set -euxo pipefail
           ./linuxdeploy.AppImage \
@@ -342,6 +345,15 @@ jobs:
       - name: Configure CMake
         run: |
           set -euxo pipefail
+          # Ubuntu 22.04 arm64 packaging bug: Qt6LinguistToolsTargets.cmake
+          # expects lprodump in /usr/lib/qt6/libexec/ but qt6-l10n-tools installs
+          # it in /usr/lib/qt6/bin/.  Create symlinks so CMake can find them.
+          if [ -d /usr/lib/qt6/bin ] && [ ! -d /usr/lib/qt6/libexec ]; then
+            sudo mkdir -p /usr/lib/qt6/libexec
+            for f in /usr/lib/qt6/bin/*; do
+              sudo ln -sf "$f" "/usr/lib/qt6/libexec/$(basename "$f")"
+            done
+          fi
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -Dqmlui=ON \
@@ -374,6 +386,7 @@ jobs:
         env:
           QMAKE: ${{ env.QMAKE }}
           QML_SOURCES_PATHS: ${{ github.workspace }}/qmlui
+          LD_LIBRARY_PATH: ${{ github.workspace }}/AppDir/usr/lib
         run: |
           set -euxo pipefail
           ./linuxdeploy.AppImage \
