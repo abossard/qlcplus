@@ -126,8 +126,8 @@ jobs:
             echo "APPVERSION=${APPVERSION}-${GIT_REV}"
             echo "GIT_REV=${GIT_REV}"
             echo "INSTALL_ROOT=$(pwd)/AppDir"
-            # qmake from install-qt-action is in QTDIR/bin
-            echo "QMAKE=${QTDIR}/bin/qmake"
+            # install-qt-action exports QT_ROOT_DIR (not QTDIR)
+            echo "QMAKE=${QT_ROOT_DIR}/bin/qmake"
           } >> "$GITHUB_ENV"
 
       - name: Configure CMake
@@ -139,7 +139,7 @@ jobs:
             -Dmcp_server=ON \
             -Dappimage=ON \
             "-DINSTALL_ROOT=${INSTALL_ROOT}" \
-            "-DCMAKE_PREFIX_PATH=${QTDIR}/lib/cmake"
+            "-DCMAKE_PREFIX_PATH=${QT_ROOT_DIR}/lib/cmake"
 
       - name: Build
         run: |
@@ -293,6 +293,10 @@ jobs:
       - name: Install Qt via apt (aarch64)
         run: |
           set -euxo pipefail
+          # Ensure the 'universe' repository is enabled (ARM runners may ship
+          # with a minimal sources.list that omits it).
+          sudo apt-add-repository universe -y
+          sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends \
             qt6-base-dev \
             qt6-base-private-dev \
@@ -312,7 +316,6 @@ jobs:
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-window \
             qml6-module-qtmultimedia \
-            libqt6multimedia6-plugins \
             libgl1-mesa-dev
 
       - name: Cache CMake build directory
