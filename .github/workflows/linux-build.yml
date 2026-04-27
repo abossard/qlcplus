@@ -38,6 +38,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Default to read-only token; individual jobs that publish releases override.
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # Main matrix build: x86_64 (always) + aarch64 (skipped on PRs for speed)
@@ -45,6 +49,8 @@ jobs:
   build:
     name: Build (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write  # needed by softprops/action-gh-release to upload AppImages
 
     # On PRs only build x86_64 to keep CI fast.
     # skip_on_pr=true causes the job to be skipped when triggered by a PR.
@@ -347,6 +353,8 @@ jobs:
     name: Build (armv7) [manual only]
     runs-on: ubuntu-22.04
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_armv7 == true }}
+    permissions:
+      contents: write  # needed by softprops/action-gh-release to upload tarballs
 
     defaults:
       run:
@@ -407,7 +415,6 @@ jobs:
       - name: Read armv7 env
         run: |
           set -euxo pipefail
-          # shellcheck disable=SC1091
           source .armv7_env
           echo "APPVERSION=${APPVERSION}" >> "$GITHUB_ENV"
           echo "TARBALL=QLC+-${APPVERSION}-armv7.tar.gz" >> "$GITHUB_ENV"
@@ -439,6 +446,8 @@ jobs:
     runs-on: ubuntu-22.04
     needs: [build]
     if: always()
+    permissions:
+      contents: read
     steps:
       - name: Check required build jobs
         run: |
