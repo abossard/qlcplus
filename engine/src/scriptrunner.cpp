@@ -85,6 +85,32 @@ void ScriptRunner::stop()
     }
     m_startedFunctions.clear();
 
+    QList<Universe*> universes = m_doc->inputOutputMap()->claimUniverses();
+    QMapIterator<quint32, QSharedPointer<GenericFader> > it(m_fadersMap);
+    while (it.hasNext())
+    {
+        it.next();
+
+        if (it.key() >= (quint32)universes.size())
+            continue;
+
+        Universe *universe = universes.at(it.key());
+        QSharedPointer<GenericFader> fader = it.value();
+        if (fader.isNull())
+            continue;
+
+        foreach (const FadeChannel &fc, fader->channels())
+        {
+            quint32 address = fc.addressInUniverse();
+            if (address == QLCChannel::invalid())
+                continue;
+
+            for (int i = 0; i < fc.channelCount() && address + i < UNIVERSE_SIZE; i++)
+                universe->write(address + i, 0, true);
+        }
+    }
+    m_doc->inputOutputMap()->releaseUniverses();
+
     // request to delete all the active faders
     foreach (QSharedPointer<GenericFader> fader, m_fadersMap)
     {
