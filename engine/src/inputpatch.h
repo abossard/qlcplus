@@ -166,7 +166,9 @@ public:
 
     struct InputValue
     {
-        InputValue() {}
+        InputValue()
+            : value(0)
+        {}
         InputValue(uchar v, QString const& k)
             : value(v)
             , key(k)
