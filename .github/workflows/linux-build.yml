@@ -322,6 +322,11 @@ jobs:
             qml6-module-qtmultimedia \
             libgl1-mesa-dev
 
+      - name: Add Qt tools to PATH (aarch64)
+        run: |
+          set -euxo pipefail
+          echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
+
       - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
