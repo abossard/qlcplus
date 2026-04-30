@@ -58,7 +58,9 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     /* Force dark mode so the macOS title bar and window chrome match the dark UI */
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+#endif
 
     // Since Qt6, the default rendering backend is Rhi. 
     // QLC+ doesn't support it yet so OpenGL have to be forced.
