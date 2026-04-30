@@ -134,7 +134,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Set channel precedence (auto/htp/ltp) and fade behavior per channel. auto restores default. Batch."),
+        std::string("Set channel precedence (auto/htp/ltp) and fade behavior per channel. auto restores default. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -209,7 +210,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch."),
+        std::string("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -283,7 +285,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch."),
+        std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));
@@ -296,7 +299,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"description", "Fixture IDs to read (empty = all patched)"}}},
             {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}},
                 {"description", "Fixture name patterns (glob: * ?)"}}},
-            {"channelFilter", {{"type", "string"},
+            {"channelFilter", {{"type", "string"}, {"enum", {"all", "dimmer", "color", "position", "gobo", "shutter", "beam", "effect"}},
                 {"description", "Filter by channel group: all (default), dimmer, color, position, gobo, shutter, beam, effect"}}},
             {"nonZeroOnly", {{"type", "boolean"},
                 {"description", "Only return channels with non-zero values (default false)"}}}
@@ -305,6 +308,12 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"fixtureIDs", "fixtureNames", "channelFilter", "nonZeroOnly"});
+            if (!err.empty()) return err;
+
+            static const Json kEnums = {
+                {"channelFilter", {{"enum", {"all", "dimmer", "color", "position", "gobo", "shutter", "beam", "effect"}}}}
+            };
+            err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             bool nonZero = args.value("nonZeroOnly", false);

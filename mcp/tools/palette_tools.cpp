@@ -66,7 +66,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}, {"description", "Palette name (required)"}}},
-                {"type", {{"type", "string"}, {"description", typeDesc}}},
+                {"type", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt"}}, {"description", typeDesc}}},
                 {"value", {{"type", "integer"}, {"description", "Dimmer intensity 0-255"}}},
                 {"panDegrees", {{"type", "number"}, {"description", "Pan degrees (Pan or PanTilt type)"}}},
                 {"tiltDegrees", {{"type", "number"}, {"description", "Tilt degrees (Tilt or PanTilt type)"}}},
@@ -86,6 +86,12 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             for (auto &item : args.at("items"))
             {
                 auto itemErr = validateFields(item, {"name", "type", "value", "panDegrees", "tiltDegrees", "rgb", "wauv"});
+                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
+
+                static const Json kEnums = {
+                    {"type", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt"}}}}
+                };
+                itemErr = validateEnums(item, kEnums);
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
 
                 if (!item.contains("name") || !item.contains("type"))
@@ -172,7 +178,8 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt. "
                      "Upserts by name+type. Palettes are the building blocks for scenes: create palettes first, then "
-                     "reference them in create_scenes via paletteNames/paletteIDs. Batch."),
+                     "reference them in create_scenes via paletteNames/paletteIDs. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

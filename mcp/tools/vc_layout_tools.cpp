@@ -74,7 +74,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             });
         },
         std::nullopt,
-        std::string("Move Virtual Console widgets between frames. Preserves all properties. Batch."),
+        std::string("Move Virtual Console widgets between frames. Preserves all properties. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -416,7 +417,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         },
         std::nullopt,
         std::string("Set grid layout mode on frames. Enables Grafana-style vertical compaction and collision push-down. "
-                    "Use with vc_reflow_frame algorithm=gridCompact to apply the compaction. Batch."),
+                    "Use with vc_reflow_frame algorithm=gridCompact to apply the compaction. Batch. "
+                    "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

@@ -89,6 +89,28 @@ Column
                 onCheckedChanged: nodeContainer.mouseEvent(App.Checked, -1, checked, nodeContainer, 0)
             }
 
+            // Expand/collapse chevron
+            Text
+            {
+                id: expandArrow
+                width: nodeBgRect.height * 0.6
+                height: nodeBgRect.height
+                text: isExpanded ? "\u25BE" : "\u25B8"  // ▾ or ▸
+                font.pixelSize: nodeBgRect.height * 0.6
+                font.family: UISettings.robotoFontName
+                color: expandArrowMA.containsMouse ? UISettings.highlight : UISettings.fgMedium
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+
+                MouseArea
+                {
+                    id: expandArrowMA
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: model.isExpanded = !model.isExpanded
+                }
+            }
+
             Image
             {
                 id: nodeIconImg

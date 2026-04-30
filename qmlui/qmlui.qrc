@@ -256,6 +256,20 @@
     <file alias="VCCueListItem.qml">qml/virtualconsole/VCCueListItem.qml</file>
     <file alias="VCCueListProperties.qml">qml/virtualconsole/VCCueListProperties.qml</file>
 
+    <!-- Flow Console -->
+    <file alias="FlowConsole.qml">qml/flowconsole/FlowConsole.qml</file>
+    <file alias="FlowSectionItem.qml">qml/flowconsole/FlowSectionItem.qml</file>
+    <file alias="FlowWidgetItem.qml">qml/flowconsole/FlowWidgetItem.qml</file>
+    <file alias="FlowButtonItem.qml">qml/flowconsole/FlowButtonItem.qml</file>
+    <file alias="FlowSliderItem.qml">qml/flowconsole/FlowSliderItem.qml</file>
+    <file alias="FlowLabelItem.qml">qml/flowconsole/FlowLabelItem.qml</file>
+    <file alias="FlowCueListItem.qml">qml/flowconsole/FlowCueListItem.qml</file>
+    <file alias="FlowClockItem.qml">qml/flowconsole/FlowClockItem.qml</file>
+    <file alias="FlowXYPadItem.qml">qml/flowconsole/FlowXYPadItem.qml</file>
+    <file alias="FlowSpeedDialItem.qml">qml/flowconsole/FlowSpeedDialItem.qml</file>
+    <file alias="FlowAnimationItem.qml">qml/flowconsole/FlowAnimationItem.qml</file>
+    <file alias="FlowAudioTriggersItem.qml">qml/flowconsole/FlowAudioTriggersItem.qml</file>
+
     <!-- Show Manager -->
     <file alias="ShowManager.qml">qml/showmanager/ShowManager.qml</file>
     <file alias="TrackDelegate.qml">qml/showmanager/TrackDelegate.qml</file>

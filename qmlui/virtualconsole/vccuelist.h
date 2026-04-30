@@ -54,6 +54,8 @@ class VCCueList : public VCWidget
     Q_PROPERTY(bool primaryTop READ primaryTop NOTIFY primaryTopChanged)
     Q_PROPERTY(int nextStepIndex READ nextStepIndex NOTIFY nextStepIndexChanged)
 
+    Q_PROPERTY(int tempoType READ tempoType NOTIFY tempoTypeChanged)
+
     Q_PROPERTY(PlaybackStatus playbackStatus READ playbackStatus NOTIFY playbackStatusChanged)
     Q_PROPERTY(int playbackIndex READ playbackIndex WRITE setPlaybackIndex NOTIFY playbackIndexChanged)
 
@@ -170,6 +172,9 @@ private:
      * Chaser attachment
      *********************************************************************/
 public:
+    /** Get the tempo type from the attached Chaser */
+    int tempoType() const;
+
     /* Get/Set the ID of the Chaser attached to this Cue List */
     quint32 chaserID() const;
     Q_INVOKABLE void setChaserID(quint32 fid);
@@ -199,6 +204,7 @@ private:
 signals:
     void chaserIDChanged(quint32 id);
     void stepsListChanged();
+    void tempoTypeChanged();
 
 private:
     /** The ID of the Chaser attached to this Cue List */

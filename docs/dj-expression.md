@@ -8,13 +8,14 @@ DJ Expression is a **fixture-agnostic, emotion-driven** lighting control system 
 
 - **Phases** describe energy levels (Chill → Freeze → Build → Drop)
 - **Moods** describe color emotion (Jungle, Ocean, Fire, Neon)
+- **Patterns** describe per-LED geometry on the Beam Ball (which heads are lit, how they move)
 - **Movement** describes spatial behavior (None, Slow, Fast, Audio-reactive)
 - **FX** are momentary accents (Strobe, White Hit)
-- Each layer is **independent** — mix any mood with any phase and any movement
+- Each layer is **independent** — mix any mood with any phase, any pattern, and any movement
 
-## Global Rule: No Color Scene Touches Dimmers
+## Global Rules
 
-**Every scene in this project that sets color (RGBW) channels must NOT set dimmer channels (Beam Ball ch5, Hero ch13).** This applies to ALL scenes, not just DJ Expression — including the Colors/, Beam Ball/, and Ball/ scene folders.
+**Every scene in this project that sets color (RGBW) channels must NOT set dimmer channels (Beam Ball ch5, Hero ch13).** This applies to ALL scenes — including Colors/, BB Patterns/, and Ball/ folders.
 
 This rule exists because dimmer channels are HTP (Highest Takes Precedence). If any color scene sets dimmer=255, the strobe's dimmer=0 can never win, breaking the strobe layer entirely.
 
@@ -33,13 +34,20 @@ Each DMX channel is owned by exactly one layer. Layers never cross boundaries.
 │ Layer       │ Channels Owned                        │ Controlled By │
 ├─────────────┼──────────────────────────────────────┼───────────────┤
 │ Color       │ RGBW per head (BB ch7-46, Hero ch15-18) │ MOOD buttons │
+│ BB Pattern  │ RGBW per head (BB ch7-46) — per-LED   │ PATTERN btns │
+│             │ geometry with color baked in           │              │
 │ Dimmer      │ Master dimmer (BB ch5, Hero ch13)     │ PHASE + slider│
 │ Movement    │ Pan/Tilt/Speed (ch0-4)                │ MOVEMENT btns │
-│ Strobe/FX   │ Dimmer rapid on/off                   │ FX buttons    │
+│ Strobe/FX   │ Strobe ch6, dimmer rapid on/off       │ FX buttons    │
 └─────────────┴──────────────────────────────────────┴───────────────┘
 ```
 
-**Rule**: Color scenes NEVER set dimmer channels. Dimmer scenes NEVER set color channels.
+**Note**: Color and BB Pattern both write RGBW on the Beam Ball. They are **alternative** controls for the same channels — use MOOD for uniform whole-fixture color, or PATTERN for per-LED geometry with color. Don't run both simultaneously on the Beam Ball (HTP merge will produce unexpected results).
+
+**Rules**:
+- Color/Pattern scenes NEVER set dimmer channels.
+- Dimmer scenes NEVER set color channels.
+- BB Pattern scenes are generated from a concept × color matrix (see `docs/ball-effects-plan.md`).
 
 ### Why This Matters
 
@@ -163,6 +171,24 @@ Combine dimmer + movement. **No color** — mood is independent.
 | DJX Phase Build | 135 | Dimmer Medium + Fast Sweep + Strobe Build | 🟠 Rising |
 | DJX Phase Drop | 136 | Dimmer Full + Fast Circle | 🔴 Peak |
 
+### Beam Ball Patterns (generated)
+
+Per-LED pattern effects for the Beam Ball. Generated from a **concept × color × speed matrix** — see [`docs/ball-effects-plan.md`](ball-effects-plan.md) for the full generator design.
+
+**Pattern concepts** (39): Singles (10), Odd/Even/All/Off (4), Builds (10), Opposites (5), Comets (10)
+**Colors**: White, Warm, Fire Red, Ocean Blue, Neon Cyan, etc.
+**Speeds**: Slow (1 beat), Medium (½ beat), Fast (¼ beat)
+
+Each combination produces a scene (`DJX BB {Color} {Pattern}`) or chaser (`DJX BB {Color} {Chase} {Speed}`). Start with White, add colors by re-running the MCP generator.
+
+**Chase concepts** (7): Single Chase, Ping Pong, Comet, Opposite, Odd/Even Flip, Build Up, Random Sparkle
+
+**Scripts** (2, hand-written):
+- `DJX BB Fire Flicker` — random warm per-LED glow, infinite loop
+- `DJX BB Buildup Explode` — fire-like buildup → full blast → blackout
+
+All BB Pattern functions set RGBW per head. **Never set ch5 (master dimmer).**
+
 ## Virtual Console — Page 3 "DJ Expression"
 
 ```
@@ -180,6 +206,10 @@ Combine dimmer + movement. **No color** — mood is independent.
 │ │ Ocean:  [Deep Blue][Aqua][Storm][Seafoam]   │                  │
 │ └────────────────────────────────────────────┘                  │
 │                                                                  │
+│ ┌─ PATTERN / BALL (SoloFrame) ───────────────────────────────────┐│
+│ │ [OFF][Sparkle][Geometry][Comet][Fire Embers][Rise Burst]       ││
+│ └────────────────────────────────────────────────────────────────┘│
+│                                                                  │
 │ ┌─ MOVEMENT (SoloFrame) ─────────────────────┐  ┌─ TEMPO ─────┐ │
 │ │ [Slow Circle][Slow Sweep][Fast Circle][Fast]│  │ (placeholder)│ │
 │ └────────────────────────────────────────────┘  └─────────────┘ │
@@ -193,21 +223,24 @@ Combine dimmer + movement. **No color** — mood is independent.
 ### How to Use
 
 1. **Pick a PHASE** — sets energy level (dimmer + movement defaults)
-2. **Pick a MOOD color** — sets the color palette independently
-3. **Optionally override MOVEMENT** — pick a different motion pattern
-4. **Use FX for accents** — strobe build for tension, white hit for impact
-5. **Intensity slider** — master brightness override
+2. **Pick a MOOD color** — sets the color hue (RGB on all fixtures)
+3. **Pick a PATTERN** — sets which Beam Ball LEDs are lit (W geometry)
+4. **Optionally override MOVEMENT** — pick a different motion pattern
+5. **Use FX for accents** — strobe build for tension, white hit for impact
+6. **Intensity slider** — master brightness override
 
 ### Typical DJ Set Flow
 
-| Song Section | Phase | Mood | Movement | FX |
-|-------------|-------|------|----------|----|
-| Intro | CHILL | Pick a Jungle color | Slow Circle | — |
-| Verse | CHILL | Pick an Ocean color | Slow Sweep | — |
-| Pre-chorus | FREEZE | Hold current color | FREEZE (frozen) | — |
-| Build-up | BUILD | Pick a Fire color | Fast Sweep | Strobe Build |
-| Drop | DROP | Pick a Neon color | Fast Circle | — |
-| Breakdown | CHILL | Pick an Ocean color | Slow Circle | — |
+| Song Section | Phase | Mood / Pattern | Movement | FX |
+|-------------|-------|---------------|----------|----|
+| Intro | CHILL | Ocean Deep Blue (mood) | Slow Circle | — |
+| Verse | CHILL | BB White Single Slow (pattern) | Slow Sweep | — |
+| Pre-chorus | FREEZE | Hold color | FREEZE | — |
+| Build-up | BUILD | BB Fire Red Build Med (pattern) | Fast Sweep | Strobe Build |
+| Drop | DROP | BB Neon Cyan Comet Fast (pattern) | Fast Circle | — |
+| Breakdown | CHILL | Jungle Teal (mood) | Slow Circle | — |
+
+> **Mood vs Pattern**: Use MOOD for uniform whole-fixture color. Use BB Pattern for per-LED geometry. Don't stack both on the Beam Ball — they write to the same channels.
 
 > **Note**: Color chasers (Jungle Slow/Fast, Ocean Slow/Fast, etc.) exist in the Function Manager under `DJ Expression/Chasers/` but are not currently exposed as buttons on Page 3. They can be started from the Function Manager or added as buttons later.
 
@@ -228,22 +261,24 @@ QLC+ uses **HTP (Highest Takes Precedence)** for intensity/dimmer channels. This
 ┌─────────────────────────────────────────────────────┐
 │ INTENSITY (ch5) — HTP                               │
 │                                                     │
-│  Intensity Slider (Level)  ──→ Sets brightness FLOOR│
-│  Phase Dimmer Scenes       ──→ Sets brightness level│
-│  HTP picks the HIGHEST value                        │
+│  Intensity Slider (Level mode) → Sets brightness    │
+│  Phase Dimmer Scenes           → Sets brightness    │
+│  HTP picks the HIGHEST value from all sources       │
+│  Each tick zeros intensity channels, re-merges fresh│
 │                                                     │
 │  Result: slider = minimum brightness                │
 │          (can't go darker than slider position)     │
 └─────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────┐
-│ STROBE (ch6) — LTP, independent                     │
+│ Strobe (ch6) — LTP, independent                     │
 │                                                     │
-│  Strobe Slider (Level)     ──→ 0=off, 10-255=speed  │
+│  Strobe Slider (Level mode)──→ 0=off, 10-255=speed  │
 │  Strobe Preset Buttons     ──→ Slow/Medium/Fast/Off │
-│  LTP = latest write wins, no conflict               │
-│                                                     │
-│  Result: strobe works regardless of dimmer state     │
+│  LTP = whichever source wrote most recently wins     │
+│  Slider and preset buttons override each other       │
+│  ⚠ Put presets in a SoloFrame so OFF stops running   │
+│    strobe scene (otherwise both contend per tick)     │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -267,7 +302,7 @@ These use ch5 on/off and **do not work** when any other source holds ch5 high:
 1. **Intensity slider = brightness floor** — push up for minimum brightness, never fully dark
 2. **Strobe slider = strobe speed** — independent of dimmer, uses ch6
 3. **Never use dimmer on/off for strobe effects** — HTP makes it impossible
-4. **Grand Master (QLC+ built-in) = true blackout** — multiplier, works post-HTP
+4. **Blackout** — QLC+ built-in toggle (⊘ button). Forces ALL DMX outputs to zero, bypasses HTP/LTP/Grand Master entirely. This is the true emergency kill — always available, no configuration needed.
 
 ## Known Limitations & Layout Notes
 
@@ -295,6 +330,10 @@ These use ch5 on/off and **do not work** when any other source holds ch5 high:
 │ │ Neon:   [Magenta][Cyan][UV Blue][Acid]      │                  │
 │ └────────────────────────────────────────────┘                  │
 │                                                                  │
+│ ┌─ PATTERN / BALL (SoloFrame) ───────────────────────────────────┐│
+│ │ [OFF][Sparkle][Geometry][Comet][Fire Embers][Rise Burst]       ││
+│ └────────────────────────────────────────────────────────────────┘│
+│                                                                  │
 │ ┌─ MOVEMENT (SoloFrame) ─────────────────────┐  ┌─ TEMPO ─────┐ │
 │ │ [Slow ○][Slow ↔][Fast ○][Fast ↔][❄ FREEZE] │  │ (placeholder)│ │
 │ └────────────────────────────────────────────┘  └─────────────┘ │
@@ -311,9 +350,10 @@ These use ch5 on/off and **do not work** when any other source holds ch5 high:
 ### Adding a Color Theme
 
 1. Define 4 colors with hex values
-2. Create 4 color scenes (RGBW only, both fixtures) in `DJ Expression/Color/{ThemeName}`
+2. Create 4 color scenes (RGBW, both fixtures) in `DJ Expression/Color/{ThemeName}`
 3. Create Slow chaser (8 beat hold, 4 beat fade) and Fast chaser (2 beat hold, 1 beat fade)
 4. Add buttons to the MOOD section on Page 3
+5. Optionally: add the color to `ball-effects-plan.md` color palette and re-run the BB pattern generator
 
 ### Adding a Phase
 
@@ -329,6 +369,10 @@ These use ch5 on/off and **do not work** when any other source holds ch5 high:
 5. Add new fixture's dimmer channel to the Page 3 **Intensity slider**
 6. No chaser/collection changes needed — they reference scenes by name
 
+### Adding a BB Pattern
+
+See [`docs/ball-effects-plan.md`](ball-effects-plan.md) — add a row to the pattern definitions table, then re-run the generator for all desired colors.
+
 ## File Organization
 
 ```
@@ -340,8 +384,16 @@ DJ Expression/
 │   ├── Neon/          (4 color scenes)
 │   └── Utility/       (White Hit, Blackout Color)
 ├── Dimmer/            (Off, Low, Medium, Full)
-├── Chasers/           (8 chasers: Slow+Fast × 4 themes)
-├── Movement/          (4 EFX patterns)
-├── FX/                (Strobe Build, Fast Strobe)
+├── Chasers/           (8 color chasers: Slow+Fast × 4 themes)
+├── Movement/          (4 EFX + Freeze)
+├── FX/                (Strobe scenes)
+├── BB Patterns/       (generated: pattern × color scenes)
+│   ├── White/
+│   ├── Fire Red/
+│   └── .../
+├── BB Chasers/        (generated: chase × color × speed)
+│   ├── White/
+│   └── .../
+├── BB Scripts/        (Fire Flicker, Buildup Explode)
 └── Phases/            (4 collections: Chill, Freeze, Build, Drop)
 ```

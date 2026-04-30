@@ -102,7 +102,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch."),
+        std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotOpenWorld));
@@ -185,7 +186,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch."),
+        std::string("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotOpenWorld));
@@ -282,7 +284,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Set input profile for a universe. Batch."),
+        std::string("Set input profile for a universe. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -478,7 +481,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch."),
+        std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotOpenWorld));
@@ -564,13 +568,19 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
     tm.register_tool(Tool(
         "configure_beat_source",
         Json{{"type", "object"}, {"properties", {
-            {"type", {{"type", "string"}, {"description", "Beat source: disabled, internal, plugin (OS2L/MIDI), audio"}}},
+            {"type", {{"type", "string"}, {"enum", {"disabled", "internal", "plugin", "midi", "audio"}}, {"description", "Beat source: disabled, internal, plugin (OS2L/MIDI), audio"}}},
             {"bpm", {{"type", "integer"}, {"description", "BPM value (only for internal, default 120)"}}}
         }}, {"required", {"type"}}},
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"type", "bpm"});
+            if (!err.empty()) return err;
+
+            static const Json kEnums = {
+                {"type", {{"enum", {"disabled", "internal", "plugin", "midi", "audio"}}}}
+            };
+            err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             InputOutputMap *ioMap = doc->inputOutputMap();
@@ -615,13 +625,20 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         "set_grand_master",
         Json{{"type", "object"}, {"properties", {
             {"value", {{"type", "integer"}, {"description", "Grand master value 0-255"}}},
-            {"valueMode", {{"type", "string"}, {"description", "'limit' or 'reduce'"}}},
-            {"channelMode", {{"type", "string"}, {"description", "'intensity' or 'all'"}}}
+            {"valueMode", {{"type", "string"}, {"enum", {"limit", "reduce"}}, {"description", "'limit' or 'reduce'"}}},
+            {"channelMode", {{"type", "string"}, {"enum", {"intensity", "all"}}, {"description", "'intensity' or 'all'"}}}
         }}},
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"value", "valueMode", "channelMode"});
+            if (!err.empty()) return err;
+
+            static const Json kEnums = {
+                {"valueMode", {{"enum", {"limit", "reduce"}}}},
+                {"channelMode", {{"enum", {"intensity", "all"}}}}
+            };
+            err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             InputOutputMap *ioMap = doc->inputOutputMap();
@@ -700,7 +717,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             QStringList inNames = midiPlugin->inputs();
             for (int i = 0; i < inNames.count(); i++)
             {
-                if (inNames[i].contains(model, Qt::CaseInsensitive) && inNames[i].contains("MIDI", Qt::CaseInsensitive))
+                if (inNames[i].contains(model, Qt::CaseInsensitive))
                 {
                     // Prefer DAW port (second occurrence) over MIDI port (first)
                     if (inputLine < 0)
@@ -712,7 +729,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             QStringList outNames = midiPlugin->outputs();
             for (int i = 0; i < outNames.count(); i++)
             {
-                if (outNames[i].contains(model, Qt::CaseInsensitive) && outNames[i].contains("MIDI", Qt::CaseInsensitive))
+                if (outNames[i].contains(model, Qt::CaseInsensitive))
                 {
                     if (outputLine < 0)
                         outputLine = i;
@@ -722,7 +739,13 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
 
             if (inputLine < 0 && outputLine < 0)
-                return Json({{"error", "Launchpad not found. Connect device and try again."}}).dump();
+            {
+                Json portNames = Json::array();
+                for (const QString &n : inNames) portNames.push_back(n.toStdString());
+                for (const QString &n : outNames) portNames.push_back(n.toStdString());
+                return Json({{"error", "Launchpad model '" + model.toStdString() + "' not found in available ports. Connect device and try again."},
+                             {"availablePorts", portNames}}).dump();
+            }
 
             // Find a free universe or use universe 0
             int universeID = -1;

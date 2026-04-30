@@ -52,6 +52,8 @@ Rectangle
             item = smEntry
         else if (ctx === "IOMGR")
             item = ioEntry
+        else if (ctx === "FC")
+            item = fcEntry
 
         if (item)
         {
@@ -274,6 +276,28 @@ Rectangle
                 {
                     ioEntry.visible = false
                     contextManager.detachContext("IOMGR")
+                }
+            }
+            MenuBarEntry
+            {
+                id: fcEntry
+                Layout.alignment: Qt.AlignTop
+                property string ctxName: "FC"
+                property string ctxRes: "qrc:/FlowConsole.qml"
+
+                visible: qlcplus.accessMask & App.AC_VCControl
+                imgSource: "qrc:/grid.svg"
+                entryText: qsTr("Flow Console")
+                ButtonGroup.group: menuBarGroup
+                onCheckedChanged:
+                {
+                    if (checked === true)
+                        switchToContext(fcEntry.ctxName, fcEntry.ctxRes)
+                }
+                onRightClicked:
+                {
+                    fcEntry.visible = false
+                    contextManager.detachContext("FC")
                 }
             }
             Rectangle

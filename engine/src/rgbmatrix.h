@@ -278,10 +278,10 @@ private:
     void checkEngineCreation();
 
     QSharedPointer<GenericFader> getFader(Universe *universe);
-    void updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime);
+    void updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime, uint fadeOutTime);
 
     /** Update FadeChannels when $map has changed since last time */
-    void updateMapChannels(const RGBMap& map, const FixtureGroup* grp, QList<Universe *> universes);
+    void updateMapChannels(const RGBMap& map, const FixtureGroup* grp, QList<Universe *> universes, int beatDuration);
     void applyColorAttribute(int colorIndex, qreal packedColor);
     void applyPatternAttribute(qreal patternIndex);
 

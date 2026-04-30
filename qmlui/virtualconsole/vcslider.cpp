@@ -144,22 +144,7 @@ void VCSlider::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCSlider::render(QQuickView *view, QQuickItem *parent)
 {
-    if (view == nullptr || parent == nullptr)
-        return;
-
-    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCSliderItem.qml"));
-
-    if (component->isError())
-    {
-        qDebug() << component->errors();
-        delete component;
-        return;
-    }
-
-    m_item = qobject_cast<QQuickItem*>(component->create());
-
-    m_item->setParentItem(parent);
-    m_item->setProperty("sliderObj", QVariant::fromValue(this));
+    initRenderItem(view, parent, "qrc:/VCSliderItem.qml", "sliderObj");
 }
 
 QString VCSlider::propertiesResource() const
@@ -1293,11 +1278,15 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
             //qDebug() << caption() << "Monitor DMX value:" << monitorSliderValue << "level value:" << m_value;
 
             m_monitorValue = monitorSliderValue;
-            emit monitorValueChanged();
+
+            QMetaObject::invokeMethod(this, "monitorValueChanged", Qt::QueuedConnection);
 
             if (m_isOverriding == false)
             {
-                setValue(m_monitorValue, false, true);
+                int newValue = m_monitorValue;
+                QMetaObject::invokeMethod(this, [this, newValue]() {
+                    setValue(newValue, false, true);
+                }, Qt::QueuedConnection);
                 return;
             }
         }

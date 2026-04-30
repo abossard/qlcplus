@@ -19,6 +19,7 @@
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QQmlComponent>
 
 #include "qlcinputchannel.h"
 #include "inputpatch.h"
@@ -81,6 +82,31 @@ void VCWidget::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCWidget::render(QQuickView *, QQuickItem *)
 {
+}
+
+bool VCWidget::initRenderItem(QQuickView *view, QQuickItem *parent,
+                              const QString &qmlUrl, const char *propertyName)
+{
+    if (view == nullptr || parent == nullptr)
+        return false;
+
+    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl(qmlUrl));
+    if (component->isError())
+    {
+        qDebug() << component->errors();
+        delete component;
+        return false;
+    }
+
+    m_item = qobject_cast<QQuickItem*>(component->create());
+    delete component;
+
+    if (m_item == nullptr)
+        return false;
+
+    m_item->setParentItem(parent);
+    m_item->setProperty(propertyName, QVariant::fromValue(this));
+    return true;
 }
 
 QQuickItem *VCWidget::renderItem() const

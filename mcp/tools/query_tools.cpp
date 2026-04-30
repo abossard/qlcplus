@@ -128,7 +128,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch."),
+        std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));
@@ -366,7 +367,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 });
             },
             std::nullopt,
-            std::string("Query full details of Virtual Console widgets. Batch."),
+            std::string("Query full details of Virtual Console widgets. Batch. "
+                         "Pass widget IDs in {\"widgetIDs\": [...]}."),
             std::nullopt
         )
         .set_annotations(mcp::kAnnotReadOnly));
@@ -423,7 +425,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     tm.register_tool(Tool(
         "query_palettes",
         Json{{"type", "object"}, {"properties", {
-            {"typeFilter", {{"type", "string"},
+            {"typeFilter", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Shutter", "Gobo", "Zoom"}},
                 {"description", "Filter by type: Dimmer, Color, Pan, Tilt, PanTilt (omit for all)"}}}
         }}},
         Json{},
@@ -511,7 +513,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     tm.register_tool(Tool(
         "query_rgb_algorithms",
         Json{{"type", "object"}, {"properties", {
-            {"type", {{"type", "string"}, {"description", "Filter by type: Script, Text, Image, Audio, Plain"}}},
+            {"type", {{"type", "string"}, {"enum", {"Script", "Text", "Image", "Audio", "Plain"}}, {"description", "Filter by type: Script, Text, Image, Audio, Plain"}}},
             {"name", {{"type", "string"}, {"description", "Filter by name (substring, case-insensitive)"}}}
         }}},
         Json{},

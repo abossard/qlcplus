@@ -52,7 +52,11 @@ SceneEditor::~SceneEditor()
     m_view->rootContext()->setContextProperty("sceneEditor", nullptr);
     QQuickItem *bottomPanel = qobject_cast<QQuickItem*>(m_view->rootObject()->findChild<QObject *>("bottomPanelItem"));
     if (bottomPanel != nullptr)
+    {
+        bottomPanel->setProperty("isOpen", false);
+        bottomPanel->setProperty("height", bottomPanel->property("collapseHeight"));
         bottomPanel->setProperty("visible", false);
+    }
 
     delete m_source;
     delete m_fixtureList;
@@ -72,7 +76,11 @@ void SceneEditor::setFunctionID(quint32 id)
         m_fixtureIDs.clear();
         m_selectedChannels.clear();
         if (bottomPanel != nullptr)
+        {
+            bottomPanel->setProperty("isOpen", false);
+            bottomPanel->setProperty("height", bottomPanel->property("collapseHeight"));
             bottomPanel->setProperty("visible", false);
+        }
         return;
     }
     m_scene = qobject_cast<Scene *>(m_doc->function(id));
@@ -86,6 +94,7 @@ void SceneEditor::setFunctionID(quint32 id)
     {
         bottomPanel->setProperty("visible", true);
         bottomPanel->setProperty("editorSource", "qrc:/SceneFixtureConsole.qml");
+        QMetaObject::invokeMethod(bottomPanel, "animatePanel", Q_ARG(QVariant, true));
     }
     FunctionEditor::setFunctionID(id);
 }

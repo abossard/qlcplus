@@ -63,8 +63,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?). Alternative to fixtureIDs."}}},
                 {"paletteIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Palette IDs to reference. Palettes provide reusable values (color, position, dimmer)."}}},
                 {"paletteNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Palette names to reference (glob patterns). Resolved from existing palettes."}}},
-                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
-                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
+                {"fadeIn", {{"description", "Fade in: integer ms OR beat string ('1/8','1/4','1/2','1','2','4'). Beat strings auto-set tempoType to Beats."}}},
+                {"fadeOut", {{"description", "Fade out: integer ms OR beat string. Beat strings auto-set tempoType to Beats."}}},
+                {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
                 {"channelValues", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}},
                     {"channel", {{"type", "integer"}}},
@@ -87,7 +88,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "channelValues", "positions"});
+                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "tempoType", "channelValues", "positions"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                static const Json kEnums = {
+                    {"tempoType", {{"enum", {"time", "beats"}}}}
+                };
+                err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name"))
@@ -144,10 +151,23 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("path"))
                     scene->setPath(QString::fromStdString(item.at("path").get<std::string>()));
 
-                if (item.contains("fadeIn"))
-                    scene->setFadeInSpeed(item.at("fadeIn").get<int>());
-                if (item.contains("fadeOut"))
-                    scene->setFadeOutSpeed(item.at("fadeOut").get<int>());
+                // Timing: determine beat mode first, then set tempoType, then durations.
+                {
+                    auto timing = mcp::parseTimingFields(item, {"fadeIn", "fadeOut"});
+                    if (!timing.error.empty())
+                    {
+                        results.push_back({{"error", timing.error}});
+                        continue;
+                    }
+
+                    if (timing.useBeatMode)
+                        scene->setTempoType(Function::Beats);
+                    else if (item.contains("tempoType"))
+                        scene->setTempoType(Function::Time);
+
+                    if (timing.present.count("fadeIn")) scene->setFadeInSpeed(timing.values["fadeIn"]);
+                    if (timing.present.count("fadeOut")) scene->setFadeOutSpeed(timing.values["fadeOut"]);
+                }
 
                 // Resolve and add palette references
                 if (item.contains("paletteIDs") && item.at("paletteIDs").is_array())
@@ -245,7 +265,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::string("Create scenes with palettes, channel values, and/or degree-based positions. "
                      "Palette-first: reference palettes via paletteNames/paletteIDs for reusable values; "
                      "channelValues override palettes for fine-tuning. "
-                     "Upserts: replaces all values and palette refs on existing scenes. Batch."),
+                     "Upserts: replaces all values and palette refs on existing scenes. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -258,7 +278,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"sceneName", {{"type", "string"}, {"description", "Target scene name. Creates new if not exists (upsert)."}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}, {"description", "Fixture IDs to capture (empty = all patched)"}}},
                 {"fixtureNames", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Fixture name patterns (glob: * ?)"}}},
-                {"channelFilter", {{"type", "string"}, {"description", "Filter: all (default), dimmer, color, position, gobo, shutter, beam, effect"}}},
+                {"channelFilter", {{"type", "string"}, {"enum", {"all", "dimmer", "color", "position", "gobo", "shutter", "beam", "effect"}}, {"description", "Filter: all (default), dimmer, color, position, gobo, shutter, beam, effect"}}},
                 {"nonZeroOnly", {{"type", "boolean"}, {"description", "Only capture non-zero channels (default true)"}}},
                 {"merge", {{"type", "boolean"}, {"description", "true = keep existing values for uncaptured channels; false = replace all (default false)"}}}
             }}, {"required", {"sceneName"}}}}}}
@@ -291,6 +311,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             for (auto &item : args.at("items"))
             {
                 auto itemErr = validateFields(item, {"sceneName", "fixtureIDs", "fixtureNames", "channelFilter", "nonZeroOnly", "merge"});
+                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
+
+                static const Json kEnums = {
+                    {"channelFilter", {{"enum", {"all", "dimmer", "color", "position", "gobo", "shutter", "beam", "effect"}}}}
+                };
+                itemErr = validateEnums(item, kEnums);
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
 
                 if (!item.contains("sceneName"))
@@ -404,7 +430,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string("Capture current live DMX output into scenes. Reads pre-Grand Master values and writes them as scene channel values. "
                      "Supports channel filtering, non-zero-only mode, and merge (keep existing) vs replace mode. "
-                     "Use case: 'save current Pan/Tilt of HERO fixtures to scene ABC'. Batch."),
+                     "Use case: 'save current Pan/Tilt of HERO fixtures to scene ABC'. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -441,6 +467,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"name", "path", "steps", "tempoType", "runOrder", "direction", "fadeInMode", "fadeOutMode", "durationMode"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                static const Json kEnums = {
+                    {"tempoType", {{"enum", {"time", "beats"}}}},
+                    {"runOrder", {{"enum", {"loop", "single", "pingpong", "random"}}}},
+                    {"direction", {{"enum", {"forward", "backward"}}}},
+                    {"fadeInMode", {{"enum", {"default", "common", "perStep"}}}},
+                    {"fadeOutMode", {{"enum", {"default", "common", "perStep"}}}},
+                    {"durationMode", {{"enum", {"default", "common", "perStep"}}}}
+                };
+                err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name") || !item.contains("steps") || !item.at("steps").is_array())
@@ -543,7 +580,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch."),
+        std::string("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -556,9 +593,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"name", {{"type", "string"}}},
                 {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Sequences'). Creates folders implicitly."}}},
                 {"boundSceneID", {{"type", "integer"}, {"description", "Scene ID this sequence is bound to"}}},
-                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time per step in ms (default 0)"}}},
-                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time per step in ms (default 0)"}}},
-                {"holdTime", {{"type", "integer"}, {"description", "Hold/duration per step in ms (default 1000)"}}},
+                {"fadeIn", {{"description", "Fade in per step: integer ms OR beat string ('1/8','1/4','1/2','1','2','4'). Beat strings auto-set tempoType to Beats."}}},
+                {"fadeOut", {{"description", "Fade out per step: integer ms OR beat string. Beat strings auto-set tempoType to Beats."}}},
+                {"holdTime", {{"description", "Hold/duration per step: integer ms OR beat string. Beat strings auto-set tempoType to Beats."}}},
+                {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong", "random"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}}
             }}, {"required", {"name", "boundSceneID"}}}}}}
@@ -572,7 +610,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 return Json({{"error","items array required"}}).dump();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "runOrder", "direction"});
+                auto err = validateFields(item, {"name", "path", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "tempoType", "runOrder", "direction"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                static const Json kEnums = {
+                    {"tempoType", {{"enum", {"time", "beats"}}}},
+                    {"runOrder", {{"enum", {"loop", "single", "pingpong", "random"}}}},
+                    {"direction", {{"enum", {"forward", "backward"}}}}
+                };
+                err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 if (!item.contains("name") || !item.contains("boundSceneID"))
@@ -601,9 +647,27 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
 
                 seq->setBoundSceneID(item.at("boundSceneID").get<int>());
 
-                seq->setFadeInSpeed(item.value("fadeIn", 0));
-                seq->setFadeOutSpeed(item.value("fadeOut", 0));
-                seq->setDuration(item.value("holdTime", 1000));
+                // Timing: determine beat mode first, then set tempoType, then durations.
+                {
+                    auto timing = mcp::parseTimingFields(item, {"fadeIn", "fadeOut", "holdTime"});
+                    if (!timing.error.empty())
+                    {
+                        results.push_back({{"error", timing.error}});
+                        continue;
+                    }
+
+                    if (timing.useBeatMode)
+                        seq->setTempoType(Function::Beats);
+                    else if (item.contains("tempoType"))
+                        seq->setTempoType(Function::Time);
+
+                    if (timing.present.count("fadeIn")) seq->setFadeInSpeed(timing.values["fadeIn"]);
+                    else seq->setFadeInSpeed(0);
+                    if (timing.present.count("fadeOut")) seq->setFadeOutSpeed(timing.values["fadeOut"]);
+                    else seq->setFadeOutSpeed(0);
+                    if (timing.present.count("holdTime")) seq->setDuration(timing.values["holdTime"]);
+                    else seq->setDuration(1000);
+                }
 
                 QString order = QString::fromStdString(item.value("runOrder", "loop"));
                 if (order == "single") seq->setRunOrder(Function::SingleShot);
@@ -626,7 +690,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch."),
+        std::string("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -653,9 +717,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"yPhase", {{"type", "integer"}, {"description", "Y phase 0-359 for Lissajous (default 0)"}}},
                 {"isRelative", {{"type", "boolean"}, {"description", "Relative to current position (default false)"}}},
                 {"propagationMode", {{"type", "string"}, {"enum", {"Parallel", "Serial", "Asymmetric"}}, {"description", "Multi-fixture propagation (default Parallel)"}}},
-                {"speed", {{"type", "integer"}, {"description", "Duration/cycle time in ms (default 5000)"}}},
-                {"fadeIn", {{"type", "integer"}, {"description", "Fade in time in ms (default 0)"}}},
-                {"fadeOut", {{"type", "integer"}, {"description", "Fade out time in ms (default 0)"}}},
+                {"speed", {{"description", "Duration/cycle time: integer ms OR beat string ('1/8','1/4','1/2','1','2','4'). Beat strings auto-set tempoType to Beats. Default 5000ms."}}},
+                {"fadeIn", {{"description", "Fade in: integer ms OR beat string. Beat strings auto-set tempoType to Beats."}}},
+                {"fadeOut", {{"description", "Fade out: integer ms OR beat string. Beat strings auto-set tempoType to Beats."}}},
+                {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"loop", "single", "pingpong"}}, {"description", "Run order (default loop)"}}},
                 {"direction", {{"type", "string"}, {"enum", {"forward", "backward"}}, {"description", "Direction (default forward)"}}},
                 {"head", {{"type", "integer"}, {"description", "Head index for multi-head fixtures (default 0)"}}}
@@ -667,7 +732,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "algorithm", "width", "height", "xOffset", "yOffset", "rotation", "startOffset", "xFrequency", "yFrequency", "xPhase", "yPhase", "isRelative", "propagationMode", "speed", "fadeIn", "fadeOut", "runOrder", "direction", "head"});
+                auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "algorithm", "width", "height", "xOffset", "yOffset", "rotation", "startOffset", "xFrequency", "yFrequency", "xPhase", "yPhase", "isRelative", "propagationMode", "speed", "fadeIn", "fadeOut", "tempoType", "runOrder", "direction", "head"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                static const Json kEnums = {
+                    {"tempoType", {{"enum", {"time", "beats"}}}},
+                    {"runOrder", {{"enum", {"loop", "single", "pingpong"}}}},
+                    {"direction", {{"enum", {"forward", "backward"}}}},
+                    {"algorithm", {{"enum", {"Circle", "Eight", "Line", "Line2", "Diamond", "Square", "SquareChoppy", "SquareTrue", "Leaf", "Lissajous"}}}},
+                    {"propagationMode", {{"enum", {"Parallel", "Serial", "Asymmetric"}}}}
+                };
+                err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -725,12 +800,25 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 else if (propMode == "Asymmetric") efx->setPropagationMode(EFX::Asymmetric);
                 else efx->setPropagationMode(EFX::Parallel);
 
-                // Speed
-                efx->setDuration(item.value("speed", 5000));
-                if (item.contains("fadeIn"))
-                    efx->setFadeInSpeed(item.at("fadeIn").get<int>());
-                if (item.contains("fadeOut"))
-                    efx->setFadeOutSpeed(item.at("fadeOut").get<int>());
+                // Timing: determine beat mode first, then set tempoType, then durations.
+                {
+                    auto timing = mcp::parseTimingFields(item, {"speed", "fadeIn", "fadeOut"});
+                    if (!timing.error.empty())
+                    {
+                        results.push_back({{"error", timing.error}});
+                        continue;
+                    }
+
+                    if (timing.useBeatMode)
+                        efx->setTempoType(Function::Beats);
+                    else if (item.contains("tempoType"))
+                        efx->setTempoType(Function::Time);
+
+                    if (timing.present.count("speed")) efx->setDuration(timing.values["speed"]);
+                    else efx->setDuration(5000);
+                    if (timing.present.count("fadeIn")) efx->setFadeInSpeed(timing.values["fadeIn"]);
+                    if (timing.present.count("fadeOut")) efx->setFadeOutSpeed(timing.values["fadeOut"]);
+                }
 
                 // Run order / direction
                 QString order = QString::fromStdString(item.value("runOrder", "loop"));
@@ -760,7 +848,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch."),
+        std::string("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -831,7 +919,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create collections (parallel function groups — use for moods/phases). Upserts. Batch."),
+        std::string("Create collections (parallel function groups — use for moods/phases). Upserts. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -851,17 +939,17 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"duration", {{"description", "Step duration: integer ms OR beat string ('1/8','1/4','1/2','1','2','4'). Beat strings auto-set tempoType to Beats."}}},
                 {"fadeIn", {{"description", "Fade in: integer ms OR beat string."}}},
                 {"fadeOut", {{"description", "Fade out: integer ms OR beat string."}}},
-                {"tempoType", {{"type", "string"}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
-                {"runOrder", {{"type", "string"}, {"description", "Loop, SingleShot, PingPong, or Random"}}},
-                {"direction", {{"type", "string"}, {"description", "Forward or Backward"}}},
-                {"controlMode", {{"type", "string"}, {"description", "RGB, White, Amber, UV, Dimmer, or Shutter"}}},
-                {"blendMode", {{"type", "string"}, {"description", "Normal or Additive"}}},
+                {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
+                {"runOrder", {{"type", "string"}, {"enum", {"Loop", "SingleShot", "PingPong", "Random"}}, {"description", "Loop, SingleShot, PingPong, or Random"}}},
+                {"direction", {{"type", "string"}, {"enum", {"Forward", "Backward"}}, {"description", "Forward or Backward"}}},
+                {"controlMode", {{"type", "string"}, {"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter"}}, {"description", "RGB, White, Amber, UV, Dimmer, or Shutter"}}},
+                {"blendMode", {{"type", "string"}, {"enum", {"Normal", "Additive", "Mask", "Subtractive"}}, {"description", "Normal, Additive, Mask, or Subtractive"}}},
                 {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs (e.g. {\"presetDecay\": \"10\", \"presetMode\": \"Mids\"})"}}},
                 {"text", {{"type", "string"}, {"description", "Text content (for RGBText algorithm)"}}},
-                {"animationStyle", {{"type", "string"}, {"description", "Static, Horizontal, or Vertical (for RGBText/RGBImage algorithms)"}}},
+                {"animationStyle", {{"type", "string"}, {"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}, {"description", "Static, Letters, Horizontal, Vertical, or Animation (for RGBText/RGBImage algorithms)"}}},
                 {"rotation", {{"type", "integer"}, {"description", "Rotation in degrees: 0, 90, 180, or 270"}}},
-                {"mirror", {{"type", "string"}, {"description", "Mirror mode: Off, Horizontal, Vertical, or Both"}}},
-                {"mirrorBlend", {{"type", "string"}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}}
+                {"mirror", {{"type", "string"}, {"enum", {"Off", "Horizontal", "Vertical", "Both"}}, {"description", "Mirror mode: Off, Horizontal, Vertical, or Both"}}},
+                {"mirrorBlend", {{"type", "string"}, {"enum", {"Flip", "Max", "Average", "Additive"}}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -874,6 +962,19 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     "startColor", "endColor", "colors", "duration", "fadeIn", "fadeOut",
                     "tempoType", "runOrder", "direction", "controlMode", "blendMode",
                     "properties", "text", "animationStyle", "rotation", "mirror", "mirrorBlend"});
+                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+
+                static const Json kEnums = {
+                    {"tempoType", {{"enum", {"time", "beats"}}}},
+                    {"runOrder", {{"enum", {"Loop", "SingleShot", "PingPong", "Random"}}}},
+                    {"direction", {{"enum", {"Forward", "Backward"}}}},
+                    {"controlMode", {{"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter"}}}},
+                    {"blendMode", {{"enum", {"Normal", "Additive", "Mask", "Subtractive"}}}},
+                    {"animationStyle", {{"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}}},
+                    {"mirror", {{"enum", {"Off", "Horizontal", "Vertical", "Both"}}}},
+                    {"mirrorBlend", {{"enum", {"Flip", "Max", "Average", "Additive"}}}}
+                };
+                err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
@@ -910,7 +1011,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("colors") && item.at("colors").is_array())
                 {
                     auto &colorsArr = item.at("colors");
-                    for (size_t i = 0; i < colorsArr.size() && i < 3; i++)
+                    for (size_t i = 0; i < colorsArr.size() && i < 5; i++)
                         matrix->setColor(i, QColor(QString::fromStdString(colorsArr[i].get<std::string>())));
                 }
                 else
@@ -923,59 +1024,32 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
 
                 // Timing: determine beat mode first, then set tempoType, then durations.
                 // This avoids the auto-conversion that setTempoType does on existing values.
-                bool useBeatMode = false;
-                uint durationVal = 0; bool hasDuration = false;
-                uint fadeInVal = 0; bool hasFadeIn = false;
-                uint fadeOutVal = 0; bool hasFadeOut = false;
-
-                if (item.contains("tempoType"))
                 {
-                    QString tt = QString::fromStdString(item.at("tempoType").get<std::string>());
-                    if (tt.compare("Beats", Qt::CaseInsensitive) == 0)
-                        useBeatMode = true;
-                }
+                    // Auto-detect beat mode from Audio* algorithms
+                    bool audioBeatMode = false;
+                    if (!item.contains("tempoType"))
+                    {
+                        RGBAlgorithm *algo = matrix->algorithm();
+                        if (algo && algo->usesAudio())
+                            audioBeatMode = true;
+                    }
 
-                // Auto-detect beat mode from Audio* algorithms
-                if (!useBeatMode && !item.contains("tempoType"))
-                {
-                    RGBAlgorithm *algo = matrix->algorithm();
-                    if (algo && algo->usesAudio())
-                        useBeatMode = true;
-                }
+                    auto timing = mcp::parseTimingFields(item, {"duration", "fadeIn", "fadeOut"}, audioBeatMode);
+                    if (!timing.error.empty())
+                    {
+                        results.push_back({{"error", timing.error}});
+                        continue;
+                    }
 
-                // Parse duration fields and detect beat strings
-                if (item.contains("duration"))
-                {
-                    bool isBeat = false;
-                    durationVal = mcp::parseDurationField(item.at("duration"), isBeat);
-                    if (isBeat) useBeatMode = true;
-                    hasDuration = true;
-                }
-                if (item.contains("fadeIn"))
-                {
-                    bool isBeat = false;
-                    fadeInVal = mcp::parseDurationField(item.at("fadeIn"), isBeat);
-                    if (isBeat) useBeatMode = true;
-                    hasFadeIn = true;
-                }
-                if (item.contains("fadeOut"))
-                {
-                    bool isBeat = false;
-                    fadeOutVal = mcp::parseDurationField(item.at("fadeOut"), isBeat);
-                    if (isBeat) useBeatMode = true;
-                    hasFadeOut = true;
-                }
+                    if (timing.useBeatMode)
+                        matrix->setTempoType(Function::Beats);
+                    else if (item.contains("tempoType"))
+                        matrix->setTempoType(Function::Time);
 
-                // Set tempo type before durations
-                if (useBeatMode)
-                    matrix->setTempoType(Function::Beats);
-                else if (item.contains("tempoType"))
-                    matrix->setTempoType(Function::Time);
-
-                // Now apply durations (already in correct encoding)
-                if (hasDuration) matrix->setDuration(durationVal);
-                if (hasFadeIn) matrix->setFadeInSpeed(fadeInVal);
-                if (hasFadeOut) matrix->setFadeOutSpeed(fadeOutVal);
+                    if (timing.present.count("duration")) matrix->setDuration(timing.values["duration"]);
+                    if (timing.present.count("fadeIn")) matrix->setFadeInSpeed(timing.values["fadeIn"]);
+                    if (timing.present.count("fadeOut")) matrix->setFadeOutSpeed(timing.values["fadeOut"]);
+                }
 
                 // Run order
                 if (item.contains("runOrder"))
@@ -1090,7 +1164,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::string("Create/update RGB matrix effects. Supports audio-reactive algorithms, beat-synced timing "
                      "(use beat strings like '1/4', '1/2', '1' for duration/fadeIn/fadeOut — auto-sets Beats tempo), "
                      "script properties (e.g. presetDecay, presetMode), blend modes (Additive for layering), "
-                     "and up to 3 colors. Use query_rgb_algorithms to discover algorithms and properties. Upserts. Batch."),
+                     "and up to 3 colors. Use query_rgb_algorithms to discover algorithms and properties. Upserts. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -1159,7 +1233,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Create fixture groups with grid layout for RGB matrices. Upserts. Batch."),
+        std::string("Create fixture groups with grid layout for RGB matrices. Upserts. Batch: wrap entries in {\"items\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -1261,7 +1335,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         std::nullopt,
         std::string(
             "Create or update Script functions with raw JavaScript. Upserts by name. "
-            "Syntax is validated before saving — scripts with errors are rejected with detailed error messages. Batch.\n"
+            "Syntax is validated before saving — scripts with errors are rejected with detailed error messages. Batch: wrap entries in {\"items\": [...]}.\n"
             "\n"
             "The content field is raw JavaScript executed by QJSEngine in a dedicated thread. "
             "Full JS: variables, for/while loops, if/else, switch, functions, closures, arrays, objects, "
@@ -1428,7 +1502,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             });
         },
         std::nullopt,
-        std::string("Delete functions by ID. Batch."),
+        std::string("Delete functions by ID. Batch: wrap entries in {\"ids\": [...]}."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotDestructive));

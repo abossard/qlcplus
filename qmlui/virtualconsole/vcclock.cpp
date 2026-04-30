@@ -90,22 +90,7 @@ void VCClock::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCClock::render(QQuickView *view, QQuickItem *parent)
 {
-    if (view == nullptr || parent == nullptr)
-        return;
-
-    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCClockItem.qml"));
-
-    if (component->isError())
-    {
-        qDebug() << component->errors();
-        delete component;
-        return;
-    }
-
-    m_item = qobject_cast<QQuickItem*>(component->create());
-
-    m_item->setParentItem(parent);
-    m_item->setProperty("clockObj", QVariant::fromValue(this));
+    initRenderItem(view, parent, "qrc:/VCClockItem.qml", "clockObj");
 }
 
 QString VCClock::propertiesResource() const

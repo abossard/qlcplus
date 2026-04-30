@@ -59,6 +59,7 @@
 
 #include "tardis.h"
 #include "networkmanager.h"
+#include "flowconsole.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
@@ -88,6 +89,7 @@ App::App()
     , m_videoProvider(nullptr)
     , m_networkManager(nullptr)
     , m_uiManager(nullptr)
+    , m_flowConsole(nullptr)
     , m_doc(nullptr)
     , m_docLoaded(false)
     , m_printItem(nullptr)
@@ -195,7 +197,10 @@ void App::startup()
                           m_contextManager, m_simpleDesk, m_showManager, m_virtualConsole);
     rootContext()->setContextProperty("tardis", m_tardis);
 
+    m_flowConsole = new FlowConsole(this, m_doc);
+
     m_contextManager->registerContext(m_virtualConsole);
+    m_contextManager->registerContext(m_flowConsole);
     m_contextManager->registerContext(m_simpleDesk);
     m_contextManager->registerContext(m_showManager);
     m_contextManager->registerContext(m_ioManager);
@@ -516,6 +521,11 @@ NetworkManager *App::networkManager() const
     return m_networkManager;
 }
 
+FlowConsole *App::flowConsole() const
+{
+    return m_flowConsole;
+}
+
 bool App::docLoaded()
 {
     return m_docLoaded;
@@ -601,6 +611,7 @@ void App::clearDocument()
     //m_simpleDesk->resetContents(); // TODO
     m_showManager->resetContents();
     m_virtualConsole->resetContents();
+    m_flowConsole->resetContents();
 
     m_doc->masterTimer()->stop();
     m_doc->clearContents();
@@ -1002,6 +1013,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_virtualConsole->loadXML(doc);
         }
+        else if (doc.name() == QStringLiteral("FlowConsole"))
+        {
+            m_flowConsole->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1084,6 +1099,9 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 
     /* Write virtual console to the XML document */
     m_virtualConsole->saveXML(&doc);
+
+    /* Write Flow Console to the XML document */
+    m_flowConsole->saveXML(&doc);
 
     /* Write Simple Desk to the XML document */
     //SimpleDesk::instance()->saveXML(&doc);

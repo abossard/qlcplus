@@ -146,44 +146,31 @@ void FunctionEditor::setTempoType(int tempoType)
     if (m_function == nullptr || m_function->tempoType() == Function::TempoType(tempoType))
         return;
 
+    // Capture old speed values BEFORE the internal conversion
+    uint oldFadeIn = m_function->fadeInSpeed();
+    uint oldDuration = m_function->duration();
+    uint oldFadeOut = m_function->fadeOutSpeed();
+
     Tardis::instance()->enqueueAction(Tardis::FunctionSetTempoType, m_function->id(), m_function->tempoType(), tempoType);
 
+    // This internally converts all speed values
     m_function->setTempoType(Function::TempoType(tempoType));
 
-    int beatDuration = m_doc->masterTimer()->beatTimeDuration();
+    // Read back the already-converted values
+    uint newFadeIn = m_function->fadeInSpeed();
+    uint newDuration = m_function->duration();
+    uint newFadeOut = m_function->fadeOutSpeed();
 
-    // Time -> Beats
-    if (tempoType == Function::Beats)
-    {
-        uint fadeIn = Function::timeToBeats(m_function->fadeInSpeed(), beatDuration);
-        uint fadeOut = Function::timeToBeats(m_function->fadeOutSpeed(), beatDuration);
-        uint duration = Function::timeToBeats(m_function->duration(), beatDuration);
-
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeIn, m_function->id(), m_function->fadeInSpeed(), fadeIn);
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetDuration, m_function->id(), m_function->duration(), duration);
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeOut, m_function->id(), m_function->fadeOutSpeed(), fadeOut);
-
-        m_function->setFadeInSpeed(fadeIn);
-        m_function->setDuration(duration);
-        m_function->setFadeOutSpeed(fadeOut);
-    }
-    // Beats -> Time
-    else
-    {
-        uint fadeIn = Function::beatsToTime(m_function->fadeInSpeed(), beatDuration);
-        uint fadeOut = Function::beatsToTime(m_function->fadeOutSpeed(), beatDuration);
-        uint duration = Function::beatsToTime(m_function->duration(), beatDuration);
-
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeIn, m_function->id(), m_function->fadeInSpeed(), fadeIn);
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetDuration, m_function->id(), m_function->duration(), duration);
-        Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeOut, m_function->id(), m_function->fadeOutSpeed(), fadeOut);
-
-        m_function->setFadeInSpeed(fadeIn);
-        m_function->setDuration(duration);
-        m_function->setFadeOutSpeed(fadeOut);
-    }
+    // Record undo entries with genuine old -> new pairs
+    Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeIn, m_function->id(), oldFadeIn, newFadeIn);
+    Tardis::instance()->enqueueAction(Tardis::FunctionSetDuration, m_function->id(), oldDuration, newDuration);
+    Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeOut, m_function->id(), oldFadeOut, newFadeOut);
 
     emit tempoTypeChanged(tempoType);
+    emit fadeInSpeedChanged(newFadeIn);
+    emit holdSpeedChanged(newDuration - newFadeIn);
+    emit fadeOutSpeedChanged(newFadeOut);
+    emit durationChanged(newDuration);
 }
 
 int FunctionEditor::fadeInSpeed() const

@@ -94,7 +94,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             });
         },
         std::nullopt,
-        std::string("Create new Virtual Console pages. Batch."),
+        std::string("Create new Virtual Console pages. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -137,7 +138,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"channels", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"fixtureID", {{"type", "integer"}}}, {"channel", {{"type", "integer"}}}
                 }}}}, {"description", "Slider: fixture channels to control (for level mode)"}}},
-                {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset"}}}},
+                {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset", "rgb", "cmy"}}}},
                 {"valueDisplayStyle", {{"type", "string"}, {"enum", {"dmx", "percentage"}}}},
                 {"invertedAppearance", {{"type", "boolean"}}},
                 {"rangeLowLimit", {{"type", "number"}}},
@@ -817,7 +818,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Create Virtual Console widgets. Use 'type' to specify widget kind: "
                      "frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock. "
-                     "Upserts: existing widget with same caption is returned. Batch."),
+                     "Upserts: existing widget with same caption is returned. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

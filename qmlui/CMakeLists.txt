@@ -83,6 +83,7 @@ set(SRC_FILES
     virtualconsole/vcspeeddialpreset.cpp virtualconsole/vcspeeddialpreset.h
     virtualconsole/virtualconsole.cpp virtualconsole/virtualconsole.h
     virtualconsole/vclayoutadapter.cpp virtualconsole/vclayoutadapter.h
+    flowconsole/flowconsole.cpp flowconsole/flowconsole.h
 )
 
 # This is most of the Android deployment code
@@ -122,6 +123,7 @@ target_include_directories(${module_name} PRIVATE
     fixtureeditor
     tardis
     virtualconsole
+    flowconsole
 )
 target_include_directories(${module_name} PUBLIC ${FFTW3_INCLUDE_DIRS})
 

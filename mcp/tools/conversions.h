@@ -21,6 +21,8 @@
 #define MCP_CONVERSIONS_H
 
 #include <cmath>
+#include <map>
+#include <set>
 #include <nlohmann/json.hpp>
 
 #include "fixture.h"
@@ -35,7 +37,9 @@
 #include "channelmodifier.h"
 #include "scene.h"
 #include "chaser.h"
+#include "sequence.h"
 #include "collection.h"
+#include "efx.h"
 #include "scenevalue.h"
 #include "rgbmatrix.h"
 #include "rgbalgorithm.h"
@@ -138,14 +142,71 @@ inline std::string valueToBeatString(uint val)
 
 // Parse a duration field that can be either integer (ms) or string (beat fraction).
 // Sets isBeat to true if a beat string was parsed.
-inline uint parseDurationField(const Json &val, bool &isBeat)
+// Sets parseError to true if a beat string was provided but resulted in 0
+// (and the string was not literally "0" or "0.0").
+inline uint parseDurationField(const Json &val, bool &isBeat, bool &parseError)
 {
+    parseError = false;
     if (val.is_string())
     {
         isBeat = true;
-        return beatStringToValue(val.get<std::string>());
+        std::string str = val.get<std::string>();
+        uint result = beatStringToValue(str);
+        if (result == 0 && str != "0" && str != "0.0")
+            parseError = true;
+        return result;
     }
     return val.get<uint>();
+}
+
+// Result of parsing timing fields from a JSON item.
+struct TimingParseResult {
+    bool useBeatMode = false;
+    std::string error;  // Non-empty if a parse error occurred
+    std::map<std::string, uint> values;     // Parsed values by field name
+    std::set<std::string> present;          // Which fields were present in JSON
+};
+
+// Parse timing fields from a JSON item.
+// Checks explicit tempoType parameter, then parses each field via parseDurationField.
+// fieldNames: list of JSON key names to look for (e.g., {"fadeIn", "fadeOut", "duration"})
+// initialBeatMode: set to true if beat mode was already detected (e.g., from audio algorithm)
+// Does NOT set tempoType or apply values on the function — caller does that.
+inline TimingParseResult parseTimingFields(const Json &item,
+                                           const std::vector<std::string> &fieldNames,
+                                           bool initialBeatMode = false)
+{
+    TimingParseResult result;
+    result.useBeatMode = initialBeatMode;
+
+    // Check explicit tempoType parameter
+    if (item.contains("tempoType"))
+    {
+        std::string tt = item.at("tempoType").get<std::string>();
+        if (tt == "Beats" || tt == "beats" || tt == "BEATS")
+            result.useBeatMode = true;
+    }
+
+    // Parse each timing field
+    for (const auto &key : fieldNames)
+    {
+        if (!item.contains(key))
+            continue;
+
+        bool isBeat = false, parseErr = false;
+        uint val = parseDurationField(item.at(key), isBeat, parseErr);
+        if (parseErr)
+        {
+            result.error = "Invalid beat string for '" + key + "': "
+                         + item.at(key).get<std::string>();
+            return result;
+        }
+        if (isBeat) result.useBeatMode = true;
+        result.values[key] = val;
+        result.present.insert(key);
+    }
+
+    return result;
 }
 
 // Convert RGBAlgorithm::Type to string
@@ -173,7 +234,7 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
     entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
 
     bool isBeatMode = (matrix->tempoType() == Function::Beats);
-    entry["tempoType"] = isBeatMode ? "Beats" : "Time";
+    entry["tempoType"] = isBeatMode ? "beats" : "time";
 
     if (isBeatMode)
     {
@@ -481,11 +542,13 @@ inline Json fixtureToJson(const Fixture *fxi)
 // Pure function: Convert a function to JSON summary
 inline Json functionToJson(Function *fn)
 {
+    bool isBeatMode = (fn->tempoType() == Function::Beats);
+
     Json entry = {
         {"id", (int)fn->id()},
         {"name", fn->name().toStdString()},
         {"type", Function::typeToString(fn->type()).toStdString()},
-        {"duration", (int)fn->totalDuration()}
+        {"duration", isBeatMode ? Json(valueToBeatString(fn->totalDuration())) : Json((int)fn->totalDuration())}
     };
 
     QString fnPath = fn->path(true);
@@ -497,6 +560,7 @@ inline Json functionToJson(Function *fn)
         Scene *scene = qobject_cast<Scene*>(fn);
         if (scene)
         {
+            entry["tempoType"] = isBeatMode ? "beats" : "time";
             QSet<quint32> fxIds;
             for (const SceneValue &sv : scene->values())
                 fxIds.insert(sv.fxi);
@@ -548,13 +612,36 @@ inline Json functionToJson(Function *fn)
             entry["functionIDs"] = ids;
         }
     }
+    else if (fn->type() == Function::SequenceType)
+    {
+        Sequence *seq = qobject_cast<Sequence*>(fn);
+        if (seq)
+        {
+            entry["tempoType"] = isBeatMode ? "beats" : "time";
+            entry["boundSceneID"] = (int)seq->boundSceneID();
+            entry["stepCount"] = seq->stepsCount();
+            entry["runOrder"] = Function::runOrderToString(seq->runOrder()).toStdString();
+            entry["direction"] = Function::directionToString(seq->direction()).toStdString();
+        }
+    }
+    else if (fn->type() == Function::EFXType)
+    {
+        EFX *efx = qobject_cast<EFX*>(fn);
+        if (efx)
+        {
+            entry["tempoType"] = isBeatMode ? "beats" : "time";
+            entry["algorithm"] = EFX::algorithmToString(efx->algorithm()).toStdString();
+            entry["runOrder"] = Function::runOrderToString(efx->runOrder()).toStdString();
+            entry["direction"] = Function::directionToString(efx->direction()).toStdString();
+        }
+    }
     else if (fn->type() == Function::RGBMatrixType)
     {
         RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
         if (matrix)
         {
             entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
-            entry["tempoType"] = matrix->tempoType() == Function::Beats ? "Beats" : "Time";
+            entry["tempoType"] = matrix->tempoType() == Function::Beats ? "beats" : "time";
             entry["controlMode"] = RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
             if (matrix->blendMode() != Universe::NormalBlend)
                 entry["blendMode"] = Universe::blendModeToString(matrix->blendMode()).toStdString();

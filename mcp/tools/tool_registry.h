@@ -33,6 +33,7 @@ namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
 class VCBridge;
 class FunctionManager;
+class FlowConsole;
 
 // Each tool file exports one registration function.
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge);
@@ -44,6 +45,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *fc);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge);
 
@@ -117,6 +119,44 @@ inline std::string validateFields(const nlohmann::json &obj,
         first = false;
     }
     return nlohmann::json({{"error", msg}}).dump();
+}
+
+/**
+ * Validate enum constraints from a tool schema against actual input values.
+ * Checks every field in the input that has an "enum" array in the schema properties.
+ * Returns an error JSON string on mismatch, or empty string if all valid.
+ * Usage: auto err = validateEnums(args, schema["properties"]);
+ *        if (!err.empty()) return err;
+ */
+inline std::string validateEnums(const nlohmann::json &obj,
+                                  const nlohmann::json &schemaProperties)
+{
+    if (!obj.is_object() || !schemaProperties.is_object()) return "";
+    for (auto &[field, subschema] : schemaProperties.items())
+    {
+        if (!obj.contains(field)) continue;
+        if (!subschema.contains("enum") || !subschema["enum"].is_array()) continue;
+
+        const auto &val = obj[field];
+        const auto &allowed = subschema["enum"];
+        bool found = false;
+        for (const auto &v : allowed)
+            if (v == val) { found = true; break; }
+        if (!found)
+        {
+            std::string msg = "invalid value for '" + field + "': " +
+                              val.dump() + ". Allowed: ";
+            bool first = true;
+            for (const auto &v : allowed)
+            {
+                if (!first) msg += ", ";
+                msg += v.dump();
+                first = false;
+            }
+            return nlohmann::json({{"error", msg}}).dump();
+        }
+    }
+    return "";
 }
 
 #endif // TOOL_REGISTRY_H

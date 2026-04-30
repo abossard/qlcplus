@@ -77,22 +77,7 @@ void VCAnimation::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCAnimation::render(QQuickView *view, QQuickItem *parent)
 {
-    if (view == nullptr || parent == nullptr)
-        return;
-
-    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCAnimationItem.qml"));
-
-    if (component->isError())
-    {
-        qDebug() << component->errors();
-        delete component;
-        return;
-    }
-
-    m_item = qobject_cast<QQuickItem*>(component->create());
-
-    m_item->setParentItem(parent);
-    m_item->setProperty("animationObj", QVariant::fromValue(this));
+    initRenderItem(view, parent, "qrc:/VCAnimationItem.qml", "animationObj");
 }
 
 QString VCAnimation::propertiesResource() const

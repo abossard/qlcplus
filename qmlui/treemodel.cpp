@@ -147,7 +147,7 @@ TreeModelItem *TreeModel::addItem(QString label, QVariantList data, QString path
             QQmlEngine::setObjectOwnership(item, QQmlEngine::CppOwnership);
             if (item->setChildrenColumns(m_roles) == true)
             {
-                connect(item->children(), SIGNAL(roleChanged(TreeModelItem*,int,const QVariant)),
+                connect(item->children(), SIGNAL(roleChanged(TreeModelItem*,int,const QVariant&)),
                         this, SLOT(slotRoleChanged(TreeModelItem*,int,const QVariant&)));
                 qDebug() << "Tree" << this << "connected to tree" << item->children();
             }

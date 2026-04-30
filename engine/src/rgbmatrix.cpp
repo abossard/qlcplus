@@ -764,7 +764,7 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             if (m_rotation || m_mirror)
                 applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
                                 m_rotation, m_mirror, m_mirrorBlend);
-            updateMapChannels(m_stepHandler->m_map, m_group, universes);
+            updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
         }
     }
 }
@@ -852,7 +852,7 @@ QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
     return fader;
 }
 
-void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime)
+void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime, uint fadeOutTime)
 {
     fc.setStart(fc.current());
     fc.setTarget(value);
@@ -860,14 +860,21 @@ void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime)
     fc.setReady(false);
     // fade in/out depends on target value
     if (value == 0)
-        fc.setFadeTime(fadeOutSpeed());
+        fc.setFadeTime(fadeOutTime);
     else
         fc.setFadeTime(fadeTime);
 }
 
-void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QList<Universe *> universes)
+void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QList<Universe *> universes, int beatDuration)
 {
     uint fadeTime = (overrideFadeInSpeed() == defaultSpeed()) ? fadeInSpeed() : overrideFadeInSpeed();
+    uint fadeOutTime = (overrideFadeOutSpeed() == defaultSpeed()) ? fadeOutSpeed() : overrideFadeOutSpeed();
+
+    if (tempoType() == Beats)
+    {
+        fadeTime = beatsToTime(fadeTime, beatDuration);
+        fadeOutTime = beatsToTime(fadeOutTime, beatDuration);
+    }
 
     // Create/modify fade channels for ALL heads in the group
     QMapIterator<QLCPoint, GroupHead> it(grp->headsMap());
@@ -986,9 +993,9 @@ void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QL
             const quint32 fixtureID = grpHead.fxi;
             const quint32 channel = channelList.at(i);
             const uchar value = valueList.at(i);
-            fader->updateChannel(doc(), universe, fixtureID, channel, [this, value, fadeTime](FadeChannel &fc)
+            fader->updateChannel(doc(), universe, fixtureID, channel, [this, value, fadeTime, fadeOutTime](FadeChannel &fc)
             {
-                updateFaderValues(fc, value, fadeTime);
+                updateFaderValues(fc, value, fadeTime, fadeOutTime);
             });
         }
     }

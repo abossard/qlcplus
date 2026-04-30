@@ -57,6 +57,8 @@ Column
     {
         ceSelector.selectItem(playbackIndex, cStepsList.model, false)
         cStepsList.currentIndex = playbackIndex
+        if (playbackIndex >= 0)
+            scrollToItem(playbackIndex)
     }
 
     function editStepTime(stepIndex, stepItem, type)

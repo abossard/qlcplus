@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/abossard/Desktop/projects/qlcplus/qmlui/virtualconsole/vcbutton*.cpp)",
+      "Bash(cd /Users/abossard/Desktop/projects/qlcplus/build && cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -5)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -30)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -15)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -20)",
+      "Bash(osascript -e 'tell application \"System Events\" to tell process \"qlcplus-qml\" to set frontmost to true' && sleep 2 && screencapture -x /tmp/fc-app.png)",
+      "Bash(pkill -f qlcplus-qml 2>/dev/null; cmake --build . --target qlcplus-qml -j8 2>&1 | tail -5)",
+      "Bash(pkill -f qlcplus-qml 2>/dev/null; cmake --build . --target qlcplus-qml -j8 2>&1 | tail -15)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -10)",
+      "Bash(grep -i -E \"error|warning\" /tmp/qlcplus-fc2.log | grep -i flow | head -10; pkill -f qlcplus-qml)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -5)",
+      "Bash(grep -c \"Error\" /tmp/qlcplus-fc3.log; grep -i \"flow\" /tmp/qlcplus-fc3.log | grep -i error | head -5; pkill -f qlcplus-qml)",
+      "Bash(grep -c \"Error\" /tmp/qlcplus-fc5.log; grep -i \"flow\" /tmp/qlcplus-fc5.log | grep -i error | head -5; pkill -f qlcplus-qml)",
+      "Bash(pkill -f qlcplus-qml)",
+      "Bash(cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -3 && cmake --build . --target flow_console_test -j8 2>&1 | tail -15)",
+      "Bash(cmake --build . --target flow_console_test -j8 2>&1 | tail -10)",
+      "Bash(cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -3 && cmake --build . --target flow_console_test -j8 2>&1 | tail -20)",
+      "Bash(cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -3 && cmake --build . --target flow_console_test -j8 2>&1 | tail -10)",
+      "Bash(cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -2 && cmake --build . --target flow_console_test -j8 2>&1 | tail -10)",
+      "Bash(osascript -e '\ntell application \"System Events\"\n    tell process \"qlcplus-qml\"\n        set frontmost to true\n        delay 0.5\n        click at {900, 45}\n    end tell\nend tell'\nsleep 2\nscreencapture -x /tmp/fc-reloaded.png)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -8)",
+      "Bash(gh issue:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(cmake .. -Dqmlui=ON -Dmcp_server=ON 2>&1 | tail -3 && cmake --build . --target qlcplus-qml -j8 2>&1 | tail -15)",
+      "Bash(cd /Users/abossard/Desktop/projects/qlcplus/build && cmake --build . --target qlcplus-qml -j8 2>&1 | tail -30)",
+      "Bash(cmake --build . --target qlcplus-qml -j8 2>&1 | tail -40)",
+      "Bash(cd /Users/abossard/Desktop/projects/qlcplus && grep -r \"acceptColors\" resources/rgbscripts/*.js | head -20)",
+      "Bash(cd /Users/abossard/Desktop/projects/qlcplus && grep -r \"acceptColors\" resources/rgbscripts/*.js | grep -v \"= 2\" | grep -v \"algo.acceptColors;\" | grep -v \"algo.acceptColors\\)\")",
+      "Bash(ls /Users/abossard/Desktop/projects/qlcplus/resources/rgbscripts/*.js | head -20)",
+      "Bash(cmake --build *)",
+      "Bash(cmake --build . --target mcp_vc_validation_test -j8 2>&1 | tail -5 && ./mcp/test/mcp_vc_validation_test 2>&1 | tail -20)",
+      "Bash(cmake --build . --target mcp_conversions_test -j8 2>&1 | tail -5 && ./mcp/test/mcp_conversions_test 2>&1 | tail -20)",
+      "Bash(cmake --build . --target mcp_idempotency_test -j8 2>&1 | tail -5 && ./mcp/test/mcp_idempotency_test 2>&1 | tail -20)",
+      "Bash(cmake --build . --target mcp_palette_integration_test -j8 2>&1 | tail -3 && ./mcp/test/mcp_palette_integration_test 2>&1 | tail -5)",
+      "Bash(cmake --build . --target mcp_script_tool_test -j8 2>&1 | tail -3 && ./mcp/test/mcp_script_tool_test 2>&1 | tail -5)",
+      "Bash(cmake --build . --target mcp_vc_query_filter_test -j8 2>&1 | tail -3 && ./mcp/test/mcp_vc_query_filter_test 2>&1 | tail -5)",
+      "Bash(cmake --build . --target mcp_vc_validation_test mcp_conversions_test mcp_idempotency_test mcp_palette_integration_test mcp_script_tool_test mcp_vc_query_filter_test -j8 2>&1 | grep -E \"error|Built target\" | tail -10 && echo \"---RUNNING---\" && ./mcp/test/mcp_vc_validation_test 2>&1 | tail -3 && ./mcp/test/mcp_conversions_test 2>&1 | tail -3 && ./mcp/test/mcp_idempotency_test 2>&1 | tail -3 && ./mcp/test/mcp_palette_integration_test 2>&1 | tail -3 && ./mcp/test/mcp_script_tool_test 2>&1 | tail -3 && ./mcp/test/mcp_vc_query_filter_test 2>&1 | tail -3)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "qlcplus"
+  ]
+}

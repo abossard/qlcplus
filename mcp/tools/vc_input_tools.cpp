@@ -61,14 +61,12 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 {"idleChannel", {{"type", "integer"}, {"description", "MIDI channel for idle state (from profile's MIDI channel table)"}}},
                 {"activeChannel", {{"type", "integer"}, {"description", "MIDI channel for active state (from profile's MIDI channel table)"}}},
                 {"monitorChannel", {{"type", "integer"}, {"description", "MIDI channel for monitor state (from profile's MIDI channel table)"}}}
-            }}, {"required", {"widgetID", "inputUniverse", "inputChannel"}}}}}},
-            {"mode", {{"type", "string"}, {"enum", {"replace", "add"}},
-                {"description", "replace (default): clear existing inputs first. add: append without clearing."}}}
+            }}, {"required", {"widgetID", "inputUniverse", "inputChannel"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
-            auto err = validateFields(args, {"items", "mode"});
+            auto err = validateFields(args, {"items"});
             if (!err.empty()) return err;
             Json results = Json::array();
             for (auto &item : args.at("items"))
@@ -139,7 +137,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         std::nullopt,
         std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. "
                      "Optionally set LED feedback in the same call (all 6 feedback fields required together). "
-                     "Feedback is preserved across remaps if not explicitly supplied. Batch."),
+                     "Feedback is preserved across remaps if not explicitly supplied. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -215,7 +214,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         std::string("Set LED feedback colors and animation mode per widget input source. "
                      "Use sourceName to target a specific source (default 'default'). "
                      "Use integer idleChannel/activeChannel/monitorChannel (from query_feedback_profile) "
-                     "or legacy string idleMode/activeMode/monitorMode. Batch."),
+                     "or legacy string idleMode/activeMode/monitorMode. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -250,7 +250,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             });
         },
         std::nullopt,
-        std::string("Set keyboard shortcuts on Virtual Console widgets. Batch."),
+        std::string("Set keyboard shortcuts on Virtual Console widgets. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

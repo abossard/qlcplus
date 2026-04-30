@@ -45,6 +45,7 @@ class ImportManager;
 class NetworkManager;
 class VideoProvider;
 class FixtureEditor;
+class FlowConsole;
 class Tardis;
 class QMouseEvent;
 
@@ -244,6 +245,7 @@ private:
     NetworkManager *m_networkManager;
     UiManager *m_uiManager;
     Tardis *m_tardis;
+    FlowConsole *m_flowConsole;
 
     /*********************************************************************
      * Doc
@@ -263,6 +265,9 @@ public:
 
     /** Return the network manager instance */
     NetworkManager *networkManager() const;
+
+    /** Return the Flow Console instance */
+    FlowConsole *flowConsole() const;
 
     /** Return if the current Doc instance has been loaded */
     bool docLoaded();

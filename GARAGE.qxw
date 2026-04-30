@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
-  <Version>5.2.2 GIT</Version>
+  <Version>5.2.2 GIT ea095c7</Version>
   <Author>Andre Bossard</Author>
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="99"/>
+   <BeatGenerator BeatType="Internal" BPM="130"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -17,24 +17,32 @@
     </Output>
    </Universe>
    <Universe Name="Universe 2" ID="1">
-    <Input Plugin="OSC" UID="127.0.0.1" Line="1" Profile="MAGIC MAGIC"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Input Plugin="OSC" UID="100.66.193.20" Line="0" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" UID="100.66.193.20" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="0" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
    <Universe Name="Universe 3" ID="2">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
-     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="320" ddpPort="4048" ddpTransmitMode="Partial"/>
+    <Input Plugin="MIDI" UID="Launchpad Mini MK3" Line="2" Profile="Novation Launchpad Mini MK3">
+     <PluginParameters initmessage="Novation Launchpad Mini MK3 Developer Mode" midichannel="16"/>
+    </Input>
+    <Output Plugin="MIDI" UID="Launchpad Mini MK3" Line="2">
+     <PluginParameters initmessage="Novation Launchpad Mini MK3 Developer Mode" midichannel="16"/>
     </Output>
+    <Feedback Plugin="MIDI" UID="Launchpad Mini MK3" Line="2">
+     <PluginParameters initmessage="Novation Launchpad Mini MK3 Developer Mode" midichannel="16"/>
+    </Feedback>
    </Universe>
    <Universe Name="Universe 4" ID="3">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Output Plugin="DDP" UID="100.66.193.20" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="640" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
-    <Feedback Plugin="MIDI" UID="None" Line="2"/>
+    <Feedback Plugin="MIDI" UID="Launchpad Mini MK3" Line="2">
+     <PluginParameters initmessage="Novation Launchpad Mini MK3 Developer Mode" midichannel="16"/>
+    </Feedback>
    </Universe>
    <Universe Name="Universe 5" ID="4">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Output Plugin="DDP" UID="100.66.193.20" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="960" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
@@ -1618,9 +1626,8 @@
   </Function>
   <Function ID="112" Type="Scene" Name="DJX Color White Hit" Path="DJ Expression/Color/Utility">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="0"/>
-   <FixtureVal ID="7"/>
-   <Palette ID="34"/>
+   <FixtureVal ID="0">15,255,16,255,17,255,18,255</FixtureVal>
+   <FixtureVal ID="7">7,255,8,255,9,255,10,255,11,255,12,255,13,255,14,255,15,255,16,255,17,255,18,255,19,255,20,255,21,255,22,255,23,255,24,255,25,255,26,255,27,255,28,255,29,255,30,255,31,255,32,255,33,255,34,255,35,255,36,255,37,255,38,255,39,255,40,255,41,255,42,255,43,255,44,255,45,255,46,255</FixtureVal>
   </Function>
   <Function ID="113" Type="Scene" Name="DJX Blackout Color" Path="DJ Expression/Color">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -1634,7 +1641,7 @@
   </Function>
   <Function ID="115" Type="Scene" Name="DJX Dimmer Low" Path="DJ Expression/Dimmer">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="7">0,0,1,0,5,0</FixtureVal>
+   <FixtureVal ID="7">5,80</FixtureVal>
    <FixtureVal ID="0">13,80</FixtureVal>
   </Function>
   <Function ID="116" Type="Scene" Name="DJX Dimmer Medium" Path="DJ Expression/Dimmer">
@@ -2417,11 +2424,464 @@
    <Step Number="8" FadeIn="0" Hold="100" FadeOut="50">145</Step>
    <Step Number="9" FadeIn="0" Hold="100" FadeOut="50">146</Step>
   </Function>
-  <Function ID="220" Type="Scene" Name="DJX Move Freeze" Path="DJ Expression/Movement">
+  <Function ID="221" Type="Scene" Name="DJX Walk JG Forest Step 1" Path="DJ Expression/BB Walks/Steps">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,96,9,48,10,0,11,32,12,204,13,64,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="222" Type="Scene" Name="DJX Walk JG Forest Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,96,13,48,14,0,15,32,16,204,17,64,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="223" Type="Scene" Name="DJX Walk JG Forest Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,96,17,48,18,0,19,32,20,204,21,64,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="224" Type="Scene" Name="DJX Walk JG Forest Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,96,21,48,22,0,23,32,24,204,25,64,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="225" Type="Scene" Name="DJX Walk JG Forest Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,96,25,48,26,0,27,32,28,204,29,64,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="226" Type="Scene" Name="DJX Walk JG Forest Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,96,29,48,30,0,31,32,32,204,33,64,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="227" Type="Scene" Name="DJX Walk JG Forest Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,96,33,48,34,0,35,32,36,204,37,64,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="228" Type="Scene" Name="DJX Walk JG Forest Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,96,37,48,38,0,39,32,40,204,41,64,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="229" Type="Scene" Name="DJX Walk JG Forest Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,96,41,48,42,0,43,32,44,204,45,64,46,0</FixtureVal>
+  </Function>
+  <Function ID="230" Type="Scene" Name="DJX Walk JG Forest Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,32,8,204,9,64,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,96,45,48,46,0</FixtureVal>
+  </Function>
+  <Function ID="231" Type="Scene" Name="DJX Walk JG Sunfall Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,204,8,128,9,0,10,0,11,0,12,64,13,64,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="232" Type="Scene" Name="DJX Walk JG Sunfall Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,204,12,128,13,0,14,0,15,0,16,64,17,64,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="233" Type="Scene" Name="DJX Walk JG Sunfall Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,204,16,128,17,0,18,0,19,0,20,64,21,64,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="234" Type="Scene" Name="DJX Walk JG Sunfall Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,204,20,128,21,0,22,0,23,0,24,64,25,64,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="235" Type="Scene" Name="DJX Walk JG Sunfall Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,204,24,128,25,0,26,0,27,0,28,64,29,64,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="236" Type="Scene" Name="DJX Walk JG Sunfall Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,204,28,128,29,0,30,0,31,0,32,64,33,64,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="237" Type="Scene" Name="DJX Walk JG Sunfall Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,204,32,128,33,0,34,0,35,0,36,64,37,64,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="238" Type="Scene" Name="DJX Walk JG Sunfall Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,204,36,128,37,0,38,0,39,0,40,64,41,64,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="239" Type="Scene" Name="DJX Walk JG Sunfall Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,204,40,128,41,0,42,0,43,0,44,64,45,64,46,0</FixtureVal>
+  </Function>
+  <Function ID="240" Type="Scene" Name="DJX Walk JG Sunfall Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,64,9,64,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,204,44,128,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="241" Type="Scene" Name="DJX Walk OC Tide Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,128,10,0,11,0,12,128,13,128,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="242" Type="Scene" Name="DJX Walk OC Tide Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,128,14,0,15,0,16,128,17,128,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="243" Type="Scene" Name="DJX Walk OC Tide Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,128,18,0,19,0,20,128,21,128,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="244" Type="Scene" Name="DJX Walk OC Tide Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,128,22,0,23,0,24,128,25,128,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="245" Type="Scene" Name="DJX Walk OC Tide Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,128,26,0,27,0,28,128,29,128,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="246" Type="Scene" Name="DJX Walk OC Tide Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,128,30,0,31,0,32,128,33,128,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="247" Type="Scene" Name="DJX Walk OC Tide Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,128,34,0,35,0,36,128,37,128,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="248" Type="Scene" Name="DJX Walk OC Tide Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,128,38,0,39,0,40,128,41,128,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="249" Type="Scene" Name="DJX Walk OC Tide Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,128,42,0,43,0,44,128,45,128,46,0</FixtureVal>
+  </Function>
+  <Function ID="250" Type="Scene" Name="DJX Walk OC Tide Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,128,9,128,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,128,46,0</FixtureVal>
+  </Function>
+  <Function ID="251" Type="Scene" Name="DJX Walk OC Reef Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,48,8,48,9,96,10,0,11,64,12,192,13,160,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="252" Type="Scene" Name="DJX Walk OC Reef Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,48,12,48,13,96,14,0,15,64,16,192,17,160,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="253" Type="Scene" Name="DJX Walk OC Reef Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,48,16,48,17,96,18,0,19,64,20,192,21,160,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="254" Type="Scene" Name="DJX Walk OC Reef Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,48,20,48,21,96,22,0,23,64,24,192,25,160,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="255" Type="Scene" Name="DJX Walk OC Reef Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,48,24,48,25,96,26,0,27,64,28,192,29,160,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="256" Type="Scene" Name="DJX Walk OC Reef Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,48,28,48,29,96,30,0,31,64,32,192,33,160,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="257" Type="Scene" Name="DJX Walk OC Reef Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,48,32,48,33,96,34,0,35,64,36,192,37,160,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="258" Type="Scene" Name="DJX Walk OC Reef Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,48,36,48,37,96,38,0,39,64,40,192,41,160,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="259" Type="Scene" Name="DJX Walk OC Reef Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,48,40,48,41,96,42,0,43,64,44,192,45,160,46,0</FixtureVal>
+  </Function>
+  <Function ID="260" Type="Scene" Name="DJX Walk OC Reef Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,64,8,192,9,160,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,48,44,48,45,96,46,0</FixtureVal>
+  </Function>
+  <Function ID="261" Type="Scene" Name="DJX Walk FR Ember Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,204,8,0,9,0,10,0,11,255,12,64,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="262" Type="Scene" Name="DJX Walk FR Ember Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,204,12,0,13,0,14,0,15,255,16,64,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="263" Type="Scene" Name="DJX Walk FR Ember Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,204,16,0,17,0,18,0,19,255,20,64,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="264" Type="Scene" Name="DJX Walk FR Ember Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,204,20,0,21,0,22,0,23,255,24,64,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="265" Type="Scene" Name="DJX Walk FR Ember Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,204,24,0,25,0,26,0,27,255,28,64,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="266" Type="Scene" Name="DJX Walk FR Ember Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,204,28,0,29,0,30,0,31,255,32,64,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="267" Type="Scene" Name="DJX Walk FR Ember Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,204,32,0,33,0,34,0,35,255,36,64,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="268" Type="Scene" Name="DJX Walk FR Ember Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,204,36,0,37,0,38,0,39,255,40,64,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="269" Type="Scene" Name="DJX Walk FR Ember Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,204,40,0,41,0,42,0,43,255,44,64,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="270" Type="Scene" Name="DJX Walk FR Ember Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,255,8,64,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,204,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="271" Type="Scene" Name="DJX Walk FR Blaze Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,204,8,102,9,0,10,0,11,255,12,204,13,64,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="272" Type="Scene" Name="DJX Walk FR Blaze Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,204,12,102,13,0,14,0,15,255,16,204,17,64,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="273" Type="Scene" Name="DJX Walk FR Blaze Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,204,16,102,17,0,18,0,19,255,20,204,21,64,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="274" Type="Scene" Name="DJX Walk FR Blaze Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,204,20,102,21,0,22,0,23,255,24,204,25,64,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="275" Type="Scene" Name="DJX Walk FR Blaze Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,204,24,102,25,0,26,0,27,255,28,204,29,64,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="276" Type="Scene" Name="DJX Walk FR Blaze Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,204,28,102,29,0,30,0,31,255,32,204,33,64,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="277" Type="Scene" Name="DJX Walk FR Blaze Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,204,32,102,33,0,34,0,35,255,36,204,37,64,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="278" Type="Scene" Name="DJX Walk FR Blaze Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,204,36,102,37,0,38,0,39,255,40,204,41,64,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="279" Type="Scene" Name="DJX Walk FR Blaze Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,204,40,102,41,0,42,0,43,255,44,204,45,64,46,0</FixtureVal>
+  </Function>
+  <Function ID="280" Type="Scene" Name="DJX Walk FR Blaze Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,255,8,204,9,64,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,204,44,102,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="281" Type="Scene" Name="DJX Walk NE Pulse Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,255,8,0,9,204,10,0,11,0,12,255,13,204,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="282" Type="Scene" Name="DJX Walk NE Pulse Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,255,12,0,13,204,14,0,15,0,16,255,17,204,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="283" Type="Scene" Name="DJX Walk NE Pulse Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,255,16,0,17,204,18,0,19,0,20,255,21,204,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="284" Type="Scene" Name="DJX Walk NE Pulse Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,255,20,0,21,204,22,0,23,0,24,255,25,204,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="285" Type="Scene" Name="DJX Walk NE Pulse Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,255,24,0,25,204,26,0,27,0,28,255,29,204,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="286" Type="Scene" Name="DJX Walk NE Pulse Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,255,28,0,29,204,30,0,31,0,32,255,33,204,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="287" Type="Scene" Name="DJX Walk NE Pulse Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,255,32,0,33,204,34,0,35,0,36,255,37,204,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="288" Type="Scene" Name="DJX Walk NE Pulse Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,255,36,0,37,204,38,0,39,0,40,255,41,204,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="289" Type="Scene" Name="DJX Walk NE Pulse Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,255,40,0,41,204,42,0,43,0,44,255,45,204,46,0</FixtureVal>
+  </Function>
+  <Function ID="290" Type="Scene" Name="DJX Walk NE Pulse Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,255,9,204,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,255,44,0,45,204,46,0</FixtureVal>
+  </Function>
+  <Function ID="291" Type="Scene" Name="DJX Walk NE Acid Step 1" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,68,8,0,9,255,10,0,11,128,12,255,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="292" Type="Scene" Name="DJX Walk NE Acid Step 2" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,68,12,0,13,255,14,0,15,128,16,255,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="293" Type="Scene" Name="DJX Walk NE Acid Step 3" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,68,16,0,17,255,18,0,19,128,20,255,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="294" Type="Scene" Name="DJX Walk NE Acid Step 4" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,68,20,0,21,255,22,0,23,128,24,255,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="295" Type="Scene" Name="DJX Walk NE Acid Step 5" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,68,24,0,25,255,26,0,27,128,28,255,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="296" Type="Scene" Name="DJX Walk NE Acid Step 6" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,68,28,0,29,255,30,0,31,128,32,255,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="297" Type="Scene" Name="DJX Walk NE Acid Step 7" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,68,32,0,33,255,34,0,35,128,36,255,37,0,38,0,39,0,40,0,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="298" Type="Scene" Name="DJX Walk NE Acid Step 8" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,68,36,0,37,255,38,0,39,128,40,255,41,0,42,0,43,0,44,0,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="299" Type="Scene" Name="DJX Walk NE Acid Step 9" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,0,8,0,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,68,40,0,41,255,42,0,43,128,44,255,45,0,46,0</FixtureVal>
+  </Function>
+  <Function ID="300" Type="Scene" Name="DJX Walk NE Acid Step 10" Path="DJ Expression/BB Walks/Steps">
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <FixtureVal ID="7">7,128,8,255,9,0,10,0,11,0,12,0,13,0,14,0,15,0,16,0,17,0,18,0,19,0,20,0,21,0,22,0,23,0,24,0,25,0,26,0,27,0,28,0,29,0,30,0,31,0,32,0,33,0,34,0,35,0,36,0,37,0,38,0,39,0,40,0,41,0,42,0,43,68,44,0,45,255,46,0</FixtureVal>
+  </Function>
+  <Function ID="301" Type="Chaser" Name="DJX Walk JG Forest" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">221</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">222</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">223</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">224</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">225</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">226</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">227</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">228</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">229</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">230</Step>
+  </Function>
+  <Function ID="302" Type="Chaser" Name="DJX Walk JG Sunfall" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">231</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">232</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">233</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">234</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">235</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">236</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">237</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">238</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">239</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">240</Step>
+  </Function>
+  <Function ID="303" Type="Chaser" Name="DJX Walk OC Tide" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">241</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">242</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">243</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">244</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">245</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">246</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">247</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">248</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">249</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">250</Step>
+  </Function>
+  <Function ID="304" Type="Chaser" Name="DJX Walk OC Reef" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">251</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">252</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">253</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">254</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">255</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">256</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">257</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">258</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">259</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">260</Step>
+  </Function>
+  <Function ID="305" Type="Chaser" Name="DJX Walk FR Ember" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">261</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">262</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">263</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">264</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">265</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">266</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">267</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">268</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">269</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">270</Step>
+  </Function>
+  <Function ID="306" Type="Chaser" Name="DJX Walk FR Blaze" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">271</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">272</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">273</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">274</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">275</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">276</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">277</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">278</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">279</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">280</Step>
+  </Function>
+  <Function ID="307" Type="Chaser" Name="DJX Walk NE Pulse" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">281</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">282</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">283</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">284</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">285</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">286</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">287</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">288</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">289</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">290</Step>
+  </Function>
+  <Function ID="308" Type="Chaser" Name="DJX Walk NE Acid" Path="DJ Expression/BB Walks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <SpeedModes FadeIn="PerStep" FadeOut="PerStep" Duration="PerStep"/>
+   <Step Number="0" FadeIn="500" Hold="1000" FadeOut="500">291</Step>
+   <Step Number="1" FadeIn="500" Hold="1000" FadeOut="500">292</Step>
+   <Step Number="2" FadeIn="500" Hold="1000" FadeOut="500">293</Step>
+   <Step Number="3" FadeIn="500" Hold="1000" FadeOut="500">294</Step>
+   <Step Number="4" FadeIn="500" Hold="1000" FadeOut="500">295</Step>
+   <Step Number="5" FadeIn="500" Hold="1000" FadeOut="500">296</Step>
+   <Step Number="6" FadeIn="500" Hold="1000" FadeOut="500">297</Step>
+   <Step Number="7" FadeIn="500" Hold="1000" FadeOut="500">298</Step>
+   <Step Number="8" FadeIn="500" Hold="1000" FadeOut="500">299</Step>
+   <Step Number="9" FadeIn="500" Hold="1000" FadeOut="500">300</Step>
   </Function>
   <Monitor DisplayMode="0" ShowLabels="0">
-   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    <ChannelStyle>0</ChannelStyle>
    <ValueStyle>0</ValueStyle>
    <Grid Width="5" Height="3" Depth="5" Units="0" POV="2"/>
@@ -2439,7 +2899,7 @@
  <VirtualConsole>
   <Frame Caption="Page 1" ID="3">
    <Appearance>
-    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    </Appearance>
    <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1980"/>
    <AllowResize>False</AllowResize>
@@ -2447,186 +2907,580 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
-   <Frame Caption="Frame 5" ID="4">
-    <WindowState Visible="True" X="30" Y="15" Width="944" Height="213"/>
+   <Frame Caption="DJ Launchpad" ID="0">
+    <WindowState Visible="True" X="15" Y="15" Width="570" Height="660"/>
     <AllowResize>True</AllowResize>
     <ShowHeader>True</ShowHeader>
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Slider Caption="Slider 7" ID="6" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="106" Y="60" Width="76" Height="203"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255">
-      <Channel Fixture="7">5</Channel>
-     </Level>
-    </Slider>
-    <Button Caption="Color Chase" ID="20">
-     <WindowState Visible="True" X="563" Y="60" Width="120" Height="60"/>
-     <Function ID="22"/>
-     <Action>Toggle</Action>
-    </Button>
-   </Frame>
-   <SoloFrame Caption="MOVE" ID="2">
-    <WindowState Visible="True" X="30" Y="319" Width="990" Height="152"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="SEEK" ID="3">
-     <WindowState Visible="True" X="15" Y="45" Width="167" Height="76"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="9"/>
-     <Action>Toggle</Action>
-    </Button>
-   </SoloFrame>
-   <AudioTriggers BarsNumber="12" Caption="Audio Trigger 42" ID="41">
-    <WindowState Visible="True" X="15" Y="487" Width="868" Height="304"/>
-    <Appearance>
-     <Font>Roboto Condensed,25,-1,5,700,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
-    </Appearance>
-   </AudioTriggers>
-   <SoloFrame Caption="Colors" ID="7">
-    <WindowState Visible="True" X="30" Y="240" Width="930" Height="75"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="Orange" ID="14">
-     <WindowState Visible="True" X="450" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <BackgroundColor>4291585536</BackgroundColor>
-     </Appearance>
-     <Function ID="16"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Pink" ID="15">
-     <WindowState Visible="True" X="525" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <BackgroundColor>4291572582</BackgroundColor>
-     </Appearance>
-     <Function ID="17"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Purple" ID="16">
-     <WindowState Visible="True" X="600" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <BackgroundColor>4284874956</BackgroundColor>
-     </Appearance>
-     <Function ID="18"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Warm W" ID="17">
-     <WindowState Visible="True" X="675" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <BackgroundColor>4291585587</BackgroundColor>
-     </Appearance>
-     <Function ID="19"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Cool W" ID="18">
-     <WindowState Visible="True" X="750" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4278190080</ForegroundColor>
-      <BackgroundColor>4288256460</BackgroundColor>
-     </Appearance>
-     <Function ID="20"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="White" ID="19">
-     <WindowState Visible="True" X="810" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4278190080</ForegroundColor>
-      <BackgroundColor>4291611852</BackgroundColor>
-     </Appearance>
-     <Function ID="21"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Magenta" ID="12">
-     <WindowState Visible="True" X="300" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <BackgroundColor>4291559628</BackgroundColor>
-     </Appearance>
-     <Function ID="14"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Cyan" ID="11">
-     <WindowState Visible="True" X="225" Y="0" Width="75" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4278190080</ForegroundColor>
-      <BackgroundColor>4278242508</BackgroundColor>
-     </Appearance>
-     <Function ID="13"/>
-     <Action>Toggle</Action>
-    </Button>
-    <SoloFrame Caption="AUDIO" ID="0">
-     <WindowState Visible="True" X="30" Y="533" Width="944" Height="365"/>
+    <SoloFrame Caption="PHASE" ID="1">
+     <WindowState Visible="True" X="0" Y="60" Width="255" Height="60"/>
      <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
+     <ShowHeader>False</ShowHeader>
      <ShowEnableButton>True</ShowEnableButton>
      <Collapsed>False</Collapsed>
      <Disabled>False</Disabled>
-     <AudioTriggers BarsNumber="12" Caption="Audio Trigger 2" ID="1">
-      <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1090"/>
+     <Button Caption="DROP" ID="11">
+      <WindowState Visible="True" X="195" Y="0" Width="60" Height="60"/>
       <Appearance>
-       <Font>Roboto Condensed,25,-1,5,700,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+       <BackgroundColor>4283760657</BackgroundColor>
       </Appearance>
-      <Bar Type="3" MinThreshold="51" MaxThreshold="204" Divisor="1" Index="0"/>
-     </AudioTriggers>
-     <Slider Caption="Slider 6" ID="5" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="837" Y="121" Width="76" Height="203"/>
+      <Function ID="136"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="212" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="2" MonitorParams="2"/>
+     </Button>
+     <Button Caption="BUILD" ID="10">
+      <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4283773696</BackgroundColor>
+      </Appearance>
+      <Function ID="135"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="211" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="CHILL" ID="8">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279907072</BackgroundColor>
+      </Appearance>
+      <Function ID="133"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="209" LowerValue="46" UpperValue="42" MonitorValue="42" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FREEZE" ID="9">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203204</BackgroundColor>
+      </Appearance>
+      <Function ID="134"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="210" LowerValue="78" UpperValue="74" MonitorValue="74" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+    </SoloFrame>
+    <SoloFrame Caption="MOOD" ID="2">
+     <WindowState Visible="True" X="0" Y="120" Width="255" Height="255"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="NE UV" ID="97">
+      <WindowState Visible="True" X="120" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279304260</BackgroundColor>
+      </Appearance>
+      <Function ID="110"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="171" LowerValue="102" UpperValue="98" MonitorValue="98" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Acid" ID="98">
+      <WindowState Visible="True" X="195" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4280435712</BackgroundColor>
+      </Appearance>
+      <Function ID="111"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="172" LowerValue="38" UpperValue="34" MonitorValue="34" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Amber" ID="41">
+      <WindowState Visible="True" X="60" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4283769344</BackgroundColor>
+      </Appearance>
+      <Function ID="105"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="180" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Orange" ID="57">
+      <WindowState Visible="True" X="120" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4283769344</BackgroundColor>
+      </Appearance>
+      <Function ID="106"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="181" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Heat" ID="94">
+      <WindowState Visible="True" X="195" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4284892160</BackgroundColor>
+      </Appearance>
+      <Function ID="107"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="182" LowerValue="30" UpperValue="26" MonitorValue="26" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Cyan" ID="96">
+      <WindowState Visible="True" X="60" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203204</BackgroundColor>
+      </Appearance>
+      <Function ID="109"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="170" LowerValue="78" UpperValue="74" MonitorValue="74" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Magenta" ID="95">
+      <WindowState Visible="True" X="0" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4282646562</BackgroundColor>
+      </Appearance>
+      <Function ID="108"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="169" LowerValue="110" UpperValue="106" MonitorValue="106" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Red" ID="20">
+      <WindowState Visible="True" X="0" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4282646528</BackgroundColor>
+      </Appearance>
+      <Function ID="104"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="179" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Seafoam" ID="19">
+      <WindowState Visible="True" X="195" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279911475</BackgroundColor>
+      </Appearance>
+      <Function ID="103"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="192" LowerValue="54" UpperValue="50" MonitorValue="50" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Storm" ID="18">
+      <WindowState Visible="True" X="120" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279900723</BackgroundColor>
+      </Appearance>
+      <Function ID="102"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="191" LowerValue="94" UpperValue="90" MonitorValue="90" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Aqua" ID="17">
+      <WindowState Visible="True" X="60" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203204</BackgroundColor>
+      </Appearance>
+      <Function ID="101"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="190" LowerValue="78" UpperValue="74" MonitorValue="74" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC DBlue" ID="16">
+      <WindowState Visible="True" X="0" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278190131</BackgroundColor>
+      </Appearance>
+      <Function ID="100"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="189" LowerValue="86" UpperValue="82" MonitorValue="82" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Canopy" ID="15">
+      <WindowState Visible="True" X="195" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279915776</BackgroundColor>
+      </Appearance>
+      <Function ID="99"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="202" LowerValue="46" UpperValue="42" MonitorValue="42" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG DGreen" ID="12">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203136</BackgroundColor>
+      </Appearance>
+      <Function ID="96"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="199" LowerValue="38" UpperValue="34" MonitorValue="34" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Amber" ID="14">
+      <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4284892160</BackgroundColor>
+      </Appearance>
+      <Function ID="98"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="201" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Teal" ID="13">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278204484</BackgroundColor>
+      </Appearance>
+      <Function ID="97"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="200" LowerValue="62" UpperValue="58" MonitorValue="58" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+    </SoloFrame>
+    <SoloFrame Caption="WALK" ID="3">
+     <WindowState Visible="True" X="315" Y="120" Width="120" Height="255"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="JG Sunfall" ID="100">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4284892160</BackgroundColor>
+      </Appearance>
+      <Function ID="302"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="205" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Forest" ID="99">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203136</BackgroundColor>
+      </Appearance>
+      <Function ID="301"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="204" LowerValue="46" UpperValue="42" MonitorValue="42" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Tide" ID="101">
+      <WindowState Visible="True" X="0" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278190148</BackgroundColor>
+      </Appearance>
+      <Function ID="303"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="194" LowerValue="86" UpperValue="82" MonitorValue="82" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Reef" ID="102">
+      <WindowState Visible="True" X="60" Y="60" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4279911475</BackgroundColor>
+      </Appearance>
+      <Function ID="304"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="195" LowerValue="54" UpperValue="50" MonitorValue="50" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Ember" ID="103">
+      <WindowState Visible="True" X="0" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4282646528</BackgroundColor>
+      </Appearance>
+      <Function ID="305"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="184" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Blaze" ID="104">
+      <WindowState Visible="True" X="60" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4284892160</BackgroundColor>
+      </Appearance>
+      <Function ID="306"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="185" LowerValue="30" UpperValue="26" MonitorValue="26" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Pulse" ID="105">
+      <WindowState Visible="True" X="0" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4282646579</BackgroundColor>
+      </Appearance>
+      <Function ID="307"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="174" LowerValue="110" UpperValue="106" MonitorValue="106" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Acid" ID="106">
+      <WindowState Visible="True" X="60" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4280435712</BackgroundColor>
+      </Appearance>
+      <Function ID="308"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="175" LowerValue="38" UpperValue="34" MonitorValue="34" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+    </SoloFrame>
+    <SoloFrame Caption="DIMMER" ID="4">
+     <WindowState Visible="True" X="510" Y="120" Width="60" Height="255"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="DIM OFF" ID="107">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4280427042</BackgroundColor>
+      </Appearance>
+      <Function ID="114"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="79" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="DIM LOW" ID="108">
+      <WindowState Visible="True" X="0" Y="60" Width="60" Height="60"/>
       <Appearance>
        <BackgroundColor>4282664004</BackgroundColor>
       </Appearance>
-      <SliderMode ValueDisplayStyle="Percentage">GrandMaster</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="255"/>
-     </Slider>
+      <Function ID="115"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="69" LowerValue="2" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="DIM MED" ID="109">
+      <WindowState Visible="True" X="0" Y="120" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4287137928</BackgroundColor>
+      </Appearance>
+      <Function ID="116"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="59" LowerValue="2" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="DIM FULL" ID="110">
+      <WindowState Visible="True" X="0" Y="195" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4291611852</BackgroundColor>
+      </Appearance>
+      <Function ID="117"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="49" LowerValue="2" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
     </SoloFrame>
-    <Button Caption="Green" ID="9">
-     <WindowState Visible="True" X="75" Y="0" Width="75" Height="60"/>
+    <SoloFrame Caption="MOVEMENT" ID="5">
+     <WindowState Visible="True" X="0" Y="375" Width="315" Height="60"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="Fast Sweep" ID="114">
+      <WindowState Visible="True" X="195" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278211942</BackgroundColor>
+      </Appearance>
+      <Function ID="132"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="162" LowerValue="94" UpperValue="90" MonitorValue="90" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="Freeze" ID="115">
+      <WindowState Visible="True" X="255" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4280427076</BackgroundColor>
+      </Appearance>
+      <Function ID="220"/>
+      <Action>StopAll</Action>
+      <Input ID="0" Universe="2" Channel="163" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="Slow Circle" ID="111">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203204</BackgroundColor>
+      </Appearance>
+      <Function ID="129"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="159" LowerValue="86" UpperValue="82" MonitorValue="82" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="Slow Sweep" ID="112">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203204</BackgroundColor>
+      </Appearance>
+      <Function ID="130"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="160" LowerValue="86" UpperValue="82" MonitorValue="82" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="Fast Circle" ID="113">
+      <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278211942</BackgroundColor>
+      </Appearance>
+      <Function ID="131"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="161" LowerValue="94" UpperValue="90" MonitorValue="90" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+    </SoloFrame>
+    <SoloFrame Caption="STROBE" ID="6">
+     <WindowState Visible="True" X="0" Y="435" Width="255" Height="60"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="Strobe Build" ID="116">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4283773696</BackgroundColor>
+      </Appearance>
+      <Function ID="127"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="149" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="2" MonitorParams="2"/>
+     </Button>
+     <Button Caption="Fast Strobe" ID="117">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4289331200</BackgroundColor>
+      </Appearance>
+      <Function ID="128"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="150" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="1" MonitorParams="1"/>
+     </Button>
+     <Button Caption="White Hit" ID="118">
+      <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4294967295</BackgroundColor>
+      </Appearance>
+      <Function ID="118"/>
+      <Action Override="0" ForceLTP="0">Flash</Action>
+      <Input ID="0" Universe="2" Channel="151" LowerValue="2" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="1" MonitorParams="1"/>
+     </Button>
+    </SoloFrame>
+    <SoloFrame Caption="CHASE" ID="7">
+     <WindowState Visible="True" X="0" Y="510" Width="495" Height="60"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="OC Fast" ID="123">
+      <WindowState Visible="True" X="195" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278207624</BackgroundColor>
+      </Appearance>
+      <Function ID="122"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="142" LowerValue="94" UpperValue="90" MonitorValue="90" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Slow" ID="124">
+      <WindowState Visible="True" X="255" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4283760640</BackgroundColor>
+      </Appearance>
+      <Function ID="123"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="143" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="FR Fast" ID="125">
+      <WindowState Visible="True" X="315" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4289344256</BackgroundColor>
+      </Appearance>
+      <Function ID="124"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="144" LowerValue="22" UpperValue="18" MonitorValue="18" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Slow" ID="126">
+      <WindowState Visible="True" X="375" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4281532484</BackgroundColor>
+      </Appearance>
+      <Function ID="125"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="145" LowerValue="102" UpperValue="98" MonitorValue="98" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="NE Fast" ID="127">
+      <WindowState Visible="True" X="435" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4289331370</BackgroundColor>
+      </Appearance>
+      <Function ID="126"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="146" LowerValue="110" UpperValue="106" MonitorValue="106" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Slow" ID="120">
+      <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278203136</BackgroundColor>
+      </Appearance>
+      <Function ID="119"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="139" LowerValue="38" UpperValue="34" MonitorValue="34" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="JG Fast" ID="121">
+      <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278211840</BackgroundColor>
+      </Appearance>
+      <Function ID="120"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="140" LowerValue="46" UpperValue="42" MonitorValue="42" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+     <Button Caption="OC Slow" ID="122">
+      <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+      <Appearance>
+       <BackgroundColor>4278190165</BackgroundColor>
+      </Appearance>
+      <Function ID="121"/>
+      <Action>Toggle</Action>
+      <Input ID="0" Universe="2" Channel="141" LowerValue="86" UpperValue="82" MonitorValue="82" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+     </Button>
+    </SoloFrame>
+    <Button Caption="STROBE" ID="133">
+     <WindowState Visible="True" X="315" Y="0" Width="60" Height="60"/>
      <Appearance>
-      <BackgroundColor>4278242304</BackgroundColor>
+      <BackgroundColor>4282664004</BackgroundColor>
      </Appearance>
-     <Function ID="11"/>
+     <Function ID="4294967295"/>
      <Action>Toggle</Action>
     </Button>
-    <Button Caption="Red" ID="8">
-     <WindowState Visible="True" X="0" Y="0" Width="75" Height="60"/>
+    <Button Caption="CHASE" ID="134">
+     <WindowState Visible="True" X="375" Y="0" Width="60" Height="60"/>
      <Appearance>
-      <BackgroundColor>4291559424</BackgroundColor>
+      <BackgroundColor>4282664004</BackgroundColor>
      </Appearance>
-     <Function ID="10"/>
+     <Function ID="4294967295"/>
      <Action>Toggle</Action>
     </Button>
-    <Button Caption="Blue" ID="10">
-     <WindowState Visible="True" X="150" Y="0" Width="75" Height="60"/>
+    <Button Caption="BLACKOUT" ID="135">
+     <WindowState Visible="True" X="435" Y="0" Width="60" Height="60"/>
      <Appearance>
-      <BackgroundColor>4278190284</BackgroundColor>
+      <BackgroundColor>4282664004</BackgroundColor>
      </Appearance>
-     <Function ID="12"/>
+     <Function ID="4294967295"/>
+     <Action>Blackout</Action>
+     <Input ID="0" Universe="2" Channel="98" LowerValue="2" UpperValue="6" MonitorValue="6" LowerParams="0" UpperParams="0" MonitorParams="0"/>
+    </Button>
+    <Button Caption="⊘ STOP" ID="136">
+     <WindowState Visible="True" X="510" Y="0" Width="60" Height="60"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>StopAll</Action>
+     <Input ID="0" Universe="2" Channel="216" LowerValue="14" UpperValue="10" MonitorValue="10" LowerParams="0" UpperParams="1" MonitorParams="1"/>
+    </Button>
+    <Button Caption="PHASE" ID="128">
+     <WindowState Visible="True" X="0" Y="0" Width="60" Height="60"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
      <Action>Toggle</Action>
     </Button>
-    <Button Caption="Yellow" ID="13">
-     <WindowState Visible="True" X="375" Y="0" Width="75" Height="60"/>
+    <Button Caption="MOOD" ID="129">
+     <WindowState Visible="True" X="60" Y="0" Width="60" Height="60"/>
      <Appearance>
-      <ForegroundColor>4278190080</ForegroundColor>
-      <BackgroundColor>4291611648</BackgroundColor>
+      <BackgroundColor>4282664004</BackgroundColor>
      </Appearance>
-     <Function ID="15"/>
+     <Function ID="4294967295"/>
      <Action>Toggle</Action>
     </Button>
-   </SoloFrame>
+    <Button Caption="WALK" ID="130">
+     <WindowState Visible="True" X="120" Y="0" Width="60" Height="60"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="DIM" ID="131">
+     <WindowState Visible="True" X="195" Y="0" Width="60" Height="60"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="MOVE" ID="132">
+     <WindowState Visible="True" X="255" Y="0" Width="60" Height="60"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>Toggle</Action>
+    </Button>
+   </Frame>
   </Frame>
   <Frame Caption="Page 2" ID="1">
    <Appearance>
-    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    </Appearance>
    <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
    <AllowResize>False</AllowResize>
@@ -2645,6 +3499,57 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
+    <Frame Caption="MASTER" ID="22">
+     <Appearance>
+      <ForegroundColor>4289374890</ForegroundColor>
+      <BackgroundColor>4279308561</BackgroundColor>
+     </Appearance>
+     <WindowState Visible="True" X="15" Y="630" Width="915" Height="270"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>True</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Slider Caption="Dimmer" ID="38" WidgetStyle="Slider" InvertedAppearance="false">
+      <WindowState Visible="True" X="15" Y="60" Width="60" Height="195"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
+      <Level LowLimit="0" HighLimit="255" Value="255">
+       <Channel Fixture="7">5</Channel>
+      </Level>
+     </Slider>
+     <Button Caption="⊘ RESET&#10;ALL" ID="50">
+      <WindowState Visible="True" X="15" Y="270" Width="75" Height="75"/>
+      <Appearance>
+       <ForegroundColor>4294919236</ForegroundColor>
+       <BackgroundColor>4281532416</BackgroundColor>
+      </Appearance>
+      <Function ID="75"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Slider Caption="Pan" ID="39" WidgetStyle="Slider" InvertedAppearance="false">
+      <WindowState Visible="True" X="90" Y="60" Width="60" Height="195"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
+      <Level LowLimit="0" HighLimit="255" Value="255">
+       <Channel Fixture="7">0</Channel>
+      </Level>
+     </Slider>
+     <Slider Caption="Tilt" ID="40" WidgetStyle="Slider" InvertedAppearance="false">
+      <WindowState Visible="True" X="165" Y="60" Width="60" Height="195"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
+      <Level LowLimit="0" HighLimit="255" Value="255">
+       <Channel Fixture="7">2</Channel>
+      </Level>
+     </Slider>
+    </Frame>
     <SoloFrame Caption="JUNGLE" ID="51">
      <Appearance>
       <BackgroundColor>4278196746</BackgroundColor>
@@ -2835,6 +3740,15 @@
      <ShowEnableButton>True</ShowEnableButton>
      <Collapsed>False</Collapsed>
      <Disabled>False</Disabled>
+     <Button Caption="Ember" ID="29">
+      <WindowState Visible="True" X="405" Y="60" Width="120" Height="60"/>
+      <Appearance>
+       <ForegroundColor>4294927923</ForegroundColor>
+       <BackgroundColor>4281993216</BackgroundColor>
+      </Appearance>
+      <Function ID="26"/>
+      <Action>Toggle</Action>
+     </Button>
      <Button Caption="Amber&#10;Glow" ID="26">
       <WindowState Visible="True" X="15" Y="60" Width="120" Height="60"/>
       <Appearance>
@@ -2860,15 +3774,6 @@
        <BackgroundColor>4278198852</BackgroundColor>
       </Appearance>
       <Function ID="24"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Ember" ID="29">
-      <WindowState Visible="True" X="405" Y="60" Width="120" Height="60"/>
-      <Appearance>
-       <ForegroundColor>4294927923</ForegroundColor>
-       <BackgroundColor>4281993216</BackgroundColor>
-      </Appearance>
-      <Function ID="26"/>
       <Action>Toggle</Action>
      </Button>
      <Button Caption="🔄 Mood&#10;Cycle" ID="32">
@@ -2898,62 +3803,11 @@
       <Action>Toggle</Action>
      </Button>
     </SoloFrame>
-    <Frame Caption="MASTER" ID="22">
-     <Appearance>
-      <ForegroundColor>4289374890</ForegroundColor>
-      <BackgroundColor>4279308561</BackgroundColor>
-     </Appearance>
-     <WindowState Visible="True" X="15" Y="630" Width="915" Height="270"/>
-     <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
-     <ShowEnableButton>True</ShowEnableButton>
-     <Collapsed>False</Collapsed>
-     <Disabled>False</Disabled>
-     <Slider Caption="Pan" ID="39" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="90" Y="60" Width="60" Height="195"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="255">
-       <Channel Fixture="7">0</Channel>
-      </Level>
-     </Slider>
-     <Slider Caption="Dimmer" ID="38" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="15" Y="60" Width="60" Height="195"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="255">
-       <Channel Fixture="7">5</Channel>
-      </Level>
-     </Slider>
-     <Button Caption="⊘ RESET&#10;ALL" ID="50">
-      <WindowState Visible="True" X="15" Y="270" Width="75" Height="75"/>
-      <Appearance>
-       <ForegroundColor>4294919236</ForegroundColor>
-       <BackgroundColor>4281532416</BackgroundColor>
-      </Appearance>
-      <Function ID="75"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Slider Caption="Tilt" ID="40" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="165" Y="60" Width="60" Height="195"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="255">
-       <Channel Fixture="7">2</Channel>
-      </Level>
-     </Slider>
-    </Frame>
    </Frame>
   </Frame>
-  <Frame Caption="DJ Expression">
+  <Frame Caption="DJ Expression" ID="2">
    <Appearance>
-    <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    </Appearance>
    <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
    <AllowResize>False</AllowResize>
@@ -2968,6 +3822,15 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
+    <Button Caption="⊘ RESET" ID="92">
+     <WindowState Visible="True" X="405" Y="60" Width="120" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4294919236</ForegroundColor>
+      <BackgroundColor>4279242768</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>StopAll</Action>
+    </Button>
     <Button Caption="STROBE BUILD" ID="89">
      <WindowState Visible="True" X="15" Y="60" Width="120" Height="60"/>
      <Appearance>
@@ -2975,6 +3838,15 @@
       <BackgroundColor>4282646528</BackgroundColor>
      </Appearance>
      <Function ID="127"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="FAST STROBE" ID="90">
+     <WindowState Visible="True" X="150" Y="60" Width="120" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4294927974</ForegroundColor>
+      <BackgroundColor>4282646528</BackgroundColor>
+     </Appearance>
+     <Function ID="128"/>
      <Action>Toggle</Action>
     </Button>
     <Button Caption="WHITE HIT" ID="91">
@@ -2986,25 +3858,60 @@
      <Function ID="118"/>
      <Action Override="0" ForceLTP="0">Flash</Action>
     </Button>
-    <Button Caption="FAST STROBE" ID="90">
-     <WindowState Visible="True" X="150" Y="60" Width="120" Height="60"/>
+   </Frame>
+   <SoloFrame Caption="MOVEMENT" ID="58">
+    <WindowState Visible="True" X="15" Y="525" Width="675" Height="135"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="Slow Circle" ID="84">
+     <WindowState Visible="True" X="15" Y="60" Width="105" Height="60"/>
      <Appearance>
-      <ForegroundColor>4294927974</ForegroundColor>
-      <BackgroundColor>4282646528</BackgroundColor>
+      <ForegroundColor>4289374975</ForegroundColor>
+      <BackgroundColor>4279242784</BackgroundColor>
      </Appearance>
-     <Function ID="128"/>
+     <Function ID="129"/>
      <Action>Toggle</Action>
     </Button>
-    <Button Caption="⊘ RESET" ID="92">
-     <WindowState Visible="True" X="405" Y="60" Width="120" Height="60"/>
+    <Button Caption="FREEZE" ID="93">
+     <WindowState Visible="True" X="480" Y="60" Width="105" Height="60"/>
      <Appearance>
-      <ForegroundColor>4294919236</ForegroundColor>
-      <BackgroundColor>4279242768</BackgroundColor>
+      <ForegroundColor>4289383679</ForegroundColor>
+      <BackgroundColor>4279900714</BackgroundColor>
      </Appearance>
-     <Function ID="4294967295"/>
-     <Action>StopAll</Action>
+     <Function ID="220"/>
+     <Action>Toggle</Action>
     </Button>
-   </Frame>
+    <Button Caption="Fast Circle" ID="86">
+     <WindowState Visible="True" X="240" Y="60" Width="105" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4289374975</ForegroundColor>
+      <BackgroundColor>4279242784</BackgroundColor>
+     </Appearance>
+     <Function ID="131"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="Slow Sweep" ID="85">
+     <WindowState Visible="True" X="135" Y="60" Width="105" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4289374975</ForegroundColor>
+      <BackgroundColor>4279242784</BackgroundColor>
+     </Appearance>
+     <Function ID="130"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="Fast Sweep" ID="87">
+     <WindowState Visible="True" X="360" Y="60" Width="105" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4289374975</ForegroundColor>
+      <BackgroundColor>4279242784</BackgroundColor>
+     </Appearance>
+     <Function ID="132"/>
+     <Action>Toggle</Action>
+    </Button>
+   </SoloFrame>
    <Frame Caption="MOOD" ID="67">
     <WindowState Visible="True" X="15" Y="165" Width="675" Height="360"/>
     <AllowResize>True</AllowResize>
@@ -3162,6 +4069,34 @@
      <Action>Toggle</Action>
     </Button>
    </Frame>
+   <Frame Caption="MASTER" ID="56">
+    <WindowState Visible="True" X="690" Y="15" Width="240" Height="345"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="⊘ BLACKOUT" ID="66">
+     <WindowState Visible="True" X="15" Y="60" Width="210" Height="60"/>
+     <Appearance>
+      <ForegroundColor>4294927974</ForegroundColor>
+      <BackgroundColor>4282646528</BackgroundColor>
+     </Appearance>
+     <Function ID="114"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Slider Caption="Intensity" ID="65" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="15" Y="135" Width="60" Height="195"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="255">
+      <Channel Fixture="0">13</Channel>
+      <Channel Fixture="7">5</Channel>
+     </Level>
+    </Slider>
+   </Frame>
    <SoloFrame Caption="ENERGY / PHASE" ID="55">
     <WindowState Visible="True" X="15" Y="15" Width="675" Height="135"/>
     <AllowResize>True</AllowResize>
@@ -3169,24 +4104,6 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Button Caption="FREEZE" ID="62">
-     <WindowState Visible="True" X="150" Y="60" Width="120" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4284927231</ForegroundColor>
-      <BackgroundColor>4278852138</BackgroundColor>
-     </Appearance>
-     <Function ID="134"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="CHILL" ID="61">
-     <WindowState Visible="True" X="15" Y="60" Width="120" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4284927112</ForegroundColor>
-      <BackgroundColor>4278856208</BackgroundColor>
-     </Appearance>
-     <Function ID="133"/>
-     <Action>Toggle</Action>
-    </Button>
     <Button Caption="BUILD" ID="63">
      <WindowState Visible="True" X="285" Y="60" Width="120" Height="60"/>
      <Appearance>
@@ -3205,85 +4122,22 @@
      <Function ID="136"/>
      <Action>Toggle</Action>
     </Button>
-   </SoloFrame>
-   <Frame Caption="MASTER" ID="56">
-    <WindowState Visible="True" X="690" Y="15" Width="240" Height="345"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Slider Caption="Intensity" ID="65" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="15" Y="135" Width="60" Height="195"/>
+    <Button Caption="FREEZE" ID="62">
+     <WindowState Visible="True" X="150" Y="60" Width="120" Height="60"/>
      <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
+      <ForegroundColor>4284927231</ForegroundColor>
+      <BackgroundColor>4278852138</BackgroundColor>
      </Appearance>
-     <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255">
-      <Channel Fixture="7">5</Channel>
-      <Channel Fixture="0">13</Channel>
-     </Level>
-    </Slider>
-    <Button Caption="⊘ BLACKOUT" ID="66">
-     <WindowState Visible="True" X="15" Y="60" Width="210" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4294927974</ForegroundColor>
-      <BackgroundColor>4282646528</BackgroundColor>
-     </Appearance>
-     <Function ID="114"/>
+     <Function ID="134"/>
      <Action>Toggle</Action>
     </Button>
-   </Frame>
-   <SoloFrame Caption="MOVEMENT" ID="58">
-    <WindowState Visible="True" X="15" Y="525" Width="675" Height="135"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="Slow Circle" ID="84">
-     <WindowState Visible="True" X="15" Y="60" Width="105" Height="60"/>
+    <Button Caption="CHILL" ID="61">
+     <WindowState Visible="True" X="15" Y="60" Width="120" Height="60"/>
      <Appearance>
-      <ForegroundColor>4289374975</ForegroundColor>
-      <BackgroundColor>4279242784</BackgroundColor>
+      <ForegroundColor>4284927112</ForegroundColor>
+      <BackgroundColor>4278856208</BackgroundColor>
      </Appearance>
-     <Function ID="129"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="FREEZE" ID="93">
-     <WindowState Visible="True" X="480" Y="60" Width="105" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4289383679</ForegroundColor>
-      <BackgroundColor>4279900714</BackgroundColor>
-     </Appearance>
-     <Function ID="220"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Fast Circle" ID="86">
-     <WindowState Visible="True" X="240" Y="60" Width="105" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4289374975</ForegroundColor>
-      <BackgroundColor>4279242784</BackgroundColor>
-     </Appearance>
-     <Function ID="131"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Slow Sweep" ID="85">
-     <WindowState Visible="True" X="135" Y="60" Width="105" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4289374975</ForegroundColor>
-      <BackgroundColor>4279242784</BackgroundColor>
-     </Appearance>
-     <Function ID="130"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="Fast Sweep" ID="87">
-     <WindowState Visible="True" X="360" Y="60" Width="105" Height="60"/>
-     <Appearance>
-      <ForegroundColor>4289374975</ForegroundColor>
-      <BackgroundColor>4279242784</BackgroundColor>
-     </Appearance>
-     <Function ID="132"/>
+     <Function ID="133"/>
      <Action>Toggle</Action>
     </Button>
    </SoloFrame>

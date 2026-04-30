@@ -29,7 +29,7 @@ VCWidgetItem
 
     property int btnState: buttonObj ? buttonObj.state : VCButton.Inactive
     property int btnAction: buttonObj ? buttonObj.actionType : VCButton.Toggle
-    property string activeColor: buttonObj.flashOverrides || buttonObj.flashForceLTP ? "#FF0000" : "#00FF00"
+    property string activeColor: buttonObj ? (buttonObj.flashOverrides || buttonObj.flashForceLTP ? "#FF0000" : "#00FF00") : "#00FF00"
 
     radius: 4
     border.width: 0

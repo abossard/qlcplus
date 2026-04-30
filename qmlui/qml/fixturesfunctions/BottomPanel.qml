@@ -162,8 +162,9 @@ Rectangle
                 width: height * 1.2
                 height: parent.height * 0.7
                 checkable: true
+                checked: isOpen
                 tooltip: qsTr("Expand/Collapse this panel")
-                onToggled: animatePanel(checked)
+                onClicked: animatePanel(!isOpen)
 
                 Text
                 {
@@ -171,7 +172,7 @@ Rectangle
                     color: UISettings.fgLight
                     font.family: UISettings.fontAwesomeFontName
                     font.pixelSize: parent.height - 8
-                    text: expandButton.checked ? FontAwesome.fa_chevron_down : FontAwesome.fa_chevron_up
+                    text: isOpen ? FontAwesome.fa_chevron_down : FontAwesome.fa_chevron_up
                 }
             }
         }

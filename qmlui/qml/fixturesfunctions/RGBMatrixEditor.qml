@@ -285,6 +285,86 @@ Rectangle
                     onCurrentIndexChanged: rgbMatrixEditor.controlMode = currentIndex
                 }
 
+                // Rotation
+                RobotoText
+                {
+                    label: qsTr("Rotation")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("None") },
+                        { mLabel: qsTr("90\u00B0 CW") },
+                        { mLabel: qsTr("180\u00B0") },
+                        { mLabel: qsTr("270\u00B0 CW") }
+                    ]
+                    currentIndex: rgbMatrixEditor.rotation
+                    onCurrentIndexChanged: rgbMatrixEditor.rotation = currentIndex
+                }
+
+                // Mirror
+                RobotoText
+                {
+                    label: qsTr("Mirror")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Off") },
+                        { mLabel: qsTr("Horizontal") },
+                        { mLabel: qsTr("Vertical") },
+                        { mLabel: qsTr("Both") }
+                    ]
+                    currentIndex: rgbMatrixEditor.mirror
+                    onCurrentIndexChanged: rgbMatrixEditor.mirror = currentIndex
+                }
+
+                // Mirror Blend (only visible when mirror is active)
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.mirror > 0
+                    label: qsTr("Mirror blend")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.mirror > 0
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Flip") },
+                        { mLabel: qsTr("Max") },
+                        { mLabel: qsTr("Average") },
+                        { mLabel: qsTr("Additive") }
+                    ]
+                    currentIndex: rgbMatrixEditor.mirrorBlend
+                    onCurrentIndexChanged: rgbMatrixEditor.mirrorBlend = currentIndex
+                }
+
                 // row 6
                 RobotoText
                 {

@@ -116,6 +116,15 @@ public:
 
     QQuickItem *renderItem() const;
 
+protected:
+    /** Helper that creates a QML item from \a qmlUrl, parents it under
+     *  \a parent, and exposes \c this via \a propertyName.
+     *  Sets m_item on success. Returns false on any error. */
+    bool initRenderItem(QQuickView *view, QQuickItem *parent,
+                        const QString &qmlUrl, const char *propertyName);
+
+public:
+
     void enqueueTardisAction(int code, QVariant oldVal, QVariant newVal);
 
     /** Create a copy of this widget into the given parent and return it

@@ -197,7 +197,7 @@ VCWidgetItem
             model: cueListObj ? cueListObj.stepsList : null
             playbackIndex: cueListObj ? cueListObj.playbackIndex : -1
             nextIndex: sideFaderMode === VCCueList.Crossfade ? sideFaderLayout.nextStepIndex : -1
-            //tempoType: chaserEditor.tempoType
+            tempoType: cueListObj ? cueListObj.tempoType : QLCFunction.Time
             isRunning: playbackStatus === VCCueList.Playing ? true : false
 
             onIndexChanged: if (cueListObj) cueListObj.playbackIndex = index

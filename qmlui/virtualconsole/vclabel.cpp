@@ -47,22 +47,7 @@ void VCLabel::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCLabel::render(QQuickView *view, QQuickItem *parent)
 {
-    if (view == nullptr || parent == nullptr)
-        return;
-
-    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCLabelItem.qml"));
-
-    if (component->isError())
-    {
-        qDebug() << component->errors();
-        delete component;
-        return;
-    }
-
-    m_item = qobject_cast<QQuickItem*>(component->create());
-
-    m_item->setParentItem(parent);
-    m_item->setProperty("labelObj", QVariant::fromValue(this));
+    initRenderItem(view, parent, "qrc:/VCLabelItem.qml", "labelObj");
 }
 
 VCWidget *VCLabel::createCopy(VCWidget *parent) const

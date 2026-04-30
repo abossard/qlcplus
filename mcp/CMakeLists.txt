@@ -47,6 +47,7 @@ set(MCP_SOURCES
     tools/channel_tools.cpp
     tools/palette_tools.cpp
     tools/prompts.cpp
+    tools/flow_tools.cpp
 )
 
 add_library(qlcplusmcp STATIC ${MCP_SOURCES})
@@ -60,6 +61,7 @@ target_include_directories(qlcplusmcp PRIVATE
     ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
     ${CMAKE_SOURCE_DIR}/qmlui/tardis
     ${CMAKE_SOURCE_DIR}/qmlui
+    ${CMAKE_SOURCE_DIR}/qmlui/flowconsole
 )
 
 target_link_libraries(qlcplusmcp PUBLIC fastmcpp_core qlcplusengine)

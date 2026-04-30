@@ -209,3 +209,6 @@ target_link_libraries(mcp_conversions_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+
+# Flow Console tests are integration tests run against the live MCP server.
+# See mcp/test/flow_console_integration_test.sh

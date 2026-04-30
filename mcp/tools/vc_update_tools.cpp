@@ -57,7 +57,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"flashOverride", {{"type", "boolean"}, {"description", "Button: flash overrides other values"}}},
                 {"flashForceLTP", {{"type", "boolean"}, {"description", "Button: flash forces LTP"}}},
                 {"stopAllFadeTime", {{"type", "integer"}, {"description", "Button: fade time in ms for stopall action"}}},
-                {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster"}},
+                {"mode", {{"type", "string"}, {"enum", {"level", "playback", "submaster", "grandmaster"}},
                     {"description", "Slider mode"}}},
                 {"widgetStyle", {{"type", "string"}, {"enum", {"slider", "knob"}},
                     {"description", "Slider: visual style"}}},
@@ -66,7 +66,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {"fixtureID", {{"type", "integer"}}},
                     {"channel", {{"type", "integer"}}}
                 }}}}, {"description", "Slider level-mode channels (replaces existing)"}}},
-                {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset"}}}},
+                {"clickAndGoType", {{"type", "string"}, {"enum", {"none", "colors", "preset", "rgb", "cmy"}}}},
                 {"valueDisplayStyle", {{"type", "string"}, {"enum", {"dmx", "percentage"}}}},
                 {"invertedAppearance", {{"type", "boolean"}}},
                 {"rangeLowLimit", {{"type", "number"}}},
@@ -594,7 +594,8 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed. "
                      "Validates fields against widget type. Supports type-specific configuration for buttons, "
-                     "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, and audio triggers. Batch."),
+                     "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, and audio triggers. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

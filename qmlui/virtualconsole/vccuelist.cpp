@@ -88,22 +88,7 @@ void VCCueList::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCCueList::render(QQuickView *view, QQuickItem *parent)
 {
-    if (view == nullptr || parent == nullptr)
-        return;
-
-    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCCueListItem.qml"));
-
-    if (component->isError())
-    {
-        qDebug() << component->errors();
-        delete component;
-        return;
-    }
-
-    m_item = qobject_cast<QQuickItem*>(component->create());
-
-    m_item->setParentItem(parent);
-    m_item->setProperty("cueListObj", QVariant::fromValue(this));
+    initRenderItem(view, parent, "qrc:/VCCueListItem.qml", "cueListObj");
 }
 
 QString VCCueList::propertiesResource() const
@@ -342,9 +327,14 @@ void VCCueList::stopStepIfNeeded(Chaser *ch)
     if (primaryValue == 0)
     {
         m_primaryTop = !m_primaryTop;
-        action.m_stepIndex = m_playbackIndex;
+        int oldPlayback = m_playbackIndex;
+        m_playbackIndex = m_nextStepIndex;
+        m_nextStepIndex = oldPlayback;
+        action.m_stepIndex = m_nextStepIndex;
         ch->setAction(action);
         emit primaryTopChanged();
+        emit playbackIndexChanged(m_playbackIndex);
+        emit nextStepIndexChanged();
     }
     else if (secondaryValue == 0)
     {
@@ -356,6 +346,14 @@ void VCCueList::stopStepIfNeeded(Chaser *ch)
 /*********************************************************************
  * Chaser attachment
  *********************************************************************/
+
+int VCCueList::tempoType() const
+{
+    Chaser *ch = chaser();
+    if (ch == nullptr)
+        return Function::Time;
+    return ch->tempoType();
+}
 
 FunctionParent VCCueList::functionParent() const
 {
@@ -473,8 +471,10 @@ void VCCueList::setChaserID(quint32 fid)
                    this, SLOT(slotFunctionStopped(quint32)));
         disconnect(current, SIGNAL(currentStepChanged(int)),
                    this, SLOT(slotCurrentStepChanged(int)));
-        connect(current, SIGNAL(stepChanged(int)),
-                this, SLOT(slotStepChanged(int)));
+        disconnect(current, SIGNAL(stepChanged(int)),
+                   this, SLOT(slotStepChanged(int)));
+        disconnect(current, SIGNAL(tempoTypeChanged()),
+                   this, SIGNAL(tempoTypeChanged()));
 
         if (current->isRunning())
         {
@@ -506,6 +506,8 @@ void VCCueList::setChaserID(quint32 fid)
                 this, SLOT(slotStepChanged(int)));
         connect(function, SIGNAL(stepsListChanged(quint32)),
                 this, SLOT(slotStepsListChanged(quint32)));
+        connect(function, SIGNAL(tempoTypeChanged()),
+                this, SIGNAL(tempoTypeChanged()));
 
         emit chaserIDChanged(fid);
     }
@@ -518,6 +520,7 @@ void VCCueList::setChaserID(quint32 fid)
     }
 
     emit stepsListChanged();
+    emit tempoTypeChanged();
 
     Tardis::instance()->enqueueAction(Tardis::VCCueListSetChaserID, id(),
                                       current ? current->id() : Function::invalidId(),
@@ -567,6 +570,9 @@ int VCCueList::getNextIndex()
     if (ch == nullptr)
         return -1;
 
+    if (m_playbackIndex < 0)
+        return getFirstIndex();
+
     if (ch->direction() == Function::Forward)
         return m_playbackIndex + 1 == ch->stepsCount() ? 0 : m_playbackIndex + 1;
     else
@@ -578,6 +584,9 @@ int VCCueList::getPrevIndex()
     Chaser *ch = chaser();
     if (ch == nullptr)
         return -1;
+
+    if (m_playbackIndex < 0)
+        return getLastIndex();
 
     if (ch->direction() == Function::Forward)
         return m_playbackIndex == 0 ? ch->stepsCount() - 1 : m_playbackIndex - 1;
@@ -918,6 +927,21 @@ void VCCueList::slotFunctionStopped(quint32 fid)
 
         m_timer->stop();
 
+        setPlaybackIndex(-1);
+
+        if (m_primaryTop == false)
+        {
+            m_primaryTop = true;
+            emit primaryTopChanged();
+        }
+
+        if (sideFaderMode() == Crossfade && m_sideFaderLevel != 100)
+        {
+            m_sideFaderLevel = 100;
+            emit sideFaderLevelChanged();
+            sendFeedback(m_sideFaderLevel, INPUT_SIDE_FADER_ID, VCWidget::ExactValue);
+        }
+
         if (m_item != nullptr)
         {
             m_item->setProperty("progressStatus", ProgressIdle);
@@ -969,7 +993,10 @@ void VCCueList::slotProgressTimeout()
         }
         else
         {
-            progress = ((double)step.m_elapsed / (double)step.m_duration);
+            if (step.m_duration > 0)
+                progress = ((double)step.m_elapsed / (double)step.m_duration);
+            else
+                progress = 1.0;
             m_item->setProperty("progressValue", progress);
             m_item->setProperty("progressText", QString("-%1").arg(Function::speedToString(step.m_duration - step.m_elapsed)));
         }
