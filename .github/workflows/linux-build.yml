@@ -21,10 +21,6 @@ on:
   push:
     tags:
       - 'v*'
-    # Temporary: also run on the CI development branch so we can verify this
-    # workflow before it is merged.  Remove after first successful run.
-    branches:
-      - 'copilot/add-github-actions-workflow-linux-builds'
 
   pull_request:
     paths:
