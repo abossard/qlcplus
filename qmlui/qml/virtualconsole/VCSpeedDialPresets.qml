@@ -105,7 +105,7 @@ Rectangle
 
                         function showTimeTool(item, titleLabel)
                         {
-                            timeEditTool.allowFractions = QLCFunction.ByTwoFractions
+                            timeEditTool.allowFractions = QLCFunction.FineFractions
                             timeEditTool.show(-1, item.mapToItem(mainView, 0, 0).y - timeEditTool.height,
                                               titleLabel,
                                               TimeUtils.timeToQlcString(presetTimeValue, QLCFunction.Time),
