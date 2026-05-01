@@ -54,6 +54,7 @@ VCSpeedDial::VCSpeedDial(Doc *doc, QObject *parent)
     , m_timeMaximumValue(1000 * 10)
     , m_currentTime(0)
     , m_resetOnDialChange(false)
+    , m_multiplyMode(false)
     , m_currentFactor(One)
     , m_lastAssignedPresetId(15)
     , m_lastTap(0)
@@ -145,6 +146,7 @@ bool VCSpeedDial::copyFrom(const VCWidget *widget)
     setTimeMaximumValue(speedDial->timeMaximumValue());
 
     setFunctions(speedDial->functions());
+    setMultiplyMode(speedDial->multiplyMode());
 
     clearPresets();
     for (VCSpeedDialPreset *preset : speedDial->presets())
@@ -253,6 +255,66 @@ void VCSpeedDial::setResetOnDialChange(bool newResetOnDialChange)
 
     m_resetOnDialChange = newResetOnDialChange;
     emit resetOnDialChangeChanged();
+}
+
+bool VCSpeedDial::multiplyMode() const
+{
+    return m_multiplyMode;
+}
+
+void VCSpeedDial::setMultiplyMode(bool mode)
+{
+    if (m_multiplyMode == mode)
+        return;
+
+    m_multiplyMode = mode;
+
+    if (mode)
+    {
+        for (auto it = m_functions.begin(); it != m_functions.end(); ++it)
+        {
+            VCSpeedDialFunction &func = it.value();
+            Function *function = m_doc->function(func.m_fId);
+            if (function != nullptr)
+            {
+                func.m_origFadeIn = function->fadeInSpeed();
+                func.m_origFadeOut = function->fadeOutSpeed();
+                func.m_origDuration = function->duration();
+                func.m_hasSnapshot = true;
+            }
+        }
+    }
+    else
+    {
+        for (auto it = m_functions.begin(); it != m_functions.end(); ++it)
+            it.value().m_hasSnapshot = false;
+    }
+
+    emit multiplyModeChanged();
+}
+
+void VCSpeedDial::resetSpeeds()
+{
+    for (auto it = m_functions.begin(); it != m_functions.end(); ++it)
+    {
+        VCSpeedDialFunction &func = it.value();
+        if (!func.m_hasSnapshot)
+            continue;
+
+        Function *function = m_doc->function(func.m_fId);
+        if (function == nullptr)
+            continue;
+
+        if (func.m_fadeInFactor != VCSpeedDial::None)
+            function->setFadeInSpeed(func.m_origFadeIn);
+        if (func.m_fadeOutFactor != VCSpeedDial::None)
+            function->setFadeOutSpeed(func.m_origFadeOut);
+        if (func.m_durationFactor != VCSpeedDial::None)
+            function->setDuration(func.m_origDuration);
+    }
+
+    m_currentFactor = One;
+    emit currentFactorChanged();
 }
 
 /*********************************************************************
@@ -495,6 +557,43 @@ void VCSpeedDial::setFunctionSpeed(quint32 fid, int speedType, SpeedMultiplier a
 
 void VCSpeedDial::applyFunctionsTime()
 {
+    if (m_multiplyMode)
+    {
+        float ratio = m_multiplierCache[m_currentFactor] / 1000.0;
+
+        for (VCSpeedDialFunction &func : m_functions)
+        {
+            if (!func.m_hasSnapshot)
+                continue;
+
+            Function *function = m_doc->function(func.m_fId);
+            if (function == nullptr)
+                continue;
+
+            if (func.m_fadeInFactor != VCSpeedDial::None &&
+                func.m_origFadeIn != Function::defaultSpeed() &&
+                func.m_origFadeIn != Function::infiniteSpeed())
+            {
+                function->setFadeInSpeed(qRound(func.m_origFadeIn * ratio));
+            }
+
+            if (func.m_fadeOutFactor != VCSpeedDial::None &&
+                func.m_origFadeOut != Function::defaultSpeed() &&
+                func.m_origFadeOut != Function::infiniteSpeed())
+            {
+                function->setFadeOutSpeed(qRound(func.m_origFadeOut * ratio));
+            }
+
+            if (func.m_durationFactor != VCSpeedDial::None &&
+                func.m_origDuration != Function::defaultSpeed() &&
+                func.m_origDuration != Function::infiniteSpeed())
+            {
+                function->setDuration(qRound(func.m_origDuration * ratio));
+            }
+        }
+        return;
+    }
+
     float factoredTime = m_currentTime * (m_multiplierCache[m_currentFactor] / 1000.0);
 
     for (const VCSpeedDialFunction &func : m_functions)
@@ -650,7 +749,10 @@ void VCSpeedDial::slotInputValueChanged(quint8 id, uchar value)
             decreaseSpeedFactor();
         break;
         case INPUT_RESET_ID:
-            setCurrentFactor(One);
+            if (m_multiplyMode)
+                resetSpeeds();
+            else
+                setCurrentFactor(One);
         break;
         case INPUT_APPLY_ID:
             applyFunctionsTime();
@@ -702,6 +804,8 @@ bool VCSpeedDial::loadXML(QXmlStreamReader &root)
     /* Widget commons */
     loadXMLCommon(root);
 
+    bool loadedMultiplyMode = false;
+
     while (root.readNextStartElement())
     {
         if (root.name() == KXMLQLCWindowState)
@@ -738,6 +842,10 @@ bool VCSpeedDial::loadXML(QXmlStreamReader &root)
         else if (root.name() == KXMLQLCVCSpeedDialResetFactorOnDialChange)
         {
             setResetOnDialChange(root.readElementText() == KXMLQLCTrue);
+        }
+        else if (root.name() == KXMLQLCVCSpeedDialMultiplyMode)
+        {
+            loadedMultiplyMode = root.readElementText() == KXMLQLCTrue;
         }
         else if (root.name() == KXMLQLCVCSpeedDialFunction)
         {
@@ -783,6 +891,9 @@ bool VCSpeedDial::loadXML(QXmlStreamReader &root)
         }
     }
 
+    if (loadedMultiplyMode)
+        setMultiplyMode(true);
+
     emit presetsListChanged();
     return true;
 }
@@ -811,6 +922,9 @@ bool VCSpeedDial::saveXML(QXmlStreamWriter *doc) const
     /* Reset factor on dial change */
     if (resetOnDialChange())
         doc->writeTextElement(KXMLQLCVCSpeedDialResetFactorOnDialChange, KXMLQLCTrue);
+
+    if (multiplyMode())
+        doc->writeTextElement(KXMLQLCVCSpeedDialMultiplyMode, KXMLQLCTrue);
 
     /* Absolute input */
     doc->writeStartElement(KXMLQLCVCSpeedDialAbsoluteValue);

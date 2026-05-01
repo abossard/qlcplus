@@ -234,6 +234,25 @@ Rectangle
                     }
                 }
 
+                Row
+                {
+                    Layout.columnSpan: 5
+
+                    CustomCheckBox
+                    {
+                        implicitWidth: UISettings.iconSizeMedium
+                        implicitHeight: implicitWidth
+                        checked: widgetRef ? widgetRef.multiplyMode : false
+                        onClicked: if (widgetRef) widgetRef.multiplyMode = checked
+                    }
+
+                    RobotoText
+                    {
+                        height: UISettings.listItemHeight
+                        label: qsTr("Multiply existing function speeds")
+                    }
+                }
+
                 RobotoText
                 {
                     height: UISettings.listItemHeight

@@ -37,6 +37,7 @@
 #define KXMLQLCVCSpeedDialMultDivResetKey   QStringLiteral("MultDivResetKey")
 #define KXMLQLCVCSpeedDialApplyKey          QStringLiteral("ApplyKey")
 #define KXMLQLCVCSpeedDialResetFactorOnDialChange QStringLiteral("ResetFactorOnDialChange")
+#define KXMLQLCVCSpeedDialMultiplyMode      QStringLiteral("MultiplyMode")
 #define KXMLQLCVCSpeedDialVisibilityMask    QStringLiteral("Visibility")
 #define KXMLQLCVCSpeedDialTime              QStringLiteral("Time")
 #define KXMLQLCVCSpeedDialFunction          QStringLiteral("Function")
@@ -50,6 +51,7 @@ class VCSpeedDial : public VCWidget
     Q_PROPERTY(uint timeMaximumValue READ timeMaximumValue WRITE setTimeMaximumValue NOTIFY timeMaximumValueChanged FINAL)
     Q_PROPERTY(uint currentTime READ currentTime WRITE setCurrentTime NOTIFY currentTimeChanged FINAL)
     Q_PROPERTY(bool resetOnDialChange READ resetOnDialChange WRITE setResetOnDialChange NOTIFY resetOnDialChangeChanged FINAL)
+    Q_PROPERTY(bool multiplyMode READ multiplyMode WRITE setMultiplyMode NOTIFY multiplyModeChanged FINAL)
     Q_PROPERTY(SpeedMultiplier currentFactor READ currentFactor WRITE setCurrentFactor NOTIFY currentFactorChanged FINAL)
     Q_PROPERTY(int tapTimeValue READ tapTimeValue NOTIFY tapTimeValueChanged FINAL)
 
@@ -113,12 +115,16 @@ public:
     };
     Q_ENUM(SpeedMultiplier)
 
-    typedef struct
+    typedef struct VCSpeedDialFunction
     {
         quint32 m_fId;
         SpeedMultiplier m_fadeInFactor;
         SpeedMultiplier m_fadeOutFactor;
         SpeedMultiplier m_durationFactor;
+        uint m_origFadeIn = 0;
+        uint m_origFadeOut = 0;
+        uint m_origDuration = 0;
+        bool m_hasSnapshot = false;
     } VCSpeedDialFunction;
 
 protected:
@@ -165,17 +171,23 @@ public:
     bool resetOnDialChange() const;
     void setResetOnDialChange(bool newResetOnDialChange);
 
+    bool multiplyMode() const;
+    void setMultiplyMode(bool mode);
+    Q_INVOKABLE void resetSpeeds();
+
 signals:
     void timeMinimumValueChanged();
     void timeMaximumValueChanged();
     void currentTimeChanged();
     void resetOnDialChangeChanged();
+    void multiplyModeChanged();
 
 private:
     uint m_timeMinimumValue;
     uint m_timeMaximumValue;
     uint m_currentTime;
     bool m_resetOnDialChange;
+    bool m_multiplyMode;
 
     /*********************************************************************
      * Speed factor

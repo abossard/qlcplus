@@ -140,7 +140,7 @@ VCWidgetItem
             Layout.rowSpan: tapButton.visible ? 2 : 1
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vMask & VCSpeedDial.Dial
+            visible: speedObj && !speedObj.multiplyMode && (vMask & VCSpeedDial.Dial)
             drawOuterLevel: false
             from: 0
             to: 1000
@@ -231,7 +231,7 @@ VCWidgetItem
             Layout.fillHeight: true
 
             label: "TAP"
-            visible: vMask & VCSpeedDial.Tap
+            visible: speedObj && !speedObj.multiplyMode && (vMask & VCSpeedDial.Tap)
 
             onClicked: function(mouseButton)
             {
@@ -306,10 +306,25 @@ VCWidgetItem
             }
         }
 
+        GenericButton
+        {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            label: qsTr("Reset")
+            visible: speedObj && speedObj.multiplyMode && (vMask & VCSpeedDial.Beats)
+            onClicked:
+            {
+                if (speedObj)
+                    speedObj.resetSpeeds()
+            }
+        }
+
         // row 4
         RowLayout
         {
-            visible: vMask & VCSpeedDial.Hours | vMask & VCSpeedDial.Minutes | vMask & VCSpeedDial.Seconds | vMask & VCSpeedDial.Milliseconds
+            visible: speedObj && !speedObj.multiplyMode &&
+                     (vMask & VCSpeedDial.Hours | vMask & VCSpeedDial.Minutes |
+                      vMask & VCSpeedDial.Seconds | vMask & VCSpeedDial.Milliseconds)
             Layout.columnSpan: itemsLayout.columns
             Layout.fillWidth: true
             height: UISettings.listItemHeight
@@ -376,7 +391,7 @@ VCWidgetItem
             Layout.fillWidth: true
             Layout.fillHeight: true
             textHAlign: Text.AlignHCenter
-            label: speedObj ? speedLabels[speedObj.currentFactor] + "x\n" + TimeUtils.timeToQlcString(speedObj.currentTime, QLCFunction.Time) : ""
+            label: speedObj ? speedLabels[speedObj.currentFactor] + "x" + (speedObj.multiplyMode ? "" : "\n" + TimeUtils.timeToQlcString(speedObj.currentTime, QLCFunction.Time)) : ""
             visible: vMask & VCSpeedDial.Multipliers
         }
 
@@ -402,7 +417,12 @@ VCWidgetItem
             visible: vMask & VCSpeedDial.Multipliers
             onClicked:
             {
-                if (speedObj)
+                if (!speedObj)
+                    return
+
+                if (speedObj.multiplyMode)
+                    speedObj.resetSpeeds()
+                else
                     speedObj.currentFactor = VCSpeedDial.One
             }
         }
