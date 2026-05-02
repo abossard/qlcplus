@@ -23,6 +23,7 @@ import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
 
+import "ShortcutUtils.js" as ShortcutUtils
 import "TimeUtils.js" as TimeUtils
 import "."
 
@@ -48,6 +49,30 @@ Rectangle
     onShowIDChanged: renderAndCenter()
     Component.onCompleted: renderAndCenter()
 
+    function requestPlayShow()
+    {
+        if (showManager.isEditing)
+            showManager.playShow()
+    }
+
+    function requestStopShow()
+    {
+        if (showManager.isEditing)
+            showManager.stopShow()
+    }
+
+    function requestCopyItems()
+    {
+        if (showManager.selectedItemsCount)
+            showManager.copyToClipboard()
+    }
+
+    function requestPasteItems()
+    {
+        if (showManager.isEditing)
+            showManager.pasteFromClipboard()
+    }
+
     function centerView()
     {
         var xPos = TimeUtils.timeToSize(showManager.currentTime, timeScale, tickSize) - (timelineHeader.width / 2)
@@ -60,6 +85,55 @@ Rectangle
         //console.log("Show Manager tick size: " + tickSize + "pixel")
         showManager.renderView(itemsArea.contentItem)
         centerView()
+    }
+
+    Shortcut
+    {
+        sequence: "Space"
+        enabled: mainView.currentContext === "SHOWMGR"
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_ShowManager)
+        onActivated: showMgrContainer.requestPlayShow()
+    }
+
+    Shortcut
+    {
+        sequence: Qt.platform.os === "osx" ? "Meta+Space" : "Ctrl+Space"
+        enabled: mainView.currentContext === "SHOWMGR"
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_ShowManager)
+        onActivated: showMgrContainer.requestStopShow()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Copy
+        enabled: mainView.currentContext === "SHOWMGR"
+                 && !mainView.shortcutsBlocked()
+                 && showManager.selectedItemsCount > 0
+        onActivated: showMgrContainer.requestCopyItems()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Paste
+        enabled: mainView.currentContext === "SHOWMGR"
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_ShowManager)
+        onActivated: showMgrContainer.requestPasteItems()
+    }
+
+    Shortcut
+    {
+        sequence: "Ctrl+]"
+        enabled: mainView.currentContext === "SHOWMGR" && !mainView.shortcutsBlocked()
+        onActivated:
+        {
+            if (rightPanel.isOpen)
+                rightPanel.animatePanel(false)
+            else if (rightPanel.loaderSource !== "")
+                rightPanel.animatePanel(true)
+        }
     }
 
     Rectangle
@@ -223,9 +297,9 @@ Rectangle
                 height: width
                 faSource: FontAwesome.fa_copy
                 faColor: UISettings.fgMain
-                tooltip: qsTr("Copy the selected items in the clipboard")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Copy the selected items in the clipboard"), "Ctrl+C")
                 counter: showManager.selectedItemsCount
-                onClicked: showManager.copyToClipboard()
+                onClicked: showMgrContainer.requestCopyItems()
             }
 
             IconButton
@@ -235,9 +309,9 @@ Rectangle
                 height: width
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
-                tooltip: qsTr("Paste items in the clipboard at cursor position")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Paste items in the clipboard at cursor position"), "Ctrl+V")
                 counter: showManager.selectedItemsCount
-                onClicked: showManager.pasteFromClipboard()
+                onClicked: showMgrContainer.requestPasteItems()
             }
 
             // filler
@@ -273,10 +347,10 @@ Rectangle
                 faColor: UISettings.fgMain
                 bgColor: showManager.isPaused ? "green" :
                          (showManager.isPlaying ? "darkorange" : UISettings.bgLight)
-                tooltip: (showManager.isPlaying && !showManager.isPaused) ? qsTr("Pause") : qsTr("Play or resume")
+                tooltip: ShortcutUtils.withShortcut((showManager.isPlaying && !showManager.isPaused) ? qsTr("Pause") : qsTr("Play or resume"), "Space")
                 checkable: false
                 enabled: showManager.isEditing
-                onClicked: showManager.playShow()
+                onClicked: showMgrContainer.requestPlayShow()
             }
             IconButton
             {
@@ -286,10 +360,11 @@ Rectangle
                 faSource: FontAwesome.fa_stop
                 faColor: UISettings.fgMain
                 bgColor: showManager.isPlaying ? "red" : UISettings.bgLight
-                tooltip: qsTr("Stop or rewind")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Stop or rewind"),
+                    Qt.platform.os === "osx" ? "Meta+Space" : "Ctrl+Space")
                 checkable: false
                 enabled: showManager.isEditing
-                onClicked: showManager.stopShow()
+                onClicked: showMgrContainer.requestStopShow()
             }
 
             // filler

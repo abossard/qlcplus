@@ -94,6 +94,33 @@ Rectangle
         contextManager.currentSubContext = ctx
     }
 
+    Shortcut
+    {
+        sequence: "Ctrl+["
+        enabled: mainView.currentContext === "FIXANDFUNC" && !mainView.shortcutsBlocked()
+        onActivated:
+        {
+            // Only toggle if panel has content loaded, otherwise opening shows a blank pane
+            if (leftPanel.isOpen)
+                leftPanel.animatePanel(false)
+            else if (leftPanel.loaderSource !== "")
+                leftPanel.animatePanel(true)
+        }
+    }
+
+    Shortcut
+    {
+        sequence: "Ctrl+]"
+        enabled: mainView.currentContext === "FIXANDFUNC" && !mainView.shortcutsBlocked()
+        onActivated:
+        {
+            if (rightPanel.isOpen)
+                rightPanel.animatePanel(false)
+            else if (rightPanel.loaderSource !== "")
+                rightPanel.animatePanel(true)
+        }
+    }
+
     LeftPanel
     {
         id: leftPanel

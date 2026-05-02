@@ -39,8 +39,27 @@
 > - **Undo for layout operations** — Tardis batch support + Ctrl+Z/Ctrl+Shift+Z keyboard shortcuts
 > - **ComboBox dropdown fix** — string list models now show text in dropdown items
 > - **1/16 beat subdivision** — canonical quantizer table (single source of truth), `musicalBeatValue`/`beatValueToMusical` helpers exposed to QML, TimeEditTool count×subdivision UI with `allowFractions` gating, 63 unit tests (20 engine + 43 MCP conversions)
+> - **FineFractions for all editors** — RGB Matrix, EFX, Scene, and Speed Dial preset editors now show 1/4, 1/8, 1/16 beat subdivisions (previously limited to 1/1 and 1/2)
+> - **Update Scene from Live** — DMX Dump dialog: "Update only scene channels from live" button captures current pre-GM DMX values into an existing scene, scoped to only the channels already in the scene (preserves layer separation, with Tardis undo)
+> - **Speed Dial multiply mode** — factor buttons (1/16x–16x) multiply existing function speeds instead of replacing them; preserves authored fadeIn/hold/fadeOut ratios; one-click reset to originals; works with both Time and Beats mode functions
 >
 > ### Recent engine changes
+>
+> #### Speed Dial Multiply Mode
+> The VC Speed Dial widget now supports a **Multiply Mode** toggle (in widget properties).
+> When enabled, the factor buttons (1/16x through 16x) **multiply** the controlled
+> functions' existing speeds instead of replacing them with an absolute dial value.
+>
+> - **Preserves ratios** — fadeIn, hold, and fadeOut scale proportionally
+> - **Reset button** — restores original speeds with one click
+> - **Works with Time and Beats** — multiplies the raw stored value regardless of tempoType
+> - **Sentinel-safe** — `defaultSpeed` and `infiniteSpeed` values are never modified
+> - Snapshots are taken when multiply mode is toggled ON; toggling OFF keeps current values
+>
+> #### Beat Subdivision Fix (all editors)
+> RGB Matrix, EFX, Scene, and Speed Dial preset editors previously showed only
+> 1/1 and 1/2 beat subdivisions (`ByTwoFractions`). All four now use `FineFractions`,
+> exposing the full 1/1, 1/2, 1/4, 1/8, 1/16 range — matching Chaser editor behavior.
 >
 > #### RGB Matrix Rotation & Mirroring
 > Rotation and mirroring are now engine-level properties on `RGBMatrix`, available

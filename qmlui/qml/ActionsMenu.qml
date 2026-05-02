@@ -23,6 +23,7 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 Popup
@@ -42,6 +43,56 @@ Popup
             qlcplus.saveWorkspace(qlcplus.fileName())
         else
             openDialog(App.SaveAsMode)
+    }
+
+    function handleNewAction()
+    {
+        if (qlcplus.docModified)
+        {
+            saveFirstPopup.action = "#NEW"
+            saveFirstPopup.open()
+        }
+        else
+            qlcplus.newWorkspace()
+
+        menuRoot.close()
+    }
+
+    function handleOpenAction()
+    {
+        if (qlcplus.docModified)
+        {
+            saveFirstPopup.action = "#OPEN"
+            saveFirstPopup.open()
+        }
+        else
+            openDialog(App.OpenMode)
+
+        menuRoot.close()
+    }
+
+    function handleUndoAction()
+    {
+        menuRoot.close()
+        tardis.undoAction()
+    }
+
+    function handleRedoAction()
+    {
+        menuRoot.close()
+        tardis.redoAction()
+    }
+
+    function handleFullscreenAction()
+    {
+        menuRoot.close()
+        qlcplus.toggleFullscreen()
+    }
+
+    function handleStopAllAction()
+    {
+        menuRoot.close()
+        qlcplus.stopAllFunctions()
     }
 
     function saveBeforeExit()
@@ -228,18 +279,8 @@ Popup
             id: fileNew
             imgSource: "qrc:/filenew.svg"
             entryText: qsTr("New project")
-            onClicked:
-            {
-                if (qlcplus.docModified)
-                {
-                    saveFirstPopup.action = "#NEW"
-                    saveFirstPopup.open()
-                }
-                else
-                    qlcplus.newWorkspace()
-
-                menuRoot.close()
-            }
+            shortcutText: ShortcutUtils.display("Ctrl+N")
+            onClicked: handleNewAction()
             onEntered: submenuItem = null
         }
 
@@ -248,18 +289,8 @@ Popup
             id: fileOpen
             imgSource: "qrc:/fileopen.svg"
             entryText: qsTr("Open file")
-            onClicked:
-            {
-                if (qlcplus.docModified)
-                {
-                    saveFirstPopup.action = "#OPEN"
-                    saveFirstPopup.open()
-                }
-                else
-                    openDialog(App.OpenMode)
-
-                menuRoot.close()
-            }
+            shortcutText: ShortcutUtils.display("Ctrl+O")
+            onClicked: handleOpenAction()
             onEntered: submenuItem = recentMenu
 
             Rectangle
@@ -305,6 +336,7 @@ Popup
             id: fileSave
             imgSource: "qrc:/filesave.svg"
             entryText: qsTr("Save project")
+            shortcutText: ShortcutUtils.display("Ctrl+S")
             onEntered: submenuItem = null
 
             onClicked:
@@ -369,13 +401,10 @@ Popup
                 Layout.fillHeight: true
                 imgSource: "qrc:/undo.svg"
                 entryText: qsTr("Undo")
+                shortcutText: ShortcutUtils.display("Ctrl+Z")
                 onEntered: submenuItem = null
 
-                onClicked:
-                {
-                    menuRoot.close()
-                    tardis.undoAction()
-                }
+                onClicked: handleUndoAction()
             }
             ContextMenuEntry
             {
@@ -383,13 +412,10 @@ Popup
                 Layout.fillHeight: true
                 imgSource: "qrc:/redo.svg"
                 entryText: qsTr("Redo")
+                shortcutText: ShortcutUtils.display("Ctrl+Shift+Z")
                 onEntered: submenuItem = null
 
-                onClicked:
-                {
-                    menuRoot.close()
-                    tardis.redoAction()
-                }
+                onClicked: handleRedoAction()
             }
         }
         ContextMenuEntry
@@ -500,12 +526,9 @@ Popup
             faSource: FontAwesome.fa_maximize
             faColor: UISettings.fgLight
             entryText: qsTr("Toggle fullscreen")
+            shortcutText: ShortcutUtils.display("F11")
             onEntered: submenuItem = null
-            onClicked:
-            {
-                menuRoot.close()
-                qlcplus.toggleFullscreen()
-            }
+            onClicked: handleFullscreenAction()
         }
 
         ContextMenuEntry
@@ -651,4 +674,3 @@ Popup
         }
     }
 }
-

@@ -21,6 +21,7 @@ import QtQuick
 import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 SidePanel
@@ -57,7 +58,7 @@ SidePanel
                 faColor: "limegreen"
                 ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
-                tooltip: qsTr("Add a new widget to the console")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Add a new widget to the console"), "Ctrl+]")
                 onClicked:
                 {
                     checked = !checked
@@ -79,7 +80,7 @@ SidePanel
                 checked: virtualConsole.editMode
                 ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
-                tooltip: qsTr("Enable/Disable the widgets edit mode")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Enable/Disable the widgets edit mode"), "Ctrl+]")
 
                 onClicked: virtualConsole.editMode = !checked
 
@@ -105,7 +106,7 @@ SidePanel
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/functions.svg"
-                tooltip: qsTr("Function Manager")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Function Manager"), "Ctrl+]")
                 ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
                 onClicked:
@@ -250,4 +251,3 @@ SidePanel
         }
     }
 }
-

@@ -35,6 +35,8 @@ Dialog
     title: ""
     standardButtons: Dialog.Ok | Dialog.Cancel
     onVisibleChanged: mainView.setDimScreen(visible)
+    onOpened: mainView.popupCount++
+    onClosed: mainView.popupCount = Math.max(0, mainView.popupCount - 1)
 
     property string message: ""
 

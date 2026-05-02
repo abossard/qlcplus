@@ -18,6 +18,7 @@
 */
 
 import QtQuick
+import QtQuick.Controls.Basic
 
 import "."
 
@@ -45,6 +46,7 @@ Rectangle
     property bool repetition: false
     property bool autoHeight: false
     property int originalHeight
+    property string tooltip: ""
 
     signal clicked(int mouseButton)
 
@@ -79,6 +81,27 @@ Rectangle
         z: 1
         color: "black"
         opacity: 0.6
+    }
+
+    ToolTip
+    {
+        visible: btnRoot.tooltip && gbMouseArea.containsMouse
+        text: btnRoot.tooltip
+        delay: 1000
+        timeout: 5000
+        background:
+            Rectangle
+            {
+                color: UISettings.bgMedium
+                border.width: 1
+                border.color: UISettings.bgLight
+            }
+        contentItem:
+            Text
+            {
+                text: btnRoot.tooltip
+                color: "white"
+            }
     }
 
     Text

@@ -22,6 +22,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 SidePanel
@@ -64,7 +65,7 @@ SidePanel
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/fixture.svg"
-                tooltip: qsTr("Add Fixtures")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Add Fixtures"), "Ctrl+[")
                 ButtonGroup.group: fxManagerGroup
                 autoExclusive: false
                 onClicked:
@@ -92,7 +93,7 @@ SidePanel
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/group.svg"
-                tooltip: qsTr("Fixture Groups")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Fixture Groups"), "Ctrl+[")
                 ButtonGroup.group: fxManagerGroup
                 autoExclusive: false
                 onClicked:
@@ -115,7 +116,7 @@ SidePanel
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/palette.svg"
-                tooltip: qsTr("Palettes")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Palettes"), "Ctrl+[")
                 ButtonGroup.group: fxManagerGroup
                 autoExclusive: false
                 onClicked:

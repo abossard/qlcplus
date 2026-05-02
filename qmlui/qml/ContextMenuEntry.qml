@@ -18,6 +18,8 @@
 */
 
 import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
 
 import "."
 
@@ -35,10 +37,13 @@ Rectangle
     property color bgColor: "transparent"
     property color hoverColor: UISettings.highlight
     property color pressColor: UISettings.highlightPressed
+    property string shortcutText: ""
+    property string tooltip: ""
+    property int shortcutLeftMargin: UISettings.iconSizeDefault
 
     property int iconHeight: UISettings.iconSizeDefault
     property int iconWidth: iconHeight
-    property int itemWidth: entryRow.width + 20
+    property int itemWidth: entryRow.implicitWidth + 20
 
     signal clicked
     signal entered
@@ -69,16 +74,18 @@ Rectangle
         }
     ]
 
-    Row
+    RowLayout
     {
         id: entryRow
         x: 5
+        width: baseMenuEntry.width - 10
+        height: baseMenuEntry.height
         spacing: 5
 
         Image
         {
             visible: imgSource ? true : false
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.alignment: Qt.AlignVCenter
             height: iconHeight
             width: iconWidth
             source: imgSource
@@ -90,7 +97,7 @@ Rectangle
             visible: faSource ? true : false
             width: iconHeight
             color: faColor
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.alignment: Qt.AlignVCenter
             horizontalAlignment: Text.AlignHCenter
             font.family: UISettings.fontAwesomeFontName
             font.pixelSize: baseMenuEntry.height * 0.80
@@ -103,7 +110,45 @@ Rectangle
             height: baseMenuEntry.height
             fontSize: UISettings.textSizeDefault
             fontBold: true
+            Layout.fillWidth: shortcutText !== ""
         }
+
+        Item
+        {
+            visible: shortcutText !== ""
+            Layout.preferredWidth: shortcutLeftMargin
+            Layout.preferredHeight: 1
+        }
+
+        RobotoText
+        {
+            visible: shortcutText !== ""
+            label: shortcutText
+            height: baseMenuEntry.height
+            fontSize: UISettings.textSizeSmall
+            color: UISettings.fgMedium
+        }
+    }
+
+    ToolTip
+    {
+        visible: baseMenuEntry.tooltip && entryMouseArea.containsMouse
+        text: baseMenuEntry.tooltip
+        delay: 1000
+        timeout: 5000
+        background:
+            Rectangle
+            {
+                color: UISettings.bgMedium
+                border.width: 1
+                border.color: UISettings.bgLight
+            }
+        contentItem:
+            Text
+            {
+                text: baseMenuEntry.tooltip
+                color: "white"
+            }
     }
 
     MouseArea

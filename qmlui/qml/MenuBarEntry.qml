@@ -42,6 +42,7 @@ Button
     property real mFontSize: UISettings.textSizeDefault * 0.70
     property int iconSize: imgSource ? height - 4 - topPadding - bottomPadding : 0
     property int iconRotation: 0
+    property string tooltip: ""
 
     property Gradient bgGradient: defBgGradient
     property Gradient selGradient: defSelectionGradient
@@ -127,6 +128,27 @@ Button
             opacity: enabled ? 1 : 0.3
         }
 
+    ToolTip
+    {
+        visible: tooltip && hovered
+        text: tooltip
+        delay: 1000
+        timeout: 5000
+        background:
+            Rectangle
+            {
+                color: UISettings.bgMedium
+                border.width: 1
+                border.color: UISettings.bgLight
+            }
+        contentItem:
+            Text
+            {
+                text: tooltip
+                color: "white"
+            }
+    }
+
 
     MouseArea
     {
@@ -140,4 +162,3 @@ Button
         }
     }
 }
-

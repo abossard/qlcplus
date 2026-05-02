@@ -18,10 +18,12 @@
 */
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 SidePanel
@@ -111,6 +113,62 @@ SidePanel
             loaderSource = functionManager.getEditorResource(funcID)
             animatePanel(true)
         }
+    }
+
+    function requestDeleteSelectedItems()
+    {
+        if (!(selectedItemsCount && !functionManager.isEditing))
+            return
+
+        var selNames = functionManager.selectedItemNames()
+        deleteItemsPopup.message = qsTr("Are you sure you want to delete the following items?") + "\n" + selNames
+        deleteItemsPopup.open()
+    }
+
+    function requestCloneSelectedFunctions()
+    {
+        if (functionManager.selectedFunctionCount && !functionManager.isEditing)
+            functionManager.cloneFunctions()
+    }
+
+    function requestFunctionWizard()
+    {
+        if (qlcplus.accessMask & App.AC_FunctionEditing)
+            functionWizardPopup.open()
+    }
+
+    Shortcut
+    {
+        sequence: "Delete"
+        enabled: mainView.currentContext === "FIXANDFUNC"
+                 && !rightSidePanel.inShowManager
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_FunctionEditing)
+                 && rightSidePanel.selectedItemsCount > 0
+                 && !functionManager.isEditing
+        onActivated: rightSidePanel.requestDeleteSelectedItems()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Copy
+        enabled: mainView.currentContext === "FIXANDFUNC"
+                 && !rightSidePanel.inShowManager
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_FunctionEditing)
+                 && functionManager.selectedFunctionCount > 0
+                 && !functionManager.isEditing
+        onActivated: rightSidePanel.requestCloneSelectedFunctions()
+    }
+
+    Shortcut
+    {
+        sequence: "Ctrl+W"
+        enabled: mainView.currentContext === "FIXANDFUNC"
+                 && !rightSidePanel.inShowManager
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_FunctionEditing)
+        onActivated: rightSidePanel.requestFunctionWizard()
     }
 
     onContentLoaded: (item, ID) =>
@@ -211,7 +269,7 @@ SidePanel
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/functions.svg"
-                tooltip: qsTr("Function Manager")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Function Manager"), "Ctrl+]")
                 checkable: true
                 onToggled:
                 {
@@ -234,7 +292,7 @@ SidePanel
                 height: iconSize
                 faSource: FontAwesome.fa_stopwatch
                 faColor: "turquoise"
-                tooltip: qsTr("Timing Settings")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Timing Settings"), "Ctrl+]")
                 checkable: true
                 onToggled:
                 {
@@ -287,8 +345,8 @@ SidePanel
                 height: iconSize
                 faSource: FontAwesome.fa_hat_wizard
                 faColor: "orange"
-                tooltip: qsTr("Function Wizard")
-                onClicked: functionWizardPopup.open()
+                tooltip: ShortcutUtils.withShortcut(qsTr("Function Wizard"), "Ctrl+W")
+                onClicked: rightSidePanel.requestFunctionWizard()
 
                 PopupFunctionWizard
                 {
@@ -303,15 +361,9 @@ SidePanel
                 height: iconSize
                 faSource: FontAwesome.fa_minus
                 faColor: "crimson"
-                tooltip: qsTr("Delete the selected functions")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Delete the selected functions"), "Delete")
                 counter: selectedItemsCount && !functionManager.isEditing
-                onClicked:
-                {
-                    var selNames = functionManager.selectedItemNames()
-                    //console.log(selNames)
-                    deleteItemsPopup.message = qsTr("Are you sure you want to delete the following items?") + "\n" + selNames
-                    deleteItemsPopup.open()
-                }
+                onClicked: rightSidePanel.requestDeleteSelectedItems()
 
                 CustomPopupDialog
                 {
@@ -368,9 +420,9 @@ SidePanel
                 height: iconSize
                 faSource: FontAwesome.fa_clone
                 faColor: UISettings.fgMain
-                tooltip: qsTr("Clone the selected functions")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Clone the selected functions"), "Ctrl+C")
                 counter: functionManager.selectedFunctionCount && !functionManager.isEditing
-                onClicked: functionManager.cloneFunctions()
+                onClicked: rightSidePanel.requestCloneSelectedFunctions()
             }
 
             IconButton

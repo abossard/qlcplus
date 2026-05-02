@@ -244,6 +244,37 @@ All BB Pattern functions set RGBW per head. **Never set ch5 (master dimmer).**
 
 > **Note**: Color chasers (Jungle Slow/Fast, Ocean Slow/Fast, etc.) exist in the Function Manager under `DJ Expression/Chasers/` but are not currently exposed as buttons on Page 3. They can be started from the Function Manager or added as buttons later.
 
+## Updating Scenes from Live DMX
+
+### The Problem
+You've built a scene, but during a performance you tweak faders to fine-tune the look. How do you save those tweaks back into the scene?
+
+### Two Workflows
+
+#### 1. Direct Edit in Scene Editor (primary)
+- Double-click a scene in Function Manager to open it
+- Bottom panel shows per-fixture **channel faders**
+- Drag faders → **DMX updates immediately** if the scene is running
+- Changes are saved directly into the scene — no dump needed
+
+#### 2. DMX Dump → "Update only scene channels from live" (new)
+- Adjust your look using Simple Desk, VC sliders, or any live controls
+- Press the **DMX Dump** toolbar button (📷)
+- Select **"Dump to existing Scene"** → pick your scene
+- Click **"Update only scene channels from live"**
+- System reads current pre-GM DMX values
+- Updates **ONLY channels already in the scene** — preserves layer separation
+- Fully undoable (Ctrl+Z)
+
+### Why "Only Scene Channels" Matters
+If a color-only scene is updated, it stays a color-only scene. Dimmer values from other layers won't leak in. This preserves the layered architecture (color / dimmer / movement separation).
+
+### Caveats
+- Values captured are **pre-Grand-Master** (what the engine computes before GM scaling)
+- If other functions are writing the same channels (HTP merge), the captured value includes their contribution
+- Palette-bound channels are updated with explicit values (detaches from palette)
+- Works with Sequences (resolves to bound scene)
+
 ## Dimmer & Strobe Architecture
 
 ### The HTP Problem (Lessons Learned)

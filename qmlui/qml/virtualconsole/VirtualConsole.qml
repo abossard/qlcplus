@@ -74,32 +74,25 @@ Rectangle
     color: "transparent"
     objectName: "virtualConsole"
 
-    Shortcut {
-        sequence: StandardKey.Undo
-        enabled: virtualConsole ? virtualConsole.editMode : false
-        onActivated: {
-            var focused = Window.activeFocusItem
-            if (focused && (focused instanceof TextInput || focused instanceof TextEdit))
-                return
-            tardis.undoAction()
-        }
-    }
-    Shortcut {
-        sequence: StandardKey.Redo
-        enabled: virtualConsole ? virtualConsole.editMode : false
-        onActivated: {
-            var focused = Window.activeFocusItem
-            if (focused && (focused instanceof TextInput || focused instanceof TextEdit))
-                return
-            tardis.redoAction()
-        }
-    }
-
     property string contextName: "VC"
     property int selectedPage: virtualConsole.selectedPage
     property bool docLoaded: qlcplus.docLoaded
 
     Component.onCompleted: virtualConsole.editMode = false
+
+    Shortcut
+    {
+        sequence: "Ctrl+]"
+        enabled: mainView.currentContext === "VC" && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_VCEditing)
+        onActivated:
+        {
+            if (rightSidePanel.isOpen)
+                rightSidePanel.animatePanel(false)
+            else if (rightSidePanel.loaderSource !== "")
+                rightSidePanel.animatePanel(true)
+        }
+    }
 
     onDocLoadedChanged:
     {

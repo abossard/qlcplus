@@ -20,8 +20,10 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Window
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 Rectangle
@@ -34,6 +36,7 @@ Rectangle
     color: UISettings.bgMedium
 
     property string currentContext: ""
+    property int popupCount: 0
 
     Component.onCompleted: UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
     onWidthChanged: UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
@@ -114,6 +117,25 @@ Rectangle
         mainViewLoader.source = qmlRes
     }
 
+    function isTextEditingActive()
+    {
+        return ShortcutUtils.isTextEditing(Window.activeFocusItem)
+    }
+
+    function shortcutsBlocked()
+    {
+        return isTextEditingActive()
+            || mainView.popupCount > 0
+            || actionsMenu.opened
+            || dimScreen.visible
+    }
+
+    function projectShortcutsAllowed()
+    {
+        return !shortcutsBlocked()
+            && qlcplus.accessMask !== App.AC_VCControl
+    }
+
     FontLoader
     {
         source: "qrc:/RobotoCondensed-Regular.ttf"
@@ -182,6 +204,7 @@ Rectangle
                 //visible: qlcplus.accessMask & App.AC_FunctionEditing
                 imgSource: "qrc:/editor.svg"
                 entryText: qsTr("Fixtures & Functions")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Fixtures & Functions"), "Alt+1")
                 checked: false
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
@@ -200,6 +223,7 @@ Rectangle
                 visible: qlcplus.accessMask & App.AC_VCControl
                 imgSource: "qrc:/virtualconsole.svg"
                 entryText: qsTr("Virtual Console")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Virtual Console"), "Alt+2")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -222,6 +246,7 @@ Rectangle
                 visible: qlcplus.accessMask & App.AC_SimpleDesk
                 imgSource: "qrc:/simpledesk.svg"
                 entryText: qsTr("Simple Desk")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Simple Desk"), "Alt+3")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -244,6 +269,7 @@ Rectangle
                 visible: qlcplus.accessMask & App.AC_ShowManager
                 imgSource: "qrc:/showmanager.svg"
                 entryText: qsTr("Show Manager")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Show Manager"), "Alt+4")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -266,6 +292,7 @@ Rectangle
                 visible: qlcplus.accessMask & App.AC_InputOutput
                 imgSource: "qrc:/inputoutput.svg"
                 entryText: qsTr("Input/Output")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Input/Output"), "Alt+5")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -288,6 +315,7 @@ Rectangle
                 visible: qlcplus.accessMask & App.AC_VCControl
                 imgSource: "qrc:/grid.svg"
                 entryText: qsTr("Flow Console")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Flow Console"), "Alt+6")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -555,9 +583,10 @@ Rectangle
                 bgColor: "transparent"
                 faSource: FontAwesome.fa_octagon
                 faColor: "red"
-                tooltip: qsTr("Stop all the running functions")
+                tooltip: ShortcutUtils.withShortcut(qsTr("Stop all the running functions"),
+                    Qt.platform.os === "osx" ? "Meta+Shift+Esc" : "Ctrl+Shift+Esc")
 
-                onClicked: qlcplus.stopAllFunctions()
+                onClicked: actionsMenu.handleStopAllAction()
 
                 property int runningCount: qlcplus.runningFunctionsCount
 
@@ -624,6 +653,90 @@ Rectangle
         y: actEntry.height + 1
         visible: false
         z: visible ? 99 : 0
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.New
+        enabled: mainView.projectShortcutsAllowed()
+        onActivated: actionsMenu.handleNewAction()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Open
+        enabled: mainView.projectShortcutsAllowed()
+        onActivated: actionsMenu.handleOpenAction()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Save
+        enabled: mainView.projectShortcutsAllowed()
+        onActivated: actionsMenu.handleSaveAction()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Undo
+        enabled: !mainView.shortcutsBlocked()
+        onActivated: actionsMenu.handleUndoAction()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.Redo
+        enabled: !mainView.shortcutsBlocked()
+        onActivated: actionsMenu.handleRedoAction()
+    }
+
+    Shortcut
+    {
+        sequence: Qt.platform.os === "osx" ? "Meta+Shift+Esc" : "Ctrl+Shift+Esc"
+        enabled: !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_VCControl)
+                 && qlcplus.runningFunctionsCount > 0
+        onActivated: actionsMenu.handleStopAllAction()
+    }
+
+    Shortcut
+    {
+        sequences: ["F11", "Ctrl+F11"]
+        enabled: !mainView.shortcutsBlocked()
+        onActivated: actionsMenu.handleFullscreenAction()
+    }
+
+    Shortcut { sequence: "Alt+1"; enabled: !mainView.shortcutsBlocked() && fnfEntry.visible; onActivated: fnfEntry.checked = true }
+    Shortcut { sequence: "Alt+2"; enabled: !mainView.shortcutsBlocked() && vcEntry.visible; onActivated: vcEntry.checked = true }
+    Shortcut { sequence: "Alt+3"; enabled: !mainView.shortcutsBlocked() && sdEntry.visible; onActivated: sdEntry.checked = true }
+    Shortcut { sequence: "Alt+4"; enabled: !mainView.shortcutsBlocked() && smEntry.visible; onActivated: smEntry.checked = true }
+    Shortcut { sequence: "Alt+5"; enabled: !mainView.shortcutsBlocked() && ioEntry.visible; onActivated: ioEntry.checked = true }
+    Shortcut { sequence: "Alt+6"; enabled: !mainView.shortcutsBlocked() && fcEntry.visible; onActivated: fcEntry.checked = true }
+
+    Shortcut
+    {
+        sequence: "Ctrl+PgDown"
+        enabled: !mainView.shortcutsBlocked()
+        onActivated:
+        {
+            var entries = [fnfEntry, vcEntry, sdEntry, smEntry, ioEntry, fcEntry].filter(function(e) { return e.visible })
+            var idx = -1
+            for (var i = 0; i < entries.length; i++) { if (entries[i].checked) { idx = i; break } }
+            if (idx >= 0) entries[(idx + 1) % entries.length].checked = true
+        }
+    }
+
+    Shortcut
+    {
+        sequence: "Ctrl+PgUp"
+        enabled: !mainView.shortcutsBlocked()
+        onActivated:
+        {
+            var entries = [fnfEntry, vcEntry, sdEntry, smEntry, ioEntry, fcEntry].filter(function(e) { return e.visible })
+            var idx = -1
+            for (var i = 0; i < entries.length; i++) { if (entries[i].checked) { idx = i; break } }
+            if (idx >= 0) entries[(idx - 1 + entries.length) % entries.length].checked = true
+        }
     }
 
     /* Rectangle covering the whole window to
