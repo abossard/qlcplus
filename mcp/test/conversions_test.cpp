@@ -14,8 +14,40 @@
 #include <QJSValue>
 #include "conversions_test.h"
 #include "conversions.h"
+#include "doc.h"
+#include "scene.h"
 
 using namespace mcp;
+
+namespace {
+
+QString timeUtilsPath()
+{
+    const QStringList candidates = {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/../../../qmlui/js/TimeUtils.js"),
+        QDir::currentPath() + QStringLiteral("/../qmlui/js/TimeUtils.js"),
+        QDir::currentPath() + QStringLiteral("/qmlui/js/TimeUtils.js")
+    };
+
+    for (const QString &candidate : candidates)
+    {
+        if (QFile::exists(candidate))
+            return candidate;
+    }
+
+    return QString();
+}
+
+QJSValue evaluateTimeUtils(QJSEngine &engine, const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return QJSValue();
+
+    return engine.evaluate(QString::fromUtf8(file.readAll()), path);
+}
+
+}
 
 // --- beatStringToValue: fraction inputs ---
 
@@ -129,29 +161,11 @@ void Conversions_Test::qlcStringToTime_beatTextInput()
     QFETCH(double, expected);
     QFETCH(bool, expectedNaN);
 
-    const QStringList candidates = {
-        QCoreApplication::applicationDirPath() + QStringLiteral("/../../../qmlui/js/TimeUtils.js"),
-        QDir::currentPath() + QStringLiteral("/../qmlui/js/TimeUtils.js"),
-        QDir::currentPath() + QStringLiteral("/qmlui/js/TimeUtils.js")
-    };
-
-    QString path;
-    for (const QString &candidate : candidates)
-    {
-        if (QFile::exists(candidate))
-        {
-            path = candidate;
-            break;
-        }
-    }
+    QString path = timeUtilsPath();
     QVERIFY2(!path.isEmpty(), "Unable to locate qmlui/js/TimeUtils.js");
 
-    QFile file(path);
-    QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
-             qPrintable(QStringLiteral("Unable to open %1").arg(path)));
-
     QJSEngine engine;
-    QJSValue evaluated = engine.evaluate(QString::fromUtf8(file.readAll()), path);
+    QJSValue evaluated = evaluateTimeUtils(engine, path);
     QVERIFY2(!evaluated.isError(),
              qPrintable(QStringLiteral("TimeUtils.js evaluation failed: %1").arg(evaluated.toString())));
 
@@ -166,6 +180,189 @@ void Conversions_Test::qlcStringToTime_beatTextInput()
         QVERIFY2(std::isnan(actual), qPrintable(QStringLiteral("Expected NaN for %1, got %2").arg(input).arg(actual)));
     else
         QCOMPARE(actual, expected);
+}
+
+void Conversions_Test::timeToQlcString_currentBeatDisplay_data()
+{
+    QTest::addColumn<int>("input");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("1/16 canonical") << 63 << QStringLiteral(" 1/16");
+    QTest::newRow("1/8 canonical") << 125 << QStringLiteral(" 1/8");
+    QTest::newRow("off-grid 63+63") << 126 << QStringLiteral(" 126");
+}
+
+void Conversions_Test::timeToQlcString_currentBeatDisplay()
+{
+    QFETCH(int, input);
+    QFETCH(QString, expected);
+
+    QString path = timeUtilsPath();
+    QVERIFY2(!path.isEmpty(), "Unable to locate qmlui/js/TimeUtils.js");
+
+    QJSEngine engine;
+    QJSValue evaluated = evaluateTimeUtils(engine, path);
+    QVERIFY2(!evaluated.isError(),
+             qPrintable(QStringLiteral("TimeUtils.js evaluation failed: %1").arg(evaluated.toString())));
+
+    QJSValue formatter = engine.globalObject().property(QStringLiteral("timeToQlcString"));
+    QVERIFY2(formatter.isCallable(), "timeToQlcString is not callable");
+
+    QJSValue result = formatter.call(QJSValueList{QJSValue(input), QJSValue(1)});
+    QVERIFY2(result.isString(), qPrintable(QStringLiteral("Expected string result for %1").arg(input)));
+    QCOMPARE(result.toString(), expected);
+}
+
+void Conversions_Test::engineBeatTiming_characterization_data()
+{
+    QTest::addColumn<uint>("beatValue");
+    QTest::addColumn<int>("beatDuration");
+    QTest::addColumn<uint>("expectedMs");
+
+    QTest::newRow("1/16 at 120 BPM") << 63u << 500 << 32u;
+    QTest::newRow("1/8 canonical at 120 BPM") << 125u << 500 << 63u;
+    QTest::newRow("63+63 off-grid at 120 BPM") << 126u << 500 << 63u;
+    QTest::newRow("1/16 at 129 BPM") << 63u << 465 << 29u;
+    QTest::newRow("1/16 at 163 BPM") << 63u << 366 << 23u;
+}
+
+void Conversions_Test::engineBeatTiming_characterization()
+{
+    QFETCH(uint, beatValue);
+    QFETCH(int, beatDuration);
+    QFETCH(uint, expectedMs);
+
+    QCOMPARE(Function::beatsToTime(beatValue, beatDuration), expectedMs);
+}
+
+void Conversions_Test::engineBeatTiming_roundTripLoss()
+{
+    QCOMPARE(Function::speedAdd(63, 63), 126u);
+    QCOMPARE(Function::timeToBeats(Function::beatsToTime(63, 500), 500), 63u);
+    QCOMPARE(Function::beatsToTime(Function::timeToBeats(63, 500), 500), 63u);
+    QCOMPARE(Function::timeToBeats(Function::beatsToTime(126, 500), 500), 125u);
+
+    uint timeFadeIn = Function::beatsToTime(63, 500);
+    uint timeDuration = Function::beatsToTime(Function::speedAdd(63, 63), 500);
+    uint roundTrippedFadeIn = Function::timeToBeats(timeFadeIn, 500);
+    uint roundTrippedDuration = Function::timeToBeats(timeDuration, 500);
+    QCOMPARE(Function::speedSubtract(roundTrippedDuration, roundTrippedFadeIn), 62u);
+}
+
+void Conversions_Test::snapToBeatGrid_data()
+{
+    QTest::addColumn<uint>("input");
+    QTest::addColumn<uint>("expected");
+
+    // On-grid values (should pass through unchanged)
+    QTest::newRow("0") << 0u << 0u;
+    QTest::newRow("63") << 63u << 63u;
+    QTest::newRow("125") << 125u << 125u;
+    QTest::newRow("500") << 500u << 500u;
+    QTest::newRow("938") << 938u << 938u;
+    QTest::newRow("1000") << 1000u << 1000u;
+    QTest::newRow("1063") << 1063u << 1063u;
+
+    // Off-grid +1 drift from odd-sixteenth addition
+    QTest::newRow("126->125") << 126u << 125u;
+    QTest::newRow("251->250") << 251u << 250u;
+    QTest::newRow("376->375") << 376u << 375u;
+    QTest::newRow("501->500") << 501u << 500u;
+    QTest::newRow("626->625") << 626u << 625u;
+    QTest::newRow("751->750") << 751u << 750u;
+    QTest::newRow("876->875") << 876u << 875u;
+    QTest::newRow("1001->1000") << 1001u << 1000u;
+    QTest::newRow("1126->1125") << 1126u << 1125u;
+    QTest::newRow("1251->1250") << 1251u << 1250u;
+    QTest::newRow("1376->1375") << 1376u << 1375u;
+    QTest::newRow("1501->1500") << 1501u << 1500u;
+    QTest::newRow("1626->1625") << 1626u << 1625u;
+    QTest::newRow("1751->1750") << 1751u << 1750u;
+    QTest::newRow("1876->1875") << 1876u << 1875u;
+
+    // Off-grid -1 (subtraction case: 125-63=62)
+    QTest::newRow("62->63") << 62u << 63u;
+    QTest::newRow("187->188") << 187u << 188u;
+    QTest::newRow("312->313") << 312u << 313u;
+    QTest::newRow("437->438") << 437u << 438u;
+    QTest::newRow("562->563") << 562u << 563u;
+    QTest::newRow("687->688") << 687u << 688u;
+    QTest::newRow("812->813") << 812u << 813u;
+    QTest::newRow("937->938") << 937u << 938u;
+
+    // Sentinel values
+    QTest::newRow("infinite") << (uint)Function::infiniteSpeed() << (uint)Function::infiniteSpeed();
+}
+
+void Conversions_Test::snapToBeatGrid()
+{
+    QFETCH(uint, input);
+    QFETCH(uint, expected);
+    QCOMPARE(Function::snapToBeatGrid(input), expected);
+}
+
+void Conversions_Test::durationBeatSnap_data()
+{
+    QTest::addColumn<int>("tempoType");
+    QTest::addColumn<uint>("inputDuration");
+    QTest::addColumn<uint>("expectedDuration");
+
+    // Beat mode: snaps
+    QTest::newRow("beats 126->125") << (int)Function::Beats << 126u << 125u;
+    QTest::newRow("beats 1001->1000") << (int)Function::Beats << 1001u << 1000u;
+    QTest::newRow("beats 125 exact") << (int)Function::Beats << 125u << 125u;
+    QTest::newRow("beats 62->63") << (int)Function::Beats << 62u << 63u;
+
+    // Time mode: no snap
+    QTest::newRow("time 126 stays") << (int)Function::Time << 126u << 126u;
+    QTest::newRow("time 62 stays") << (int)Function::Time << 62u << 62u;
+}
+
+void Conversions_Test::durationBeatSnap()
+{
+    QFETCH(int, tempoType);
+    QFETCH(uint, inputDuration);
+    QFETCH(uint, expectedDuration);
+
+    Doc doc(this);
+    Scene scene(&doc);
+    scene.setTempoType(Function::TempoType(tempoType));
+    scene.setDuration(inputDuration);
+    QCOMPARE(scene.duration(), expectedDuration);
+}
+
+void Conversions_Test::holdSpeedBeatSnap()
+{
+    Doc doc(this);
+    Scene scene(&doc);
+    scene.setTempoType(Function::Beats);
+    scene.setFadeInSpeed(63);
+    scene.setDuration(125);
+    QCOMPARE(scene.holdSpeed(), 63u);
+}
+
+void Conversions_Test::beatsToTimeRounding_data()
+{
+    QTest::addColumn<uint>("beats");
+    QTest::addColumn<uint>("beatDuration");
+    QTest::addColumn<uint>("expected");
+
+    QTest::newRow("1/16 at 120bpm") << 63u << 500u << 32u;
+    QTest::newRow("1/8 at 120bpm") << 125u << 500u << 63u;
+    QTest::newRow("1/4 at 120bpm") << 250u << 500u << 125u;
+    QTest::newRow("1/2 at 120bpm") << 500u << 500u << 250u;
+    QTest::newRow("15/16 at 120bpm") << 938u << 500u << 469u;
+    QTest::newRow("1 beat at 120bpm") << 1000u << 500u << 500u;
+    QTest::newRow("1/16 at 100bpm") << 63u << 600u << 38u;
+    QTest::newRow("1/2 at 140bpm") << 500u << 429u << 215u;
+}
+
+void Conversions_Test::beatsToTimeRounding()
+{
+    QFETCH(uint, beats);
+    QFETCH(uint, beatDuration);
+    QFETCH(uint, expected);
+    QCOMPARE(Function::beatsToTime(beats, beatDuration), expected);
 }
 
 // --- valueToBeatString: canonical values ---

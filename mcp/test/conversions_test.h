@@ -31,6 +31,25 @@ private slots:
     void qlcStringToTime_beatTextInput_data();
     void qlcStringToTime_beatTextInput();
 
+    void timeToQlcString_currentBeatDisplay_data();
+    void timeToQlcString_currentBeatDisplay();
+
+    void engineBeatTiming_characterization_data();
+    void engineBeatTiming_characterization();
+
+    void engineBeatTiming_roundTripLoss();
+
+    void snapToBeatGrid_data();
+    void snapToBeatGrid();
+
+    void durationBeatSnap_data();
+    void durationBeatSnap();
+
+    void holdSpeedBeatSnap();
+
+    void beatsToTimeRounding_data();
+    void beatsToTimeRounding();
+
     void valueToBeatString_canonical_data();
     void valueToBeatString_canonical();
 

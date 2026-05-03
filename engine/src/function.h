@@ -573,6 +573,7 @@ public:
 
     /** Safe speed operations */
     static uint speedNormalize(uint speed);
+    static uint snapToBeatGrid(uint value);
     static uint speedAdd(uint left, uint right);
     static uint speedSubtract(uint left, uint right);
 

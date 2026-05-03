@@ -555,6 +555,32 @@ static const int s_beatSixteenths[16] = {
     500, 563, 625, 688, 750, 813, 875, 938
 };
 
+uint Function::snapToBeatGrid(uint value)
+{
+    if (value == 0 || value == infiniteSpeed() || value == defaultSpeed())
+        return value;
+
+    uint whole = value / 1000;
+    int frac = static_cast<int>(value % 1000);
+
+    int best = 0;
+    int bestDist = qAbs(frac - s_beatSixteenths[0]);
+    for (int i = 1; i < 16; i++)
+    {
+        int d = qAbs(frac - s_beatSixteenths[i]);
+        if (d < bestDist)
+        {
+            bestDist = d;
+            best = i;
+        }
+    }
+    // Snap up to next whole beat if 1000 is closer (use <= for half-up)
+    if (qAbs(frac - 1000) <= bestDist)
+        return (whole + 1) * 1000;
+
+    return whole * 1000 + static_cast<uint>(s_beatSixteenths[best]);
+}
+
 uint Function::timeToBeats(uint time, int beatDuration)
 {
     if (time == 0 || time == infiniteSpeed())
@@ -589,7 +615,7 @@ uint Function::beatsToTime(uint beats, int beatDuration)
     if (beats == 0 || beats == infiniteSpeed())
         return beats;
 
-    return ((float)beats / 1000.0) * beatDuration;
+    return qRound(((double)beats / 1000.0) * (double)beatDuration);
 }
 
 quint32 Function::musicalBeatValue(int count, int subdivision)
@@ -711,6 +737,9 @@ bool Function::loadXMLTempoType(QXmlStreamReader &root)
 
 void Function::setFadeInSpeed(uint ms)
 {
+    if (tempoType() == Beats)
+        ms = snapToBeatGrid(ms);
+
     if (m_fadeInSpeed == ms)
         return;
 
@@ -725,6 +754,9 @@ uint Function::fadeInSpeed() const
 
 void Function::setFadeOutSpeed(uint ms)
 {
+    if (tempoType() == Beats)
+        ms = snapToBeatGrid(ms);
+
     if (m_fadeOutSpeed == ms)
         return;
 
@@ -739,6 +771,9 @@ uint Function::fadeOutSpeed() const
 
 void Function::setDuration(uint ms)
 {
+    if (tempoType() == Beats)
+        ms = snapToBeatGrid(ms);
+
     if (m_duration == ms)
         return;
 
@@ -753,7 +788,10 @@ uint Function::duration() const
 
 quint32 Function::holdSpeed() const
 {
-    return speedSubtract(duration(), fadeInSpeed());
+    quint32 h = speedSubtract(duration(), fadeInSpeed());
+    if (tempoType() == Beats)
+        h = snapToBeatGrid(h);
+    return h;
 }
 
 void Function::setHoldSpeed(quint32 hold)
