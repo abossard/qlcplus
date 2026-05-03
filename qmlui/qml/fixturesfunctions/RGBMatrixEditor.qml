@@ -35,6 +35,7 @@ Rectangle
 
     property int functionID: -1
     property var algoColors: rgbMatrixEditor ? rgbMatrixEditor.algoColors : null
+    property string nodeEditorStatus: ""
 
     signal requestView(int ID, string qmlSrc, bool back)
 
@@ -46,6 +47,13 @@ Rectangle
         color3Button.color = cCount > 2 && rgbMatrixEditor.hasColorAtIndex(2) ? algoColors[2] : "transparent"
         color4Button.color = cCount > 3 && rgbMatrixEditor.hasColorAtIndex(3) ? algoColors[3] : "transparent"
         color5Button.color = cCount > 4 && rgbMatrixEditor.hasColorAtIndex(4) ? algoColors[4] : "transparent"
+    }
+
+    Timer
+    {
+        id: nodeEditorStatusTimer
+        interval: 3000
+        onTriggered: nodeEditorStatus = ""
     }
 
     TimeEditTool
@@ -220,13 +228,42 @@ Rectangle
                     }
                 }
 
-                IconButton
+                Row
                 {
-                    width: UISettings.listItemHeight
-                    height: width
-                    imgSource: "qrc:/sequence.svg"
-                    tooltip: qsTr("Save this matrix to a sequence")
-                    onClicked: rgbMatrixEditor.saveToSequence()
+                    height: editorColumn.itemsHeight
+                    spacing: 4
+
+                    IconButton
+                    {
+                        width: UISettings.listItemHeight
+                        height: width
+                        imgSource: "qrc:/sequence.svg"
+                        tooltip: qsTr("Save this matrix to a sequence")
+                        onClicked: rgbMatrixEditor.saveToSequence()
+                    }
+
+                    IconButton
+                    {
+                        width: UISettings.listItemHeight
+                        height: width
+                        imgSource: "qrc:/grid.svg"
+                        tooltip: qsTr("Open Node Editor")
+                        onClicked:
+                        {
+                            nodeEditorStatus = qsTr("Node Editor launching...")
+                            nodeEditorStatusTimer.restart()
+                            rgbMatrixEditor.launchNodeEditor()
+                        }
+                    }
+                }
+
+                RobotoText
+                {
+                    Layout.columnSpan: 3
+                    label: nodeEditorStatus
+                    visible: nodeEditorStatus.length > 0
+                    height: visible ? editorColumn.itemsHeight : 0
+                    labelColor: "#888"
                 }
 
                 // row 4
@@ -278,7 +315,9 @@ Rectangle
                         { mLabel: qsTr("Amber") },
                         { mLabel: qsTr("UV") },
                         { mLabel: qsTr("Dimmer") },
-                        { mLabel: qsTr("Shutter") }
+                        { mLabel: qsTr("Shutter") },
+                        { mLabel: qsTr("RGBW (Accurate)") },
+                        { mLabel: qsTr("RGBW (Brighter)") }
                     ]
 
                     currentIndex: rgbMatrixEditor.controlMode
@@ -775,6 +814,35 @@ Rectangle
 
                             currValue: rgbMatrixEditor.tempoType
                             onValueChanged: rgbMatrixEditor.tempoType = value
+                        }
+                        Item
+                        {
+                            width: UISettings.listItemHeight
+                            height: width
+                        }
+
+                        // Row 5
+                        RobotoText
+                        {
+                            label: qsTr("Step duration")
+                            height: UISettings.listItemHeight
+                        }
+                        Rectangle
+                        {
+                            Layout.fillWidth: true
+                            height: UISettings.listItemHeight
+                            color: UISettings.bgMedium
+
+                            RobotoText
+                            {
+                                x: 3
+                                height: parent.height
+                                label: {
+                                    var dur = rgbMatrixEditor.duration
+                                    if (dur === -2) return "∞"
+                                    return TimeUtils.timeToQlcString(dur, rgbMatrixEditor.tempoType)
+                                }
+                            }
                         }
                         Item
                         {

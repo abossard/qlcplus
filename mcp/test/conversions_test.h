@@ -28,6 +28,9 @@ private slots:
 
     void beatStringToValue_overflow();
 
+    void qlcStringToTime_beatTextInput_data();
+    void qlcStringToTime_beatTextInput();
+
     void valueToBeatString_canonical_data();
     void valueToBeatString_canonical();
 

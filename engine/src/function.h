@@ -522,6 +522,15 @@ public:
     /** Get the duration in milliseconds */
     uint duration() const;
 
+    /** Get the hold time in milliseconds */
+    quint32 holdSpeed() const;
+
+    /** Set the hold time in milliseconds */
+    void setHoldSpeed(quint32 hold);
+
+    /** Set the fade in time while preserving the hold time */
+    void setFadeInSpeedPreservingHold(quint32 fadeIn);
+
     /** Get the total duration in milliseconds.
      *  This differs from duration as it considers
      *  the steps or the specific Function parameters */

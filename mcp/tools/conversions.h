@@ -239,12 +239,14 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
     if (isBeatMode)
     {
         entry["duration"] = valueToBeatString(matrix->duration());
+        entry["hold"] = valueToBeatString(matrix->holdSpeed());
         entry["fadeIn"] = valueToBeatString(matrix->fadeInSpeed());
         entry["fadeOut"] = valueToBeatString(matrix->fadeOutSpeed());
     }
     else
     {
         entry["duration"] = (int)matrix->duration();
+        entry["hold"] = (int)matrix->holdSpeed();
         entry["fadeIn"] = (int)matrix->fadeInSpeed();
         entry["fadeOut"] = (int)matrix->fadeOutSpeed();
     }
@@ -548,7 +550,8 @@ inline Json functionToJson(Function *fn)
         {"id", (int)fn->id()},
         {"name", fn->name().toStdString()},
         {"type", Function::typeToString(fn->type()).toStdString()},
-        {"duration", isBeatMode ? Json(valueToBeatString(fn->totalDuration())) : Json((int)fn->totalDuration())}
+        {"duration", isBeatMode ? Json(valueToBeatString(fn->totalDuration())) : Json((int)fn->totalDuration())},
+        {"hold", isBeatMode ? Json(valueToBeatString(fn->holdSpeed())) : Json((int)fn->holdSpeed())}
     };
 
     QString fnPath = fn->path(true);

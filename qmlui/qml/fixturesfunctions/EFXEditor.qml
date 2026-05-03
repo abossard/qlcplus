@@ -880,6 +880,35 @@ Rectangle
                                     faColor: UISettings.fgMain
                                     onClicked: showTimeTool(this, foLabel.label, foTimeLabel.label, QLCFunction.FadeOut)
                                 }
+
+                                // Row 4
+                                RobotoText
+                                {
+                                    label: qsTr("Duration (fade in + loop)")
+                                    height: UISettings.listItemHeight
+                                }
+                                Rectangle
+                                {
+                                    Layout.fillWidth: true
+                                    height: UISettings.listItemHeight
+                                    color: UISettings.bgMedium
+
+                                    RobotoText
+                                    {
+                                        x: 3
+                                        height: parent.height
+                                        label: {
+                                            var dur = efxEditor.duration
+                                            if (dur === -2) return "∞"
+                                            return TimeUtils.timeToQlcString(dur, efxEditor.tempoType)
+                                        }
+                                    }
+                                }
+                                Item
+                                {
+                                    width: UISettings.listItemHeight
+                                    height: width
+                                }
                             } // GridLayout
                     }
 

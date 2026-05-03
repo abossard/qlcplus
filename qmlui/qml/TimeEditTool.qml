@@ -185,7 +185,14 @@ GridLayout
         }
         if (string !== "" && string !== timeValueString)
         {
-            timeValue = TimeUtils.qlcStringToTime(string, tempoType)
+            var parsed = TimeUtils.qlcStringToTime(string, tempoType)
+            if (isNaN(parsed) || parsed < -2)
+            {
+                // Reject unparseable input: revert displayed string to current value.
+                timeValueString = TimeUtils.timeToQlcString(timeValue, tempoType)
+                return
+            }
+            timeValue = parsed
             timeValueString = TimeUtils.timeToQlcString(timeValue, tempoType)
             toolRoot.valueChanged(timeValue)
         }

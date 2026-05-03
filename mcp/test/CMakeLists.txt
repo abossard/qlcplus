@@ -205,6 +205,7 @@ target_include_directories(mcp_conversions_test PRIVATE
 target_link_libraries(mcp_conversions_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Qml
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
     nlohmann_json::nlohmann_json

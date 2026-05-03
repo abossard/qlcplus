@@ -257,7 +257,7 @@ bool ChaserStep::loadXML(QXmlStreamReader &root, int& stepNumber, Doc *doc)
         if ((int)duration < 0)
             hold = duration;
         else
-            hold = duration - fadeIn;
+            hold = Function::speedSubtract(duration, fadeIn);
     }
 
     return true;

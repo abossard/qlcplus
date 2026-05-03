@@ -145,7 +145,7 @@ uint EFX::loopDuration() const
 {
     uint fadeIn = overrideFadeInSpeed() == defaultSpeed() ? fadeInSpeed() : overrideFadeInSpeed();
 
-    return duration() - fadeIn;
+    return Function::speedSubtract(duration(), fadeIn);
 }
 
 /*****************************************************************************

@@ -306,7 +306,10 @@ void VCSpeedDial::resetSpeeds()
             continue;
 
         if (func.m_fadeInFactor != VCSpeedDial::None)
+        {
             function->setFadeInSpeed(func.m_origFadeIn);
+            function->setDuration(func.m_origDuration);
+        }
         if (func.m_fadeOutFactor != VCSpeedDial::None)
             function->setFadeOutSpeed(func.m_origFadeOut);
         if (func.m_durationFactor != VCSpeedDial::None)
@@ -574,7 +577,7 @@ void VCSpeedDial::applyFunctionsTime()
                 func.m_origFadeIn != Function::defaultSpeed() &&
                 func.m_origFadeIn != Function::infiniteSpeed())
             {
-                function->setFadeInSpeed(qRound(func.m_origFadeIn * ratio));
+                function->setFadeInSpeedPreservingHold(qRound(func.m_origFadeIn * ratio));
             }
 
             if (func.m_fadeOutFactor != VCSpeedDial::None &&
@@ -602,7 +605,7 @@ void VCSpeedDial::applyFunctionsTime()
         if (function != NULL)
         {
             if (func.m_fadeInFactor != VCSpeedDial::None)
-                function->setFadeInSpeed(factoredTime * (m_multiplierCache[func.m_fadeInFactor] / 1000.0));
+                function->setFadeInSpeedPreservingHold(factoredTime * (m_multiplierCache[func.m_fadeInFactor] / 1000.0));
 
             if (func.m_fadeOutFactor != VCSpeedDial::None)
                 function->setFadeOutSpeed(factoredTime * (m_multiplierCache[func.m_fadeOutFactor] / 1000.0));

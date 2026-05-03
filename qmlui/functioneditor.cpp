@@ -168,7 +168,7 @@ void FunctionEditor::setTempoType(int tempoType)
 
     emit tempoTypeChanged(tempoType);
     emit fadeInSpeedChanged(newFadeIn);
-    emit holdSpeedChanged(newDuration - newFadeIn);
+    emit holdSpeedChanged(Function::speedSubtract(newDuration, newFadeIn));
     emit fadeOutSpeedChanged(newFadeOut);
     emit durationChanged(newDuration);
 }
@@ -189,9 +189,23 @@ void FunctionEditor::setFadeInSpeed(int fadeInSpeed)
     if (m_function->fadeInSpeed() == (uint)fadeInSpeed)
         return;
 
+    uint oldHold = m_function->holdSpeed();
+    uint newDuration = Function::speedAdd(uint(fadeInSpeed), oldHold);
+
+    Tardis::instance()->beginBatch("setFadeInSpeed");
     Tardis::instance()->enqueueAction(Tardis::FunctionSetFadeIn, m_function->id(), m_function->fadeInSpeed(), fadeInSpeed);
     m_function->setFadeInSpeed(fadeInSpeed);
+
+    if (newDuration != m_function->duration())
+    {
+        Tardis::instance()->enqueueAction(Tardis::FunctionSetDuration, m_function->id(), m_function->duration(), newDuration);
+        m_function->setDuration(newDuration);
+    }
+    Tardis::instance()->endBatch();
+
     emit fadeInSpeedChanged(fadeInSpeed);
+    emit durationChanged(m_function->duration());
+    emit holdSpeedChanged(m_function->holdSpeed());
 }
 
 int FunctionEditor::holdSpeed() const
@@ -199,7 +213,7 @@ int FunctionEditor::holdSpeed() const
     if (m_function == nullptr)
         return Function::defaultSpeed();
 
-    return m_function->duration() - m_function->fadeInSpeed();
+    return m_function->holdSpeed();
 }
 
 void FunctionEditor::setHoldSpeed(int holdSpeed)
@@ -207,7 +221,7 @@ void FunctionEditor::setHoldSpeed(int holdSpeed)
     if (m_function == nullptr)
         return;
 
-    if (m_function->duration() - m_function->fadeInSpeed() == (uint)holdSpeed)
+    if (m_function->holdSpeed() == (uint)holdSpeed)
         return;
 
     uint duration = Function::speedAdd(m_function->fadeInSpeed(), holdSpeed);
@@ -293,4 +307,3 @@ void FunctionEditor::deleteItems(QVariantList list)
 {
     Q_UNUSED(list)
 }
-

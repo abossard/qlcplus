@@ -6,6 +6,12 @@
 */
 
 #include <QtTest>
+#include <cmath>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QJSEngine>
+#include <QJSValue>
 #include "conversions_test.h"
 #include "conversions.h"
 
@@ -88,6 +94,78 @@ void Conversions_Test::beatStringToValue_overflow()
     QCOMPARE(beatStringToValue("100001/1"), 0u);  // just over limit
     // At the limit should still work
     QVERIFY(beatStringToValue("100000/1") != 0u);
+}
+
+// --- qmlui/js/TimeUtils.js: Beat Editor text input parsing ---
+
+void Conversions_Test::qlcStringToTime_beatTextInput_data()
+{
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<double>("expected");
+    QTest::addColumn<bool>("expectedNaN");
+
+    QTest::newRow("12/16")  << QStringLiteral("12/16") << 750.0  << false;
+    QTest::newRow("13/16")  << QStringLiteral("13/16") << 813.0  << false;
+    QTest::newRow("1/16")   << QStringLiteral("1/16")  << 63.0   << false;
+    QTest::newRow("3/4")    << QStringLiteral("3/4")   << 750.0  << false;
+    QTest::newRow("7/8")    << QStringLiteral("7/8")   << 875.0  << false;
+    QTest::newRow("1/2")    << QStringLiteral("1/2")   << 500.0  << false;
+    QTest::newRow("1/1")    << QStringLiteral("1/1")   << 1000.0 << false;
+    QTest::newRow("16/16")  << QStringLiteral("16/16") << 1000.0 << false;
+    QTest::newRow("32/16")  << QStringLiteral("32/16") << 2000.0 << false;
+    QTest::newRow("0/16")   << QStringLiteral("0/16")  << 0.0    << false;
+    QTest::newRow("5")      << QStringLiteral("5")     << 5000.0 << false;
+    QTest::newRow("2 1/4")  << QStringLiteral("2 1/4") << 2250.0 << false;
+    QTest::newRow("infinity") << QString::fromUtf8("∞") << -2.0  << false;
+    QTest::newRow("3/5 invalid denominator") << QStringLiteral("3/5") << 0.0 << true;
+    QTest::newRow("1/3 invalid denominator") << QStringLiteral("1/3") << 0.0 << true;
+    QTest::newRow("garbage") << QStringLiteral("abc")   << 0.0   << true;
+    QTest::newRow("negative fraction") << QStringLiteral("-1/16") << 0.0 << true;
+}
+
+void Conversions_Test::qlcStringToTime_beatTextInput()
+{
+    QFETCH(QString, input);
+    QFETCH(double, expected);
+    QFETCH(bool, expectedNaN);
+
+    const QStringList candidates = {
+        QCoreApplication::applicationDirPath() + QStringLiteral("/../../../qmlui/js/TimeUtils.js"),
+        QDir::currentPath() + QStringLiteral("/../qmlui/js/TimeUtils.js"),
+        QDir::currentPath() + QStringLiteral("/qmlui/js/TimeUtils.js")
+    };
+
+    QString path;
+    for (const QString &candidate : candidates)
+    {
+        if (QFile::exists(candidate))
+        {
+            path = candidate;
+            break;
+        }
+    }
+    QVERIFY2(!path.isEmpty(), "Unable to locate qmlui/js/TimeUtils.js");
+
+    QFile file(path);
+    QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(QStringLiteral("Unable to open %1").arg(path)));
+
+    QJSEngine engine;
+    QJSValue evaluated = engine.evaluate(QString::fromUtf8(file.readAll()), path);
+    QVERIFY2(!evaluated.isError(),
+             qPrintable(QStringLiteral("TimeUtils.js evaluation failed: %1").arg(evaluated.toString())));
+
+    QJSValue parser = engine.globalObject().property(QStringLiteral("qlcStringToTime"));
+    QVERIFY2(parser.isCallable(), "qlcStringToTime is not callable");
+
+    QJSValue result = parser.call(QJSValueList{QJSValue(input), QJSValue(1)});
+    QVERIFY2(result.isNumber(), qPrintable(QStringLiteral("Expected numeric result for %1").arg(input)));
+
+    const double actual = result.toNumber();
+    if (expectedNaN)
+        QVERIFY2(std::isnan(actual), qPrintable(QStringLiteral("Expected NaN for %1, got %2").arg(input).arg(actual)));
+    else
+        QCOMPARE(actual, expected);
 }
 
 // --- valueToBeatString: canonical values ---

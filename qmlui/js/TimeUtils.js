@@ -158,7 +158,31 @@ function qlcStringToTime(str, type)
     {
         var tokens = str.split(" ");
 
-        finalTime = parseInt(tokens[0]) * 1000;
+        // Handle fraction-only input like "14/16", "3/4", "1/16" (no whole part).
+        // parseInt("1/16") returns 1, which would mis-parse the fraction as a whole beat.
+        if (tokens[0].indexOf("/") >= 0)
+        {
+            var fParts = tokens[0].split("/");
+            var fNum = parseInt(fParts[0]);
+            var fDen = parseInt(fParts[1]);
+            if (!isNaN(fNum) && fNum >= 0 && !isNaN(fDen)
+                && (fDen === 1 || fDen === 2 || fDen === 4 || fDen === 8 || fDen === 16))
+            {
+                var sixteenths = fNum * (16 / fDen);
+                var wholeBeats = Math.floor(sixteenths / 16);
+                var remSixteenths = sixteenths - (wholeBeats * 16);
+                // ms-per-sixteenth table (matches the ladder below: round(n * 62.5))
+                var subBeatMs = [0, 63, 125, 188, 250, 313, 375, 438,
+                                 500, 563, 625, 688, 750, 813, 875, 938];
+                return wholeBeats * 1000 + subBeatMs[remSixteenths];
+            }
+            return NaN;
+        }
+
+        var wholePart = parseInt(tokens[0]);
+        if (isNaN(wholePart) || wholePart < 0)
+            return NaN;
+        finalTime = wholePart * 1000;
 
         if (tokens.length > 1)
         {

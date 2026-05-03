@@ -236,7 +236,7 @@ void Chaser::setTotalDuration(quint32 msec)
             m_steps[i].duration = ((double)m_steps[i].duration * msec) / dtDuration;
             if (m_steps[i].hold)
                 m_steps[i].hold = ((double)m_steps[i].hold * (double)m_steps[i].duration) / (double)origDuration;
-            m_steps[i].fadeIn = m_steps[i].duration - m_steps[i].hold;
+            m_steps[i].fadeIn = Function::speedSubtract(m_steps[i].duration, m_steps[i].hold);
             if (m_steps[i].fadeOut)
                 m_steps[i].fadeOut = ((double)m_steps[i].fadeOut * (double)m_steps[i].duration) / (double)origDuration;
         }

@@ -751,6 +751,23 @@ uint Function::duration() const
     return m_duration;
 }
 
+quint32 Function::holdSpeed() const
+{
+    return speedSubtract(duration(), fadeInSpeed());
+}
+
+void Function::setHoldSpeed(quint32 hold)
+{
+    setDuration(speedAdd(fadeInSpeed(), hold));
+}
+
+void Function::setFadeInSpeedPreservingHold(quint32 fadeIn)
+{
+    quint32 h = holdSpeed();
+    setFadeInSpeed(fadeIn);
+    setDuration(speedAdd(fadeIn, h));
+}
+
 quint32 Function::totalDuration()
 {
     // fall back to duration in case a

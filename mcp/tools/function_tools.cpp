@@ -665,8 +665,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     else seq->setFadeInSpeed(0);
                     if (timing.present.count("fadeOut")) seq->setFadeOutSpeed(timing.values["fadeOut"]);
                     else seq->setFadeOutSpeed(0);
-                    if (timing.present.count("holdTime")) seq->setDuration(timing.values["holdTime"]);
-                    else seq->setDuration(1000);
+                    const uint holdTime = timing.present.count("holdTime") ? timing.values["holdTime"] : 1000;
+                    seq->setDuration(Function::speedAdd(seq->fadeInSpeed(), holdTime));
                 }
 
                 QString order = QString::fromStdString(item.value("runOrder", "loop"));
@@ -1047,7 +1047,13 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                         matrix->setTempoType(Function::Time);
 
                     if (timing.present.count("duration")) matrix->setDuration(timing.values["duration"]);
-                    if (timing.present.count("fadeIn")) matrix->setFadeInSpeed(timing.values["fadeIn"]);
+                    if (timing.present.count("fadeIn"))
+                    {
+                        if (timing.present.count("duration"))
+                            matrix->setFadeInSpeed(timing.values["fadeIn"]);
+                        else
+                            matrix->setFadeInSpeedPreservingHold(timing.values["fadeIn"]);
+                    }
                     if (timing.present.count("fadeOut")) matrix->setFadeOutSpeed(timing.values["fadeOut"]);
                 }
 
