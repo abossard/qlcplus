@@ -10,12 +10,14 @@ The final state should feel like a modern VJ/audio-reactive engine: stable in qu
 
 | Area | Final direction |
 | --- | --- |
-| Shared JS files | Replace `ledfx_compat.js` with QLC-owned helpers. No bundled script should call `LedFx.*`. |
-| Audio DSP | Central `AudioDSP` API in `audio_common.js`, backed by documented C++ audio features where possible. |
-| Visual helpers | Move generic color/map/noise helpers into a QLC namespace such as `RGBUtil`, not `LedFx`. |
-| Script API | Scripts consume `audio` plus `AudioDSP.process()`, not raw third-split helpers. |
-| Compatibility | A temporary migration shim is acceptable inside the branch, but it should not be the final shipped architecture. |
-| Verification | Synthetic audio fixtures, deterministic feature tests, and live debug visualization. |
+| Core DSP | **C++ `AudioAnalyzer`** class in engine layer. All envelope, AGC, trigger, spectral feature computation in C++. Available to any consumer. |
+| Audio Profiles | **Document-level `AudioProfile`** objects hold DSP configuration (bands, envelopes, AGC, triggers, noise gate). Multiple named profiles per project (e.g., "Kick Sensitive", "Ambient Smooth"). |
+| Audio Trigger Widget | **VCAudioTrigger is the primary editor and live monitor** for Audio Profiles — not the owner of script audio config. Shows envelope curves, AGC meter, trigger state lamps, spectral features. |
+| Script API | Scripts read pre-computed features from enriched `audio` object (`audio.bands.sub`, `audio.triggers.bass.fired`). JS does selection, not computation. Per-script DSP sliders removed; scripts select a profile and optionally apply lightweight mapping (intensity, band selection). |
+| Shared JS files | Replace `ledfx_compat.js` with `RGBUtil` (color/map/noise helpers). No bundled script should call `LedFx.*`. |
+| Visual helpers | `RGBUtil` namespace for color/map/noise. |
+| Compatibility | Backward-compatible XML with schema versioning. Old per-script slider values converted to generated profile on load. Legacy per-bar triggers preserved alongside new per-band triggers. |
+| Verification | Synthetic audio injection, deterministic feature tests, golden comparison tests, and live debug visualization. |
 
 ## Current Ground Truth
 
@@ -27,6 +29,11 @@ The final state should feel like a modern VJ/audio-reactive engine: stable in qu
 | `audio.spectrum` is 32 log-spaced bands from 40 Hz to 5000 Hz, normalized per frame. | It is useful for spectral shape, not absolute loudness. |
 | `audio.volume` is attack/release-smoothed signal power. | It is the better basis for AGC and global energy. |
 | Current `LedFx.lows_power()`, `mids_power()`, `high_power()`, and `melbank_thirds()` split the log bands into equal thirds. | These helpers are the main primitive math to remove. |
+| `AudioCapture` runs on its own QThread, emits `dataProcessed(double*, int, double, quint32)`. | Analyzer must receive richer internal data, not just the signal — `dataProcessed()` lacks raw RMS/peak/FFT bins. |
+| `AudioCapture` has per-consumer band tracking via `registerBandsNumber(N)` with ref-counting. | Variable-band support must be preserved for VCAudioTrigger. |
+| `VCAudioTrigger` does its own normalize/smooth/threshold in C++ (`slotSpectrumDataChanged()`). | Duplicates DSP that should live in the shared `AudioAnalyzer`. |
+| All RGBMatrix instances share one `QJSEngine` (`s_jsThread->engine`). | Module-level JS state aliases across scripts. Per-script state must live in C++ channels. |
+| `AudioCapture` computes true RMS internally but only emits smoothed `power`. | New analyzer needs raw RMS/peak before smoothing, not after. |
 
 ## Scientific Audio Model
 
@@ -36,48 +43,111 @@ Treat audio analysis as a feature extraction pipeline with explicit units and st
 
 Add or evolve a native analyzer around `AudioCapture` so the engine computes stable, reusable audio features once per frame.
 
+**Critical:** The analyzer must receive raw data from inside `AudioCapture`, not just the `dataProcessed()` signal. `dataProcessed()` only emits 32 log-spaced band magnitudes plus smoothed power — this is insufficient for accurate RMS, peak, spectral centroid, rolloff, or flatness. An internal `AudioFrame` struct passes raw time-domain stats and FFT bin data.
+
+#### Internal Frame (AudioCapture → AudioAnalyzer)
+
+```cpp
+struct AudioFrame {
+    const float* mono;           // time-domain mono samples
+    int sampleCount;
+    const float* fftMagnitudes;  // raw FFT bin magnitudes
+    int fftBins;
+    int sampleRate;
+    double rms;                  // raw RMS (before any smoothing)
+    double peak;                 // raw peak amplitude
+    quint64 frameIndex;
+    double dtMs;                 // time since previous audio frame
+};
+```
+
+#### Shared Features (computed once per audio frame)
+
 | Feature | Why it matters |
 | --- | --- |
-| `rmsDb` | Absolute loudness in dBFS for noise gates, AGC, and confidence. |
+| `rmsDb` | Absolute loudness in dBFS for noise gates, AGC, and confidence. Computed from raw RMS, not legacy smoothed `power`. |
 | `peakDb` | Clipping/transient awareness. |
 | `crestFactor` | Distinguishes punchy transients from dense sustained material. |
-| `bandsLog` | Existing log-spaced spectrum, exposed with clear frequency metadata. |
-| `bandsDb` | Spectrum in dB, useful for thresholds and calibrated gates. |
-| `bandsNormalized` | Visual-friendly normalized spectrum for bars and matrices. |
+| `bandsLog[32]` | Existing log-spaced spectrum, exposed with clear frequency metadata. |
+| `bandsDb[32]` | Spectrum in dB, useful for thresholds and calibrated gates. |
+| `bandsNormalized[32]` | Visual-friendly normalized spectrum for bars and matrices. |
+| `perceptualBands` | Sub/bass/lowMid/mid/high grouped from log bands. |
 | `spectralFlux` | Onset strength and buildup/drop detection. |
 | `spectralCentroidHz` | Brightness/timbre feature. |
 | `spectralRolloffHz` | Energy distribution feature. |
 | `spectralFlatness` | Noise-like vs tonal material. |
 | `beat`, `bpm`, `beatConfidence`, `beatPhase` | Musically stable beat-driven effects. |
 | `noiseFloorDb` | Adaptive silence/noise gating. |
+| `audioDtMs` | Time since previous audio frame (for envelope/trigger timing). |
 
-### JS DSP Layer
+#### Per-Consumer Channels (`AudioChannel`)
 
-Use `audio_common.js` for script-facing convenience, state, envelopes, and trigger semantics.
+Each consumer creates a channel with its own configuration for envelopes, AGC, and triggers. Channel state is owned by `AudioAnalyzer` and updated on the audio thread.
 
-| API | Purpose |
-| --- | --- |
-| `AudioDSP.process(algo, audio, ctx)` | Per-frame call returning processed envelope. Requires explicit context for per-script state (see DD2). |
-| `AudioDSP.extractBands(audio)` | Convert log bands into `sub`, `bass`, `lowMid`, `mid`, `high`, plus `low/mid/high` aliases. |
-| `AudioDSP.envelope(algo, key, value, attackMs, releaseMs)` | Time-constant attack/release smoothing. |
-| `AudioDSP.agc(algo, audio, options)` | Volume-aware adaptive gain with noise floor, slow release, and capped boost. |
-| `AudioDSP.trigger(algo, key, value, options)` | Dynamic threshold, Schmitt hysteresis, cooldown, hold, and rising-edge output. |
-| `AudioDSP.compress(value, options)` | Soft knee compression for visual dynamic range. |
-| `AudioDSP.saturate(value, curve)` | Soft clipping instead of harsh peak clipping. |
-| `AudioDSP.interpolateSpectrum(audio, size, options)` | Spectrum interpolation without `LedFx.melbank()`. |
-| `AudioDSP.debug(algo, env)` | Optional debug payload for monitor scripts/panels. |
+```cpp
+struct AudioChannelConfig {
+    EnvelopeConfig envelope;   // attackMs, releaseMs per band
+    AgcConfig agc;             // maxGainDb, releaseMs, noiseFloorDb
+    TriggerConfig triggers;    // thresholds, hysteresis, cooldownMs, holdMs
+    BandLayout bandLayout;     // which bands to track (default: perceptual 5)
+    VolumeConfig volume;       // smoothing for volume meter
+};
 
-`AudioDSP.process()` should return a stable object:
+// Handle-based API (thread-safe, no raw pointer exposure)
+AudioChannelHandle handle = analyzer->createChannel(config);
+handle.updateConfig(newConfig);        // atomic pending config, applied at next frame boundary
+AudioSnapshot snap = handle.snapshot(); // short copy, lock-free or short read lock
+handle.close();                        // safe deferred unregister
+```
+
+**Snapshot** (immutable value object, returned per channel):
 
 | Field | Meaning |
 | --- | --- |
-| `raw` | Raw or engine-provided features. |
-| `bands` | Smoothed, gain-adjusted perceptual bands. |
+| `bands` | Smoothed, gain-adjusted perceptual bands (sub/bass/lowMid/mid/high + aliases). |
 | `spectrum` | Processed spectrum for bars, waves, and matrices. |
-| `triggers` | `active` and `fired` states for `sub`, `bass`, `mid`, `high`, `volume`, `beat`, and optional `onset`. |
+| `triggers` | Per-band trigger state: `value`, `active`, `firedThisFrame`, `releasedThisFrame`, `heldMs`, `cooldownRemainingMs`. |
 | `volume` | Raw, smoothed, normalized, and AGC-adjusted loudness. |
-| `music` | BPM, beat phase, beat confidence, and bar phase when available. |
-| `dtMs` | Clamped delta from C++ MasterTimer tick, not `Date.now()` (see DD4). |
+| `music` | BPM, beat phase, beat confidence, bar phase. |
+| `audioDtMs` | Audio frame delta for envelope timing. |
+
+#### Trigger State Machine
+
+Triggers follow a precise state machine to avoid ambiguity across consumers:
+
+| Field | Semantics |
+| --- | --- |
+| `value` | Current smoothed input value (0..1). |
+| `active` | True while above low threshold (Schmitt hysteresis). |
+| `firedThisFrame` | True on the frame where `active` transitions from false → true. Frame-stable (not consumed on read). |
+| `releasedThisFrame` | True on the frame where `active` transitions from true → false. |
+| `heldMs` | How long `active` has been true continuously. |
+| `cooldownRemainingMs` | Time until next `firedThisFrame` can occur. |
+
+### JS Layer (minimal)
+
+JS scripts read pre-computed features. No DSP computation in JS.
+
+| API | Purpose |
+| --- | --- |
+| `RGBUtil.rgb(r, g, b)` | Color packing (replacing `LedFx.rgb`). |
+| `RGBUtil.hsv2rgb(h, s, v)` | HSV conversion. |
+| `RGBUtil.createMap(w, h)` | Pixel map allocation. |
+| `RGBUtil.interpolate(a, b, t)` | Linear interpolation. |
+| `RGBUtil.simplex2d(x, y)` | Simplex noise. |
+| `RGBUtil.noiseField2d(...)` | Noise field generation. |
+| `AudioDSP.Filter(decay, rise)` | Optional JS-side ExpFilter matching `LedFx.ExpFilter` shape for scripts that need per-pixel smoothing. |
+
+Scripts access pre-computed audio features directly:
+
+```javascript
+function rgbMap(width, height, rgb, step, audio) {
+    var sub = audio.bands.sub;
+    var fired = audio.triggers.bass.firedThisFrame;
+    var vol = audio.volume.agc;
+    // ... use values directly, no DSP needed
+}
+```
 
 ## Perceptual Bands
 
@@ -111,183 +181,257 @@ The exploratory helpers previously added to `AudioParams` were removed before an
 
 | Removed helper | Why it was removed | Replacement direction |
 | --- | --- | --- |
-| `AudioParams.adaptiveGain(algo, spectrum)` | It used RMS of `audio.spectrum`, but QLC+ normalizes `audio.spectrum` per frame, so the value mostly describes spectral shape rather than real loudness. | Implement `AudioDSP.agc(algo, audio, options)` using `audio.volume`, future `rmsDb`, noise floor, and capped gain. |
-| `AudioParams.logScaleBands(spectrum)` | It assumed linear FFT bins, while C++ already provides log-spaced bands. The chosen ranges also made low too narrow and high too broad. | Implement `AudioDSP.extractBands(audio)` with named constants based on verified log-band frequency ranges. |
-| `AudioParams.frameNormalizedDecay(decayMs, frameMs)` | It returned an interpolation alpha, not a decayed value. The name invited misuse in ported scripts. | Implement explicit helpers such as `AudioDSP.alpha(dtMs, tauMs)` and `AudioDSP.decayToward(value, target, dtMs, tauMs)`. |
-| `AudioParams.softSaturate(value, threshold)` | It could return values above `1.0`, which is ambiguous for normalized brightness helpers. | Implement `AudioDSP.compress()` and `AudioDSP.saturate()` with documented output ranges. |
-| `AudioParams.hysteresisTrigger(algo, state, value)` | It used static thresholds and returned only gate state, not one-shot edges. | Implement `AudioDSP.trigger()` with adaptive baseline, Schmitt thresholds, hold, cooldown, `active`, and `fired`. |
+| `AudioParams.adaptiveGain(algo, spectrum)` | It used RMS of `audio.spectrum`, but QLC+ normalizes `audio.spectrum` per frame, so the value mostly describes spectral shape rather than real loudness. | C++ `AudioChannel` AGC using raw `rmsDb` from `AudioFrame`, noise floor, and capped gain. |
+| `AudioParams.logScaleBands(spectrum)` | It assumed linear FFT bins, while C++ already provides log-spaced bands. The chosen ranges also made low too narrow and high too broad. | C++ `AudioAnalyzer` perceptual band grouping with verified frequency ranges. |
+| `AudioParams.frameNormalizedDecay(decayMs, frameMs)` | It returned an interpolation alpha, not a decayed value. The name invited misuse in ported scripts. | C++ `AudioChannel` envelope smoothing using `audioDtMs` and `alpha = 1 - exp(-dt/tau)`. |
+| `AudioParams.softSaturate(value, threshold)` | It could return values above `1.0`, which is ambiguous for normalized brightness helpers. | C++ soft-knee compression in `AudioChannel` with documented output range `[0, 1]`. |
+| `AudioParams.hysteresisTrigger(algo, state, value)` | It used static thresholds and returned only gate state, not one-shot edges. | C++ trigger state machine in `AudioChannel` with Schmitt hysteresis, hold, cooldown, `firedThisFrame`, and `active`. |
 
 Keep `AudioParams` focused on existing UI parameter plumbing until the new `AudioDSP` API lands.
 
-## Design Decisions (from critique)
 
-These decisions were resolved after a structured critique of the original plan.
+## Design Decisions (from four rounds of critique)
 
-### DD1. Phase ordering — C++ enrichment before JS helpers
+These decisions were resolved after structured critique: Opus 4.7 (plan v1), GPT 5.5 (C++ DSP review), Opus 4.7 (AudioTrigger-as-hub), and GPT 5.5 (AudioProfile decoupling).
 
-Phase 2 (C++ audio enrichment) is reordered **before** Phase 1. Helpers like `AudioDSP.agc()` and `AudioDSP.trigger()` need `rmsDb`, `spectralFlux`, and `dtMs` from C++. Building JS helpers first would create stubs that change semantics later, forcing double-validation of every ported script.
+### DD1. Audio DSP configuration lives in document-level Audio Profiles
 
-**Exception:** JS helpers that only consume existing fields (`extractBands`, `envelope`, `interpolateSpectrum`, `compress`, `saturate`, `RGBUtil`) can land in parallel with Phase 2.
+Audio Profiles are the configuration abstraction. They are document-model objects (like Functions or FixtureGroups) — they exist independent of the Virtual Console. VCAudioTrigger is the **primary editor and live monitor** for profiles, not the owner.
 
-### DD2. Per-script state — compositional API, not monolithic `process()`
+Multiple named profiles per project (e.g., "Default", "Kick Sensitive", "Ambient Smooth"). Functions reference profiles by ID. Profiles can exist without visible VC widgets.
 
-All RGBMatrix instances share one `QJSEngine` (via `s_jsThread->engine`). A module-level `var _state = {}` inside `audiodsp.js` would alias state across scripts. Two approaches:
+### DD2. VCAudioTrigger is the Audio Control Center UI
 
-- **Option A (chosen):** Keep helpers compositional. Each script creates its own `new AudioDSP.Filter(decay, rise)` instances in its closure, like `LedFx.ExpFilter` today. This preserves per-script state naturally and makes Phase 3 mostly mechanical (`s/LedFx\./AudioDSP./g`).
-- **Option B (deferred):** If a convenience `process()` is added later, it must take an explicit context: `AudioDSP.process(audio, ctx)` where `ctx = AudioDSP.createContext({...})`.
+VCAudioTrigger edits and monitors Audio Profiles. It gains: perceptual band editor, envelope monitor, AGC meter, trigger state lamps, spectral feature readouts. Multiple AudioTrigger widgets can exist — each monitors/edits a profile.
 
-### DD3. Synthetic audio injection — build in Phase 0, not Phase 5
+### DD3. Core DSP in C++ `AudioAnalyzer`, configured by Audio Profiles
 
-No test seam exists today. `AudioCapture::dataProcessed` connects directly to the capture device. A test harness that can inject synthetic audio (silence, noise, sweeps, impulses) is a **prerequisite** for validating C++ enrichment, not a verification-phase task.
+Envelope, AGC, trigger, and spectral feature computation lives in a C++ `AudioAnalyzer` in the engine layer. Each Audio Profile owns one `AudioChannelHandle`. The analyzer is consumer-agnostic; profiles are the configuration owner.
 
-### DD4. `dtMs` from MasterTimer, not `Date.now()`
+### DD4. AudioAnalyzer receives internal `AudioFrame`, not `dataProcessed()` signal
 
-MasterTimer is a fixed 25Hz tick (40ms nominal). JS `Date.now()` jitter from thread scheduling would cause envelope "wobble." Source `dtMs` from the C++ tick delta.
+`dataProcessed(double*, int, double, quint32)` only emits 32 log-spaced band magnitudes plus smoothed power — insufficient for accurate RMS, peak, centroid, rolloff, or flatness. The analyzer receives an internal `AudioFrame` (raw mono samples, FFT bins, raw RMS, peak, sample rate, dtMs) directly from inside `AudioCapture::processData()`.
 
-### DD5. Pilot scripts before full port
+### DD5. Functions reference Audio Profiles, not VC widgets
 
-Port 2-3 representative scripts (one trigger-first, one spectrum, one envelope-heavy) before committing to the full 28-script migration. Validate visual parity against LedFx versions at a checkpoint, then proceed.
+`RGBMatrix` has an `audioProfileId` property — NOT a widget ID. This preserves the architectural boundary: Functions are VC-independent, runnable headless, importable across projects. Resolution chain:
 
-### DD6. Keep `ExpFilter` shape for mechanical migration
+1. **Explicit reference**: `audioProfileId` set → use that profile's channel.
+2. **Default profile**: If no explicit reference, use the profile flagged `isDefault`.
+3. **First found**: If no default flagged, use the lowest-ID profile.
+4. **Anonymous fallback**: If no profiles exist, the analyzer creates an internal default channel with sensible defaults.
 
-`AudioDSP.Filter(decay, rise)` with `update()`/`updateArray()` matching `LedFx.ExpFilter` exactly lets ~half the scripts port via `s/LedFx\./AudioDSP./g`. Don't invent a new envelope API that forces line-by-line behavioral review.
+The fallback is a safety net, not the main UX. When an audio script is first added and no profile exists, auto-create a "Default Audio" profile in the document.
+
+### DD6. Perceptual bands (sub/bass/lowMid/mid/high) replace low/mid/high
+
+Five perceptual bands plus convenience aliases (`low = sub+bass`, `mid` unchanged, `high` unchanged) for backward compatibility. Band edges are configurable in the profile/widget UI with verified defaults. Legacy `lowCutBin`/`highCutBin` preserved as read-only derived values.
+
+### DD7. Per-script DSP sliders removed; lightweight mapping controls remain
+
+`AudioParams` no longer exposes `gain`, `reactivity`, `floor`, `sensitivity` as DSP controls. Instead, the RGBMatrix editor shows:
+
+- **Audio Profile selector**: dropdown of available profiles (+ "Create new…")
+- **Intensity scale**: lightweight post-DSP brightness multiplier (0–200%)
+- **"Edit Audio Profile…"** button: opens the AudioTrigger/Profile editor
+
+Old per-script slider values are **converted to a generated profile** on XML load (not silently ignored). Deprecated stubs log a one-shot warning for one release cycle.
+
+### DD8. Per-consumer state via AudioChannel handles, atomic config updates
+
+Each Audio Profile holds an `AudioChannelHandle`. Config changes from QML are queued via `handle.updateConfig(newConfig)` and applied at the next audio frame boundary. State is owned by `AudioAnalyzer`, exposed via immutable `AudioSnapshot` value objects.
+
+### DD9. Two `dtMs` values
+
+- `audioDtMs`: time since previous audio frame (~23ms at 43Hz). Used for envelope/AGC/trigger timing in C++.
+- `consumerDtMs`: time since previous consumer frame (MasterTimer tick). Available to JS for visual animation pacing.
+
+### DD10. Don't layer on legacy smoothed `power`
+
+New analyzer computes raw RMS/peak from `AudioFrame` and applies its own documented smoothing. Legacy `volume` preserved for backward compat but not used as input to new AGC.
+
+### DD11. Legacy per-bar triggers preserved alongside new per-band triggers
+
+Two trigger systems coexist:
+
+- **Per-bar triggers** (legacy): per-spectrum-bar DMX/Function/Widget actions with min/max thresholds.
+- **Per-band triggers** (new): perceptual-band Schmitt-hysteresis triggers with hold/cooldown, consumed by scripts via `audio.triggers.*`.
+
+Old bar triggers are not collapsed into five bands. Users opt into new trigger model by editing the profile.
+
+### DD12. Trigger state machine — frame-stable, not consumed-on-read
+
+Triggers expose `value`, `active`, `firedThisFrame`, `releasedThisFrame`, `heldMs`, `cooldownRemainingMs`. All fields are frame-stable so multiple consumers can read the same state.
+
+### DD13. Backward-compatible XML with schema versioning
+
+Audio Profile XML uses a `Version` attribute. Old documents load with default profile configs. Schema version stored in XML — no hidden "has edited" tracking state. Old per-script slider values converted to generated profile on load.
+
+### DD14. AudioAnalyzer on audio thread with budget constraint
+
+No heap allocation per frame, fixed-size arrays. Budget <1ms per channel. Instrumented from day one.
+
+### DD15. Golden tests gate the migration
+
+Golden tests capture old VCAudioTrigger output for deterministic inputs. New pipeline must match within tolerance for legacy defaults.
+
+### DD16. Pilot scripts before full port
+
+Port 2–3 representative scripts and validate visual parity before full migration.
+
+### DD17. Keep `ExpFilter` shape for mechanical migration
+
+`AudioDSP.Filter(decay, rise)` in JS matches `LedFx.ExpFilter` for per-pixel smoothing.
+
+### DD18. Phase 2 split for risk reduction
+
+VCAudioTrigger evolution split into: backend swap (parity), persistence model, new UI panels, script integration readiness.
 
 ---
 
 ## Implementation Phases
 
-### Phase 0: Foundation and Test Infrastructure
+### Phase 0: Foundation
 
-- [ ] Keep the removed draft helpers out of `AudioParams`.
-- [ ] Fix any remaining comments or docs that call the QLC+ spectrum linear.
-- [ ] Add `AudioDSP` beside `AudioParams` and move new audio math there.
-- [ ] Base `AudioDSP` on the verified model: log-spaced spectrum for shape, `audio.volume` or future `rmsDb` for loudness, and explicit time constants for envelopes.
-- [ ] Build synthetic audio injection test seam (fake `AudioCapture` or direct `buildAudioDataObject()` stub).
+- [ ] Audit `AudioCapture::processData()` — identify insertion point for `AudioFrame` data.
+- [ ] Audit `AudioParams` — list DSP vs non-DSP properties for removal.
+- [ ] Inventory all 28 `audio*.js` scripts — tag AudioParams usage for impact analysis.
+- [ ] Fix docs/comments calling spectrum linear or band cuts fixed.
+- [ ] Confirm VCAudioTrigger XML round-trips so Version attribute can be added safely.
+- [ ] Design `AudioProfile` document-model class: ID, name, isDefault, channel config, XML schema.
 
-### Phase 1: Modernize the Engine Audio Object (was Phase 2)
+### Phase 1: C++ AudioAnalyzer + AudioChannel
 
-- [ ] Extend the JS `audio` object in `rgbscriptv4.cpp` without breaking the current fields.
-- [ ] Source `dtMs` from C++ MasterTimer tick delta, not `Date.now()`.
+- [ ] Create `AudioFrame` internal struct (mono samples, FFT bins, raw RMS, peak, sample rate, `audioDtMs`, frame index).
+- [ ] Modify `AudioCapture::processData()` to populate `AudioFrame` and pass to `AudioAnalyzer` directly.
+- [ ] Create `AudioAnalyzer` with shared features: 32 log bands, `bandsDb`, `bandsNormalized`, `perceptualBands`, `rmsDb`, `peakDb`, `crestFactor`, `spectralFlux`, `spectralCentroidHz`, `spectralRolloffHz`, `spectralFlatness`, `noiseFloorDb`, beat features.
+- [ ] Define `AudioChannelConfig` (envelope per band, AGC, triggers, band layout, volume smoothing, noise gate).
+- [ ] Implement handle-based API: `createChannel(config)`, `updateConfig()`, `snapshot()`, `close()`.
+- [ ] Implement per-channel processing: envelopes, AGC, triggers (Schmitt + hold + cooldown).
+- [ ] Define `AudioSnapshot` immutable value object.
+- [ ] Build synthetic audio test harness — inject `AudioFrame` directly.
+- [ ] Unit test shared features: silence, noise, sweep, impulse, ramp, varying intervals.
+- [ ] Unit test per-channel: envelopes, AGC, trigger state machine.
+- [ ] Instrument per-frame time per channel; assert <1ms.
+- [ ] Implement anonymous default channel fallback.
 
-| Field | Shape |
-| --- | --- |
-| `audio.version` | Numeric feature schema version. |
-| `audio.frameMs` | Analysis frame duration or elapsed capture frame duration. |
-| `audio.frequencies` | Center or boundary frequencies for the 32 log bands. |
-| `audio.spectrum` | Existing normalized spectrum, kept during migration. |
-| `audio.spectrumDb` | dB-scaled bands. |
-| `audio.volume` | Existing normalized smoothed power. |
-| `audio.rmsDb` | RMS loudness in dBFS. |
-| `audio.features` | Centroid, rolloff, flatness, flux, crest factor, confidence. |
-| `audio.music` | Beat, BPM, confidence, beat phase. |
+### Phase 2A: Audio Profiles in Document Model
 
-Keep the old fields until all bundled scripts are ported. The new fields allow scientific analysis without overloading `spectrum`.
+- [ ] Create `AudioProfile` class: ID, name, isDefault, `AudioChannelConfig`, `AudioChannelHandle`.
+- [ ] Register `AudioProfile` in `Doc` (map, create/delete/lookup by ID).
+- [ ] Implement XML load/save with Version attribute and children: `<Bands>`, `<Envelope>`, `<Agc>`, `<Triggers>`, `<NoiseGate>`.
+- [ ] Implement auto-creation of "Default Audio" profile when first audio script is added.
+- [ ] Implement migration: old per-script slider values → generated profile on XML load.
+- [ ] Unit test: profile creation, config round-trip, migration from old XML.
 
-### Phase 2: Create QLC-Native JS Helpers (was Phase 1)
+### Phase 2B: VCAudioTrigger Backend Swap
 
-- [ ] Add `RGBUtil` for non-audio utilities currently living under `LedFx`:
-   - `RGBUtil.rgb()`
-   - `RGBUtil.hsv2rgb()`
-   - `RGBUtil.createMap()`
-   - `RGBUtil.interpolate()`
-   - `RGBUtil.simplex2d()`
-   - `RGBUtil.noiseField2d()`
-- [ ] Add `AudioDSP.Filter(decay, rise)` matching `LedFx.ExpFilter` shape (update/updateArray).
-- [ ] Add compositional helpers: `extractBands`, `envelope`, `agc`, `trigger`, `compress`, `saturate`, `interpolateSpectrum`, `debug`.
-- [ ] Keep a temporary `LedFx` shim only while scripts are being ported.
+- [ ] Associate VCAudioTrigger with an Audio Profile (create or select).
+- [ ] Replace internal `slotSpectrumDataChanged()` normalize/smooth/threshold with `handle.snapshot()` reads.
+- [ ] Keep existing per-bar DMX/Function/Widget trigger behavior (legacy path).
+- [ ] Golden tests: deterministic inputs produce expected bar values, trigger fires, DMX writes matching old behavior.
+- [ ] Expose profile resolution to `Doc` for script engine.
+
+### Phase 2C: VCAudioTrigger New UI Panels
+
+- [ ] **Bands panel**: band edge editors with frequency labels, presets (default/strict/wide).
+- [ ] **Envelope panel**: per-band attack/release sliders (ms), live mini-graph of envelope vs raw level.
+- [ ] **AGC panel**: max gain (dB), release (ms), noise floor (dB), live gain meter.
+- [ ] **Triggers panel**: per-band Schmitt thresholds, hold/cooldown ms, live state lamp, fires/sec counter.
+- [ ] **Spectral features panel**: live centroid, rolloff, flatness, flux readouts.
+- [ ] **Runtime monitor strip**: compact live view (envelope curves, AGC gain, trigger lamps).
+- [ ] Keep existing bars panel and per-bar config.
+
+### Phase 3: Wire RGBScript to Audio Profiles
+
+- [ ] Implement profile resolution in `rgbscriptv4.cpp` per DD5: explicit → default → first → anonymous. Log once per script start.
+- [ ] Add `audioProfileId` property on `RGBMatrix` (saved to function XML).
+- [ ] Surface profile selector in RGBMatrix editor: dropdown + "Create new…" + intensity scale + "Edit Audio Profile…".
+- [ ] Update `buildAudioDataObject()` to read from `AudioSnapshot`: `audio.bands.*`, `audio.triggers.*`, `audio.volume.*`, `audio.music.*`, `audio.features.*`, `audio.audioDtMs`, `audio.consumerDtMs`.
+- [ ] Keep legacy fields (`spectrum`, `volume`, `beat`, `bpm`, `maxMagnitude`) for compat.
+- [ ] Strip DSP from `AudioParams`. Deprecated stubs with one-shot warning.
+- [ ] Remove per-script audio slider UI from RGBMatrix editor.
+- [ ] **Thin vertical slice**: prove end-to-end with ONE script before proceeding (AudioCapture → Analyzer → Profile → VCAudioTrigger monitor → RGBMatrix → enriched audio → script reads bands/triggers).
+
+### Phase 4: RGBUtil + Non-Audio JS Cleanup
+
+- [ ] Add `RGBUtil`: `rgb`, `hsv2rgb`, `createMap`, `interpolate`, `simplex2d`, `noiseField2d`.
 - [ ] Verify `RGBUtil.rgb()` byte order matches engine pixel format.
+- [ ] Add `AudioDSP.Filter(decay, rise)` matching `LedFx.ExpFilter` for JS per-pixel smoothing.
+- [ ] Keep temporary `LedFx` shim during transition.
+- [ ] Update `audio_common.js` to drop DSP helpers.
 
-### Phase 3: Port Bundled Scripts Off `LedFx`
+### Phase 5: Port Bundled Scripts (simpler — no per-script DSP)
 
-- [ ] **Pilot checkpoint:** Port 2-3 representative scripts (one trigger-first, one spectrum, one envelope-heavy) and validate visual parity before full migration.
-- [ ] Port by behavior pattern, not alphabetically.
+Scripts become thin: read pre-computed values, decide visuals.
+
+- [ ] **Pilot checkpoint**: port 3 representative scripts (trigger, blend, spectrum) and visually compare before continuing.
 
 | Pattern | Scripts | Main migration |
 | --- | --- | --- |
-| Trigger-first | `audiostrobe`, `audioshot`, `audiobasslaser`, `audioshockwave` | Use `env.triggers.*.fired` and `active`, not raw threshold checks. |
-| Three-band blend | `audioaurora`, `audiochaser`, `audioenergy`, `audiolava`, `audiofireworks`, `audiohueshift` | Use `env.bands` and QLC perceptual groups. |
-| Single low-energy driver | `audiomelt`, `audioplasma`, `audiosoap`, `audiotunnel`, `audiovortex`, `audioscan`, `audiocrawler`, `audioglitch` | Replace low-power calls with `env.bands.sub/bass/low`. |
-| Spectrum visuals | `audiospectrum`, `audioequalizer`, `audiosplittower`, `audiowavelength`, `audiopower`, `audiofire`, `audioscroll`, `audioblocks` | Use `AudioDSP.interpolateSpectrum()` and time-based peak falloff. |
-| Advanced state machine | `audiobuildup` | Keep spectral flux/state machine idea, but feed it engine flux, calibrated bands, and modern triggers. |
-| Spatial simulation | `audiowater` | Keep simulation, replace equal-third bands and frame decay. |
+| Trigger-first | `audiostrobe`, `audioshot`, `audiobasslaser`, `audioshockwave` | `audio.triggers.*.firedThisFrame` and `active`. |
+| Three-band blend | `audioaurora`, `audiochaser`, `audioenergy`, `audiolava`, `audiofireworks`, `audiohueshift` | `audio.bands.*` from C++ perceptual groups. |
+| Single low-energy | `audiomelt`, `audioplasma`, `audiosoap`, `audiotunnel`, `audiovortex`, `audioscan`, `audiocrawler`, `audioglitch` | `audio.bands.sub`/`bass`. |
+| Spectrum visuals | `audiospectrum`, `audioequalizer`, `audiosplittower`, `audiowavelength`, `audiopower`, `audiofire`, `audioscroll`, `audioblocks` | `audio.spectrum` from channel. |
+| State machine | `audiobuildup` | `audio.features.flux` + triggers. |
+| Spatial sim | `audiowater` | Perceptual bands + `audioDtMs`. |
 
-- [ ] Port trigger-first scripts (audiostrobe, audioshot, audiobasslaser, audioshockwave)
-- [ ] Port three-band blend scripts (audioaurora, audiochaser, audioenergy, audiolava, audiofireworks, audiohueshift)
-- [ ] Port single low-energy driver scripts (audiomelt, audioplasma, audiosoap, audiotunnel, audiovortex, audioscan, audiocrawler, audioglitch)
-- [ ] Port spectrum visual scripts (audiospectrum, audioequalizer, audiosplittower, audiowavelength, audiopower, audiofire, audioscroll, audioblocks)
-- [ ] Port advanced state machine script (audiobuildup)
-- [ ] Port spatial simulation script (audiowater)
+- [ ] Port trigger-first scripts.
+- [ ] Port three-band blend scripts.
+- [ ] Port single low-energy driver scripts.
+- [ ] Port spectrum visual scripts.
+- [ ] Port state machine script.
+- [ ] Port spatial simulation script.
+- [ ] Replace `LedFx.*` → `RGBUtil.*` / `audio.bands.*` / `audio.triggers.*` / `AudioDSP.Filter`.
 
-Every port should replace:
+### Phase 6: Delete `ledfx_compat.js`
 
-| Old | New |
-| --- | --- |
-| `LedFx.rgb(...)` | `RGBUtil.rgb(...)` |
-| `LedFx.hsv2rgb(...)` | `RGBUtil.hsv2rgb(...)` |
-| `LedFx.createMap(...)` | `RGBUtil.createMap(...)` |
-| `LedFx.noiseField2d(...)` | `RGBUtil.noiseField2d(...)` |
-| `LedFx.lows_power(audio)` | `env.bands.low` or `env.bands.sub/bass` |
-| `LedFx.mids_power(audio)` | `env.bands.mid` or `env.bands.lowMid/mid` |
-| `LedFx.high_power(audio)` | `env.bands.high` |
-| `LedFx.melbank(audio, n)` | `AudioDSP.interpolateSpectrum(audio, n)` |
-| `new LedFx.ExpFilter(...)` | `AudioDSP.envelope(...)` or `new AudioDSP.Filter(...)` |
-
-### Phase 4: Delete `ledfx_compat.js`
-
-Delete the file only when the search results are clean.
-
-Checklist:
-
-- [ ] `rg "LedFx\." resources/rgbscripts` returns no bundled script usage.
+- [ ] `rg "LedFx\." resources/rgbscripts` returns no usage.
 - [ ] `audio_common.js` has no `LedFx` dependency.
 - [ ] `rgbscriptv4.cpp` no longer preloads `ledfx_compat.js`.
-- [ ] `resources/rgbscripts/CMakeLists.txt` no longer installs `ledfx_compat.js`.
-- [ ] Any docs that mention LedFx helpers are updated to QLC-native names.
-- [ ] The migration shim is removed before finalizing the feature branch.
+- [ ] CMakeLists no longer installs it.
+- [ ] Docs updated. Shim removed. File deleted.
 
-### Phase 5: Verification and Tuning
+### Phase 7: Verification
 
-- [ ] Use objective tests before subjective live tuning.
+- [ ] All synthetic audio tests pass:
 
 | Test | Expected signal |
 | --- | --- |
-| Silence | Features stay near zero, no trigger chatter. |
-| White noise | High flatness, no false beat dominance. |
-| Single sine sweeps | Energy lands in the expected band group as frequency rises. |
-| Kick-like impulse | Sub/bass onset fires once, cooldown prevents chatter. |
-| Hat-like impulse | High onset fires without bass trigger. |
-| Quiet-to-loud ramp | AGC adapts smoothly without pumping. |
-| 20 ms vs 60 ms frames | Envelopes decay by wall-clock time, not frame count. |
-| Threshold hover | Schmitt trigger holds state cleanly. |
+| Silence | Features near zero, AGC clamps, no trigger chatter. |
+| White noise | High flatness, no false beat. |
+| Sine sweeps | Energy in expected perceptual band. |
+| Kick impulse | `triggers.bass.firedThisFrame` once, cooldown prevents chatter. |
+| Hat impulse | `triggers.high.firedThisFrame` without bass. |
+| Quiet→loud ramp | AGC adapts smoothly. |
+| 20ms vs 60ms frames | Envelopes decay by `audioDtMs`. |
+| Threshold hover | Schmitt holds cleanly. |
+| Multiple profiles | Independent snapshots from same audio. |
+| Profile resolution | Explicit → default → first → anonymous chain works. |
+| Old-XML round-trip | Pre-upgrade docs load/save; old slider values converted to profile. |
 
-- [ ] Create silence test
-- [ ] Create white noise test
-- [ ] Create sine sweep test
-- [ ] Create kick impulse test
-- [ ] Create hat impulse test
-- [ ] Create quiet-to-loud ramp test
-- [ ] Create frame-rate independence test (20ms vs 60ms)
-- [ ] Create Schmitt threshold hover test
-- [ ] Add debug RGB script/panel for live visualization
+- [ ] Run parameterized synthetic tests.
+- [ ] Run multi-profile and resolution tests.
+- [ ] Run XML round-trip and migration tests.
+- [ ] Run VCAudioTrigger golden tests.
+- [ ] Confirm frame budget <1ms with multiple channels.
+- [ ] Confirm runtime monitor updates smoothly.
+- [ ] Live test: 3+ ported scripts, varied music.
+- [ ] Document migration in release notes.
 
-Add a temporary analyzer/debug RGB script or panel that displays:
-
-- raw 32 bands
-- grouped bands
-- volume/rms
-- AGC gain
-- beat/onset state
-- trigger fired/active states
-
-This gives fast live verification without flooding logs.
+---
 
 ## Done Criteria
 
-- [ ] No bundled script references `LedFx.*`.
-- [ ] `ledfx_compat.js` is deleted from source, build install lists, and the preload list.
-- [ ] Audio scripts use `AudioDSP` and `RGBUtil` only.
-- [ ] Audio feature math is documented with units and time constants.
-- [ ] Frame-rate-dependent decays are gone from ported scripts.
-- [ ] Triggers use hysteresis/cooldown or the C++ beat signal intentionally.
-- [ ] Synthetic tests cover bands, AGC, envelopes, and triggers.
-- [ ] Live verification confirms responsiveness and stability on controlled audio.
+- [ ] Document-level `AudioProfile` objects hold all DSP config.
+- [ ] VCAudioTrigger is primary editor/monitor with envelope curves, AGC meter, trigger lamps, spectral readouts.
+- [ ] One `AudioChannelHandle` per profile; multiple profiles coexist.
+- [ ] C++ `AudioAnalyzer` computes shared features and per-channel state from `AudioFrame`.
+- [ ] Scripts resolve audio via profile chain and log the source.
+- [ ] `RGBMatrix` exposes `audioProfileId` with profile selector + intensity scale + "Edit Audio Profile…" in UI.
+- [ ] Per-script DSP sliders removed. Old values converted to profile on load. Deprecated stubs warn.
+- [ ] No bundled script computes own DSP. No script references `LedFx.*`.
+- [ ] `ledfx_compat.js` deleted. `RGBUtil` + `AudioDSP.Filter` available.
+- [ ] Audio Profile XML versioned. Legacy per-bar triggers preserved alongside new per-band triggers.
+- [ ] Envelopes use `audioDtMs`. Triggers frame-stable.
+- [ ] All tests pass. Frame budget <1ms. Docs updated. Release notes written.

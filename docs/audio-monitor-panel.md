@@ -1,14 +1,47 @@
 # Global Audio Monitor Panel — Implementation Plan
 
-## Concept
+## Status
 
-A slide-in panel from the toolbar showing live audio data. Always available regardless of context.
-Helps users tune audio parameters, debug input issues, and see what scripts receive.
+**Step 1 (band splits) and Step 2 (VCAudioTriggers enhancement) are DONE.**
 
-## What Other Tools Do (research findings)
+The VCAudioTriggers widget now has:
+- Frequency-colored bars (orange lows / yellow mids / cyan highs)
+- Low/mid/high split markers at band boundaries
+- Monitor row with beat dot + L/M/H percentage readouts
+- Beat flash overlay
+- Monitor row auto-hides when widget is too small
+
+Band split logic is centralized in `AudioCapture::lowCutBin(N)` / `AudioCapture::highCutBin(N)`.
+JS scripts use a documented mirror of the same formula in `ledfx_compat.js`.
+
+## What Remains: Global Audio Monitor Panel
+
+The VCAudioTriggers widget is per-page and requires placement. A **global panel**
+would be always-available from the toolbar, independent of any VC page.
+
+## Architecture
+
+### Centralized Band Split (DONE)
+
+The single source of truth for frequency-to-bin mapping:
+
+```
+AudioCapture (engine/audio/src/audiocapture.h)
+  ├─ SPECTRUM_MIN_FREQUENCY = 40Hz
+  ├─ SPECTRUM_MAX_FREQUENCY = 5000Hz
+  ├─ lowCutBin(N)   → first mid bin (~250Hz crossover)
+  └─ highCutBin(N)  → first high bin (~2000Hz crossover)
+
+Consumers:
+  ├─ VCAudioTriggers (C++) → calls AudioCapture::lowCutBin/highCutBin
+  ├─ ledfx_compat.js       → mirrors formula (documented, can't call C++)
+  └─ Future: AudioSpectrumMonitor (C++) → will call AudioCapture::lowCutBin/highCutBin
+```
+
+### What Other Tools Do (research findings)
 
 - **WLED**: separate debug page showing FFT bands, sensitivity, noise gate, AGC mode
-- **LedFX**: inline melbank visualizer in effect editor + device-wide audio config page  
+- **LedFX**: inline melbank visualizer in effect editor + device-wide audio config page
 - **Resolume**: dedicated Audio FFT panel, BPM tap + visual waveform
 - **MadMapper**: audio analysis column with frequency bands + volume + beat + BPM
 
@@ -32,7 +65,7 @@ Common pattern: **global audio scope, not per-effect**. Shows raw input data.
 │ HIGHS ▓       0.09                        │
 │                                            │
 │ Volume ████████░░ 0.42                     │
-│ BPM    128  ● (beat flash)                 │
+│ Beat   ● (flash)                           │
 │                                            │
 │ ⚠ Labels show RAW input, not post-gain     │
 └────────────────────────────────────────────┘
@@ -45,14 +78,9 @@ Common pattern: **global audio scope, not per-effect**. Shows raw input data.
 | **RAW vs processed** | Show RAW input | Global panel can't know per-script gain/floor. Label clearly. |
 | **Band count** | Fixed 32 | Generic, matches common melbank use. Not per-script. |
 | **Script debug state** | NOT in MVP | Would need `algo.audioDebug()` API — defer to v2 |
-| **BPM** | Beat flash only in MVP | `BeatTracker::getCurrentBpm()` not safely exposed yet |
+| **BPM** | Beat flash only in MVP | BeatTracker is onset detector, not tempo tracker. Numeric BPM would be misleading. |
 | **Performance** | Register 32 bands only while panel is open | Zero cost when closed |
-| **Persistence** | Remember open/closed state | via QML Settings or app state |
-
-### What It Is / What It Isn't
-
-- **IS**: an input monitor — "is audio coming in? what does it look like?"
-- **IS NOT**: a per-script debugger (that's v2 with optional `algo.audioDebug()`)
+| **Band splits** | Use `AudioCapture::lowCutBin/highCutBin` | Centralized, consistent with VCAudioTriggers and JS scripts |
 
 ## Implementation
 
@@ -60,7 +88,7 @@ Common pattern: **global audio scope, not per-effect**. Shows raw input data.
 
 | File | What |
 |------|------|
-| `qmlui/audiospectrummonitor.h/.cpp` | C++ backend: polls AudioCapture, exposes QML properties |
+| `qmlui/audiospectrummonitor.h/.cpp` | C++ backend: connects to AudioCapture, exposes QML properties |
 | `qmlui/qml/AudioMonitorPanel.qml` | QML slide-in panel with spectrum + power + beat |
 
 ### Edits
@@ -85,60 +113,55 @@ class AudioSpectrumMonitor : public QObject
     Q_PROPERTY(qreal highsPower READ highsPower NOTIFY dataChanged)
     Q_PROPERTY(qreal volume READ volume NOTIFY dataChanged)
     Q_PROPERTY(bool beatPulse READ beatPulse NOTIFY beatChanged)
+    Q_PROPERTY(int lowCutBin READ lowCutBin CONSTANT)
+    Q_PROPERTY(int highCutBin READ highCutBin CONSTANT)
     Q_PROPERTY(QString statusText READ statusText NOTIFY activeChanged)
 
 public:
     void setEnabled(bool enabled);  // registers/unregisters 32 bands
-    
+
+    // Delegate to centralized AudioCapture methods
+    int lowCutBin() const { return AudioCapture::lowCutBin(32); }
+    int highCutBin() const { return AudioCapture::highCutBin(32); }
+
 private slots:
-    void slotDataProcessed();  // connected to AudioCapture::dataProcessed
+    void slotDataProcessed(double *bands, int size, double maxMag, quint32 power);
     void slotBeatDetected();
-    
-private:
-    Doc *m_doc;
-    bool m_enabled = false;
-    QVariantList m_spectrum;  // 32-element snapshot
-    qreal m_lows, m_mids, m_highs, m_volume;
-    bool m_beatPulse;
-    int m_beatDecay = 0;
 };
 ```
 
-Thread safety: copy data in `slotDataProcessed()` (runs on capture thread) under a mutex,
-emit `dataChanged()` via queued connection to main thread.
+Thread safety: the `dataProcessed` signal carries a raw `double*` across threads
+(pre-existing design in AudioCapture). Copy the data immediately in the slot.
+This is also a pre-existing issue in VCAudioTriggers — see Known Issues below.
 
 ### QML Panel
 
-- Slide-in from right (same pattern as UndoHistoryPanel)
-- `Repeater` for 32 spectrum bars (Rectangle height = band magnitude)
+- Slide-in from right (same pattern as existing panels)
+- `Repeater` for 32 spectrum bars (colored by L/M/H using `lowCutBin`/`highCutBin`)
 - 3 horizontal bars for lows/mids/highs
 - Volume bar
 - Beat indicator (circle that flashes on beat, decays over 200ms)
 - Toggle via toolbar icon button
 
-## Blocking Issues to Address
+## Known Issues
 
-1. **Thread-safe data access** — AudioCapture emits from capture thread. Copy under mutex.
-2. **BPM not safely exposed** — MVP shows beat flash only, omit numeric BPM.
-3. **Label raw vs processed clearly** — prevent user confusion about gain/floor.
+1. **Thread-safe data access** — `AudioCapture::dataProcessed(double*)` passes a raw
+   pointer across threads. The buffer may be mutated before the slot runs. This is a
+   pre-existing issue in the codebase (VCAudioTriggers has the same pattern). A proper
+   fix would change the signal to pass `QVector<double>` by value, but that affects
+   all consumers and is out of scope for the monitor panel.
 
-## Effort Estimate
-
-| Task | Estimate |
-|------|----------|
-| C++ AudioSpectrumMonitor | 1.5h |
-| QML AudioMonitorPanel | 2h |
-| MainView toolbar integration | 30min |
-| Thread safety | 30min |
-| Testing | 30min |
-| **Total** | **~5h** |
+2. **BPM not safely exposed** — BeatTracker is an onset detector, not a tempo tracker.
+   MVP shows beat flash only, omit numeric BPM.
 
 ## Future Extensions (v2)
 
 - Script debug data via `algo.audioDebug()` API
-- Numeric BPM display (needs safe BeatTracker accessor)
+- Numeric BPM display (needs proper tempo tracker, not just onset detection)
 - Peak hold on spectrum bars
 - Clipping/too-hot indicator
 - Compact mode (volume + beat + L/M/H only)
 - Mini sparkline in toolbar as toggle button
 - Audio input device selector in the panel
+- Pass split indices in `audioData` so JS scripts use `audioData.lowCut` / `audioData.highCut`
+  instead of computing their own (eliminates the JS mirror of the C++ formula)
