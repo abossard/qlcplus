@@ -24,6 +24,8 @@
 #include "treemodel.h"
 #include "dmxsource.h"
 
+class QTimer;
+
 #define KXMLQLCVCAudioTriggers QStringLiteral("AudioTriggers")
 
 class AudioCapture;
@@ -39,6 +41,13 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(int selectedBar READ selectedBar WRITE setSelectedBar NOTIFY selectedBarChanged FINAL)
     Q_PROPERTY(QVariantList audioLevels READ audioLevels NOTIFY audioLevelsChanged)
     Q_PROPERTY(QVariantList barsInfo READ barsInfo NOTIFY barsInfoChanged)
+
+    Q_PROPERTY(double lowsPower READ lowsPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double midsPower READ midsPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double highsPower READ highsPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(bool beatActive READ beatActive NOTIFY beatActiveChanged)
+    Q_PROPERTY(int lowCutBin READ lowCutBin NOTIFY barsNumberChanged)
+    Q_PROPERTY(int highCutBin READ highCutBin NOTIFY barsNumberChanged)
 
     Q_PROPERTY(QVariant groupsTreeModel READ groupsTreeModel NOTIFY groupsTreeModelChanged)
     Q_PROPERTY(QString searchFilter READ searchFilter WRITE setSearchFilter NOTIFY searchFilterChanged)
@@ -81,12 +90,24 @@ public:
 
     QVariantList audioLevels() const;
 
+    double lowsPower() const;
+    double midsPower() const;
+    double highsPower() const;
+    bool beatActive() const;
+    int lowCutBin() const;
+    int highCutBin() const;
+
 signals:
     void captureEnabledChanged();
     void volumeLevelChanged();
     void barsNumberChanged();
     void selectedBarChanged();
     void audioLevelsChanged();
+    void beatActiveChanged();
+
+private slots:
+    void slotBeatDetected();
+    void slotBeatTimeout();
 
 protected:
     /** @reimp */
@@ -102,6 +123,12 @@ private:
     uchar m_volumeLevel;
 
     QVariantList m_audioLevels;
+
+    double m_lowsPower = 0.0;
+    double m_midsPower = 0.0;
+    double m_highsPower = 0.0;
+    bool m_beatActive = false;
+    QTimer *m_beatTimer = nullptr;
 
     /*********************************************************************
      * Spectrum & Volume bars

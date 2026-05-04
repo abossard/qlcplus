@@ -123,6 +123,26 @@ double AudioCapture::bandMaxMagnitude(int numBands) const
     return maxVal;
 }
 
+int AudioCapture::lowCutBin(int N)
+{
+    if (N < 3) return 0;
+    // Exact computation from the frequency constants
+    const double logRange = qLn(double(SPECTRUM_MAX_FREQUENCY) / double(SPECTRUM_MIN_FREQUENCY));
+    const double lowRatio = qLn(250.0 / double(SPECTRUM_MIN_FREQUENCY)) / logRange;
+    return qBound(1, int(N * lowRatio), N - 2);
+}
+
+int AudioCapture::highCutBin(int N)
+{
+    if (N < 3) return N;
+    const double logRange = qLn(double(SPECTRUM_MAX_FREQUENCY) / double(SPECTRUM_MIN_FREQUENCY));
+    const double highRatio = qLn(2000.0 / double(SPECTRUM_MIN_FREQUENCY)) / logRange;
+    // Compute as last-mid-bin first, then +1 for first-high-bin
+    int lowCut = lowCutBin(N);
+    int lastMid = qBound(lowCut, int(N * highRatio), N - 2);
+    return lastMid + 1;
+}
+
 void AudioCapture::registerBandsNumber(int number)
 {
     qDebug() << "[AudioCapture] registering" << number << "bands";

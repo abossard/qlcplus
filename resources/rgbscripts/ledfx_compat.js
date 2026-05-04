@@ -105,9 +105,50 @@ LedFx.melbank = function(audioData, size) {
     return LedFx.interpolate(spectrum, size);
 };
 
+/*
+ * Frequency crossover ratios for log-spaced bands, derived from
+ * AudioCapture's SPECTRUM_MIN_FREQUENCY (40Hz) and SPECTRUM_MAX_FREQUENCY
+ * (5000Hz). These MUST stay in sync with audiocapture.h.
+ *
+ * The canonical band split logic lives in AudioCapture::lowCutBin() and
+ * AudioCapture::highCutBin() (engine/audio/src/audiocapture.cpp).
+ * This JS copy exists because scripts can't call C++ directly.
+ *
+ * Crossovers: lows ≤ 250Hz, mids ≤ 2000Hz, highs > 2000Hz
+ */
+LedFx._LOG_RANGE = Math.log(5000 / 40);                          // ≈ 4.828
+LedFx._LOW_CUT_RATIO = Math.log(250 / 40) / LedFx._LOG_RANGE;    // ≈ 0.379
+LedFx._HIGH_CUT_RATIO = Math.log(2000 / 40) / LedFx._LOG_RANGE;  // ≈ 0.810
+
 /**
- * Split the spectrum into thirds (lows, mids, highs).
- * Mirrors LedFX's melbank_thirds().
+ * Compute log-frequency split indices for an N-bin log-spaced spectrum.
+ * Returns { lowCut, highCut } where:
+ *   lows  = spectrum[0 .. lowCut-1]      (40-250Hz)
+ *   mids  = spectrum[lowCut .. highCut]  (250-2000Hz)
+ *   highs = spectrum[highCut+1 .. N-1]   (2000-5000Hz)
+ *
+ * Indices are clamped so each band has at least one bin when N >= 3.
+ *
+ * @param {number} n - Number of spectrum bins
+ * @returns {object} { lowCut: number, highCut: number }
+ */
+LedFx.bandSplitIndices = function(n) {
+    if (n < 3) return { lowCut: 0, highCut: Math.max(0, n - 1) };
+    var lowCut = Math.floor(n * LedFx._LOW_CUT_RATIO);
+    var highCut = Math.floor(n * LedFx._HIGH_CUT_RATIO);
+    // Clamp so each band gets at least one bin
+    lowCut = Math.max(1, Math.min(n - 2, lowCut));
+    highCut = Math.max(lowCut, Math.min(n - 2, highCut));
+    return { lowCut: lowCut, highCut: highCut };
+};
+
+/**
+ * Split the spectrum into perceptual lows/mids/highs based on the
+ * log-spaced frequency bands produced by AudioCapture.
+ *
+ * Crossovers: 250Hz (low/mid) and 2000Hz (mid/high). This replaces the
+ * naive equal-index thirds split, which gave a too-narrow lows band and
+ * a too-wide highs band on log-spaced spectra.
  *
  * @param {object} audioData - The audioData object
  * @returns {object} { lows: Array, mids: Array, highs: Array }
@@ -120,12 +161,38 @@ LedFx.melbank_thirds = function(audioData) {
     var len = audioData.spectrum.length;
     for (var i = 0; i < len; i++) s.push(audioData.spectrum[i]);
 
-    var third = Math.floor(len / 3);
+    if (len < 3) {
+        // Degenerate: not enough bins to split sensibly
+        return { lows: s.slice(), mids: s.slice(), highs: s.slice() };
+    }
+
+    var split = LedFx.bandSplitIndices(len);
     return {
-        lows: s.slice(0, third),
-        mids: s.slice(third, third * 2),
-        highs: s.slice(third * 2)
+        lows: s.slice(0, split.lowCut),
+        mids: s.slice(split.lowCut, split.highCut + 1),
+        highs: s.slice(split.highCut + 1)
     };
+};
+
+/**
+ * Convenience: just the lows slice (40-250Hz).
+ */
+LedFx.melbank_lows = function(audioData) {
+    return LedFx.melbank_thirds(audioData).lows;
+};
+
+/**
+ * Convenience: just the mids slice (250-2000Hz).
+ */
+LedFx.melbank_mids = function(audioData) {
+    return LedFx.melbank_thirds(audioData).mids;
+};
+
+/**
+ * Convenience: just the highs slice (2000-5000Hz).
+ */
+LedFx.melbank_highs = function(audioData) {
+    return LedFx.melbank_thirds(audioData).highs;
 };
 
 /**

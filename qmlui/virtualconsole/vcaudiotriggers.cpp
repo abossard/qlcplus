@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QQmlEngine>
+#include <QTimer>
 #include <qmath.h>
 
 #include "vcaudiotriggers.h"
@@ -80,6 +81,11 @@ VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
     m_spectrumBars.resize(m_inputCapture->defaultBarsNumber() + 1);
     m_audioLevels.resize(m_spectrumBars.count());
     setBarsNumber(m_spectrumBars.count());
+
+    m_beatTimer = new QTimer(this);
+    m_beatTimer->setSingleShot(true);
+    m_beatTimer->setInterval(200); // beat flash duration
+    connect(m_beatTimer, &QTimer::timeout, this, &VCAudioTriggers::slotBeatTimeout);
 }
 
 VCAudioTriggers::~VCAudioTriggers()
@@ -151,6 +157,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
                 this, SLOT(slotSpectrumDataChanged(double*,int,double,quint32)));
         connect(m_inputCapture, SIGNAL(volumeChanged(int)),
                 this, SIGNAL(volumeLevelChanged()));
+        connect(m_inputCapture, SIGNAL(beatDetected()),
+                this, SLOT(slotBeatDetected()));
         m_inputCapture->registerBandsNumber(m_spectrumBars.count() - 1);
 
         // Invalid ID: Stop every other widget
@@ -174,6 +182,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
                        this, SLOT(slotSpectrumDataChanged(double*,int,double,quint32)));
             disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
                        this, SIGNAL(volumeLevelChanged()));
+            disconnect(m_inputCapture, SIGNAL(beatDetected()),
+                       this, SLOT(slotBeatDetected()));
         }
 
         m_doc->masterTimer()->unregisterDMXSource(this);
@@ -267,6 +277,40 @@ void VCAudioTriggers::setSelectedBar(int index)
 QVariantList VCAudioTriggers::audioLevels() const
 {
     return m_audioLevels;
+}
+
+double VCAudioTriggers::lowsPower() const { return m_lowsPower; }
+double VCAudioTriggers::midsPower() const { return m_midsPower; }
+double VCAudioTriggers::highsPower() const { return m_highsPower; }
+bool VCAudioTriggers::beatActive() const { return m_beatActive; }
+
+int VCAudioTriggers::lowCutBin() const
+{
+    return AudioCapture::lowCutBin(m_spectrumBars.count() - 1);
+}
+
+int VCAudioTriggers::highCutBin() const
+{
+    return AudioCapture::highCutBin(m_spectrumBars.count() - 1);
+}
+
+void VCAudioTriggers::slotBeatDetected()
+{
+    if (!m_beatActive)
+    {
+        m_beatActive = true;
+        emit beatActiveChanged();
+    }
+    if (m_beatTimer)
+        m_beatTimer->start(); // restart the timeout
+}
+
+void VCAudioTriggers::slotBeatTimeout()
+{
+    if (!m_beatActive)
+        return;
+    m_beatActive = false;
+    emit beatActiveChanged();
 }
 
 bool VCAudioTriggers::copyFrom(const VCWidget *widget)
@@ -581,6 +625,34 @@ void VCAudioTriggers::slotSpectrumDataChanged(double *spectrumBands,
         // Store in bars (for DMX) and in UI list (index aligned: +1 for volume)
         m_spectrumBars[i + 1].m_value = uchar(bandValue);
         m_audioLevels.append(bandValue);
+    }
+
+    // Compute low/mid/high power from centralized frequency-aware splits
+    const int specBands = size;
+    if (specBands >= 3)
+    {
+        const int lowCut = AudioCapture::lowCutBin(specBands);
+        const int highCut = AudioCapture::highCutBin(specBands);
+
+        double lowSum = 0.0, midSum = 0.0, highSum = 0.0;
+        for (int i = 0; i < specBands; ++i)
+        {
+            double v = (maxMagnitude > 0.0) ? qBound(0.0, spectrumBands[i] / maxMagnitude, 1.0) : 0.0;
+            if (i < lowCut)
+                lowSum += v;
+            else if (i < highCut)
+                midSum += v;
+            else
+                highSum += v;
+        }
+
+        m_lowsPower = (lowCut > 0) ? lowSum / lowCut : 0.0;
+        m_midsPower = (highCut > lowCut) ? midSum / (highCut - lowCut) : 0.0;
+        m_highsPower = (specBands > highCut) ? highSum / (specBands - highCut) : 0.0;
+    }
+    else
+    {
+        m_lowsPower = m_midsPower = m_highsPower = 0.0;
     }
 
     for (int i = 0; i < m_spectrumBars.count(); i++)

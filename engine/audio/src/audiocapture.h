@@ -84,6 +84,14 @@ public:
     static int minFrequency() { return SPECTRUM_MIN_FREQUENCY; }
     static int maxFrequency() { return SPECTRUM_MAX_FREQUENCY; }
 
+    /** Compute the first-mid-bin index for N log-spaced bands.
+     *  Crossover at ~250Hz. lows = [0, lowCutBin). Valid for N >= 3. */
+    static int lowCutBin(int N);
+
+    /** Compute the first-high-bin index for N log-spaced bands.
+     *  Crossover at ~2000Hz. mids = [lowCutBin, highCutBin). Valid for N >= 3. */
+    static int highCutBin(int N);
+
     /*!
      *  Adjusts the audio output volume
      */
