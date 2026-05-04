@@ -78,6 +78,7 @@ target_link_libraries(mcp_palette_integration_test PRIVATE
 # Script Tool tests — exercises JavaScript-only create_scripts MCP tool
 add_executable(mcp_script_tool_test WIN32
     script_tool_test.cpp script_tool_test.h
+    functionmanager_stub.cpp
 )
 
 target_include_directories(mcp_script_tool_test PRIVATE
@@ -92,6 +93,9 @@ target_link_libraries(mcp_script_tool_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Test
     Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Widgets
+    qlcplusmcp
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
@@ -132,6 +136,29 @@ target_link_libraries(mcp_vc_query_filter_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
+    nlohmann_json::nlohmann_json
+)
+
+# Query Tool tests — exercises registered query tools and their validation
+add_executable(mcp_query_tools_test WIN32
+    query_tools_test.cpp query_tools_test.h
+)
+
+target_include_directories(mcp_query_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_query_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
     nlohmann_json::nlohmann_json
 )
 
@@ -213,3 +240,27 @@ target_link_libraries(mcp_conversions_test PRIVATE
 
 # Flow Console tests are integration tests run against the live MCP server.
 # See mcp/test/flow_console_integration_test.sh
+
+# Dispatch smoke tests — end-to-end ToolManager dispatch for major tool families
+add_executable(mcp_dispatch_smoke_test WIN32
+    dispatch_smoke_test.cpp dispatch_smoke_test.h
+    functionmanager_stub.cpp
+)
+
+target_include_directories(mcp_dispatch_smoke_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_dispatch_smoke_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)

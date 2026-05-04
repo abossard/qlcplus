@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -32,10 +34,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetDensity|type:range|display:Smear|" +
       "values:1,10|write:setDensity|read:getDensity");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:0,10|write:setReactivity|read:getReactivity");
     algo.presetSmooth = 5;
     algo.properties.push(
       "name:presetSmooth|type:range|display:Smoothing|" +
@@ -45,8 +43,6 @@ var testAlgo;
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setDensity = function(_v) { algo.presetDensity = parseInt(_v); };
     algo.getDensity = function() { return algo.presetDensity; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
     algo.setSmooth = function(_v) { algo.presetSmooth = parseInt(_v); };
     algo.getSmooth = function() { return algo.presetSmooth; };
 
@@ -103,7 +99,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.05, 0.3);
+            lowsFilter = AudioParams.createFilter(algo, 0.05);
             phaseX = Math.random() * 100;
             phaseY = Math.random() * 100;
             lastTime = Date.now();
@@ -119,7 +115,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio));
+        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
         var smooth = algo.presetSmooth / 10.0;
@@ -200,6 +196,14 @@ var testAlgo;
                 var g = a[1] * (1-wx) * (1-wy) + b[1] * wx * (1-wy) + c[1] * (1-wx) * wy + d[1] * wx * wy;
                 var bl = a[2] * (1-wx) * (1-wy) + b[2] * wx * (1-wy) + c[2] * (1-wx) * wy + d[2] * wx * wy;
 
+                var maxChannel = Math.max(r, g, bl) / 255.0;
+                if (maxChannel > 0) {
+                    var floored = AudioParams.applyFloor(algo, Math.min(1, maxChannel));
+                    var floorScale = floored / maxChannel;
+                    r *= floorScale;
+                    g *= floorScale;
+                    bl *= floorScale;
+                }
                 newPixels[y][x] = [r, g, bl];
                 map[y][x] = LedFx.rgb(r, g, bl);
             }

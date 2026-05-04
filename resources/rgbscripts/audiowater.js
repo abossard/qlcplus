@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -99,10 +101,11 @@ var testAlgo;
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
+        var gain = AudioParams.gainFactor(algo);
         var thirds = LedFx.melbank_thirds(audio);
-        var bassIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.lows), 2));
-        var midsIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.mids), 2));
-        var highIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.highs), 2));
+        var bassIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.lows) * gain, 2));
+        var midsIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.mids) * gain, 2));
+        var highIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.highs) * gain, 2));
 
         // Create drops based on audio
         createDrop(1, bassIntensity * algo.presetBassSize, width);
@@ -132,7 +135,7 @@ var testAlgo;
             // Triangle wave for hue variation
             var hue = Math.abs((val * 2) % 2 - 1);
             // Brightness from water height
-            var bright = Math.min(1, Math.max(0, val * 0.8 + 0.12));
+            var bright = AudioParams.applyFloor(algo, Math.min(1, Math.max(0, val * 0.8 + 0.12)));
 
             var r = startColor[0] + (endColor[0] - startColor[0]) * hue;
             var g = startColor[1] + (endColor[1] - startColor[1]) * hue;

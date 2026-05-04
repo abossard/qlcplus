@@ -21,6 +21,7 @@
 #include <QXmlStreamWriter>
 #include <QTextStream>
 #include <QJSEngine>
+#include <QStringList>
 #include <QThread>
 #include <QDebug>
 #include <QFile>
@@ -173,22 +174,25 @@ void RGBScript::initEngine()
         qAddPostRoutine(RGBScript::cleanupEngine);
         s_jsThread->ready.acquire(1);
 
-        // Load the LedFX compatibility shim into the engine's global scope
-        // so all audio-reactive scripts can use LedFx.* helpers.
+        // Load shared audio script helpers into the engine's global scope.
         QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
-        QString shimPath = scriptsDir.filePath("ledfx_compat.js");
-        QFile shimFile(shimPath);
-        if (shimFile.open(QIODevice::ReadOnly))
+        const QStringList shimNames = { QStringLiteral("ledfx_compat.js"), QStringLiteral("audio_common.js") };
+        for (const QString &shimName : shimNames)
         {
-            QString shimContents = QTextStream(&shimFile).readAll();
-            shimFile.close();
-            QMetaObject::invokeMethod(s_jsThread->engine, [shimContents, shimPath]{
-                QJSValue result = s_jsThread->engine->evaluate(shimContents, shimPath);
-                if (result.isError())
-                    displayError(result, shimPath);
-                else
-                    qDebug() << "[RGBScript] Loaded LedFX compatibility shim";
-            }, Qt::BlockingQueuedConnection);
+            QString shimPath = scriptsDir.filePath(shimName);
+            QFile shimFile(shimPath);
+            if (shimFile.open(QIODevice::ReadOnly))
+            {
+                QString shimContents = QTextStream(&shimFile).readAll();
+                shimFile.close();
+                QMetaObject::invokeMethod(s_jsThread->engine, [shimContents, shimPath]{
+                    QJSValue result = s_jsThread->engine->evaluate(shimContents, shimPath);
+                    if (result.isError())
+                        displayError(result, shimPath);
+                    else
+                        qDebug() << "[RGBScript] Loaded RGB script shim" << shimPath;
+                }, Qt::BlockingQueuedConnection);
+            }
         }
     }
     Q_ASSERT(s_jsThread->engine != NULL);
@@ -517,6 +521,21 @@ bool RGBScript::saveXML(QXmlStreamWriter *doc) const
 bool RGBScript::usesAudio() const
 {
     return m_usesAudio;
+}
+
+void RGBScript::setDisplaySize(const QSize &size)
+{
+    if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
+    {
+        QMetaObject::invokeMethod(s_jsThread->engine, [this, size]{ setDisplaySize(size); }, Qt::BlockingQueuedConnection);
+        return;
+    }
+
+    if (!m_script.isObject())
+        return;
+
+    m_script.setProperty(QStringLiteral("displayWidth"), size.width());
+    m_script.setProperty(QStringLiteral("displayHeight"), size.height());
 }
 
 void RGBScript::postRun()

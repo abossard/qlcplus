@@ -121,6 +121,16 @@ Known types (case-sensitive strings used in MCP): `button`, `slider`, `xypad`, `
 - The app binary is at `build/qmlui/qlcplus-qml` (no `.app` bundle in dev builds).
 - Use `-d` flag for debug output when running.
 
+
+## Lighting Design Research
+
+When the user asks to create or improve lighting effects:
+1. Read `docs/lighting-research-guide.md` for the full workflow.
+2. Use MCP tools to query fixtures, create effects, and iterate.
+3. Always ask the user to preview and give feedback before refining.
+4. Name experiments with the `EXP-` prefix for easy cleanup.
+5. Save winners as permanent named functions and recipes.
+
 ## Sub-Agent Model Policy
 
 When using the task tool to spawn sub-agents (explore, task, general-purpose, rubber-duck, code-review), always set the `model` parameter to match the model currently in use for the main conversation. Do not rely on default sub-agent models.

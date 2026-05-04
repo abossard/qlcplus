@@ -25,6 +25,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 3, reactivity: 9});
+
     // --- Properties ---
     algo.presetSpeed = 4;
     algo.properties.push(
@@ -83,7 +85,7 @@ var testAlgo;
             sparkX[i] = Math.random() * 5;
         }
 
-        lowsFilter = new LedFx.ExpFilter(0.05, 0.99);
+        lowsFilter = AudioParams.createFilter(algo, 0.05);
         initialized = true;
         lastTime = Date.now();
     }
@@ -124,7 +126,8 @@ var testAlgo;
         var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
 
         // Audio influence: bass drives the fire
-        var rawLows = LedFx.lows_power(audio);
+        var gain = AudioParams.gainFactor(algo);
+        var rawLows = LedFx.lows_power(audio) * gain;
         var lowsPower = lowsFilter.update(rawLows);
 
         var cooling = baseCooling + lowsPower * 0.15;
@@ -188,18 +191,21 @@ var testAlgo;
             var b = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * heat;
 
             // Apply heat as brightness
-            var brightness = Math.min(1, heat * 2);
+            var brightness = AudioParams.applyFloor(algo, Math.min(1, heat * 2));
             var packedColor = LedFx.rgb(r * brightness, g * brightness, b * brightness);
 
             // Fill row — if "Per Column" is on, vary heat per column using spectrum
             if (algo.presetSpread && audio.spectrum) {
-                var specBands = LedFx.melbank(audio, width);
+                var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+                var specBands = LedFx.melbank(audio, effectiveWidth);
+                for (var si = 0; si < specBands.length; si++)
+                    specBands[si] = Math.min(1, specBands[si] * gain);
                 for (var x = 0; x < width; x++) {
                     var colHeat = heat * (0.3 + specBands[x] * 0.7);
                     var cr = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * colHeat;
                     var cg = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * colHeat;
                     var cb = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * colHeat;
-                    var cb2 = Math.min(1, colHeat * 2);
+                    var cb2 = AudioParams.applyFloor(algo, Math.min(1, colHeat * 2));
                     map[y][x] = LedFx.rgb(cr * cb2, cg * cb2, cb * cb2);
                 }
             } else {

@@ -55,6 +55,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             InputOutputMap *ioMap = doc->inputOutputMap();
             for (auto &item : args.at("items"))
@@ -121,6 +123,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -269,6 +273,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -396,6 +402,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             try {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             InputOutputMap *ioMap = doc->inputOutputMap();
 

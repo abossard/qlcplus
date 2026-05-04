@@ -21,82 +21,80 @@
 #include <nlohmann/json.hpp>
 
 #include "script_tool_test.h"
+#include "tool_registry.h"
 #include "idempotency.h"
 #include "doc.h"
 #include "scriptv4.h"
 
+#include <fastmcpp/tools/manager.hpp>
+
 using Json = nlohmann::json;
 
-// ─── Helper: simulate the create_scripts MCP tool logic ────────────────────
+// ─── Helper: dispatch the real create_scripts MCP tool ─────────────────────
 
 Json ScriptTool_Test::callCreateScript(const std::string &name,
                                         const std::string &content,
                                         const std::string &path)
 {
-    if (content.empty())
-        return {{"error", "content must not be empty"}, {"name", name}};
-
-    Function *existing = mcp::findFunction(m_doc, QString::fromStdString(name), Function::ScriptType);
-    Script *script;
-    bool isNew = false;
-    QString previousData;
-    if (existing)
-    {
-        script = qobject_cast<Script*>(existing);
-        previousData = script->data();
-    }
-    else
-    {
-        script = new Script(m_doc);
-        script->setName(QString::fromStdString(name));
-        isNew = true;
-    }
-
+    Json item = {{"name", name}, {"content", content}};
     if (!path.empty())
-        script->setPath(QString::fromStdString(path));
+        item["path"] = path;
 
-    QString qContent = QString::fromStdString(content);
-    script->setData(qContent);
+    Json args = {{"items", Json::array({item})}};
+    Json raw = m_tm->invoke("create_scripts", args);
 
-    QStringList syntaxErrors = script->syntaxErrorsLines();
-    if (!syntaxErrors.isEmpty())
-    {
-        if (isNew)
-            delete script;
-        else
-            script->setData(previousData);
+    Json parsed = raw.is_string() ? Json::parse(raw.get<std::string>()) : raw;
 
-        Json errorList = Json::array();
-        for (const QString &err : syntaxErrors)
-            errorList.push_back(err.toStdString());
+    // Top-level error (e.g. missing items array) — return as-is so callers see error key.
+    if (parsed.is_object() && parsed.contains("error"))
+        return parsed;
 
-        return {
-            {"error", "JavaScript syntax check failed"},
-            {"name", name},
-            {"syntaxErrors", errorList}
-        };
-    }
+    // Batch tools return a JSON array — extract the single result.
+    if (parsed.is_array() && !parsed.empty())
+        return parsed[0];
 
-    if (isNew)
-        m_doc->addFunction(script);
-
-    return {
-        {"id", (int)script->id()},
-        {"name", name},
-        {"status", isNew ? "created" : "updated"}
-    };
+    return parsed;
 }
 
 // ─── Test setup ─────────────────────────────────────────────────────────────
 
-void ScriptTool_Test::initTestCase()
+void ScriptTool_Test::init()
 {
     m_doc = new Doc(this);
+    m_tm = new fastmcpp::tools::ToolManager();
+    registerFunctionTools(*m_tm, m_doc);
 }
 
 void ScriptTool_Test::cleanup()
 {
-    m_doc->clearContents();
+    delete m_tm;
+    m_tm = nullptr;
+    delete m_doc;
+    m_doc = nullptr;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Real-dispatch error shape sanity
+// ═══════════════════════════════════════════════════════════════════════════
+
+void ScriptTool_Test::dispatch_missingItemsRejected()
+{
+    Json raw = m_tm->invoke("create_scripts", Json::object());
+    Json parsed = raw.is_string() ? Json::parse(raw.get<std::string>()) : raw;
+    QVERIFY(parsed.is_object());
+    QVERIFY(parsed.contains("error"));
+}
+
+void ScriptTool_Test::dispatch_unknownFieldRejected()
+{
+    Json args = {{"items", Json::array({
+        {{"name", "Bad"}, {"content", "Engine.waitTime(1);"}, {"bogus", 42}}
+    })}};
+    Json raw = m_tm->invoke("create_scripts", args);
+    Json parsed = raw.is_string() ? Json::parse(raw.get<std::string>()) : raw;
+    QVERIFY(parsed.is_array());
+    QVERIFY(!parsed.empty());
+    QVERIFY(parsed[0].contains("error"));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

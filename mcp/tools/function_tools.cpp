@@ -84,8 +84,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args.at("items").is_array())
-                return Json({{"error","items array required"}}).dump();
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"name", "path", "fixtureIDs", "fixtureNames", "paletteIDs", "paletteNames", "fadeIn", "fadeOut", "tempoType", "channelValues", "positions"});
@@ -288,8 +288,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"items"});
             if (!err.empty()) return err;
-            if (!args.contains("items") || !args.at("items").is_array())
-                return Json({{"error", "items array required"}}).dump();
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
 
             // Channel group filter helper
             auto groupMatches = [](const std::string &filter, QLCChannel::Group g) -> bool {
@@ -462,8 +462,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args.at("items").is_array())
-                return Json({{"error","items array required"}}).dump();
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"name", "path", "steps", "tempoType", "runOrder", "direction", "fadeInMode", "fadeOutMode", "durationMode"});
@@ -606,8 +606,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             return execOnMainThread(doc, [&]() -> Json {
             try {
             Json results = Json::array();
-            if (!args.contains("items") || !args.at("items").is_array())
-                return Json({{"error","items array required"}}).dump();
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"name", "path", "boundSceneID", "fadeIn", "fadeOut", "holdTime", "tempoType", "runOrder", "direction"});
@@ -729,6 +729,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -867,6 +869,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -942,7 +946,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"tempoType", {{"type", "string"}, {"enum", {"time", "beats"}}, {"description", "Time or Beats. Auto-set to Beats when beat strings used."}}},
                 {"runOrder", {{"type", "string"}, {"enum", {"Loop", "SingleShot", "PingPong", "Random"}}, {"description", "Loop, SingleShot, PingPong, or Random"}}},
                 {"direction", {{"type", "string"}, {"enum", {"Forward", "Backward"}}, {"description", "Forward or Backward"}}},
-                {"controlMode", {{"type", "string"}, {"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter"}}, {"description", "RGB, White, Amber, UV, Dimmer, or Shutter"}}},
+                {"controlMode", {{"type", "string"}, {"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter", "RGBW", "RGBWBrighter"}}, {"description", "RGB, White, Amber, UV, Dimmer, Shutter, RGBW (white extraction), or RGBWBrighter (additive white)"}}},
                 {"blendMode", {{"type", "string"}, {"enum", {"Normal", "Additive", "Mask", "Subtractive"}}, {"description", "Normal, Additive, Mask, or Subtractive"}}},
                 {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs (e.g. {\"presetDecay\": \"10\", \"presetMode\": \"Mids\"})"}}},
                 {"text", {{"type", "string"}, {"description", "Text content (for RGBText algorithm)"}}},
@@ -955,6 +959,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -968,7 +974,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     {"tempoType", {{"enum", {"time", "beats"}}}},
                     {"runOrder", {{"enum", {"Loop", "SingleShot", "PingPong", "Random"}}}},
                     {"direction", {{"enum", {"Forward", "Backward"}}}},
-                    {"controlMode", {{"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter"}}}},
+                    {"controlMode", {{"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter", "RGBW", "RGBWBrighter"}}}},
                     {"blendMode", {{"enum", {"Normal", "Additive", "Mask", "Subtractive"}}}},
                     {"animationStyle", {{"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}}},
                     {"mirror", {{"enum", {"Off", "Horizontal", "Vertical", "Both"}}}},
@@ -1189,6 +1195,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -1261,6 +1269,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {

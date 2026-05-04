@@ -119,6 +119,9 @@ public:
     bool usesAudio() const override;
 
     /** @reimp */
+    void setDisplaySize(const QSize &size) override;
+
+    /** @reimp */
     void postRun() override;
 
     /** @reimp */

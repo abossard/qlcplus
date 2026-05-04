@@ -26,11 +26,9 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     // --- Configurable Properties ---
-    algo.presetSensitivity = 6;
-    algo.properties.push(
-      "name:presetSensitivity|type:range|display:Sensitivity|" +
-      "values:1,10|write:setSensitivity|read:getSensitivity");
 
     algo.presetMixing = 0;
     algo.properties.push(
@@ -42,8 +40,6 @@ var testAlgo;
       "name:presetMultiplier|type:range|display:Fill Amount|" +
       "values:5,30|write:setMultiplier|read:getMultiplier");
 
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
-    algo.getSensitivity = function()  { return algo.presetSensitivity; };
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
     algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
@@ -62,11 +58,10 @@ var testAlgo;
 
     function initFilters()
     {
-        var decay = algo.presetSensitivity / 10.0;
-        var rise = 0.6 + (algo.presetSensitivity / 25.0);
-        lowsFilter  = new LedFx.ExpFilter(decay, Math.min(rise, 0.99));
-        midsFilter  = new LedFx.ExpFilter(decay, Math.min(rise, 0.99));
-        highsFilter = new LedFx.ExpFilter(decay, Math.min(rise, 0.99));
+        var decay = algo.presetReactivity / 10.0;
+        lowsFilter  = AudioParams.createFilter(algo, decay);
+        midsFilter  = AudioParams.createFilter(algo, decay);
+        highsFilter = AudioParams.createFilter(algo, decay);
         initialized = true;
     }
 
@@ -118,9 +113,10 @@ var testAlgo;
             return map;
 
         // Get frequency band powers
-        var rawLows = LedFx.lows_power(audio);
-        var rawMids = LedFx.mids_power(audio);
-        var rawHighs = LedFx.high_power(audio);
+        var gain = AudioParams.gainFactor(algo);
+        var rawLows = LedFx.lows_power(audio) * gain;
+        var rawMids = LedFx.mids_power(audio) * gain;
+        var rawHighs = LedFx.high_power(audio) * gain;
 
         // Apply smoothing
         var lows = lowsFilter.update(rawLows);
@@ -164,7 +160,8 @@ var testAlgo;
                     }
                 }
 
-                map[y][x] = LedFx.rgb(r, g, b);
+                var brightness = (r > 0 || g > 0 || b > 0) ? AudioParams.applyFloor(algo, 1.0) : 0;
+                map[y][x] = LedFx.rgb(r * brightness, g * brightness, b * brightness);
             }
         }
 

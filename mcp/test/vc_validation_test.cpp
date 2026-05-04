@@ -21,6 +21,7 @@
 
 #include "vc_validation_test.h"
 #include "vc_tools_common.h"
+#include "tool_registry.h"
 
 using Json = nlohmann::json;
 
@@ -660,6 +661,48 @@ void VCValidation_Test::parentOrPage()
     {
         QVERIFY(!err.empty());
         auto errJson = Json::parse(err);
+        QString errMsg = QString::fromStdString(errJson["error"].get<std::string>());
+        QVERIFY2(errMsg.contains(errorSubstring),
+                 qPrintable(QStringLiteral("Expected '%1' in error: %2").arg(errorSubstring, errMsg)));
+    }
+}
+
+void VCValidation_Test::validateItemsArray_data()
+{
+    QTest::addColumn<QByteArray>("jsonArgs");
+    QTest::addColumn<bool>("expectValid");
+    QTest::addColumn<QString>("errorSubstring");
+
+    QTest::newRow("missing items key")
+        << QByteArray("{}") << false << QStringLiteral("array is required");
+    QTest::newRow("items is null")
+        << QByteArray(R"({"items": null})") << false << QStringLiteral("array is required");
+    QTest::newRow("items is string")
+        << QByteArray(R"({"items": "not-array"})") << false << QStringLiteral("array is required");
+    QTest::newRow("items is empty array")
+        << QByteArray(R"({"items": []})") << false << QStringLiteral("must not be empty");
+    QTest::newRow("items is valid array")
+        << QByteArray(R"({"items": [{"name": "one"}]})") << true << QString();
+}
+
+void VCValidation_Test::validateItemsArray()
+{
+    QFETCH(QByteArray, jsonArgs);
+    QFETCH(bool, expectValid);
+    QFETCH(QString, errorSubstring);
+
+    Json args = Json::parse(jsonArgs.toStdString());
+    auto err = ::validateItemsArray(args);
+
+    if (expectValid)
+    {
+        QVERIFY2(!err.has_value(), qPrintable(QString::fromStdString(err.value_or(""))));
+    }
+    else
+    {
+        QVERIFY2(err.has_value(), "Expected validateItemsArray error");
+        Json errJson = Json::parse(*err);
+        QVERIFY(errJson.contains("error"));
         QString errMsg = QString::fromStdString(errJson["error"].get<std::string>());
         QVERIFY2(errMsg.contains(errorSubstring),
                  qPrintable(QStringLiteral("Expected '%1' in error: %2").arg(errorSubstring, errMsg)));

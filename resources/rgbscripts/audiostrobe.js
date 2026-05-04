@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+
     algo.presetDecay = 5;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay Speed|" +
@@ -33,11 +35,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetMode|type:list|display:Trigger|" +
       "values:Beat,Bass,Mids,Highs,Volume|write:setMode|read:getMode");
-
-    algo.presetThreshold = 6;
-    algo.properties.push(
-      "name:presetThreshold|type:range|display:Threshold|" +
-      "values:1,10|write:setThreshold|read:getThreshold");
 
     algo.presetRandomColor = 0;
     algo.properties.push(
@@ -60,8 +57,6 @@ var testAlgo;
         if (algo.presetMode === 4) return "Volume";
         return "Beat";
     };
-    algo.setThreshold = function(_v) { algo.presetThreshold = parseInt(_v); };
-    algo.getThreshold = function() { return algo.presetThreshold; };
     algo.setRandomColor = function(_v) { algo.presetRandomColor = (_v === "On") ? 1 : 0; };
     algo.getRandomColor = function() { return algo.presetRandomColor ? "On" : "Off"; };
 
@@ -91,17 +86,18 @@ var testAlgo;
 
         // Determine if we should flash
         var trigger = false;
-        var thresh = algo.presetThreshold / 10.0;
+        var gain = AudioParams.gainFactor(algo);
+        var thresh = AudioParams.triggerThreshold(algo);
         if (algo.presetMode === 0) {
             trigger = audio.beat;
         } else if (algo.presetMode === 1) {
-            trigger = LedFx.lows_power(audio) > thresh;
+            trigger = LedFx.lows_power(audio) * gain > thresh;
         } else if (algo.presetMode === 2) {
-            trigger = LedFx.mids_power(audio) > thresh;
+            trigger = LedFx.mids_power(audio) * gain > thresh;
         } else if (algo.presetMode === 3) {
-            trigger = LedFx.high_power(audio) > thresh;
+            trigger = LedFx.high_power(audio) * gain > thresh;
         } else {
-            trigger = audio.volume > thresh;
+            trigger = audio.volume * gain > thresh;
         }
 
         if (trigger) {

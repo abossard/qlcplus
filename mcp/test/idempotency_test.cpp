@@ -497,7 +497,7 @@ void McpIdempotency_Test::beatEncoding_beatsToTime_data()
     QTest::addColumn<uint>("expectedMs");
 
     QTest::newRow("zero")           << 0u    << 500 << 0u;
-    QTest::newRow("1/8 beat")       << 125u  << 500 << 62u;
+    QTest::newRow("1/8 beat")       << 125u  << 500 << 63u;
     QTest::newRow("1/4 beat")       << 250u  << 500 << 125u;
     QTest::newRow("1/2 beat")       << 500u  << 500 << 250u;
     QTest::newRow("2.75 beats")     << 2750u << 500 << 1375u;

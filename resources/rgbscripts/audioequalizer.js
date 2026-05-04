@@ -25,6 +25,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     // --- Properties ---
     algo.presetDecay = 5;
     algo.properties.push(
@@ -46,10 +48,6 @@ var testAlgo;
       "name:presetGap|type:list|display:Bar Gap|" +
       "values:Off,On|write:setGap|read:getGap");
 
-    algo.presetSensitivity = 5;
-    algo.properties.push(
-      "name:presetSensitivity|type:range|display:Sensitivity|" +
-      "values:1,10|write:setSensitivity|read:getSensitivity");
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function()  { return algo.presetDecay; };
@@ -59,8 +57,6 @@ var testAlgo;
     algo.getCenter = function()  { return algo.presetCenter ? "On" : "Off"; };
     algo.setGap = function(_v) { algo.presetGap = (_v === "On") ? 1 : 0; };
     algo.getGap = function() { return algo.presetGap ? "On" : "Off"; };
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
-    algo.getSensitivity = function() { return algo.presetSensitivity; };
 
     // --- Internal state ---
     var barFilter = null;
@@ -72,7 +68,7 @@ var testAlgo;
     function init(bandCount)
     {
         var decay = algo.presetDecay / 20.0;
-        barFilter = new LedFx.ExpFilter(decay, 0.95);
+        barFilter = AudioParams.createFilter(algo, decay);
         peakValues = new Array(bandCount);
         for (var i = 0; i < bandCount; i++) peakValues[i] = 0;
         initialized = true;
@@ -111,7 +107,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var bandCount = width;
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+        var bandCount = effectiveWidth;
         if (!initialized || (peakValues && peakValues.length !== bandCount))
             init(bandCount);
 
@@ -124,7 +121,7 @@ var testAlgo;
         var rawBands = LedFx.melbank(audio, bandCount);
 
         // Scale by sensitivity
-        var scale = algo.presetSensitivity / 5.0;
+        var scale = AudioParams.gainFactor(algo);
         for (var i = 0; i < rawBands.length; i++)
             rawBands[i] = Math.min(1, rawBands[i] * scale);
 
@@ -133,7 +130,7 @@ var testAlgo;
 
         var peakDecay = 0.01 + (10 - algo.presetDecay) * 0.005;
 
-        for (var x = 0; x < bandCount; x++)
+        for (var x = 0; x < Math.min(bandCount, width); x++)
         {
             // Gap mode: leave every other column dark
             if (algo.presetGap && (x % 2 === 1)) continue;
@@ -159,7 +156,8 @@ var testAlgo;
                     if (y < 0 || y >= height) continue;
                     var t = Math.abs(y - mid) / (height / 2);
                     var c = gradientColor(t);
-                    map[y][x] = LedFx.rgb(c[0], c[1], c[2]);
+                    var brightness = AudioParams.applyFloor(algo, 1.0);
+                    map[y][x] = LedFx.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
             else
@@ -171,7 +169,8 @@ var testAlgo;
                     if (y < 0) break;
                     var t = dy / height;
                     var c = gradientColor(t);
-                    map[y][x] = LedFx.rgb(c[0], c[1], c[2]);
+                    var brightness = AudioParams.applyFloor(algo, 1.0);
+                    map[y][x] = LedFx.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
 
@@ -185,8 +184,10 @@ var testAlgo;
                 } else {
                     peakY = height - 1 - Math.floor(peakValues[x] * height);
                 }
-                if (peakY >= 0 && peakY < height)
-                    map[peakY][x] = LedFx.rgb(255, 255, 255);
+                if (peakY >= 0 && peakY < height) {
+                    var peakBrightness = AudioParams.applyFloor(algo, 1.0);
+                    map[peakY][x] = LedFx.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
+                }
             }
         }
 

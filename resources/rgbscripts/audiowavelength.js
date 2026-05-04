@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSmoothing = 7;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
@@ -56,15 +58,19 @@ var testAlgo;
         var pixelCount = width * height;
         if (!initialized || !filter) {
             var decay = algo.presetSmoothing / 15.0;
-            filter = new LedFx.ExpFilter(decay, 0.8);
+            filter = AudioParams.createFilter(algo, decay);
             initialized = true;
         }
 
         var map = LedFx.createMap(width, height);
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
 
-        // Get spectrum interpolated to pixel count
-        var bands = LedFx.melbank(audio, width);
+        // Get spectrum interpolated to physical display width
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+        var gain = AudioParams.gainFactor(algo);
+        var bands = LedFx.melbank(audio, effectiveWidth);
+        for (var bi = 0; bi < bands.length; bi++)
+            bands[bi] = Math.min(1, bands[bi] * gain);
         var smoothed = filter.updateArray(bands);
 
         // Map each column: spectrum magnitude → gradient color × brightness
@@ -84,7 +90,7 @@ var testAlgo;
                 var y = height - 1 - dy;
                 if (y < 0) break;
                 // Fade brightness toward top
-                var bright = magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight));
+                var bright = AudioParams.applyFloor(algo, magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight)));
                 map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
             }
         }

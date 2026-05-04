@@ -166,6 +166,8 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {

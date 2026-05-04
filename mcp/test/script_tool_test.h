@@ -23,6 +23,7 @@
 #include <QObject>
 #include <nlohmann/json.hpp>
 
+namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
 
 class ScriptTool_Test final : public QObject
@@ -30,8 +31,12 @@ class ScriptTool_Test final : public QObject
     Q_OBJECT
 
 private slots:
-    void initTestCase();
+    void init();
     void cleanup();
+
+    // ── Real dispatch sanity ───────────────────────────────────────────
+    void dispatch_missingItemsRejected();
+    void dispatch_unknownFieldRejected();
 
     // ── Basic CRUD ─────────────────────────────────────────────────────
     void create_simpleScript();
@@ -116,11 +121,12 @@ private slots:
     void edge_whiteSpaceOnly();
 
 private:
-    Doc *m_doc;
+    Doc *m_doc = nullptr;
+    fastmcpp::tools::ToolManager *m_tm = nullptr;
 
     /**
-     * Helper: simulate create_scripts tool call and return result JSON.
-     * Builds and validates a Script exactly as the MCP tool does.
+     * Helper: dispatch the real create_scripts MCP tool and return result JSON.
+     * Wraps the single item in {"items": [...]} and returns the first result entry.
      */
     nlohmann::json callCreateScript(const std::string &name,
                                      const std::string &content,

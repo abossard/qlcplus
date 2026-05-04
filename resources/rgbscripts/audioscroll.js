@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetDecay = 5;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay|" +
@@ -77,8 +79,9 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var isVertical = (algo.presetDirection <= 1); // Down or Up
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var scrollLen = isVertical ? height : width;
-        var bandLen = isVertical ? width : height;
+        var bandLen = isVertical ? effectiveWidth : height;
 
         if (!initialized || !history || history.length !== scrollLen) {
             history = new Array(scrollLen);
@@ -97,21 +100,24 @@ var testAlgo;
         var decay = 1 - algo.presetDecay / 15.0;
 
         // Get current spectrum for new row
+        var gain = AudioParams.gainFactor(algo);
         var thirds = LedFx.melbank_thirds(audio);
         var bands = LedFx.melbank(audio, bandLen);
+        for (var bi = 0; bi < bands.length; bi++)
+            bands[bi] = Math.min(1, bands[bi] * gain);
 
         // Build new row of colors
         var newRow = new Array(bandLen);
         for (var i = 0; i < bandLen; i++) {
-            var val = Math.min(1, bands[i] * 3);
+            var val = AudioParams.applyFloor(algo, Math.min(1, bands[i]));
             var t = i / Math.max(1, bandLen - 1);
             var r, g, b;
 
             if (algo.presetColorMode === 1) {
                 // RGB Bands: R=lows, G=mids, B=highs
-                var lowsV = LedFx.avg(thirds.lows);
-                var midsV = LedFx.avg(thirds.mids);
-                var highV = LedFx.avg(thirds.highs);
+                var lowsV = Math.min(1, LedFx.avg(thirds.lows) * gain);
+                var midsV = Math.min(1, LedFx.avg(thirds.mids) * gain);
+                var highV = Math.min(1, LedFx.avg(thirds.highs) * gain);
                 r = val * (lowsV * 255);
                 g = val * (midsV * 255);
                 b = val * (highV * 255);

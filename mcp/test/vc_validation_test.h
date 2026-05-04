@@ -91,6 +91,10 @@ private slots:
     // parentID / pageIndex exclusivity
     void parentOrPage_data();
     void parentOrPage();
+
+    // Batch items validation
+    void validateItemsArray_data();
+    void validateItemsArray();
 };
 
 #endif // VC_VALIDATION_TEST_H

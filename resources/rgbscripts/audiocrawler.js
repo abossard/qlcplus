@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -36,10 +38,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetChop|type:range|display:Chop|" +
       "values:1,10|write:setChop|read:getChop");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -47,8 +45,6 @@ var testAlgo;
     algo.getSway = function() { return algo.presetSway; };
     algo.setChop = function(_v) { algo.presetChop = parseInt(_v); };
     algo.getChop = function() { return algo.presetChop; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
 
     var startColor = [0, 255, 128];
     var endColor = [128, 0, 255];
@@ -72,7 +68,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.1, 0.3);
+            lowsFilter = AudioParams.createFilter(algo, 0.1);
             lastTime = Date.now();
             initialized = true;
         }
@@ -85,7 +81,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        var lowsPower = lowsFilter.update(LedFx.lows_power(audio));
+        var lowsPower = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
 
         var speed = algo.presetSpeed / 10.0;
         var sway = algo.presetSway / 5.0;
@@ -120,7 +116,7 @@ var testAlgo;
             var b = startColor[2] + (endColor[2] - startColor[2]) * hNorm;
 
             // Apply brightness
-            var bright = Math.max(0, Math.min(1, v));
+            var bright = AudioParams.applyFloor(algo, Math.max(0, Math.min(1, v)));
 
             var packed = LedFx.rgb(r * bright, g * bright, b * bright);
             for (var y = 0; y < height; y++)

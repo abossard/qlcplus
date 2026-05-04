@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7});
+
     algo.presetBlockSize = 5;
     algo.properties.push(
       "name:presetBlockSize|type:range|display:Block Size|" +
@@ -80,13 +82,14 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var blockW = Math.max(1, algo.presetBlockSize);
-        var numBlocks = Math.ceil(width / blockW);
+        var numBlocks = Math.ceil(effectiveWidth / blockW);
 
         if (!initialized || !blockBrightness || blockBrightness.length !== numBlocks) {
             blockBrightness = new Array(numBlocks);
             for (var i = 0; i < numBlocks; i++) blockBrightness[i] = 0;
-            filter = new LedFx.ExpFilter(0.1, 0.8);
+            filter = AudioParams.createFilter(algo, 0.1);
             initialized = true;
         }
 
@@ -100,24 +103,27 @@ var testAlgo;
         else if (algo.presetReactTo === 3) power = audio.volume;
         else power = LedFx.lows_power(audio);
 
-        power = filter.update(power);
+        var gain = AudioParams.gainFactor(algo);
+        power = filter.update(power) * gain;
 
         // Get spectrum for per-block variation
         var bands = LedFx.melbank(audio, numBlocks);
+        for (var i = 0; i < bands.length; i++)
+            bands[i] = Math.min(1, bands[i] * gain);
 
         // Decay and update blocks
         var decayRate = 1 - algo.presetDecay / 50.0;
         for (var bi = 0; bi < numBlocks; bi++) {
             blockBrightness[bi] *= decayRate;
             // Trigger blocks based on spectrum + overall power
-            var trigger = bands[bi] * power * 3;
+            var trigger = bands[bi] * power;
             if (trigger > blockBrightness[bi])
                 blockBrightness[bi] = Math.min(1, trigger);
         }
 
         // Render blocks
         for (var bi = 0; bi < numBlocks; bi++) {
-            var bright = blockBrightness[bi];
+            var bright = AudioParams.applyFloor(algo, blockBrightness[bi]);
             if (bright < 0.01) continue;
 
             var t = bi / Math.max(1, numBlocks - 1);

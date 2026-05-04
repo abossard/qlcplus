@@ -26,6 +26,7 @@
 #include <nlohmann/json.hpp>
 
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -119,6 +120,22 @@ inline std::string validateFields(const nlohmann::json &obj,
         first = false;
     }
     return nlohmann::json({{"error", msg}}).dump();
+}
+
+/**
+ * Validate that args contains a non-empty array under `key`.
+ * Returns an error JSON string (already dumped) on failure, or std::nullopt if valid.
+ * Usage: auto itemsErr = validateItemsArray(args);
+ *        if (itemsErr) return *itemsErr;
+ */
+inline std::optional<std::string> validateItemsArray(const nlohmann::json &args,
+                                                      const char *key = "items")
+{
+    if (!args.contains(key) || !args[key].is_array())
+        return nlohmann::json({{"error", std::string("'") + key + "' array is required"}}).dump();
+    if (args[key].empty())
+        return nlohmann::json({{"error", std::string("'") + key + "' array must not be empty"}}).dump();
+    return std::nullopt;
 }
 
 /**

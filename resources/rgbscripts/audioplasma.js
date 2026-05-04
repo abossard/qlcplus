@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 3, reactivity: 2});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -36,10 +38,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetTwist|type:range|display:Twist|" +
       "values:1,10|write:setTwist|read:getTwist");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -47,8 +45,6 @@ var testAlgo;
     algo.getDensity = function() { return algo.presetDensity; };
     algo.setTwist = function(_v) { algo.presetTwist = parseInt(_v); };
     algo.getTwist = function() { return algo.presetTwist; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
 
     var startColor = [255, 0, 128];
     var endColor = [0, 128, 255];
@@ -72,7 +68,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.05, 0.3);
+            lowsFilter = AudioParams.createFilter(algo, 0.05);
             lastTime = Date.now();
             initialized = true;
         }
@@ -85,7 +81,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio));
+        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
         var speed = algo.presetSpeed / 5.0;
         elapsedSec += dt * speed * (1 + power * algo.presetReactivity / 5.0);
 
@@ -113,7 +109,8 @@ var testAlgo;
                 var g = startColor[1] + (endColor[1] - startColor[1]) * plasma;
                 var b = startColor[2] + (endColor[2] - startColor[2]) * plasma;
 
-                map[y][x] = LedFx.rgb(r, g, b);
+                var brightness = AudioParams.applyFloor(algo, 1.0);
+                map[y][x] = LedFx.rgb(r * brightness, g * brightness, b * brightness);
             }
         }
 

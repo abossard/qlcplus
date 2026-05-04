@@ -23,6 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetBaseSpeed = 5;
     algo.properties.push(
       "name:presetBaseSpeed|type:range|display:Base Speed|" +
@@ -108,10 +110,10 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.1, 0.5);
-            midsFilter = new LedFx.ExpFilter(0.1, 0.5);
-            highsFilter = new LedFx.ExpFilter(0.1, 0.5);
-            volFilter = new LedFx.ExpFilter(0.1, 0.5);
+            lowsFilter = AudioParams.createFilter(algo, 0.1);
+            midsFilter = AudioParams.createFilter(algo, 0.1);
+            highsFilter = AudioParams.createFilter(algo, 0.1);
+            volFilter = AudioParams.createFilter(algo, 0.1);
             lastTime = Date.now();
             initialized = true;
         }
@@ -127,10 +129,11 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
         // Get audio powers
-        var lows = lowsFilter.update(LedFx.lows_power(audio));
-        var mids = midsFilter.update(LedFx.mids_power(audio));
-        var highs = highsFilter.update(LedFx.high_power(audio));
-        var vol = volFilter.update(audio.volume);
+        var gain = AudioParams.gainFactor(algo);
+        var lows = lowsFilter.update(LedFx.lows_power(audio)) * gain;
+        var mids = midsFilter.update(LedFx.mids_power(audio)) * gain;
+        var highs = highsFilter.update(LedFx.high_power(audio)) * gain;
+        var vol = volFilter.update(audio.volume) * gain;
         var powers = [lows, mids, highs];
         var colors = [bassColor, midsColor, highsColor];
 
@@ -187,7 +190,7 @@ var testAlgo;
                 for (var dy = -spread; dy <= spread; dy++) {
                     var py = centerY + dy;
                     if (py < 0 || py >= height) continue;
-                    var yFade = fade * (1 - Math.abs(dy) / (spread + 1));
+                    var yFade = AudioParams.applyFloor(algo, fade * (1 - Math.abs(dy) / (spread + 1)));
 
                     var existing = map[py][tx];
                     var er = (existing >> 16) & 0xFF;

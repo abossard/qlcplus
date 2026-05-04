@@ -99,11 +99,19 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
+
+            static const Json kEnums = {
+                {"precedence", {{"enum", {"auto", "htp", "ltp"}}}}
+            };
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"fixtureID", "channel", "precedence", "canFade"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+                auto enumErr = validateEnums(item, kEnums);
+                if (!enumErr.empty()) { results.push_back(nlohmann::json::parse(enumErr)); continue; }
                 quint32 fxID = item.at("fixtureID").get<int>();
                 int ch = item.at("channel").get<int>();
                 Fixture *fxi = doc->fixture(fxID);
@@ -176,6 +184,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -230,6 +240,8 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {

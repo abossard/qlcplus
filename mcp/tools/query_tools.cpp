@@ -151,6 +151,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -434,6 +436,12 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             auto err = validateFields(args, {"typeFilter"});
             if (!err.empty()) return err;
 
+            static const Json kEnums = {
+                {"typeFilter", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Shutter", "Gobo", "Zoom"}}}}
+            };
+            err = validateEnums(args, kEnums);
+            if (!err.empty()) return err;
+
             // Optional type filter
             QLCPalette::PaletteType filterType = QLCPalette::Undefined;
             if (args.contains("typeFilter"))
@@ -520,6 +528,12 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"type", "name"});
+            if (!err.empty()) return err;
+
+            static const Json kEnums = {
+                {"type", {{"enum", {"Script", "Text", "Image", "Audio", "Plain"}}}}
+            };
+            err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             QString typeFilter = args.contains("type")
@@ -724,6 +738,79 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List all RGB matrix functions with full details: algorithm, colors, timing (beat strings when in Beats mode), "
                      "control mode, blend mode, run order, direction, and script properties."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotReadOnly));
+
+    // query_workspace_summary — lightweight counts of major entities
+    tm.register_tool(Tool(
+        "query_workspace_summary",
+        Json{{"type", "object"}, {"properties", Json::object()}},
+        Json{},
+        [doc, vcBridge](const Json &) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            int scenes = 0, chasers = 0, sequences = 0, collections = 0;
+            int rgbMatrices = 0, efx = 0, scripts = 0, shows = 0;
+            int audio = 0, video = 0;
+            for (Function *fn : doc->functions())
+            {
+                if (!fn) continue;
+                switch (fn->type())
+                {
+                    case Function::SceneType:      scenes++; break;
+                    case Function::ChaserType:     chasers++; break;
+                    case Function::SequenceType:   sequences++; break;
+                    case Function::CollectionType: collections++; break;
+                    case Function::RGBMatrixType:  rgbMatrices++; break;
+                    case Function::EFXType:        efx++; break;
+                    case Function::ScriptType:     scripts++; break;
+                    case Function::ShowType:       shows++; break;
+                    case Function::AudioType:      audio++; break;
+                    case Function::VideoType:      video++; break;
+                    default: break;
+                }
+            }
+
+            int universes = 0;
+            if (InputOutputMap *ioMap = doc->inputOutputMap())
+                universes = ioMap->universes().size();
+
+            int vcPages = 0;
+            if (vcBridge)
+                vcPages = (int)vcBridge->pages().size();
+
+            int runningFunctions = 0;
+            if (MasterTimer *mt = doc->masterTimer())
+                runningFunctions = mt->runningFunctions();
+
+            Json result;
+            result["fixtures"] = (int)doc->fixtures().size();
+            result["fixtureGroups"] = (int)doc->fixtureGroups().size();
+            result["universes"] = universes;
+            Json fns;
+            fns["total"] = (int)doc->functions().size();
+            fns["scenes"] = scenes;
+            fns["chasers"] = chasers;
+            fns["collections"] = collections;
+            fns["rgbMatrices"] = rgbMatrices;
+            fns["efx"] = efx;
+            fns["scripts"] = scripts;
+            fns["shows"] = shows;
+            fns["sequences"] = sequences;
+            fns["audio"] = audio;
+            fns["video"] = video;
+            result["functions"] = fns;
+            result["palettes"] = (int)doc->palettes().size();
+            result["vcPages"] = vcPages;
+            result["runningFunctions"] = runningFunctions;
+            return result.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Lightweight workspace overview. Returns counts of fixtures, fixture groups, universes, "
+                     "functions (grouped by type: scenes, chasers, collections, rgbMatrices, efx, scripts, "
+                     "shows, sequences, audio, video), palettes, VC pages, and currently running functions. "
+                     "Use as a fast first call before drilling into specific entities."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

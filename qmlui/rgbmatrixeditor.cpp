@@ -199,7 +199,9 @@ void RGBMatrixEditor::setColorAtIndex(int index, QColor color)
     if (m_matrix == nullptr || m_matrix->getColor(index) == color)
         return;
 
-    if (m_matrix->controlMode() != RGBMatrix::ControlModeRgb)
+    if (m_matrix->controlMode() != RGBMatrix::ControlModeRgb &&
+        m_matrix->controlMode() != RGBMatrix::ControlModeRgbw &&
+        m_matrix->controlMode() != RGBMatrix::ControlModeRgbwBrighter)
     {
         // Convert color to grayscale for non-RGB control modes
         uchar gray = qGray(color.rgb());
@@ -243,7 +245,9 @@ void RGBMatrixEditor::updateColors()
         return;
 
     if (m_matrix->blendMode() == Universe::MaskBlend ||
-        m_matrix->controlMode() != RGBMatrix::ControlModeRgb)
+        (m_matrix->controlMode() != RGBMatrix::ControlModeRgb &&
+         m_matrix->controlMode() != RGBMatrix::ControlModeRgbw &&
+         m_matrix->controlMode() != RGBMatrix::ControlModeRgbwBrighter))
     {
         m_matrix->setColor(0, Qt::white);
         // Overwrite more colors only if applied.
@@ -902,13 +906,21 @@ void RGBMatrixEditor::slotPreviewTimeout()
     {
         m_previewElapsed += MasterTimer::tick();
     }
-    else if (m_matrix->tempoType() == Function::Beats && m_gotBeat)
+    else if (m_matrix->tempoType() == Function::Beats)
     {
-        m_gotBeat = false;
-        m_previewElapsed += 1000;
+        m_previewElapsed += MasterTimer::tick();
     }
 
-    if (m_previewElapsed >= m_matrix->duration())
+    uint effectiveDuration = m_matrix->duration();
+    if (m_matrix->tempoType() == Function::Beats)
+    {
+        int beatDur = m_doc->masterTimer()->beatTimeDuration();
+        effectiveDuration = Function::beatsToTime(effectiveDuration, beatDur);
+        if (effectiveDuration == 0)
+            effectiveDuration = MasterTimer::tick();
+    }
+
+    if (m_previewElapsed >= effectiveDuration)
     {
         QMutexLocker locker(&m_previewMutex);
 

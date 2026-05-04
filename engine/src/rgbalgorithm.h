@@ -109,6 +109,9 @@ public:
      *  When true, the host should provide audio spectrum data before rendering. */
     virtual bool usesAudio() const { return type() == Audio; }
 
+    /** Set the physical display size for algorithms rendered through transformed geometry. */
+    virtual void setDisplaySize(const QSize &size) { Q_UNUSED(size); }
+
     /************************************************************************
      * RGB Colors
      ************************************************************************/

@@ -23,6 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 3, reactivity: 1});
+
     algo.presetSpeed = 4;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -31,10 +33,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetLayers|type:range|display:Layers|" +
       "values:1,5|write:setLayers|read:getLayers");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetWaveSize = 5;
     algo.properties.push(
       "name:presetWaveSize|type:range|display:Wave Size|" +
@@ -44,8 +42,6 @@ var testAlgo;
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setLayers = function(_v) { algo.presetLayers = parseInt(_v); };
     algo.getLayers = function() { return algo.presetLayers; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
     algo.setWaveSize = function(_v) { algo.presetWaveSize = parseInt(_v); };
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
@@ -77,9 +73,9 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.03, 0.2);
-            midsFilter = new LedFx.ExpFilter(0.03, 0.3);
-            highsFilter = new LedFx.ExpFilter(0.03, 0.4);
+            lowsFilter = AudioParams.createFilter(algo, 0.03);
+            midsFilter = AudioParams.createFilter(algo, 0.03);
+            highsFilter = AudioParams.createFilter(algo, 0.03);
             lastTime = Date.now();
             initialized = true;
         }
@@ -92,9 +88,10 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var lows = lowsFilter.update(LedFx.lows_power(audio));
-        var mids = midsFilter.update(LedFx.mids_power(audio));
-        var highs = highsFilter.update(LedFx.high_power(audio));
+        var gain = AudioParams.gainFactor(algo);
+        var lows = lowsFilter.update(LedFx.lows_power(audio)) * gain;
+        var mids = midsFilter.update(LedFx.mids_power(audio)) * gain;
+        var highs = highsFilter.update(LedFx.high_power(audio)) * gain;
 
         var speed = algo.presetSpeed / 5.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -142,6 +139,14 @@ var testAlgo;
                     b += col[2] * intensity / layers;
                 }
 
+                var maxChannel = Math.max(r, g, b) / 255.0;
+                if (maxChannel > 0) {
+                    var floored = AudioParams.applyFloor(algo, Math.min(1, maxChannel));
+                    var floorScale = floored / maxChannel;
+                    r *= floorScale;
+                    g *= floorScale;
+                    b *= floorScale;
+                }
                 map[y][x] = LedFx.rgb(
                     Math.min(255, r),
                     Math.min(255, g),

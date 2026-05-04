@@ -42,6 +42,9 @@
 > - **FineFractions for all editors** — RGB Matrix, EFX, Scene, and Speed Dial preset editors now show 1/4, 1/8, 1/16 beat subdivisions (previously limited to 1/1 and 1/2)
 > - **Update Scene from Live** — DMX Dump dialog: "Update only scene channels from live" button captures current pre-GM DMX values into an existing scene, scoped to only the channels already in the scene (preserves layer separation, with Tardis undo)
 > - **Speed Dial multiply mode** — factor buttons (1/16x–16x) multiply existing function speeds instead of replacing them; preserves authored fadeIn/hold/fadeOut ratios; one-click reset to originals; works with both Time and Beats mode functions
+> - **RGB Matrix RGBW mode** — new `RGBW (Accurate)` and `RGBW (Brighter)` control modes drive R, G, B, AND White channels simultaneously. Accurate extracts white (`W=min(R,G,B)`, subtract from RGB); Brighter keeps RGB full and adds white on top. Works with any RGBW fixture — not fixture-specific.
+> - **Keyboard shortcuts** — 20+ shortcuts ported from v4: Ctrl+N/O/S (New/Open/Save), Ctrl+Z/Shift+Z (Undo/Redo), Ctrl+Shift+Esc (Panic/Stop All), F11 (Fullscreen), Alt+1–6 (view switching), Ctrl+PgUp/PgDown (cycle views), Ctrl+[/] (drawer toggle), Function Manager (Delete/Clone/Wizard), Show Manager (Space/Ctrl+Space play/stop, copy/paste). Platform-aware tooltips (⌘ on macOS). Guards for text editing, popups, kiosk mode.
+> - **DDP multi-universe sync fix** — eliminated frame-queue desync that caused 4+ DDP universes to display out of order. Replaced unreliable cross-thread batching with immediate per-universe send (sub-millisecond gap, PUSH per universe — matches Art-Net behavior).
 >
 > ### Recent engine changes
 >
@@ -60,6 +63,43 @@
 > RGB Matrix, EFX, Scene, and Speed Dial preset editors previously showed only
 > 1/1 and 1/2 beat subdivisions (`ByTwoFractions`). All four now use `FineFractions`,
 > exposing the full 1/1, 1/2, 1/4, 1/8, 1/16 range — matching Chaser editor behavior.
+>
+> #### RGB Matrix RGBW Control Modes
+> Two new control modes for RGBW fixtures:
+>
+> | Mode | Algorithm | Best for |
+> |------|-----------|----------|
+> | RGBW (Accurate) | `W = min(R,G,B)`, subtract from RGB | Color-accurate shows |
+> | RGBW (Brighter) | `W = min(R,G,B)`, keep RGB full | Maximum brightness, effects |
+>
+> - Works with any fixture that has R, G, B, and W channels — not fixture-specific
+> - Auto-fallback to plain RGB for heads without a White channel
+> - Based on WLED's proven Accurate/Brighter approach
+> - Sentinel-safe: `defaultSpeed`/`infiniteSpeed` values preserved
+>
+> #### Keyboard Shortcuts & Tooltips
+> 20+ keyboard shortcuts ported from v4, with platform-aware tooltip hints:
+>
+> | Category | Shortcuts |
+> |----------|-----------|
+> | Global | Ctrl+N/O/S, Ctrl+Z/Shift+Z, Ctrl+Shift+Esc (Panic), F11 |
+> | Navigation | Alt+1–6 (views), Ctrl+PgUp/PgDown (cycle), Ctrl+[/] (drawers) |
+> | Function Manager | Delete, Ctrl+C (Clone), Ctrl+W (Wizard) |
+> | Show Manager | Space (Play), Ctrl+Space (Stop), Ctrl+C/V, Delete |
+>
+> - Guards: disabled during text editing, popups, kiosk mode
+> - Platform-aware: ⌘ on macOS, Ctrl elsewhere
+> - `ShortcutUtils.js` helper for consistent display
+> - `GenericButton` and `ContextMenuEntry` now support tooltips
+>
+> #### DDP Multi-Universe Sync Fix
+> The DDP plugin's frame-queue batching caused universes to desync when
+> added/reconfigured incrementally. The queue waited for ALL registered universes
+> before flushing — if one was stale or delayed, frames piled up permanently.
+>
+> **Fix:** Replaced cross-universe frame queue with immediate per-universe send.
+> Each universe's data is sent as soon as it arrives (PUSH flag per universe).
+> Inter-universe gap is sub-millisecond. Matches Art-Net behavior (no sync packet).
 >
 > #### RGB Matrix Rotation & Mirroring
 > Rotation and mirroring are now engine-level properties on `RGBMatrix`, available

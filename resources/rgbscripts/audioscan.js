@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -71,7 +73,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            powerFilter = new LedFx.ExpFilter(0.1, 0.8);
+            powerFilter = AudioParams.createFilter(algo, 0.1);
             lastTime = Date.now();
             initialized = true;
         }
@@ -86,13 +88,14 @@ var testAlgo;
         if (deltaSec <= 0 || deltaSec > 0.2) deltaSec = 0.02;
 
         // Audio drives speed
-        var power = powerFilter.update(LedFx.lows_power(audio));
-        var speedMult = 1 + power * 3;
+        var power = powerFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
+        var speedMult = 1 + power * 8;
         var baseSpeed = algo.presetSpeed * 5;
         var stepSize = deltaSec * baseSpeed * speedMult;
 
-        // Scan width in pixels
+        // Scan width in pixels — widens with bass
         var scanW = Math.max(1, Math.round(width * algo.presetWidth / 20));
+        scanW = Math.min(width, scanW + Math.round(power * 4));
 
         // Move scan position
         if (algo.presetBounce) {
@@ -107,7 +110,7 @@ var testAlgo;
         }
 
         // Brightness varies with audio power
-        var bright = Math.min(1, power);
+        var bright = AudioParams.applyFloor(algo, Math.min(1, 0.3 + power * 2.0));
 
         // Fill background
         var bgPacked = LedFx.rgb(bgColor[0], bgColor[1], bgColor[2]);

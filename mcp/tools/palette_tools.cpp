@@ -79,8 +79,8 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"items"});
             if (!err.empty()) return err;
-            if (!args.contains("items") || !args.at("items").is_array())
-                return Json({{"error", "items array required"}}).dump();
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
 
             Json results = Json::array();
             for (auto &item : args.at("items"))

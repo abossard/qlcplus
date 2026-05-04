@@ -23,6 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -31,10 +33,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetRings|type:range|display:Ring Count|" +
       "values:2,10|write:setRings|read:getRings");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetShape = 0;
     algo.properties.push(
       "name:presetShape|type:list|display:Shape|" +
@@ -44,8 +42,6 @@ var testAlgo;
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setRings = function(_v) { algo.presetRings = parseInt(_v); };
     algo.getRings = function() { return algo.presetRings; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
     algo.setShape = function(_v) {
         if (_v === "Diamond") algo.presetShape = 1;
         else if (_v === "Square") algo.presetShape = 2;
@@ -77,7 +73,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.05, 0.4);
+            lowsFilter = AudioParams.createFilter(algo, 0.05);
             lastTime = Date.now();
             initialized = true;
         }
@@ -90,7 +86,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio));
+        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
         var speed = algo.presetSpeed / 5.0;
         phase += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -122,7 +118,7 @@ var testAlgo;
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 // Audio modulates ring brightness
-                var bright = ringVal * power;
+                var bright = AudioParams.applyFloor(algo, Math.min(1, ringVal * power));
 
                 // Color gradient from center to edge
                 var t = normDist;

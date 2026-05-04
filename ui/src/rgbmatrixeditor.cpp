@@ -453,7 +453,9 @@ void RGBMatrixEditor::updateColors()
                 m_mtxColor4Button->setIcon(QIcon(pm));
                 m_mtxColor5Button->setIcon(QIcon(pm));
             }
-            else if (m_controlModeCombo->currentIndex() != RGBMatrix::ControlModeRgb)
+            else if (m_controlModeCombo->currentIndex() != RGBMatrix::ControlModeRgb &&
+                     m_controlModeCombo->currentIndex() != RGBMatrix::ControlModeRgbw &&
+                     m_controlModeCombo->currentIndex() != RGBMatrix::ControlModeRgbwBrighter)
             {
                 // Convert color 1 to grayscale for single color modes
                 uchar gray = qGray(m_matrix->getColor(0).rgb());
@@ -1289,6 +1291,25 @@ void RGBMatrixEditor::slotSaveToSequenceClicked()
                         grpScene->setValue(head.fxi, rgb.at(2), 0);
                     }
             }
+            else if (m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeRgbw ||
+                     m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeRgbwBrighter)
+            {
+                QLCFixtureHead fHead = fxi->head(head.head);
+                quint32 rCh = fHead.channelNumber(QLCChannel::Red, QLCChannel::MSB);
+                quint32 gCh = fHead.channelNumber(QLCChannel::Green, QLCChannel::MSB);
+                quint32 bCh = fHead.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
+                quint32 wCh = fHead.channelNumber(QLCChannel::White, QLCChannel::MSB);
+
+                if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
+                {
+                    grpScene->setValue(head.fxi, rCh, 0);
+                    grpScene->setValue(head.fxi, gCh, 0);
+                    grpScene->setValue(head.fxi, bCh, 0);
+
+                    if (wCh != QLCChannel::invalid())
+                        grpScene->setValue(head.fxi, wCh, 0);
+                }
+            }
             else if (m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeDimmer)
             {
                 quint32 channel = fxi->masterIntensityChannel();
@@ -1397,6 +1418,31 @@ void RGBMatrixEditor::slotSaveToSequenceClicked()
                             step.values.append(SceneValue(head.fxi, cmy.at(0), cmyCol.cyan()));
                             step.values.append(SceneValue(head.fxi, cmy.at(1), cmyCol.magenta()));
                             step.values.append(SceneValue(head.fxi, cmy.at(2), cmyCol.yellow()));
+                        }
+                    }
+                    else if (m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeRgbw ||
+                             m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeRgbwBrighter)
+                    {
+                        bool subtractWhite = (m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeRgbw);
+                        QLCFixtureHead fHead = fxi->head(head.head);
+                        quint32 rCh = fHead.channelNumber(QLCChannel::Red, QLCChannel::MSB);
+                        quint32 gCh = fHead.channelNumber(QLCChannel::Green, QLCChannel::MSB);
+                        quint32 bCh = fHead.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
+                        quint32 wCh = fHead.channelNumber(QLCChannel::White, QLCChannel::MSB);
+
+                        uchar r = uchar(qRed(col));
+                        uchar g = uchar(qGreen(col));
+                        uchar b = uchar(qBlue(col));
+                        uchar w = wCh == QLCChannel::invalid() ? 0 : qMin(r, qMin(g, b));
+
+                        if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
+                        {
+                            step.values.append(SceneValue(head.fxi, rCh, subtractWhite ? uchar(r - w) : r));
+                            step.values.append(SceneValue(head.fxi, gCh, subtractWhite ? uchar(g - w) : g));
+                            step.values.append(SceneValue(head.fxi, bCh, subtractWhite ? uchar(b - w) : b));
+
+                            if (wCh != QLCChannel::invalid())
+                                step.values.append(SceneValue(head.fxi, wCh, w));
                         }
                     }
                     else if (m_controlModeCombo->currentIndex() == RGBMatrix::ControlModeDimmer)

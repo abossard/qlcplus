@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 7;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -32,17 +34,11 @@ var testAlgo;
     algo.properties.push(
       "name:presetContrast|type:range|display:Contrast|" +
       "values:0,10|write:setContrast|read:getContrast");
-    algo.presetReactivity = 3;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,9|write:setReactivity|read:getReactivity");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setContrast = function(_v) { algo.presetContrast = parseInt(_v); };
     algo.getContrast = function() { return algo.presetContrast; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
 
     var color1 = [255, 0, 128];
     var color2 = [0, 128, 255];
@@ -73,9 +69,9 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
-            midsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
-            highsFilter = new LedFx.ExpFilter(0.05, algo.presetReactivity / 10.0);
+            lowsFilter = AudioParams.createFilter(algo, 0.05);
+            midsFilter = AudioParams.createFilter(algo, 0.05);
+            highsFilter = AudioParams.createFilter(algo, 0.05);
             lastTime = Date.now();
             initialized = true;
         }
@@ -89,9 +85,10 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
         elapsedMs += dt * 1000;
 
-        lowsPower = lowsFilter.update(LedFx.lows_power(audio));
-        var midsPower = midsFilter.update(LedFx.mids_power(audio));
-        var highsPower = highsFilter.update(LedFx.high_power(audio));
+        var gain = AudioParams.gainFactor(algo);
+        lowsPower = lowsFilter.update(LedFx.lows_power(audio)) * gain;
+        var midsPower = midsFilter.update(LedFx.mids_power(audio)) * gain;
+        var highsPower = highsFilter.update(LedFx.high_power(audio)) * gain;
         var speed = algo.presetSpeed;
         var contrast = 1 - algo.presetContrast / 10.0;
 
@@ -114,7 +111,7 @@ var testAlgo;
                 // Combine waves for pattern
                 var pattern = (w1 + 0.1) * (w2 + lowsPower * 2) * (w3 + midsPower * 1.5);
                 pattern = Math.pow(Math.max(0, pattern + contrast), 2);
-                pattern = Math.min(1, pattern);
+                pattern = AudioParams.applyFloor(algo, Math.min(1, pattern));
 
                 // Mix 3 colors weighted by frequency band powers
                 var r = color1[0] * lowsPower + color2[0] * midsPower + color3[0] * highsPower;

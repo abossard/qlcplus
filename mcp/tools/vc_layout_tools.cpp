@@ -48,6 +48,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -191,6 +193,12 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"frameID", "pageIndex", "algorithm", "columns", "pad", "framePad",
                 "buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight", "dryRun"});
+            if (!err.empty()) return err;
+
+            static const Json kEnums = {
+                {"algorithm", {{"enum", {"flow", "gridCompact"}}}}
+            };
+            err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             std::string algorithm = args.value("algorithm", std::string("flow"));
@@ -368,14 +376,21 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             auto topErr = validateFields(args, {"items"});
             if (!topErr.empty()) return topErr;
 
+            static const Json kEnums = {
+                {"layoutMode", {{"enum", {"free", "grid"}}}}
+            };
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
                 auto err = validateFields(item, {"frameID", "layoutMode", "columns", "rowHeight", "compact"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+                auto enumErr = validateEnums(item, kEnums);
+                if (!enumErr.empty()) { results.push_back(nlohmann::json::parse(enumErr)); continue; }
 
                 int frameID = item.at("frameID").get<int>();
 

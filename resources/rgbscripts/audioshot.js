@@ -23,6 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+
     algo.presetDecay = 5;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay Speed|" +
@@ -129,11 +131,12 @@ var testAlgo;
 
         // Check trigger
         var trigger = false;
-        var thresh = 0.5;
+        var gain = AudioParams.gainFactor(algo);
+        var thresh = AudioParams.triggerThreshold(algo);
         if (algo.presetTrigger === 0) trigger = audio.beat;
-        else if (algo.presetTrigger === 1) trigger = LedFx.lows_power(audio) > thresh;
-        else if (algo.presetTrigger === 2) trigger = LedFx.mids_power(audio) > thresh;
-        else trigger = LedFx.high_power(audio) > thresh;
+        else if (algo.presetTrigger === 1) trigger = LedFx.lows_power(audio) * gain > thresh;
+        else if (algo.presetTrigger === 2) trigger = LedFx.mids_power(audio) * gain > thresh;
+        else trigger = LedFx.high_power(audio) * gain > thresh;
 
         if (trigger) spawnShot(width, height);
 

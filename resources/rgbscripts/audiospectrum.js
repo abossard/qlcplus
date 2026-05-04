@@ -24,15 +24,13 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7});
+
     algo.presetMode = 0;
     algo.properties.push(
       "name:presetMode|type:list|display:Color Mode|" +
       "values:Gradient,Rainbow,RGB Mix|write:setMode|read:getMode");
 
-    algo.presetSensitivity = 5;
-    algo.properties.push(
-      "name:presetSensitivity|type:range|display:Sensitivity|" +
-      "values:1,10|write:setSensitivity|read:getSensitivity");
 
     algo.presetSmoothing = 5;
     algo.properties.push(
@@ -49,8 +47,6 @@ var testAlgo;
         if (algo.presetMode === 2) return "RGB Mix";
         return "Gradient";
     };
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
-    algo.getSensitivity = function() { return algo.presetSensitivity; };
     algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); filterDirty = true; };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
@@ -63,7 +59,7 @@ var testAlgo;
 
     function init() {
         var decay = algo.presetSmoothing / 15.0;
-        filter = new LedFx.ExpFilter(decay, 0.5);
+        filter = AudioParams.createFilter(algo, decay);
         initialized = true;
         filterDirty = false;
     }
@@ -88,18 +84,21 @@ var testAlgo;
         var map = LedFx.createMap(width, height);
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
 
-        var bands = LedFx.melbank(audio, width);
-        var scale = algo.presetSensitivity / 5.0;
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+        var bands = LedFx.melbank(audio, effectiveWidth);
+        var scale = AudioParams.gainFactor(algo);
         for (var i = 0; i < bands.length; i++)
             bands[i] = Math.min(1, bands[i] * scale);
 
         var filtered = filter.updateArray(bands);
         if (!prevBands) prevBands = bands.slice();
 
-        for (var x = 0; x < width; x++) {
+        for (var x = 0; x < Math.min(width, filtered.length); x++) {
             var val = Math.min(1, filtered[x]);
             var diff = Math.abs(bands[x] - prevBands[x]);
             var barHeight = Math.round(val * height);
+            if (val > 0.01)
+                barHeight = Math.max(1, barHeight);
             var t = x / Math.max(1, width - 1);
 
             for (var dy = 0; dy < barHeight; dy++) {
@@ -123,7 +122,7 @@ var testAlgo;
                     b = startColor[2] + (endColor[2] - startColor[2]) * t;
                 }
                 // Brightness from height position
-                var bright = (dy / height) * 0.5 + 0.5;
+                var bright = AudioParams.applyFloor(algo, (dy / height) * 0.5 + 0.5);
                 map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
             }
         }

@@ -24,6 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 7, reactivity: 8});
+
     algo.presetSparks = 0;
     algo.properties.push(
       "name:presetSparks|type:list|display:Beat Sparks|" +
@@ -39,7 +41,7 @@ var testAlgo;
     var initialized = false;
 
     function init(width) {
-        bassFilter = new LedFx.ExpFilter(0.1, 0.8);
+        bassFilter = AudioParams.createFilter(algo, 0.1);
         sparksPixels = new Array(width);
         for (var i = 0; i < width; i++) sparksPixels[i] = 0;
         initialized = true;
@@ -66,8 +68,12 @@ var testAlgo;
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
 
         // Get spectrum and bass power
-        var bands = LedFx.melbank(audio, width);
-        var bass = bassFilter.update(LedFx.lows_power(audio));
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+        var gain = AudioParams.gainFactor(algo);
+        var bands = LedFx.melbank(audio, effectiveWidth);
+        for (var bi = 0; bi < bands.length; bi++)
+            bands[bi] = Math.min(1, bands[bi] * gain);
+        var bass = bassFilter.update(LedFx.lows_power(audio)) * gain;
 
         // Bass overlay: fill from edge based on bass power
         var bassIdx = Math.min(width, Math.floor(bass * width * 1.5));
@@ -93,13 +99,13 @@ var testAlgo;
                 var b = startColor[2] + (endColor[2] - startColor[2]) * t;
 
                 // Brightness from spectrum
-                var specBright = Math.min(1, bands[x % bands.length] * 3);
+                var specBright = Math.min(1, bands[x % bands.length]);
 
                 // Bass overlay brightness
                 var bassBright = (x < bassIdx) ? bass : 0;
 
                 // Combine
-                var bright = Math.max(specBright, bassBright);
+                var bright = AudioParams.applyFloor(algo, Math.max(specBright, bassBright));
 
                 // Add sparks (white flash)
                 if (sparksPixels[x] > 0.1) {

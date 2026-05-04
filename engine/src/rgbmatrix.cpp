@@ -54,6 +54,8 @@
 #define KXMLQLCRGBMatrixControlModeUV       QStringLiteral("UV")
 #define KXMLQLCRGBMatrixControlModeDimmer   QStringLiteral("Dimmer")
 #define KXMLQLCRGBMatrixControlModeShutter  QStringLiteral("Shutter")
+#define KXMLQLCRGBMatrixControlModeRgbw     QStringLiteral("RGBW")
+#define KXMLQLCRGBMatrixControlModeRgbwBrighter QStringLiteral("RGBWBrighter")
 
 #define KXMLQLCRGBMatrixRotation            QStringLiteral("Rotation")
 #define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
@@ -335,6 +337,8 @@ void RGBMatrix::previewMap(int step, RGBMatrixStep *handler)
     if (m_group != NULL)
     {
         QSize algoSize = effectiveAlgorithmSize(m_group);
+        if (m_algorithm->usesAudio())
+            m_algorithm->setDisplaySize(m_group->size());
         setMapColors(m_algorithm);
         m_algorithm->rgbMap(algoSize, handler->stepColor().rgb(), step, handler->m_map);
         if (m_rotation || m_mirror)
@@ -759,6 +763,8 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
         if (stepChanged || prevElapsed < MasterTimer::tick() || m_runAlgorithm->usesAudio())
         {
             QSize algoSize = effectiveAlgorithmSize(m_group);
+            if (m_runAlgorithm->usesAudio())
+                m_runAlgorithm->setDisplaySize(m_group->size());
             m_runAlgorithm->rgbMap(algoSize, m_stepHandler->stepColor().rgb(),
                                    m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
             if (m_rotation || m_mirror)
@@ -917,6 +923,53 @@ void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QL
                     valueList.append(cmyCol.cyan());
                     valueList.append(cmyCol.magenta());
                     valueList.append(cmyCol.yellow());
+                }
+            }
+        }
+        else if (m_controlMode == ControlModeRgbw || m_controlMode == ControlModeRgbwBrighter)
+        {
+            bool subtractWhite = (m_controlMode == ControlModeRgbw);
+            quint32 rCh = head.channelNumber(QLCChannel::Red, QLCChannel::MSB);
+            quint32 gCh = head.channelNumber(QLCChannel::Green, QLCChannel::MSB);
+            quint32 bCh = head.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
+            quint32 wCh = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
+
+            uchar r = uchar(qRed(col));
+            uchar g = uchar(qGreen(col));
+            uchar b = uchar(qBlue(col));
+            uchar w = wCh == QLCChannel::invalid() ? 0 : qMin(r, qMin(g, b));
+
+            if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
+            {
+                channelList.append(rCh);
+                valueList.append(subtractWhite ? uchar(r - w) : r);
+                channelList.append(gCh);
+                valueList.append(subtractWhite ? uchar(g - w) : g);
+                channelList.append(bCh);
+                valueList.append(subtractWhite ? uchar(b - w) : b);
+
+                if (wCh != QLCChannel::invalid())
+                {
+                    channelList.append(wCh);
+                    valueList.append(w);
+                }
+
+                if (m_dimmerControl)
+                {
+                    quint32 masterDim = fxi->masterIntensityChannel();
+                    quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
+
+                    if (masterDim != QLCChannel::invalid())
+                    {
+                        channelList.append(masterDim);
+                        valueList.append(rgbToGrey(col));
+                    }
+
+                    if (headDim != QLCChannel::invalid() && headDim != masterDim)
+                    {
+                        channelList.append(headDim);
+                        valueList.append(rgbToGrey(col) == 0 ? 0 : 255);
+                    }
                 }
             }
         }
@@ -1142,6 +1195,10 @@ RGBMatrix::ControlMode RGBMatrix::stringToControlMode(QString mode)
         return ControlModeDimmer;
     else if (mode == KXMLQLCRGBMatrixControlModeShutter)
         return ControlModeShutter;
+    else if (mode == KXMLQLCRGBMatrixControlModeRgbw)
+        return ControlModeRgbw;
+    else if (mode == KXMLQLCRGBMatrixControlModeRgbwBrighter)
+        return ControlModeRgbwBrighter;
 
     return ControlModeRgb;
 }
@@ -1168,6 +1225,12 @@ QString RGBMatrix::controlModeToString(RGBMatrix::ControlMode mode)
         break;
         case ControlModeShutter:
             return QString(KXMLQLCRGBMatrixControlModeShutter);
+        break;
+        case ControlModeRgbw:
+            return QString(KXMLQLCRGBMatrixControlModeRgbw);
+        break;
+        case ControlModeRgbwBrighter:
+            return QString(KXMLQLCRGBMatrixControlModeRgbwBrighter);
         break;
     }
 }

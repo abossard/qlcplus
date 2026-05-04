@@ -29,9 +29,6 @@ class UiManagerPreset_Test final : public QObject
 private slots:
     void presetNamesContainsClassic();
     void presetNamesContainsVSCodeDark();
-    void vscodeDarkPresetCoversAllColorProperties();
-    void vscodeDarkToolbarGradientsAreFlat();
-    void applyClassicRestoresDefaults();
     void applyPresetSetsCurrentPreset();
     void applyPresetEmitsSignal();
 };

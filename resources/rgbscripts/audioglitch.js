@@ -24,14 +24,12 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 3});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
       "values:1,10|write:setSpeed|read:getSpeed");
-    algo.presetReactivity = 3;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSaturation = 10;
     algo.properties.push(
       "name:presetSaturation|type:range|display:Saturation|" +
@@ -43,8 +41,6 @@ var testAlgo;
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
     algo.setSaturation = function(_v) { algo.presetSaturation = parseInt(_v); };
     algo.getSaturation = function() { return algo.presetSaturation; };
     algo.setComplexity = function(_v) { algo.presetComplexity = parseInt(_v); };
@@ -74,7 +70,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) { lowsFilter = new LedFx.ExpFilter(0.05, 0.95); lastTime = Date.now(); initialized = true; }
+        if (!initialized) { lowsFilter = AudioParams.createFilter(algo, 0.05); lastTime = Date.now(); initialized = true; }
 
         var map = LedFx.createMap(width, height);
         if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
@@ -84,7 +80,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = lowsFilter.update(LedFx.lows_power(audio));
+        lowsPower = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
 
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -129,7 +125,8 @@ var testAlgo;
             var g = c1[1] * (1 - t * 0.3) + endColor[1] * t * 0.3;
             var b = c1[2] * (1 - t * 0.3) + endColor[2] * t * 0.3;
 
-            var packed = LedFx.rgb(r, g, b);
+            var brightness = AudioParams.applyFloor(algo, 1.0);
+            var packed = LedFx.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

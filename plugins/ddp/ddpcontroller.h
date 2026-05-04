@@ -91,9 +91,6 @@ public:
     quint64 getPacketSentNumber() const;
 
 private:
-    /** Flush a complete frame's data as ordered DDP packets */
-    void flushFrame(QMap<quint32, QByteArray> frame);
-
     QNetworkInterface m_interface;
     QHostAddress m_ipAddr;
     quint32 m_line;
@@ -104,9 +101,6 @@ private:
 
     quint64 m_packetSent;
     quint64 m_frameCount;
-
-    /** Queue of pending frames — each frame is a map of universe → data */
-    QList<QMap<quint32, QByteArray>> m_frameQueue;
 };
 
 #endif // DDPCONTROLLER_H

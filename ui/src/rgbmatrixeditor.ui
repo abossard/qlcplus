@@ -483,13 +483,23 @@
             <string>Dimmer</string>
            </property>
           </item>
-          <item>
-           <property name="text">
-            <string>Shutter</string>
-           </property>
-          </item>
-         </widget>
-        </item>
+           <item>
+            <property name="text">
+             <string>Shutter</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RGBW (Accurate)</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>RGBW (Brighter)</string>
+            </property>
+           </item>
+          </widget>
+         </item>
         <item row="0" column="0" colspan="6">
          <widget class="QComboBox" name="m_patternCombo">
           <property name="toolTip">

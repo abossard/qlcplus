@@ -23,6 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -35,10 +37,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetTightness|type:range|display:Tightness|" +
       "values:1,10|write:setTightness|read:getTightness");
-    algo.presetReactivity = 5;
-    algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -46,8 +44,6 @@ var testAlgo;
     algo.getArms = function() { return algo.presetArms; };
     algo.setTightness = function(_v) { algo.presetTightness = parseInt(_v); };
     algo.getTightness = function() { return algo.presetTightness; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
 
     var startColor = [255, 0, 128];
     var endColor = [0, 200, 255];
@@ -71,7 +67,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new LedFx.ExpFilter(0.05, 0.3);
+            lowsFilter = AudioParams.createFilter(algo, 0.05);
             lastTime = Date.now();
             initialized = true;
         }
@@ -84,7 +80,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio));
+        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
         var speed = algo.presetSpeed / 5.0;
         angle += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -111,7 +107,7 @@ var testAlgo;
                 var armVal = Math.sin(spiral * arms) * 0.5 + 0.5;
 
                 // Brightness: arms visible, fades toward edge
-                var bright = armVal * power * (1 - normDist * 0.5);
+                var bright = AudioParams.applyFloor(algo, Math.min(1, armVal * power * (1 - normDist * 0.5)));
 
                 // Color: gradient from center to edge
                 var t = normDist;

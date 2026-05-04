@@ -3,22 +3,29 @@ project(scripts)
 set(SCRIPT_FILES
     alternate.js
     audioaurora.js
+    audiobasslaser.js
+    audiobuildup.js
     audioblocks.js
+    audio_common.js
     audiochaser.js
     audiocrawler.js
     audioenergy.js
     audioequalizer.js
     audiofire.js
+    audiofireworks.js
     audioglitch.js
+    audiohueshift.js
     audiolava.js
     audiomelt.js
     audioplasma.js
     audiopower.js
     audioscan.js
     audioscroll.js
+    audioshockwave.js
     audioshot.js
     audiosoap.js
     audiospectrum.js
+    audiosplittower.js
     audiostrobe.js
     audiotunnel.js
     audiovortex.js

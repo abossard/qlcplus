@@ -66,8 +66,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
-            auto err = validateFields(args, {"items"});
-            if (!err.empty()) return err;
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -165,6 +165,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             try {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             auto midiChFromMode = [](const std::string &mode) -> int {
                 if (mode == "flashing") return 1;
                 if (mode == "pulsing") return 2;
@@ -233,6 +235,8 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto itemsErr = validateItemsArray(args);
+            if (itemsErr) return *itemsErr;
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {

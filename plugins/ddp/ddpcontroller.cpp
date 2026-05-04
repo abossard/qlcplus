@@ -55,101 +55,60 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data)
 
     DDPUniverseInfo const& info = m_universeMap[universe];
 
-    // Deep-copy immediately: the engine passes a fromRawData() reference
-    // that can be overwritten by the next timer tick while we queue it.
-    QByteArray owned(data.constData(), data.size());
     QByteArray txData;
-
     if (info.transmissionMode == Full)
     {
         txData = QByteArray(512, 0);
-        txData.replace(0, owned.length(), owned);
+        txData.replace(0, data.length(), data);
     }
     else
     {
-        txData = owned;
+        txData = QByteArray(data.constData(), data.size());
     }
 
-    // Find the first frame in the queue that doesn't have this universe yet
-    int slot = -1;
-    for (int i = 0; i < m_frameQueue.size(); i++)
-    {
-        if (!m_frameQueue[i].contains(universe))
-        {
-            slot = i;
-            break;
-        }
-    }
-    if (slot == -1)
-    {
-        m_frameQueue.append(QMap<quint32, QByteArray>());
-        slot = m_frameQueue.size() - 1;
-    }
+    if (txData.isEmpty())
+        return;
 
-    m_frameQueue[slot][universe] = txData;
-
-    // Flush all complete frames from the front of the queue
-    while (!m_frameQueue.isEmpty()
-           && m_frameQueue.first().size() >= m_universeMap.size())
-    {
-        flushFrame(m_frameQueue.takeFirst());
-    }
-}
-
-void DDPController::flushFrame(QMap<quint32, QByteArray> frame)
-{
-    // Collect universes sorted by DDP offset (ascending)
-    QList<quint32> sortedUniverses = frame.keys();
-    std::sort(sortedUniverses.begin(), sortedUniverses.end(),
-        [this](quint32 a, quint32 b) {
-            return m_universeMap[a].ddpOffset < m_universeMap[b].ddpOffset;
-        });
-
+    // Send this universe immediately. Each universe thread arrives here
+    // independently after MasterTimer's per-universe QueuedConnection tick;
+    // batching across universes is impossible to do reliably without a
+    // cross-thread barrier, and DDP receivers (WLED etc.) handle a PUSH per
+    // universe just fine. The inter-universe gap is sub-millisecond, far
+    // below any visible frame boundary. This matches Art-Net behaviour
+    // (no sync packet) and avoids partial-frame stalls when one universe
+    // thread is briefly delayed by the OS scheduler.
     m_frameCount++;
     quint8 seq = DDPPacketizer::sequenceForFrame(m_frameCount);
 
-    int totalUniverses = sortedUniverses.size();
+    quint8 dataType = (info.components == RGBW)
+        ? DDP_DATATYPE_RGBW888
+        : DDP_DATATYPE_RGB888;
 
-    for (int u = 0; u < totalUniverses; u++)
+    int totalPackets = DDPPacketizer::packetsRequired(txData.size());
+
+    for (int i = 0; i < totalPackets; i++)
     {
-        quint32 universe = sortedUniverses[u];
-        DDPUniverseInfo const& info = m_universeMap[universe];
-        QByteArray const& txData = frame[universe];
+        int chunkStart = i * DDP_MAX_DATALEN;
+        int chunkLen = qMin(DDP_MAX_DATALEN, txData.size() - chunkStart);
+        bool isLastChunk = (i == totalPackets - 1);
+        bool push = isLastChunk;
 
-        if (txData.isEmpty())
-            continue;
+        QByteArray chunk = txData.mid(chunkStart, chunkLen);
+        QByteArray packet = DDPPacketizer::buildPacket(
+            chunk,
+            info.ddpOffset + static_cast<quint32>(chunkStart),
+            seq, push, dataType, info.destId);
 
-        quint8 dataType = (info.components == RGBW)
-            ? DDP_DATATYPE_RGBW888
-            : DDP_DATATYPE_RGB888;
+        qint64 sent = m_udpSocket->writeDatagram(
+            packet.data(), packet.size(),
+            info.destAddress, info.destPort);
 
-        bool isLastUniverse = (u == totalUniverses - 1);
-        int totalPackets = DDPPacketizer::packetsRequired(txData.size());
-
-        for (int i = 0; i < totalPackets; i++)
+        if (sent < 0)
         {
-            int chunkStart = i * DDP_MAX_DATALEN;
-            int chunkLen = qMin(DDP_MAX_DATALEN, txData.size() - chunkStart);
-            bool isLastChunk = (i == totalPackets - 1);
-            bool push = isLastUniverse && isLastChunk;
-
-            QByteArray chunk = txData.mid(chunkStart, chunkLen);
-            QByteArray packet = DDPPacketizer::buildPacket(
-                chunk,
-                info.ddpOffset + static_cast<quint32>(chunkStart),
-                seq, push, dataType, info.destId);
-
-            qint64 sent = m_udpSocket->writeDatagram(
-                packet.data(), packet.size(),
-                info.destAddress, info.destPort);
-
-            if (sent < 0)
-            {
-                qWarning() << "[DDP] flushFrame failed:" << m_udpSocket->errorString();
-                break;
-            }
-            m_packetSent++;
+            qWarning() << "[DDP] sendDmx failed:" << m_udpSocket->errorString();
+            break;
         }
+        m_packetSent++;
     }
 }
 

@@ -38,7 +38,16 @@ Rectangle
     property string currentContext: ""
     property int popupCount: 0
 
-    Component.onCompleted: UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
+    Component.onCompleted:
+    {
+        UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
+
+        var ctx = "FIXANDFUNC"
+        // handle Kiosk mode on startup
+        if (qlcplus.accessMask === App.AC_VCControl)
+            ctx = "VC"
+        enableContext(ctx, true)
+    }
     onWidthChanged: UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
 
     function enableContext(ctx, setChecked)
@@ -86,8 +95,10 @@ Rectangle
             currentContext = ""
         }
 
-        if (qmlRes)
-            mainViewLoader.source = qmlRes
+        if (ctx === "FIXANDFUNC")
+            fixAndFuncLoader.active = true
+        else if (qmlRes)
+            otherViewLoader.source = qmlRes
     }
 
     function setDimScreen(enable)
@@ -114,7 +125,17 @@ Rectangle
 
     function loadResource(qmlRes)
     {
-        mainViewLoader.source = qmlRes
+        if (qmlRes === fnfEntry.ctxRes)
+        {
+            currentContext = fnfEntry.ctxName
+            fnfEntry.checked = true
+            fixAndFuncLoader.active = true
+        }
+        else
+        {
+            currentContext = "RESOURCE"
+            otherViewLoader.source = qmlRes
+        }
     }
 
     function isTextEditingActive()
@@ -626,21 +647,27 @@ Rectangle
         } // end of RowLayout
     } // end of mainToolbar
 
+    // Persistent Fixtures & Functions view — survives context switches
     Loader
     {
-        id: mainViewLoader
+        id: fixAndFuncLoader
+        source: "qrc:/FixturesAndFunctions.qml"
+        active: false
+        visible: currentContext === "FIXANDFUNC"
         width: parent.width
         height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0)
         y: mainToolbar.visible ? mainToolbar.height : 0
+    }
 
-        Component.onCompleted:
-        {
-            var ctx = "FIXANDFUNC"
-            // handle Kiosk mode on startup
-            if (qlcplus.accessMask === App.AC_VCControl)
-                ctx = "VC"
-            enableContext(ctx, true)
-        }
+    // Swapping loader for all other contexts
+    Loader
+    {
+        id: otherViewLoader
+        active: visible
+        visible: currentContext !== "FIXANDFUNC" && currentContext !== ""
+        width: parent.width
+        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0)
+        y: mainToolbar.visible ? mainToolbar.height : 0
     }
 
     PopupNetworkConnect { id: clientAccessPopup }

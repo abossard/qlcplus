@@ -326,7 +326,9 @@ public:
         ControlModeAmber,
         ControlModeUV,
         ControlModeDimmer,
-        ControlModeShutter
+        ControlModeShutter,
+        ControlModeRgbw = 6,
+        ControlModeRgbwBrighter = 7
     };
 
     /** Get/Set the control mode associated to this RGBMatrix */
