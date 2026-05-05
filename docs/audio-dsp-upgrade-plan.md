@@ -576,6 +576,37 @@ Sequencing: live ships first (M0–M5). Cached/identified/position-tracked featu
 - [ ] CMakeLists no longer installs the deleted JS files.
 - [ ] **Live shippable here.** Tag and ship if the rest of the work slips.
 
+## M0-M5 Implementation Verification Snapshot
+
+Verified on 2026-05-05 with GPT-5.5 subagents against the repository state after the initial `AudioFeatures` / `LiveAudioAnalyzer` scaffold.
+
+Build verification:
+
+- `cmake -S . -B build -Dqmlui=ON` could not configure in the current runner because Qt development package config files are not installed or not discoverable (`Qt5Config.cmake`, `qt5-config.cmake`, `Qt6Config.cmake`, `qt6-config.cmake` missing).
+- `cmake --build build --target qlcplusaudio -j2` was therefore not reached.
+- This is an environment gap, not proof that the current source builds.
+
+Current implementation status:
+
+| Milestone | Status | Evidence | Remaining gap |
+| --- | --- | --- | --- |
+| M0 Foundation | Missing | No `thirdparty/` aubio submodule, no `audio_aubio` / `audio_essentia` / `audio_olaf` CMake options, no `qlcplusaudioanalysis` target, no `engine/audio/test/`, no `scripts/audiobench`. | Land the dependency/build/test foundation before expanding analyzer behavior. |
+| M1 Live AudioAnalyzer | Partial | `engine/audio/src/audiofeatures.h`, `liveaudioanalyzer.*`, and `AudioCapture::audioFeatures()` exist; `AudioCapture::processData()` now fills a live feature snapshot. | Still missing `AudioFrame`, aubio, 256-frame / 48 kHz latency tuning, noise floor, 12-bin chroma, no-allocation proof, lock-free/SPSC snapshot handoff, timing instrumentation, synthetic tests, and end-to-end latency measurement. |
+| M2 AudioProfile + AudioChannel + RGBMatrix wiring | Missing | No `AudioProfile`, `AudioChannelConfig`, `AudioSnapshot`, channel-handle API, `RGBMatrix.audioProfileId`, or profile editor wiring found. | Implement the document model and channel snapshot API before script/UI rewrites. |
+| M3 RGBUtil + thin script vertical slice | Missing / blocked | `resources/rgbscripts/ledfx_compat.js` still provides `LedFx`; `rgbscriptv4.cpp` still builds legacy `audio.spectrum`, `volume`, `beat`, `bpm`, `maxMagnitude` data. | Add `RGBUtil`, `AudioDSP.Filter(ms)`, wire `buildAudioDataObject()` to the new snapshot shape, then port three representative pilot scripts. |
+| M4 VCAudioTrigger live UI rewrite | Missing | Existing v4/v5 VCAudioTrigger paths still connect to `dataProcessed()` and use spectrum-bar / threshold behavior. | Replace per-bar UI with profile, live bands, envelope, AGC, trigger, spectral, and monitor panels. |
+| M5 Port scripts + delete legacy | Missing | `audio_common.js`, `ledfx_compat.js`, `AudioParams`, `LedFx.*`, `BeatTracker`, and legacy `dataProcessed()` consumers remain. | Port all audio scripts and remove legacy DSP/helper/install paths only after M2-M4 are functional. |
+
+Next steps to make M0-M5 shippable:
+
+1. **Fix build environment first.** Install or expose Qt 6 development config paths in the runner, then run `cmake -S . -B build -Dqmlui=ON` and `cmake --build build --target qlcplusaudio -j2` before further code changes.
+2. **Complete M0.** Add pinned aubio dependency wiring, the audio feature library target, synthetic test scaffolding, and the `audiobench` CLI.
+3. **Harden M1 around `AudioFrame`.** Move the current direct `AudioCapture` → `LiveAudioAnalyzer` path to `AudioFrame`, add aubio onset/tempo, live chroma, noise-floor tracking, latency/budget instrumentation, and tests.
+4. **Implement M2 model/API.** Add `AudioProfile`, `AudioChannelConfig`, immutable `AudioSnapshot`, channel handles, and `RGBMatrix.audioProfileId` persistence/editor hooks.
+5. **Do M3 as a vertical slice.** Add `RGBUtil` / `AudioDSP`, expose the nested audio object to scripts, and port exactly three pilot scripts before touching all scripts.
+6. **Rewrite M4 UI after the model is real.** Keep old VCAudioTrigger behavior until profiles and snapshots are usable, then replace it with the live control-center panels.
+7. **Finish M5 deletion last.** Remove `ledfx_compat.js`, `audio_common.js`, `BeatTracker`, `AudioParams`, and legacy `dataProcessed()` consumers only after scripts and widgets are fully on `AudioFeatures` / `AudioSnapshot`.
+
 ### M6. Offline feature pipeline — Essentia + SQLite
 
 - [ ] Add `audio_essentia=ON` build flag. Vendor Essentia. Update LICENSE / About for AGPL.
