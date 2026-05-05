@@ -446,8 +446,18 @@ void AudioCapture::run()
                     processData();
 
                     hasBeat = m_beatTracker->processAudio(m_audioBuffer, m_captureSize);
-                    m_audioFeatures.beat = hasBeat;
-                    m_audioFeatures.bpm = m_beatTracker->getCurrentBpm();
+                    // BeatTracker may keep returning a stable BPM even during silence.
+                    // If processData() gated the frame as silent, force beat/BPM back to zero.
+                    if (m_audioFeatures.rmsDb <= -90.0f)
+                    {
+                        m_audioFeatures.beat = false;
+                        m_audioFeatures.bpm = 0.0;
+                    }
+                    else
+                    {
+                        m_audioFeatures.beat = hasBeat;
+                        m_audioFeatures.bpm = m_beatTracker->getCurrentBpm();
+                    }
                 }
                 emit audioFeaturesChanged();
 
