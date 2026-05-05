@@ -22,10 +22,14 @@
 #define AUDIOCAPTURE_H
 
 #include <stdint.h>
+#include <array>
 #include <QThread>
 #include <QVector>
 #include <QMutex>
 #include <QMap>
+
+#include "audiofeatures.h"
+#include "liveaudioanalyzer.h"
 
 #ifdef HAS_FFTW3
 #include "fftw3.h"
@@ -142,6 +146,9 @@ public:
     /** Get the maximum magnitude across all bands in a registered band set. */
     double bandMaxMagnitude(int numBands) const;
 
+    /** Get the latest live audio feature frame. */
+    AudioFeatures audioFeatures() const;
+
 protected:
     void stop();
 
@@ -155,6 +162,13 @@ protected:
     /** This is called at every processData to fill a single BandsData structure */
     double fillBandsData(int number);
 
+    /** Fill logarithmic FFT bands without registering a legacy consumer. */
+    double fillLogBands(int number, QVector<double> &bands) const;
+    double fillLogBands(int number, double *bands) const;
+
+    /** Fill the fixed-size bands used by AudioFeatures. */
+    double fillAudioFeatureBands(std::array<double, AUDIO_FEATURE_BANDS> &bands) const;
+
     /** This is the method where captured audio data is processed in this order
      *  1) calculates the signal power, which will be the volume bar
      *  2) perform the FFT
@@ -164,11 +178,12 @@ protected:
 
 signals:
     void dataProcessed(double *spectrumBands, int size, double maxMagnitude, quint32 power);
+    void audioFeaturesChanged();
     void volumeChanged(int volume);
     void beatDetected();
 
 protected:
-    QMutex m_mutex;
+    mutable QMutex m_mutex;
 
     bool m_userStop, m_pause;
     unsigned int m_bufferSize, m_captureSize, m_sampleRate, m_channels;
@@ -192,6 +207,10 @@ protected:
 
     /** Reference to the beat tracking processor */
     BeatTracker *m_beatTracker;
+
+    /** Unified live audio feature state */
+    LiveAudioAnalyzer m_liveAnalyzer;
+    AudioFeatures m_audioFeatures;
 };
 
 /** @} */

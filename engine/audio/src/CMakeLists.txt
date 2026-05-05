@@ -5,10 +5,12 @@ add_library(${module_name}
     audio.cpp audio.h
     audiocapture.cpp audiocapture.h
     audiodecoder.cpp audiodecoder.h
+    audiofeatures.h
     audioparameters.cpp audioparameters.h
     audioplugincache.cpp audioplugincache.h
     audiorenderer.cpp audiorenderer.h
     beattracker.cpp beattracker.h
+    liveaudioanalyzer.cpp liveaudioanalyzer.h
 )
 set_property(TARGET ${module_name} PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${module_name} PUBLIC

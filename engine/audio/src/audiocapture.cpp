@@ -31,6 +31,9 @@
 
 #define M_2PI       6.28318530718           /* 2*pi */
 
+static_assert(AUDIO_FEATURE_BANDS == FREQ_SUBBANDS_MAX_NUMBER,
+              "AudioFeatures and AudioCapture must use the same live band count");
+
 AudioCapture::AudioCapture (QObject* parent)
     : QThread (parent)
     , m_userStop(true)
@@ -123,6 +126,12 @@ double AudioCapture::bandMaxMagnitude(int numBands) const
     return maxVal;
 }
 
+AudioFeatures AudioCapture::audioFeatures() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_audioFeatures;
+}
+
 int AudioCapture::lowCutBin(int N)
 {
     if (N < 3) return 0;
@@ -202,6 +211,32 @@ void AudioCapture::stop()
 
 double AudioCapture::fillBandsData(int number)
 {
+    QVector<double> &bands = m_fftMagnitudeMap[number].m_fftMagnitudeBuffer;
+    if (bands.size() != number)
+        bands = QVector<double>(number);
+
+    return fillLogBands(number, bands.data());
+}
+
+double AudioCapture::fillLogBands(int number, QVector<double> &bands) const
+{
+    if (number <= 0)
+    {
+        bands.clear();
+        return 0.0;
+    }
+
+    if (bands.size() != number)
+        bands = QVector<double>(number);
+
+    return fillLogBands(number, bands.data());
+}
+
+double AudioCapture::fillLogBands(int number, double *bands) const
+{
+    if (number <= 0 || bands == nullptr)
+        return 0.0;
+
     // m_fftOutputBuffer contains the real and imaginary data of a spectrum
     // representing all the frequencies from 0 to m_sampleRate Hz.
     // Consider the configured spectrum range and calculate average magnitude
@@ -215,10 +250,10 @@ double AudioCapture::fillBandsData(int number)
     const double maxFreq = qMin(double(SPECTRUM_MAX_FREQUENCY), nyquist);
     const double logRange = (maxFreq > minFreq) ? qLn(maxFreq / minFreq) : 0.0;
 
-    if (number <= 0 || maxBin <= 1 || logRange <= 0.0)
+    if (maxBin <= 1 || logRange <= 0.0)
     {
-        if (number > 0 && m_fftMagnitudeMap.contains(number))
-            m_fftMagnitudeMap[number].m_fftMagnitudeBuffer.fill(0.0);
+        for (int b = 0; b < number; b++)
+            bands[b] = 0.0;
         return 0.0;
     }
 
@@ -243,14 +278,20 @@ double AudioCapture::fillBandsData(int number)
 
         const int bandWidth = endBin - startBin;
         const double bandMagnitude = magnitudeSum / (double(bandWidth) * M_2PI);
-        m_fftMagnitudeMap[number].m_fftMagnitudeBuffer[b] = bandMagnitude;
+        bands[b] = bandMagnitude;
         if (maxMagnitude < bandMagnitude)
             maxMagnitude = bandMagnitude;
     }
 #else
-    Q_UNUSED(number)
+    for (int b = 0; b < number; b++)
+        bands[b] = 0.0;
 #endif
     return maxMagnitude;
+}
+
+double AudioCapture::fillAudioFeatureBands(std::array<double, AUDIO_FEATURE_BANDS> &bands) const
+{
+    return fillLogBands(AUDIO_FEATURE_BANDS, bands.data());
 }
 
 void AudioCapture::processData()
@@ -288,10 +329,12 @@ void AudioCapture::processData()
 
     // Remove DC, compute RMS in one pass (normalize to [-1,1])
     double sumSq = 0.0;
+    double peak = 0.0;
     for (i = 0; i < m_bufferSize; ++i)
     {
         const double x = (double(m_audioMixdown[i]) - mean) / 32768.0;
         sumSq += x * x;
+        peak = qMax(peak, qAbs(x));
         m_fftInputBuffer[i] = x; // will be windowed right below
     }
     const double rms = qSqrt(sumSq / double(m_bufferSize));
@@ -304,6 +347,7 @@ void AudioCapture::processData()
         double maxMagnitude = 0.0;
         quint32 power = smoothPower(0.0);
         m_signalPower = power;
+        m_audioFeatures = m_liveAnalyzer.analyzeSilence(m_sampleRate);
         for (int barsNumber : m_fftMagnitudeMap.keys())
         {
             // Ensure the buffer exists and is zeroed
@@ -356,6 +400,9 @@ void AudioCapture::processData()
     // 5) Fill per-band magnitudes and compute power
     double pwrSum = 0.;
     double maxMagnitude = 0.;
+    std::array<double, AUDIO_FEATURE_BANDS> featureBands {};
+    const double featureMaxMagnitude = fillAudioFeatureBands(featureBands);
+    m_audioFeatures = m_liveAnalyzer.analyze(rms, peak, m_sampleRate, featureBands, featureMaxMagnitude);
     for (int barsNumber : m_fftMagnitudeMap.keys())
     {
         maxMagnitude = fillBandsData(barsNumber); // fills & returns max per-band
@@ -389,10 +436,18 @@ void AudioCapture::run()
         {
             if (readAudio(m_captureSize) == true)
             {
-                QMutexLocker locker(&m_mutex);
-                processData();
+                bool hasBeat = false;
+                {
+                    QMutexLocker locker(&m_mutex);
+                    processData();
 
-                if (m_beatTracker->processAudio(m_audioBuffer, m_captureSize))
+                    hasBeat = m_beatTracker->processAudio(m_audioBuffer, m_captureSize);
+                    m_audioFeatures.beat = hasBeat;
+                    m_audioFeatures.bpm = m_beatTracker->getCurrentBpm();
+                }
+                emit audioFeaturesChanged();
+
+                if (hasBeat)
                     emit beatDetected();
             }
             else
