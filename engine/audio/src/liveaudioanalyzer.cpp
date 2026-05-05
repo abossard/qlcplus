@@ -47,6 +47,12 @@ namespace
         *target += value;
         count++;
     }
+
+    static constexpr float kFluxAverageKeep = 0.9f;
+    static constexpr float kFluxAverageNew = 1.0f - kFluxAverageKeep;
+    static constexpr float kOnsetNoiseFloorDb = -54.0f;
+    static constexpr float kOnsetMinimumFlux = 0.35f;
+    static constexpr float kOnsetAdaptiveMultiplier = 1.8f;
 }
 
 AudioFeatures LiveAudioAnalyzer::analyze(double rms,
@@ -143,8 +149,9 @@ AudioFeatures LiveAudioAnalyzer::analyze(double rms,
     }
 
     features.spectralFlux = flux;
-    m_fluxAverage = (0.9f * m_fluxAverage) + (0.1f * flux);
-    features.onset = (features.rmsDb > -54.0f && flux > qMax(0.35f, m_fluxAverage * 1.8f));
+    m_fluxAverage = (kFluxAverageKeep * m_fluxAverage) + (kFluxAverageNew * flux);
+    features.onset = (features.rmsDb > kOnsetNoiseFloorDb &&
+                      flux > qMax(kOnsetMinimumFlux, m_fluxAverage * kOnsetAdaptiveMultiplier));
 
     return features;
 }

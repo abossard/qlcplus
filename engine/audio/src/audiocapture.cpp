@@ -213,7 +213,11 @@ void AudioCapture::stop()
 
 double AudioCapture::fillBandsData(int number)
 {
-    QVector<double> &bands = m_fftMagnitudeMap[number].m_fftMagnitudeBuffer;
+    auto it = m_fftMagnitudeMap.find(number);
+    if (it == m_fftMagnitudeMap.end())
+        return 0.0;
+
+    QVector<double> &bands = it.value().m_fftMagnitudeBuffer;
     if (bands.size() != number)
         bands = QVector<double>(number);
 
