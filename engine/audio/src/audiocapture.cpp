@@ -18,6 +18,8 @@
   limitations under the License.
 */
 
+#include <algorithm>
+
 #include <QSettings>
 #include <QDateTime>
 #include <QDebug>
@@ -252,8 +254,7 @@ double AudioCapture::fillLogBands(int number, double *bands) const
 
     if (maxBin <= 1 || logRange <= 0.0)
     {
-        for (int b = 0; b < number; b++)
-            bands[b] = 0.0;
+        std::fill_n(bands, number, 0.0);
         return 0.0;
     }
 
@@ -283,8 +284,7 @@ double AudioCapture::fillLogBands(int number, double *bands) const
             maxMagnitude = bandMagnitude;
     }
 #else
-    for (int b = 0; b < number; b++)
-        bands[b] = 0.0;
+    std::fill_n(bands, number, 0.0);
 #endif
     return maxMagnitude;
 }
@@ -347,7 +347,7 @@ void AudioCapture::processData()
         double maxMagnitude = 0.0;
         quint32 power = smoothPower(0.0);
         m_signalPower = power;
-        m_audioFeatures = m_liveAnalyzer.analyzeSilence(m_sampleRate);
+        m_audioFeatures = m_liveAnalyzer.analyzeSilence();
         for (int barsNumber : m_fftMagnitudeMap.keys())
         {
             // Ensure the buffer exists and is zeroed
@@ -402,7 +402,7 @@ void AudioCapture::processData()
     double maxMagnitude = 0.;
     std::array<double, AUDIO_FEATURE_BANDS> featureBands {};
     const double featureMaxMagnitude = fillAudioFeatureBands(featureBands);
-    m_audioFeatures = m_liveAnalyzer.analyze(rms, peak, m_sampleRate, featureBands, featureMaxMagnitude);
+    m_audioFeatures = m_liveAnalyzer.analyze(rms, peak, featureBands, featureMaxMagnitude);
     for (int barsNumber : m_fftMagnitudeMap.keys())
     {
         maxMagnitude = fillBandsData(barsNumber); // fills & returns max per-band

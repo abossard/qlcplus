@@ -51,12 +51,9 @@ namespace
 
 AudioFeatures LiveAudioAnalyzer::analyze(double rms,
                                           double peak,
-                                          quint32 sampleRate,
                                           const std::array<double, AUDIO_FEATURE_BANDS> &logBands,
                                           double maxMagnitude)
 {
-    Q_UNUSED(sampleRate)
-
     AudioFeatures features;
     const int bandCount = AUDIO_FEATURE_BANDS;
     features.rmsDb = amplitudeToDb(rms);
@@ -152,10 +149,8 @@ AudioFeatures LiveAudioAnalyzer::analyze(double rms,
     return features;
 }
 
-AudioFeatures LiveAudioAnalyzer::analyzeSilence(quint32 sampleRate)
+AudioFeatures LiveAudioAnalyzer::analyzeSilence()
 {
-    Q_UNUSED(sampleRate)
-
     AudioFeatures features;
     features.bandsDb.fill(-96.0f);
     m_previousBands.fill(0.0f);

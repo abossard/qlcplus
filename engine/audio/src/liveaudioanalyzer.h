@@ -29,11 +29,10 @@ class LiveAudioAnalyzer final
 public:
     AudioFeatures analyze(double rms,
                           double peak,
-                          quint32 sampleRate,
                           const std::array<double, AUDIO_FEATURE_BANDS> &logBands,
                           double maxMagnitude);
 
-    AudioFeatures analyzeSilence(quint32 sampleRate);
+    AudioFeatures analyzeSilence();
 
 private:
     std::array<float, AUDIO_FEATURE_BANDS> m_previousBands {};
