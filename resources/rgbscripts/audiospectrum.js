@@ -59,7 +59,8 @@ var testAlgo;
 
     function init() {
         var decay = algo.presetSmoothing / 15.0;
-        filter = AudioParams.createFilter(algo, decay);
+        var rise = 0.1 + algo.presetReactivity * 0.09;
+        filter = new AudioDSP.Filter(decay, rise);
         initialized = true;
         filterDirty = false;
     }
@@ -74,24 +75,23 @@ var testAlgo;
     };
 
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized || filterDirty) init();
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bands = LedFx.melbank(audio, effectiveWidth);
-        var scale = AudioParams.gainFactor(algo);
+        var bands = RGBUtil.interpolate(audio.mel, effectiveWidth);
         for (var i = 0; i < bands.length; i++)
-            bands[i] = Math.min(1, bands[i] * scale);
+            bands[i] = Math.min(1, bands[i]);
 
         var filtered = filter.updateArray(bands);
-        if (!prevBands) prevBands = bands.slice();
+        if (!prevBands || prevBands.length !== bands.length) prevBands = bands.slice();
 
         for (var x = 0; x < Math.min(width, filtered.length); x++) {
             var val = Math.min(1, filtered[x]);
@@ -108,7 +108,7 @@ var testAlgo;
                 var r, g, b;
                 if (algo.presetMode === 1) {
                     // Rainbow: hue based on column position
-                    var c = LedFx.hsv2rgb(t, 1, 1);
+                    var c = RGBUtil.hsv2rgb(t, 1, 1);
                     r = c[0]; g = c[1]; b = c[2];
                 } else if (algo.presetMode === 2) {
                     // RGB Mix: R=filtered, G=diff, B=smoothed
@@ -123,7 +123,7 @@ var testAlgo;
                 }
                 // Brightness from height position
                 var bright = AudioParams.applyFloor(algo, (dy / height) * 0.5 + 0.5);
-                map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
         }
         prevBands = bands.slice();

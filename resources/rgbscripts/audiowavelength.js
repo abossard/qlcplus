@@ -49,8 +49,8 @@ var testAlgo;
     };
 
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
@@ -58,19 +58,18 @@ var testAlgo;
         var pixelCount = width * height;
         if (!initialized || !filter) {
             var decay = algo.presetSmoothing / 15.0;
-            filter = AudioParams.createFilter(algo, decay);
+            filter = new AudioDSP.Filter(decay, AudioParams.filterRise(algo));
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Get spectrum interpolated to physical display width
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var gain = AudioParams.gainFactor(algo);
-        var bands = LedFx.melbank(audio, effectiveWidth);
+        var bands = RGBUtil.interpolate(audio.mel, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi] * gain);
+            bands[bi] = Math.min(1, bands[bi]);
         var smoothed = filter.updateArray(bands);
 
         // Map each column: spectrum magnitude → gradient color × brightness
@@ -91,7 +90,7 @@ var testAlgo;
                 if (y < 0) break;
                 // Fade brightness toward top
                 var bright = AudioParams.applyFloor(algo, magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight)));
-                map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
         }
 

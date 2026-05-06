@@ -2,13 +2,19 @@ set(module_name "qlcplusaudio")
 
 add_library(${module_name}
     STATIC
+    audiochannel.cpp audiochannel.h
+    audiochannelconfig.cpp audiochannelconfig.h
+    audioanalyzer.cpp audioanalyzer.h
     audio.cpp audio.h
     audiocapture.cpp audiocapture.h
+    audioframe.h
+    audiosnapshot.h
     audiodecoder.cpp audiodecoder.h
     audioparameters.cpp audioparameters.h
     audioplugincache.cpp audioplugincache.h
     audiorenderer.cpp audiorenderer.h
-    beattracker.cpp beattracker.h
+    aubioprocessor.cpp aubioprocessor.h
+    aubioresults.h
 )
 set_property(TARGET ${module_name} PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${module_name} PUBLIC
@@ -20,6 +26,7 @@ target_link_libraries(${module_name} PUBLIC
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Multimedia
+    qlcplusaubio
 )
 
 if(APPLE)
@@ -81,19 +88,6 @@ if((((QT_VERSION_MAJOR LESS 5)) AND (APPLE)))
             ${PORTAUDIO_2_LIBRARIES}
         )
     endif()
-endif()
-
-if((NOT ANDROID AND NOT IOS) AND (${FFTW3_FOUND}))
-    target_compile_definitions(${module_name} PUBLIC
-        HAS_FFTW3
-    )
-
-    target_include_directories(${module_name} PUBLIC
-        ${FFTW3_INCLUDE_DIRS}
-    )
-    target_link_libraries(${module_name} PUBLIC
-        ${FFTW3_LINK_LIBRARIES}
-    )
 endif()
 
 if(UNIX AND NOT ANDROID AND NOT IOS AND NOT APPLE)

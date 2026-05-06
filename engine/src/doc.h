@@ -36,10 +36,12 @@
 #include "qlcclipboard.h"
 #include "mastertimer.h"
 #include "qlcpalette.h"
+#include "audioprofile.h"
 #include "function.h"
 #include "fixture.h"
 
 class AudioCapture;
+class AudioAnalyzer;
 class RGBScriptsCache;
 class AudioPluginCache;
 class MonitorProperties;
@@ -150,6 +152,9 @@ public:
     /** Get the audio input capture object */
     QSharedPointer<AudioCapture> audioInputCapture() const;
 
+    /** Get the audio analyzer used by audio input profiles */
+    AudioAnalyzer *audioAnalyzer() const;
+
     /** Destroy a previously created audio capture instance */
     void destroyAudioCapture();
 
@@ -162,6 +167,7 @@ private:
     MasterTimer *m_masterTimer;
     InputOutputMap *m_ioMap;
     mutable QSharedPointer<AudioCapture> m_inputCapture;
+    AudioAnalyzer *m_audioAnalyzer = nullptr;
     MonitorProperties *m_monitorProps;
 
     /*********************************************************************
@@ -477,6 +483,52 @@ private:
 
     /** Latest assigned palette ID */
     quint32 m_latestPaletteId;
+
+    /*********************************************************************
+     * Audio profiles
+     *********************************************************************/
+public:
+    /** Get an audio profile by id */
+    AudioProfile* audioProfile(quint32 id) const;
+
+    /** Add a new audio profile. Doc takes ownership of it */
+    bool addAudioProfile(AudioProfile *profile);
+
+    /** Remove and delete an audio profile */
+    bool removeAudioProfile(quint32 id);
+
+    /** Get a list of Doc's audio profiles */
+    QList<AudioProfile*> audioProfiles() const;
+
+    /** Get the default audio profile, or the first profile if no default exists */
+    AudioProfile* defaultAudioProfile() const;
+
+    /** Ensure a default audio profile exists and return it */
+    AudioProfile* ensureDefaultAudioProfile();
+
+    /** Resolve the AudioProfile that applies to a given Function.
+     *  If the Function is an RGBMatrix with a non-invalid audioProfileId
+     *  that resolves to an existing profile, that profile is returned.
+     *  Otherwise the default audio profile (if any) is returned.
+     *  Returns nullptr if no profiles exist. */
+    AudioProfile* audioProfileForFunction(quint32 functionId) const;
+
+    /** Currently active audio profile ID. Drives runtime AubioConfig
+     *  forwarded to the AudioCapture/AubioProcessor pipeline. */
+    quint32 activeAudioProfileId() const;
+    void setActiveAudioProfileId(quint32 id);
+
+signals:
+    void activeAudioProfileIdChanged(quint32 id);
+
+private:
+    /** Forward the active profile's AubioConfig to AudioCapture (if any). */
+    void pushActiveAubioConfigToCapture();
+
+private:
+    /** Audio profiles */
+    QMap<quint32, AudioProfile*> m_audioProfiles;
+    quint32 m_activeAudioProfileId = AudioProfile::invalidId();
 
     /*********************************************************************
      * Functions

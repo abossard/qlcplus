@@ -72,7 +72,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         var result = [];
         for (var i = 0; i < algo.presetBands; i++)
-            result.push(LedFx.rgb(sectionColors[i][0], sectionColors[i][1], sectionColors[i][2]));
+            result.push(RGBUtil.rgb(sectionColors[i][0], sectionColors[i][1], sectionColors[i][2]));
         return result;
     };
 
@@ -92,19 +92,17 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         ensureState();
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var numBands = algo.presetBands;
-        var bands = LedFx.melbank(audio, numBands);
-        var gain = AudioParams.gainFactor(algo);
+        var bands = RGBUtil.interpolate(audio.mel, numBands);
         var floorBrightness = AudioParams.applyFloor(algo, 0);
         var fallStep = algo.presetDecay / 100.0;
         var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
 
         for (var section = 0; section < numBands; section++) {
-            var magnitude = Math.max(0, Math.min(1, bands[section] * gain));
+            var magnitude = Math.max(0, Math.min(1, bands[section]));
             if (magnitude > algo.smoothBands[section])
                 algo.smoothBands[section] = magnitude;
             else
@@ -136,14 +134,14 @@ var testAlgo;
                     var fromBottom = height - 1 - y;
                     if (fromBottom < barHeight) {
                         var brightness = AudioParams.applyFloor(algo, smoothMagnitude * (1 - y / height * 0.3));
-                        map[y][x] = LedFx.rgb(
+                        map[y][x] = RGBUtil.rgb(
                             color[0] * brightness,
                             color[1] * brightness,
                             color[2] * brightness);
                     } else if (fromBottom === peakPosition && peakPosition < height) {
-                        map[y][x] = LedFx.rgb(color[0], color[1], color[2]);
+                        map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
                     } else if (floorBrightness > 0 && magnitude > 0.01) {
-                        map[y][x] = LedFx.rgb(
+                        map[y][x] = RGBUtil.rgb(
                             color[0] * floorBrightness,
                             color[1] * floorBrightness,
                             color[2] * floorBrightness);
@@ -159,4 +157,3 @@ var testAlgo;
     return algo;
   }
 )();
-

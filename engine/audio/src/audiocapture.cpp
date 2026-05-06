@@ -3,97 +3,70 @@
   audiocapture.cpp
 
   Copyright (c) Massimo Callegari
-  based on libbeat code by Maximilian Güntner
 
   Licensed under the Apache License, Version 2.0 (the "License");
-  you may not use this file except in compliance with the License.
-  You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0.txt
-
-  Unless required by applicable law or agreed to in writing, software
-  distributed under the License is distributed on an "AS IS" BASIS,
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  See the License for the specific language governing permissions and
-  limitations under the License.
 */
 
+#include <algorithm>
+#include <cmath>
+
 #include <QSettings>
-#include <QDateTime>
 #include <QDebug>
 #include <qmath.h>
 
 #include "audiocapture.h"
-#include "beattracker.h"
+#include "audioanalyzer.h"
+#include "audioframe.h"
+#include "audiochannelconfig.h"
+#include "aubioprocessor.h"
+#include "aubioresults.h"
 
-#define USE_HANNING
-#define CLEAR_FFT_NOISE
+#define M_2PI       6.28318530718
 
-#define M_2PI       6.28318530718           /* 2*pi */
-
-AudioCapture::AudioCapture (QObject* parent)
-    : QThread (parent)
+AudioCapture::AudioCapture(QObject* parent)
+    : QThread(parent)
     , m_userStop(true)
     , m_pause(false)
     , m_captureSize(0)
     , m_sampleRate(0)
     , m_channels(0)
-    , m_audioBuffer(NULL)
-    , m_audioMixdown(NULL)
+    , m_audioBuffer(nullptr)
+    , m_audioMixdown(nullptr)
     , m_signalPower(0)
     , m_smoothedSignalPower(0.0)
-    , m_fftInputBuffer(NULL)
-    , m_fftOutputBuffer(NULL)
+    , m_aubio(new AubioProcessor)
 {
+    qRegisterMetaType<AubioResults>("AubioResults");
+
     m_bufferSize = AUDIO_DEFAULT_BUFFER_SIZE;
     m_sampleRate = AUDIO_DEFAULT_SAMPLE_RATE;
     m_channels = AUDIO_DEFAULT_CHANNELS;
 
     QSettings settings;
     QVariant var = settings.value(SETTINGS_AUDIO_INPUT_SRATE);
-
-    if (var.isValid() == true)
+    if (var.isValid())
         m_sampleRate = var.toInt();
 
     var = settings.value(SETTINGS_AUDIO_INPUT_CHANNELS);
-
-    if (var.isValid() == true)
+    if (var.isValid())
         m_channels = var.toInt();
 
     qDebug() << "[AudioCapture] initialize" << m_sampleRate << m_channels;
 
     m_captureSize = m_bufferSize * m_channels;
-
     m_audioBuffer = new int16_t[m_captureSize];
     m_audioMixdown = new int16_t[m_bufferSize];
-    m_fftInputBuffer = new double[m_bufferSize];
-#ifdef HAS_FFTW3
-    m_fftOutputBuffer = fftw_malloc(sizeof(fftw_complex) * m_bufferSize);
 
-    // Init FFTW
-    m_plan_forward = fftw_plan_dft_r2c_1d(m_bufferSize, m_fftInputBuffer,
-                                          reinterpret_cast<fftw_complex*>(m_fftOutputBuffer), 0);
-#endif
-    m_beatTracker = new BeatTracker(m_sampleRate, m_bufferSize, m_channels, 86, 1.3);
-    m_beatTracker->setBand(40.0, 400.0);      // bit wider band for now
-    m_beatTracker->setFluxSmoothing(0.6);     // less smoothing
-    m_beatTracker->setMinBeatInterval(0.20);  // ~300 BPM max
+    m_aubio->initialize(m_sampleRate);
 }
 
 AudioCapture::~AudioCapture()
 {
-    // stop() has to be called from the implementation class
     Q_ASSERT(!this->isRunning());
 
     delete[] m_audioBuffer;
     delete[] m_audioMixdown;
-    delete[] m_fftInputBuffer;
-#ifdef HAS_FFTW3
-    fftw_destroy_plan(m_plan_forward);
-
-    if (m_fftOutputBuffer)
-        fftw_free(m_fftOutputBuffer);
-#endif
+    delete m_aubio;
 }
 
 int AudioCapture::defaultBarsNumber() const
@@ -103,30 +76,32 @@ int AudioCapture::defaultBarsNumber() const
 
 double AudioCapture::bandMagnitude(int bandIndex, int numBands) const
 {
-    if (!m_fftMagnitudeMap.contains(numBands))
-        return 0.0;
-    const auto &buf = m_fftMagnitudeMap[numBands].m_fftMagnitudeBuffer;
-    if (bandIndex < 0 || bandIndex >= buf.size())
-        return 0.0;
-    return buf[bandIndex];
+    Q_UNUSED(bandIndex)
+    Q_UNUSED(numBands)
+    return 0.0;
 }
 
 double AudioCapture::bandMaxMagnitude(int numBands) const
 {
-    if (!m_fftMagnitudeMap.contains(numBands))
-        return 0.0;
-    const auto &buf = m_fftMagnitudeMap[numBands].m_fftMagnitudeBuffer;
-    double maxVal = 0.0;
-    for (int i = 0; i < buf.size(); i++)
-        if (buf[i] > maxVal)
-            maxVal = buf[i];
-    return maxVal;
+    Q_UNUSED(numBands)
+    return 0.0;
+}
+
+void AudioCapture::setAnalyzer(AudioAnalyzer *analyzer)
+{
+    QMutexLocker locker(&m_mutex);
+    m_analyzer = analyzer;
+}
+
+void AudioCapture::setAubioConfig(const AubioConfig &cfg)
+{
+    if (m_aubio != nullptr)
+        m_aubio->setPendingConfig(cfg);
 }
 
 int AudioCapture::lowCutBin(int N)
 {
     if (N < 3) return 0;
-    // Exact computation from the frequency constants
     const double logRange = qLn(double(SPECTRUM_MAX_FREQUENCY) / double(SPECTRUM_MIN_FREQUENCY));
     const double lowRatio = qLn(250.0 / double(SPECTRUM_MIN_FREQUENCY)) / logRange;
     return qBound(1, int(N * lowRatio), N - 2);
@@ -137,7 +112,6 @@ int AudioCapture::highCutBin(int N)
     if (N < 3) return N;
     const double logRange = qLn(double(SPECTRUM_MAX_FREQUENCY) / double(SPECTRUM_MIN_FREQUENCY));
     const double highRatio = qLn(2000.0 / double(SPECTRUM_MIN_FREQUENCY)) / logRange;
-    // Compute as last-mid-bin first, then +1 for first-high-bin
     int lowCut = lowCutBin(N);
     int lastMid = qBound(lowCut, int(N * highRatio), N - 2);
     return lastMid + 1;
@@ -145,48 +119,27 @@ int AudioCapture::highCutBin(int N)
 
 void AudioCapture::registerBandsNumber(int number)
 {
-    qDebug() << "[AudioCapture] registering" << number << "bands";
-
+    Q_UNUSED(number)
     QMutexLocker locker(&m_mutex);
-
-    bool firstBand = m_fftMagnitudeMap.isEmpty();
-    if (number > 0 && number <= FREQ_SUBBANDS_MAX_NUMBER)
+    const bool wasZero = (m_registerCount == 0);
+    m_registerCount++;
+    if (wasZero)
     {
-        if (m_fftMagnitudeMap.contains(number) == false)
-        {
-            BandsData newBands;
-            newBands.m_registerCounter = 1;
-            newBands.m_fftMagnitudeBuffer = QVector<double>(number);
-            m_fftMagnitudeMap[number] = newBands;
-        }
-        else
-            m_fftMagnitudeMap[number].m_registerCounter++;
-
-        if (firstBand)
-        {
-            locker.unlock();
-            start();
-        }
+        locker.unlock();
+        start();
     }
 }
 
 void AudioCapture::unregisterBandsNumber(int number)
 {
-    qDebug() << "[AudioCapture] unregistering" << number << "bands";
-
+    Q_UNUSED(number)
     QMutexLocker locker(&m_mutex);
-
-    if (m_fftMagnitudeMap.contains(number))
+    if (m_registerCount > 0)
+        m_registerCount--;
+    if (m_registerCount == 0)
     {
-        m_fftMagnitudeMap[number].m_registerCounter--;
-        if (m_fftMagnitudeMap[number].m_registerCounter == 0)
-            m_fftMagnitudeMap.remove(number);
-
-        if (m_fftMagnitudeMap.isEmpty())
-        {
-            locker.unlock();
-            stop();
-        }
+        locker.unlock();
+        stop();
     }
 }
 
@@ -200,65 +153,14 @@ void AudioCapture::stop()
     }
 }
 
-double AudioCapture::fillBandsData(int number)
-{
-    // m_fftOutputBuffer contains the real and imaginary data of a spectrum
-    // representing all the frequencies from 0 to m_sampleRate Hz.
-    // Consider the configured spectrum range and calculate average magnitude
-    // with logarithmic bands, which better match audio perception.
-    double maxMagnitude = 0.;
-#ifdef HAS_FFTW3
-    fftw_complex *fft = reinterpret_cast<fftw_complex*>(m_fftOutputBuffer);
-    const int maxBin = int(m_bufferSize / 2); // r2c valid bins: 0..N/2
-    const double nyquist = double(m_sampleRate) / 2.0;
-    const double minFreq = qMax(1.0, double(SPECTRUM_MIN_FREQUENCY));
-    const double maxFreq = qMin(double(SPECTRUM_MAX_FREQUENCY), nyquist);
-    const double logRange = (maxFreq > minFreq) ? qLn(maxFreq / minFreq) : 0.0;
-
-    if (number <= 0 || maxBin <= 1 || logRange <= 0.0)
-    {
-        if (number > 0 && m_fftMagnitudeMap.contains(number))
-            m_fftMagnitudeMap[number].m_fftMagnitudeBuffer.fill(0.0);
-        return 0.0;
-    }
-
-    for (int b = 0; b < number; b++)
-    {
-        const double bandStartFreq = minFreq * qExp(logRange * (double(b) / double(number)));
-        const double bandEndFreq = minFreq * qExp(logRange * (double(b + 1) / double(number)));
-
-        int startBin = qBound(1, int(qFloor((bandStartFreq * m_bufferSize) / double(m_sampleRate))), maxBin);
-        int endBin = qBound(1, int(qCeil((bandEndFreq * m_bufferSize) / double(m_sampleRate))), maxBin + 1);
-
-        if (b == number - 1)
-            endBin = maxBin + 1;
-        if (endBin <= startBin)
-            endBin = qMin(maxBin + 1, startBin + 1);
-
-        double magnitudeSum = 0.0;
-        for (int i = startBin; i < endBin; i++)
-        {
-            magnitudeSum += qSqrt((fft[i][0] * fft[i][0]) + (fft[i][1] * fft[i][1]));
-        }
-
-        const int bandWidth = endBin - startBin;
-        const double bandMagnitude = magnitudeSum / (double(bandWidth) * M_2PI);
-        m_fftMagnitudeMap[number].m_fftMagnitudeBuffer[b] = bandMagnitude;
-        if (maxMagnitude < bandMagnitude)
-            maxMagnitude = bandMagnitude;
-    }
-#else
-    Q_UNUSED(number)
-#endif
-    return maxMagnitude;
-}
-
 void AudioCapture::processData()
 {
     unsigned int i, j;
+    m_frameIndex++;
+
     const double frameSec = (m_sampleRate > 0) ? (double(m_bufferSize) / double(m_sampleRate)) : 0.0;
-    static constexpr double kAttackTauSec = 0.040;  // fast rise
-    static constexpr double kReleaseTauSec = 0.200; // slower fall
+    static constexpr double kAttackTauSec = 0.040;
+    static constexpr double kReleaseTauSec = 0.200;
     const double attackAlpha = (frameSec > 0.0) ? (1.0 - qExp(-frameSec / kAttackTauSec)) : 1.0;
     const double releaseAlpha = (frameSec > 0.0) ? (1.0 - qExp(-frameSec / kReleaseTauSec)) : 1.0;
 
@@ -271,104 +173,69 @@ void AudioCapture::processData()
         return quint32(qRound(m_smoothedSignalPower));
     };
 
-    // 2) Mix down to mono (int16 -> int16)
+    // 1) Mix down to mono
     for (i = 0; i < m_bufferSize; i++)
     {
-        m_audioMixdown[i] = 0;
+        int32_t mix = 0;
         for (j = 0; j < m_channels; j++)
-            m_audioMixdown[i] += m_audioBuffer[i*m_channels + j] / m_channels;
+            mix += m_audioBuffer[i * m_channels + j];
+        m_audioMixdown[i] = int16_t(mix / int32_t(m_channels ? m_channels : 1));
     }
 
-    // 2a) DC removal + RMS (silence gate)
-    // Compute mean (DC)
+    // 2) DC removal + RMS / peak (silence detection)
     long long acc = 0;
     for (i = 0; i < m_bufferSize; ++i)
         acc += m_audioMixdown[i];
     const double mean = double(acc) / double(m_bufferSize);
 
-    // Remove DC, compute RMS in one pass (normalize to [-1,1])
     double sumSq = 0.0;
+    double peakAbs = 0.0;
     for (i = 0; i < m_bufferSize; ++i)
     {
         const double x = (double(m_audioMixdown[i]) - mean) / 32768.0;
         sumSq += x * x;
-        m_fftInputBuffer[i] = x; // will be windowed right below
+        peakAbs = std::max(peakAbs, std::abs(x));
     }
     const double rms = qSqrt(sumSq / double(m_bufferSize));
 
-    // If the frame is effectively silent, emit zeros and bail early.
-    // Threshold is tunable; ~0.002 ≈ -54 dBFS works well for typical PC inputs.
     static constexpr double kSilenceRms = 0.002;
-    if (rms < kSilenceRms)
-    {
-        double maxMagnitude = 0.0;
-        quint32 power = smoothPower(0.0);
-        m_signalPower = power;
-        for (int barsNumber : m_fftMagnitudeMap.keys())
-        {
-            // Ensure the buffer exists and is zeroed
-            auto &buf = m_fftMagnitudeMap[barsNumber].m_fftMagnitudeBuffer;
-            if (buf.size() != barsNumber)
-                buf = QVector<double>(barsNumber);
-            else
-                buf.fill(0.0);
-            emit dataProcessed(buf.data(), buf.size(), maxMagnitude, power);
-        }
-        return;
-    }
+    const bool silent = (rms < kSilenceRms);
 
-    // 2b) Apply window to doubles already placed in m_fftInputBuffer
-#ifdef USE_BLACKMAN
-    const double a0 = (1-0.16)/2, a1 = 0.5, a2 = 0.16/2;
-    for (i = 0; i < bufferSize; i++)
-        m_fftInputBuffer[i] = m_fftInputBuffer[i] *
-                              (a0 - a1 * qCos((M_2PI * i) / (bufferSize - 1)) +
-                               a2 * qCos((2 * M_2PI * i) / (bufferSize - 1)));
-#endif
-#ifdef USE_HANNING
-    for (i = 0; i < m_bufferSize; i++)
-        m_fftInputBuffer[i] = m_fftInputBuffer[i] *
-                              (0.5 * (1.0 - qCos((M_2PI * i) / (m_bufferSize - 1))));
-#endif
-#ifdef USE_NO_WINDOW
-    // already filled: keep as-is
-#endif
+    // 3) Aubio analysis
+    m_aubio->process(m_audioMixdown, int(m_bufferSize));
+    const AubioResults &aubio = m_aubio->results();
 
-#ifdef HAS_FFTW3
-    // 3) FFT
-    fftw_execute(m_plan_forward);
+    // 4) Smoothed power for legacy volumeChanged consumers
+    const double rawPower = silent ? 0.0 : qBound(0.0, rms * 32768.0, 32767.0);
+    const quint32 power = smoothPower(rawPower);
+    const quint32 prevPower = m_signalPower;
+    m_signalPower = power;
 
-    // 4) Clear low-bin FFT noise
-#ifdef CLEAR_FFT_NOISE
-    // Clear only the very-low-frequency floor (incl. DC),
-    // otherwise log-spaced low bands get entirely muted.
-    const double noiseFloorHz = 20.0;
-    const int maxBin = int(m_bufferSize / 2);
-    const int noiseBins = qBound(1, int(qRound((noiseFloorHz * m_bufferSize) / double(m_sampleRate))), maxBin);
-    for (int n = 0; n < noiseBins; n++)
-    {
-        ((fftw_complex*)m_fftOutputBuffer)[n][0] = 0;
-        ((fftw_complex*)m_fftOutputBuffer)[n][1] = 0;
-    }
-#endif
-#endif
+    // 5) Build frame & dispatch to analyzer
+    AudioFrame frame;
+    frame.frameIndex = m_frameIndex;
+    frame.sampleRate = m_sampleRate;
+    frame.sampleCount = m_bufferSize;
+    frame.silent = silent;
+    frame.beatDetected = aubio.beat;
+    frame.rms = rms;
+    frame.peak = peakAbs;
+    frame.rmsDb = (rms > 0.0) ? (20.0 * std::log10(rms)) : -96.0;
+    frame.peakDb = (peakAbs > 0.0) ? (20.0 * std::log10(peakAbs)) : -96.0;
+    frame.crestFactor = (rms > 0.0) ? (peakAbs / rms) : 1.0;
+    frame.aubio = &aubio;
 
-    // 5) Fill per-band magnitudes and compute power
-    double pwrSum = 0.;
-    double maxMagnitude = 0.;
-    for (int barsNumber : m_fftMagnitudeMap.keys())
-    {
-        maxMagnitude = fillBandsData(barsNumber); // fills & returns max per-band
-        pwrSum = 0.;
-        for (int n = 0; n < barsNumber; n++)
-            pwrSum += m_fftMagnitudeMap[barsNumber].m_fftMagnitudeBuffer[n];
+    if (m_analyzer)
+        m_analyzer->processFrame(frame);
 
-        const double rawPower = 32768.0 * pwrSum * qSqrt(M_2PI) / double(barsNumber);
-        m_signalPower = smoothPower(rawPower);
-        emit dataProcessed(m_fftMagnitudeMap[barsNumber].m_fftMagnitudeBuffer.data(),
-                           m_fftMagnitudeMap[barsNumber].m_fftMagnitudeBuffer.size(),
-                           maxMagnitude, m_signalPower);
-    }
+    // 6) Emit signals
+    emit aubioDataReady(aubio, power);
+
+    if (power != prevPower)
+        emit volumeChanged(int(power));
+
+    if (aubio.beat)
+        emit beatDetected();
 }
 
 void AudioCapture::run()
@@ -391,13 +258,9 @@ void AudioCapture::run()
             {
                 QMutexLocker locker(&m_mutex);
                 processData();
-
-                if (m_beatTracker->processAudio(m_audioBuffer, m_captureSize))
-                    emit beatDetected();
             }
             else
             {
-                //qDebug() << "Error reading data from audio source";
                 QThread::msleep(5);
             }
         }

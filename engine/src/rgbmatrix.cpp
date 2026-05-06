@@ -41,6 +41,7 @@
 #define KXMLQLCRGBMatrixColorIndex      QStringLiteral("Index")
 
 #define KXMLQLCRGBMatrixFixtureGroup    QStringLiteral("FixtureGroup")
+#define KXMLQLCRGBMatrixAudioProfileID  QStringLiteral("AudioProfileID")
 #define KXMLQLCRGBMatrixDimmerControl   QStringLiteral("DimmerControl")
 
 #define KXMLQLCRGBMatrixProperty        QStringLiteral("Property")
@@ -199,6 +200,7 @@ bool RGBMatrix::copyFrom(const Function* function)
 
     setDimmerControl(mtx->dimmerControl());
     setFixtureGroup(mtx->fixtureGroup());
+    setAudioProfileId(mtx->audioProfileId());
 
     m_rgbColors.clear();
     foreach (QColor col, mtx->getColors())
@@ -234,6 +236,20 @@ void RGBMatrix::setFixtureGroup(quint32 id)
         m_group = doc()->fixtureGroup(m_fixtureGroupID);
     }
     m_stepsCount = algorithmStepsCount();
+}
+
+quint32 RGBMatrix::audioProfileId() const
+{
+    return m_audioProfileId;
+}
+
+void RGBMatrix::setAudioProfileId(quint32 id)
+{
+    if (m_audioProfileId == id)
+        return;
+
+    m_audioProfileId = id;
+    emit audioProfileIdChanged();
 }
 
 QList<quint32> RGBMatrix::components() const
@@ -502,6 +518,10 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setFixtureGroup(root.readElementText().toUInt());
         }
+        else if (root.name() == KXMLQLCRGBMatrixAudioProfileID)
+        {
+            setAudioProfileId(root.readElementText().toUInt());
+        }
         else if (root.name() == KXMLQLCFunctionDirection)
         {
             loadXMLDirection(root);
@@ -608,6 +628,10 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
 
     /* Fixture Group */
     doc->writeTextElement(KXMLQLCRGBMatrixFixtureGroup, QString::number(fixtureGroup()));
+
+    /* Audio Profile */
+    if (m_audioProfileId != AudioProfile::invalidId())
+        doc->writeTextElement(KXMLQLCRGBMatrixAudioProfileID, QString::number(m_audioProfileId));
 
     /* Properties */
     QMapIterator<QString, QString> it(m_properties);

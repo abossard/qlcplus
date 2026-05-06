@@ -18,6 +18,7 @@
 */
 
 import QtQuick
+import QtQuick.Controls.Basic
 import "."
 
 Rectangle
@@ -39,6 +40,10 @@ Rectangle
     property alias leftMargin: textBox.x
     property real rightMargin: 0
 
+    /** Optional hover tooltip text. When non-empty, hovering the label for
+     *  ~1s shows a ToolTip that is automatically dismissed after 5s. */
+    property string tooltipText: ""
+
     Text
     {
         id: textBox
@@ -53,6 +58,17 @@ Rectangle
         wrapMode: wrapText ? Text.Wrap : Text.NoWrap
         horizontalAlignment: textHAlign
         verticalAlignment: textVAlign
+    }
+
+    MouseArea
+    {
+        anchors.fill: parent
+        hoverEnabled: rtRoot.tooltipText.length > 0
+        acceptedButtons: Qt.NoButton  // pass clicks through
+        ToolTip.visible: containsMouse && rtRoot.tooltipText.length > 0
+        ToolTip.delay: 1000
+        ToolTip.timeout: 5000
+        ToolTip.text: rtRoot.tooltipText
     }
 }
 

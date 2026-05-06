@@ -72,9 +72,10 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -83,7 +84,7 @@ var testAlgo;
         var scrollLen = isVertical ? height : width;
         var bandLen = isVertical ? effectiveWidth : height;
 
-        if (!initialized || !history || history.length !== scrollLen) {
+        if (!initialized || !history || history.length !== scrollLen || !history[0] || history[0].length !== bandLen) {
             history = new Array(scrollLen);
             for (var i = 0; i < scrollLen; i++) {
                 history[i] = new Array(bandLen);
@@ -93,18 +94,16 @@ var testAlgo;
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Decay rate
         var decay = 1 - algo.presetDecay / 15.0;
 
         // Get current spectrum for new row
-        var gain = AudioParams.gainFactor(algo);
-        var thirds = LedFx.melbank_thirds(audio);
-        var bands = LedFx.melbank(audio, bandLen);
+        var bands = RGBUtil.interpolate(audio.mel, bandLen);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi] * gain);
+            bands[bi] = Math.min(1, bands[bi]);
 
         // Build new row of colors
         var newRow = new Array(bandLen);
@@ -115,15 +114,15 @@ var testAlgo;
 
             if (algo.presetColorMode === 1) {
                 // RGB Bands: R=lows, G=mids, B=highs
-                var lowsV = Math.min(1, LedFx.avg(thirds.lows) * gain);
-                var midsV = Math.min(1, LedFx.avg(thirds.mids) * gain);
-                var highV = Math.min(1, LedFx.avg(thirds.highs) * gain);
+                var lowsV = Math.min(1, audio.bands.low);
+                var midsV = Math.min(1, audio.bands.mid);
+                var highV = Math.min(1, audio.bands.high);
                 r = val * (lowsV * 255);
                 g = val * (midsV * 255);
                 b = val * (highV * 255);
             } else if (algo.presetColorMode === 2) {
                 // Rainbow
-                var c = LedFx.hsv2rgb(t, 1, val);
+                var c = RGBUtil.hsv2rgb(t, 1, val);
                 r = c[0]; g = c[1]; b = c[2];
             } else {
                 // Gradient
@@ -131,7 +130,7 @@ var testAlgo;
                 g = (startColor[1] + (endColor[1] - startColor[1]) * t) * val;
                 b = (startColor[2] + (endColor[2] - startColor[2]) * t) * val;
             }
-            newRow[i] = LedFx.rgb(r, g, b);
+            newRow[i] = RGBUtil.rgb(r, g, b);
         }
 
         // Scroll: shift history, add new row
@@ -157,7 +156,7 @@ var testAlgo;
                 var pr = ((px >> 16) & 0xFF) * fadeFactor;
                 var pg = ((px >> 8) & 0xFF) * fadeFactor;
                 var pb = (px & 0xFF) * fadeFactor;
-                history[s][j] = LedFx.rgb(pr, pg, pb);
+                history[s][j] = RGBUtil.rgb(pr, pg, pb);
             }
         }
 

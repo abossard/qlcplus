@@ -92,14 +92,15 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.05);
+            lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo));
             phaseX = Math.random() * 100;
             phaseY = Math.random() * 100;
             lastTime = Date.now();
@@ -107,15 +108,15 @@ var testAlgo;
         }
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
+        var power = lowsFilter.update(audio.bands.low);
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
         var smooth = algo.presetSmooth / 10.0;
@@ -131,7 +132,7 @@ var testAlgo;
 
         // Generate new noise field
         var freq = 3.0;
-        var newField = LedFx.noiseField2d(width, height, freq, phaseX, phaseY);
+        var newField = RGBUtil.noiseField2d(width, height, freq, phaseX, phaseY);
 
         // EMA smooth noise field
         for (var y = 0; y < height; y++)
@@ -205,7 +206,7 @@ var testAlgo;
                     bl *= floorScale;
                 }
                 newPixels[y][x] = [r, g, bl];
-                map[y][x] = LedFx.rgb(r, g, bl);
+                map[y][x] = RGBUtil.rgb(r, g, bl);
             }
         }
 

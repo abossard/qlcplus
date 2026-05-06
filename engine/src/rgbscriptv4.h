@@ -24,8 +24,6 @@
 #include <QJSValue>
 #include <QMutex>
 
-#include <atomic>
-
 #include "rgbalgorithm.h"
 #include "rgbscriptproperty.h"
 
@@ -152,18 +150,15 @@ private:
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
     QJSValue buildAudioDataObject();
 
-    static const int AUDIO_FIXED_BANDS = 32; //! Fixed band count for audio scripts
-
 private:
     AudioCapture *m_audioInput;
-    std::atomic<int> m_audioBandsNumber;
-    QVector<double> m_audioSpectrum;
-    double m_audioMaxMagnitude;
-    quint32 m_audioPower;
-    bool m_audioBeat;
-    QMutex m_audioMutex;
-    QMetaObject::Connection m_audioDataConn;
-    QMetaObject::Connection m_audioBeatConn;
+    // ID of the last AudioProfile we logged for this script. When the
+    // matrix's audioProfileId changes at runtime (hot-swap), this differs
+    // from the current profile->id() and we re-log once. AudioProfile::invalidId()
+    // means "nothing logged yet". The per-frame re-resolve in buildAudioDataObject()
+    // already handles correctness; this only governs the debug log.
+    quint32 m_loggedAudioProfileId;
+    bool m_audioRegistered;
 
     /************************************************************************
      * Properties

@@ -66,20 +66,21 @@ var testAlgo;
     };
 
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(scanColor[0], scanColor[1], scanColor[2]),
-                LedFx.rgb(bgColor[0], bgColor[1], bgColor[2])];
+        return [RGBUtil.rgb(scanColor[0], scanColor[1], scanColor[2]),
+                RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            powerFilter = AudioParams.createFilter(algo, 0.1);
+            powerFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Time delta
         var now = Date.now();
@@ -88,7 +89,7 @@ var testAlgo;
         if (deltaSec <= 0 || deltaSec > 0.2) deltaSec = 0.02;
 
         // Audio drives speed
-        var power = powerFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
+        var power = powerFilter.update(audio.bands.low);
         var speedMult = 1 + power * 8;
         var baseSpeed = algo.presetSpeed * 5;
         var stepSize = deltaSec * baseSpeed * speedMult;
@@ -113,8 +114,8 @@ var testAlgo;
         var bright = AudioParams.applyFloor(algo, Math.min(1, 0.3 + power * 2.0));
 
         // Fill background
-        var bgPacked = LedFx.rgb(bgColor[0], bgColor[1], bgColor[2]);
-        var scanPacked = LedFx.rgb(
+        var bgPacked = RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2]);
+        var scanPacked = RGBUtil.rgb(
             scanColor[0] * bright, scanColor[1] * bright, scanColor[2] * bright);
 
         for (var y = 0; y < height; y++) {

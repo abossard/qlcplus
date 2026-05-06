@@ -101,27 +101,24 @@ var testAlgo;
     };
     algo.rgbMapGetColors = function() {
         return [
-            LedFx.rgb(bassColor[0], bassColor[1], bassColor[2]),
-            LedFx.rgb(midsColor[0], midsColor[1], midsColor[2]),
-            LedFx.rgb(highsColor[0], highsColor[1], highsColor[2])
+            RGBUtil.rgb(bassColor[0], bassColor[1], bassColor[2]),
+            RGBUtil.rgb(midsColor[0], midsColor[1], midsColor[2]),
+            RGBUtil.rgb(highsColor[0], highsColor[1], highsColor[2])
         ];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.1);
-            midsFilter = AudioParams.createFilter(algo, 0.1);
-            highsFilter = AudioParams.createFilter(algo, 0.1);
-            volFilter = AudioParams.createFilter(algo, 0.1);
             lastTime = Date.now();
             initialized = true;
         }
         if (!dots || dots.length !== algo.presetDotCount)
             initDots(width, height, algo.presetDotCount);
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;
@@ -129,11 +126,10 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
         // Get audio powers
-        var gain = AudioParams.gainFactor(algo);
-        var lows = lowsFilter.update(LedFx.lows_power(audio)) * gain;
-        var mids = midsFilter.update(LedFx.mids_power(audio)) * gain;
-        var highs = highsFilter.update(LedFx.high_power(audio)) * gain;
-        var vol = volFilter.update(audio.volume) * gain;
+        var lows = audio.bands.low;
+        var mids = audio.bands.mid;
+        var highs = audio.bands.high;
+        var vol = Number((audio.volume && audio.volume.normalized) || 0);
         var powers = [lows, mids, highs];
         var colors = [bassColor, midsColor, highsColor];
 
@@ -196,7 +192,7 @@ var testAlgo;
                     var er = (existing >> 16) & 0xFF;
                     var eg = (existing >> 8) & 0xFF;
                     var eb = existing & 0xFF;
-                    map[py][tx] = LedFx.rgb(
+                    map[py][tx] = RGBUtil.rgb(
                         Math.min(255, er + color[0] * yFade),
                         Math.min(255, eg + color[1] * yFade),
                         Math.min(255, eb + color[2] * yFade)

@@ -46,9 +46,6 @@ var testAlgo;
     algo.bassFilter = null;
     algo.midsFilter = null;
     algo.highsFilter = null;
-    algo.prevBass = 0;
-    algo.prevMids = 0;
-    algo.prevHighs = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -76,14 +73,13 @@ var testAlgo;
     function additive(existing, newColor) {
         var er = (existing >> 16) & 0xFF, eg = (existing >> 8) & 0xFF, eb = existing & 0xFF;
         var nr = (newColor >> 16) & 0xFF, ng = (newColor >> 8) & 0xFF, nb = newColor & 0xFF;
-        return LedFx.rgb(Math.min(255, er+nr), Math.min(255, eg+ng), Math.min(255, eb+nb));
+        return RGBUtil.rgb(Math.min(255, er+nr), Math.min(255, eg+ng), Math.min(255, eb+nb));
     }
 
     function initState() {
-        if (!algo.bassFilter) algo.bassFilter = AudioParams.createFilter(algo, 0.2);
-        if (!algo.midsFilter) algo.midsFilter = AudioParams.createFilter(algo, 0.2);
-        if (!algo.highsFilter) algo.highsFilter = AudioParams.createFilter(algo, 0.28);
     }
+
+
 
     function chooseOrigin(width, height) {
         if (algo.presetOrigin === 1)
@@ -166,12 +162,12 @@ var testAlgo;
 
         var fade = particle.life / particle.maxLife;
         var bri = fade * fade;
-        var color = LedFx.hsv2rgb(particle.hue, 1.0, bri);
-        var packed = LedFx.rgb(color[0], color[1], color[2]);
+        var color = RGBUtil.hsv2rgb(particle.hue, 1.0, bri);
+        var packed = RGBUtil.rgb(color[0], color[1], color[2]);
         addPixel(map, width, height, px, py, packed);
 
         if (particleSize >= 2 && bri > 0.3) {
-            var neighborColor = LedFx.rgb(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5);
+            var neighborColor = RGBUtil.rgb(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5);
             addPixel(map, width, height, px - 1, py, neighborColor);
             addPixel(map, width, height, px + 1, py, neighborColor);
             addPixel(map, width, height, px, py - 1, neighborColor);
@@ -179,7 +175,7 @@ var testAlgo;
         }
 
         if (particleSize >= 3 && bri > 0.3) {
-            var diagonalColor = LedFx.rgb(color[0] * 0.25, color[1] * 0.25, color[2] * 0.25);
+            var diagonalColor = RGBUtil.rgb(color[0] * 0.25, color[1] * 0.25, color[2] * 0.25);
             addPixel(map, width, height, px - 1, py - 1, diagonalColor);
             addPixel(map, width, height, px + 1, py - 1, diagonalColor);
             addPixel(map, width, height, px - 1, py + 1, diagonalColor);
@@ -194,8 +190,8 @@ var testAlgo;
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
             var hue = (step * 0.003 + Math.random()) % 1.0;
-            var color = LedFx.hsv2rgb(hue, 0.45, brightness * (0.5 + Math.random() * 0.5));
-            map[y][x] = additive(map[y][x], LedFx.rgb(color[0], color[1], color[2]));
+            var color = RGBUtil.hsv2rgb(hue, 0.45, brightness * (0.5 + Math.random() * 0.5));
+            map[y][x] = additive(map[y][x], RGBUtil.rgb(color[0], color[1], color[2]));
         }
     }
 
@@ -203,24 +199,18 @@ var testAlgo;
     {
         initState();
 
-        var map = LedFx.createMap(width, height);
-        var hasAudio = audio && audio.spectrum && audio.spectrum.length;
-        var gain = AudioParams.gainFactor(algo);
-        var bass = algo.bassFilter.update(hasAudio ? LedFx.lows_power(audio) : 0) * gain;
-        var mids = algo.midsFilter.update(hasAudio ? LedFx.mids_power(audio) : 0) * gain;
-        var highs = algo.highsFilter.update(hasAudio ? LedFx.high_power(audio) : 0) * gain;
-        var threshold = AudioParams.triggerThreshold(algo);
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        var bass = audio.bands.low;
+        var mids = audio.bands.mid;
+        var highs = audio.bands.high;
 
-        if ((bass - algo.prevBass) > threshold) spawnBurst(width, height, "bass");
-        if ((mids - algo.prevMids) > threshold * 1.2) spawnBurst(width, height, "mids");
-        if ((highs - algo.prevHighs) > threshold * 1.5) spawnBurst(width, height, "highs");
+        if (audio.triggers.bass.firedThisFrame) spawnBurst(width, height, "bass");
+        if (audio.triggers.mid.firedThisFrame) spawnBurst(width, height, "mids");
+        if (audio.triggers.high.firedThisFrame) spawnBurst(width, height, "highs");
 
         if (algo.particles.length < 10 && (bass + mids + highs) > 0.1)
             spawnAmbient(width, height);
-
-        algo.prevBass = bass;
-        algo.prevMids = mids;
-        algo.prevHighs = highs;
 
         var gravity = algo.presetGravity * 0.02;
         for (var i = algo.particles.length - 1; i >= 0; i--) {

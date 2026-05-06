@@ -40,7 +40,6 @@ algo.properties.push(
 
 algo.waves = new Array();
 algo.bassFilter = null;
-algo.prevBass = 0;
 algo.frame = 0;
 
 var waveColor = [255, 255, 255];
@@ -78,6 +77,8 @@ function unpackColor(color) {
     return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
 }
 
+
+
 function spawnWave(width, height, intensity) {
     algo.waves.push({
         cx: width / 2,
@@ -100,36 +101,29 @@ function renderAmbient(map, width, height, cx, cy, maxRadius) {
             var ring = Math.sin(dist * 0.65 - phase) * 0.5 + 0.5;
             var centerLift = 1.0 - Math.min(1.0, dist / Math.max(1.0, maxRadius));
             var bri = 0.08 + ring * 0.12 + centerLift * 0.08;
-            map[y][x] = LedFx.rgb(bgColor[0] * bri, bgColor[1] * bri, bgColor[2] * bri);
+            map[y][x] = RGBUtil.rgb(bgColor[0] * bri, bgColor[1] * bri, bgColor[2] * bri);
         }
     }
 }
 
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
-    if (!algo.bassFilter)
-        algo.bassFilter = AudioParams.createFilter(algo, 0.15);
-
     algo.frame++;
 
-    var map = LedFx.createMap(width, height);
+    var map = RGBUtil.createMap(width, height);
+    if (!audio || !audio.mel || audio.mel.length === 0) return map;
     var cx = width / 2;
     var cy = height / 2;
     var maxRadius = Math.sqrt(width * width + height * height);
     renderAmbient(map, width, height, cx, cy, maxRadius);
 
-    var lowsPower = (audio && audio.spectrum && audio.spectrum.length) ? LedFx.lows_power(audio) : 0;
-    var gain = AudioParams.gainFactor(algo);
-    var bass = clamp(algo.bassFilter.update(lowsPower) * gain, 0, 1);
-    var threshold = AudioParams.triggerThreshold(algo);
+    var bass = clamp(audio.bands.low, 0, 1);
 
-    if ((bass - algo.prevBass) > threshold)
+    if (audio.triggers.bass.firedThisFrame)
         spawnWave(width, height, Math.max(0.5, bass));
 
     if (algo.waves.length < 3 && bass > 0.1)
         spawnWave(width, height, 0.6);
-
-    algo.prevBass = bass;
 
     var total = new Array(height);
     for (var ty = 0; ty < height; ty++) {
@@ -160,7 +154,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
         for (var px = 0; px < width; px++) {
             var totalBri = clamp(total[py][px], 0, 1.5);
             if (totalBri > 0.005)
-                map[py][px] = LedFx.rgb(waveColor[0] * totalBri, waveColor[1] * totalBri, waveColor[2] * totalBri);
+                map[py][px] = RGBUtil.rgb(waveColor[0] * totalBri, waveColor[1] * totalBri, waveColor[2] * totalBri);
         }
     }
 

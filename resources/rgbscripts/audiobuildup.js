@@ -81,6 +81,12 @@ function unpackColor(color) {
     return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
 }
 
+
+
+function createAudioFilter(baseDecay) {
+    return new AudioDSP.Filter(baseDecay, AudioParams.filterRise(algo));
+}
+
 function colorHue(color) {
     var r = color[0] / 255.0, g = color[1] / 255.0, b = color[2] / 255.0;
     var max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -94,13 +100,13 @@ function colorHue(color) {
 }
 
 function packHsv(h, s, v) {
-    var c = LedFx.hsv2rgb(h, s, clamp(v, 0, 1));
-    return LedFx.rgb(c[0], c[1], c[2]);
+    var c = RGBUtil.hsv2rgb(h, s, clamp(v, 0, 1));
+    return RGBUtil.rgb(c[0], c[1], c[2]);
 }
 
 function packScaled(color, brightness) {
     brightness = clamp(brightness, 0, 1);
-    return LedFx.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
+    return RGBUtil.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
 }
 
 function initState() {
@@ -120,15 +126,14 @@ function initState() {
     algo.bassAbsentFrames = 0;
     algo.dropArmed = false;
 
-    algo.energyFastFilter = AudioParams.createFilter(algo, 0.1);
-    algo.energySlowFilter = new LedFx.ExpFilter(0.97, 0.05);
-    algo.lowsFastFilter = AudioParams.createFilter(algo, 0.2);
-    algo.highsFastFilter = AudioParams.createFilter(algo, 0.2);
-    algo.buildScoreFilter = AudioParams.createFilter(algo, 0.3);
+    algo.energyFastFilter = createAudioFilter(0.1);
+    algo.energySlowFilter = new AudioDSP.Filter(0.97, 0.05);
+    algo.lowsFastFilter = createAudioFilter(0.2);
+    algo.highsFastFilter = createAudioFilter(0.2);
+    algo.buildScoreFilter = createAudioFilter(0.3);
 
     algo.prevMel = new Array(16);
     for (var i = 0; i < 16; i++) algo.prevMel[i] = 0;
-    algo.prevLowsFast = 0;
 
     algo.featureMin = {
         energyTrend: -0.05,
@@ -179,11 +184,10 @@ function normalizeFeature(name, value, fallbackScale, fallbackOffset) {
 }
 
 function extractFeatures(audio) {
-    var hasAudio = audio && audio.spectrum && audio.spectrum.length > 0;
-    var gain = AudioParams.gainFactor(algo);
-    var rawLows = (hasAudio ? LedFx.lows_power(audio) : 0) * gain;
-    var rawMids = (hasAudio ? LedFx.mids_power(audio) : 0) * gain;
-    var rawHighs = (hasAudio ? LedFx.high_power(audio) : 0) * gain;
+    var hasAudio = audio && audio.mel && audio.mel.length > 0;
+    var rawLows = audio.bands.low;
+    var rawMids = audio.bands.mid;
+    var rawHighs = audio.bands.high;
     var rawTotal = rawLows + rawMids + rawHighs + 0.001;
 
     var energyFast = algo.energyFastFilter.update(rawTotal);
@@ -193,11 +197,11 @@ function extractFeatures(audio) {
     var energyTrend = energyFast - energySlow;
     var highRatio = rawHighs / rawTotal;
 
-    var mel = hasAudio ? LedFx.melbank(audio, 16) : new Array(16);
+    var mel = hasAudio ? RGBUtil.interpolate(audio.mel, 16) : new Array(16);
     var flux = 0;
     for (var i = 0; i < 16; i++) {
         if (!hasAudio) mel[i] = 0;
-        else mel[i] = Math.min(1, mel[i] * gain);
+        else mel[i] = Math.min(1, mel[i]);
         flux += Math.max(0, mel[i] - algo.prevMel[i]);
     }
     flux /= 16.0;
@@ -234,8 +238,7 @@ function extractFeatures(audio) {
     if (algo.bassAbsentFrames > 10)
         algo.dropArmed = true;
 
-    var dropDetected = algo.dropArmed && lowsFast > (algo.prevLowsFast + 0.15);
-    algo.prevLowsFast = lowsFast;
+    var dropDetected = algo.dropArmed && audio.triggers.bass.firedThisFrame;
 
     algo.history[algo.historyIndex] = buildScore;
     algo.historyIndex = (algo.historyIndex + 1) % algo.history.length;
@@ -253,6 +256,7 @@ function extractFeatures(audio) {
         highsNorm: clamp(rawHighs * 1.5, 0, 1),
         buildScore: buildScore,
         featureVotes: featureVotes,
+        bassAbsent: algo.bassAbsentFrames > 10,
         dropDetected: dropDetected
     };
 }
@@ -387,7 +391,7 @@ function renderDrop(map, width, height) {
     var intensity = clamp(algo.presetDropIntensity / 10.0, 0.1, 1.0);
 
     if (algo.stateFrames <= 3) {
-        var flash = LedFx.rgb(255 * intensity, 255 * intensity, 255 * intensity);
+        var flash = RGBUtil.rgb(255 * intensity, 255 * intensity, 255 * intensity);
         for (var fy = 0; fy < height; fy++)
             for (var fx = 0; fx < width; fx++)
                 map[fy][fx] = flash;
@@ -423,7 +427,8 @@ algo.rgbMap = function(width, height, rgb, step, audio)
 {
     initState();
 
-    var map = LedFx.createMap(width, height);
+    var map = RGBUtil.createMap(width, height);
+    if (!audio || !audio.mel || audio.mel.length === 0) return map;
     var features = extractFeatures(audio);
 
     updateState(features);

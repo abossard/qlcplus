@@ -63,7 +63,6 @@ var testAlgo;
     algo.beams = [];
     algo.bassFilter = null;
     algo.highsFilter = null;
-    algo.prevBass = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
@@ -91,13 +90,13 @@ var testAlgo;
         var nr = (newColor >> 16) & 0xFF;
         var ng = (newColor >> 8) & 0xFF;
         var nb = newColor & 0xFF;
-        return LedFx.rgb(Math.min(255, er + nr), Math.min(255, eg + ng), Math.min(255, eb + nb));
+        return RGBUtil.rgb(Math.min(255, er + nr), Math.min(255, eg + ng), Math.min(255, eb + nb));
     }
 
     function colorAtTrail(t, brightness) {
         var mix = t / Math.max(1, algo.presetTrailLength);
         var inv = 1.0 - mix;
-        return LedFx.rgb(
+        return RGBUtil.rgb(
             (beamColor[0] * inv + trailColor[0] * mix) * brightness,
             (beamColor[1] * inv + trailColor[1] * mix) * brightness,
             (beamColor[2] * inv + trailColor[2] * mix) * brightness);
@@ -109,6 +108,8 @@ var testAlgo;
         if (x < 0 || x >= width || y < 0 || y >= height) return;
         map[y][x] = additive(map[y][x], color);
     }
+
+
 
     function chooseDirection() {
         if (algo.presetDirection === 0) return 0;
@@ -164,28 +165,21 @@ var testAlgo;
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
             var twinkle = ambient * (0.4 + Math.random() * 0.6);
-            var color = LedFx.rgb(trailColor[0] * twinkle, trailColor[1] * twinkle, trailColor[2] * twinkle);
+            var color = RGBUtil.rgb(trailColor[0] * twinkle, trailColor[1] * twinkle, trailColor[2] * twinkle);
             map[y][x] = additive(map[y][x], color);
         }
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!algo.bassFilter) algo.bassFilter = AudioParams.createFilter(algo, 0.18);
-        if (!algo.highsFilter) algo.highsFilter = AudioParams.createFilter(algo, 0.25);
-
-        var map = LedFx.createMap(width, height);
-        var lowsPower = (audio && audio.spectrum && audio.spectrum.length) ? LedFx.lows_power(audio) : 0;
-        var highPower = (audio && audio.spectrum && audio.spectrum.length) ? LedFx.high_power(audio) : 0;
-        var gain = AudioParams.gainFactor(algo);
-        var bass = Math.min(2.0, algo.bassFilter.update(lowsPower) * gain);
-        var highs = Math.min(1.0, algo.highsFilter.update(highPower) * gain);
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        var bass = Math.min(2.0, audio.bands.low);
+        var highs = Math.min(1.0, audio.bands.high);
         var glowMul = 0.8 + highs * 0.4;
-        var threshold = AudioParams.triggerThreshold(algo);
 
-        if ((bass - algo.prevBass > threshold) || (algo.beams.length < 3 && bass > 0.15))
+        if (audio.triggers.bass.firedThisFrame || (algo.beams.length < 3 && bass > 0.15))
             spawnBeam(width, height, Math.max(0.3, bass));
-        algo.prevBass = bass;
 
         for (var bi = algo.beams.length - 1; bi >= 0; bi--) {
             var beam = algo.beams[bi];

@@ -49,7 +49,7 @@ private:
     void setAudioCapture(AudioCapture* cap);
 
 protected slots:
-    void slotAudioBarsChanged(double *spectrumBands, int size, double maxMagnitude, quint32 power);
+    void slotAudioBarsChanged();
 
 private:
     void calculateColors(int barsHeight = 0);
@@ -59,9 +59,9 @@ protected:
     int m_bandsNumber;
     QMutex m_mutex;
     QVector<double>m_spectrumValues;
-    double m_maxMagnitude;
     quint32 m_volumePower;
     QList<uint> m_barColors;
+    QMetaObject::Connection m_audioConn;
 
     /************************************************************************
      * RGBAlgorithm

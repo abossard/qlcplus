@@ -23,13 +23,39 @@
 #include "vcwidget.h"
 #include "treemodel.h"
 #include "dmxsource.h"
+#include "audioprofile.h"
+#include "audiosnapshot.h"
+
+#include <QAbstractListModel>
+#include <QHash>
+#include <QVector>
 
 class QTimer;
-
 #define KXMLQLCVCAudioTriggers QStringLiteral("AudioTriggers")
 
 class AudioCapture;
 class VirtualConsole;
+class VCAudioTriggers;
+struct AubioResults;
+
+class AudioProfileListModel : public QAbstractListModel
+{
+    Q_OBJECT
+public:
+    enum Roles { IdRole = Qt::UserRole + 1, NameRole, IsDefaultRole };
+
+    explicit AudioProfileListModel(Doc *doc, QObject *parent = nullptr);
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
+
+    Q_INVOKABLE void refresh();
+
+private:
+    Doc *m_doc;
+    struct Entry { quint32 id; QString name; bool isDefault; };
+    QVector<Entry> m_entries;
+};
 
 class VCAudioTriggers : public VCWidget, public DMXSource
 {
@@ -41,10 +67,81 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(int selectedBar READ selectedBar WRITE setSelectedBar NOTIFY selectedBarChanged FINAL)
     Q_PROPERTY(QVariantList audioLevels READ audioLevels NOTIFY audioLevelsChanged)
     Q_PROPERTY(QVariantList barsInfo READ barsInfo NOTIFY barsInfoChanged)
+    Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged FINAL)
+    Q_PROPERTY(double envelopeAttack READ envelopeAttack NOTIFY configChanged)
+    Q_PROPERTY(double envelopeRelease READ envelopeRelease NOTIFY configChanged)
+    Q_PROPERTY(double triggerHigh READ triggerHigh NOTIFY configChanged)
+    Q_PROPERTY(double triggerLow READ triggerLow NOTIFY configChanged)
+    Q_PROPERTY(double triggerCooldown READ triggerCooldown NOTIFY configChanged)
+    Q_PROPERTY(double triggerHold READ triggerHold NOTIFY configChanged)
+
+    Q_PROPERTY(double inputGain READ inputGain NOTIFY configChanged)
+    Q_PROPERTY(double bandSubMaxHz READ bandSubMaxHz NOTIFY configChanged)
+    Q_PROPERTY(double bandBassMaxHz READ bandBassMaxHz NOTIFY configChanged)
+    Q_PROPERTY(double bandLowMidMaxHz READ bandLowMidMaxHz NOTIFY configChanged)
+    Q_PROPERTY(double bandMidMaxHz READ bandMidMaxHz NOTIFY configChanged)
+    Q_PROPERTY(double bandHighMaxHz READ bandHighMaxHz NOTIFY configChanged)
+    Q_PROPERTY(double noiseGateThreshold READ noiseGateThreshold NOTIFY configChanged)
+    Q_PROPERTY(double noiseGateHold READ noiseGateHold NOTIFY configChanged)
+    Q_PROPERTY(double volumeSmoothing READ volumeSmoothing NOTIFY configChanged)
+    Q_PROPERTY(double brightnessFloor READ brightnessFloor NOTIFY configChanged)
+
+    // Aubio config
+    Q_PROPERTY(double filterbankNorm READ filterbankNorm NOTIFY configChanged)
+    Q_PROPERTY(double filterbankPower READ filterbankPower NOTIFY configChanged)
+    Q_PROPERTY(double onsetThreshold READ onsetThreshold NOTIFY configChanged)
+    Q_PROPERTY(double onsetMinInterval READ onsetMinInterval NOTIFY configChanged)
+    Q_PROPERTY(double onsetSilenceDb READ onsetSilenceDb NOTIFY configChanged)
+    Q_PROPERTY(double onsetDelayMs READ onsetDelayMs NOTIFY configChanged)
+    Q_PROPERTY(QString pitchMethod READ pitchMethod NOTIFY configChanged)
+    Q_PROPERTY(double pitchSilenceDb READ pitchSilenceDb NOTIFY configChanged)
+    Q_PROPERTY(double pitchTolerance READ pitchTolerance NOTIFY configChanged)
+    Q_PROPERTY(double tempoSilenceDb READ tempoSilenceDb NOTIFY configChanged)
+    Q_PROPERTY(double tempoThreshold READ tempoThreshold NOTIFY configChanged)
+    Q_PROPERTY(int tatumSubdivision READ tatumSubdivision NOTIFY configChanged)
+    Q_PROPERTY(double tssAlpha READ tssAlpha NOTIFY configChanged)
+    Q_PROPERTY(double tssBeta READ tssBeta NOTIFY configChanged)
+    Q_PROPERTY(double tssThreshold READ tssThreshold NOTIFY configChanged)
+
+    Q_PROPERTY(double volumeRaw READ volumeRaw NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double volumeSmoothedValue READ volumeSmoothedValue NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double volumeNormalized READ volumeNormalized NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double rmsDb READ rmsDb NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double peakDb READ peakDb NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double flux READ flux NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(bool noiseGateOpen READ noiseGateOpen NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList triggerStates READ triggerStates NOTIFY audioSnapshotChanged)
+
+    // Aubio snapshot fields
+    Q_PROPERTY(int onsetVoteCount READ onsetVoteCount NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double pitchHz READ pitchHz NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double pitchConfidence READ pitchConfidence NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double detectedBpm READ detectedBpm NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double beatConfidence READ beatConfidence NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double beatPhase READ beatPhase NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double tssTransient READ tssTransient NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double tssSteady READ tssSteady NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double tssRatio READ tssRatio NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList melSpectrum READ melSpectrum NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList mfccCoeffs READ mfccCoeffs NOTIFY audioSnapshotChanged)
+
+    // Mel band crossover indices (for QML coloring)
+    Q_PROPERTY(int melCrossSub READ melCrossSub NOTIFY configChanged)
+    Q_PROPERTY(int melCrossBass READ melCrossBass NOTIFY configChanged)
+    Q_PROPERTY(int melCrossLowMid READ melCrossLowMid NOTIFY configChanged)
+    Q_PROPERTY(int melCrossMid READ melCrossMid NOTIFY configChanged)
+    Q_PROPERTY(int melCrossHigh READ melCrossHigh NOTIFY configChanged)
+
+    Q_PROPERTY(AudioProfileListModel* profileListModel READ profileListModel CONSTANT)
 
     Q_PROPERTY(double lowsPower READ lowsPower NOTIFY audioLevelsChanged)
     Q_PROPERTY(double midsPower READ midsPower NOTIFY audioLevelsChanged)
     Q_PROPERTY(double highsPower READ highsPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double subPower READ subPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double bassPower READ bassPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double lowMidPower READ lowMidPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double midPower READ midPower NOTIFY audioLevelsChanged)
+    Q_PROPERTY(double highPower READ highPower NOTIFY audioLevelsChanged)
     Q_PROPERTY(bool beatActive READ beatActive NOTIFY beatActiveChanged)
     Q_PROPERTY(int lowCutBin READ lowCutBin NOTIFY barsNumberChanged)
     Q_PROPERTY(int highCutBin READ highCutBin NOTIFY barsNumberChanged)
@@ -90,12 +187,124 @@ public:
 
     QVariantList audioLevels() const;
 
+    quint32 audioProfileId() const;
+    void setAudioProfileId(quint32 id);
+
     double lowsPower() const;
     double midsPower() const;
     double highsPower() const;
+    double subPower() const;
+    double bassPower() const;
+    double lowMidPower() const;
+    double midPower() const;
+    double highPower() const;
     bool beatActive() const;
     int lowCutBin() const;
     int highCutBin() const;
+
+    double envelopeAttack() const;
+    double envelopeRelease() const;
+    double triggerHigh() const;
+    double triggerLow() const;
+    double triggerCooldown() const;
+    double triggerHold() const;
+
+    double inputGain() const;
+    double bandSubMaxHz() const;
+    double bandBassMaxHz() const;
+    double bandLowMidMaxHz() const;
+    double bandMidMaxHz() const;
+    double bandHighMaxHz() const;
+    double noiseGateThreshold() const;
+    double noiseGateHold() const;
+    double volumeSmoothing() const;
+    double brightnessFloor() const;
+
+    double filterbankNorm() const;
+    double filterbankPower() const;
+    double onsetThreshold() const;
+    double onsetMinInterval() const;
+    double onsetSilenceDb() const;
+    double onsetDelayMs() const;
+    QString pitchMethod() const;
+    double pitchSilenceDb() const;
+    double pitchTolerance() const;
+    double tempoSilenceDb() const;
+    double tempoThreshold() const;
+    int tatumSubdivision() const;
+    double tssAlpha() const;
+    double tssBeta() const;
+    double tssThreshold() const;
+
+    int onsetVoteCount() const;
+    double pitchHz() const;
+    double pitchConfidence() const;
+    double detectedBpm() const;
+    double beatConfidence() const;
+    double beatPhase() const;
+    double tssTransient() const;
+    double tssSteady() const;
+    double tssRatio() const;
+    QVariantList melSpectrum() const;
+    QVariantList mfccCoeffs() const;
+
+    int melCrossSub() const;
+    int melCrossBass() const;
+    int melCrossLowMid() const;
+    int melCrossMid() const;
+    int melCrossHigh() const;
+
+    double volumeRaw() const;
+    double volumeSmoothedValue() const;
+    double volumeNormalized() const;
+    double rmsDb() const;
+    double peakDb() const;
+    double flux() const;
+    bool noiseGateOpen() const;
+
+    AudioProfileListModel* profileListModel();
+
+    Q_INVOKABLE void setEnvelopeAttack(double ms);
+    Q_INVOKABLE void setEnvelopeRelease(double ms);
+    Q_INVOKABLE void setTriggerHighThreshold(double value);
+    Q_INVOKABLE void setTriggerLowThreshold(double value);
+    Q_INVOKABLE void setTriggerCooldown(double ms);
+    Q_INVOKABLE void setTriggerHold(double ms);
+
+    Q_INVOKABLE void setInputGain(double gain);
+    Q_INVOKABLE void setBandSubMaxHz(double hz);
+    Q_INVOKABLE void setBandBassMaxHz(double hz);
+    Q_INVOKABLE void setBandLowMidMaxHz(double hz);
+    Q_INVOKABLE void setBandMidMaxHz(double hz);
+    Q_INVOKABLE void setBandHighMaxHz(double hz);
+    Q_INVOKABLE void setNoiseGateThreshold(double db);
+    Q_INVOKABLE void setNoiseGateHold(double ms);
+    Q_INVOKABLE void setVolumeSmoothing(double ms);
+    Q_INVOKABLE void setBrightnessFloor(double value);
+
+    Q_INVOKABLE void setFilterbankNorm(double norm);
+    Q_INVOKABLE void setFilterbankPower(double power);
+    Q_INVOKABLE void setOnsetThreshold(double value);
+    Q_INVOKABLE void setOnsetMinInterval(double ms);
+    Q_INVOKABLE void setOnsetSilenceDb(double db);
+    Q_INVOKABLE void setOnsetDelayMs(double ms);
+    Q_INVOKABLE void setPitchMethod(const QString &method);
+    Q_INVOKABLE void setPitchSilenceDb(double db);
+    Q_INVOKABLE void setPitchTolerance(double value);
+    Q_INVOKABLE void setTempoSilenceDb(double db);
+    Q_INVOKABLE void setTempoThreshold(double value);
+    Q_INVOKABLE void setTatumSubdivision(int n);
+    Q_INVOKABLE void setTssAlpha(double value);
+    Q_INVOKABLE void setTssBeta(double value);
+    Q_INVOKABLE void setTssThreshold(double value);
+
+    Q_INVOKABLE void resetProfileToDefaults();
+    Q_INVOKABLE void deleteCurrentProfile();
+    Q_INVOKABLE void renameCurrentProfile(const QString &name);
+    Q_INVOKABLE void duplicateCurrentProfile(const QString &name);
+
+    Q_INVOKABLE QVariantMap triggerState(int band) const;
+    QVariantList triggerStates() const;
 
 signals:
     void captureEnabledChanged();
@@ -104,6 +313,9 @@ signals:
     void selectedBarChanged();
     void audioLevelsChanged();
     void beatActiveChanged();
+    void audioProfileIdChanged();
+    void configChanged();
+    void audioSnapshotChanged();
 
 private slots:
     void slotBeatDetected();
@@ -115,6 +327,11 @@ protected:
 
 private:
     FunctionParent functionParent() const;
+    AudioProfile *resolvedAudioProfile() const;
+    AudioProfile *editableAudioProfile() const;
+    AudioChannelConfig profileChannelConfig() const;
+    void applyChannelConfig(const AudioChannelConfig &config);
+    void updateAudioProfileSnapshotPowers();
 
 private:
     VirtualConsole *m_vc;
@@ -123,12 +340,24 @@ private:
     uchar m_volumeLevel;
 
     QVariantList m_audioLevels;
+    quint32 m_audioProfileId = AudioProfile::invalidId();
 
     double m_lowsPower = 0.0;
     double m_midsPower = 0.0;
     double m_highsPower = 0.0;
+    double m_subPower = 0.0;
+    double m_bassPower = 0.0;
+    double m_lowMidPower = 0.0;
+    double m_midPower = 0.0;
+    double m_highPower = 0.0;
     bool m_beatActive = false;
     QTimer *m_beatTimer = nullptr;
+
+    AudioSnapshot m_cachedSnapshot;
+    QVariantList m_triggerStatesCache;
+    QVariantList m_melSpectrumCache;
+    QVariantList m_mfccCoeffsCache;
+    AudioProfileListModel *m_profileListModel = nullptr;
 
     /*********************************************************************
      * Spectrum & Volume bars
@@ -185,7 +414,10 @@ public:
     void setBarDmxChannels(QList<SceneValue>list);
 
 protected slots:
-    void slotSpectrumDataChanged(double *spectrumBands, int size, double maxMagnitude, quint32 power);
+    /** Receives one analyzed audio frame from AudioCapture (aubio + snapshot already
+     *  computed on the capture thread). Updates spectrum bars from the snapshot,
+     *  drives DMX/Function/Widget triggers, and emits audioLevelsChanged(). */
+    void slotAubioDataReady(const AubioResults &results, quint32 power);
 
 signals:
     void barsInfoChanged();

@@ -85,7 +85,7 @@ var testAlgo;
             sparkX[i] = Math.random() * 5;
         }
 
-        lowsFilter = AudioParams.createFilter(algo, 0.05);
+        lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo));
         initialized = true;
         lastTime = Date.now();
     }
@@ -102,18 +102,19 @@ var testAlgo;
             fireColorHigh = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(fireColorLow[0], fireColorLow[1], fireColorLow[2]),
-                LedFx.rgb(fireColorHigh[0], fireColorHigh[1], fireColorHigh[2])];
+        return [RGBUtil.rgb(fireColorLow[0], fireColorLow[1], fireColorLow[2]),
+                RGBUtil.rgb(fireColorHigh[0], fireColorHigh[1], fireColorHigh[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var pixelCount = height; // fire rises vertically (bottom to top)
         if (!initialized || sparkPixels.length !== pixelCount) init(pixelCount);
 
-        var map = LedFx.createMap(width, height);
+        var map = RGBUtil.createMap(width, height);
 
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0)
+        if (!audio || !audio.mel || audio.mel.length === 0)
             return map;
 
         // Time delta
@@ -126,8 +127,7 @@ var testAlgo;
         var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
 
         // Audio influence: bass drives the fire
-        var gain = AudioParams.gainFactor(algo);
-        var rawLows = LedFx.lows_power(audio) * gain;
+        var rawLows = audio.bands.low;
         var lowsPower = lowsFilter.update(rawLows);
 
         var cooling = baseCooling + lowsPower * 0.15;
@@ -192,21 +192,21 @@ var testAlgo;
 
             // Apply heat as brightness
             var brightness = AudioParams.applyFloor(algo, Math.min(1, heat * 2));
-            var packedColor = LedFx.rgb(r * brightness, g * brightness, b * brightness);
+            var packedColor = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
 
             // Fill row — if "Per Column" is on, vary heat per column using spectrum
-            if (algo.presetSpread && audio.spectrum) {
+            if (algo.presetSpread && audio.mel) {
                 var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-                var specBands = LedFx.melbank(audio, effectiveWidth);
+                var specBands = RGBUtil.interpolate(audio.mel, effectiveWidth);
                 for (var si = 0; si < specBands.length; si++)
-                    specBands[si] = Math.min(1, specBands[si] * gain);
+                    specBands[si] = Math.min(1, specBands[si]);
                 for (var x = 0; x < width; x++) {
                     var colHeat = heat * (0.3 + specBands[x] * 0.7);
                     var cr = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * colHeat;
                     var cg = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * colHeat;
                     var cb = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * colHeat;
                     var cb2 = AudioParams.applyFloor(algo, Math.min(1, colHeat * 2));
-                    map[y][x] = LedFx.rgb(cr * cb2, cg * cb2, cb * cb2);
+                    map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
                 }
             } else {
                 for (var x = 0; x < width; x++)

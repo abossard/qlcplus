@@ -35,6 +35,7 @@
 #else
   #include "rgbscript.h"
 #endif
+#include "audioprofile.h"
 #include "function.h"
 
 class FixtureGroup;
@@ -96,6 +97,7 @@ class RGBMatrix final : public Function
 {
     Q_OBJECT
     Q_DISABLE_COPY(RGBMatrix)
+    Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged)
 
    /*********************************************************************
      * Initialization
@@ -165,11 +167,19 @@ public:
     quint32 fixtureGroup() const;
     void setFixtureGroup(quint32 id);
 
+    /** Get/Set the AudioProfile associated to this RGBMatrix */
+    quint32 audioProfileId() const;
+    void setAudioProfileId(quint32 id);
+
     /** @reimp */
     QList<quint32> components() const override;
 
+signals:
+    void audioProfileIdChanged();
+
 private:
     quint32 m_fixtureGroupID;
+    quint32 m_audioProfileId = AudioProfile::invalidId();
     FixtureGroup *m_group;
 
     /************************************************************************

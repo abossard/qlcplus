@@ -31,15 +31,50 @@
 #include <QCoreApplication>
 // cppcheck-suppress missingIncludeSystem
 #include <QSemaphore>
+#include <algorithm>
 
 #include "rgbscriptv4.h"
 
 #include "rgbscriptscache.h"
+#include "audiochannel.h"
 #include "audiocapture.h"
+#include "audioprofile.h"
+#include "audiosnapshot.h"
 #include "mastertimer.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
 #include "doc.h"
+#include "rgbmatrix.h"
+
+namespace
+{
+    RGBMatrix *owningMatrix(Doc *doc, const RGBScript *script)
+    {
+        if (doc == NULL || script == NULL)
+            return NULL;
+
+        foreach (Function *function, doc->functionsByType(Function::RGBMatrixType))
+        {
+            RGBMatrix *matrix = qobject_cast<RGBMatrix*> (function);
+            if (matrix != NULL && matrix->algorithm() == script)
+                return matrix;
+        }
+
+        return NULL;
+    }
+
+    QJSValue triggerObject(QJSEngine *engine, const TriggerState &trigger)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("value"), QJSValue(trigger.value));
+        obj.setProperty(QStringLiteral("active"), QJSValue(trigger.active));
+        obj.setProperty(QStringLiteral("firedThisFrame"), QJSValue(trigger.firedThisFrame));
+        obj.setProperty(QStringLiteral("releasedThisFrame"), QJSValue(trigger.releasedThisFrame));
+        obj.setProperty(QStringLiteral("heldMs"), QJSValue(trigger.heldMs));
+        obj.setProperty(QStringLiteral("cooldownRemainingMs"), QJSValue(trigger.cooldownRemainingMs));
+        return obj;
+    }
+}
 
 /****************************************************************************
  * Initialization
@@ -67,10 +102,8 @@ RGBScript::RGBScript(Doc *doc)
     , m_apiVersion(0)
     , m_usesAudio(false)
     , m_audioInput(NULL)
-    , m_audioBandsNumber(-1)
-    , m_audioMaxMagnitude(0)
-    , m_audioPower(0)
-    , m_audioBeat(false)
+    , m_loggedAudioProfileId(AudioProfile::invalidId())
+    , m_audioRegistered(false)
 {
 }
 
@@ -81,10 +114,8 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_apiVersion(0)
     , m_usesAudio(false)
     , m_audioInput(NULL)
-    , m_audioBandsNumber(-1)
-    , m_audioMaxMagnitude(0)
-    , m_audioPower(0)
-    , m_audioBeat(false)
+    , m_loggedAudioProfileId(AudioProfile::invalidId())
+    , m_audioRegistered(false)
 {
     evaluate();
     foreach (RGBScriptProperty cap, s.m_properties)
@@ -176,7 +207,11 @@ void RGBScript::initEngine()
 
         // Load shared audio script helpers into the engine's global scope.
         QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
-        const QStringList shimNames = { QStringLiteral("ledfx_compat.js"), QStringLiteral("audio_common.js") };
+        const QStringList shimNames = {
+            QStringLiteral("rgbutil.js"),
+            QStringLiteral("audiodsp.js"),
+            QStringLiteral("audio_common.js")
+        };
         for (const QString &shimName : shimNames)
         {
             QString shimPath = scriptsDir.filePath(shimName);
@@ -394,15 +429,6 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_usesAudio)
     {
         setupAudioCapture();
-
-        // Register fixed band count (max 32). JS shim interpolates to grid width.
-        if (m_audioBandsNumber != AUDIO_FIXED_BANDS && m_audioInput != NULL)
-        {
-            if (m_audioBandsNumber > 0)
-                m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
-            m_audioBandsNumber = AUDIO_FIXED_BANDS;
-            m_audioInput->registerBandsNumber(AUDIO_FIXED_BANDS);
-        }
     }
 
     QJSValueList args;
@@ -562,90 +588,148 @@ void RGBScript::setupAudioCapture()
     teardownAudioCapture();
     m_audioInput = capture.data();
 
-    // Use DirectConnection so lambdas fire on AudioCapture's thread immediately.
-    // Thread safety is handled by m_audioMutex in the lambdas.
-    m_audioDataConn = QObject::connect(m_audioInput, &AudioCapture::dataProcessed,
-        [this](double *spectrumBands, int size, double maxMagnitude, quint32 power)
-        {
-            int expected = m_audioBandsNumber.load();
-            if (size != expected || expected <= 0)
-                return;
-            QMutexLocker locker(&m_audioMutex);
-            m_audioSpectrum.resize(expected);
-            for (int i = 0; i < expected; i++)
-                m_audioSpectrum[i] = spectrumBands[i];
-            m_audioMaxMagnitude = maxMagnitude;
-            m_audioPower = power;
-        });
-    m_audioBeatConn = QObject::connect(m_audioInput, &AudioCapture::beatDetected,
-        [this]()
-        {
-            QMutexLocker locker(&m_audioMutex);
-            m_audioBeat = true;
-        });
+    // The v3 audio object is sourced exclusively from the AudioProfile's
+    // AudioChannel snapshot inside buildAudioDataObject(). We don't need
+    // to subscribe to aubioDataReady — we just need the capture thread
+    // to be running.
+    m_audioInput->registerBandsNumber(1);
+    m_audioRegistered = true;
 }
 
 void RGBScript::teardownAudioCapture()
 {
     if (m_audioInput != NULL)
     {
-        // Unregister first — this blocks on AudioCapture::m_mutex,
-        // ensuring any in-flight processData() emission completes
-        // before we disconnect.
-        if (m_audioBandsNumber > 0)
-            m_audioInput->unregisterBandsNumber(m_audioBandsNumber);
-
-        // Now safe to disconnect
-        QObject::disconnect(m_audioDataConn);
-        QObject::disconnect(m_audioBeatConn);
-
+        if (m_audioRegistered)
+        {
+            m_audioInput->unregisterBandsNumber(1);
+            m_audioRegistered = false;
+        }
         m_audioInput = NULL;
-        m_audioBandsNumber = -1;
     }
-
-    // Clear stale audio state
-    QMutexLocker locker(&m_audioMutex);
-    m_audioSpectrum.clear();
-    m_audioMaxMagnitude = 0;
-    m_audioPower = 0;
-    m_audioBeat = false;
 }
 
 QJSValue RGBScript::buildAudioDataObject()
 {
-    QMutexLocker locker(&m_audioMutex);
+    QJSEngine *engine = s_jsThread->engine;
+    QJSValue audioObj = engine->newObject();
 
-    QJSValue audioObj = s_jsThread->engine->newObject();
-
-    // Build normalized spectrum array (0.0 - 1.0)
-    int specSize = m_audioSpectrum.size();
-    QJSValue spectrumArr = s_jsThread->engine->newArray(specSize);
-    for (int i = 0; i < specSize; i++)
+    AudioChannel *channel = NULL;
+    Doc *currentDoc = doc();
+    RGBMatrix *matrix = owningMatrix(currentDoc, this);
+    AudioProfile *profile = (currentDoc != NULL && matrix != NULL)
+        ? currentDoc->audioProfileForFunction(matrix->id()) : NULL;
+    if (profile != NULL)
     {
-        double normalized = (m_audioMaxMagnitude > 0)
-            ? qMin(1.0, m_audioSpectrum[i] / m_audioMaxMagnitude) : 0.0;
-        spectrumArr.setProperty(i, QJSValue(normalized));
+        channel = profile->channel();
+        if (m_loggedAudioProfileId != profile->id())
+        {
+            qDebug().noquote() << QStringLiteral("RGBScript %1: using audio profile %2 (ID: %3)")
+                .arg(name(), profile->name())
+                .arg(profile->id());
+            m_loggedAudioProfileId = profile->id();
+        }
     }
-    audioObj.setProperty("spectrum", spectrumArr);
+    else
+    {
+        m_loggedAudioProfileId = AudioProfile::invalidId();
+    }
 
-    // Volume: normalize power to 0.0-1.0
-    audioObj.setProperty("volume", QJSValue(double(m_audioPower) / 0x7FFF));
+    // Use a default-constructed snapshot when no profile is assigned, so the
+    // v3 shape is always present and scripts can run safely.
+    AudioSnapshot snap;
+    if (channel != NULL)
+        snap = channel->snapshot();
 
-    // Beat: consumed on read (reset after building object)
-    audioObj.setProperty("beat", QJSValue(m_audioBeat));
-    m_audioBeat = false;
+    // Mel filterbank (40 bands, ~0..1 linear power)
+    QJSValue melArr = engine->newArray(AUBIO_MEL_BANDS);
+    for (int i = 0; i < AUBIO_MEL_BANDS; i++)
+        melArr.setProperty(i, QJSValue(snap.mel[i]));
+    audioObj.setProperty(QStringLiteral("mel"), melArr);
 
-    // BPM from MasterTimer
-    int bpm = 120;
-    if (doc() && doc()->masterTimer())
-        bpm = doc()->masterTimer()->bpmNumber();
-    audioObj.setProperty("bpm", QJSValue(bpm));
+    // MFCC (13 coefficients)
+    QJSValue mfccArr = engine->newArray(AUBIO_MFCC_COEFFS);
+    for (int i = 0; i < AUBIO_MFCC_COEFFS; i++)
+        mfccArr.setProperty(i, QJSValue(snap.mfcc[i]));
+    audioObj.setProperty(QStringLiteral("mfcc"), mfccArr);
 
-    // Raw maxMagnitude for scripts that want absolute values
-    audioObj.setProperty("maxMagnitude", QJSValue(m_audioMaxMagnitude));
+    QJSValue bandsObj = engine->newObject();
+    bandsObj.setProperty(QStringLiteral("sub"), QJSValue(snap.bands.sub));
+    bandsObj.setProperty(QStringLiteral("bass"), QJSValue(snap.bands.bass));
+    bandsObj.setProperty(QStringLiteral("lowMid"), QJSValue(snap.bands.lowMid));
+    bandsObj.setProperty(QStringLiteral("mid"), QJSValue(snap.bands.mid));
+    bandsObj.setProperty(QStringLiteral("high"), QJSValue(snap.bands.high));
+    bandsObj.setProperty(QStringLiteral("low"), QJSValue(snap.bands.low));
+    audioObj.setProperty(QStringLiteral("bands"), bandsObj);
+
+    QJSValue triggersObj = engine->newObject();
+    triggersObj.setProperty(QStringLiteral("sub"), triggerObject(engine, snap.triggers[0]));
+    triggersObj.setProperty(QStringLiteral("bass"), triggerObject(engine, snap.triggers[1]));
+    triggersObj.setProperty(QStringLiteral("lowMid"), triggerObject(engine, snap.triggers[2]));
+    triggersObj.setProperty(QStringLiteral("mid"), triggerObject(engine, snap.triggers[3]));
+    triggersObj.setProperty(QStringLiteral("high"), triggerObject(engine, snap.triggers[4]));
+    triggersObj.setProperty(QStringLiteral("volume"), triggerObject(engine, snap.volumeTrigger));
+    triggersObj.setProperty(QStringLiteral("beat"), triggerObject(engine, snap.beatTrigger));
+    audioObj.setProperty(QStringLiteral("triggers"), triggersObj);
+
+    QJSValue volObj = engine->newObject();
+    volObj.setProperty(QStringLiteral("raw"), QJSValue(snap.volume.raw));
+    volObj.setProperty(QStringLiteral("smoothed"), QJSValue(snap.volume.smoothed));
+    volObj.setProperty(QStringLiteral("normalized"), QJSValue(snap.volume.normalized));
+    audioObj.setProperty(QStringLiteral("volume"), volObj);
+
+    QJSValue musicObj = engine->newObject();
+    musicObj.setProperty(QStringLiteral("beat"), QJSValue(snap.music.beat));
+    musicObj.setProperty(QStringLiteral("bpm"), QJSValue(snap.music.bpm));
+    musicObj.setProperty(QStringLiteral("beatPhase"), QJSValue(snap.music.beatPhase));
+    musicObj.setProperty(QStringLiteral("beatConfidence"), QJSValue(snap.music.beatConfidence));
+    musicObj.setProperty(QStringLiteral("tatum"), QJSValue(snap.music.tatum));
+    audioObj.setProperty(QStringLiteral("music"), musicObj);
+
+    QJSValue featuresObj = engine->newObject();
+    featuresObj.setProperty(QStringLiteral("rmsDb"), QJSValue(snap.features.rmsDb));
+    featuresObj.setProperty(QStringLiteral("peakDb"), QJSValue(snap.features.peakDb));
+    featuresObj.setProperty(QStringLiteral("crestFactor"), QJSValue(snap.features.crestFactor));
+    featuresObj.setProperty(QStringLiteral("centroidHz"), QJSValue(snap.features.centroidHz));
+    featuresObj.setProperty(QStringLiteral("spread"), QJSValue(snap.features.spread));
+    featuresObj.setProperty(QStringLiteral("rolloffHz"), QJSValue(snap.features.rolloffHz));
+    featuresObj.setProperty(QStringLiteral("flux"), QJSValue(snap.features.flux));
+    featuresObj.setProperty(QStringLiteral("hfc"), QJSValue(snap.features.hfc));
+    audioObj.setProperty(QStringLiteral("features"), featuresObj);
+
+    QJSValue onsetsObj = engine->newObject();
+    onsetsObj.setProperty(QStringLiteral("energy"), QJSValue(snap.onsets.energy));
+    onsetsObj.setProperty(QStringLiteral("hfc"), QJSValue(snap.onsets.hfc));
+    onsetsObj.setProperty(QStringLiteral("complex"), QJSValue(snap.onsets.complex_));
+    onsetsObj.setProperty(QStringLiteral("phase"), QJSValue(snap.onsets.phase));
+    onsetsObj.setProperty(QStringLiteral("wphase"), QJSValue(snap.onsets.wphase));
+    onsetsObj.setProperty(QStringLiteral("specdiff"), QJSValue(snap.onsets.specdiff));
+    onsetsObj.setProperty(QStringLiteral("kl"), QJSValue(snap.onsets.kl));
+    onsetsObj.setProperty(QStringLiteral("mkl"), QJSValue(snap.onsets.mkl));
+    onsetsObj.setProperty(QStringLiteral("specflux"), QJSValue(snap.onsets.specflux));
+    onsetsObj.setProperty(QStringLiteral("voteCount"), QJSValue(snap.onsets.voteCount));
+    audioObj.setProperty(QStringLiteral("onsets"), onsetsObj);
+
+    QJSValue pitchObj = engine->newObject();
+    pitchObj.setProperty(QStringLiteral("hz"), QJSValue(snap.pitch.hz));
+    pitchObj.setProperty(QStringLiteral("confidence"), QJSValue(snap.pitch.confidence));
+    audioObj.setProperty(QStringLiteral("pitch"), pitchObj);
+
+    QJSValue noteObj = engine->newObject();
+    noteObj.setProperty(QStringLiteral("midi"), QJSValue(snap.note.midi));
+    noteObj.setProperty(QStringLiteral("velocity"), QJSValue(snap.note.velocity));
+    noteObj.setProperty(QStringLiteral("noteOn"), QJSValue(snap.note.noteOn));
+    noteObj.setProperty(QStringLiteral("noteOff"), QJSValue(snap.note.noteOff));
+    audioObj.setProperty(QStringLiteral("note"), noteObj);
+
+    audioObj.setProperty(QStringLiteral("audioDtMs"), QJSValue(snap.audioDtMs));
+    audioObj.setProperty(QStringLiteral("brightnessFloor"), QJSValue(snap.brightnessFloor));
+    audioObj.setProperty(QStringLiteral("noiseGateClosed"), QJSValue(snap.noiseGateClosed));
+    audioObj.setProperty(QStringLiteral("consumerDtMs"), QJSValue(double(MasterTimer::tick())));
 
     return audioObj;
 }
+
 
 /************************************************************************
  * Capabilities

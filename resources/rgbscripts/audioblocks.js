@@ -76,9 +76,10 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -89,27 +90,26 @@ var testAlgo;
         if (!initialized || !blockBrightness || blockBrightness.length !== numBlocks) {
             blockBrightness = new Array(numBlocks);
             for (var i = 0; i < numBlocks; i++) blockBrightness[i] = 0;
-            filter = AudioParams.createFilter(algo, 0.1);
+            filter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Get audio power based on selected range
         var power;
-        if (algo.presetReactTo === 1) power = LedFx.mids_power(audio);
-        else if (algo.presetReactTo === 2) power = LedFx.high_power(audio);
-        else if (algo.presetReactTo === 3) power = audio.volume;
-        else power = LedFx.lows_power(audio);
+        if (algo.presetReactTo === 1) power = audio.bands.mid;
+        else if (algo.presetReactTo === 2) power = audio.bands.high;
+        else if (algo.presetReactTo === 3) power = audio.volume.normalized;
+        else power = audio.bands.low;
 
-        var gain = AudioParams.gainFactor(algo);
-        power = filter.update(power) * gain;
+        power = filter.update(power);
 
         // Get spectrum for per-block variation
-        var bands = LedFx.melbank(audio, numBlocks);
+        var bands = RGBUtil.interpolate(audio.mel, numBlocks);
         for (var i = 0; i < bands.length; i++)
-            bands[i] = Math.min(1, bands[i] * gain);
+            bands[i] = Math.min(1, bands[i]);
 
         // Decay and update blocks
         var decayRate = 1 - algo.presetDecay / 50.0;
@@ -137,7 +137,7 @@ var testAlgo;
                 r = startColor[0]; g = startColor[1]; b = startColor[2];
             }
 
-            var packed = LedFx.rgb(r * bright, g * bright, b * bright);
+            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
             var xStart = bi * blockW;
             var xEnd = Math.min(xStart + blockW, width);
 

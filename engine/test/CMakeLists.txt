@@ -1,5 +1,11 @@
 project(test)
 
+add_subdirectory(audioframe)
+add_subdirectory(audioanalyzer)
+add_subdirectory(audiochannel)
+add_subdirectory(audioprofile)
+add_subdirectory(audioslice)
+add_subdirectory(vcaudiotriggers)
 add_subdirectory(beatquantize)
 add_subdirectory(bus)
 add_subdirectory(channelsgroup)

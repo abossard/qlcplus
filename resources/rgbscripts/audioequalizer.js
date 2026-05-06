@@ -68,7 +68,7 @@ var testAlgo;
     function init(bandCount)
     {
         var decay = algo.presetDecay / 20.0;
-        barFilter = AudioParams.createFilter(algo, decay);
+        barFilter = new AudioDSP.Filter(decay, AudioParams.filterRise(algo));
         peakValues = new Array(bandCount);
         for (var i = 0; i < bandCount; i++) peakValues[i] = 0;
         initialized = true;
@@ -100,8 +100,8 @@ var testAlgo;
     algo.rgbMapGetColors = function()
     {
         return [
-            LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-            LedFx.rgb(endColor[0], endColor[1], endColor[2])
+            RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+            RGBUtil.rgb(endColor[0], endColor[1], endColor[2])
         ];
     };
 
@@ -112,18 +112,15 @@ var testAlgo;
         if (!initialized || (peakValues && peakValues.length !== bandCount))
             init(bandCount);
 
-        var map = LedFx.createMap(width, height);
+        var map = RGBUtil.createMap(width, height);
 
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0)
+        if (!audio || !audio.mel || audio.mel.length === 0)
             return map;
 
         // Get spectrum interpolated to match grid width
-        var rawBands = LedFx.melbank(audio, bandCount);
-
-        // Scale by sensitivity
-        var scale = AudioParams.gainFactor(algo);
+        var rawBands = RGBUtil.interpolate(audio.mel, bandCount);
         for (var i = 0; i < rawBands.length; i++)
-            rawBands[i] = Math.min(1, rawBands[i] * scale);
+            rawBands[i] = Math.min(1, rawBands[i]);
 
         // Apply smoothing
         var bands = barFilter.updateArray(rawBands);
@@ -157,7 +154,7 @@ var testAlgo;
                     var t = Math.abs(y - mid) / (height / 2);
                     var c = gradientColor(t);
                     var brightness = AudioParams.applyFloor(algo, 1.0);
-                    map[y][x] = LedFx.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
             else
@@ -170,7 +167,7 @@ var testAlgo;
                     var t = dy / height;
                     var c = gradientColor(t);
                     var brightness = AudioParams.applyFloor(algo, 1.0);
-                    map[y][x] = LedFx.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
 
@@ -186,7 +183,7 @@ var testAlgo;
                 }
                 if (peakY >= 0 && peakY < height) {
                     var peakBrightness = AudioParams.applyFloor(algo, 1.0);
-                    map[peakY][x] = LedFx.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
+                    map[peakY][x] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
                 }
             }
         }

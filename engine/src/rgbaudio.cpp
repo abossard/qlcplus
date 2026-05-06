@@ -21,15 +21,18 @@
 #include <QXmlStreamWriter>
 #include <QDebug>
 
+#include <algorithm>
+
 #include "rgbaudio.h"
 #include "audiocapture.h"
+#include "aubioresults.h"
 #include "doc.h"
 
 RGBAudio::RGBAudio(Doc * doc)
     : RGBAlgorithm(doc)
     , m_audioInput(NULL)
     , m_bandsNumber(-1)
-    , m_maxMagnitude(0)
+    , m_volumePower(0)
 {
 }
 
@@ -38,7 +41,7 @@ RGBAudio::RGBAudio(const RGBAudio& a, QObject *parent)
     , RGBAlgorithm(a.doc())
     , m_audioInput(NULL)
     , m_bandsNumber(-1)
-    , m_maxMagnitude(0)
+    , m_volumePower(0)
 {
 }
 
@@ -62,24 +65,35 @@ void RGBAudio::setAudioCapture(AudioCapture* cap)
     qDebug() << Q_FUNC_INFO << "Audio capture set";
 
     m_audioInput = cap;
-    connect(m_audioInput, SIGNAL(dataProcessed(double*,int,double,quint32)),
-            this, SLOT(slotAudioBarsChanged(double*,int,double,quint32)));
+    m_audioConn = QObject::connect(m_audioInput, &AudioCapture::aubioDataReady,
+        [this](const AubioResults &results, quint32 power)
+        {
+            const int expected = m_bandsNumber;
+            if (expected <= 0)
+                return;
+            QMutexLocker locker(&m_mutex);
+            m_spectrumValues.resize(expected);
+            // Resample mel[40] (already linear powers, ~0..1) into requested bar count.
+            for (int i = 0; i < expected; i++)
+            {
+                const int start = (i * AUBIO_MEL_BANDS) / expected;
+                const int end = std::max(start + 1, ((i + 1) * AUBIO_MEL_BANDS) / expected);
+                double sum = 0.0;
+                int n = 0;
+                for (int m = start; m < end && m < AUBIO_MEL_BANDS; m++)
+                {
+                    sum += results.mel[m];
+                    n++;
+                }
+                m_spectrumValues[i] = (n > 0) ? (sum / double(n)) : 0.0;
+            }
+            m_volumePower = power;
+        });
     m_bandsNumber = -1;
 }
 
-void RGBAudio::slotAudioBarsChanged(double *spectrumBands, int size,
-                                    double maxMagnitude, quint32 power)
+void RGBAudio::slotAudioBarsChanged()
 {
-    if (size != m_bandsNumber)
-        return;
-
-    QMutexLocker locker(&m_mutex);
-
-    m_spectrumValues.clear();
-    for (int i = 0; i < m_bandsNumber; i++)
-        m_spectrumValues.append(spectrumBands[i]);
-    m_maxMagnitude = maxMagnitude;
-    m_volumePower = power;
 }
 
 void RGBAudio::calculateColors(int barsHeight)
@@ -165,15 +179,11 @@ void RGBAudio::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     double volHeight = (m_volumePower * size.height()) / 0x7FFF;
     for (int x = 0; x < m_spectrumValues.count(); x++)
     {
-        int barHeight;
-        if (m_maxMagnitude == 0)
-            barHeight = 0;
-        else
-        {
-            barHeight = (volHeight * m_spectrumValues[x]) / m_maxMagnitude;
-            if (barHeight > size.height())
-                barHeight = size.height();
-        }
+        // Mel bands are already in [0..1]-ish linear units; clamp.
+        double level = qBound(0.0, m_spectrumValues[x], 1.0);
+        int barHeight = int(volHeight * level);
+        if (barHeight > size.height())
+            barHeight = size.height();
         for (int y = size.height() - barHeight; y < size.height(); y++)
         {
             if (m_barColors.count() == 0)
@@ -191,8 +201,7 @@ void RGBAudio::postRun()
     QSharedPointer<AudioCapture> capture = doc()->audioInputCapture();
     if (capture.data() == m_audioInput)
     {
-        disconnect(m_audioInput, SIGNAL(dataProcessed(double*,int,double,quint32)),
-                   this, SLOT(slotAudioBarsChanged(double*,int,double,quint32)));
+        QObject::disconnect(m_audioConn);
         if (m_bandsNumber > 0)
             m_audioInput->unregisterBandsNumber(m_bandsNumber);
     }

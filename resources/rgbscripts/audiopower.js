@@ -41,7 +41,7 @@ var testAlgo;
     var initialized = false;
 
     function init(width) {
-        bassFilter = AudioParams.createFilter(algo, 0.1);
+        bassFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
         sparksPixels = new Array(width);
         for (var i = 0; i < width; i++) sparksPixels[i] = 0;
         initialized = true;
@@ -57,29 +57,30 @@ var testAlgo;
     };
 
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized || !sparksPixels || sparksPixels.length !== width) init(width);
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Get spectrum and bass power
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var gain = AudioParams.gainFactor(algo);
-        var bands = LedFx.melbank(audio, effectiveWidth);
+        var bands = RGBUtil.interpolate(audio.mel, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi] * gain);
-        var bass = bassFilter.update(LedFx.lows_power(audio)) * gain;
+            bands[bi] = Math.min(1, bands[bi]);
+        var bass = bassFilter.update(audio.bands.low);
 
         // Bass overlay: fill from edge based on bass power
         var bassIdx = Math.min(width, Math.floor(bass * width * 1.5));
 
         // Sparks: random pixels on beat
-        if (algo.presetSparks && audio.beat) {
+        var beat = audio.triggers.beat.firedThisFrame;
+        if (algo.presetSparks && beat) {
             var sparkCount = Math.max(1, Math.floor(width / 15));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
@@ -116,7 +117,7 @@ var testAlgo;
                     bright = Math.max(bright, sparkVal);
                 }
 
-                map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
         }
 

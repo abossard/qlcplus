@@ -75,35 +75,35 @@ var testAlgo;
     };
 
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(strobeColor[0], strobeColor[1], strobeColor[2]),
-                LedFx.rgb(bgColor[0], bgColor[1], bgColor[2])];
+        return [RGBUtil.rgb(strobeColor[0], strobeColor[1], strobeColor[2]),
+                RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2])];
     };
+
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Determine if we should flash
         var trigger = false;
-        var gain = AudioParams.gainFactor(algo);
-        var thresh = AudioParams.triggerThreshold(algo);
         if (algo.presetMode === 0) {
-            trigger = audio.beat;
+            trigger = audio.triggers.beat.firedThisFrame;
         } else if (algo.presetMode === 1) {
-            trigger = LedFx.lows_power(audio) * gain > thresh;
+            trigger = audio.triggers.bass.firedThisFrame;
         } else if (algo.presetMode === 2) {
-            trigger = LedFx.mids_power(audio) * gain > thresh;
+            trigger = audio.triggers.mid.firedThisFrame;
         } else if (algo.presetMode === 3) {
-            trigger = LedFx.high_power(audio) * gain > thresh;
+            trigger = audio.triggers.high.firedThisFrame;
         } else {
-            trigger = audio.volume * gain > thresh;
+            trigger = audio.triggers.volume.active;
         }
 
         if (trigger) {
             brightness = 1.0;
             if (algo.presetRandomColor) {
-                var c = LedFx.hsv2rgb(Math.random(), 1, 1);
+                var c = RGBUtil.hsv2rgb(Math.random(), 1, 1);
                 activeColor = [c[0], c[1], c[2]];
             } else {
                 activeColor = strobeColor;
@@ -118,7 +118,7 @@ var testAlgo;
         var r = bgColor[0] + (activeColor[0] - bgColor[0]) * brightness;
         var g = bgColor[1] + (activeColor[1] - bgColor[1]) * brightness;
         var b = bgColor[2] + (activeColor[2] - bgColor[2]) * brightness;
-        var packed = LedFx.rgb(r, g, b);
+        var packed = RGBUtil.rgb(r, g, b);
 
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)

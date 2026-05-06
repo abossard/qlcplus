@@ -20,6 +20,7 @@
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QMutexLocker>
 #include <QStringList>
 #include <QString>
 #include <QDebug>
@@ -35,11 +36,14 @@
 
 #include "monitorproperties.h"
 #include "audioplugincache.h"
+#include "audioanalyzer.h"
 #include "rgbscriptscache.h"
 #include "channelsgroup.h"
 #include "scriptwrapper.h"
 #include "collection.h"
 #include "function.h"
+#include "rgbalgorithm.h"
+#include "rgbmatrix.h"
 #include "universe.h"
 #include "sequence.h"
 #include "fixture.h"
@@ -55,6 +59,21 @@
 #endif
 
 #define AUTOSAVE_TIMEOUT    30 // seconds
+
+namespace
+{
+    constexpr int kDefaultLegacyGain = 5;
+    constexpr int kDefaultLegacyReactivity = 5;
+    constexpr int kDefaultLegacyFloor = 0;
+    constexpr int kDefaultLegacySensitivity = 5;
+
+    int legacyAudioProperty(const QString &value, int defaultValue)
+    {
+        bool ok = false;
+        const int parsed = value.toInt(&ok);
+        return ok ? parsed : defaultValue;
+    }
+}
 
 Doc::Doc(QObject* parent, int universes)
     : QObject(parent)
@@ -97,6 +116,8 @@ Doc::~Doc()
     m_masterTimer = NULL;
 
     clearContents();
+    delete m_audioAnalyzer;
+    m_audioAnalyzer = nullptr;
 
     if (isKiosk() == false)
     {
@@ -128,8 +149,6 @@ void Doc::clearContents()
     if (m_monitorProps != NULL)
         m_monitorProps->reset();
 
-    destroyAudioCapture();
-
     // Delete all function instances
     QListIterator <quint32> funcit(m_functions.keys());
     while (funcit.hasNext() == true)
@@ -149,6 +168,20 @@ void Doc::clearContents()
         emit paletteRemoved(palette->id());
         delete palette;
     }
+
+    // Delete all audio profiles
+    QListIterator <quint32> audioProfileIt(m_audioProfiles.keys());
+    while (audioProfileIt.hasNext() == true)
+    {
+        AudioProfile *profile = m_audioProfiles.take(audioProfileIt.next());
+        profile->releaseAnalyzer();
+        delete profile;
+    }
+
+    destroyAudioCapture();
+
+    delete m_audioAnalyzer;
+    m_audioAnalyzer = nullptr;
 
     // Delete all channel groups
     QListIterator <quint32> grpchans(m_channelsGroups.keys());
@@ -285,8 +318,24 @@ QSharedPointer<AudioCapture> Doc::audioInputCapture() const
             new AudioCaptureQt6()
 #endif
             );
+        if (!m_inputCapture.isNull())
+        {
+            m_inputCapture->setAnalyzer(audioAnalyzer());
+
+            // Push current active aubio config (if any profile is selected) so
+            // a freshly created capture is not stuck on hardcoded defaults.
+            const_cast<Doc*>(this)->pushActiveAubioConfigToCapture();
+        }
     }
     return m_inputCapture;
+}
+
+AudioAnalyzer *Doc::audioAnalyzer() const
+{
+    if (m_audioAnalyzer == nullptr)
+        const_cast<Doc*>(this)->m_audioAnalyzer = new AudioAnalyzer();
+
+    return m_audioAnalyzer;
 }
 
 void Doc::destroyAudioCapture()
@@ -294,6 +343,7 @@ void Doc::destroyAudioCapture()
     if (m_inputCapture.isNull() == false)
     {
         qDebug() << "Destroying audio capture";
+        m_inputCapture->setAnalyzer(nullptr);
         m_inputCapture.clear();
     }
 }
@@ -1000,6 +1050,144 @@ quint32 Doc::createPaletteId()
     return m_latestPaletteId;
 }
 
+/*********************************************************************
+ * Audio profiles
+ *********************************************************************/
+
+AudioProfile* Doc::audioProfile(quint32 id) const
+{
+    return m_audioProfiles.value(id, NULL);
+}
+
+bool Doc::addAudioProfile(AudioProfile *profile)
+{
+    Q_ASSERT(profile != NULL);
+
+    const quint32 id = profile->id();
+    if (id == AudioProfile::invalidId() || m_audioProfiles.contains(id) == true)
+    {
+        qWarning() << Q_FUNC_INFO << "an audio profile with ID" << id << "already exists!";
+        return false;
+    }
+
+    profile->setParent(this);
+    profile->bindAnalyzer(audioAnalyzer());
+    m_audioProfiles[id] = profile;
+    setModified();
+
+    return true;
+}
+
+bool Doc::removeAudioProfile(quint32 id)
+{
+    if (m_audioProfiles.contains(id) == false)
+    {
+        qWarning() << Q_FUNC_INFO << "No audio profile with id" << id;
+        return false;
+    }
+
+    AudioProfile *profile = m_audioProfiles.take(id);
+    Q_ASSERT(profile != NULL);
+    profile->releaseAnalyzer();
+    setModified();
+    delete profile;
+
+    return true;
+}
+
+QList<AudioProfile*> Doc::audioProfiles() const
+{
+    return m_audioProfiles.values();
+}
+
+AudioProfile* Doc::defaultAudioProfile() const
+{
+    QListIterator<AudioProfile*> it(audioProfiles());
+    while (it.hasNext() == true)
+    {
+        AudioProfile *profile = it.next();
+        if (profile != NULL && profile->isDefault() == true)
+            return profile;
+    }
+
+    if (m_audioProfiles.isEmpty() == false)
+        return m_audioProfiles.first();
+
+    return NULL;
+}
+
+AudioProfile* Doc::ensureDefaultAudioProfile()
+{
+    if (m_audioProfiles.isEmpty() == false)
+        return defaultAudioProfile();
+
+    quint32 id = 0;
+    while (m_audioProfiles.contains(id) == true || id == AudioProfile::invalidId())
+        id++;
+
+    AudioProfile *profile = new AudioProfile(id, this);
+    profile->setName(QStringLiteral("Default Audio"));
+    profile->setIsDefault(true);
+    profile->setChannelConfig(AudioChannelConfig::defaults());
+
+    if (addAudioProfile(profile) == false)
+    {
+        delete profile;
+        return NULL;
+    }
+
+    return profile;
+}
+
+AudioProfile* Doc::audioProfileForFunction(quint32 functionId) const
+{
+    Function *f = function(functionId);
+    if (f != NULL && f->type() == Function::RGBMatrixType)
+    {
+        RGBMatrix *matrix = qobject_cast<RGBMatrix*>(f);
+        if (matrix != NULL)
+        {
+            quint32 pid = matrix->audioProfileId();
+            if (pid != AudioProfile::invalidId())
+            {
+                if (AudioProfile *profile = audioProfile(pid))
+                    return profile;
+            }
+        }
+    }
+
+    return defaultAudioProfile();
+}
+
+quint32 Doc::activeAudioProfileId() const
+{
+    return m_activeAudioProfileId;
+}
+
+void Doc::setActiveAudioProfileId(quint32 id)
+{
+    if (m_activeAudioProfileId == id)
+        return;
+
+    m_activeAudioProfileId = id;
+    pushActiveAubioConfigToCapture();
+    emit activeAudioProfileIdChanged(id);
+}
+
+void Doc::pushActiveAubioConfigToCapture()
+{
+    if (m_inputCapture.isNull())
+        return;
+
+    AudioProfile *profile = audioProfile(m_activeAudioProfileId);
+    if (profile == nullptr)
+        profile = defaultAudioProfile();
+    if (profile == nullptr)
+        return;
+
+    m_inputCapture->setAubioConfig(profile->channelConfig().aubio);
+}
+
 /*****************************************************************************
  * Functions
  *****************************************************************************/
@@ -1287,6 +1475,19 @@ bool Doc::loadXML(QXmlStreamReader &doc, bool loadIO)
             QLCPalette::loader(doc, this);
             doc.skipCurrentElement();
         }
+        else if (doc.name() == KXMLQLCAudioProfile)
+        {
+            AudioProfile *profile = new AudioProfile(AudioProfile::invalidId(), this);
+            if (profile->loadXML(doc) == true)
+            {
+                if (addAudioProfile(profile) == false)
+                    delete profile;
+            }
+            else
+            {
+                delete profile;
+            }
+        }
         else if (doc.name() == KXMLQLCFunction)
         {
             //qDebug() << doc.attributes().value("Name").toString();
@@ -1368,6 +1569,15 @@ bool Doc::saveXML(QXmlStreamWriter *doc) const
         palette->saveXML(doc);
     }
 
+    /* Write audio profiles into an XML document */
+    QListIterator <AudioProfile*> audioProfileIt(audioProfiles());
+    while (audioProfileIt.hasNext() == true)
+    {
+        AudioProfile *profile(audioProfileIt.next());
+        Q_ASSERT(profile != NULL);
+        profile->saveXML(doc);
+    }
+
     /* Write functions into an XML document */
     QListIterator <Function*> funcit(functions());
     while (funcit.hasNext() == true)
@@ -1413,5 +1623,54 @@ void Doc::postLoad()
         Function* function(functionit.next());
         Q_ASSERT(function != NULL);
         function->postLoad();
+    }
+
+    QListIterator <Function*> migrationIt(functions());
+    while (migrationIt.hasNext() == true)
+    {
+        Function *function = migrationIt.next();
+        if (function == NULL || function->type() != Function::RGBMatrixType)
+            continue;
+
+        RGBMatrix *matrix = qobject_cast<RGBMatrix*>(function);
+        if (matrix == NULL || matrix->audioProfileId() != AudioProfile::invalidId())
+            continue;
+
+        {
+            QMutexLocker algorithmLocker(&matrix->algorithmMutex());
+            RGBAlgorithm *algorithm = matrix->algorithm();
+            if (algorithm == NULL || algorithm->usesAudio() == false)
+                continue;
+        }
+
+        const QString gainValue = matrix->property(QStringLiteral("presetGain"));
+        const QString reactivityValue = matrix->property(QStringLiteral("presetReactivity"));
+        const QString floorValue = matrix->property(QStringLiteral("presetFloor"));
+        const QString sensitivityValue = matrix->property(QStringLiteral("presetSensitivity"));
+        if (gainValue.isEmpty() && reactivityValue.isEmpty() &&
+            floorValue.isEmpty() && sensitivityValue.isEmpty())
+        {
+            continue;
+        }
+
+        quint32 profileId = 0;
+        while (m_audioProfiles.contains(profileId) == true ||
+               profileId == AudioProfile::invalidId())
+        {
+            profileId++;
+        }
+
+        AudioProfile *profile = new AudioProfile(profileId, this);
+        profile->setName(QStringLiteral("Migrated Audio"));
+        profile->setChannelConfig(AudioProfile::configFromLegacySliders(
+            legacyAudioProperty(gainValue, kDefaultLegacyGain),
+            legacyAudioProperty(reactivityValue, kDefaultLegacyReactivity),
+            legacyAudioProperty(floorValue, kDefaultLegacyFloor),
+            legacyAudioProperty(sensitivityValue, kDefaultLegacySensitivity)));
+
+        if (addAudioProfile(profile) == true)
+            matrix->setAudioProfileId(profileId);
+        else
+            delete profile;
     }
 }

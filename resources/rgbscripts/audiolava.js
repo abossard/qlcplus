@@ -61,23 +61,21 @@ var testAlgo;
             color3 = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(color1[0], color1[1], color1[2]),
-                LedFx.rgb(color2[0], color2[1], color2[2]),
-                LedFx.rgb(color3[0], color3[1], color3[2])];
+        return [RGBUtil.rgb(color1[0], color1[1], color1[2]),
+                RGBUtil.rgb(color2[0], color2[1], color2[2]),
+                RGBUtil.rgb(color3[0], color3[1], color3[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.05);
-            midsFilter = AudioParams.createFilter(algo, 0.05);
-            highsFilter = AudioParams.createFilter(algo, 0.05);
             lastTime = Date.now();
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;
@@ -85,10 +83,9 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
         elapsedMs += dt * 1000;
 
-        var gain = AudioParams.gainFactor(algo);
-        lowsPower = lowsFilter.update(LedFx.lows_power(audio)) * gain;
-        var midsPower = midsFilter.update(LedFx.mids_power(audio)) * gain;
-        var highsPower = highsFilter.update(LedFx.high_power(audio)) * gain;
+        lowsPower = audio.bands.low;
+        var midsPower = audio.bands.mid;
+        var highsPower = audio.bands.high;
         var speed = algo.presetSpeed;
         var contrast = 1 - algo.presetContrast / 10.0;
 
@@ -120,7 +117,7 @@ var testAlgo;
 
                 // Normalize and apply pattern
                 var total = Math.max(0.01, lowsPower + midsPower + highsPower);
-                map[y][x] = LedFx.rgb(
+                map[y][x] = RGBUtil.rgb(
                     r / total * pattern,
                     g / total * pattern,
                     b / total * pattern

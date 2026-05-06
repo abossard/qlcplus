@@ -28,8 +28,66 @@ VCWidgetItem
 {
     id: audioTriggerRoot
     property VCAudioTriggers audioTriggerObj: null
+    property var perceptualBandColors: [ "#ff3333", "#ff9900", "#ffdd33", "#33cc66", "#33ccff" ]
+    property var perceptualBandShortNames: [ "S", "B", "LM", "M", "H" ]
 
-    property variant barValues: audioTriggerObj ? audioTriggerObj.audioLevels : null
+    // Width/height breakpoints driving layout density
+    property bool showFull:    barsItem.width >= 300 && barsItem.height >= 260
+    property bool showMedium:  !showFull && barsItem.width >= 220 && barsItem.height >= 160
+    property bool showCompact: !showFull && !showMedium && barsItem.height >= 80
+    // else: minimal (mel bars only)
+
+    function perceptualBandPower(index)
+    {
+        if (!audioTriggerObj) return 0
+        switch (index)
+        {
+        case 0: return audioTriggerObj.subPower
+        case 1: return audioTriggerObj.bassPower
+        case 2: return audioTriggerObj.lowMidPower
+        case 3: return audioTriggerObj.midPower
+        case 4: return audioTriggerObj.highPower
+        default: return 0
+        }
+    }
+
+    function melBandColor(index)
+    {
+        if (!audioTriggerObj) return perceptualBandColors[0]
+        if (index < audioTriggerObj.melCrossSub)    return perceptualBandColors[0]
+        if (index < audioTriggerObj.melCrossBass)   return perceptualBandColors[1]
+        if (index < audioTriggerObj.melCrossLowMid) return perceptualBandColors[2]
+        if (index < audioTriggerObj.melCrossMid)    return perceptualBandColors[3]
+        return perceptualBandColors[4]
+    }
+
+    function midiToNoteName(hz)
+    {
+        if (hz <= 0) return "--"
+        var midi = 69 + 12 * Math.log(hz / 440) / Math.log(2)
+        var notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+        var rounded = Math.round(midi)
+        var note = notes[((rounded % 12) + 12) % 12]
+        var octave = Math.floor(rounded / 12) - 1
+        return note + octave
+    }
+
+    function confidenceColor(conf)
+    {
+        if (conf < 0.2) return "#666666"
+        if (conf < 0.4) return "#cc3333"
+        if (conf < 0.6) return "#cc9933"
+        if (conf < 0.8) return "#cccc33"
+        return "#33cc66"
+    }
+
+    function onsetVoteColor(votes)
+    {
+        if (votes <= 0) return "#666666"
+        if (votes >= 5) return "#33cc66"
+        if (votes >= 3) return "#cccc33"
+        return "#cc9933"
+    }
 
     clip: true
 
@@ -45,14 +103,13 @@ VCWidgetItem
         columns: 2
         rows: 2
 
-        // bars area
+        // Mel spectrum + status area
         Rectangle
         {
             id: barsItem
             Layout.fillHeight: true
             Layout.fillWidth: true
             Layout.rowSpan: 2
-
             color: "transparent"
 
             // Beat flash overlay
@@ -65,141 +122,308 @@ VCWidgetItem
                 z: 2
             }
 
-            // Bars row (leaves room for the monitor row below)
+            // Mel spectrum bars (40 bands)
             Row
             {
-                id: bars
+                id: melBars
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                anchors.bottom: monitorRow.top
+                anchors.bottom: bottomColumn.visible ? bottomColumn.top : parent.bottom
 
                 Repeater
                 {
-                    id: barsRep
-                    model: audioTriggerObj ? audioTriggerObj.barsNumber : 0
-
+                    model: audioTriggerObj ? audioTriggerObj.melSpectrum.length : 0
                     Rectangle
                     {
-                        width: barsItem.width / Math.max(1, audioTriggerObj ? audioTriggerObj.barsNumber : 1)
-                        height: parent.height
+                        width: melBars.width / 40
+                        height: melBars.height
                         color: UISettings.bgStrong
-                        border.width: 1
-                        border.color: UISettings.bgLight
+                        border.width: 0
 
                         Rectangle
                         {
+                            anchors.bottom: parent.bottom
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: barValues ? parent.height * (Math.max(0, Math.min(255, barValues[index] || 0)) / 255.0) : 0
-                            radius: 3
-                            color:
-                            {
-                                if (index === 0) return "#00FF00"; // volume bar stays green
-                                if (!audioTriggerObj) return UISettings.selection;
-                                var specIndex = index - 1;
-                                if (specIndex < audioTriggerObj.lowCutBin) return "#FF6633";   // warm orange for lows
-                                if (specIndex < audioTriggerObj.highCutBin) return "#FFCC00";  // yellow for mids
-                                return "#33CCFF";                                              // cyan for highs
+                            height: parent.height * Math.max(0, Math.min(1, audioTriggerObj.melSpectrum[index] || 0))
+                            // Tint mel bars by transient ratio: pure-steady stays at the
+                            // band's natural color, pure-transient shifts toward white to
+                            // show where the energy is percussive vs harmonic.
+                            color: {
+                                var base = melBandColor(index)
+                                var r = audioTriggerObj ? audioTriggerObj.tssRatio : 0
+                                return Qt.tint(base, Qt.rgba(1, 1, 1, r * 0.5))
                             }
                         }
                     }
                 }
             }
 
-            // Split markers between volume/lows, lows/mids, mids/highs
-            Item
+            // Bottom area: per-band horizontal bars + status row(s)
+            Column
             {
-                id: splitMarkers
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.bottom: monitorRow.top
-                z: 1
-
-                property real barW: width / Math.max(1, audioTriggerObj ? audioTriggerObj.barsNumber : 1)
-
-                // Volume / spectrum boundary
-                Rectangle
-                {
-                    visible: audioTriggerObj !== null
-                    width: 1
-                    height: parent.height
-                    x: splitMarkers.barW * 1
-                    color: "#888888"
-                    opacity: 0.6
-                }
-                // Low / mid boundary
-                Rectangle
-                {
-                    visible: audioTriggerObj !== null
-                    width: 2
-                    height: parent.height
-                    x: splitMarkers.barW * (1 + audioTriggerObj.lowCutBin) - 1
-                    color: "#FFCC00"
-                    opacity: 0.7
-                }
-                // Mid / high boundary
-                Rectangle
-                {
-                    visible: audioTriggerObj !== null
-                    width: 2
-                    height: parent.height
-                    x: splitMarkers.barW * (1 + audioTriggerObj.highCutBin) - 1
-                    color: "#33CCFF"
-                    opacity: 0.7
-                }
-            }
-
-            // Monitor row: beat dot + L/M/H readouts (hidden when widget is too small)
-            Row
-            {
-                id: monitorRow
-                visible: barsItem.height > 80
-                height: visible ? 18 : 0
+                id: bottomColumn
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 anchors.leftMargin: 4
                 anchors.rightMargin: 4
-                spacing: 8
+                spacing: 2
+                visible: showFull || showMedium || showCompact
                 z: 3
 
-                Rectangle
+                // Perceptual band bars (full + medium)
+                Column
                 {
-                    width: 12; height: 12
-                    radius: 6
-                    color: audioTriggerObj && audioTriggerObj.beatActive ? "#FF3333" : "#333333"
-                    border.width: 1
-                    border.color: "#000000"
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on color { ColorAnimation { duration: 80 } }
+                    width: parent.width
+                    spacing: 2
+                    visible: showFull || showMedium
+
+                    Repeater
+                    {
+                        model: 5
+                        Row
+                        {
+                            width: parent.width
+                            height: showFull ? 14 : 10
+                            spacing: 4
+
+                            Text
+                            {
+                                width: 18
+                                text: perceptualBandShortNames[index]
+                                color: perceptualBandColors[index]
+                                font.pixelSize: showFull ? 10 : 9
+                                font.bold: true
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+
+                            Rectangle
+                            {
+                                width: parent.width - 60
+                                height: showFull ? 8 : 6
+                                radius: 3
+                                color: "#222222"
+                                anchors.verticalCenter: parent.verticalCenter
+
+                                Rectangle
+                                {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width * Math.max(0, Math.min(1, perceptualBandPower(index)))
+                                    radius: parent.radius
+                                    color: perceptualBandColors[index]
+                                }
+                            }
+
+                            // Trigger state dot
+                            Rectangle
+                            {
+                                width: 10; height: 10; radius: 5
+                                anchors.verticalCenter: parent.verticalCenter
+                                border.width: 1
+                                property var ts: audioTriggerObj ? audioTriggerObj.triggerStates[index] : null
+                                color: {
+                                    if (!ts) return "#333333"
+                                    if (ts.fired) return Qt.lighter(perceptualBandColors[index], 1.5)
+                                    if (ts.active) return perceptualBandColors[index]
+                                    if (ts.cooldownMs > 0) return "#cc9933"
+                                    return "#444444"
+                                }
+                                border.color: (ts && ts.active) ? "#FFFFFF" : "#222222"
+                            }
+
+                            Text
+                            {
+                                visible: showFull
+                                width: 28
+                                text: Math.round(perceptualBandPower(index) * 100) + "%"
+                                color: "#AAAAAA"
+                                font.pixelSize: 9
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+                    }
                 }
 
-                Text
+                // Pitch row (full only)
+                Row
                 {
-                    text: "L:" + (audioTriggerObj ? Math.round(audioTriggerObj.lowsPower * 100) : 0) + "%"
-                    color: "#FF6633"
-                    font.pixelSize: 10
-                    font.bold: true
-                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    height: 14
+                    spacing: 6
+                    visible: showFull
+
+                    Text
+                    {
+                        text: audioTriggerObj ? midiToNoteName(audioTriggerObj.pitchHz) : "--"
+                        color: audioTriggerObj ? confidenceColor(audioTriggerObj.pitchConfidence) : "#666666"
+                        font.pixelSize: 11
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Text
+                    {
+                        text: audioTriggerObj && audioTriggerObj.pitchHz > 0 ?
+                              audioTriggerObj.pitchHz.toFixed(0) + " Hz" : ""
+                        color: audioTriggerObj ? confidenceColor(audioTriggerObj.pitchConfidence) : "#666666"
+                        font.pixelSize: 10
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
-                Text
+
+                // TSS (transient/steady) split row — full only.
+                // Shows a single horizontal bar split between cyan (steady,
+                // harmonic energy) and orange (transient, percussive energy).
+                Row
                 {
-                    text: "M:" + (audioTriggerObj ? Math.round(audioTriggerObj.midsPower * 100) : 0) + "%"
-                    color: "#FFCC00"
-                    font.pixelSize: 10
-                    font.bold: true
-                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    height: 12
+                    spacing: 6
+                    visible: showFull
+
+                    Text
+                    {
+                        width: 18
+                        text: "T/S"
+                        color: "#888888"
+                        font.pixelSize: 9
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle
+                    {
+                        width: parent.width - 60
+                        height: 6
+                        radius: 3
+                        color: "#222222"
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        // Steady (left, cyan)
+                        Rectangle
+                        {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (1 - (audioTriggerObj ? audioTriggerObj.tssRatio : 0))
+                            radius: parent.radius
+                            color: "#3FA9F5"
+                        }
+                        // Transient (right, orange)
+                        Rectangle
+                        {
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (audioTriggerObj ? audioTriggerObj.tssRatio : 0)
+                            radius: parent.radius
+                            color: "#FF8C29"
+                        }
+                    }
+
+                    Text
+                    {
+                        width: 28
+                        text: audioTriggerObj
+                              ? Math.round(audioTriggerObj.tssRatio * 100) + "%"
+                              : "--"
+                        color: "#AAAAAA"
+                        font.pixelSize: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
-                Text
+
+                // Status row: full = text labels; compact = dots only
+                Row
                 {
-                    text: "H:" + (audioTriggerObj ? Math.round(audioTriggerObj.highsPower * 100) : 0) + "%"
-                    color: "#33CCFF"
-                    font.pixelSize: 10
-                    font.bold: true
-                    anchors.verticalCenter: parent.verticalCenter
+                    id: statusRow
+                    width: parent.width
+                    height: 16
+                    spacing: 6
+                    visible: showFull || showMedium || showCompact
+
+                    // Onset vote count
+                    Rectangle
+                    {
+                        visible: showFull || showMedium
+                        width: onsetText.width + 8
+                        height: 14
+                        radius: 3
+                        color: "#1a1a1a"
+                        border.width: 1
+                        border.color: audioTriggerObj ?
+                                      onsetVoteColor(audioTriggerObj.onsetVoteCount) : "#444444"
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        Text
+                        {
+                            id: onsetText
+                            anchors.centerIn: parent
+                            text: audioTriggerObj ?
+                                  qsTr("Onset") + " " + audioTriggerObj.onsetVoteCount + "/9" : "Onset 0/9"
+                            color: audioTriggerObj ?
+                                   onsetVoteColor(audioTriggerObj.onsetVoteCount) : "#666666"
+                            font.pixelSize: 9
+                            font.bold: true
+                        }
+                    }
+
+                    // Beat dot + BPM
+                    Rectangle
+                    {
+                        width: 10; height: 10; radius: 5
+                        color: audioTriggerObj && audioTriggerObj.beatActive ? "#FF3333" : "#333333"
+                        border.width: 1; border.color: "#000000"
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Text
+                    {
+                        visible: showFull || showMedium
+                        text: {
+                            if (!audioTriggerObj) return "-- BPM"
+                            var bpm = audioTriggerObj.detectedBpm
+                            var conf = audioTriggerObj.beatConfidence
+                            return Math.round(bpm) + " BPM " + Math.round(conf * 100) + "%"
+                        }
+                        color: audioTriggerObj ? confidenceColor(audioTriggerObj.beatConfidence) : "#666666"
+                        font.pixelSize: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    // Gate dot
+                    Rectangle
+                    {
+                        width: 10; height: 10; radius: 5
+                        color: audioTriggerObj && audioTriggerObj.noiseGateOpen ? "#33cc66" : "#cc3333"
+                        border.width: 1; border.color: "#000000"
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Text
+                    {
+                        visible: showFull
+                        text: qsTr("Gate")
+                        color: "#AAAAAA"
+                        font.pixelSize: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    // Volume
+                    Text
+                    {
+                        text: audioTriggerObj ?
+                              (showFull ? qsTr("Vol") + " " : "") + Math.round(audioTriggerObj.volumeNormalized * 100) + "%"
+                              : "--"
+                        color: "#AAAAAA"
+                        font.pixelSize: 10
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
             }
         }

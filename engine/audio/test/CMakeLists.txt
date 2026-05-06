@@ -1,0 +1,2 @@
+add_executable(aubio_smoke_test aubio_smoke_test.cpp)
+target_link_libraries(aubio_smoke_test PRIVATE qlcplusaubio)

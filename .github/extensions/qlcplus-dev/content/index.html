@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>QLC+ Dev</title>
+<link rel="stylesheet" href="style.css" />
+<script src="/__bridge.js"></script>
+</head>
+<body>
+  <main>
+    <h1>⚡ QLC+ Dev Dashboard</h1>
+
+    <div class="status-bar" id="status">
+      <span class="dot" id="dot"></span>
+      <span id="status-text">Checking…</span>
+    </div>
+
+    <div class="btn-grid">
+      <button id="btn-configure" onclick="doConfigure()">🔧 Configure</button>
+      <button id="btn-build" onclick="doBuild()">🏗️ Build</button>
+      <button id="btn-start" onclick="doStart()">▶️ Start</button>
+      <button id="btn-stop" onclick="doStop()">⏹️ Stop</button>
+      <button id="btn-restart" onclick="doRestart()">🔄 Restart</button>
+      <button id="btn-build-restart" class="primary" onclick="doBuildRestart()">🚀 Build &amp; Restart</button>
+    </div>
+
+    <details id="log-section">
+      <summary>Build Log</summary>
+      <pre id="log"></pre>
+    </details>
+  </main>
+
+  <script>
+    const dot = document.getElementById("dot");
+    const statusText = document.getElementById("status-text");
+    const logEl = document.getElementById("log");
+    const logSection = document.getElementById("log-section");
+
+    function setStatus(running, pid, building) {
+      if (building) {
+        dot.className = "dot building";
+        statusText.textContent = "Building…";
+      } else if (running) {
+        dot.className = "dot running";
+        statusText.textContent = `Running (PID ${pid})`;
+      } else {
+        dot.className = "dot stopped";
+        statusText.textContent = "Stopped";
+      }
+    }
+
+    function showLog(text) {
+      logEl.textContent = text;
+      logSection.open = true;
+    }
+
+    function disableAll(disabled) {
+      document.querySelectorAll("button").forEach(b => b.disabled = disabled);
+    }
+
+    async function refreshStatus() {
+      try {
+        const s = await copilot.getStatus();
+        setStatus(s.appRunning, s.appPid, s.building);
+      } catch {}
+    }
+
+    async function doConfigure() {
+      disableAll(true);
+      setStatus(false, null, true);
+      statusText.textContent = "Configuring CMake…";
+      const r = await copilot.configure();
+      showLog(r.log || "");
+      disableAll(false);
+      await refreshStatus();
+    }
+
+    async function doBuild() {
+      disableAll(true);
+      setStatus(false, null, true);
+      const r = await copilot.build();
+      showLog(r.log || "");
+      statusText.textContent = r.ok ? "✅ Build succeeded" : "❌ Build failed";
+      disableAll(false);
+      setTimeout(refreshStatus, 2000);
+    }
+
+    async function doStart() {
+      disableAll(true);
+      const r = await copilot.start();
+      if (r.ok) {
+        statusText.textContent = "Started!";
+      } else {
+        showLog(r.error || "Failed to start");
+      }
+      disableAll(false);
+      await refreshStatus();
+    }
+
+    async function doStop() {
+      disableAll(true);
+      const r = await copilot.stop();
+      if (!r.ok) showLog(r.error || "Failed to stop");
+      disableAll(false);
+      await refreshStatus();
+    }
+
+    async function doRestart() {
+      disableAll(true);
+      setStatus(false, null, true);
+      statusText.textContent = "Restarting…";
+      const r = await copilot.restart();
+      disableAll(false);
+      await refreshStatus();
+    }
+
+    async function doBuildRestart() {
+      disableAll(true);
+      setStatus(false, null, true);
+      statusText.textContent = "Building…";
+      const r = await copilot.buildAndRestart();
+      if (r.ok) {
+        showLog("Build succeeded, app started (PID " + r.pid + ")");
+      } else {
+        showLog(r.log || "Build failed");
+      }
+      disableAll(false);
+      await refreshStatus();
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+  </script>
+</body>
+</html>

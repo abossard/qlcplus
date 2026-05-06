@@ -61,27 +61,28 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.1);
+            lowsFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = now - lastTime;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        var lowsPower = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
+        var lowsPower = lowsFilter.update(audio.bands.low);
 
         var speed = algo.presetSpeed / 10.0;
         var sway = algo.presetSway / 5.0;
@@ -118,7 +119,7 @@ var testAlgo;
             // Apply brightness
             var bright = AudioParams.applyFloor(algo, Math.max(0, Math.min(1, v)));
 
-            var packed = LedFx.rgb(r * bright, g * bright, b * bright);
+            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

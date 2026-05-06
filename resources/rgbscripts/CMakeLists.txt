@@ -7,6 +7,7 @@ set(SCRIPT_FILES
     audiobuildup.js
     audioblocks.js
     audio_common.js
+    audiodsp.js
     audiochaser.js
     audiocrawler.js
     audioenergy.js
@@ -44,7 +45,6 @@ set(SCRIPT_FILES
     fireworks.js
     flyingobjects.js
     gradient.js
-    ledfx_compat.js
     lines.js
     marquee.js
     noise.js
@@ -59,6 +59,7 @@ set(SCRIPT_FILES
     randompixelperrowmulticolor.js
     randomrow.js
     randomsingle.js
+    rgbutil.js
     sinewave.js
     snowbubbles.js
     squares.js

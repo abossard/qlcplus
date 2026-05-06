@@ -48,9 +48,6 @@ var testAlgo;
     var color1 = [0, 255, 100];
     var color2 = [0, 100, 255];
     var color3 = [128, 0, 255];
-    var lowsFilter = null;
-    var midsFilter = null;
-    var highsFilter = null;
     var elapsedSec = 0;
     var lastTime = 0;
     var initialized = false;
@@ -65,33 +62,30 @@ var testAlgo;
             color3 = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(color1[0], color1[1], color1[2]),
-                LedFx.rgb(color2[0], color2[1], color2[2]),
-                LedFx.rgb(color3[0], color3[1], color3[2])];
+        return [RGBUtil.rgb(color1[0], color1[1], color1[2]),
+                RGBUtil.rgb(color2[0], color2[1], color2[2]),
+                RGBUtil.rgb(color3[0], color3[1], color3[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.03);
-            midsFilter = AudioParams.createFilter(algo, 0.03);
-            highsFilter = AudioParams.createFilter(algo, 0.03);
             lastTime = Date.now();
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var gain = AudioParams.gainFactor(algo);
-        var lows = lowsFilter.update(LedFx.lows_power(audio)) * gain;
-        var mids = midsFilter.update(LedFx.mids_power(audio)) * gain;
-        var highs = highsFilter.update(LedFx.high_power(audio)) * gain;
+        var lows = audio.bands.low;
+        var mids = audio.bands.mid;
+        var highs = audio.bands.high;
 
         var speed = algo.presetSpeed / 5.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -147,7 +141,7 @@ var testAlgo;
                     g *= floorScale;
                     b *= floorScale;
                 }
-                map[y][x] = LedFx.rgb(
+                map[y][x] = RGBUtil.rgb(
                     Math.min(255, r),
                     Math.min(255, g),
                     Math.min(255, b)

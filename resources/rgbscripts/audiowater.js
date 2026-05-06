@@ -72,12 +72,12 @@ var testAlgo;
         buf1[pos] = buf1[pos-1] = buf1[pos+1] = h;
     }
 
-    function doRipple(dampFactor, w) {
+    function doRipple(dampFactor, dtScale, w) {
         var src = (curBuf === 0) ? buf1 : buf0;
         var dst = (curBuf === 0) ? buf0 : buf1;
         for (var i = 1; i < w - 1; i++) {
             dst[i] = ((src[i-1] + src[i+1] + src[i] * 2) / 2) - dst[i];
-            dst[i] -= dst[i] / dampFactor;
+            dst[i] -= (dst[i] / dampFactor) * dtScale;
         }
         curBuf = 1 - curBuf;
     }
@@ -90,22 +90,23 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized || !buf0 || buf0.length !== width) init(width);
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
-        var gain = AudioParams.gainFactor(algo);
-        var thirds = LedFx.melbank_thirds(audio);
-        var bassIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.lows) * gain, 2));
-        var midsIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.mids) * gain, 2));
-        var highIntensity = Math.min(1, Math.pow(LedFx.avg(thirds.highs) * gain, 2));
+        var dtMs = (typeof audio.audioDtMs === "number" && audio.audioDtMs > 0) ? audio.audioDtMs : 40;
+        var dtScale = Math.max(0.25, Math.min(4.0, dtMs / 40.0));
+        var bassIntensity = Math.min(1, Math.pow(audio.bands.low, 2));
+        var midsIntensity = Math.min(1, Math.pow(audio.bands.mid, 2));
+        var highIntensity = Math.min(1, Math.pow(audio.bands.high, 2));
 
         // Create drops based on audio
         createDrop(1, bassIntensity * algo.presetBassSize, width);
@@ -126,7 +127,7 @@ var testAlgo;
         // Run ripple simulation
         var speedSteps = Math.max(1, Math.floor(algo.presetSpeed / 3));
         for (var s = 0; s < speedSteps; s++)
-            doRipple(dampFactor, width);
+            doRipple(dampFactor, dtScale, width);
 
         // Render: map water height to colors
         var current = (curBuf === 0) ? buf0 : buf1;
@@ -149,7 +150,7 @@ var testAlgo;
                 b = b + (255 - b) * whiteMix;
             }
 
-            var packed = LedFx.rgb(r * bright, g * bright, b * bright);
+            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

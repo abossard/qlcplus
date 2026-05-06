@@ -60,27 +60,28 @@ var testAlgo;
             endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
     };
     algo.rgbMapGetColors = function() {
-        return [LedFx.rgb(startColor[0], startColor[1], startColor[2]),
-                LedFx.rgb(endColor[0], endColor[1], endColor[2])];
+        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
+                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
     };
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = AudioParams.createFilter(algo, 0.05);
+            lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
 
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(LedFx.lows_power(audio)) * AudioParams.gainFactor(algo);
+        var power = lowsFilter.update(audio.bands.low);
         var speed = algo.presetSpeed / 5.0;
         angle += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -115,7 +116,7 @@ var testAlgo;
                 var g = startColor[1] + (endColor[1] - startColor[1]) * t;
                 var b = startColor[2] + (endColor[2] - startColor[2]) * t;
 
-                map[y][x] = LedFx.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
         }
 

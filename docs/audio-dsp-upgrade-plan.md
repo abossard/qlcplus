@@ -28,7 +28,7 @@ The final state should feel like a modern VJ/audio-reactive engine: stable in qu
 | `rgbMap(width, height, rgb, step, audio)` receives `{ spectrum, volume, beat, bpm, maxMagnitude }`. | We already have a transport path; we should enrich it, not create a second one. |
 | `audio.spectrum` is 32 log-spaced bands from 40 Hz to 5000 Hz, normalized per frame. | It is useful for spectral shape, not absolute loudness. |
 | `audio.volume` is attack/release-smoothed signal power. | It is the better basis for AGC and global energy. |
-| Current `LedFx.lows_power()`, `mids_power()`, `high_power()`, and `melbank_thirds()` split the log bands into equal thirds. | These helpers are the main primitive math to remove. |
+| Current `LedFx.lows_power()`, `mids_power()`, `high_power()`, and `melbank_thirds()` split the log-spaced bands at log-frequency crossover ratios (~250 Hz and ~2000 Hz). | These compatibility helpers still expose the old LedFx-style API surface that the migration should remove. |
 | `AudioCapture` runs on its own QThread, emits `dataProcessed(double*, int, double, quint32)`. | Analyzer must receive richer internal data, not just the signal — `dataProcessed()` lacks raw RMS/peak/FFT bins. |
 | `AudioCapture` has per-consumer band tracking via `registerBandsNumber(N)` with ref-counting. | Variable-band support must be preserved for VCAudioTrigger. |
 | `VCAudioTrigger` does its own normalize/smooth/threshold in C++ (`slotSpectrumDataChanged()`). | Duplicates DSP that should live in the shared `AudioAnalyzer`. |
@@ -182,7 +182,7 @@ The exploratory helpers previously added to `AudioParams` were removed before an
 | Removed helper | Why it was removed | Replacement direction |
 | --- | --- | --- |
 | `AudioParams.adaptiveGain(algo, spectrum)` | It used RMS of `audio.spectrum`, but QLC+ normalizes `audio.spectrum` per frame, so the value mostly describes spectral shape rather than real loudness. | C++ `AudioChannel` AGC using raw `rmsDb` from `AudioFrame`, noise floor, and capped gain. |
-| `AudioParams.logScaleBands(spectrum)` | It assumed linear FFT bins, while C++ already provides log-spaced bands. The chosen ranges also made low too narrow and high too broad. | C++ `AudioAnalyzer` perceptual band grouping with verified frequency ranges. |
+| `AudioParams.logScaleBands(spectrum)` | It applies linear-index resampling over the source band array. With QLC+'s already log-spaced spectrum, that cannot re-run AudioCapture's Hz-based log-frequency banding formula for a new band count. | C++ `AudioAnalyzer` perceptual band grouping with verified frequency ranges. |
 | `AudioParams.frameNormalizedDecay(decayMs, frameMs)` | It returned an interpolation alpha, not a decayed value. The name invited misuse in ported scripts. | C++ `AudioChannel` envelope smoothing using `audioDtMs` and `alpha = 1 - exp(-dt/tau)`. |
 | `AudioParams.softSaturate(value, threshold)` | It could return values above `1.0`, which is ambiguous for normalized brightness helpers. | C++ soft-knee compression in `AudioChannel` with documented output range `[0, 1]`. |
 | `AudioParams.hysteresisTrigger(algo, state, value)` | It used static thresholds and returned only gate state, not one-shot edges. | C++ trigger state machine in `AudioChannel` with Schmitt hysteresis, hold, cooldown, `firedThisFrame`, and `active`. |

@@ -58,10 +58,6 @@ var testAlgo;
 
     function initFilters()
     {
-        var decay = algo.presetReactivity / 10.0;
-        lowsFilter  = AudioParams.createFilter(algo, decay);
-        midsFilter  = AudioParams.createFilter(algo, decay);
-        highsFilter = AudioParams.createFilter(algo, decay);
         initialized = true;
     }
 
@@ -88,11 +84,12 @@ var testAlgo;
     algo.rgbMapGetColors = function()
     {
         return [
-            LedFx.rgb(lowsColor[0], lowsColor[1], lowsColor[2]),
-            LedFx.rgb(midsColor[0], midsColor[1], midsColor[2]),
-            LedFx.rgb(highsColor[0], highsColor[1], highsColor[2])
+            RGBUtil.rgb(lowsColor[0], lowsColor[1], lowsColor[2]),
+            RGBUtil.rgb(midsColor[0], midsColor[1], midsColor[2]),
+            RGBUtil.rgb(highsColor[0], highsColor[1], highsColor[2])
         ];
     };
+
 
     /**
      * Main render function.
@@ -106,22 +103,16 @@ var testAlgo;
     {
         if (!initialized) initFilters();
 
-        var map = LedFx.createMap(width, height);
+        var map = RGBUtil.createMap(width, height);
 
         // If no audio data, return black
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0)
+        if (!audio || !audio.mel || audio.mel.length === 0)
             return map;
 
         // Get frequency band powers
-        var gain = AudioParams.gainFactor(algo);
-        var rawLows = LedFx.lows_power(audio) * gain;
-        var rawMids = LedFx.mids_power(audio) * gain;
-        var rawHighs = LedFx.high_power(audio) * gain;
-
-        // Apply smoothing
-        var lows = lowsFilter.update(rawLows);
-        var mids = midsFilter.update(rawMids);
-        var highs = highsFilter.update(rawHighs);
+        var lows = audio.bands.low;
+        var mids = audio.bands.mid;
+        var highs = audio.bands.high;
 
         // Calculate how many columns each band fills (from left)
         var multiplier = algo.presetMultiplier / 10.0;
@@ -161,7 +152,7 @@ var testAlgo;
                 }
 
                 var brightness = (r > 0 || g > 0 || b > 0) ? AudioParams.applyFloor(algo, 1.0) : 0;
-                map[y][x] = LedFx.rgb(r * brightness, g * brightness, b * brightness);
+                map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             }
         }
 

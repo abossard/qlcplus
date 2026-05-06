@@ -82,31 +82,19 @@ var testAlgo;
     }
 
     function initState() {
-        if (!algo.bassFilter) algo.bassFilter = AudioParams.createFilter(algo, 0.3);
-        if (!algo.midsFilter) algo.midsFilter = AudioParams.createFilter(algo, 0.3);
-        if (!algo.highsFilter) algo.highsFilter = AudioParams.createFilter(algo, 0.3);
         if (algo.currentHue === null) algo.currentHue = 0.0;
     }
+
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         initState();
 
-        var map = LedFx.createMap(width, height);
-        var gain = AudioParams.gainFactor(algo);
-        var bass = 0;
-        var mids = 0;
-        var highs = 0;
-
-        if (audio && audio.spectrum && audio.spectrum.length > 0) {
-            bass = algo.bassFilter.update(LedFx.lows_power(audio)) * gain;
-            mids = algo.midsFilter.update(LedFx.mids_power(audio)) * gain;
-            highs = algo.highsFilter.update(LedFx.high_power(audio)) * gain;
-        } else {
-            bass = algo.bassFilter.update(0) * gain;
-            mids = algo.midsFilter.update(0) * gain;
-            highs = algo.highsFilter.update(0) * gain;
-        }
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        var bass = audio.bands.low;
+        var mids = audio.bands.mid;
+        var highs = audio.bands.high;
 
         var totalPower = bass + mids + highs + 0.001;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
@@ -125,8 +113,8 @@ var testAlgo;
                 var wave = Math.sin(x * 0.3 + y * 0.2 + step * 0.05) * waveScale;
                 var pixelHue = wrapHue(algo.currentHue + wave);
                 var pixelBri = AudioParams.applyFloor(algo, clamp(brightness + wave * 0.2, minBrightness, 1.0));
-                var color = LedFx.hsv2rgb(pixelHue, saturation, pixelBri);
-                map[y][x] = LedFx.rgb(color[0], color[1], color[2]);
+                var color = RGBUtil.hsv2rgb(pixelHue, saturation, pixelBri);
+                map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
             }
         }
 

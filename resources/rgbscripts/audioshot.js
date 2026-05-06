@@ -95,11 +95,13 @@ var testAlgo;
         return [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
     }
 
+
+
     function spawnShot(width, height) {
         var r, g, b;
         if (algo.presetColorMode === 0) {
             // Random vibrant color via HSV
-            var c = LedFx.hsv2rgb(Math.random(), 0.8 + Math.random() * 0.2, 1);
+            var c = RGBUtil.hsv2rgb(Math.random(), 0.8 + Math.random() * 0.2, 1);
             r = c[0]; g = c[1]; b = c[2];
         } else if (algo.presetColorMode === 1) {
             // Cycle through palette colors
@@ -126,17 +128,15 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = LedFx.createMap(width, height);
-        if (!audio || !audio.spectrum || audio.spectrum.length === 0) return map;
+        var map = RGBUtil.createMap(width, height);
+        if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         // Check trigger
         var trigger = false;
-        var gain = AudioParams.gainFactor(algo);
-        var thresh = AudioParams.triggerThreshold(algo);
-        if (algo.presetTrigger === 0) trigger = audio.beat;
-        else if (algo.presetTrigger === 1) trigger = LedFx.lows_power(audio) * gain > thresh;
-        else if (algo.presetTrigger === 2) trigger = LedFx.mids_power(audio) * gain > thresh;
-        else trigger = LedFx.high_power(audio) * gain > thresh;
+        if (algo.presetTrigger === 0) trigger = audio.triggers.beat.firedThisFrame;
+        else if (algo.presetTrigger === 1) trigger = audio.triggers.bass.firedThisFrame;
+        else if (algo.presetTrigger === 2) trigger = audio.triggers.mid.firedThisFrame;
+        else trigger = audio.triggers.high.firedThisFrame;
 
         if (trigger) spawnShot(width, height);
 
@@ -173,7 +173,7 @@ var testAlgo;
                     var eg = (existing >> 8) & 0xFF;
                     var eb = existing & 0xFF;
 
-                    map[py][px] = LedFx.rgb(
+                    map[py][px] = RGBUtil.rgb(
                         Math.min(255, er + shot.r * falloff),
                         Math.min(255, eg + shot.g * falloff),
                         Math.min(255, eb + shot.b * falloff)
