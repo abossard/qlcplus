@@ -102,6 +102,23 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double tssBeta READ tssBeta NOTIFY configChanged)
     Q_PROPERTY(double tssThreshold READ tssThreshold NOTIFY configChanged)
 
+    // New aubio config (phase vocoder, mel filterbank, onset extras, tempo
+    // delay, note detection, MFCC).
+    Q_PROPERTY(QString windowType READ windowType NOTIFY configChanged)
+    Q_PROPERTY(QString melScale READ melScale NOTIFY configChanged)
+    Q_PROPERTY(bool onsetAdaptiveWhitening READ onsetAdaptiveWhitening NOTIFY configChanged)
+    Q_PROPERTY(double onsetCompressionLambda READ onsetCompressionLambda NOTIFY configChanged)
+    Q_PROPERTY(double tempoDelayMs READ tempoDelayMs NOTIFY configChanged)
+    Q_PROPERTY(double noteSilenceDb READ noteSilenceDb NOTIFY configChanged)
+    Q_PROPERTY(double noteMinIntervalMs READ noteMinIntervalMs NOTIFY configChanged)
+    Q_PROPERTY(double noteReleaseDropDb READ noteReleaseDropDb NOTIFY configChanged)
+    Q_PROPERTY(double mfccPower READ mfccPower NOTIFY configChanged)
+    Q_PROPERTY(double mfccScale READ mfccScale NOTIFY configChanged)
+    Q_PROPERTY(QVariantList onsetMethodsEnabled READ onsetMethodsEnabled NOTIFY configChanged)
+
+    Q_PROPERTY(int windowSize READ windowSizeConst CONSTANT)
+    Q_PROPERTY(int hopSize READ hopSizeConst CONSTANT)
+
     Q_PROPERTY(double volumeRaw READ volumeRaw NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double volumeSmoothedValue READ volumeSmoothedValue NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double volumeNormalized READ volumeNormalized NOTIFY audioSnapshotChanged)
@@ -128,6 +145,18 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(int tssBinCount READ tssBinCount NOTIFY audioSnapshotChanged)
     Q_PROPERTY(QVariantList melSpectrum READ melSpectrum NOTIFY audioSnapshotChanged)
     Q_PROPERTY(QVariantList mfccCoeffs READ mfccCoeffs NOTIFY audioSnapshotChanged)
+
+    // Per-method onset descriptor diagnostics (raw aubio_onset_get_descriptor /
+    // aubio_onset_get_thresholded_descriptor outputs). Same 9-entry order as
+    // onsetFlags. Useful for tuning per-method thresholds in the UI.
+    Q_PROPERTY(QVariantList onsetDescriptorValues READ onsetDescriptorValues NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList onsetThresholdedValues READ onsetThresholdedValues NOTIFY audioSnapshotChanged)
+
+    // Note detection snapshot (raw aubio_notes_do output via the snapshot).
+    Q_PROPERTY(double noteMidi READ noteMidi NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double noteVelocity READ noteVelocity NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(bool noteOn READ noteOn NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(bool noteOff READ noteOff NOTIFY audioSnapshotChanged)
 
     // Mel band crossover indices (for QML coloring)
     Q_PROPERTY(int melCrossSub READ melCrossSub NOTIFY configChanged)
@@ -238,6 +267,21 @@ public:
     double tssAlpha() const;
     double tssBeta() const;
     double tssThreshold() const;
+
+    QString windowType() const;
+    QString melScale() const;
+    bool onsetAdaptiveWhitening() const;
+    double onsetCompressionLambda() const;
+    double tempoDelayMs() const;
+    double noteSilenceDb() const;
+    double noteMinIntervalMs() const;
+    double noteReleaseDropDb() const;
+    double mfccPower() const;
+    double mfccScale() const;
+    QVariantList onsetMethodsEnabled() const;
+
+    int windowSizeConst() const { return 1024; }
+    int hopSizeConst() const { return 512; }
 
     double pitchHz() const;
     double pitchConfidence() const;
