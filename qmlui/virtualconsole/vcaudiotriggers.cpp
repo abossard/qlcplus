@@ -533,6 +533,35 @@ double VCAudioTriggers::tssAlpha() const { return profileChannelConfig().aubio.t
 double VCAudioTriggers::tssBeta() const { return profileChannelConfig().aubio.tssBeta; }
 double VCAudioTriggers::tssThreshold() const { return profileChannelConfig().aubio.tssThreshold; }
 
+QString VCAudioTriggers::windowType() const { return profileChannelConfig().aubio.windowType; }
+QString VCAudioTriggers::melScale() const { return profileChannelConfig().aubio.melScale; }
+bool VCAudioTriggers::onsetAdaptiveWhitening() const { return profileChannelConfig().aubio.onsetAdaptiveWhitening; }
+double VCAudioTriggers::onsetCompressionLambda() const { return profileChannelConfig().aubio.onsetCompressionLambda; }
+double VCAudioTriggers::tempoDelayMs() const { return profileChannelConfig().aubio.tempoDelayMs; }
+double VCAudioTriggers::noteSilenceDb() const { return profileChannelConfig().aubio.noteSilenceDb; }
+double VCAudioTriggers::noteMinIntervalMs() const { return profileChannelConfig().aubio.noteMinIntervalMs; }
+double VCAudioTriggers::noteReleaseDropDb() const { return profileChannelConfig().aubio.noteReleaseDropDb; }
+double VCAudioTriggers::mfccPower() const { return profileChannelConfig().aubio.mfccPower; }
+double VCAudioTriggers::mfccScale() const { return profileChannelConfig().aubio.mfccScale; }
+
+QVariantList VCAudioTriggers::onsetMethodsEnabled() const
+{
+    const AubioConfig &cfg = profileChannelConfig().aubio;
+    QVariantList list;
+    list.reserve(9);
+    for (int i = 0; i < 9; i++)
+        list.append(cfg.onsetMethodEnabled[i]);
+    return list;
+}
+
+double VCAudioTriggers::noteMidi() const { return m_cachedSnapshot.note.midi; }
+double VCAudioTriggers::noteVelocity() const { return m_cachedSnapshot.note.velocity; }
+bool VCAudioTriggers::noteOn() const { return m_cachedSnapshot.note.noteOn; }
+bool VCAudioTriggers::noteOff() const { return m_cachedSnapshot.note.noteOff; }
+
+QVariantList VCAudioTriggers::onsetDescriptorValues() const { return m_onsetDescriptorCache; }
+QVariantList VCAudioTriggers::onsetThresholdedValues() const { return m_onsetThresholdedCache; }
+
 double VCAudioTriggers::pitchHz() const { return m_cachedSnapshot.pitch.hz; }
 double VCAudioTriggers::pitchConfidence() const { return m_cachedSnapshot.pitch.confidence; }
 double VCAudioTriggers::detectedBpm() const { return m_cachedSnapshot.music.bpm; }
@@ -755,6 +784,128 @@ void VCAudioTriggers::setTempoThreshold(double value)
     if (qFuzzyCompare(config.aubio.tempoThreshold + 1.0, value + 1.0))
         return;
     config.aubio.tempoThreshold = value;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setWindowType(const QString &type)
+{
+    static const QStringList kAllowed = {
+        QStringLiteral("default"),    QStringLiteral("rectangle"),
+        QStringLiteral("hamming"),    QStringLiteral("hanning"),
+        QStringLiteral("hanningz"),   QStringLiteral("blackman"),
+        QStringLiteral("blackman_harris"), QStringLiteral("gaussian"),
+        QStringLiteral("welch"),      QStringLiteral("parzen")
+    };
+    QString sanitized = kAllowed.contains(type) ? type : QStringLiteral("default");
+    AudioChannelConfig config = profileChannelConfig();
+    if (config.aubio.windowType == sanitized)
+        return;
+    config.aubio.windowType = sanitized;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelScale(const QString &scale)
+{
+    QString sanitized = scale;
+    if (sanitized.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
+        && sanitized.compare(QStringLiteral("slaney"), Qt::CaseInsensitive) != 0)
+    {
+        sanitized = QStringLiteral("slaney");
+    }
+    AudioChannelConfig config = profileChannelConfig();
+    if (config.aubio.melScale == sanitized)
+        return;
+    config.aubio.melScale = sanitized;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setOnsetAdaptiveWhitening(bool enabled)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    if (config.aubio.onsetAdaptiveWhitening == enabled)
+        return;
+    config.aubio.onsetAdaptiveWhitening = enabled;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setOnsetCompressionLambda(double lambda)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    lambda = qBound(0.0, lambda, 100.0);
+    if (qFuzzyCompare(config.aubio.onsetCompressionLambda + 1.0, lambda + 1.0))
+        return;
+    config.aubio.onsetCompressionLambda = lambda;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setTempoDelayMs(double ms)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    ms = qBound(-1000.0, ms, 1000.0);
+    if (qFuzzyCompare(config.aubio.tempoDelayMs + 1.0, ms + 1.0))
+        return;
+    config.aubio.tempoDelayMs = ms;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setNoteSilenceDb(double db)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    db = qBound(-120.0, db, 0.0);
+    if (qFuzzyCompare(config.aubio.noteSilenceDb + 1.0, db + 1.0))
+        return;
+    config.aubio.noteSilenceDb = db;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setNoteMinIntervalMs(double ms)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    ms = qBound(0.0, ms, 5000.0);
+    if (qFuzzyCompare(config.aubio.noteMinIntervalMs + 1.0, ms + 1.0))
+        return;
+    config.aubio.noteMinIntervalMs = ms;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setNoteReleaseDropDb(double db)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    db = qBound(0.0, db, 120.0);
+    if (qFuzzyCompare(config.aubio.noteReleaseDropDb + 1.0, db + 1.0))
+        return;
+    config.aubio.noteReleaseDropDb = db;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMfccPower(double power)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    power = qBound(0.0, power, 8.0);
+    if (qFuzzyCompare(config.aubio.mfccPower + 1.0, power + 1.0))
+        return;
+    config.aubio.mfccPower = power;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMfccScale(double scale)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    scale = qBound(0.0, scale, 1000.0);
+    if (qFuzzyCompare(config.aubio.mfccScale + 1.0, scale + 1.0))
+        return;
+    config.aubio.mfccScale = scale;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setOnsetMethodEnabled(int idx, bool enabled)
+{
+    if (idx < 0 || idx >= 9)
+        return;
+    AudioChannelConfig config = profileChannelConfig();
+    if (config.aubio.onsetMethodEnabled[idx] == enabled)
+        return;
+    config.aubio.onsetMethodEnabled[idx] = enabled;
     applyChannelConfig(config);
 }
 
@@ -1024,6 +1175,16 @@ void VCAudioTriggers::updateAudioProfileSnapshotPowers()
     m_mfccCoeffsCache.reserve(AUBIO_MFCC_COEFFS);
     for (int i = 0; i < AUBIO_MFCC_COEFFS; ++i)
         m_mfccCoeffsCache.append(m_cachedSnapshot.mfcc[i]);
+
+    m_onsetDescriptorCache.clear();
+    m_onsetDescriptorCache.reserve(AUBIO_ONSET_METHODS);
+    m_onsetThresholdedCache.clear();
+    m_onsetThresholdedCache.reserve(AUBIO_ONSET_METHODS);
+    for (int i = 0; i < AUBIO_ONSET_METHODS; ++i)
+    {
+        m_onsetDescriptorCache.append(m_cachedSnapshot.onsets.descriptors[i]);
+        m_onsetThresholdedCache.append(m_cachedSnapshot.onsets.thresholdedDescriptors[i]);
+    }
 
     emit audioSnapshotChanged();
 }

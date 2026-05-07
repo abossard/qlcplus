@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <QStringList>
 
 static const char *kOnsetMethods[9] = {
     "energy", "hfc", "complex", "phase", "wphase",

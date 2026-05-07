@@ -294,6 +294,12 @@ public:
     QVariantList onsetFlags() const;
     QVariantList melSpectrum() const;
     QVariantList mfccCoeffs() const;
+    QVariantList onsetDescriptorValues() const;
+    QVariantList onsetThresholdedValues() const;
+    double noteMidi() const;
+    double noteVelocity() const;
+    bool noteOn() const;
+    bool noteOff() const;
 
     int melCrossSub() const;
     int melCrossBass() const;
@@ -343,6 +349,18 @@ public:
     Q_INVOKABLE void setTssAlpha(double value);
     Q_INVOKABLE void setTssBeta(double value);
     Q_INVOKABLE void setTssThreshold(double value);
+
+    Q_INVOKABLE void setWindowType(const QString &type);
+    Q_INVOKABLE void setMelScale(const QString &scale);
+    Q_INVOKABLE void setOnsetAdaptiveWhitening(bool enabled);
+    Q_INVOKABLE void setOnsetCompressionLambda(double lambda);
+    Q_INVOKABLE void setTempoDelayMs(double ms);
+    Q_INVOKABLE void setNoteSilenceDb(double db);
+    Q_INVOKABLE void setNoteMinIntervalMs(double ms);
+    Q_INVOKABLE void setNoteReleaseDropDb(double db);
+    Q_INVOKABLE void setMfccPower(double power);
+    Q_INVOKABLE void setMfccScale(double scale);
+    Q_INVOKABLE void setOnsetMethodEnabled(int idx, bool enabled);
 
     Q_INVOKABLE void resetProfileToDefaults();
     Q_INVOKABLE void deleteCurrentProfile();
@@ -403,6 +421,8 @@ private:
     QVariantList m_triggerStatesCache;
     QVariantList m_melSpectrumCache;
     QVariantList m_mfccCoeffsCache;
+    QVariantList m_onsetDescriptorCache;
+    QVariantList m_onsetThresholdedCache;
     AudioProfileListModel *m_profileListModel = nullptr;
 
     /*********************************************************************
