@@ -313,6 +313,18 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.pitchMethod = stringAttribute(childAttrs,
                                                        KXMLQLCAudioProfileAubioPitchMethod,
                                                        config.aubio.pitchMethod);
+            // Validate pitchMethod against aubio's accepted set; fall back
+            // to the default ("yinfft") if the stored XML is corrupt.
+            {
+                static const QStringList kPitchMethods = {
+                    QStringLiteral("yinfft"), QStringLiteral("yin"),
+                    QStringLiteral("yinfast"), QStringLiteral("schmitt"),
+                    QStringLiteral("fcomb"), QStringLiteral("mcomb"),
+                    QStringLiteral("specacf"), QStringLiteral("default")
+                };
+                if (!kPitchMethods.contains(config.aubio.pitchMethod))
+                    config.aubio.pitchMethod = QStringLiteral("yinfft");
+            }
             config.aubio.pitchSilenceDb = doubleAttribute(childAttrs,
                                                           KXMLQLCAudioProfileAubioPitchSilenceDb,
                                                           config.aubio.pitchSilenceDb);
@@ -331,6 +343,70 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.tssThreshold = doubleAttribute(childAttrs,
                                                         KXMLQLCAudioProfileAubioTssThreshold,
                                                         config.aubio.tssThreshold);
+
+            // New aubio params (added in Version 1+; missing attributes use
+            // in-class struct defaults for backward compat with older XML).
+            config.aubio.windowType = stringAttribute(childAttrs,
+                                                      KXMLQLCAudioProfileAubioWindowType,
+                                                      config.aubio.windowType);
+            {
+                static const QStringList kWindowTypes = {
+                    QStringLiteral("default"),    QStringLiteral("rectangle"),
+                    QStringLiteral("hamming"),    QStringLiteral("hanning"),
+                    QStringLiteral("hanningz"),   QStringLiteral("blackman"),
+                    QStringLiteral("blackman_harris"), QStringLiteral("gaussian"),
+                    QStringLiteral("welch"),      QStringLiteral("parzen")
+                };
+                if (!kWindowTypes.contains(config.aubio.windowType))
+                    config.aubio.windowType = QStringLiteral("default");
+            }
+            config.aubio.melScale = stringAttribute(childAttrs,
+                                                    KXMLQLCAudioProfileAubioMelScale,
+                                                    config.aubio.melScale);
+            if (config.aubio.melScale.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
+                && config.aubio.melScale.compare(QStringLiteral("slaney"), Qt::CaseInsensitive) != 0)
+            {
+                config.aubio.melScale = QStringLiteral("slaney");
+            }
+            config.aubio.onsetAdaptiveWhitening = boolFromString(
+                stringAttribute(childAttrs,
+                                KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening,
+                                config.aubio.onsetAdaptiveWhitening ? KXMLQLCTrue : KXMLQLCFalse),
+                config.aubio.onsetAdaptiveWhitening);
+            config.aubio.onsetCompressionLambda = doubleAttribute(childAttrs,
+                                                                  KXMLQLCAudioProfileAubioOnsetCompressionLambda,
+                                                                  config.aubio.onsetCompressionLambda);
+            // Per-method enable bitmask: stored as a 9-character string of
+            // '1'/'0' (energy first ... specflux last). Missing or wrong-length
+            // attribute -> keep struct defaults (all enabled).
+            {
+                const QString mask = stringAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileAubioOnsetMethodsEnabled,
+                                                     QString());
+                if (mask.length() == 9)
+                {
+                    for (int i = 0; i < 9; i++)
+                        config.aubio.onsetMethodEnabled[i] = (mask.at(i) != QLatin1Char('0'));
+                }
+            }
+            config.aubio.tempoDelayMs = doubleAttribute(childAttrs,
+                                                        KXMLQLCAudioProfileAubioTempoDelayMs,
+                                                        config.aubio.tempoDelayMs);
+            config.aubio.noteSilenceDb = doubleAttribute(childAttrs,
+                                                         KXMLQLCAudioProfileAubioNoteSilenceDb,
+                                                         config.aubio.noteSilenceDb);
+            config.aubio.noteMinIntervalMs = doubleAttribute(childAttrs,
+                                                             KXMLQLCAudioProfileAubioNoteMinIntervalMs,
+                                                             config.aubio.noteMinIntervalMs);
+            config.aubio.noteReleaseDropDb = doubleAttribute(childAttrs,
+                                                             KXMLQLCAudioProfileAubioNoteReleaseDropDb,
+                                                             config.aubio.noteReleaseDropDb);
+            config.aubio.mfccPower = doubleAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileAubioMfccPower,
+                                                     config.aubio.mfccPower);
+            config.aubio.mfccScale = doubleAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileAubioMfccScale,
+                                                     config.aubio.mfccScale);
             root.skipCurrentElement();
         }
         else
@@ -389,6 +465,26 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssAlpha, QString::number(m_config.aubio.tssAlpha));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssBeta, QString::number(m_config.aubio.tssBeta));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssThreshold, QString::number(m_config.aubio.tssThreshold));
+
+    doc->writeAttribute(KXMLQLCAudioProfileAubioWindowType, m_config.aubio.windowType);
+    doc->writeAttribute(KXMLQLCAudioProfileAubioMelScale, m_config.aubio.melScale);
+    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening,
+                        m_config.aubio.onsetAdaptiveWhitening ? KXMLQLCTrue : KXMLQLCFalse);
+    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetCompressionLambda,
+                        QString::number(m_config.aubio.onsetCompressionLambda));
+    {
+        QString mask;
+        mask.reserve(9);
+        for (int i = 0; i < 9; i++)
+            mask.append(m_config.aubio.onsetMethodEnabled[i] ? QLatin1Char('1') : QLatin1Char('0'));
+        doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetMethodsEnabled, mask);
+    }
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDelayMs, QString::number(m_config.aubio.tempoDelayMs));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteSilenceDb, QString::number(m_config.aubio.noteSilenceDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteMinIntervalMs, QString::number(m_config.aubio.noteMinIntervalMs));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteReleaseDropDb, QString::number(m_config.aubio.noteReleaseDropDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccPower, QString::number(m_config.aubio.mfccPower));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccScale, QString::number(m_config.aubio.mfccScale));
 
     doc->writeEndElement();
     return true;

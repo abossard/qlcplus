@@ -85,6 +85,17 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioTssAlpha        QStringLiteral("TssAlpha")
 #define KXMLQLCAudioProfileAubioTssBeta         QStringLiteral("TssBeta")
 #define KXMLQLCAudioProfileAubioTssThreshold    QStringLiteral("TssThreshold")
+#define KXMLQLCAudioProfileAubioWindowType      QStringLiteral("WindowType")
+#define KXMLQLCAudioProfileAubioMelScale        QStringLiteral("MelScale")
+#define KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening QStringLiteral("OnsetAdaptiveWhitening")
+#define KXMLQLCAudioProfileAubioOnsetCompressionLambda QStringLiteral("OnsetCompressionLambda")
+#define KXMLQLCAudioProfileAubioOnsetMethodsEnabled QStringLiteral("OnsetMethodsEnabled")
+#define KXMLQLCAudioProfileAubioTempoDelayMs    QStringLiteral("TempoDelayMs")
+#define KXMLQLCAudioProfileAubioNoteSilenceDb   QStringLiteral("NoteSilenceDb")
+#define KXMLQLCAudioProfileAubioNoteMinIntervalMs QStringLiteral("NoteMinIntervalMs")
+#define KXMLQLCAudioProfileAubioNoteReleaseDropDb QStringLiteral("NoteReleaseDropDb")
+#define KXMLQLCAudioProfileAubioMfccPower       QStringLiteral("MfccPower")
+#define KXMLQLCAudioProfileAubioMfccScale       QStringLiteral("MfccScale")
 
 class AudioProfile : public QObject
 {

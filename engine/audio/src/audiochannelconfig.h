@@ -85,6 +85,38 @@ struct AubioConfig
     double tssAlpha = 3.0;             // aubio_tss_set_alpha
     double tssBeta = 3.0;              // aubio_tss_set_beta
     double tssThreshold = 0.25;        // aubio_tss_set_threshold
+
+    // Phase vocoder window type — aubio_pvoc_set_window().
+    // Accepted: "default", "rectangle", "hamming", "hanning", "hanningz",
+    // "blackman", "blackman_harris", "gaussian", "welch", "parzen". Changing
+    // requires a full rebuild (window is baked into the pvoc internals).
+    QString windowType = QStringLiteral("default");
+
+    // Mel filterbank scale — selects between
+    // aubio_filterbank_set_mel_coeffs_slaney() and *_htk(). "slaney" or "htk".
+    // Changing requires a full rebuild.
+    QString melScale = QStringLiteral("slaney");
+
+    // Onset — aubio_onset_set_awhitening / set_compression.
+    bool onsetAdaptiveWhitening = false;
+    double onsetCompressionLambda = 0.0;
+    // Per-method enable. Indices match kOnsetMethods[]:
+    // 0=energy, 1=hfc, 2=complex, 3=phase, 4=wphase,
+    // 5=specdiff, 6=kl, 7=mkl, 8=specflux. Toggling triggers a targeted
+    // create/destroy of the affected onset detector(s) only.
+    bool onsetMethodEnabled[9] = { true, true, true, true, true, true, true, true, true };
+
+    // Tempo — aubio_tempo_set_delay_ms.
+    double tempoDelayMs = 0.0;
+
+    // Note detection — aubio_notes_set_*.
+    double noteSilenceDb = -70.0;
+    double noteMinIntervalMs = 30.0;
+    double noteReleaseDropDb = 10.0;
+
+    // MFCC — aubio_mfcc_set_power / set_scale.
+    double mfccPower = 1.0;
+    double mfccScale = 1.0;
 };
 
 struct AudioChannelConfig

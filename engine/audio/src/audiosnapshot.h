@@ -90,6 +90,11 @@ struct AudioSnapshot
         bool kl = false;
         bool mkl = false;
         bool specflux = false;
+        // Diagnostic outputs from aubio_onset_get_descriptor /
+        // aubio_onset_get_thresholded_descriptor. Indexed in the same order
+        // as the boolean fields above (energy=0 ... specflux=8).
+        double descriptors[AUBIO_ONSET_METHODS] = {};
+        double thresholdedDescriptors[AUBIO_ONSET_METHODS] = {};
     } onsets;
 
     struct

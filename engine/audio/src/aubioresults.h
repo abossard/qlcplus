@@ -48,7 +48,8 @@ struct AubioResults
     double beatPhase = 0.0;
 
     // Onset detection (9 methods) — last hop, raw aubio_onset_do output.
-    // No vote count, no OR-across-hops aggregation.
+    // OR-aggregated across all hops in a process() pass: if any hop fires the
+    // detector, the flag stays true for the whole pass.
     struct {
         bool energy = false;
         bool hfc = false;
@@ -60,6 +61,12 @@ struct AubioResults
         bool mkl = false;
         bool specflux = false;
     } onsets;
+
+    // Onset diagnostics (last hop wins) — raw aubio_onset_get_descriptor /
+    // aubio_onset_get_thresholded_descriptor outputs, indexed by detector
+    // (same order as the onsets struct above).
+    double onsetDescriptors[AUBIO_ONSET_METHODS] = {};
+    double onsetThresholdedDescriptors[AUBIO_ONSET_METHODS] = {};
 
     // Notes — raw aubio_notes_do output.
     double noteMidi = 0.0;

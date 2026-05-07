@@ -229,6 +229,11 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         snap.onsets.kl = a.onsets.kl;
         snap.onsets.mkl = a.onsets.mkl;
         snap.onsets.specflux = a.onsets.specflux;
+        for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
+        {
+            snap.onsets.descriptors[i] = a.onsetDescriptors[i];
+            snap.onsets.thresholdedDescriptors[i] = a.onsetThresholdedDescriptors[i];
+        }
 
         snap.pitch.hz = a.pitchHz;
         snap.pitch.confidence = a.pitchConfidence;

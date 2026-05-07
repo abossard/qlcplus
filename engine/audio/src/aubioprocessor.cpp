@@ -9,6 +9,43 @@ static const char *kOnsetMethods[9] = {
     "specdiff", "kl", "mkl", "specflux"
 };
 
+namespace {
+
+// Validate a window-type string. aubio_pvoc_set_window accepts a fixed list;
+// fall back to "default" so an XML/QML typo cannot brick the pvoc.
+QByteArray sanitizedWindowType(const QString &name)
+{
+    static const QStringList kAllowed = {
+        QStringLiteral("default"),    QStringLiteral("rectangle"),
+        QStringLiteral("hamming"),    QStringLiteral("hanning"),
+        QStringLiteral("hanningz"),   QStringLiteral("blackman"),
+        QStringLiteral("blackman_harris"), QStringLiteral("gaussian"),
+        QStringLiteral("welch"),      QStringLiteral("parzen")
+    };
+    if (kAllowed.contains(name))
+        return name.toUtf8();
+    return QByteArrayLiteral("default");
+}
+
+bool isHtkMelScale(const QString &name)
+{
+    return name.compare(QStringLiteral("htk"), Qt::CaseInsensitive) == 0;
+}
+
+void applyOnsetParams(aubio_onset_t *onset, const AubioConfig &cfg)
+{
+    if (!onset) return;
+    aubio_onset_set_threshold(onset, cfg.onsetThreshold);
+    aubio_onset_set_minioi_ms(onset, cfg.onsetMinIntervalMs);
+    aubio_onset_set_silence(onset, cfg.onsetSilenceDb);
+    if (cfg.onsetDelayMs > 0.0)
+        aubio_onset_set_delay_ms(onset, cfg.onsetDelayMs);
+    aubio_onset_set_awhitening(onset, cfg.onsetAdaptiveWhitening ? 1u : 0u);
+    aubio_onset_set_compression(onset, smpl_t(cfg.onsetCompressionLambda));
+}
+
+} // namespace
+
 AubioProcessor::AubioProcessor() {}
 
 AubioProcessor::~AubioProcessor()
@@ -26,6 +63,8 @@ void AubioProcessor::initialize(uint32_t sampleRate)
     const uint_t hop = hopSize();
 
     m_pvoc = new_aubio_pvoc(win, hop);
+    if (m_pvoc)
+        aubio_pvoc_set_window(m_pvoc, sanitizedWindowType(m_config.windowType).constData());
 
     const QByteArray tempoMethod = m_config.tempoMethod.toUtf8();
     m_tempo = new_aubio_tempo(tempoMethod.constData(), win, hop, sampleRate);
@@ -34,40 +73,52 @@ void AubioProcessor::initialize(uint32_t sampleRate)
         aubio_tempo_set_tatum_signature(m_tempo, m_config.tatumSubdivision);
         aubio_tempo_set_silence(m_tempo, m_config.tempoSilenceDb);
         aubio_tempo_set_threshold(m_tempo, m_config.tempoThreshold);
+        aubio_tempo_set_delay_ms(m_tempo, smpl_t(m_config.tempoDelayMs));
     }
 
     const QByteArray pitchMethod = m_config.pitchMethod.toUtf8();
     m_pitch = new_aubio_pitch(pitchMethod.constData(), win, hop, sampleRate);
     if (m_pitch)
     {
+        // Always Hz: pitch unit is a display concern handled in QML, never
+        // changed at the aubio layer.
         aubio_pitch_set_unit(m_pitch, "Hz");
         aubio_pitch_set_silence(m_pitch, m_config.pitchSilenceDb);
         aubio_pitch_set_tolerance(m_pitch, m_config.pitchTolerance);
     }
 
     m_notes = new_aubio_notes("default", win, hop, sampleRate);
+    if (m_notes)
+    {
+        aubio_notes_set_silence(m_notes, smpl_t(m_config.noteSilenceDb));
+        aubio_notes_set_minioi_ms(m_notes, smpl_t(m_config.noteMinIntervalMs));
+        aubio_notes_set_release_drop(m_notes, smpl_t(m_config.noteReleaseDropDb));
+    }
 
     for (int i = 0; i < kOnsetMethodCount; i++)
     {
+        if (!m_config.onsetMethodEnabled[i])
+            continue;
         m_onsets[i] = new_aubio_onset(kOnsetMethods[i], win, hop, sampleRate);
-        if (m_onsets[i])
-        {
-            aubio_onset_set_threshold(m_onsets[i], m_config.onsetThreshold);
-            aubio_onset_set_minioi_ms(m_onsets[i], m_config.onsetMinIntervalMs);
-            aubio_onset_set_silence(m_onsets[i], m_config.onsetSilenceDb);
-            if (m_config.onsetDelayMs > 0.0)
-                aubio_onset_set_delay_ms(m_onsets[i], m_config.onsetDelayMs);
-        }
+        applyOnsetParams(m_onsets[i], m_config);
     }
 
     m_mfcc = new_aubio_mfcc(win, AUBIO_MEL_BANDS, AUBIO_MFCC_COEFFS, sampleRate);
+    if (m_mfcc)
+    {
+        aubio_mfcc_set_power(m_mfcc, smpl_t(m_config.mfccPower));
+        aubio_mfcc_set_scale(m_mfcc, smpl_t(m_config.mfccScale));
+    }
 
     m_filterbank = new_aubio_filterbank(AUBIO_MEL_BANDS, win);
     if (m_filterbank)
     {
-        // norm must be set BEFORE set_mel_coeffs_slaney (it's read during coeff build).
+        // norm must be set BEFORE set_mel_coeffs_* (it's read during coeff build).
         aubio_filterbank_set_norm(m_filterbank, smpl_t(m_config.filterbankNorm));
-        aubio_filterbank_set_mel_coeffs_slaney(m_filterbank, sampleRate);
+        if (isHtkMelScale(m_config.melScale))
+            aubio_filterbank_set_mel_coeffs_htk(m_filterbank, sampleRate, 0.0, double(sampleRate) * 0.5);
+        else
+            aubio_filterbank_set_mel_coeffs_slaney(m_filterbank, sampleRate);
         aubio_filterbank_set_power(m_filterbank, smpl_t(m_config.filterbankPower));
     }
 
@@ -141,34 +192,67 @@ void AubioProcessor::setPendingConfig(const AubioConfig &cfg)
 
 bool AubioProcessor::needsFullRebuild(const AubioConfig &o, const AubioConfig &n) const
 {
-    // Algorithm-string changes and filterbank norm changes require destroying
-    // and recreating aubio objects. Filterbank norm must be set BEFORE
-    // set_mel_coeffs_slaney, so we cannot toggle it at runtime via setters.
+    // Algorithm-string changes, filterbank norm changes, and analysis window /
+    // mel scale changes require destroying and recreating aubio objects.
+    // Filterbank norm must be set BEFORE set_mel_coeffs_*, the window type is
+    // baked into the pvoc internals at construction in some aubio paths, and
+    // mel coefficients can't be swapped between slaney/htk on the fly.
+    // Onset method enable/disable is intentionally NOT here — see
+    // applyParamUpdates() for the targeted create/destroy of individual onset
+    // detectors.
     if (o.pitchMethod != n.pitchMethod) return true;
     if (o.tempoMethod != n.tempoMethod) return true;
     if (o.filterbankNorm != n.filterbankNorm) return true;
+    if (o.windowType != n.windowType) return true;
+    if (o.melScale != n.melScale) return true;
     return false;
 }
 
-void AubioProcessor::applyParamUpdates(const AubioConfig &/*old*/, const AubioConfig &cfg)
+void AubioProcessor::applyParamUpdates(const AubioConfig &oldCfg, const AubioConfig &cfg)
 {
     if (m_filterbank)
         aubio_filterbank_set_power(m_filterbank, smpl_t(cfg.filterbankPower));
 
+    // Targeted onset enable/disable: only create/destroy the detectors whose
+    // enabled flag actually changed. Avoids tearing down the rest of the
+    // pipeline when toggling a single method.
     for (int i = 0; i < kOnsetMethodCount; i++)
     {
-        if (m_onsets[i] == nullptr) continue;
-        aubio_onset_set_threshold(m_onsets[i], cfg.onsetThreshold);
-        aubio_onset_set_minioi_ms(m_onsets[i], cfg.onsetMinIntervalMs);
-        aubio_onset_set_silence(m_onsets[i], cfg.onsetSilenceDb);
-        if (cfg.onsetDelayMs > 0.0)
-            aubio_onset_set_delay_ms(m_onsets[i], cfg.onsetDelayMs);
+        if (oldCfg.onsetMethodEnabled[i] != cfg.onsetMethodEnabled[i])
+        {
+            if (m_onsets[i])
+            {
+                del_aubio_onset(m_onsets[i]);
+                m_onsets[i] = nullptr;
+            }
+            if (cfg.onsetMethodEnabled[i])
+            {
+                m_onsets[i] = new_aubio_onset(kOnsetMethods[i],
+                                              windowSize(), hopSize(), m_sampleRate);
+            }
+        }
     }
+
+    for (int i = 0; i < kOnsetMethodCount; i++)
+        applyOnsetParams(m_onsets[i], cfg);
 
     if (m_pitch)
     {
         aubio_pitch_set_silence(m_pitch, cfg.pitchSilenceDb);
         aubio_pitch_set_tolerance(m_pitch, cfg.pitchTolerance);
+    }
+
+    if (m_notes)
+    {
+        aubio_notes_set_silence(m_notes, smpl_t(cfg.noteSilenceDb));
+        aubio_notes_set_minioi_ms(m_notes, smpl_t(cfg.noteMinIntervalMs));
+        aubio_notes_set_release_drop(m_notes, smpl_t(cfg.noteReleaseDropDb));
+    }
+
+    if (m_mfcc)
+    {
+        aubio_mfcc_set_power(m_mfcc, smpl_t(cfg.mfccPower));
+        aubio_mfcc_set_scale(m_mfcc, smpl_t(cfg.mfccScale));
     }
 
     if (m_tss)
@@ -183,6 +267,7 @@ void AubioProcessor::applyParamUpdates(const AubioConfig &/*old*/, const AubioCo
         aubio_tempo_set_tatum_signature(m_tempo, cfg.tatumSubdivision);
         aubio_tempo_set_silence(m_tempo, cfg.tempoSilenceDb);
         aubio_tempo_set_threshold(m_tempo, cfg.tempoThreshold);
+        aubio_tempo_set_delay_ms(m_tempo, smpl_t(cfg.tempoDelayMs));
     }
 }
 
@@ -264,84 +349,129 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
 void AubioProcessor::processHop()
 {
     // 1. Phase vocoder → spectral frame
+    if (!m_pvoc)
+        return;
     aubio_pvoc_do(m_pvoc, m_hopBuffer, m_fftGrain);
 
     // 2. Mel filterbank — last hop wins. Aubio writes one mel vector per hop;
     // we expose it pristine (no averaging, no clamp, no scale).
-    aubio_filterbank_do(m_filterbank, m_fftGrain, m_melOut);
-    for (int i = 0; i < AUBIO_MEL_BANDS; i++)
-        m_results.mel[i] = double(m_melOut->data[i]);
+    if (m_filterbank)
+    {
+        aubio_filterbank_do(m_filterbank, m_fftGrain, m_melOut);
+        for (int i = 0; i < AUBIO_MEL_BANDS; i++)
+            m_results.mel[i] = double(m_melOut->data[i]);
+    }
 
     // 3. MFCC — last hop wins (same rationale as mel).
-    aubio_mfcc_do(m_mfcc, m_fftGrain, m_mfccOut);
-    for (int i = 0; i < AUBIO_MFCC_COEFFS; i++)
-        m_results.mfcc[i] = double(m_mfccOut->data[i]);
+    if (m_mfcc)
+    {
+        aubio_mfcc_do(m_mfcc, m_fftGrain, m_mfccOut);
+        for (int i = 0; i < AUBIO_MFCC_COEFFS; i++)
+            m_results.mfcc[i] = double(m_mfccOut->data[i]);
+    }
 
     // 4. Spectral descriptors (last hop wins for instantaneous values)
-    aubio_specdesc_do(m_descCentroid, m_fftGrain, m_descOut);
-    m_results.centroidHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
-    aubio_specdesc_do(m_descSpread, m_fftGrain, m_descOut);
-    m_results.spread = double(m_descOut->data[0]);
-    aubio_specdesc_do(m_descRolloff, m_fftGrain, m_descOut);
-    m_results.rolloffHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
-    aubio_specdesc_do(m_descFlux, m_fftGrain, m_descOut);
-    m_results.flux = double(m_descOut->data[0]);
-    aubio_specdesc_do(m_descHfc, m_fftGrain, m_descOut);
-    m_results.hfc = double(m_descOut->data[0]);
+    if (m_descCentroid)
+    {
+        aubio_specdesc_do(m_descCentroid, m_fftGrain, m_descOut);
+        m_results.centroidHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
+    }
+    if (m_descSpread)
+    {
+        aubio_specdesc_do(m_descSpread, m_fftGrain, m_descOut);
+        m_results.spread = double(m_descOut->data[0]);
+    }
+    if (m_descRolloff)
+    {
+        aubio_specdesc_do(m_descRolloff, m_fftGrain, m_descOut);
+        m_results.rolloffHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
+    }
+    if (m_descFlux)
+    {
+        aubio_specdesc_do(m_descFlux, m_fftGrain, m_descOut);
+        m_results.flux = double(m_descOut->data[0]);
+    }
+    if (m_descHfc)
+    {
+        aubio_specdesc_do(m_descHfc, m_fftGrain, m_descOut);
+        m_results.hfc = double(m_descOut->data[0]);
+    }
 
-    // 5. Tempo / beat — last hop wins.
-    aubio_tempo_do(m_tempo, m_hopBuffer, m_tempoOut);
-    m_results.beat = (m_tempoOut->data[0] != 0.0f);
-    m_results.tatum = aubio_tempo_was_tatum(m_tempo);
+    // 5. Tempo / beat — OR beat across hops (a beat detected on any hop
+    // within this buffer is preserved; tatum uses last-hop semantics).
+    if (m_tempo)
+    {
+        aubio_tempo_do(m_tempo, m_hopBuffer, m_tempoOut);
+        if (m_tempoOut->data[0] != 0.0f)
+            m_results.beat = true;
+        m_results.tatum = aubio_tempo_was_tatum(m_tempo);
+    }
 
     // 6. Pitch — last hop wins. We pass aubio's pitch and confidence through
     // pristinely (no max-confidence selection across hops).
-    aubio_pitch_do(m_pitch, m_hopBuffer, m_pitchOut);
-    m_results.pitchHz = double(m_pitchOut->data[0]);
-    m_results.pitchConfidence = double(aubio_pitch_get_confidence(m_pitch));
+    if (m_pitch)
+    {
+        aubio_pitch_do(m_pitch, m_hopBuffer, m_pitchOut);
+        m_results.pitchHz = double(m_pitchOut->data[0]);
+        m_results.pitchConfidence = double(aubio_pitch_get_confidence(m_pitch));
+    }
 
-    // 7. Onset detection (9 methods) — last hop wins. Each hop overwrites the
-    // result; an onset detected on a non-final hop within this buffer is lost.
+    // 7. Onset detection (9 methods) — OR fires across all hops in this
+    // buffer. Diagnostics (descriptor / thresholded descriptor) are last-hop.
     for (int i = 0; i < kOnsetMethodCount; i++)
     {
         if (!m_onsets[i])
             continue;
         aubio_onset_do(m_onsets[i], m_hopBuffer, m_onsetOut);
         const bool fired = (m_onsetOut->data[0] != 0.0f);
-        switch (i) {
-        case 0: m_results.onsets.energy = fired; break;
-        case 1: m_results.onsets.hfc = fired; break;
-        case 2: m_results.onsets.complex = fired; break;
-        case 3: m_results.onsets.phase = fired; break;
-        case 4: m_results.onsets.wphase = fired; break;
-        case 5: m_results.onsets.specdiff = fired; break;
-        case 6: m_results.onsets.kl = fired; break;
-        case 7: m_results.onsets.mkl = fired; break;
-        case 8: m_results.onsets.specflux = fired; break;
+        if (fired)
+        {
+            switch (i) {
+            case 0: m_results.onsets.energy = true; break;
+            case 1: m_results.onsets.hfc = true; break;
+            case 2: m_results.onsets.complex = true; break;
+            case 3: m_results.onsets.phase = true; break;
+            case 4: m_results.onsets.wphase = true; break;
+            case 5: m_results.onsets.specdiff = true; break;
+            case 6: m_results.onsets.kl = true; break;
+            case 7: m_results.onsets.mkl = true; break;
+            case 8: m_results.onsets.specflux = true; break;
+            }
         }
+        m_results.onsetDescriptors[i] = double(aubio_onset_get_descriptor(m_onsets[i]));
+        m_results.onsetThresholdedDescriptors[i] = double(aubio_onset_get_thresholded_descriptor(m_onsets[i]));
     }
 
-    // 8. Notes — last hop wins.
-    aubio_notes_do(m_notes, m_hopBuffer, m_notesOut);
-    m_results.noteOn = (m_notesOut->data[0] != 0.0f);
-    if (m_results.noteOn)
+    // 8. Notes — OR noteOn/noteOff across hops; last firing hop wins on
+    // midi/velocity so callers always get values from the most recent onset.
+    if (m_notes)
     {
-        m_results.noteMidi = double(m_notesOut->data[0]);
-        m_results.noteVelocity = double(m_notesOut->data[1]);
+        aubio_notes_do(m_notes, m_hopBuffer, m_notesOut);
+        const bool noteOnHop = (m_notesOut->data[0] != 0.0f);
+        if (noteOnHop)
+        {
+            m_results.noteOn = true;
+            m_results.noteMidi = double(m_notesOut->data[0]);
+            m_results.noteVelocity = double(m_notesOut->data[1]);
+        }
+        if (m_notesOut->data[2] != 0.0f)
+            m_results.noteOff = true;
     }
-    m_results.noteOff = (m_notesOut->data[2] != 0.0f);
 
     // 9. TSS (transient/steady split) — copy aubio's per-bin cvec norms straight
     // through. Last hop wins. No summing, no ratio. Bin i maps to frequency
     // aubio_bintofreq(i, sampleRate, winSize); consumers do their own derivations.
-    aubio_tss_do(m_tss, m_fftGrain, m_transGrain, m_steadGrain);
-    const int binCount = std::min<int>(int(m_transGrain->length),
-                                       AubioResults::kMaxTssBins);
-    m_results.tssBinCount = binCount;
-    for (int i = 0; i < binCount; i++)
+    if (m_tss)
     {
-        m_results.tssTransientNorm[i] = double(m_transGrain->norm[i]);
-        m_results.tssSteadyNorm[i]    = double(m_steadGrain->norm[i]);
+        aubio_tss_do(m_tss, m_fftGrain, m_transGrain, m_steadGrain);
+        const int binCount = std::min<int>(int(m_transGrain->length),
+                                           AubioResults::kMaxTssBins);
+        m_results.tssBinCount = binCount;
+        for (int i = 0; i < binCount; i++)
+        {
+            m_results.tssTransientNorm[i] = double(m_transGrain->norm[i]);
+            m_results.tssSteadyNorm[i]    = double(m_steadGrain->norm[i]);
+        }
     }
 }
 
