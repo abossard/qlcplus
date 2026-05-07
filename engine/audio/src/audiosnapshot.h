@@ -90,7 +90,6 @@ struct AudioSnapshot
         bool kl = false;
         bool mkl = false;
         bool specflux = false;
-        int voteCount = 0;
     } onsets;
 
     struct
@@ -107,11 +106,16 @@ struct AudioSnapshot
         bool noteOff = false;
     } note;
 
+    /**
+     * Raw aubio_tss_do per-bin cvec norms, last hop wins. Bin i frequency =
+     * aubio_bintofreq(i, sampleRate, winSize). Consumers do their own
+     * derivations (sums, ratios, band groupings).
+     */
     struct
     {
-        double transientEnergy = 0.0;
-        double steadyEnergy = 0.0;
-        double ratio = 0.0;  // 0=all steady, 1=all transient
+        double transientNorm[AubioResults::kMaxTssBins] = {};
+        double steadyNorm[AubioResults::kMaxTssBins] = {};
+        int binCount = 0;
     } tss;
 
     double audioDtMs = 0.0;

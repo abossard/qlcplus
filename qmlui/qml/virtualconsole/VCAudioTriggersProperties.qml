@@ -739,49 +739,6 @@ Rectangle
 
         SectionBox
         {
-            sectionLabel: qsTr("QLC+: Input Gain (pre-aubio)")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    RobotoText
-                    {
-                        height: gridItemsHeight
-                        label: qsTr("Input gain")
-                        tooltipText: qsTr("Linear gain applied to the captured signal before all DSP. Use this to normalize quiet/loud sources without retuning every threshold.")
-                    }
-                    RowLayout
-                    {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Slider
-                        {
-                            Layout.fillWidth: true
-                            from: 0.1; to: 4.0; stepSize: 0.1
-                            enabled: widgetRef !== null
-                            value: widgetRef ? widgetRef.inputGain : 1.6
-                            onPressedChanged: if (!pressed && widgetRef) widgetRef.setInputGain(value)
-                            ToolTip.visible: hovered
-                            ToolTip.text: qsTr("Linear gain applied to the captured signal before all DSP. " +
-                                               "Use this to normalize quiet/loud sources without retuning every threshold.")
-                        }
-                        RobotoText
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            height: gridItemsHeight
-                            label: widgetRef ? widgetRef.inputGain.toFixed(1) + "x" : "--"
-                        }
-                    }
-                }
-        }
-
-        SectionBox
-        {
             sectionLabel: qsTr("QLC+: Noise Gate")
 
             sectionContents:

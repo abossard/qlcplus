@@ -707,7 +707,6 @@ QJSValue RGBScript::buildAudioDataObject()
     onsetsObj.setProperty(QStringLiteral("kl"), QJSValue(snap.onsets.kl));
     onsetsObj.setProperty(QStringLiteral("mkl"), QJSValue(snap.onsets.mkl));
     onsetsObj.setProperty(QStringLiteral("specflux"), QJSValue(snap.onsets.specflux));
-    onsetsObj.setProperty(QStringLiteral("voteCount"), QJSValue(snap.onsets.voteCount));
     audioObj.setProperty(QStringLiteral("onsets"), onsetsObj);
 
     QJSValue pitchObj = engine->newObject();

@@ -31,6 +31,34 @@ VCWidgetItem
     property var perceptualBandColors: [ "#ff3333", "#ff9900", "#ffdd33", "#33cc66", "#33ccff" ]
     property var perceptualBandShortNames: [ "S", "B", "LM", "M", "H" ]
 
+    // QLC+ DERIVATION (NOT raw aubio): count of onset methods firing this hop,
+    // 0..9. Aubio raw output is the per-method booleans; this is a UI sum.
+    function onsetVoteCount()
+    {
+        if (!audioTriggerObj) return 0
+        var f = audioTriggerObj.onsetFlags
+        if (!f) return 0
+        var n = 0
+        for (var i = 0; i < f.length; i++) if (f[i]) n++
+        return n
+    }
+
+    // QLC+ DERIVATION (NOT raw aubio): collapse the per-bin transient/steady
+    // cvec norm arrays into a single 0..1 ratio for visualization. Aubio's
+    // raw output is the per-bin arrays; this UI sum/ratio is QLC+'s.
+    function tssDerivedRatio()
+    {
+        if (!audioTriggerObj) return 0
+        var t = audioTriggerObj.tssTransientNorm
+        var s = audioTriggerObj.tssSteadyNorm
+        if (!t || !s) return 0
+        var n = Math.min(t.length, s.length)
+        var tSum = 0, sSum = 0
+        for (var i = 0; i < n; i++) { tSum += t[i]; sSum += s[i] }
+        var total = tSum + sSum
+        return total > 1e-10 ? (tSum / total) : 0
+    }
+
     // Width/height breakpoints driving layout density
     property bool showFull:    barsItem.width >= 300 && barsItem.height >= 260
     property bool showMedium:  !showFull && barsItem.width >= 220 && barsItem.height >= 160
@@ -152,7 +180,7 @@ VCWidgetItem
                             // show where the energy is percussive vs harmonic.
                             color: {
                                 var base = melBandColor(index)
-                                var r = audioTriggerObj ? audioTriggerObj.tssRatio : 0
+                                var r = audioTriggerObj ? tssDerivedRatio() : 0
                                 return Qt.tint(base, Qt.rgba(1, 1, 1, r * 0.5))
                             }
                         }
@@ -309,7 +337,7 @@ VCWidgetItem
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            width: parent.width * (1 - (audioTriggerObj ? audioTriggerObj.tssRatio : 0))
+                            width: parent.width * (1 - (audioTriggerObj ? tssDerivedRatio() : 0))
                             radius: parent.radius
                             color: "#3FA9F5"
                         }
@@ -319,7 +347,7 @@ VCWidgetItem
                             anchors.right: parent.right
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            width: parent.width * (audioTriggerObj ? audioTriggerObj.tssRatio : 0)
+                            width: parent.width * (audioTriggerObj ? tssDerivedRatio() : 0)
                             radius: parent.radius
                             color: "#FF8C29"
                         }
@@ -329,7 +357,7 @@ VCWidgetItem
                     {
                         width: 28
                         text: audioTriggerObj
-                              ? Math.round(audioTriggerObj.tssRatio * 100) + "%"
+                              ? Math.round(tssDerivedRatio() * 100) + "%"
                               : "--"
                         color: "#AAAAAA"
                         font.pixelSize: 9
@@ -356,7 +384,7 @@ VCWidgetItem
                         color: "#1a1a1a"
                         border.width: 1
                         border.color: audioTriggerObj ?
-                                      onsetVoteColor(audioTriggerObj.onsetVoteCount) : "#444444"
+                                      onsetVoteColor(onsetVoteCount()) : "#444444"
                         anchors.verticalCenter: parent.verticalCenter
 
                         Text
@@ -364,9 +392,9 @@ VCWidgetItem
                             id: onsetText
                             anchors.centerIn: parent
                             text: audioTriggerObj ?
-                                  qsTr("Onset") + " " + audioTriggerObj.onsetVoteCount + "/9" : "Onset 0/9"
+                                  qsTr("Onset") + " " + onsetVoteCount() + "/9" : "Onset 0/9"
                             color: audioTriggerObj ?
-                                   onsetVoteColor(audioTriggerObj.onsetVoteCount) : "#666666"
+                                   onsetVoteColor(onsetVoteCount()) : "#666666"
                             font.pixelSize: 9
                             font.bold: true
                         }

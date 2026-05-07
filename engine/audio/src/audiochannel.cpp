@@ -22,7 +22,13 @@ namespace
 {
     constexpr double kSampleRateForMel = 44100.0; // assumed nyquist for mel mapping
 
-    /** Convert a frequency in Hz to a mel filter band index in [0, AUBIO_MEL_BANDS]. */
+    /**
+     * QLC+ DERIVATION (NOT raw aubio): convert a frequency in Hz to a mel
+     * filter band index in [0, AUBIO_MEL_BANDS] using the Slaney mel curve.
+     * Aubio's filterbank does not expose a direct mel-band -> Hz lookup, and
+     * `aubio_bintofreq()` is for FFT bins, not mel bands. This is an
+     * approximation used only by the QLC+ perceptual band grouping.
+     */
     int melBandIndexForFrequency(double hz)
     {
         if (hz <= 0.0)
@@ -45,11 +51,6 @@ namespace
             sum += mel[i];
 
         return sum / double(end - start);
-    }
-
-    double clampUnit(double value)
-    {
-        return std::clamp(value, 0.0, 1.0);
     }
 }
 
@@ -122,30 +123,29 @@ void AudioChannel::updateEnvelopes(const AudioFrame &frame, double dtMs)
     {
         const int start = std::clamp(edges[i], 0, AUBIO_MEL_BANDS);
         const int end = std::clamp(std::max(edges[i + 1], start + 1), 0, AUBIO_MEL_BANDS);
-        // Pristine aubio mel output. NO clamp, NO scale, NO post-multiply.
-        // Pre-aubio inputGainLinear is applied to PCM inside AubioProcessor.
-        // If saturation is undesired, tune aubio's filterbank norm/power or
-        // lower the input gain (both upstream of aubio).
+        // QLC+ DERIVATION: average aubio's per-band mel values over the
+        // QLC+-defined frequency-range slice. The mel values themselves are
+        // raw aubio output — no clamp, no scale.
         m_bandValues[i] = m_noiseGateClosed ? 0.0 : averageMel(mel, start, end);
 
+        // QLC+ DERIVATION: time-smoothed envelope. NOT clamped — if mel values
+        // exceed 1.0 (which they may, depending on aubio_filterbank_set_norm/power),
+        // the smoothed envelope reflects that. Triggers must be configured in
+        // raw mel units.
         const double tauMs = (m_bandValues[i] > m_envSmoothed[i]) ?
             m_config.envelope.attackMs : m_config.envelope.releaseMs;
         m_envSmoothed[i] += alpha(dtMs, tauMs) * (m_bandValues[i] - m_envSmoothed[i]);
-        // Smoothed envelope is QLC+'s own derived signal (used by the trigger
-        // comparator's 0..1 high/low thresholds), so clamping here is allowed.
-        m_envSmoothed[i] = clampUnit(m_envSmoothed[i]);
     }
 }
 
 void AudioChannel::updateVolume(const AudioFrame &frame, double dtMs)
 {
-    // frame.rms / rmsDb come from AubioResults which are computed from the
-    // pre-aubio gain-applied PCM hop buffer. No post-multiply here.
+    // frame.rms / rmsDb come straight from AudioCapture (time-domain PCM
+    // measurements over the whole capture buffer). No QLC+ post-processing.
     m_volumeRaw = frame.rms;
-    m_volumeNormalized = m_noiseGateClosed ? 0.0 : clampUnit(frame.rms);
+    m_volumeNormalized = m_noiseGateClosed ? 0.0 : frame.rms;
     m_volumeSmoothed += alpha(dtMs, m_config.volumeSmoothingMs) *
         (m_volumeNormalized - m_volumeSmoothed);
-    m_volumeSmoothed = clampUnit(m_volumeSmoothed);
 }
 
 void AudioChannel::updateTriggers(double dtMs)
@@ -206,9 +206,13 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         snap.music.tatum = a.tatum;
         snap.music.beatPhase = a.beatPhase;
 
-        snap.tss.transientEnergy = a.transientEnergy;
-        snap.tss.steadyEnergy = a.steadyEnergy;
-        snap.tss.ratio = a.transientRatio;
+        const int n = std::min<int>(a.tssBinCount, AubioResults::kMaxTssBins);
+        snap.tss.binCount = n;
+        for (int i = 0; i < n; i++)
+        {
+            snap.tss.transientNorm[i] = a.tssTransientNorm[i];
+            snap.tss.steadyNorm[i] = a.tssSteadyNorm[i];
+        }
 
         snap.features.centroidHz = a.centroidHz;
         snap.features.spread = a.spread;
@@ -225,7 +229,6 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         snap.onsets.kl = a.onsets.kl;
         snap.onsets.mkl = a.onsets.mkl;
         snap.onsets.specflux = a.onsets.specflux;
-        snap.onsets.voteCount = a.onsets.voteCount;
 
         snap.pitch.hz = a.pitchHz;
         snap.pitch.confidence = a.pitchConfidence;

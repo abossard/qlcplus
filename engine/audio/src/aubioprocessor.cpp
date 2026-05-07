@@ -224,15 +224,13 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
 
     resetResults();
 
-    const float gain = float(m_config.inputGainLinear);
-
     for (int h = 0; h < numHops; h++)
     {
         const int16_t *src = monoSamples + h * hop;
-        // PRE-aubio PCM gain: applied to the float-normalized samples before
-        // any aubio_*_do() call. Aubio output is pristine downstream.
+        // Pristine PCM: only int16 -> float type conversion. No gain, no DC
+        // removal, no clipping. Input gain is an OS/hardware concern.
         for (int i = 0; i < hop; i++)
-            m_hopBuffer->data[i] = (float(src[i]) / 32768.0f) * gain;
+            m_hopBuffer->data[i] = float(src[i]) / 32768.0f;
 
         processHop();
         m_totalSamplesProcessed += hop;
@@ -245,7 +243,8 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
         m_results.bpm = double(aubio_tempo_get_bpm(m_tempo));
         m_results.beatConfidence = double(aubio_tempo_get_confidence(m_tempo));
 
-        // beatPhase from sample counter (AubioSamples source).
+        // QLC+ DERIVATION (not raw aubio): beatPhase is computed from aubio's
+        // last-beat timestamp and period plus our own sample counter.
         if (m_config.beatPhaseSource == AubioConfig::AubioSamples && m_sampleRate > 0)
         {
             const double periodS = double(aubio_tempo_get_period_s(m_tempo));
@@ -260,13 +259,6 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
         }
         // QlcTimer source is wired by the caller (AudioChannel/snapshot stage).
     }
-
-    m_results.onsets.voteCount =
-        int(m_results.onsets.energy) + int(m_results.onsets.hfc) +
-        int(m_results.onsets.complex) + int(m_results.onsets.phase) +
-        int(m_results.onsets.wphase) + int(m_results.onsets.specdiff) +
-        int(m_results.onsets.kl) + int(m_results.onsets.mkl) +
-        int(m_results.onsets.specflux);
 }
 
 void AubioProcessor::processHop()
@@ -287,22 +279,20 @@ void AubioProcessor::processHop()
 
     // 4. Spectral descriptors (last hop wins for instantaneous values)
     aubio_specdesc_do(m_descCentroid, m_fftGrain, m_descOut);
-    m_results.centroidHz = double(m_descOut->data[0]) * m_sampleRate / windowSize();
+    m_results.centroidHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
     aubio_specdesc_do(m_descSpread, m_fftGrain, m_descOut);
     m_results.spread = double(m_descOut->data[0]);
     aubio_specdesc_do(m_descRolloff, m_fftGrain, m_descOut);
-    m_results.rolloffHz = double(m_descOut->data[0]) * m_sampleRate / windowSize();
+    m_results.rolloffHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
     aubio_specdesc_do(m_descFlux, m_fftGrain, m_descOut);
     m_results.flux = double(m_descOut->data[0]);
     aubio_specdesc_do(m_descHfc, m_fftGrain, m_descOut);
     m_results.hfc = double(m_descOut->data[0]);
 
-    // 5. Tempo / beat
+    // 5. Tempo / beat — last hop wins.
     aubio_tempo_do(m_tempo, m_hopBuffer, m_tempoOut);
-    if (m_tempoOut->data[0] != 0.0f)
-        m_results.beat = true;
-    if (aubio_tempo_was_tatum(m_tempo))
-        m_results.tatum = true;
+    m_results.beat = (m_tempoOut->data[0] != 0.0f);
+    m_results.tatum = aubio_tempo_was_tatum(m_tempo);
 
     // 6. Pitch — last hop wins. We pass aubio's pitch and confidence through
     // pristinely (no max-confidence selection across hops).
@@ -310,67 +300,49 @@ void AubioProcessor::processHop()
     m_results.pitchHz = double(m_pitchOut->data[0]);
     m_results.pitchConfidence = double(aubio_pitch_get_confidence(m_pitch));
 
-    // 7. Onset detection (9 methods, OR across hops)
+    // 7. Onset detection (9 methods) — last hop wins. Each hop overwrites the
+    // result; an onset detected on a non-final hop within this buffer is lost.
     for (int i = 0; i < kOnsetMethodCount; i++)
     {
         if (!m_onsets[i])
             continue;
         aubio_onset_do(m_onsets[i], m_hopBuffer, m_onsetOut);
-        if (m_onsetOut->data[0] != 0.0f)
-        {
-            switch (i) {
-            case 0: m_results.onsets.energy = true; break;
-            case 1: m_results.onsets.hfc = true; break;
-            case 2: m_results.onsets.complex = true; break;
-            case 3: m_results.onsets.phase = true; break;
-            case 4: m_results.onsets.wphase = true; break;
-            case 5: m_results.onsets.specdiff = true; break;
-            case 6: m_results.onsets.kl = true; break;
-            case 7: m_results.onsets.mkl = true; break;
-            case 8: m_results.onsets.specflux = true; break;
-            }
+        const bool fired = (m_onsetOut->data[0] != 0.0f);
+        switch (i) {
+        case 0: m_results.onsets.energy = fired; break;
+        case 1: m_results.onsets.hfc = fired; break;
+        case 2: m_results.onsets.complex = fired; break;
+        case 3: m_results.onsets.phase = fired; break;
+        case 4: m_results.onsets.wphase = fired; break;
+        case 5: m_results.onsets.specdiff = fired; break;
+        case 6: m_results.onsets.kl = fired; break;
+        case 7: m_results.onsets.mkl = fired; break;
+        case 8: m_results.onsets.specflux = fired; break;
         }
     }
 
-    // 8. Notes
+    // 8. Notes — last hop wins.
     aubio_notes_do(m_notes, m_hopBuffer, m_notesOut);
-    if (m_notesOut->data[0] != 0.0f)
+    m_results.noteOn = (m_notesOut->data[0] != 0.0f);
+    if (m_results.noteOn)
     {
-        m_results.noteOn = true;
         m_results.noteMidi = double(m_notesOut->data[0]);
         m_results.noteVelocity = double(m_notesOut->data[1]);
     }
-    if (m_notesOut->data[2] != 0.0f)
-        m_results.noteOff = true;
+    m_results.noteOff = (m_notesOut->data[2] != 0.0f);
 
-    // 9. RMS / peak — computed by us from the (gain-applied) PCM hop buffer.
-    // These are NOT aubio outputs; they are QLC+ PCM measurements. Keep
-    // max-over-hops to surface buffer peaks for the noise gate / VU meter.
-    double rmsSum = 0.0, peakVal = 0.0;
-    for (uint_t i = 0; i < hopSize(); i++)
-    {
-        double s = double(m_hopBuffer->data[i]);
-        rmsSum += s * s;
-        peakVal = std::max(peakVal, std::abs(s));
-    }
-    m_results.rms = std::max(m_results.rms, std::sqrt(rmsSum / hopSize()));
-    m_results.peak = std::max(m_results.peak, peakVal);
-
-    // 10. TSS (transient/steady split) — last hop wins. We sum aubio's
-    // transient/steady cvec norms into per-hop totals; transientRatio is the
-    // last-hop ratio. No max/avg across hops.
+    // 9. TSS (transient/steady split) — copy aubio's per-bin cvec norms straight
+    // through. Last hop wins. No summing, no ratio. Bin i maps to frequency
+    // aubio_bintofreq(i, sampleRate, winSize); consumers do their own derivations.
     aubio_tss_do(m_tss, m_fftGrain, m_transGrain, m_steadGrain);
-
-    double tE = 0.0, sE = 0.0;
-    for (uint_t i = 0; i < m_fftGrain->length; i++)
+    const int binCount = std::min<int>(int(m_transGrain->length),
+                                       AubioResults::kMaxTssBins);
+    m_results.tssBinCount = binCount;
+    for (int i = 0; i < binCount; i++)
     {
-        tE += double(m_transGrain->norm[i]);
-        sE += double(m_steadGrain->norm[i]);
+        m_results.tssTransientNorm[i] = double(m_transGrain->norm[i]);
+        m_results.tssSteadyNorm[i]    = double(m_steadGrain->norm[i]);
     }
-    const double total = tE + sE + 1e-10;
-    m_results.transientEnergy = tE / total;
-    m_results.steadyEnergy = sE / total;
-    m_results.transientRatio = tE / total;
 }
 
 void AubioProcessor::resetResults()

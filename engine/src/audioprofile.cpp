@@ -243,10 +243,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileAgc)
         {
-            // Legacy AGC element: only the InputGain attribute survives in the new pipeline.
-            config.aubio.inputGainLinear = doubleAttribute(childAttrs,
-                                                           KXMLQLCAudioProfileAgcInputGain,
-                                                           config.aubio.inputGainLinear);
+            // Legacy AGC element: input gain is now an OS/hardware concern and
+            // is no longer part of the audio profile. Skip the element.
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileTriggers)
@@ -359,9 +357,6 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeEmptyElement(KXMLQLCAudioProfileEnvelope);
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, QString::number(m_config.envelope.attackMs));
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeRelease, QString::number(m_config.envelope.releaseMs));
-
-    doc->writeEmptyElement(KXMLQLCAudioProfileAgc);
-    doc->writeAttribute(KXMLQLCAudioProfileAgcInputGain, QString::number(m_config.aubio.inputGainLinear));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileTriggers);
     doc->writeAttribute(KXMLQLCAudioProfileTriggersHigh, QString::number(m_config.triggers.highThreshold));

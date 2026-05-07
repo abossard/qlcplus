@@ -409,7 +409,6 @@ void VCAudioTriggers::setTriggerHold(double ms)
     applyChannelConfig(config);
 }
 
-double VCAudioTriggers::inputGain() const { return profileChannelConfig().aubio.inputGainLinear; }
 double VCAudioTriggers::bandSubMaxHz() const { return profileChannelConfig().bandLayout.subMaxHz; }
 double VCAudioTriggers::bandBassMaxHz() const { return profileChannelConfig().bandLayout.bassMaxHz; }
 double VCAudioTriggers::bandLowMidMaxHz() const { return profileChannelConfig().bandLayout.lowMidMaxHz; }
@@ -427,16 +426,6 @@ double VCAudioTriggers::rmsDb() const { return m_cachedSnapshot.features.rmsDb; 
 double VCAudioTriggers::peakDb() const { return m_cachedSnapshot.features.peakDb; }
 double VCAudioTriggers::flux() const { return m_cachedSnapshot.features.flux; }
 bool VCAudioTriggers::noiseGateOpen() const { return !m_cachedSnapshot.noiseGateClosed; }
-
-void VCAudioTriggers::setInputGain(double gain)
-{
-    AudioChannelConfig config = profileChannelConfig();
-    gain = qBound(0.1, gain, 8.0);
-    if (qFuzzyCompare(config.aubio.inputGainLinear + 1.0, gain + 1.0))
-        return;
-    config.aubio.inputGainLinear = gain;
-    applyChannelConfig(config);
-}
 
 void VCAudioTriggers::setBandSubMaxHz(double hz)
 {
@@ -544,20 +533,62 @@ double VCAudioTriggers::tssAlpha() const { return profileChannelConfig().aubio.t
 double VCAudioTriggers::tssBeta() const { return profileChannelConfig().aubio.tssBeta; }
 double VCAudioTriggers::tssThreshold() const { return profileChannelConfig().aubio.tssThreshold; }
 
-int VCAudioTriggers::onsetVoteCount() const { return m_cachedSnapshot.onsets.voteCount; }
 double VCAudioTriggers::pitchHz() const { return m_cachedSnapshot.pitch.hz; }
 double VCAudioTriggers::pitchConfidence() const { return m_cachedSnapshot.pitch.confidence; }
 double VCAudioTriggers::detectedBpm() const { return m_cachedSnapshot.music.bpm; }
 double VCAudioTriggers::beatConfidence() const { return m_cachedSnapshot.music.beatConfidence; }
 double VCAudioTriggers::beatPhase() const { return m_cachedSnapshot.music.beatPhase; }
-double VCAudioTriggers::tssTransient() const { return m_cachedSnapshot.tss.transientEnergy; }
-double VCAudioTriggers::tssSteady() const { return m_cachedSnapshot.tss.steadyEnergy; }
-double VCAudioTriggers::tssRatio() const { return m_cachedSnapshot.tss.ratio; }
+
+QVariantList VCAudioTriggers::tssTransientNorm() const
+{
+    QVariantList list;
+    const int n = m_cachedSnapshot.tss.binCount;
+    list.reserve(n);
+    for (int i = 0; i < n; i++)
+        list.append(m_cachedSnapshot.tss.transientNorm[i]);
+    return list;
+}
+
+QVariantList VCAudioTriggers::tssSteadyNorm() const
+{
+    QVariantList list;
+    const int n = m_cachedSnapshot.tss.binCount;
+    list.reserve(n);
+    for (int i = 0; i < n; i++)
+        list.append(m_cachedSnapshot.tss.steadyNorm[i]);
+    return list;
+}
+
+int VCAudioTriggers::tssBinCount() const { return m_cachedSnapshot.tss.binCount; }
+
+QVariantList VCAudioTriggers::onsetFlags() const
+{
+    const auto &o = m_cachedSnapshot.onsets;
+    QVariantList list;
+    list.reserve(9);
+    list.append(o.energy);
+    list.append(o.hfc);
+    list.append(o.complex_);
+    list.append(o.phase);
+    list.append(o.wphase);
+    list.append(o.specdiff);
+    list.append(o.kl);
+    list.append(o.mkl);
+    list.append(o.specflux);
+    return list;
+}
+
 QVariantList VCAudioTriggers::melSpectrum() const { return m_melSpectrumCache; }
 QVariantList VCAudioTriggers::mfccCoeffs() const { return m_mfccCoeffsCache; }
 
 namespace
 {
+    /**
+     * QLC+ DERIVATION (NOT raw aubio): Slaney mel curve approximation used for
+     * mapping QLC+ band-layout frequencies to mel filter band indices for the
+     * QLC+ perceptual band grouping (sub/bass/lowMid/mid/high). Aubio does not
+     * expose mel-band -> Hz; aubio_bintofreq() is for FFT bins, not mel bands.
+     */
     int melBandIndexForFreq(double hz)
     {
         constexpr double kSampleRateForMel = 44100.0;
@@ -1280,9 +1311,9 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
             ? m_inputCapture->maxFrequency() : AudioCapture::maxFrequency();
         const double logRange = (maxFreq > minFreq) ? qLn(maxFreq / minFreq) : 0.0;
 
-        // mel[] is already 0..1-ish linear power. Mel filters are log-spaced
-        // already (Slaney filterbank), so a simple linear partitioning across
-        // the 40 mel bins approximates a log-frequency split.
+        // QLC+ DERIVATION: Legacy audio bars derive display/trigger values from raw aubio mel.
+        // Raw mel is NOT normalized 0..1 — values depend on aubio filterbank norm/power settings.
+        // This averaging+smoothing is QLC+ UI processing, not aubio output.
         for (int i = 0; i < bandCount; ++i)
         {
             int start, end;
@@ -1305,7 +1336,7 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
             double sum = 0.0;
             for (int m = start; m < end; ++m)
                 sum += m_cachedSnapshot.mel[m];
-            double v = qBound(0.0, sum / double(end - start), 1.0);
+            double v = (end > start) ? sum / double(end - start) : 0.0;
 
             const double old01 = m_spectrumBars[i + 1].m_value / 255.0;
             v = kAlpha * v + (1.0 - kAlpha) * old01;
@@ -1315,12 +1346,11 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
         }
     }
 
-    // Lows / Mids / Highs aggregates — derived from the snapshot's perceptual
-    // bands (consistent with the rest of the pipeline) instead of from the
-    // legacy log-bar slicing.
-    m_lowsPower  = qBound(0.0, 0.5 * (m_cachedSnapshot.bands.sub + m_cachedSnapshot.bands.bass), 1.0);
-    m_midsPower  = qBound(0.0, 0.5 * (m_cachedSnapshot.bands.lowMid + m_cachedSnapshot.bands.mid), 1.0);
-    m_highsPower = qBound(0.0, m_cachedSnapshot.bands.high, 1.0);
+    // QLC+ DERIVATION: Lows/Mids/Highs aggregated from snapshot perceptual bands.
+    // These are raw aubio-derived values — NOT clamped to 0..1.
+    m_lowsPower  = 0.5 * (m_cachedSnapshot.bands.sub + m_cachedSnapshot.bands.bass);
+    m_midsPower  = 0.5 * (m_cachedSnapshot.bands.lowMid + m_cachedSnapshot.bands.mid);
+    m_highsPower = m_cachedSnapshot.bands.high;
 
     // Drive DMX / Function / VCWidget triggers based on the freshly updated bars.
     for (int i = 0; i < m_spectrumBars.count(); i++)

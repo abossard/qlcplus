@@ -75,7 +75,6 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double triggerCooldown READ triggerCooldown NOTIFY configChanged)
     Q_PROPERTY(double triggerHold READ triggerHold NOTIFY configChanged)
 
-    Q_PROPERTY(double inputGain READ inputGain NOTIFY configChanged)
     Q_PROPERTY(double bandSubMaxHz READ bandSubMaxHz NOTIFY configChanged)
     Q_PROPERTY(double bandBassMaxHz READ bandBassMaxHz NOTIFY configChanged)
     Q_PROPERTY(double bandLowMidMaxHz READ bandLowMidMaxHz NOTIFY configChanged)
@@ -113,15 +112,20 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(QVariantList triggerStates READ triggerStates NOTIFY audioSnapshotChanged)
 
     // Aubio snapshot fields
-    Q_PROPERTY(int onsetVoteCount READ onsetVoteCount NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double pitchHz READ pitchHz NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double pitchConfidence READ pitchConfidence NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double detectedBpm READ detectedBpm NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double beatConfidence READ beatConfidence NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double beatPhase READ beatPhase NOTIFY audioSnapshotChanged)
-    Q_PROPERTY(double tssTransient READ tssTransient NOTIFY audioSnapshotChanged)
-    Q_PROPERTY(double tssSteady READ tssSteady NOTIFY audioSnapshotChanged)
-    Q_PROPERTY(double tssRatio READ tssRatio NOTIFY audioSnapshotChanged)
+    // Per-bin transient/steady cvec norms from aubio_tss_do (last hop). The
+    // QML side does any derivations (sums, ratios, viz tinting).
+    // Per-method onset booleans from aubio (last hop). 9 entries in a fixed
+    // order: energy, hfc, complex, phase, wphase, specdiff, kl, mkl, specflux.
+    // Any vote-counting / aggregation is a QLC+-side derivation done in QML.
+    Q_PROPERTY(QVariantList onsetFlags READ onsetFlags NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList tssTransientNorm READ tssTransientNorm NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList tssSteadyNorm READ tssSteadyNorm NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(int tssBinCount READ tssBinCount NOTIFY audioSnapshotChanged)
     Q_PROPERTY(QVariantList melSpectrum READ melSpectrum NOTIFY audioSnapshotChanged)
     Q_PROPERTY(QVariantList mfccCoeffs READ mfccCoeffs NOTIFY audioSnapshotChanged)
 
@@ -209,7 +213,6 @@ public:
     double triggerCooldown() const;
     double triggerHold() const;
 
-    double inputGain() const;
     double bandSubMaxHz() const;
     double bandBassMaxHz() const;
     double bandLowMidMaxHz() const;
@@ -236,15 +239,15 @@ public:
     double tssBeta() const;
     double tssThreshold() const;
 
-    int onsetVoteCount() const;
     double pitchHz() const;
     double pitchConfidence() const;
     double detectedBpm() const;
     double beatConfidence() const;
     double beatPhase() const;
-    double tssTransient() const;
-    double tssSteady() const;
-    double tssRatio() const;
+    QVariantList tssTransientNorm() const;
+    QVariantList tssSteadyNorm() const;
+    int tssBinCount() const;
+    QVariantList onsetFlags() const;
     QVariantList melSpectrum() const;
     QVariantList mfccCoeffs() const;
 
@@ -271,7 +274,6 @@ public:
     Q_INVOKABLE void setTriggerCooldown(double ms);
     Q_INVOKABLE void setTriggerHold(double ms);
 
-    Q_INVOKABLE void setInputGain(double gain);
     Q_INVOKABLE void setBandSubMaxHz(double hz);
     Q_INVOKABLE void setBandBassMaxHz(double hz);
     Q_INVOKABLE void setBandLowMidMaxHz(double hz);

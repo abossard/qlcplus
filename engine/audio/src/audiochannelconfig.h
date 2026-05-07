@@ -42,7 +42,10 @@ struct NoiseGateConfig
 
 /**
  * Direct aubio configuration — every field maps 1:1 to an aubio_*_set_*() call
- * inside AubioProcessor. No QLC+ post-processing is applied to these values.
+ * inside AubioProcessor. No QLC+ post-processing is applied to these values,
+ * and there is no PCM pre-processing either: samples flow from AudioCapture
+ * straight into aubio after the int16->float type conversion. Input gain is
+ * an OS / hardware concern and is NOT applied here.
  */
 struct AubioConfig
 {
@@ -51,12 +54,6 @@ struct AubioConfig
         AubioSamples = 0, // Derive beatPhase from aubio's internal sample counter.
         QlcTimer     = 1  // Derive beatPhase from QLC+ wall-clock time (future).
     };
-
-    // PRE-aubio PCM gain. Multiplied into the float-normalized hop buffer before
-    // any aubio_*_do() call. This is the ONLY place the user-facing input gain
-    // is applied — aubio output is never post-multiplied. Non-aubio param, but
-    // lives here because it gates what aubio sees.
-    double inputGainLinear = 1.0;
 
     // Mel filterbank — aubio_filterbank_set_norm / aubio_filterbank_set_power.
     // norm: 1 = each mel filter normalized to unit area (default), 0 = raw triangular weights.

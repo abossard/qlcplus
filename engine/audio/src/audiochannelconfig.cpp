@@ -33,17 +33,15 @@ AudioChannelConfig AudioChannelConfig::defaults()
     return cfg;
 }
 
-AudioChannelConfig AudioChannelConfig::fromLegacySliders(int gain, int reactivity, int floor, int sensitivity)
+AudioChannelConfig AudioChannelConfig::fromLegacySliders(int /*gain*/, int reactivity, int floor, int sensitivity)
 {
     AudioChannelConfig config = defaults();
 
-    const int boundedGain = bounded(gain, 1, 10);
     const int boundedReactivity = bounded(reactivity, 1, 10);
     const int boundedFloor = bounded(floor, 0, 100);
     const int boundedSensitivity = bounded(sensitivity, 1, 10);
 
-    // Map legacy gain slider directly to the pre-aubio PCM gain.
-    config.aubio.inputGainLinear = 0.6 + boundedGain * 0.2;
+    // Legacy `gain` slider is dropped: input gain is now an OS/hardware concern.
 
     const double alpha = std::min(0.1 + boundedReactivity * 0.09, 0.999);
     config.envelope.attackMs = -40.0 / std::log(1.0 - alpha);

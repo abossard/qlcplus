@@ -7,34 +7,48 @@ static constexpr int AUBIO_MEL_BANDS = 40;
 static constexpr int AUBIO_MFCC_COEFFS = 13;
 static constexpr int AUBIO_ONSET_METHODS = 9;
 
+/**
+ * Pristine aubio output — last hop wins for all per-hop values.
+ * No QLC+-side averaging, max-over-hops, clamping, normalization or scaling.
+ * The only operations applied to aubio data here are float->double type
+ * conversion, struct copying, and bin->Hz conversion via aubio_bintofreq().
+ *
+ * Range of `mel`: whatever `aubio_filterbank_set_norm/power` produces. NOT
+ * guaranteed to be 0..1 — callers must NOT assume any range.
+ */
 struct AubioResults
 {
-    // Mel filterbank (40 bands, 0-1 normalized)
+    // Mel filterbank — last hop, raw aubio_filterbank_do output.
     double mel[AUBIO_MEL_BANDS] = {};
 
-    // MFCC (13 coefficients)
+    // MFCC — last hop, raw aubio_mfcc_do output.
     double mfcc[AUBIO_MFCC_COEFFS] = {};
 
-    // Spectral descriptors
+    // Spectral descriptors — last hop, raw aubio_specdesc_do output.
     double centroidHz = 0.0;
     double spread = 0.0;
     double rolloffHz = 0.0;
     double flux = 0.0;
     double hfc = 0.0;
 
-    // Pitch
+    // Pitch — last hop, raw aubio_pitch_do output.
     double pitchHz = 0.0;
     double pitchConfidence = 0.0;
 
-    // Tempo / beat
+    // Tempo / beat — raw aubio_tempo_get_*() output.
     bool beat = false;
     double bpm = 0.0;
     double beatConfidence = 0.0;
     bool tatum = false;
-    /** Phase within the current beat in [0,1). 0 = on a beat, 0.5 = halfway to next. */
+    /**
+     * QLC+ DERIVATION (not raw aubio): phase within the current beat in [0,1).
+     * Computed by AubioProcessor from aubio_tempo_get_period_s/last_s and the
+     * internal sample counter. 0 = on a beat, 0.5 = halfway to next.
+     */
     double beatPhase = 0.0;
 
-    // Onset detection (9 methods)
+    // Onset detection (9 methods) — last hop, raw aubio_onset_do output.
+    // No vote count, no OR-across-hops aggregation.
     struct {
         bool energy = false;
         bool hfc = false;
@@ -45,23 +59,21 @@ struct AubioResults
         bool kl = false;
         bool mkl = false;
         bool specflux = false;
-        int voteCount = 0;
     } onsets;
 
-    // Notes
+    // Notes — raw aubio_notes_do output.
     double noteMidi = 0.0;
     double noteVelocity = 0.0;
     bool noteOn = false;
     bool noteOff = false;
 
-    // Volume (RMS from aubio's perspective)
-    double rms = 0.0;
-    double peak = 0.0;
-
-    // Transient/Steady separation (per-buffer aggregates)
-    double transientEnergy = 0.0;  // max-over-hops of tE / (tE + sE)
-    double steadyEnergy = 0.0;     // max-over-hops of sE / (tE + sE)
-    double transientRatio = 0.0;   // last-hop tE / (tE + sE) — 0 = all steady, 1 = all transient
+    // Transient/Steady separation — raw aubio_tss_do cvec norm arrays from the
+    // last hop. Sized win/2+1; `tssBinCount` reports how many entries are
+    // valid. Frequency of bin i = aubio_bintofreq(i, sampleRate, winSize).
+    static constexpr int kMaxTssBins = 1025; // covers up to win=2048
+    double tssTransientNorm[kMaxTssBins] = {};
+    double tssSteadyNorm[kMaxTssBins] = {};
+    int tssBinCount = 0;
 };
 
 Q_DECLARE_METATYPE(AubioResults)
