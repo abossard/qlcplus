@@ -59,22 +59,40 @@ namespace
     //         )
     //
     // LedFx walks the bank's actual centre-frequency table; we don't have
-    // that table from aubio so we recompute the index analytically using
-    // the Slaney mel formula. Result is the index of the first bin whose
-    // upper edge is >= `hz` — same semantics as LedFx's `f > freq` lookup.
-    inline int hzToMasterMelBin(double hz, double sampleRate, int nBands)
+    // that table from aubio so we recompute the index analytically. The
+    // formula MUST match the warp the master filterbank was built with in
+    // AubioProcessor::initialize() — otherwise the freq_power slices read
+    // from bins that don't correspond to the requested cutoffs (Fix 4).
+    inline int hzToMasterMelBin(double hz, double sampleRate, int nBands,
+                                const QString &melScale)
     {
         if (sampleRate <= 0.0 || nBands <= 0)
             return 0;
-        // LedFx uses aubio.hztomel/meltohz for aubio mel banks. Keep QLC+'s
-        // split the same: aubio-owned mel conversion here, custom matt_mel only
-        // for the LedFx custom matt_mel bank below.
+        if (melScale.compare(QStringLiteral("matt_mel"), Qt::CaseInsensitive) == 0)
+        {
+            // LedFx audio.py:215-235 — "first band whose center frequency is
+            // strictly above the cutoff Hz." setMattMelBands() places nBands+2
+            // edges evenly in matt_mel space; the interior nBands points are
+            // centers. ceil(frac*(nBands+1))-1 reproduces LedFx's center-table
+            // lookup without building an explicit table.
+            // Produces {2, 6, 25, 37} for {100, 250, 3000, 10000} Hz at
+            // sr=44100, N=40 — exact LedFx parity.
+            const double fmax = std::min(kMattMelMaxHz, sampleRate * 0.5);
+            const double mmin = hzToMattMel(kMattMelMinHz);
+            const double mmax = hzToMattMel(fmax);
+            if (mmax <= mmin)
+                return 0;
+            const double frac = (hzToMattMel(hz) - mmin) / (mmax - mmin);
+            return std::clamp(int(std::ceil(frac * double(nBands + 1))) - 1, 0, nBands);
+        }
+        // Legacy HTK path (also used as best-effort fallback for slaney —
+        // aubio doesn't expose its slaney centre table; HTK gets us close
+        // enough that the slices stay monotonic).
         const double maxMel = aubio_hztomel(smpl_t(sampleRate * 0.5));
         if (maxMel <= 0.0)
             return 0;
         const double frac = aubio_hztomel(smpl_t(hz)) / maxMel;
-        int bin = int(std::floor(frac * double(nBands)));
-        return std::clamp(bin, 0, nBands);
+        return std::clamp(int(std::floor(frac * double(nBands))), 0, nBands);
     }
 
     int lowMelBeatEndBin(double beatMaxHz, const MelBankConfig::Bank &bank)
@@ -581,10 +599,11 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
     //
     // LedFx audio.py:1162-1182 — convert each Hz to a bin index in
     //     melbanks[2]. We do the same with hzToMasterMelBin() above.
-    const int kBeatCutBin = hzToMasterMelBin(100.0,   frame.sampleRate, AUBIO_MEL_BANDS);
-    const int kLowCutBin  = hzToMasterMelBin(250.0,   frame.sampleRate, AUBIO_MEL_BANDS);
-    const int kMidCutBin  = hzToMasterMelBin(3000.0,  frame.sampleRate, AUBIO_MEL_BANDS);
-    const int kHighEndBin = hzToMasterMelBin(10000.0, frame.sampleRate, AUBIO_MEL_BANDS);
+    const QString &melScale = m_config.aubio.melScale;
+    const int kBeatCutBin = hzToMasterMelBin(100.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kLowCutBin  = hzToMasterMelBin(250.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kMidCutBin  = hzToMasterMelBin(3000.0,  frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kHighEndBin = hzToMasterMelBin(10000.0, frame.sampleRate, AUBIO_MEL_BANDS, melScale);
 
     // Defensive ordering: guarantee strictly-increasing, non-empty
     // slices even if cutoffs collide at very low/high sample rates.

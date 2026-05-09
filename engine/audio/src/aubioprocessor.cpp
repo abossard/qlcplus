@@ -177,10 +177,23 @@ void AubioProcessor::initialize(uint32_t sampleRate)
     {
         // norm must be set BEFORE set_mel_coeffs_* (it's read during coeff build).
         aubio_filterbank_set_norm(m_filterbank, smpl_t(m_config.filterbankNorm));
-        if (isHtkMelScale(m_config.melScale))
+        if (m_config.melScale.compare(QStringLiteral("matt_mel"), Qt::CaseInsensitive) == 0)
+        {
+            // LedFx melbank.py:264-287 — matt_mel warp: 3700 * log12(1 + f/230).
+            // Clamp fmax to Nyquist so low sample rates can't produce centres
+            // above sr/2 (would be silently zeroed by aubio).
+            const double fmax = std::min(kMattMelMaxHz, double(sampleRate) * 0.5);
+            setMattMelBands(m_filterbank, kMattMelMinHz, fmax,
+                            AUBIO_MEL_BANDS, sampleRate);
+        }
+        else if (isHtkMelScale(m_config.melScale))
+        {
             aubio_filterbank_set_mel_coeffs_htk(m_filterbank, sampleRate, 0.0, double(sampleRate) * 0.5);
+        }
         else
+        {
             aubio_filterbank_set_mel_coeffs_slaney(m_filterbank, sampleRate);
+        }
         aubio_filterbank_set_power(m_filterbank, smpl_t(m_config.filterbankPower));
     }
 

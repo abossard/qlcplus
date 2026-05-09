@@ -1218,10 +1218,11 @@ void VCAudioTriggers::setWindowType(const QString &type)
 void VCAudioTriggers::setMelScale(const QString &scale)
 {
     QString sanitized = scale;
-    if (sanitized.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
+    if (sanitized.compare(QStringLiteral("matt_mel"), Qt::CaseInsensitive) != 0
+        && sanitized.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
         && sanitized.compare(QStringLiteral("slaney"), Qt::CaseInsensitive) != 0)
     {
-        sanitized = QStringLiteral("slaney");
+        sanitized = QStringLiteral("matt_mel");
     }
     AudioChannelConfig config = profileChannelConfig();
     if (config.aubio.melScale == sanitized)

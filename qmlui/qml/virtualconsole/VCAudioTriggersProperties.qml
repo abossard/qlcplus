@@ -333,12 +333,12 @@ Rectangle
                         }
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mel scale"); tooltipText: qsTr("Mel-scale variant. htk = HTK style; slaney = librosa/Slaney style.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mel scale"); tooltipText: qsTr("Mel-scale variant. matt_mel = LedFx 20-15kHz default; htk = HTK style; slaney = librosa/Slaney style.") }
                     CustomComboBox
                     {
                         Layout.fillWidth: true
                         height: gridItemsHeight
-                        property var melScales: ["htk", "slaney"]
+                        property var melScales: ["matt_mel", "htk", "slaney"]
                         model: melScales
                         currentIndex: {
                             if (!widgetRef) return 0

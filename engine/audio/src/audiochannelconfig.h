@@ -18,6 +18,13 @@
 // so existing call sites compile unchanged.
 static constexpr int kMaxMelBands = 32;
 
+// matt_mel master mel bank frequency range. Used by both AubioProcessor (when
+// building the 40-band master filterbank for melScale == "matt_mel") and
+// audiochannel.cpp (hzToMasterMelBin analytical mapping). LedFx melbank.py:
+// 264-287 — matt_mel warp: 3700 * log12(1 + f/230). Spans 20 Hz .. 15 kHz.
+static constexpr double kMattMelMinHz = 20.0;
+static constexpr double kMattMelMaxHz = 15000.0;
+
 struct EnvelopeConfig
 {
     // In-class defaults are the single source of truth. AudioChannelConfig::
@@ -182,10 +189,15 @@ struct AubioConfig
     // requires a full rebuild (window is baked into the pvoc internals).
     QString windowType = QStringLiteral("default");
 
-    // Mel filterbank scale — selects between
-    // aubio_filterbank_set_mel_coeffs_slaney() and *_htk(). "slaney" or "htk".
-    // Changing requires a full rebuild.
-    QString melScale = QStringLiteral("slaney");
+    // Mel filterbank scale for the 40-band master mel bank. Accepted values:
+    //   "matt_mel" — LedFx-style triangle bands over [kMattMelMinHz, min(kMattMelMaxHz, sr/2)]
+    //                (default; matches the 3 nested matt_mel sub-banks below)
+    //   "htk"      — aubio_filterbank_set_mel_coeffs_htk() over [0, sr/2]
+    //   "slaney"   — aubio_filterbank_set_mel_coeffs_slaney() (legacy aubio default)
+    // Changing requires a full rebuild. hzToMasterMelBin() in audiochannel.cpp
+    // branches on this value so the freq_mel_indexes lookup matches the bank
+    // actually built here.
+    QString melScale = QStringLiteral("matt_mel");
 
     // Onset — compression and adaptive whitening intentionally NOT exposed
     // globally: aubio_onset_set_default_parameters() applies the per-method

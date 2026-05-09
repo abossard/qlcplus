@@ -423,10 +423,11 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.melScale = stringAttribute(childAttrs,
                                                     KXMLQLCAudioProfileAubioMelScale,
                                                     config.aubio.melScale);
-            if (config.aubio.melScale.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
+            if (config.aubio.melScale.compare(QStringLiteral("matt_mel"), Qt::CaseInsensitive) != 0
+                && config.aubio.melScale.compare(QStringLiteral("htk"), Qt::CaseInsensitive) != 0
                 && config.aubio.melScale.compare(QStringLiteral("slaney"), Qt::CaseInsensitive) != 0)
             {
-                config.aubio.melScale = QStringLiteral("slaney");
+                config.aubio.melScale = QStringLiteral("matt_mel");
             }
             // Older profile XML may include OnsetAdaptiveWhitening /
             // OnsetCompressionLambda — they are now ignored because aubio's
