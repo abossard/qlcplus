@@ -22,7 +22,9 @@
 
 #include <QNetworkAddressEntry>
 #include <QNetworkInterface>
+#include <QSharedPointer>
 #include <QHostAddress>
+#include <QMutex>
 #include <QString>
 #include <QList>
 
@@ -33,7 +35,7 @@ typedef struct
 {
     QNetworkInterface iface;
     QNetworkAddressEntry address;
-    DDPController* controller;
+    QSharedPointer<DDPController> controller;
 } DDPIO;
 
 // Parameter name constants for setParameter() / getParameters()
@@ -43,6 +45,8 @@ typedef struct
 #define DDP_DESTID      "ddpDestId"
 #define DDP_TRANSMITMODE "ddpTransmitMode"
 #define DDP_COMPONENTS   "ddpComponents"
+#define DDP_MAXFPS       "ddpMaxFps"
+#define DDP_PIXELCOUNT   "ddpPixelCount"
 
 class DDPPlugin final : public QLCIOPlugin
 {
@@ -124,6 +128,10 @@ public:
 
 private:
     QList<DDPIO> m_IOmapping;
+    /** Guards access to controller slots in m_IOmapping. The list itself is
+     *  only resized on the engine main thread; the mutex protects the
+     *  QSharedPointer slot read/reset against concurrent writeUniverse(). */
+    mutable QMutex m_ioMutex;
 };
 
 #endif // DDPPLUGIN_H

@@ -22,15 +22,10 @@ namespace
 
 AudioChannelConfig AudioChannelConfig::defaults()
 {
-    AudioChannelConfig cfg;
-    cfg.envelope = { 15.0, 150.0 };
-    cfg.triggers = { 0.65, 0.45, 80.0, 120.0 };
-    cfg.bandLayout = { 60.0, 250.0, 500.0, 2000.0, 5000.0 };
-    cfg.noiseGate = { -60.0, 120.0 };
-    cfg.brightnessFloor = 0.0;
-    cfg.volumeSmoothingMs = 100.0;
-    cfg.aubio = AubioConfig{};
-    return cfg;
+    // In-class member initializers are the single source of truth for default
+    // values — see EnvelopeConfig / NoiseGateConfig / TriggerConfig in
+    // audiochannelconfig.h. This function intentionally adds no overrides.
+    return AudioChannelConfig{};
 }
 
 AudioChannelConfig AudioChannelConfig::fromLegacySliders(int /*gain*/, int reactivity, int floor, int sensitivity)

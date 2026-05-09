@@ -11,16 +11,6 @@
 
 #include "aubioresults.h"
 
-struct PerceptualBands
-{
-    double sub = 0.0;
-    double bass = 0.0;
-    double lowMid = 0.0;
-    double mid = 0.0;
-    double high = 0.0;
-    double low = 0.0;
-};
-
 struct TriggerState
 {
     double value = 0.0;
@@ -40,16 +30,52 @@ struct AudioSnapshot
     // Mel spectrum (40 bands from aubio filterbank)
     double mel[AUBIO_MEL_BANDS] = {};
 
+    // Post-processed mel (LedFx-style power scaling + Gaussian AGC + ExpFilter
+    // smoothing). Equal to `mel` when MelPostProcessor is disabled (bypass).
+    double melProcessed[AUBIO_MEL_BANDS] = {};
+
+    // Novelty: processedMel minus a very-slow common filter. Zero when the
+    // post-processor is disabled.
+    double melNovelty[AUBIO_MEL_BANDS] = {};
+
+    /**
+     * Multi-resolution mel banks (Phase 3+4 placeholder; populated by Phase
+     * 1+2). Each bank carries its own raw / processed / novelty triple,
+     * matching the LedFx "each bank has its own ExpFilter chain" guarantee.
+     * `count` is 0 when the bank is unconfigured/disabled — consumers must
+     * treat that as "no data" and fall back to the legacy 40-band `mel`.
+     */
+    static constexpr int kMelBankBandsMax = kMaxMelBands;
+    struct MelBankSnapshot
+    {
+        double raw      [kMelBankBandsMax] = {};
+        double processed[kMelBankBandsMax] = {};
+        double novelty  [kMelBankBandsMax] = {};
+        int    count = 0;
+        double minHz = 0.0;
+        double maxHz = 0.0;
+    };
+    MelBankSnapshot melLow;
+    MelBankSnapshot melMid;
+    MelBankSnapshot melHigh;
+
     // MFCC (13 coefficients from aubio)
     double mfcc[AUBIO_MFCC_COEFFS] = {};
 
-    // Perceptual bands derived from mel band grouping
-    PerceptualBands bands;
+    // LedFx-parity scalar bank power (mean of each mel bank's processed[]).
+    // Populated by AudioChannel::buildSnapshot(); zero when banks disabled.
+    double lows  = 0.0;
+    double mids  = 0.0;
+    double highs = 0.0;
 
-    // Triggers (5 perceptual bands)
-    TriggerState triggers[5];
+    // 3 mel-bank Schmitt triggers ([0]=low, [1]=mid, [2]=high) plus
+    // volume / beat / kick = 6 triggers total.
+    TriggerState triggers[3];
     TriggerState volumeTrigger;
     TriggerState beatTrigger;
+    // Kick / bass Schmitt-trigger detector. `value` is the raw spike ratio
+    // (current low-mel energy / slow-release envelope); can exceed 1.0.
+    TriggerState kickTrigger;
 
     struct
     {
@@ -63,6 +89,7 @@ struct AudioSnapshot
         bool beat = false;
         double bpm = 0.0;
         double beatPhase = 0.0;
+        double barPhase = 0.0;
         double beatConfidence = 0.0;
         bool tatum = false;
     } music;
@@ -77,7 +104,16 @@ struct AudioSnapshot
         double rolloffHz = 0.0;
         double flux = 0.0;
         double hfc = 0.0;
+        // Spectral flatness (Wiener entropy): geometric_mean / arithmetic_mean
+        // of the post-processed mel magnitudes. 0..1 (1 == white noise / flat,
+        // 0 == single tone). Computed in AudioChannel::buildSnapshot().
+        double flatness = 0.0;
     } features;
+
+    // Live AGC scalar from MelPostProcessor (LedFx mel_gain). Reflects the
+    // current divisor applied to the master mel before publishing
+    // melProcessed[]. 1.0 when the post-processor is disabled (bypass).
+    double melAgcGain = 1.0;
 
     struct
     {

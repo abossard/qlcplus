@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Split Tower";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -41,6 +41,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay|" +
       "values:1,10|write:setDecay|read:getDecay");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setBands = function(_v) { algo.presetBands = Math.max(2, Math.min(5, parseInt(_v))); };
     algo.getBands = function() { return algo.presetBands; };
@@ -49,31 +50,20 @@ var testAlgo;
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
-    var sectionColors = [
-        [255, 0, 0],
-        [0, 255, 0],
-        [0, 0, 255],
-        [255, 255, 0],
-        [0, 255, 255]
-    ];
+    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
 
     algo.peakValues = [];
     algo.peakHolds = [];
     algo.smoothBands = [];
+    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
-    algo.rgbMapSetColors = function(rawColors) {
-        if (!rawColors) return;
-        for (var i = 0; i < Math.min(rawColors.length, 5); i++)
-            sectionColors[i] = [(rawColors[i] >> 16) & 0xFF, (rawColors[i] >> 8) & 0xFF, rawColors[i] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
 
     algo.rgbMapGetColors = function() {
-        var result = [];
-        for (var i = 0; i < algo.presetBands; i++)
-            result.push(RGBUtil.rgb(sectionColors[i][0], sectionColors[i][1], sectionColors[i][2]));
-        return result;
+        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
     function ensureState() {
@@ -96,10 +86,18 @@ var testAlgo;
         if (!audio || !audio.mel || audio.mel.length === 0) return map;
 
         var numBands = algo.presetBands;
-        var bands = RGBUtil.interpolate(audio.mel, numBands);
+        var sourceBands = AudioParams.bandWeights(algo, audio);
+        var bands = (numBands === 3) ? sourceBands : RGBUtil.interpolate(sourceBands, numBands);
+        var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var sectionColors = [];
+        for (var ci = 0; ci < 3; ci++)
+            sectionColors.push(unpackColor(colorStops[ci]));
         var floorBrightness = AudioParams.applyFloor(algo, 0);
         var fallStep = algo.presetDecay / 100.0;
         var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
+
+        // Beat-pulse brightness boost
+        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
 
         for (var section = 0; section < numBands; section++) {
             var magnitude = Math.max(0, Math.min(1, bands[section]));
@@ -127,13 +125,13 @@ var testAlgo;
             var sectionEnd = Math.floor((section + 1) * width / numBands);
             sectionStart = Math.max(0, Math.min(width, sectionStart));
             sectionEnd = Math.max(sectionStart, Math.min(width, sectionEnd));
-            var color = sectionColors[section];
+            var color = sectionColors[section % 3];
 
             for (var x = sectionStart; x < sectionEnd; x++) {
                 for (var y = 0; y < height; y++) {
                     var fromBottom = height - 1 - y;
                     if (fromBottom < barHeight) {
-                        var brightness = AudioParams.applyFloor(algo, smoothMagnitude * (1 - y / height * 0.3));
+                        var brightness = AudioParams.applyFloor(algo, smoothMagnitude * (1 - y / height * 0.3)) * beatBoost;
                         map[y][x] = RGBUtil.rgb(
                             color[0] * brightness,
                             color[1] * brightness,

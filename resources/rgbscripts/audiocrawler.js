@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Crawler";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -46,23 +47,17 @@ var testAlgo;
     algo.setChop = function(_v) { algo.presetChop = parseInt(_v); };
     algo.getChop = function() { return algo.presetChop; };
 
-    var startColor = [0, 255, 128];
-    var endColor = [128, 0, 255];
+    var DEFAULT_BAND_COLORS = [0x00FF80, 0x80A0FF, 0xFFFFFF];
     var lowsFilter = null;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
+    var activeColor = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -82,7 +77,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        var lowsPower = lowsFilter.update(audio.bands.low);
+        var lowsPower = lowsFilter.update(audio.lows);
 
         var speed = algo.presetSpeed / 10.0;
         var sway = algo.presetSway / 5.0;
@@ -97,6 +92,11 @@ var testAlgo;
         var t1 = (timestep * speed * sway * 0.0003) % (Math.PI * 20);
         var t2 = (timestep * speed * chop * 0.0005) % (Math.PI * 20);
         var t3 = (timestep * speed * (chop + reactivity * lowsPower) * 0.0004) % (Math.PI * 20);
+        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio) || !activeColor) {
+            activeColor = AudioParams.colorChannels(
+                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        }
+        var dominant = activeColor;
 
         for (var x = 0; x < width; x++) {
             var il = (x - width / 2) / width; // -0.5 to 0.5
@@ -110,11 +110,11 @@ var testAlgo;
             var v = Math.sin(t2 + il * chop * 3);
             v = v * v; // Square for contrast
 
-            // Color from hue position in gradient
             var hNorm = ((h * 3 + 0.5) % 1 + 1) % 1;
-            var r = startColor[0] + (endColor[0] - startColor[0]) * hNorm;
-            var g = startColor[1] + (endColor[1] - startColor[1]) * hNorm;
-            var b = startColor[2] + (endColor[2] - startColor[2]) * hNorm;
+            var colorScale = 0.6 + hNorm * 0.4;
+            var r = dominant[0] * colorScale;
+            var g = dominant[1] * colorScale;
+            var b = dominant[2] * colorScale;
 
             // Apply brightness
             var bright = AudioParams.applyFloor(algo, Math.max(0, Math.min(1, v)));

@@ -117,9 +117,9 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var maxRadius = Math.sqrt(width * width + height * height);
     renderAmbient(map, width, height, cx, cy, maxRadius);
 
-    var bass = clamp(audio.bands.low, 0, 1);
+    var bass = clamp(audio.lows, 0, 1);
 
-    if (audio.triggers.bass.firedThisFrame)
+    if (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio))
         spawnWave(width, height, Math.max(0.5, bass));
 
     if (algo.waves.length < 3 && bass > 0.1)
@@ -133,6 +133,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     }
 
     var waveWidth = algo.presetWaveWidth;
+    var onsetIntensity = Math.max(0.4, AudioParams.maxOnsetIntensity(audio));
     for (var wi = 0; wi < algo.waves.length; wi++) {
         var wave = algo.waves[wi];
         var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));
@@ -143,7 +144,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
                 var ringDist = Math.abs(dist - wave.radius);
                 if (ringDist < waveWidth) {
                     var ringBri = (1 - ringDist / waveWidth);
-                    ringBri = Math.sqrt(ringBri) * wave.intensity * fade;  // sqrt = fatter ring
+                    ringBri = Math.sqrt(ringBri) * wave.intensity * fade * onsetIntensity;
                     total[y][x] += ringBri;
                 }
             }

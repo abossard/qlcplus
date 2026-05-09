@@ -1,41 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="IOMGR">
  <Creator>
   <Name>Q Light Controller Plus</Name>
-  <Version>5.2.2 GIT</Version>
+  <Version>5.2.2 GIT c715576</Version>
   <Author>Andre Bossard</Author>
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="133"/>
+   <BeatGenerator BeatType="Audio" BPM="120"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
     <Output Plugin="DMX USB" UID="None" Line="0"/>
    </Universe>
    <Universe Name="Universe 2" ID="1">
-    <Input Plugin="OSC" UID="127.0.0.1" Line="0" Profile="MAGIC MAGIC"/>
-    <Output Plugin="DDP" UID="None" Line="4"/>
+    <Input Plugin="OSC" UID="127.0.0.1" Line="3" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" UID="192.168.1.74" Line="4">
+     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="192.168.1.196" ddpOffset="0" ddpPort="4048" ddpTransmitMode="Partial"/>
+    </Output>
    </Universe>
    <Universe Name="Universe 3" ID="2">
     <Input Plugin="MIDI" UID="None" Line="1" Profile="Akai APC Mini mk2"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
-     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="320" ddpPort="4048" ddpTransmitMode="Partial"/>
-    </Output>
     <Feedback Plugin="MIDI" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 4" ID="3">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
-     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="640" ddpPort="4048" ddpTransmitMode="Partial"/>
-    </Output>
     <Feedback Plugin="MIDI" UID="None" Line="1"/>
    </Universe>
-   <Universe Name="Universe 5" ID="4">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
-     <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="960" ddpPort="4048" ddpTransmitMode="Partial"/>
-    </Output>
-   </Universe>
+   <Universe Name="Universe 5" ID="4"/>
   </InputOutputMap>
   <Fixture>
    <Manufacturer>Varytec</Manufacturer>
@@ -71,49 +63,49 @@
    <Manufacturer>Generic</Manufacturer>
    <Model>RGBPanel</Model>
    <Mode>RGBW</Mode>
-   <Width>5000</Width>
-   <Height>250</Height>
+   <Width>10</Width>
+   <Height>12</Height>
    <ID>3</ID>
-   <Name>WLED - Row 1</Name>
+   <Name>RGB1 - Row 1</Name>
    <Universe>1</Universe>
    <Address>0</Address>
-   <Channels>320</Channels>
+   <Channels>4</Channels>
   </Fixture>
   <Fixture>
    <Manufacturer>Generic</Manufacturer>
    <Model>RGBPanel</Model>
    <Mode>RGBW</Mode>
-   <Width>5000</Width>
-   <Height>250</Height>
+   <Width>10</Width>
+   <Height>12</Height>
    <ID>4</ID>
-   <Name>WLED - Row 2</Name>
-   <Universe>2</Universe>
-   <Address>0</Address>
-   <Channels>320</Channels>
+   <Name>RGB1 - Row 2</Name>
+   <Universe>1</Universe>
+   <Address>4</Address>
+   <Channels>4</Channels>
   </Fixture>
   <Fixture>
    <Manufacturer>Generic</Manufacturer>
    <Model>RGBPanel</Model>
    <Mode>RGBW</Mode>
-   <Width>5000</Width>
-   <Height>250</Height>
+   <Width>10</Width>
+   <Height>12</Height>
    <ID>5</ID>
-   <Name>WLED - Row 3</Name>
-   <Universe>3</Universe>
-   <Address>0</Address>
-   <Channels>320</Channels>
+   <Name>RGB1 - Row 3</Name>
+   <Universe>1</Universe>
+   <Address>8</Address>
+   <Channels>4</Channels>
   </Fixture>
   <Fixture>
    <Manufacturer>Generic</Manufacturer>
    <Model>RGBPanel</Model>
    <Mode>RGBW</Mode>
-   <Width>5000</Width>
-   <Height>250</Height>
+   <Width>10</Width>
+   <Height>12</Height>
    <ID>6</ID>
-   <Name>WLED - Row 4</Name>
-   <Universe>4</Universe>
-   <Address>0</Address>
-   <Channels>320</Channels>
+   <Name>RGB1 - Row 4</Name>
+   <Universe>1</Universe>
+   <Address>12</Address>
+   <Channels>4</Channels>
   </Fixture>
   <Fixture>
    <Manufacturer>Stairville</Manufacturer>
@@ -126,329 +118,921 @@
    <Channels>49</Channels>
    <Modifier Channel="5" Name="Logarithmic Medium"/>
   </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>8</ID>
+   <Name>RGB1 - Row 5</Name>
+   <Universe>1</Universe>
+   <Address>16</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>9</ID>
+   <Name>RGB1 - Row 6</Name>
+   <Universe>1</Universe>
+   <Address>20</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>10</ID>
+   <Name>RGB1 - Row 7</Name>
+   <Universe>1</Universe>
+   <Address>24</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>11</ID>
+   <Name>RGB1 - Row 8</Name>
+   <Universe>1</Universe>
+   <Address>28</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>12</ID>
+   <Name>RGB1 - Row 9</Name>
+   <Universe>1</Universe>
+   <Address>32</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>13</ID>
+   <Name>RGB1 - Row 10</Name>
+   <Universe>1</Universe>
+   <Address>36</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>14</ID>
+   <Name>RGB1 - Row 11</Name>
+   <Universe>1</Universe>
+   <Address>40</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>15</ID>
+   <Name>RGB1 - Row 12</Name>
+   <Universe>1</Universe>
+   <Address>44</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>16</ID>
+   <Name>RGB1 - Row 13</Name>
+   <Universe>1</Universe>
+   <Address>48</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>17</ID>
+   <Name>RGB1 - Row 14</Name>
+   <Universe>1</Universe>
+   <Address>52</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>18</ID>
+   <Name>RGB1 - Row 15</Name>
+   <Universe>1</Universe>
+   <Address>56</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>19</ID>
+   <Name>RGB1 - Row 16</Name>
+   <Universe>1</Universe>
+   <Address>60</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>20</ID>
+   <Name>RGB1 - Row 17</Name>
+   <Universe>1</Universe>
+   <Address>64</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>21</ID>
+   <Name>RGB1 - Row 18</Name>
+   <Universe>1</Universe>
+   <Address>68</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>22</ID>
+   <Name>RGB1 - Row 19</Name>
+   <Universe>1</Universe>
+   <Address>72</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>23</ID>
+   <Name>RGB1 - Row 20</Name>
+   <Universe>1</Universe>
+   <Address>76</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>24</ID>
+   <Name>RGB1 - Row 21</Name>
+   <Universe>1</Universe>
+   <Address>80</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>25</ID>
+   <Name>RGB1 - Row 22</Name>
+   <Universe>1</Universe>
+   <Address>84</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>26</ID>
+   <Name>RGB1 - Row 23</Name>
+   <Universe>1</Universe>
+   <Address>88</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>27</ID>
+   <Name>RGB1 - Row 24</Name>
+   <Universe>1</Universe>
+   <Address>92</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>28</ID>
+   <Name>RGB1 - Row 25</Name>
+   <Universe>1</Universe>
+   <Address>96</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>29</ID>
+   <Name>RGB1 - Row 26</Name>
+   <Universe>1</Universe>
+   <Address>100</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>30</ID>
+   <Name>RGB1 - Row 27</Name>
+   <Universe>1</Universe>
+   <Address>104</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>31</ID>
+   <Name>RGB1 - Row 28</Name>
+   <Universe>1</Universe>
+   <Address>108</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>32</ID>
+   <Name>RGB1 - Row 29</Name>
+   <Universe>1</Universe>
+   <Address>112</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>33</ID>
+   <Name>RGB1 - Row 30</Name>
+   <Universe>1</Universe>
+   <Address>116</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>34</ID>
+   <Name>RGB1 - Row 31</Name>
+   <Universe>1</Universe>
+   <Address>120</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>35</ID>
+   <Name>RGB1 - Row 32</Name>
+   <Universe>1</Universe>
+   <Address>124</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>36</ID>
+   <Name>RGB1 - Row 33</Name>
+   <Universe>1</Universe>
+   <Address>128</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>37</ID>
+   <Name>RGB1 - Row 34</Name>
+   <Universe>1</Universe>
+   <Address>132</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>38</ID>
+   <Name>RGB1 - Row 35</Name>
+   <Universe>1</Universe>
+   <Address>136</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>39</ID>
+   <Name>RGB1 - Row 36</Name>
+   <Universe>1</Universe>
+   <Address>140</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>40</ID>
+   <Name>RGB1 - Row 37</Name>
+   <Universe>1</Universe>
+   <Address>144</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>41</ID>
+   <Name>RGB1 - Row 38</Name>
+   <Universe>1</Universe>
+   <Address>148</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>42</ID>
+   <Name>RGB1 - Row 39</Name>
+   <Universe>1</Universe>
+   <Address>152</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>43</ID>
+   <Name>RGB1 - Row 40</Name>
+   <Universe>1</Universe>
+   <Address>156</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>44</ID>
+   <Name>RGB1 - Row 41</Name>
+   <Universe>1</Universe>
+   <Address>160</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>45</ID>
+   <Name>RGB1 - Row 42</Name>
+   <Universe>1</Universe>
+   <Address>164</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>46</ID>
+   <Name>RGB1 - Row 43</Name>
+   <Universe>1</Universe>
+   <Address>168</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>47</ID>
+   <Name>RGB1 - Row 44</Name>
+   <Universe>1</Universe>
+   <Address>172</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>48</ID>
+   <Name>RGB1 - Row 45</Name>
+   <Universe>1</Universe>
+   <Address>176</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>49</ID>
+   <Name>RGB1 - Row 46</Name>
+   <Universe>1</Universe>
+   <Address>180</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>50</ID>
+   <Name>RGB1 - Row 47</Name>
+   <Universe>1</Universe>
+   <Address>184</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>51</ID>
+   <Name>RGB1 - Row 48</Name>
+   <Universe>1</Universe>
+   <Address>188</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>52</ID>
+   <Name>RGB1 - Row 49</Name>
+   <Universe>1</Universe>
+   <Address>192</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>53</ID>
+   <Name>RGB1 - Row 50</Name>
+   <Universe>1</Universe>
+   <Address>196</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>54</ID>
+   <Name>RGB1 - Row 51</Name>
+   <Universe>1</Universe>
+   <Address>200</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>55</ID>
+   <Name>RGB1 - Row 52</Name>
+   <Universe>1</Universe>
+   <Address>204</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>56</ID>
+   <Name>RGB1 - Row 53</Name>
+   <Universe>1</Universe>
+   <Address>208</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>57</ID>
+   <Name>RGB1 - Row 54</Name>
+   <Universe>1</Universe>
+   <Address>212</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>58</ID>
+   <Name>RGB1 - Row 55</Name>
+   <Universe>1</Universe>
+   <Address>216</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>59</ID>
+   <Name>RGB1 - Row 56</Name>
+   <Universe>1</Universe>
+   <Address>220</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>60</ID>
+   <Name>RGB1 - Row 57</Name>
+   <Universe>1</Universe>
+   <Address>224</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>61</ID>
+   <Name>RGB1 - Row 58</Name>
+   <Universe>1</Universe>
+   <Address>228</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>62</ID>
+   <Name>RGB1 - Row 59</Name>
+   <Universe>1</Universe>
+   <Address>232</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>63</ID>
+   <Name>RGB1 - Row 60</Name>
+   <Universe>1</Universe>
+   <Address>236</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>64</ID>
+   <Name>RGB1 - Row 61</Name>
+   <Universe>1</Universe>
+   <Address>240</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>65</ID>
+   <Name>RGB1 - Row 62</Name>
+   <Universe>1</Universe>
+   <Address>244</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>66</ID>
+   <Name>RGB1 - Row 63</Name>
+   <Universe>1</Universe>
+   <Address>248</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>67</ID>
+   <Name>RGB1 - Row 64</Name>
+   <Universe>1</Universe>
+   <Address>252</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>68</ID>
+   <Name>RGB1 - Row 65</Name>
+   <Universe>1</Universe>
+   <Address>256</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>69</ID>
+   <Name>RGB1 - Row 66</Name>
+   <Universe>1</Universe>
+   <Address>260</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>70</ID>
+   <Name>RGB1 - Row 67</Name>
+   <Universe>1</Universe>
+   <Address>264</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>71</ID>
+   <Name>RGB1 - Row 68</Name>
+   <Universe>1</Universe>
+   <Address>268</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>72</ID>
+   <Name>RGB1 - Row 69</Name>
+   <Universe>1</Universe>
+   <Address>272</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>73</ID>
+   <Name>RGB1 - Row 70</Name>
+   <Universe>1</Universe>
+   <Address>276</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>74</ID>
+   <Name>RGB1 - Row 71</Name>
+   <Universe>1</Universe>
+   <Address>280</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>75</ID>
+   <Name>RGB1 - Row 72</Name>
+   <Universe>1</Universe>
+   <Address>284</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>76</ID>
+   <Name>RGB1 - Row 73</Name>
+   <Universe>1</Universe>
+   <Address>288</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>77</ID>
+   <Name>RGB1 - Row 74</Name>
+   <Universe>1</Universe>
+   <Address>292</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>78</ID>
+   <Name>RGB1 - Row 75</Name>
+   <Universe>1</Universe>
+   <Address>296</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>79</ID>
+   <Name>RGB1 - Row 76</Name>
+   <Universe>1</Universe>
+   <Address>300</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>80</ID>
+   <Name>RGB1 - Row 77</Name>
+   <Universe>1</Universe>
+   <Address>304</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>81</ID>
+   <Name>RGB1 - Row 78</Name>
+   <Universe>1</Universe>
+   <Address>308</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>82</ID>
+   <Name>RGB1 - Row 79</Name>
+   <Universe>1</Universe>
+   <Address>312</Address>
+   <Channels>4</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGBW</Mode>
+   <Width>10</Width>
+   <Height>12</Height>
+   <ID>83</ID>
+   <Name>RGB1 - Row 80</Name>
+   <Universe>1</Universe>
+   <Address>316</Address>
+   <Channels>4</Channels>
+  </Fixture>
   <FixtureGroup ID="0">
    <Name>WLED</Name>
    <Size X="80" Y="4"/>
-   <Head X="0" Y="0" Fixture="3">0</Head>
-   <Head X="1" Y="0" Fixture="3">1</Head>
-   <Head X="2" Y="0" Fixture="3">2</Head>
-   <Head X="3" Y="0" Fixture="3">3</Head>
-   <Head X="4" Y="0" Fixture="3">4</Head>
-   <Head X="5" Y="0" Fixture="3">5</Head>
-   <Head X="6" Y="0" Fixture="3">6</Head>
-   <Head X="7" Y="0" Fixture="3">7</Head>
-   <Head X="8" Y="0" Fixture="3">8</Head>
-   <Head X="9" Y="0" Fixture="3">9</Head>
-   <Head X="10" Y="0" Fixture="3">10</Head>
-   <Head X="11" Y="0" Fixture="3">11</Head>
-   <Head X="12" Y="0" Fixture="3">12</Head>
-   <Head X="13" Y="0" Fixture="3">13</Head>
-   <Head X="14" Y="0" Fixture="3">14</Head>
-   <Head X="15" Y="0" Fixture="3">15</Head>
-   <Head X="16" Y="0" Fixture="3">16</Head>
-   <Head X="17" Y="0" Fixture="3">17</Head>
-   <Head X="18" Y="0" Fixture="3">18</Head>
-   <Head X="19" Y="0" Fixture="3">19</Head>
-   <Head X="20" Y="0" Fixture="3">20</Head>
-   <Head X="21" Y="0" Fixture="3">21</Head>
-   <Head X="22" Y="0" Fixture="3">22</Head>
-   <Head X="23" Y="0" Fixture="3">23</Head>
-   <Head X="24" Y="0" Fixture="3">24</Head>
-   <Head X="25" Y="0" Fixture="3">25</Head>
-   <Head X="26" Y="0" Fixture="3">26</Head>
-   <Head X="27" Y="0" Fixture="3">27</Head>
-   <Head X="28" Y="0" Fixture="3">28</Head>
-   <Head X="29" Y="0" Fixture="3">29</Head>
-   <Head X="30" Y="0" Fixture="3">30</Head>
-   <Head X="31" Y="0" Fixture="3">31</Head>
-   <Head X="32" Y="0" Fixture="3">32</Head>
-   <Head X="33" Y="0" Fixture="3">33</Head>
-   <Head X="34" Y="0" Fixture="3">34</Head>
-   <Head X="35" Y="0" Fixture="3">35</Head>
-   <Head X="36" Y="0" Fixture="3">36</Head>
-   <Head X="37" Y="0" Fixture="3">37</Head>
-   <Head X="38" Y="0" Fixture="3">38</Head>
-   <Head X="39" Y="0" Fixture="3">39</Head>
-   <Head X="40" Y="0" Fixture="3">40</Head>
-   <Head X="41" Y="0" Fixture="3">41</Head>
-   <Head X="42" Y="0" Fixture="3">42</Head>
-   <Head X="43" Y="0" Fixture="3">43</Head>
-   <Head X="44" Y="0" Fixture="3">44</Head>
-   <Head X="45" Y="0" Fixture="3">45</Head>
-   <Head X="46" Y="0" Fixture="3">46</Head>
-   <Head X="47" Y="0" Fixture="3">47</Head>
-   <Head X="48" Y="0" Fixture="3">48</Head>
-   <Head X="49" Y="0" Fixture="3">49</Head>
-   <Head X="50" Y="0" Fixture="3">50</Head>
-   <Head X="51" Y="0" Fixture="3">51</Head>
-   <Head X="52" Y="0" Fixture="3">52</Head>
-   <Head X="53" Y="0" Fixture="3">53</Head>
-   <Head X="54" Y="0" Fixture="3">54</Head>
-   <Head X="55" Y="0" Fixture="3">55</Head>
-   <Head X="56" Y="0" Fixture="3">56</Head>
-   <Head X="57" Y="0" Fixture="3">57</Head>
-   <Head X="58" Y="0" Fixture="3">58</Head>
-   <Head X="59" Y="0" Fixture="3">59</Head>
-   <Head X="60" Y="0" Fixture="3">60</Head>
-   <Head X="61" Y="0" Fixture="3">61</Head>
-   <Head X="62" Y="0" Fixture="3">62</Head>
-   <Head X="63" Y="0" Fixture="3">63</Head>
-   <Head X="64" Y="0" Fixture="3">64</Head>
-   <Head X="65" Y="0" Fixture="3">65</Head>
-   <Head X="66" Y="0" Fixture="3">66</Head>
-   <Head X="67" Y="0" Fixture="3">67</Head>
-   <Head X="68" Y="0" Fixture="3">68</Head>
-   <Head X="69" Y="0" Fixture="3">69</Head>
-   <Head X="70" Y="0" Fixture="3">70</Head>
-   <Head X="71" Y="0" Fixture="3">71</Head>
-   <Head X="72" Y="0" Fixture="3">72</Head>
-   <Head X="73" Y="0" Fixture="3">73</Head>
-   <Head X="74" Y="0" Fixture="3">74</Head>
-   <Head X="75" Y="0" Fixture="3">75</Head>
-   <Head X="76" Y="0" Fixture="3">76</Head>
-   <Head X="77" Y="0" Fixture="3">77</Head>
-   <Head X="78" Y="0" Fixture="3">78</Head>
-   <Head X="79" Y="0" Fixture="3">79</Head>
-   <Head X="0" Y="1" Fixture="4">0</Head>
-   <Head X="1" Y="1" Fixture="4">1</Head>
-   <Head X="2" Y="1" Fixture="4">2</Head>
-   <Head X="3" Y="1" Fixture="4">3</Head>
-   <Head X="4" Y="1" Fixture="4">4</Head>
-   <Head X="5" Y="1" Fixture="4">5</Head>
-   <Head X="6" Y="1" Fixture="4">6</Head>
-   <Head X="7" Y="1" Fixture="4">7</Head>
-   <Head X="8" Y="1" Fixture="4">8</Head>
-   <Head X="9" Y="1" Fixture="4">9</Head>
-   <Head X="10" Y="1" Fixture="4">10</Head>
-   <Head X="11" Y="1" Fixture="4">11</Head>
-   <Head X="12" Y="1" Fixture="4">12</Head>
-   <Head X="13" Y="1" Fixture="4">13</Head>
-   <Head X="14" Y="1" Fixture="4">14</Head>
-   <Head X="15" Y="1" Fixture="4">15</Head>
-   <Head X="16" Y="1" Fixture="4">16</Head>
-   <Head X="17" Y="1" Fixture="4">17</Head>
-   <Head X="18" Y="1" Fixture="4">18</Head>
-   <Head X="19" Y="1" Fixture="4">19</Head>
-   <Head X="20" Y="1" Fixture="4">20</Head>
-   <Head X="21" Y="1" Fixture="4">21</Head>
-   <Head X="22" Y="1" Fixture="4">22</Head>
-   <Head X="23" Y="1" Fixture="4">23</Head>
-   <Head X="24" Y="1" Fixture="4">24</Head>
-   <Head X="25" Y="1" Fixture="4">25</Head>
-   <Head X="26" Y="1" Fixture="4">26</Head>
-   <Head X="27" Y="1" Fixture="4">27</Head>
-   <Head X="28" Y="1" Fixture="4">28</Head>
-   <Head X="29" Y="1" Fixture="4">29</Head>
-   <Head X="30" Y="1" Fixture="4">30</Head>
-   <Head X="31" Y="1" Fixture="4">31</Head>
-   <Head X="32" Y="1" Fixture="4">32</Head>
-   <Head X="33" Y="1" Fixture="4">33</Head>
-   <Head X="34" Y="1" Fixture="4">34</Head>
-   <Head X="35" Y="1" Fixture="4">35</Head>
-   <Head X="36" Y="1" Fixture="4">36</Head>
-   <Head X="37" Y="1" Fixture="4">37</Head>
-   <Head X="38" Y="1" Fixture="4">38</Head>
-   <Head X="39" Y="1" Fixture="4">39</Head>
-   <Head X="40" Y="1" Fixture="4">40</Head>
-   <Head X="41" Y="1" Fixture="4">41</Head>
-   <Head X="42" Y="1" Fixture="4">42</Head>
-   <Head X="43" Y="1" Fixture="4">43</Head>
-   <Head X="44" Y="1" Fixture="4">44</Head>
-   <Head X="45" Y="1" Fixture="4">45</Head>
-   <Head X="46" Y="1" Fixture="4">46</Head>
-   <Head X="47" Y="1" Fixture="4">47</Head>
-   <Head X="48" Y="1" Fixture="4">48</Head>
-   <Head X="49" Y="1" Fixture="4">49</Head>
-   <Head X="50" Y="1" Fixture="4">50</Head>
-   <Head X="51" Y="1" Fixture="4">51</Head>
-   <Head X="52" Y="1" Fixture="4">52</Head>
-   <Head X="53" Y="1" Fixture="4">53</Head>
-   <Head X="54" Y="1" Fixture="4">54</Head>
-   <Head X="55" Y="1" Fixture="4">55</Head>
-   <Head X="56" Y="1" Fixture="4">56</Head>
-   <Head X="57" Y="1" Fixture="4">57</Head>
-   <Head X="58" Y="1" Fixture="4">58</Head>
-   <Head X="59" Y="1" Fixture="4">59</Head>
-   <Head X="60" Y="1" Fixture="4">60</Head>
-   <Head X="61" Y="1" Fixture="4">61</Head>
-   <Head X="62" Y="1" Fixture="4">62</Head>
-   <Head X="63" Y="1" Fixture="4">63</Head>
-   <Head X="64" Y="1" Fixture="4">64</Head>
-   <Head X="65" Y="1" Fixture="4">65</Head>
-   <Head X="66" Y="1" Fixture="4">66</Head>
-   <Head X="67" Y="1" Fixture="4">67</Head>
-   <Head X="68" Y="1" Fixture="4">68</Head>
-   <Head X="69" Y="1" Fixture="4">69</Head>
-   <Head X="70" Y="1" Fixture="4">70</Head>
-   <Head X="71" Y="1" Fixture="4">71</Head>
-   <Head X="72" Y="1" Fixture="4">72</Head>
-   <Head X="73" Y="1" Fixture="4">73</Head>
-   <Head X="74" Y="1" Fixture="4">74</Head>
-   <Head X="75" Y="1" Fixture="4">75</Head>
-   <Head X="76" Y="1" Fixture="4">76</Head>
-   <Head X="77" Y="1" Fixture="4">77</Head>
-   <Head X="78" Y="1" Fixture="4">78</Head>
-   <Head X="79" Y="1" Fixture="4">79</Head>
-   <Head X="0" Y="2" Fixture="5">0</Head>
-   <Head X="1" Y="2" Fixture="5">1</Head>
-   <Head X="2" Y="2" Fixture="5">2</Head>
-   <Head X="3" Y="2" Fixture="5">3</Head>
-   <Head X="4" Y="2" Fixture="5">4</Head>
-   <Head X="5" Y="2" Fixture="5">5</Head>
-   <Head X="6" Y="2" Fixture="5">6</Head>
-   <Head X="7" Y="2" Fixture="5">7</Head>
-   <Head X="8" Y="2" Fixture="5">8</Head>
-   <Head X="9" Y="2" Fixture="5">9</Head>
-   <Head X="10" Y="2" Fixture="5">10</Head>
-   <Head X="11" Y="2" Fixture="5">11</Head>
-   <Head X="12" Y="2" Fixture="5">12</Head>
-   <Head X="13" Y="2" Fixture="5">13</Head>
-   <Head X="14" Y="2" Fixture="5">14</Head>
-   <Head X="15" Y="2" Fixture="5">15</Head>
-   <Head X="16" Y="2" Fixture="5">16</Head>
-   <Head X="17" Y="2" Fixture="5">17</Head>
-   <Head X="18" Y="2" Fixture="5">18</Head>
-   <Head X="19" Y="2" Fixture="5">19</Head>
-   <Head X="20" Y="2" Fixture="5">20</Head>
-   <Head X="21" Y="2" Fixture="5">21</Head>
-   <Head X="22" Y="2" Fixture="5">22</Head>
-   <Head X="23" Y="2" Fixture="5">23</Head>
-   <Head X="24" Y="2" Fixture="5">24</Head>
-   <Head X="25" Y="2" Fixture="5">25</Head>
-   <Head X="26" Y="2" Fixture="5">26</Head>
-   <Head X="27" Y="2" Fixture="5">27</Head>
-   <Head X="28" Y="2" Fixture="5">28</Head>
-   <Head X="29" Y="2" Fixture="5">29</Head>
-   <Head X="30" Y="2" Fixture="5">30</Head>
-   <Head X="31" Y="2" Fixture="5">31</Head>
-   <Head X="32" Y="2" Fixture="5">32</Head>
-   <Head X="33" Y="2" Fixture="5">33</Head>
-   <Head X="34" Y="2" Fixture="5">34</Head>
-   <Head X="35" Y="2" Fixture="5">35</Head>
-   <Head X="36" Y="2" Fixture="5">36</Head>
-   <Head X="37" Y="2" Fixture="5">37</Head>
-   <Head X="38" Y="2" Fixture="5">38</Head>
-   <Head X="39" Y="2" Fixture="5">39</Head>
-   <Head X="40" Y="2" Fixture="5">40</Head>
-   <Head X="41" Y="2" Fixture="5">41</Head>
-   <Head X="42" Y="2" Fixture="5">42</Head>
-   <Head X="43" Y="2" Fixture="5">43</Head>
-   <Head X="44" Y="2" Fixture="5">44</Head>
-   <Head X="45" Y="2" Fixture="5">45</Head>
-   <Head X="46" Y="2" Fixture="5">46</Head>
-   <Head X="47" Y="2" Fixture="5">47</Head>
-   <Head X="48" Y="2" Fixture="5">48</Head>
-   <Head X="49" Y="2" Fixture="5">49</Head>
-   <Head X="50" Y="2" Fixture="5">50</Head>
-   <Head X="51" Y="2" Fixture="5">51</Head>
-   <Head X="52" Y="2" Fixture="5">52</Head>
-   <Head X="53" Y="2" Fixture="5">53</Head>
-   <Head X="54" Y="2" Fixture="5">54</Head>
-   <Head X="55" Y="2" Fixture="5">55</Head>
-   <Head X="56" Y="2" Fixture="5">56</Head>
-   <Head X="57" Y="2" Fixture="5">57</Head>
-   <Head X="58" Y="2" Fixture="5">58</Head>
-   <Head X="59" Y="2" Fixture="5">59</Head>
-   <Head X="60" Y="2" Fixture="5">60</Head>
-   <Head X="61" Y="2" Fixture="5">61</Head>
-   <Head X="62" Y="2" Fixture="5">62</Head>
-   <Head X="63" Y="2" Fixture="5">63</Head>
-   <Head X="64" Y="2" Fixture="5">64</Head>
-   <Head X="65" Y="2" Fixture="5">65</Head>
-   <Head X="66" Y="2" Fixture="5">66</Head>
-   <Head X="67" Y="2" Fixture="5">67</Head>
-   <Head X="68" Y="2" Fixture="5">68</Head>
-   <Head X="69" Y="2" Fixture="5">69</Head>
-   <Head X="70" Y="2" Fixture="5">70</Head>
-   <Head X="71" Y="2" Fixture="5">71</Head>
-   <Head X="72" Y="2" Fixture="5">72</Head>
-   <Head X="73" Y="2" Fixture="5">73</Head>
-   <Head X="74" Y="2" Fixture="5">74</Head>
-   <Head X="75" Y="2" Fixture="5">75</Head>
-   <Head X="76" Y="2" Fixture="5">76</Head>
-   <Head X="77" Y="2" Fixture="5">77</Head>
-   <Head X="78" Y="2" Fixture="5">78</Head>
-   <Head X="79" Y="2" Fixture="5">79</Head>
-   <Head X="0" Y="3" Fixture="6">0</Head>
-   <Head X="1" Y="3" Fixture="6">1</Head>
-   <Head X="2" Y="3" Fixture="6">2</Head>
-   <Head X="3" Y="3" Fixture="6">3</Head>
-   <Head X="4" Y="3" Fixture="6">4</Head>
-   <Head X="5" Y="3" Fixture="6">5</Head>
-   <Head X="6" Y="3" Fixture="6">6</Head>
-   <Head X="7" Y="3" Fixture="6">7</Head>
-   <Head X="8" Y="3" Fixture="6">8</Head>
-   <Head X="9" Y="3" Fixture="6">9</Head>
-   <Head X="10" Y="3" Fixture="6">10</Head>
-   <Head X="11" Y="3" Fixture="6">11</Head>
-   <Head X="12" Y="3" Fixture="6">12</Head>
-   <Head X="13" Y="3" Fixture="6">13</Head>
-   <Head X="14" Y="3" Fixture="6">14</Head>
-   <Head X="15" Y="3" Fixture="6">15</Head>
-   <Head X="16" Y="3" Fixture="6">16</Head>
-   <Head X="17" Y="3" Fixture="6">17</Head>
-   <Head X="18" Y="3" Fixture="6">18</Head>
-   <Head X="19" Y="3" Fixture="6">19</Head>
-   <Head X="20" Y="3" Fixture="6">20</Head>
-   <Head X="21" Y="3" Fixture="6">21</Head>
-   <Head X="22" Y="3" Fixture="6">22</Head>
-   <Head X="23" Y="3" Fixture="6">23</Head>
-   <Head X="24" Y="3" Fixture="6">24</Head>
-   <Head X="25" Y="3" Fixture="6">25</Head>
-   <Head X="26" Y="3" Fixture="6">26</Head>
-   <Head X="27" Y="3" Fixture="6">27</Head>
-   <Head X="28" Y="3" Fixture="6">28</Head>
-   <Head X="29" Y="3" Fixture="6">29</Head>
-   <Head X="30" Y="3" Fixture="6">30</Head>
-   <Head X="31" Y="3" Fixture="6">31</Head>
-   <Head X="32" Y="3" Fixture="6">32</Head>
-   <Head X="33" Y="3" Fixture="6">33</Head>
-   <Head X="34" Y="3" Fixture="6">34</Head>
-   <Head X="35" Y="3" Fixture="6">35</Head>
-   <Head X="36" Y="3" Fixture="6">36</Head>
-   <Head X="37" Y="3" Fixture="6">37</Head>
-   <Head X="38" Y="3" Fixture="6">38</Head>
-   <Head X="39" Y="3" Fixture="6">39</Head>
-   <Head X="40" Y="3" Fixture="6">40</Head>
-   <Head X="41" Y="3" Fixture="6">41</Head>
-   <Head X="42" Y="3" Fixture="6">42</Head>
-   <Head X="43" Y="3" Fixture="6">43</Head>
-   <Head X="44" Y="3" Fixture="6">44</Head>
-   <Head X="45" Y="3" Fixture="6">45</Head>
-   <Head X="46" Y="3" Fixture="6">46</Head>
-   <Head X="47" Y="3" Fixture="6">47</Head>
-   <Head X="48" Y="3" Fixture="6">48</Head>
-   <Head X="49" Y="3" Fixture="6">49</Head>
-   <Head X="50" Y="3" Fixture="6">50</Head>
-   <Head X="51" Y="3" Fixture="6">51</Head>
-   <Head X="52" Y="3" Fixture="6">52</Head>
-   <Head X="53" Y="3" Fixture="6">53</Head>
-   <Head X="54" Y="3" Fixture="6">54</Head>
-   <Head X="55" Y="3" Fixture="6">55</Head>
-   <Head X="56" Y="3" Fixture="6">56</Head>
-   <Head X="57" Y="3" Fixture="6">57</Head>
-   <Head X="58" Y="3" Fixture="6">58</Head>
-   <Head X="59" Y="3" Fixture="6">59</Head>
-   <Head X="60" Y="3" Fixture="6">60</Head>
-   <Head X="61" Y="3" Fixture="6">61</Head>
-   <Head X="62" Y="3" Fixture="6">62</Head>
-   <Head X="63" Y="3" Fixture="6">63</Head>
-   <Head X="64" Y="3" Fixture="6">64</Head>
-   <Head X="65" Y="3" Fixture="6">65</Head>
-   <Head X="66" Y="3" Fixture="6">66</Head>
-   <Head X="67" Y="3" Fixture="6">67</Head>
-   <Head X="68" Y="3" Fixture="6">68</Head>
-   <Head X="69" Y="3" Fixture="6">69</Head>
-   <Head X="70" Y="3" Fixture="6">70</Head>
-   <Head X="71" Y="3" Fixture="6">71</Head>
-   <Head X="72" Y="3" Fixture="6">72</Head>
-   <Head X="73" Y="3" Fixture="6">73</Head>
-   <Head X="74" Y="3" Fixture="6">74</Head>
-   <Head X="75" Y="3" Fixture="6">75</Head>
-   <Head X="76" Y="3" Fixture="6">76</Head>
-   <Head X="77" Y="3" Fixture="6">77</Head>
-   <Head X="78" Y="3" Fixture="6">78</Head>
-   <Head X="79" Y="3" Fixture="6">79</Head>
   </FixtureGroup>
   <FixtureGroup ID="1">
    <Name>BALLM</Name>
@@ -467,6 +1051,90 @@
   <FixtureGroup ID="2">
    <Name>MCP_DURATION_INVARIANT_GROUP</Name>
    <Size X="1" Y="1"/>
+  </FixtureGroup>
+  <FixtureGroup ID="3">
+   <Name>RGB1</Name>
+   <Size X="1" Y="80"/>
+   <Head X="0" Y="0" Fixture="3">0</Head>
+   <Head X="0" Y="1" Fixture="4">0</Head>
+   <Head X="0" Y="2" Fixture="5">0</Head>
+   <Head X="0" Y="3" Fixture="6">0</Head>
+   <Head X="0" Y="4" Fixture="8">0</Head>
+   <Head X="0" Y="5" Fixture="9">0</Head>
+   <Head X="0" Y="6" Fixture="10">0</Head>
+   <Head X="0" Y="7" Fixture="11">0</Head>
+   <Head X="0" Y="8" Fixture="12">0</Head>
+   <Head X="0" Y="9" Fixture="13">0</Head>
+   <Head X="0" Y="10" Fixture="14">0</Head>
+   <Head X="0" Y="11" Fixture="15">0</Head>
+   <Head X="0" Y="12" Fixture="16">0</Head>
+   <Head X="0" Y="13" Fixture="17">0</Head>
+   <Head X="0" Y="14" Fixture="18">0</Head>
+   <Head X="0" Y="15" Fixture="19">0</Head>
+   <Head X="0" Y="16" Fixture="20">0</Head>
+   <Head X="0" Y="17" Fixture="21">0</Head>
+   <Head X="0" Y="18" Fixture="22">0</Head>
+   <Head X="0" Y="19" Fixture="23">0</Head>
+   <Head X="0" Y="20" Fixture="24">0</Head>
+   <Head X="0" Y="21" Fixture="25">0</Head>
+   <Head X="0" Y="22" Fixture="26">0</Head>
+   <Head X="0" Y="23" Fixture="27">0</Head>
+   <Head X="0" Y="24" Fixture="28">0</Head>
+   <Head X="0" Y="25" Fixture="29">0</Head>
+   <Head X="0" Y="26" Fixture="30">0</Head>
+   <Head X="0" Y="27" Fixture="31">0</Head>
+   <Head X="0" Y="28" Fixture="32">0</Head>
+   <Head X="0" Y="29" Fixture="33">0</Head>
+   <Head X="0" Y="30" Fixture="34">0</Head>
+   <Head X="0" Y="31" Fixture="35">0</Head>
+   <Head X="0" Y="32" Fixture="36">0</Head>
+   <Head X="0" Y="33" Fixture="37">0</Head>
+   <Head X="0" Y="34" Fixture="38">0</Head>
+   <Head X="0" Y="35" Fixture="39">0</Head>
+   <Head X="0" Y="36" Fixture="40">0</Head>
+   <Head X="0" Y="37" Fixture="41">0</Head>
+   <Head X="0" Y="38" Fixture="42">0</Head>
+   <Head X="0" Y="39" Fixture="43">0</Head>
+   <Head X="0" Y="40" Fixture="44">0</Head>
+   <Head X="0" Y="41" Fixture="45">0</Head>
+   <Head X="0" Y="42" Fixture="46">0</Head>
+   <Head X="0" Y="43" Fixture="47">0</Head>
+   <Head X="0" Y="44" Fixture="48">0</Head>
+   <Head X="0" Y="45" Fixture="49">0</Head>
+   <Head X="0" Y="46" Fixture="50">0</Head>
+   <Head X="0" Y="47" Fixture="51">0</Head>
+   <Head X="0" Y="48" Fixture="52">0</Head>
+   <Head X="0" Y="49" Fixture="53">0</Head>
+   <Head X="0" Y="50" Fixture="54">0</Head>
+   <Head X="0" Y="51" Fixture="55">0</Head>
+   <Head X="0" Y="52" Fixture="56">0</Head>
+   <Head X="0" Y="53" Fixture="57">0</Head>
+   <Head X="0" Y="54" Fixture="58">0</Head>
+   <Head X="0" Y="55" Fixture="59">0</Head>
+   <Head X="0" Y="56" Fixture="60">0</Head>
+   <Head X="0" Y="57" Fixture="61">0</Head>
+   <Head X="0" Y="58" Fixture="62">0</Head>
+   <Head X="0" Y="59" Fixture="63">0</Head>
+   <Head X="0" Y="60" Fixture="64">0</Head>
+   <Head X="0" Y="61" Fixture="65">0</Head>
+   <Head X="0" Y="62" Fixture="66">0</Head>
+   <Head X="0" Y="63" Fixture="67">0</Head>
+   <Head X="0" Y="64" Fixture="68">0</Head>
+   <Head X="0" Y="65" Fixture="69">0</Head>
+   <Head X="0" Y="66" Fixture="70">0</Head>
+   <Head X="0" Y="67" Fixture="71">0</Head>
+   <Head X="0" Y="68" Fixture="72">0</Head>
+   <Head X="0" Y="69" Fixture="73">0</Head>
+   <Head X="0" Y="70" Fixture="74">0</Head>
+   <Head X="0" Y="71" Fixture="75">0</Head>
+   <Head X="0" Y="72" Fixture="76">0</Head>
+   <Head X="0" Y="73" Fixture="77">0</Head>
+   <Head X="0" Y="74" Fixture="78">0</Head>
+   <Head X="0" Y="75" Fixture="79">0</Head>
+   <Head X="0" Y="76" Fixture="80">0</Head>
+   <Head X="0" Y="77" Fixture="81">0</Head>
+   <Head X="0" Y="78" Fixture="82">0</Head>
+   <Head X="0" Y="79" Fixture="83">0</Head>
   </FixtureGroup>
   <Palette ID="0" Type="Color" Name="RED" Value="#ff0000000000"/>
   <Palette ID="1" Type="Color" Name="BLUE" Value="#0000ff000000"/>
@@ -508,18 +1176,8 @@
   <Palette ID="37" Type="Dimmer" Name="Dimmer Low" Value="80"/>
   <Palette ID="38" Type="Dimmer" Name="Dimmer Medium" Value="160"/>
   <Palette ID="39" Type="Dimmer" Name="Dimmer Full" Value="255"/>
-  <AudioProfile ID="0" Name="EDM" IsDefault="True" Version="1">
-   <Envelope Attack="15" Release="150"/>
-   <Triggers High="0.65" Low="0.45" Hold="80" Cooldown="120"/>
-   <NoiseGate Threshold="-60" Hold="120"/>
-   <Kick Enabled="1" SpikeThreshold="2" ReleaseFactor="0.5" Cooldown="100" Hold="50" MelBandStart="7" MelBandEnd="8"/>
-   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.1" SmoothRise="0.8"/>
-   <Volume Smoothing="100" BrightnessFloor="0"/>
-   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="hanningz" MelScale="slaney" OnsetMethodsEnabled="111000101" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1"/>
-  </AudioProfile>
   <Function ID="0" Type="Scene" Name="COLOR">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="6">0,153,1,255,2,255,3,0,4,153,5,255,6,255,7,0,8,153,9,255,10,255,11,0,12,153,13,255,14,255,15,0,16,153,17,255,18,255,19,0,20,153,21,255,22,255,23,0,24,153,25,255,26,255,27,0,28,153,29,255,30,255,31,0,32,153,33,255,34,255,35,0,36,153,37,255,38,255,39,0,40,153,41,255,42,255,43,0,44,153,45,255,46,255,47,0,48,153,49,255,50,255,51,0,52,153,53,255,54,255,55,0,56,153,57,255,58,255,59,0,60,153,61,255,62,255,63,0,64,153,65,255,66,255,67,0,68,153,69,255,70,255,71,0,72,153,73,255,74,255,75,0,76,153,77,255,78,255,79,0,80,153,81,255,82,255,83,0,84,153,85,255,86,255,87,0,88,153,89,255,90,255,91,0,92,153,93,255,94,255,95,0,96,153,97,255,98,255,99,0,100,153,101,255,102,255,103,0,104,153,105,255,106,255,107,0,108,153,109,255,110,255,111,0,112,153,113,255,114,255,115,0,116,153,117,255,118,255,119,0,120,153,121,255,122,255,123,0,124,153,125,255,126,255,127,0,128,153,129,255,130,255,131,0,132,153,133,255,134,255,135,0,136,153,137,255,138,255,139,0,140,153,141,255,142,255,143,0,144,153,145,255,146,255,147,0,148,153,149,255,150,255,151,0,152,153,153,255,154,255,155,0,156,153,157,255,158,255,159,0,160,153,161,255,162,255,163,0,164,153,165,255,166,255,167,0,168,153,169,255,170,255,171,0,172,153,173,255,174,255,175,0,176,153,177,255,178,255,179,0,180,153,181,255,182,255,183,0,184,153,185,255,186,255,187,0,188,153,189,255,190,255,191,0,192,153,193,255,194,255,195,0,196,153,197,255,198,255,199,0,200,153,201,255,202,255,203,0,204,153,205,255,206,255,207,0,208,153,209,255,210,255,211,0,212,153,213,255,214,255,215,0,216,153,217,255,218,255,219,0,220,153,221,255,222,255,223,0,224,153,225,255,226,255,227,0,228,153,229,255,230,255,231,0,232,153,233,255,234,255,235,0,236,153,237,255,238,255,239,0,240,153,241,255,242,255,243,0,244,153,245,255,246,255,247,0,248,153,249,255,250,255,251,0,252,153,253,255,254,255,255,0,256,153,257,255,258,255,259,0,260,153,261,255,262,255,263,0,264,153,265,255,266,255,267,0,268,153,269,255,270,255,271,0,272,153,273,255,274,255,275,0,276,153,277,255,278,255,279,0,280,153,281,255,282,255,283,0,284,153,285,255,286,255,287,0,288,153,289,255,290,255,291,0,292,153,293,255,294,255,295,0,296,153,297,255,298,255,299,0,300,153,301,255,302,255,303,0,304,153,305,255,306,255,307,0,308,153,309,255,310,255,311,0,312,153,313,255,314,255,315,0,316,153,317,255,318,255,319,0</FixtureVal>
   </Function>
   <Function ID="1" Type="RGBMatrix" Name="VORTEX">
    <Tempo>Beats</Tempo>
@@ -534,7 +1192,6 @@
    <Color Index="4">4278190190</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>0</AudioProfileID>
    <Property Name="presetArms" Value="2"/>
    <Property Name="presetFloor" Value="5"/>
    <Property Name="presetGain" Value="7"/>
@@ -545,10 +1202,6 @@
   </Function>
   <Function ID="2" Type="Scene" Name="WLED" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="3">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
-   <FixtureVal ID="4">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
-   <FixtureVal ID="5">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
-   <FixtureVal ID="6">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
   </Function>
   <Function ID="3" Type="Scene" Name="RED">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -556,10 +1209,6 @@
   </Function>
   <Function ID="4" Type="Scene" Name="BLUE">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="3"/>
-   <FixtureVal ID="4"/>
-   <FixtureVal ID="5"/>
-   <FixtureVal ID="6"/>
    <Palette ID="1"/>
   </Function>
   <Function ID="5" Type="Scene" Name="WHITE">
@@ -568,10 +1217,6 @@
   </Function>
   <Function ID="6" Type="Scene" Name="BLACK">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
-   <FixtureVal ID="3"/>
-   <FixtureVal ID="4"/>
-   <FixtureVal ID="5"/>
-   <FixtureVal ID="6"/>
    <Palette ID="3"/>
   </Function>
   <Function ID="7" Type="Scene" Name="SKIN">
@@ -2987,7 +3632,6 @@
    <Color Index="2">4289541119</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>1</AudioProfileID>
    <Property Name="presetFloor" Value="2"/>
    <Property Name="presetGain" Value="2"/>
    <Property Name="presetReactivity" Value="6"/>
@@ -3048,7 +3692,6 @@
    <Color Index="1">4289541119</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>2</AudioProfileID>
    <Property Name="presetFloor" Value="1"/>
    <Property Name="presetGain" Value="1"/>
    <Property Name="presetReactivity" Value="5"/>
@@ -3174,18 +3817,14 @@
   </Function>
   <Function ID="328" Type="RGBMatrix" Name="COLTROBE">
    <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="500" Duration="63"/>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Power</Algorithm>
-   <Color Index="0">4294967040</Color>
-   <Color Index="1">4278190080</Color>
-   <Color Index="2">4294928127</Color>
-   <Color Index="3">4285399150</Color>
-   <Color Index="4">4294967091</Color>
-   <ControlMode>RGBW</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetSparks" Value="On"/>
+   <Algorithm Type="Script">Fill</Algorithm>
+   <Color Index="0">4294928127</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>3</FixtureGroup>
+   <Property Name="orientation" Value="Horizontal"/>
   </Function>
   <Function ID="329" Type="RGBMatrix" Name="HIH">
    <Speed FadeIn="0" FadeOut="0" Duration="500"/>
@@ -3196,7 +3835,6 @@
    <Color Index="1">4278190166</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>3</AudioProfileID>
    <Property Name="presetDensity" Value="5"/>
    <Property Name="presetFloor" Value="2"/>
    <Property Name="presetGain" Value="3"/>
@@ -3213,7 +3851,6 @@
    <Color Index="0">4294967295</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>4</AudioProfileID>
    <Property Name="presetBounce" Value="No"/>
    <Property Name="presetGain" Value="4"/>
    <Property Name="presetReactivity" Value="3"/>
@@ -3231,7 +3868,6 @@
    <Color Index="0">4278255360</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>5</AudioProfileID>
    <Property Name="presetChop" Value="10"/>
    <Property Name="presetFloor" Value="2"/>
    <Property Name="presetGain" Value="8"/>
@@ -3247,14 +3883,13 @@
    <Color Index="0">4294901760</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <AudioProfileID>6</AudioProfileID>
    <Property Name="presetFloor" Value="10"/>
    <Property Name="presetGain" Value="1"/>
    <Property Name="presetReactivity" Value="8"/>
    <Property Name="presetSpeed" Value="1"/>
   </Function>
   <Monitor DisplayMode="0" ShowLabels="0">
-   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    <ChannelStyle>0</ChannelStyle>
    <ValueStyle>0</ValueStyle>
    <Grid Width="5" Height="3" Depth="5" Units="0" POV="2"/>
@@ -3262,17 +3897,93 @@
    <FxItem ID="0" XPos="492.416" YPos="654.394" ZPos="2387.89"/>
    <FxItem ID="1" XPos="3418.52" YPos="571.134" ZPos="2284.35"/>
    <FxItem ID="2" XPos="1274.93" YPos="1320.96" ZPos="4175.38"/>
-   <FxItem ID="3" XPos="13.8455" YPos="2711.3" ZPos="1076.22" XRot="-90"/>
-   <FxItem ID="4" XPos="0" YPos="2451.29" ZPos="1079.23" XRot="-90"/>
-   <FxItem ID="5" XPos="0" YPos="2195.42" ZPos="1080.71" XRot="-90"/>
-   <FxItem ID="6" XPos="0" YPos="1938.83" ZPos="1081.84" XRot="-90"/>
+   <FxItem ID="3" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="4" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="5" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="6" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
    <FxItem ID="7" XPos="1889.67" YPos="982.62" ZPos="2764.63"/>
+   <FxItem ID="8" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="9" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="10" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="11" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="12" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="13" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="14" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="15" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="16" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="17" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="18" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="19" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="20" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="21" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="22" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="23" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="24" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="25" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="26" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="27" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="28" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="29" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="30" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="31" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="32" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="33" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="34" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="35" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="36" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="37" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="38" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="39" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="40" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="41" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="42" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="43" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="44" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="45" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="46" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="47" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="48" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="49" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="50" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="51" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="52" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="53" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="54" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="55" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="56" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="57" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="58" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="59" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="60" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="61" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="62" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="63" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="64" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="65" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="66" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="67" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="68" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="69" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="70" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="71" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="72" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="73" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="74" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="75" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="76" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="77" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="78" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="79" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="80" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="81" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
+   <FxItem ID="82" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="83" XPos="0" YPos="0" ZPos="0" XRot="-90" ZRot="180"/>
   </Monitor>
  </Engine>
  <VirtualConsole>
   <Frame Caption="Page 1" ID="3">
    <Appearance>
-    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
    </Appearance>
    <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1980"/>
    <AllowResize>False</AllowResize>
@@ -3280,11 +3991,12 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
-   <AudioTriggers AudioProfileID="0" Caption="Audio Trigger 1" ID="0">
+   <AudioTriggers BarsNumber="10" Caption="Audio Trigger 1" ID="0">
     <WindowState Visible="True" X="30" Y="15" Width="990" Height="670"/>
     <Appearance>
-     <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+     <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1</Font>
     </Appearance>
+    <Bar Type="1" MinThreshold="51" MaxThreshold="204" Divisor="1" Index="1"/>
    </AudioTriggers>
   </Frame>
  </VirtualConsole>

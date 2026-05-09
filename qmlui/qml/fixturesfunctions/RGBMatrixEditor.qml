@@ -620,6 +620,90 @@ Rectangle
                         }
                     }
                 }
+
+                // row 9: gradient preview (active color stops, evenly spaced,
+                // invalid/reset slots skipped). See RGBUtil.buildGradientColors.
+                RobotoText
+                {
+                    id: gradientLabel
+                    label: qsTr("Gradient")
+                    visible: rgbMatrixEditor.algoColorsCount > 1
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+
+                Rectangle
+                {
+                    id: gradientPreview
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    radius: 4
+                    border.color: UISettings.bgLight
+                    border.width: 1
+                    color: "black"
+                    visible: rgbMatrixEditor.algoColorsCount > 1
+
+                    function activeStops()
+                    {
+                        var stops = []
+                        var cCount = rgbMatrixEditor.algoColorsCount
+                        var colors = rgbMatrixEditor.algoColors
+                        if (!colors) return stops
+                        for (var i = 0; i < cCount; i++)
+                        {
+                            if (rgbMatrixEditor.hasColorAtIndex(i))
+                                stops.push(colors[i])
+                        }
+                        return stops
+                    }
+
+                    Canvas
+                    {
+                        id: gradientCanvas
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        antialiasing: true
+
+                        property var stops: gradientPreview.activeStops()
+                        onStopsChanged: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+
+                        Connections
+                        {
+                            target: rgbMatrixEditor
+                            function onAlgoColorsChanged() { gradientCanvas.stops = gradientPreview.activeStops(); }
+                        }
+
+                        onPaint:
+                        {
+                            var ctx = getContext("2d")
+                            ctx.clearRect(0, 0, width, height)
+                            if (!stops || stops.length === 0)
+                            {
+                                ctx.fillStyle = "#000"
+                                ctx.fillRect(0, 0, width, height)
+                                return
+                            }
+                            if (stops.length === 1)
+                            {
+                                ctx.fillStyle = stops[0].toString()
+                                ctx.fillRect(0, 0, width, height)
+                                return
+                            }
+                            var grad = ctx.createLinearGradient(0, 0, width, 0)
+                            for (var i = 0; i < stops.length; i++)
+                                grad.addColorStop(i / (stops.length - 1), stops[i].toString())
+                            ctx.fillStyle = grad
+                            ctx.fillRect(0, 0, width, height)
+                        }
+                    }
+                }
             }
 
             SectionBox

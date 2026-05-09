@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Melt";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -40,8 +41,7 @@ var testAlgo;
     algo.setColorSpeed = function(_v) { algo.presetColorSpeed = parseInt(_v); };
     algo.getColorSpeed = function() { return algo.presetColorSpeed; };
 
-    var startColor = [128, 0, 255];
-    var endColor = [0, 255, 128];
+    var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
     var lowsFilter = null;
     var lowsPower = 0;
     var timestep = 0;
@@ -49,15 +49,9 @@ var testAlgo;
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -77,7 +71,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = lowsFilter.update(audio.bands.low);
+        lowsPower = lowsFilter.update(audio.lows);
 
         // Accumulate time with audio reactivity
         var speed = algo.presetSpeed / 10.0;
@@ -88,6 +82,9 @@ var testAlgo;
         var t1 = (timestep * speed * 0.0005) % 1;
         var t2 = (timestep * speed * 0.00065) % 1;
         var colorT = (timestep * algo.presetColorSpeed * 0.0001) % 1;
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
 
         for (var x = 0; x < width; x++) {
             var il = 1 - x / Math.max(1, width - 1);
@@ -98,13 +95,13 @@ var testAlgo;
             v = Math.sin((v + t1) * Math.PI * 2);
             v = v * v; // Square for contrast
 
-            // Color cycling: blend between colors based on position + time
             var huePos = (il + t2 + colorT) % 1;
-            var r = startColor[0] + (endColor[0] - startColor[0]) * huePos;
-            var g = startColor[1] + (endColor[1] - startColor[1]) * huePos;
-            var b = startColor[2] + (endColor[2] - startColor[2]) * huePos;
+            var colorScale = 0.65 + huePos * 0.35;
+            var r = blended[0] * colorScale;
+            var g = blended[1] * colorScale;
+            var b = blended[2] * colorScale;
 
-            var bright = AudioParams.applyFloor(algo, v);
+            var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, v), audio) * beatBoost * noveltyBoost;
             var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
 
             for (var y = 0; y < height; y++)

@@ -503,8 +503,9 @@ void Collection_Test::write()
 
     c->setBlendMode(Universe::AdditiveBlend);
     QVERIFY(c->blendMode() == Universe::AdditiveBlend);
-    QVERIFY(s1->blendMode() == Universe::AdditiveBlend);
-    QVERIFY(s2->blendMode() == Universe::AdditiveBlend);
+    // Collection blend mode is not propagated to children
+    QVERIFY(s1->blendMode() == Universe::NormalBlend);
+    QVERIFY(s2->blendMode() == Universe::NormalBlend);
 
     /* S2 is still running after this so the collection is also running */
     mts->stopFunction(s1);

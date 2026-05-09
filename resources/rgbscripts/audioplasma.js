@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Plasma";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 3, reactivity: 2});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -46,23 +47,16 @@ var testAlgo;
     algo.setTwist = function(_v) { algo.presetTwist = parseInt(_v); };
     algo.getTwist = function() { return algo.presetTwist; };
 
-    var startColor = [255, 0, 128];
-    var endColor = [0, 128, 255];
+    var DEFAULT_BAND_COLORS = [0xFF0080, 0x8040E0, 0x0080FF];
     var lowsFilter = null;
     var elapsedSec = 0;
     var lastTime = 0;
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -82,14 +76,18 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(audio.bands.low);
+        var power = lowsFilter.update(audio.lows);
         var speed = algo.presetSpeed / 5.0;
-        elapsedSec += dt * speed * (1 + power * algo.presetReactivity / 5.0);
+        var noveltyMax = AudioParams.melNoveltyMax(audio);
+        elapsedSec += dt * speed * (1 + power * algo.presetReactivity / 5.0) * (1 + 0.5 * noveltyMax);
 
         var density = 0.01 + (power * algo.presetDensity / 10.0);
         var twist = algo.presetTwist / 100.0;
         var radius = 0.2;
         var t = elapsedSec;
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
 
         // True 2D plasma: different value at every (x,y)
         for (var y = 0; y < height; y++) {
@@ -105,13 +103,11 @@ var testAlgo;
                 // Combine and normalize to 0-1
                 var plasma = (v1 + v2 + v3 + 3) / 6.0;
 
-                // Map plasma value to gradient color
-                var r = startColor[0] + (endColor[0] - startColor[0]) * plasma;
-                var g = startColor[1] + (endColor[1] - startColor[1]) * plasma;
-                var b = startColor[2] + (endColor[2] - startColor[2]) * plasma;
-
-                var brightness = AudioParams.applyFloor(algo, 1.0);
-                map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
+                var brightness = AudioParams.applyPunch(AudioParams.applyFloor(algo, plasma), audio) * beatBoost * noveltyBoost;
+                map[y][x] = RGBUtil.rgb(
+                    blended[0] * brightness,
+                    blended[1] * brightness,
+                    blended[2] * brightness);
             }
         }
 

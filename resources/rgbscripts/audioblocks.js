@@ -99,10 +99,10 @@ var testAlgo;
 
         // Get audio power based on selected range
         var power;
-        if (algo.presetReactTo === 1) power = audio.bands.mid;
-        else if (algo.presetReactTo === 2) power = audio.bands.high;
+        if (algo.presetReactTo === 1) power = audio.mids;
+        else if (algo.presetReactTo === 2) power = audio.highs;
         else if (algo.presetReactTo === 3) power = audio.volume.normalized;
-        else power = audio.bands.low;
+        else power = audio.lows;
 
         power = filter.update(power);
 
@@ -113,18 +113,23 @@ var testAlgo;
 
         // Decay and update blocks
         var decayRate = 1 - algo.presetDecay / 50.0;
+        var kickBoost = AudioParams.kickFired(audio) ? 0.3 : 0;
         for (var bi = 0; bi < numBlocks; bi++) {
             blockBrightness[bi] *= decayRate;
             // Trigger blocks based on spectrum + overall power
-            var trigger = bands[bi] * power;
+            var trigger = bands[bi] * power + kickBoost;
             if (trigger > blockBrightness[bi])
                 blockBrightness[bi] = Math.min(1, trigger);
         }
 
         // Render blocks
+        var beatPulse = AudioParams.beatPulse(audio);
         for (var bi = 0; bi < numBlocks; bi++) {
             var bright = AudioParams.applyFloor(algo, blockBrightness[bi]);
             if (bright < 0.01) continue;
+            
+            // Add subtle beat pulse modulation (0-20%)
+            bright *= (1.0 + beatPulse * 0.2);
 
             var t = bi / Math.max(1, numBlocks - 1);
             var r, g, b;

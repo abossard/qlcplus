@@ -46,7 +46,7 @@ void DDPPlugin::init()
                 DDPIO tmpIO;
                 tmpIO.iface = iface;
                 tmpIO.address = entry;
-                tmpIO.controller = nullptr;
+                tmpIO.controller.reset();
 
                 bool alreadyInList = false;
                 for (int j = 0; j < m_IOmapping.count(); j++)
@@ -151,8 +151,12 @@ QString DDPPlugin::outputInfo(quint32 output)
 
     str += QString("<H3>%1 %2</H3>").arg(tr("Output")).arg(outputs()[output]);
     str += QString("<P>");
-    DDPController *ctrl = m_IOmapping.at(output).controller;
-    if (ctrl == nullptr)
+    QSharedPointer<DDPController> ctrl;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        ctrl = m_IOmapping.at(output).controller;
+    }
+    if (ctrl.isNull())
     {
         str += tr("Status: Not open");
     }
@@ -181,16 +185,24 @@ bool DDPPlugin::openOutput(quint32 output, quint32 universe)
 
     qDebug() << "[DDP] Open output on" << m_IOmapping.at(output).address.ip().toString();
 
-    if (m_IOmapping[output].controller == nullptr)
+    QSharedPointer<DDPController> controller;
     {
-        DDPController *controller = new DDPController(
-            m_IOmapping.at(output).iface,
-            m_IOmapping.at(output).address,
-            output, this);
-        m_IOmapping[output].controller = controller;
+        QMutexLocker locker(&m_ioMutex);
+        if (m_IOmapping[output].controller.isNull())
+        {
+            // No QObject parent — lifetime is managed by QSharedPointer
+            // with deleteLater() to ensure destruction on the correct thread.
+            m_IOmapping[output].controller = QSharedPointer<DDPController>(
+                new DDPController(
+                    m_IOmapping.at(output).iface,
+                    m_IOmapping.at(output).address,
+                    output, nullptr),
+                [](DDPController *c) { c->deleteLater(); });
+        }
+        controller = m_IOmapping[output].controller;
     }
 
-    m_IOmapping[output].controller->addUniverse(universe);
+    controller->addUniverse(universe);
     addToMap(universe, output, Output);
 
     return true;
@@ -201,15 +213,26 @@ void DDPPlugin::closeOutput(quint32 output, quint32 universe)
     if (output >= (quint32)m_IOmapping.length())
         return;
 
-    removeFromMap(output, universe, Output);
-    DDPController *controller = m_IOmapping.at(output).controller;
-    if (controller != nullptr)
+    // Base class signature: removeFromMap(universe, line, type) — previous
+    // call swapped the first two args and silently corrupted the I/O map.
+    removeFromMap(universe, output, Output);
+
+    QSharedPointer<DDPController> controller;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        controller = m_IOmapping.at(output).controller;
+    }
+
+    if (!controller.isNull())
     {
         controller->removeUniverse(universe);
-        if (controller->universesList().count() == 0)
+        if (controller->universesList().isEmpty())
         {
-            delete m_IOmapping[output].controller;
-            m_IOmapping[output].controller = nullptr;
+            // Drop the slot's strong ref. Any in-flight writeUniverse() still
+            // holds its own copy and will keep the controller alive until it
+            // returns; the controller is then destroyed safely.
+            QMutexLocker locker(&m_ioMutex);
+            m_IOmapping[output].controller.reset();
         }
     }
 }
@@ -217,14 +240,21 @@ void DDPPlugin::closeOutput(quint32 output, quint32 universe)
 void DDPPlugin::writeUniverse(quint32 universe, quint32 output,
                                const QByteArray &data, bool dataChanged)
 {
-    Q_UNUSED(dataChanged)
-
     if (output >= (quint32)m_IOmapping.count())
         return;
 
-    DDPController *controller = m_IOmapping[output].controller;
-    if (controller != nullptr)
-        controller->sendDmx(universe, data);
+    // Copy the QSharedPointer under m_ioMutex, release the mutex, then call
+    // sendDmx on the local copy. This keeps the controller alive for the
+    // duration of the call even if closeOutput() resets the slot mid-way,
+    // and avoids holding m_ioMutex across a (potentially blocking) socket
+    // write.
+    QSharedPointer<DDPController> controller;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        controller = m_IOmapping[output].controller;
+    }
+    if (!controller.isNull())
+        controller->sendDmx(universe, data, dataChanged);
 }
 
 /*********************************************************************
@@ -274,8 +304,12 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
     if (line >= (quint32)m_IOmapping.length())
         return;
 
-    DDPController *controller = m_IOmapping.at(line).controller;
-    if (controller == nullptr)
+    QSharedPointer<DDPController> controller;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        controller = m_IOmapping.at(line).controller;
+    }
+    if (controller.isNull())
         return;
 
     if (type == Output)
@@ -292,8 +326,18 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
             controller->setTransmissionMode(universe,
                 DDPController::stringToTransmissionMode(value.toString()));
         else if (name == DDP_COMPONENTS)
-            controller->setComponents(universe,
-                DDPController::stringToComponents(value.toString()));
+        {
+            DDPController::Components comp =
+                DDPController::stringToComponents(value.toString());
+            controller->setComponents(universe, comp);
+            // Keep per-controller bytes-per-pixel in sync for explicit
+            // pixelCount mode (Fix 6).
+            controller->setBytesPerPixel(comp == DDPController::RGBW ? 4 : 3);
+        }
+        else if (name == DDP_MAXFPS)
+            controller->setMaxFps(value.toInt());
+        else if (name == DDP_PIXELCOUNT)
+            controller->setPixelCount(value.toInt());
         else
             qWarning() << Q_FUNC_INFO << name << "is not a valid DDP output parameter";
     }

@@ -22,7 +22,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Energy";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // lows, mids, highs colors
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -39,6 +39,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetMultiplier|type:range|display:Fill Amount|" +
       "values:5,30|write:setMultiplier|read:getMultiplier");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
@@ -46,15 +47,10 @@ var testAlgo;
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
     // --- Internal state ---
-    var lowsFilter = null;
-    var midsFilter = null;
-    var highsFilter = null;
     var initialized = false;
 
-    // Colors: lows=red, mids=green, highs=blue
-    var lowsColor  = [255, 0, 0];
-    var midsColor  = [0, 255, 0];
-    var highsColor = [0, 0, 255];
+    // Default 3-bank palette (low, mid, high).
+    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
 
     function initFilters()
     {
@@ -67,27 +63,15 @@ var testAlgo;
         return 1;
     };
 
-    algo.rgbMapSetColors = function(rawColors)
-    {
-        // Override colors from palette if provided (3 colors: lows, mids, highs)
-        if (rawColors && rawColors.length >= 1) {
-            lowsColor  = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        }
-        if (rawColors && rawColors.length >= 2) {
-            midsColor  = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-        }
-        if (rawColors && rawColors.length >= 3) {
-            highsColor = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
-        }
-    };
+    // Required by apiVersion 3 loader; ignored because we read from the
+    // auto-injected algo.gradientBandColors instead.
+    algo.rgbMapSetColors = function(rawColors) { };
 
     algo.rgbMapGetColors = function()
     {
-        return [
-            RGBUtil.rgb(lowsColor[0], lowsColor[1], lowsColor[2]),
-            RGBUtil.rgb(midsColor[0], midsColor[1], midsColor[2]),
-            RGBUtil.rgb(highsColor[0], highsColor[1], highsColor[2])
-        ];
+        return algo.gradientBandColors
+            ? algo.gradientBandColors.slice()
+            : DEFAULT_BAND_COLORS.slice();
     };
 
 
@@ -109,50 +93,53 @@ var testAlgo;
         if (!audio || !audio.mel || audio.mel.length === 0)
             return map;
 
-        // Get frequency band powers
-        var lows = audio.bands.low;
-        var mids = audio.bands.mid;
-        var highs = audio.bands.high;
+        // Pull the 3 mel-bank powers and matching gradient colors.
+        var bandPowers = AudioParams.bandWeights(algo, audio);
+        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+
+        // Beat-pulse brightness boost
+        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+
+        // Convert each packed 0xRRGGBB to a [r,g,b] array.
+        var cols = new Array(3);
+        for (var k = 0; k < 3; k++) {
+            var packed = bandColors[k] | 0;
+            cols[k] = [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+        }
 
         // Calculate how many columns each band fills (from left)
         var multiplier = algo.presetMultiplier / 10.0;
-        var lowsIdx  = Math.min(width, Math.floor(multiplier * width * lows));
-        var midsIdx  = Math.min(width, Math.floor(multiplier * width * mids));
-        var highsIdx = Math.min(width, Math.floor(multiplier * width * highs));
+        var idx = new Array(3);
+        for (var k = 0; k < 3; k++)
+            idx[k] = Math.min(width, Math.floor(multiplier * width * bandPowers[k]));
 
         // Build pixel array
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                var r = 0, g = 0, b = 0;
+                var r = 0, g = 0, b2 = 0;
 
                 if (algo.presetMixing === 0) {
-                    // Additive mode: layer colors
-                    if (x < lowsIdx) {
-                        r += lowsColor[0]; g += lowsColor[1]; b += lowsColor[2];
-                    }
-                    if (x < midsIdx) {
-                        r += midsColor[0]; g += midsColor[1]; b += midsColor[2];
-                    }
-                    if (x < highsIdx) {
-                        r += highsColor[0]; g += highsColor[1]; b += highsColor[2];
+                    // Additive mode: layer all bands whose bar covers x.
+                    for (var k = 0; k < 3; k++) {
+                        if (x < idx[k]) {
+                            r += cols[k][0];
+                            g += cols[k][1];
+                            b2 += cols[k][2];
+                        }
                     }
                 } else {
-                    // Overlap mode: last band wins
-                    if (x < highsIdx) {
-                        r = highsColor[0]; g = highsColor[1]; b = highsColor[2];
-                    }
-                    if (x < midsIdx) {
-                        r = midsColor[0]; g = midsColor[1]; b = midsColor[2];
-                    }
-                    if (x < lowsIdx) {
-                        r = lowsColor[0]; g = lowsColor[1]; b = lowsColor[2];
+                    // Overlap mode: lowest-frequency band covering x wins.
+                    for (var k = 2; k >= 0; k--) {
+                        if (x < idx[k]) {
+                            r = cols[k][0]; g = cols[k][1]; b2 = cols[k][2];
+                        }
                     }
                 }
 
-                var brightness = (r > 0 || g > 0 || b > 0) ? AudioParams.applyFloor(algo, 1.0) : 0;
-                map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
+                var brightness = (r > 0 || g > 0 || b2 > 0) ? AudioParams.applyFloor(algo, 1.0) * beatBoost : 0;
+                map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
             }
         }
 

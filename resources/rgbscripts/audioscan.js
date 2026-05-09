@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Scan";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -48,26 +49,18 @@ var testAlgo;
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
 
-    var scanColor = [255, 0, 0];
-    var bgColor = [0, 0, 0];
+    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
     var scanPos = 0;
     var returning = false;
     var lastTime = 0;
     var powerFilter = null;
     var initialized = false;
+    var activeColor = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            scanColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            bgColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
-
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(scanColor[0], scanColor[1], scanColor[2]),
-                RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -89,7 +82,7 @@ var testAlgo;
         if (deltaSec <= 0 || deltaSec > 0.2) deltaSec = 0.02;
 
         // Audio drives speed
-        var power = powerFilter.update(audio.bands.low);
+        var power = powerFilter.update(audio.lows);
         var speedMult = 1 + power * 8;
         var baseSpeed = algo.presetSpeed * 5;
         var stepSize = deltaSec * baseSpeed * speedMult;
@@ -114,9 +107,14 @@ var testAlgo;
         var bright = AudioParams.applyFloor(algo, Math.min(1, 0.3 + power * 2.0));
 
         // Fill background
-        var bgPacked = RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2]);
+        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio) || !activeColor) {
+            activeColor = AudioParams.colorChannels(
+                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        }
+        var dominant = activeColor;
+        var bgPacked = RGBUtil.rgb(0, 0, 0);
         var scanPacked = RGBUtil.rgb(
-            scanColor[0] * bright, scanColor[1] * bright, scanColor[2] * bright);
+            dominant[0] * bright, dominant[1] * bright, dominant[2] * bright);
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {

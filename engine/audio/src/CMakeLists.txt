@@ -15,6 +15,7 @@ add_library(${module_name}
     audiorenderer.cpp audiorenderer.h
     aubioprocessor.cpp aubioprocessor.h
     aubioresults.h
+    melpostprocessor.cpp melpostprocessor.h
 )
 set_property(TARGET ${module_name} PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${module_name} PUBLIC

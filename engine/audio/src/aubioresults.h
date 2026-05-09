@@ -1,11 +1,17 @@
 #pragma once
 
+#include "audiochannelconfig.h"  // for kMaxMelBands
+
 #include <cstdint>
 #include <QMetaType>
 
 static constexpr int AUBIO_MEL_BANDS = 40;
 static constexpr int AUBIO_MFCC_COEFFS = 13;
 static constexpr int AUBIO_ONSET_METHODS = 9;
+
+// Upper bound for any single multi-resolution mel bank. Aliased to the single
+// source of truth in audiochannelconfig.h.
+static constexpr int AUBIO_MELBANK_MAX = kMaxMelBands;
 
 /**
  * Pristine aubio output — last hop wins for all per-hop values.
@@ -20,6 +26,17 @@ struct AubioResults
 {
     // Mel filterbank — last hop, raw aubio_filterbank_do output.
     double mel[AUBIO_MEL_BANDS] = {};
+
+    // Multi-resolution mel banks (matt_mel triangles, 3 banks share m_fftGrain).
+    // *Count is the valid prefix length actually filled this hop (0 when the
+    // multi-mel feature is disabled in MelBankConfig). Bands beyond *Count
+    // are zero-initialized.
+    double melLow [AUBIO_MELBANK_MAX] = {};
+    double melMid [AUBIO_MELBANK_MAX] = {};
+    double melHigh[AUBIO_MELBANK_MAX] = {};
+    int    melLowCount  = 0;
+    int    melMidCount  = 0;
+    int    melHighCount = 0;
 
     // MFCC — last hop, raw aubio_mfcc_do output.
     double mfcc[AUBIO_MFCC_COEFFS] = {};
@@ -40,12 +57,8 @@ struct AubioResults
     double bpm = 0.0;
     double beatConfidence = 0.0;
     bool tatum = false;
-    /**
-     * QLC+ DERIVATION (not raw aubio): phase within the current beat in [0,1).
-     * Computed by AubioProcessor from aubio_tempo_get_period_s/last_s and the
-     * internal sample counter. 0 = on a beat, 0.5 = halfway to next.
-     */
-    double beatPhase = 0.0;
+    double beatPhase = 0.0;  // 0→1 sawtooth ramp synced to BPM (computed in AubioProcessor).
+    double barPhase = 0.0;   // 0→beatsPerBar ramp: beat index in bar + beatPhase.
 
     // Onset detection (9 methods) — last hop, raw aubio_onset_do output.
     // OR-aggregated across all hops in a process() pass: if any hop fires the

@@ -20,7 +20,11 @@
 
 #define AUDIO_DEFAULT_SAMPLE_RATE     44100
 #define AUDIO_DEFAULT_CHANNELS        1
-#define AUDIO_DEFAULT_BUFFER_SIZE     2048
+// Capture buffer size in mono frames. Sized to match AubioProcessor::hopSize()
+// so each capture cycle feeds aubio exactly one hop, mirroring aubio's own
+// examples (examples/utils.c examples_common_process) where the source reads
+// hop_size samples and immediately calls the per-hop process function.
+#define AUDIO_DEFAULT_BUFFER_SIZE     512
 
 #define FREQ_SUBBANDS_MAX_NUMBER        32
 #define FREQ_SUBBANDS_DEFAULT_NUMBER    16
@@ -48,6 +52,7 @@ public:
 
     static int minFrequency() { return SPECTRUM_MIN_FREQUENCY; }
     static int maxFrequency() { return SPECTRUM_MAX_FREQUENCY; }
+    unsigned int sampleRate() const { return m_sampleRate; }
 
     /** Compute log-spaced low/high cut bin indices for legacy band splitting. */
     static int lowCutBin(int N);

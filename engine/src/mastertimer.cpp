@@ -383,7 +383,7 @@ MasterTimer::BeatsSourceType MasterTimer::beatSourceType() const
 
 void MasterTimer::requestBpmNumber(int bpm)
 {
-    if (bpm == m_currentBPM)
+    if (bpm <= 0 || bpm == m_currentBPM)
         return;
 
     m_currentBPM = bpm;

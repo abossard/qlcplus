@@ -450,20 +450,7 @@ int Collection::adjustAttribute(qreal fraction, int attributeId)
 
 void Collection::setBlendMode(Universe::BlendMode mode)
 {
-    if (mode == blendMode())
-        return;
-
-    qDebug() << "Collection" << name() << "blend mode set to" << Universe::blendModeToString(mode);
-
-    if (isRunning())
-    {
-        for (int i = 0; i < m_functions.count(); i++)
-        {
-            Function* function = doc()->function(m_functions.at(i));
-            Q_ASSERT(function != NULL);
-            function->setBlendMode(mode);
-        }
-    }
-
+    // Collection blend mode is stored but not propagated to children.
+    // Children use their own blend modes when creating faders.
     Function::setBlendMode(mode);
 }

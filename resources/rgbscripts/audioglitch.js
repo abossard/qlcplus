@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Glitch";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 3});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -46,26 +47,21 @@ var testAlgo;
     algo.setComplexity = function(_v) { algo.presetComplexity = parseInt(_v); };
     algo.getComplexity = function() { return algo.presetComplexity; };
 
-    var startColor = [255, 0, 128];
-    var endColor = [0, 255, 255];
+    var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
     var lowsPower = 0;
     var lowsFilter = null;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
+    var flashColor = null;
+    var flashLevel = 0;
 
     function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -81,7 +77,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = lowsFilter.update(audio.bands.low);
+        lowsPower = lowsFilter.update(audio.lows);
 
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -97,6 +93,14 @@ var testAlgo;
         var t4 = (timestep * speed * 0.001) * Math.PI * 2;
         var t5 = (timestep * speed * 0.00025) % 1;
         var t6 = (timestep * speed * 0.01) % 1;
+        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio)) {
+            flashColor = AudioParams.colorChannels(
+                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+            flashLevel = hitScale;
+        }
+        var dominant = (flashLevel > 0.01 && flashColor) ? flashColor : AudioParams.colorChannels(
+            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
 
         for (var x = 0; x < width; x++) {
             var il = (x - width / 2) / width;
@@ -120,17 +124,18 @@ var testAlgo;
             var hNorm = ((h % 1) + 1) % 1;
             var c1 = RGBUtil.hsv2rgb(hNorm, sat, 1);
 
-            // Blend with user colors based on position
             var t = Math.abs(il * 2);
-            var r = c1[0] * (1 - t * 0.3) + startColor[0] * t * 0.3;
-            var g = c1[1] * (1 - t * 0.3) + endColor[1] * t * 0.3;
-            var b = c1[2] * (1 - t * 0.3) + endColor[2] * t * 0.3;
+            var glitchMix = 0.55 + (1 - t * 0.3) * 0.45;
+            var r = dominant[0] * (0.35 + c1[0] / 255.0 * glitchMix);
+            var g = dominant[1] * (0.35 + c1[1] / 255.0 * glitchMix);
+            var b = dominant[2] * (0.35 + c1[2] / 255.0 * glitchMix);
 
-            var brightness = AudioParams.applyFloor(algo, 1.0);
+            var brightness = AudioParams.applyFloor(algo, Math.max(0.4, flashLevel));
             var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }
+        flashLevel = Math.max(0, flashLevel - 0.15);
 
         return map;
     };

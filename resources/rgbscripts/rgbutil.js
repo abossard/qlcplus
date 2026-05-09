@@ -100,6 +100,70 @@ RGBUtil.interpolate = function(arr, size) {
     return result;
 };
 
+/**
+ * Compact a raw color array (as received by rgbMapSetColors) into the list of
+ * active gradient stops. Invalid/reset slots are signalled by the engine as 0
+ * (see RGBMatrix::updateColorDelta) and are skipped — they do NOT become black
+ * stops. Remaining colors are masked to 0xRRGGBB.
+ *
+ * @param {Array} rawColors - Array of packed colors (0xAARRGGBB) from engine
+ * @returns {Array} compacted array of 0xRRGGBB stops in original order
+ */
+RGBUtil.buildGradientColors = function(rawColors) {
+    var out = [];
+    if (!rawColors) return out;
+    for (var i = 0; i < rawColors.length; i++) {
+        var c = rawColors[i];
+        if (c === 0) continue;
+        out.push(c & 0xFFFFFF);
+    }
+    return out;
+};
+
+/**
+ * Linearly interpolate the gradient defined by `colors` (evenly spaced stops
+ * between 0 and 1) at position `t` in [0, 1].
+ *
+ * @param {Array} colors - Packed 0xRRGGBB stops, evenly spaced
+ * @param {number} t     - Position 0..1 (clamped)
+ * @returns {number} interpolated 0xRRGGBB
+ */
+RGBUtil.gradientColorAt = function(colors, t) {
+    if (!colors || colors.length === 0) return 0;
+    if (colors.length === 1) return colors[0] & 0xFFFFFF;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    var pos = t * (colors.length - 1);
+    var idx = Math.floor(pos);
+    if (idx >= colors.length - 1) return colors[colors.length - 1] & 0xFFFFFF;
+    var frac = pos - idx;
+    var c1 = colors[idx], c2 = colors[idx + 1];
+    var r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
+    var r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
+    var r = Math.round(r1 + frac * (r2 - r1));
+    var g = Math.round(g1 + frac * (g2 - g1));
+    var b = Math.round(b1 + frac * (b2 - b1));
+    return (r << 16) | (g << 8) | b;
+};
+
+/**
+ * Pre-sample a gradient into `n` evenly spaced colors (LUT). Useful to avoid
+ * per-pixel interpolation cost in inner rgbMap loops.
+ *
+ * @param {Array} colors - Packed 0xRRGGBB stops
+ * @param {number} n     - Output sample count
+ * @returns {Array} array of n packed 0xRRGGBB colors
+ */
+RGBUtil.gradientLut = function(colors, n) {
+    if (n <= 0) return [];
+    if (n === 1) return [RGBUtil.gradientColorAt(colors, 0.5)];
+    var lut = new Array(n);
+    var denom = n - 1;
+    for (var i = 0; i < n; i++)
+        lut[i] = RGBUtil.gradientColorAt(colors, i / denom);
+    return lut;
+};
+
 /*
  * 2D Simplex noise (public domain, Stefan Gustavson).
  * Returns value in range -1 to 1.

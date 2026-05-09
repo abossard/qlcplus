@@ -21,7 +21,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Fire";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2; // start + end for fire color gradient
+    algo.acceptColors = 3; // spectrum heat gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -52,6 +52,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSpread|type:list|display:Per Column|" +
       "values:No,Yes|write:setSpread|read:getSpread");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function()  { return algo.presetSpeed; };
@@ -90,20 +91,20 @@ var testAlgo;
         lastTime = Date.now();
     }
 
-    // Colors for fire gradient (default: red → yellow)
-    var fireColorLow = [255, 0, 0];
-    var fireColorHigh = [255, 255, 0];
+    // Colors for fire gradient. algo.gradientColors is auto-injected by C++.
+    var DEFAULT_GRADIENT = [0x200000, 0xAA0000, 0xFF5500, 0xFFFF00, 0xFFFFFF];
+    var heatLut = null;
+    var heatLutSig = "";
+    var columnLut = null;
+    var columnLutWidth = -1;
+    var columnLutSig = "";
+    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            fireColorLow = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            fireColorHigh = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(fireColorLow[0], fireColorLow[1], fireColorLow[2]),
-                RGBUtil.rgb(fireColorHigh[0], fireColorHigh[1], fireColorHigh[2])];
+        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
     };
 
 
@@ -114,7 +115,8 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
 
-        if (!audio || !audio.mel || audio.mel.length === 0)
+        var melSrc = AudioParams.fullMel(audio);
+        if (!melSrc || melSrc.length === 0)
             return map;
 
         // Time delta
@@ -127,7 +129,8 @@ var testAlgo;
         var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
 
         // Audio influence: bass drives the fire
-        var rawLows = audio.bands.low;
+        var bandPowers = AudioParams.bandWeights(algo, audio);
+        var rawLows = bandPowers[0];
         var lowsPower = lowsFilter.update(rawLows);
 
         var cooling = baseCooling + lowsPower * 0.15;
@@ -179,38 +182,41 @@ var testAlgo;
             }
         }
 
+        var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        var sig = stops.length + ":" + stops.join(",");
+        if (heatLut === null || heatLutSig !== sig) {
+            heatLut = RGBUtil.gradientLut(stops, 256);
+            heatLutSig = sig;
+        }
+        if (columnLut === null || columnLutWidth !== width || columnLutSig !== sig) {
+            columnLut = RGBUtil.gradientLut(stops, width);
+            columnLutWidth = width;
+            columnLutSig = sig;
+        }
+
+        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
+        var spectrum = (audio.spectrum && audio.spectrum.length) ? audio.spectrum : melSrc;
+        var specBands = RGBUtil.interpolate(spectrum, effectiveWidth);
+        for (var si = 0; si < specBands.length; si++)
+            specBands[si] = Math.min(1, specBands[si]) * bandScaleForColumn(si, effectiveWidth);
+        var spectrumMix = algo.presetSpread ? 0.7 : 0.35;
+        var beatMod = 1 + AudioParams.beatPulse(audio) * 0.15;
+
         // Map heat values to colors using fire gradient and render into 2D grid
         for (var y = 0; y < height; y++) {
             // Direction: Up = bottom-to-top, Down = top-to-bottom
             var fireIdx = algo.presetDirection ? y : (height - 1 - y);
             var heat = Math.max(0, Math.min(1, sparkPixels[fireIdx]));
 
-            // Interpolate between fireColorLow and fireColorHigh based on heat
-            var r = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * heat;
-            var g = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * heat;
-            var b = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * heat;
-
-            // Apply heat as brightness
-            var brightness = AudioParams.applyFloor(algo, Math.min(1, heat * 2));
-            var packedColor = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
-
-            // Fill row — if "Per Column" is on, vary heat per column using spectrum
-            if (algo.presetSpread && audio.mel) {
-                var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-                var specBands = RGBUtil.interpolate(audio.mel, effectiveWidth);
-                for (var si = 0; si < specBands.length; si++)
-                    specBands[si] = Math.min(1, specBands[si]);
-                for (var x = 0; x < width; x++) {
-                    var colHeat = heat * (0.3 + specBands[x] * 0.7);
-                    var cr = fireColorLow[0] + (fireColorHigh[0] - fireColorLow[0]) * colHeat;
-                    var cg = fireColorLow[1] + (fireColorHigh[1] - fireColorLow[1]) * colHeat;
-                    var cb = fireColorLow[2] + (fireColorHigh[2] - fireColorLow[2]) * colHeat;
-                    var cb2 = AudioParams.applyFloor(algo, Math.min(1, colHeat * 2));
-                    map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
-                }
-            } else {
-                for (var x = 0; x < width; x++)
-                    map[y][x] = packedColor;
+            // Fill row with per-column gradient color and spectrum-scaled heat.
+            for (var x = 0; x < width; x++) {
+                var colHeat = heat * ((1 - spectrumMix) + specBands[x] * spectrumMix);
+                var packed = columnLut[x];
+                var cr = (packed >> 16) & 0xFF;
+                var cg = (packed >> 8) & 0xFF;
+                var cb = packed & 0xFF;
+                var cb2 = AudioParams.applyFloor(algo, Math.min(1, colHeat * 2)) * beatMod;
+                map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
             }
         }
 

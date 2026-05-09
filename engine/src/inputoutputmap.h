@@ -27,6 +27,7 @@
 
 #include "qlcinputprofile.h"
 #include "grandmaster.h"
+#include "aubioresults.h"
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
@@ -607,6 +608,7 @@ protected slots:
     void slotMasterTimerBeat();
     void slotPluginBeat(quint32 universe, quint32 channel, uchar value, const QString &key);
     void slotProcessBeat();
+    void slotProcessAubioData(const AubioResults &results, quint32 power);
 
 signals:
     void beatGeneratorTypeChanged();

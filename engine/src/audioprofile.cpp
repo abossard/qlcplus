@@ -21,11 +21,14 @@
 
 #include "audioanalyzer.h"
 #include "audiochannel.h"
+#include "aubioresults.h"
 #include "qlcfile.h"
 
 #include <QDebug>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -265,21 +268,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileBands)
         {
-            config.bandLayout.subMaxHz = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileBandsSubMax,
-                                                         config.bandLayout.subMaxHz);
-            config.bandLayout.bassMaxHz = doubleAttribute(childAttrs,
-                                                          KXMLQLCAudioProfileBandsBassMax,
-                                                          config.bandLayout.bassMaxHz);
-            config.bandLayout.lowMidMaxHz = doubleAttribute(childAttrs,
-                                                            KXMLQLCAudioProfileBandsLowMidMax,
-                                                            config.bandLayout.lowMidMaxHz);
-            config.bandLayout.midMaxHz = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileBandsMidMax,
-                                                         config.bandLayout.midMaxHz);
-            config.bandLayout.highMaxHz = doubleAttribute(childAttrs,
-                                                          KXMLQLCAudioProfileBandsHighMax,
-                                                          config.bandLayout.highMaxHz);
+            // Legacy 5-perceptual-band layout has been removed. The element
+            // is silently skipped to avoid blocking older profile loads.
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileNoiseGate)
@@ -290,6 +280,72 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.noiseGate.holdMs = doubleAttribute(childAttrs,
                                                       KXMLQLCAudioProfileNoiseGateHold,
                                                       config.noiseGate.holdMs);
+            root.skipCurrentElement();
+        }
+        else if (root.name() == KXMLQLCAudioProfileKick)
+        {
+            config.kick.enabled = intAttribute(childAttrs,
+                                                KXMLQLCAudioProfileKickEnabled,
+                                                config.kick.enabled ? 1 : 0) != 0;
+            config.kick.beatMaxHz = doubleAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileKickBeatMaxHz,
+                                                     config.kick.beatMaxHz);
+            config.kick.beatMinPercentDiff = doubleAttribute(childAttrs,
+                                                              KXMLQLCAudioProfileKickBeatMinPercentDiff,
+                                                              config.kick.beatMinPercentDiff);
+            config.kick.beatMinAmplitude = doubleAttribute(childAttrs,
+                                                            KXMLQLCAudioProfileKickBeatMinAmplitude,
+                                                            config.kick.beatMinAmplitude);
+            config.kick.beatRefractorySec = doubleAttribute(childAttrs,
+                                                             KXMLQLCAudioProfileKickBeatRefractorySec,
+                                                             config.kick.beatRefractorySec);
+            config.kick.beatHistoryLen = intAttribute(childAttrs,
+                                                       KXMLQLCAudioProfileKickBeatHistoryLen,
+                                                       config.kick.beatHistoryLen);
+            // Legacy QLC+ Schmitt-detector fields (SpikeThreshold/ReleaseFactor/
+            // Cooldown/Hold/MelBandStart/MelBandEnd) were removed in the LedFx
+            // port. We silently drop them on load.
+            root.skipCurrentElement();
+        }
+        else if (root.name() == KXMLQLCAudioProfileMelPost)
+        {
+            config.melPost.enabled = intAttribute(childAttrs,
+                                                  KXMLQLCAudioProfileMelPostEnabled,
+                                                  config.melPost.enabled ? 1 : 0) != 0;
+            config.melPost.powerFactor = doubleAttribute(childAttrs,
+                                                         KXMLQLCAudioProfileMelPostPowerFactor,
+                                                         config.melPost.powerFactor);
+            config.melPost.gaussianSigma = doubleAttribute(childAttrs,
+                                                           KXMLQLCAudioProfileMelPostGaussianSigma,
+                                                           config.melPost.gaussianSigma);
+            config.melPost.smoothDecay = doubleAttribute(childAttrs,
+                                                         KXMLQLCAudioProfileMelPostSmoothDecay,
+                                                         config.melPost.smoothDecay);
+            config.melPost.smoothRise = doubleAttribute(childAttrs,
+                                                         KXMLQLCAudioProfileMelPostSmoothRise,
+                                                         config.melPost.smoothRise);
+            config.melPost.commonDecay = doubleAttribute(childAttrs,
+                                                          KXMLQLCAudioProfileMelPostCommonDecay,
+                                                          config.melPost.commonDecay);
+            config.melPost.commonRise = doubleAttribute(childAttrs,
+                                                         KXMLQLCAudioProfileMelPostCommonRise,
+                                                         config.melPost.commonRise);
+            config.melPost.diffDecay = doubleAttribute(childAttrs,
+                                                        KXMLQLCAudioProfileMelPostDiffDecay,
+                                                        config.melPost.diffDecay);
+            config.melPost.diffRise = doubleAttribute(childAttrs,
+                                                       KXMLQLCAudioProfileMelPostDiffRise,
+                                                       config.melPost.diffRise);
+            root.skipCurrentElement();
+        }
+        else if (root.name() == KXMLQLCAudioProfileFreqPower)
+        {
+            config.freqPowerDecay = doubleAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileFreqPowerDecay,
+                                                     config.freqPowerDecay);
+            config.freqPowerRise = doubleAttribute(childAttrs,
+                                                    KXMLQLCAudioProfileFreqPowerRise,
+                                                    config.freqPowerRise);
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileVolume)
@@ -304,12 +360,9 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileAubio)
         {
-            config.aubio.onsetThreshold = doubleAttribute(childAttrs,
-                                                          KXMLQLCAudioProfileAubioOnsetThreshold,
-                                                          config.aubio.onsetThreshold);
-            config.aubio.onsetMinIntervalMs = doubleAttribute(childAttrs,
-                                                              KXMLQLCAudioProfileAubioOnsetMinInterval,
-                                                              config.aubio.onsetMinIntervalMs);
+            // OnsetThreshold / OnsetMinInterval are silently ignored on load
+            // (legacy attributes — global onset overrides have been removed
+            // so aubio's per-method tuned defaults stay authoritative).
             config.aubio.pitchMethod = stringAttribute(childAttrs,
                                                        KXMLQLCAudioProfileAubioPitchMethod,
                                                        config.aubio.pitchMethod);
@@ -334,6 +387,13 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.tatumSubdivision = intAttribute(childAttrs,
                                                          KXMLQLCAudioProfileAubioTatumSubdivision,
                                                          config.aubio.tatumSubdivision);
+            config.aubio.beatsPerBar = std::clamp(intAttribute(childAttrs,
+                                                               KXMLQLCAudioProfileAubioBeatsPerBar,
+                                                               config.aubio.beatsPerBar),
+                                                  1, 8);
+            config.aubio.preEmphasisEnabled = intAttribute(childAttrs,
+                                                           KXMLQLCAudioProfileAubioPreEmphasisEnabled,
+                                                           config.aubio.preEmphasisEnabled ? 1 : 0) != 0;
             config.aubio.tssAlpha = doubleAttribute(childAttrs,
                                                     KXMLQLCAudioProfileAubioTssAlpha,
                                                     config.aubio.tssAlpha);
@@ -368,14 +428,9 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             {
                 config.aubio.melScale = QStringLiteral("slaney");
             }
-            config.aubio.onsetAdaptiveWhitening = boolFromString(
-                stringAttribute(childAttrs,
-                                KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening,
-                                config.aubio.onsetAdaptiveWhitening ? KXMLQLCTrue : KXMLQLCFalse),
-                config.aubio.onsetAdaptiveWhitening);
-            config.aubio.onsetCompressionLambda = doubleAttribute(childAttrs,
-                                                                  KXMLQLCAudioProfileAubioOnsetCompressionLambda,
-                                                                  config.aubio.onsetCompressionLambda);
+            // Older profile XML may include OnsetAdaptiveWhitening /
+            // OnsetCompressionLambda — they are now ignored because aubio's
+            // per-method defaults are used instead.
             // Per-method enable bitmask: stored as a 9-character string of
             // '1'/'0' (energy first ... specflux last). Missing or wrong-length
             // attribute -> keep struct defaults (all enabled).
@@ -407,7 +462,97 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.mfccScale = doubleAttribute(childAttrs,
                                                      KXMLQLCAudioProfileAubioMfccScale,
                                                      config.aubio.mfccScale);
-            root.skipCurrentElement();
+
+            // Pitch unit — passed straight to aubio_pitch_set_unit. Validate
+            // against aubio's accepted values; anything else falls back to Hz.
+            config.aubio.pitchUnit = stringAttribute(childAttrs,
+                                                     KXMLQLCAudioProfileAubioPitchUnit,
+                                                     config.aubio.pitchUnit);
+            {
+                static const QStringList kPitchUnits = {
+                    QStringLiteral("Hz"), QStringLiteral("midi"),
+                    QStringLiteral("cent"), QStringLiteral("bin")
+                };
+                if (!kPitchUnits.contains(config.aubio.pitchUnit))
+                    config.aubio.pitchUnit = QStringLiteral("Hz");
+            }
+
+            // Per-method onset overrides arrive as <OnsetOverride/> children.
+            // Sentinel-encoded fields (see audiochannelconfig.h) stay at "use
+            // aubio default" when an attribute is absent, so a partial
+            // override is allowed.
+            static const QHash<QString, int> kMethodIndex = {
+                { QStringLiteral("energy"),   0 }, { QStringLiteral("hfc"),      1 },
+                { QStringLiteral("complex"),  2 }, { QStringLiteral("phase"),    3 },
+                { QStringLiteral("wphase"),   4 }, { QStringLiteral("specdiff"), 5 },
+                { QStringLiteral("kl"),       6 }, { QStringLiteral("mkl"),      7 },
+                { QStringLiteral("specflux"), 8 }
+            };
+            while (root.readNextStartElement())
+            {
+                if (root.name() == KXMLQLCAudioProfileAubioOnsetOverride)
+                {
+                    const QXmlStreamAttributes ovAttrs = root.attributes();
+                    const QString method = stringAttribute(ovAttrs,
+                                                           KXMLQLCAudioProfileAubioOnsetOverrideMethod,
+                                                           QString());
+                    const int idx = kMethodIndex.value(method, -1);
+                    if (idx >= 0 && idx < 9)
+                    {
+                        OnsetMethodOverride &ov = config.aubio.onsetOverrides[idx];
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideThreshold))
+                            ov.threshold = doubleAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideThreshold, ov.threshold);
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideSilence))
+                            ov.silenceDb = doubleAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideSilence, ov.silenceDb);
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMinioi))
+                            ov.minioiMs = doubleAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideMinioi, ov.minioiMs);
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideDelay))
+                            ov.delayMs = doubleAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideDelay, ov.delayMs);
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideCompression))
+                            ov.compression = doubleAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideCompression, ov.compression);
+                        if (ovAttrs.hasAttribute(KXMLQLCAudioProfileAubioOnsetOverrideAwhitening))
+                        {
+                            const QString aw = stringAttribute(ovAttrs, KXMLQLCAudioProfileAubioOnsetOverrideAwhitening, QString());
+                            ov.awhitening = (aw.compare(KXMLQLCTrue, Qt::CaseInsensitive) == 0
+                                             || aw == QStringLiteral("1")) ? 1 : 0;
+                        }
+                    }
+                    root.skipCurrentElement();
+                }
+                else if (root.name() == KXMLQLCAudioProfileAubioMelBank)
+                {
+                    // Per-bank multi-mel range. Role selects which of low/mid/high
+                    // is being configured; missing or unknown roles are ignored.
+                    const QXmlStreamAttributes mbAttrs = root.attributes();
+                    const QString role = stringAttribute(mbAttrs,
+                                                         KXMLQLCAudioProfileAubioMelBankRole,
+                                                         QString()).toLower();
+                    MelBankConfig::Bank *bank = nullptr;
+                    if (role == QStringLiteral("low"))       bank = &config.aubio.melBanks.low;
+                    else if (role == QStringLiteral("mid"))  bank = &config.aubio.melBanks.mid;
+                    else if (role == QStringLiteral("high")) bank = &config.aubio.melBanks.high;
+                    if (bank != nullptr)
+                    {
+                        bank->minHz = doubleAttribute(mbAttrs, KXMLQLCAudioProfileAubioMelBankMinHz, bank->minHz);
+                        bank->maxHz = doubleAttribute(mbAttrs, KXMLQLCAudioProfileAubioMelBankMaxHz, bank->maxHz);
+                        bank->bands = intAttribute(mbAttrs, KXMLQLCAudioProfileAubioMelBankBands, bank->bands);
+                        if (bank->bands < 1) bank->bands = 1;
+                        if (bank->bands > MelBankConfig::kMaxBandsPerBank)
+                            bank->bands = MelBankConfig::kMaxBandsPerBank;
+                    }
+                    if (mbAttrs.hasAttribute(KXMLQLCAudioProfileAubioMelBankPreset))
+                    {
+                        config.aubio.melBanks.preset = stringAttribute(mbAttrs,
+                                                                       KXMLQLCAudioProfileAubioMelBankPreset,
+                                                                       config.aubio.melBanks.preset);
+                    }
+                    root.skipCurrentElement();
+                }
+                else
+                {
+                    root.skipCurrentElement();
+                }
+            }
         }
         else
         {
@@ -440,38 +585,51 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileTriggersHold, QString::number(m_config.triggers.holdMs));
     doc->writeAttribute(KXMLQLCAudioProfileTriggersCooldown, QString::number(m_config.triggers.cooldownMs));
 
-    doc->writeEmptyElement(KXMLQLCAudioProfileBands);
-    doc->writeAttribute(KXMLQLCAudioProfileBandsSubMax, QString::number(m_config.bandLayout.subMaxHz));
-    doc->writeAttribute(KXMLQLCAudioProfileBandsBassMax, QString::number(m_config.bandLayout.bassMaxHz));
-    doc->writeAttribute(KXMLQLCAudioProfileBandsLowMidMax, QString::number(m_config.bandLayout.lowMidMaxHz));
-    doc->writeAttribute(KXMLQLCAudioProfileBandsMidMax, QString::number(m_config.bandLayout.midMaxHz));
-    doc->writeAttribute(KXMLQLCAudioProfileBandsHighMax, QString::number(m_config.bandLayout.highMaxHz));
-
     doc->writeEmptyElement(KXMLQLCAudioProfileNoiseGate);
     doc->writeAttribute(KXMLQLCAudioProfileNoiseGateThreshold, QString::number(m_config.noiseGate.thresholdDb));
     doc->writeAttribute(KXMLQLCAudioProfileNoiseGateHold, QString::number(m_config.noiseGate.holdMs));
+
+    doc->writeEmptyElement(KXMLQLCAudioProfileKick);
+    doc->writeAttribute(KXMLQLCAudioProfileKickEnabled, m_config.kick.enabled ? "1" : "0");
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMaxHz, QString::number(m_config.kick.beatMaxHz));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinPercentDiff, QString::number(m_config.kick.beatMinPercentDiff));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinAmplitude, QString::number(m_config.kick.beatMinAmplitude));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatRefractorySec, QString::number(m_config.kick.beatRefractorySec));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatHistoryLen, QString::number(m_config.kick.beatHistoryLen));
+
+    doc->writeEmptyElement(KXMLQLCAudioProfileMelPost);
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostEnabled, m_config.melPost.enabled ? "1" : "0");
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostPowerFactor, QString::number(m_config.melPost.powerFactor));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostGaussianSigma, QString::number(m_config.melPost.gaussianSigma));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostSmoothDecay, QString::number(m_config.melPost.smoothDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostSmoothRise, QString::number(m_config.melPost.smoothRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostCommonDecay, QString::number(m_config.melPost.commonDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostCommonRise, QString::number(m_config.melPost.commonRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostDiffDecay, QString::number(m_config.melPost.diffDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelPostDiffRise, QString::number(m_config.melPost.diffRise));
+
+    doc->writeEmptyElement(KXMLQLCAudioProfileFreqPower);
+    doc->writeAttribute(KXMLQLCAudioProfileFreqPowerDecay, QString::number(m_config.freqPowerDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileFreqPowerRise, QString::number(m_config.freqPowerRise));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileVolume);
     doc->writeAttribute(KXMLQLCAudioProfileVolumeSmoothing, QString::number(m_config.volumeSmoothingMs));
     doc->writeAttribute(KXMLQLCAudioProfileVolumeBrightnessFloor, QString::number(m_config.brightnessFloor));
 
-    doc->writeEmptyElement(KXMLQLCAudioProfileAubio);
-    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetThreshold, QString::number(m_config.aubio.onsetThreshold));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetMinInterval, QString::number(m_config.aubio.onsetMinIntervalMs));
+    doc->writeStartElement(KXMLQLCAudioProfileAubio);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchMethod, m_config.aubio.pitchMethod);
+    doc->writeAttribute(KXMLQLCAudioProfileAubioPitchUnit, m_config.aubio.pitchUnit);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchSilenceDb, QString::number(m_config.aubio.pitchSilenceDb));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchTolerance, QString::number(m_config.aubio.pitchTolerance));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTatumSubdivision, QString::number(m_config.aubio.tatumSubdivision));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioBeatsPerBar, QString::number(m_config.aubio.beatsPerBar));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioPreEmphasisEnabled, m_config.aubio.preEmphasisEnabled ? "1" : "0");
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssAlpha, QString::number(m_config.aubio.tssAlpha));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssBeta, QString::number(m_config.aubio.tssBeta));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTssThreshold, QString::number(m_config.aubio.tssThreshold));
 
     doc->writeAttribute(KXMLQLCAudioProfileAubioWindowType, m_config.aubio.windowType);
     doc->writeAttribute(KXMLQLCAudioProfileAubioMelScale, m_config.aubio.melScale);
-    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening,
-                        m_config.aubio.onsetAdaptiveWhitening ? KXMLQLCTrue : KXMLQLCFalse);
-    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetCompressionLambda,
-                        QString::number(m_config.aubio.onsetCompressionLambda));
     {
         QString mask;
         mask.reserve(9);
@@ -485,6 +643,63 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileAubioNoteReleaseDropDb, QString::number(m_config.aubio.noteReleaseDropDb));
     doc->writeAttribute(KXMLQLCAudioProfileAubioMfccPower, QString::number(m_config.aubio.mfccPower));
     doc->writeAttribute(KXMLQLCAudioProfileAubioMfccScale, QString::number(m_config.aubio.mfccScale));
+
+    // Per-method onset overrides. Sentinel values (see audiochannelconfig.h)
+    // mean "use aubio default" and are NOT serialized — only real overrides
+    // produce <OnsetOverride/> child elements, keeping XML diffs minimal.
+    static const char *kMethodNames[9] = {
+        "energy", "hfc", "complex", "phase", "wphase",
+        "specdiff", "kl", "mkl", "specflux"
+    };
+    for (int i = 0; i < 9; i++)
+    {
+        const OnsetMethodOverride &ov = m_config.aubio.onsetOverrides[i];
+        const bool hasAny =
+            ov.threshold >= 0.0 || ov.silenceDb > -900.0 ||
+            ov.minioiMs >= 0.0 || ov.delayMs > -9000.0 ||
+            ov.compression >= 0.0 || ov.awhitening >= 0;
+        if (!hasAny)
+            continue;
+        doc->writeEmptyElement(KXMLQLCAudioProfileAubioOnsetOverride);
+        doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMethod, QString::fromLatin1(kMethodNames[i]));
+        if (ov.threshold >= 0.0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideThreshold, QString::number(ov.threshold));
+        if (ov.silenceDb > -900.0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideSilence, QString::number(ov.silenceDb));
+        if (ov.minioiMs >= 0.0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMinioi, QString::number(ov.minioiMs));
+        if (ov.delayMs > -9000.0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideDelay, QString::number(ov.delayMs));
+        if (ov.compression >= 0.0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideCompression, QString::number(ov.compression));
+        if (ov.awhitening >= 0)
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideAwhitening, ov.awhitening ? KXMLQLCTrue : KXMLQLCFalse);
+    }
+    // Multi-mel bank ranges (low/mid/high). One <MelBank/> child per role; the
+    // shared preset label is written on the `low` element so it round-trips.
+    {
+        const MelBankConfig &mb = m_config.aubio.melBanks;
+        struct { const char *role; const MelBankConfig::Bank *bank; } banks[] = {
+            { "low",  &mb.low  },
+            { "mid",  &mb.mid  },
+            { "high", &mb.high }
+        };
+        for (size_t i = 0; i < sizeof(banks) / sizeof(banks[0]); i++)
+        {
+            doc->writeEmptyElement(KXMLQLCAudioProfileAubioMelBank);
+            doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankRole,
+                                QString::fromLatin1(banks[i].role));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankMinHz,
+                                QString::number(banks[i].bank->minHz));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankMaxHz,
+                                QString::number(banks[i].bank->maxHz));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankBands,
+                                QString::number(banks[i].bank->bands));
+            if (i == 0)
+                doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
+        }
+    }
+    doc->writeEndElement(); // Aubio
 
     doc->writeEndElement();
     return true;

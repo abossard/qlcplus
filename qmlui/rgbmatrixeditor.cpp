@@ -225,6 +225,7 @@ void RGBMatrixEditor::resetColorAtIndex(int index)
     m_matrix->setColor(index, QColor());
     if (index < 2)
         m_previewStepHandler->calculateColorDelta(m_matrix->getColor(0), m_matrix->getColor(1), m_matrix->algorithm());
+    emit algoColorsChanged();
 }
 
 bool RGBMatrixEditor::hasColorAtIndex(int index) const

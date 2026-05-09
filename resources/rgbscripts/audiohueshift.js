@@ -92,19 +92,28 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
         if (!audio || !audio.mel || audio.mel.length === 0) return map;
-        var bass = audio.bands.low;
-        var mids = audio.bands.mid;
-        var highs = audio.bands.high;
+        var bass = audio.lows;
+        var mids = audio.mids;
+        var highs = audio.highs;
+
+        // Pitch-driven hue: map pitch to hue offset (one octave = full hue cycle)
+        var pitch = AudioParams.pitchHz(audio, 0.5);
+        var pitchHueOffset = 0;
+        if (pitch > 0) {
+            pitchHueOffset = ((Math.log2(pitch / 110) % 1) + 1) % 1;
+        }
 
         var totalPower = bass + mids + highs + 0.001;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
+        targetHue = wrapHue(targetHue + AudioParams.centroidWarmCool(audio) * 0.33 + pitchHueOffset * 0.4);
         var speedRate = 0.05 + (algo.presetSpeed / 10.0) * 0.45;
         algo.currentHue = lerpHue(algo.currentHue, targetHue, speedRate);
 
         var minBrightness = algo.presetMinBrightness / 100.0;
         var volume = (bass + mids + highs) / 3.0;
-        // Steady brightness with subtle audio modulation — hue is the main show
-        var brightness = clamp(minBrightness + volume * 0.15, minBrightness, 1.0);
+        // Steady brightness with subtle audio + beat pulse modulation
+        var beatMod = AudioParams.beatPulse(audio) * 0.12;
+        var brightness = clamp(minBrightness + volume * 0.15 + beatMod, minBrightness, 1.0);
         var waveScale = algo.presetWaveScale / 20.0;
         var saturation = algo.presetSaturation / 100.0;
 

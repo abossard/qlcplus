@@ -35,8 +35,8 @@
        <string>Universes Configuration</string>
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout">
-       <item>
-        <widget class="QTreeWidget" name="m_uniMapTree">
+        <item>
+         <widget class="QTreeWidget" name="m_uniMapTree">
          <property name="alternatingRowColors">
           <bool>true</bool>
          </property>
@@ -83,10 +83,53 @@
            <string>Components</string>
           </property>
          </column>
-        </widget>
-       </item>
-      </layout>
-     </widget>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="maxFpsLayout">
+          <item>
+           <widget class="QLabel" name="m_maxFpsLabel">
+            <property name="text">
+             <string>Max FPS</string>
+            </property>
+            <property name="buddy">
+             <cstring>m_maxFpsSpin</cstring>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="m_maxFpsSpin">
+            <property name="toolTip">
+             <string>Maximum output frames per second. Default 20 for WiFi/WLED. Increase for wired connections.</string>
+            </property>
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>50</number>
+            </property>
+            <property name="value">
+             <number>20</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="maxFpsSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
     </widget>
    </item>
    <item row="1" column="0" colspan="2">

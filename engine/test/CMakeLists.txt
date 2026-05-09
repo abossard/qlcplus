@@ -1,11 +1,14 @@
 project(test)
 
-add_subdirectory(audioframe)
-add_subdirectory(audioanalyzer)
-add_subdirectory(audiochannel)
-add_subdirectory(audioprofile)
-add_subdirectory(audioslice)
-add_subdirectory(vcaudiotriggers)
+# Broken legacy audio tests removed — see plan-clean-engineering.md §0/tests.
+# They referenced removed AudioSnapshot/AudioChannelConfig/AudioFrame APIs
+# (bands, agc, fftSize, samples, binCount, PerceptualBands, etc.).
+# add_subdirectory(audioframe)
+# add_subdirectory(audioanalyzer)
+# add_subdirectory(audiochannel)
+# add_subdirectory(audioprofile)
+# add_subdirectory(audioslice)
+# add_subdirectory(vcaudiotriggers)
 add_subdirectory(beatquantize)
 add_subdirectory(bus)
 add_subdirectory(channelsgroup)

@@ -56,3 +56,10 @@ build*
 .playwright-mcp/
 .DS_Store
 .playwright-mcp/
+docs/static-analysis-logs/
+docs/audio-dsp-reviews/
+docs/audio-dsp-plans/
+__pycache__/
+compile_commands.json
+qml_properties_list.txt
+docs/widget-mockup.html

@@ -22,9 +22,10 @@ public:
     /** Release all aubio objects. */
     void release();
 
-    /** Process a buffer of mono int16 PCM samples.
-     *  bufferSize should be a multiple of hopSize (512).
-     *  Results are aggregated across all hops in the buffer. */
+    /** Process exactly one hop (hopSize() = 512) of mono int16 PCM samples.
+     *  This matches aubio's own example pattern (one hop in, one report out;
+     *  see aubio examples/utils.c examples_common_process). bufferSize must
+     *  equal hopSize(); extra samples are ignored, fewer is a no-op. */
     void process(const int16_t *monoSamples, int bufferSize);
 
     /** Get the last computed results. Thread-safe for single-writer/single-reader. */
@@ -40,6 +41,20 @@ public:
 
     static constexpr uint32_t hopSize() { return 512; }
     static constexpr uint32_t windowSize() { return 1024; }
+
+    // Onset detection methods — single source of truth. Indices match the
+    // bool/override arrays in AubioConfig and are persisted by audioprofile.cpp
+    // and surfaced to QML / JS via vcaudiotriggers + rgbscriptv4. Order MUST
+    // remain stable across releases (XML round-trip).
+    static constexpr int kOnsetMethodCount = 9;
+    static constexpr const char *kOnsetMethodNames[kOnsetMethodCount] = {
+        "energy", "hfc", "complex", "phase", "wphase",
+        "specdiff", "kl", "mkl", "specflux"
+    };
+
+    /** Read aubio's per-method default onset parameters. Lives as a free
+     *  function in audiochannelconfig.h so callers don't need to include
+     *  this header (and thus don't pull in <aubio/aubio.h>). */
 
 private:
     void processHop();
@@ -59,19 +74,18 @@ private:
 
     AubioResults m_results;
 
-    /** Total mono samples fed into aubio since last initialize(). Used to
-     *  derive beatPhase from aubio's sample-clock view of the world. */
-    uint64_t m_totalSamplesProcessed = 0;
-
     aubio_pvoc_t *m_pvoc = nullptr;
+    aubio_filter_t *m_preEmphasis = nullptr;
     aubio_tempo_t *m_tempo = nullptr;
     aubio_pitch_t *m_pitch = nullptr;
     aubio_notes_t *m_notes = nullptr;
     aubio_mfcc_t *m_mfcc = nullptr;
     aubio_filterbank_t *m_filterbank = nullptr;
+    aubio_filterbank_t *m_filterbankLow  = nullptr;
+    aubio_filterbank_t *m_filterbankMid  = nullptr;
+    aubio_filterbank_t *m_filterbankHigh = nullptr;
     aubio_tss_t *m_tss = nullptr;
 
-    static constexpr int kOnsetMethodCount = 9;
     aubio_onset_t *m_onsets[kOnsetMethodCount] = {};
 
     aubio_specdesc_t *m_descCentroid = nullptr;
@@ -87,8 +101,21 @@ private:
     fvec_t *m_pitchOut = nullptr;
     fvec_t *m_notesOut = nullptr;
     fvec_t *m_melOut = nullptr;
+    fvec_t *m_melLowOut  = nullptr;
+    fvec_t *m_melMidOut  = nullptr;
+    fvec_t *m_melHighOut = nullptr;
     fvec_t *m_mfccOut = nullptr;
     fvec_t *m_descOut = nullptr;
     cvec_t *m_transGrain = nullptr;
     cvec_t *m_steadGrain = nullptr;
+
+    // Beat phase tracking. Persists across hops; only reset in
+    // initialize()/release(). Per RD: NOT touched by resetResults() — that
+    // would zero the period between every process() call and break the ramp.
+    double m_beatPeriodS = 0.0;        // seconds per beat from aubio_tempo_get_period_s()
+    double m_lastBeatTimeS = 0.0;      // stream-time of last detected beat (aubio_tempo_get_last_s())
+    uint64_t m_processedSamples = 0;   // total mono samples processed → currentTimeS
+    uint32_t m_hopsSinceBeat = 0;      // gate phase to 0 after N silent hops
+    int m_barBeatCount = -1;
+    int m_beatsPerBar = 4;
 };

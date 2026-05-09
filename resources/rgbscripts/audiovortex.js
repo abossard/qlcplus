@@ -19,11 +19,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Vortex";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -45,23 +46,16 @@ var testAlgo;
     algo.setTightness = function(_v) { algo.presetTightness = parseInt(_v); };
     algo.getTightness = function() { return algo.presetTightness; };
 
-    var startColor = [255, 0, 128];
-    var endColor = [0, 200, 255];
+    var DEFAULT_BAND_COLORS = [0xFF0080, 0x8064D8, 0x00C8FF];
     var lowsFilter = null;
     var angle = 0;
     var lastTime = 0;
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -81,7 +75,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(audio.bands.low);
+        var power = lowsFilter.update(audio.lows);
         var speed = algo.presetSpeed / 5.0;
         angle += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -90,6 +84,9 @@ var testAlgo;
         var maxDist = Math.sqrt(cx * cx + cy * cy);
         var arms = algo.presetArms;
         var tightness = algo.presetTightness / 3.0;
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
@@ -108,15 +105,12 @@ var testAlgo;
                 var armVal = Math.sin(spiral * arms) * 0.5 + 0.5;
 
                 // Brightness: arms visible, fades toward edge
-                var bright = AudioParams.applyFloor(algo, Math.min(1, armVal * power * (1 - normDist * 0.5)));
+                var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, armVal * power * (1 - normDist * 0.5))), audio) * beatBoost * noveltyBoost;
 
-                // Color: gradient from center to edge
-                var t = normDist;
-                var r = startColor[0] + (endColor[0] - startColor[0]) * t;
-                var g = startColor[1] + (endColor[1] - startColor[1]) * t;
-                var b = startColor[2] + (endColor[2] - startColor[2]) * t;
-
-                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(
+                    blended[0] * bright,
+                    blended[1] * bright,
+                    blended[2] * bright);
             }
         }
 

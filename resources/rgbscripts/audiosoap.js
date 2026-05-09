@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Soap";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -46,8 +47,7 @@ var testAlgo;
     algo.setSmooth = function(_v) { algo.presetSmooth = parseInt(_v); };
     algo.getSmooth = function() { return algo.presetSmooth; };
 
-    var startColor = [128, 0, 255];
-    var endColor = [0, 255, 200];
+    var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066E0, 0x00FFC8];
     var lowsFilter = null;
     var noiseField = null;
     var prevPixels = null; // persistent pixel buffer [y][x] = {r,g,b}
@@ -71,29 +71,19 @@ var testAlgo;
         }
         lastW = w;
         lastH = h;
-        // Seed with gradient colors
+        var seed = AudioParams.colorChannels(AudioParams.bandColors(algo, DEFAULT_BAND_COLORS)[0]);
         for (var y = 0; y < h; y++) {
             for (var x = 0; x < w; x++) {
                 var t = ((x / Math.max(1, w - 1)) + (y / Math.max(1, h - 1))) / 2;
-                prevPixels[y][x] = [
-                    startColor[0] + (endColor[0] - startColor[0]) * t,
-                    startColor[1] + (endColor[1] - startColor[1]) * t,
-                    startColor[2] + (endColor[2] - startColor[2]) * t
-                ];
+                prevPixels[y][x] = [seed[0] * t, seed[1] * t, seed[2] * t];
             }
         }
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -116,7 +106,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(audio.bands.low);
+        var power = lowsFilter.update(audio.lows);
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
         var smooth = algo.presetSmooth / 10.0;
@@ -140,15 +130,19 @@ var testAlgo;
                 noiseField[y][x] = noiseField[y][x] * smooth + newField[y][x] * (1 - smooth);
 
         // Compute palette colors from noise (wrap 3x like WLED)
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
         var palette = new Array(height);
         for (var y = 0; y < height; y++) {
             palette[y] = new Array(width);
             for (var x = 0; x < width; x++) {
                 var t = ((1 - noiseField[y][x]) * 3) % 1;
+                var colorScale = 0.45 + t * 0.55;
                 palette[y][x] = [
-                    startColor[0] + (endColor[0] - startColor[0]) * t,
-                    startColor[1] + (endColor[1] - startColor[1]) * t,
-                    startColor[2] + (endColor[2] - startColor[2]) * t
+                    blended[0] * colorScale,
+                    blended[1] * colorScale,
+                    blended[2] * colorScale
                 ];
             }
         }
@@ -199,7 +193,7 @@ var testAlgo;
 
                 var maxChannel = Math.max(r, g, bl) / 255.0;
                 if (maxChannel > 0) {
-                    var floored = AudioParams.applyFloor(algo, Math.min(1, maxChannel));
+                    var floored = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, maxChannel)), audio) * beatBoost * noveltyBoost;
                     var floorScale = floored / maxChannel;
                     r *= floorScale;
                     g *= floorScale;

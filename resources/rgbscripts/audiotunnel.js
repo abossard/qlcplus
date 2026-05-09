@@ -19,11 +19,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Tunnel";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -51,23 +52,16 @@ var testAlgo;
         return ["Circle", "Diamond", "Square"][algo.presetShape];
     };
 
-    var startColor = [0, 128, 255];
-    var endColor = [255, 0, 128];
+    var DEFAULT_BAND_COLORS = [0x0080FF, 0x8040D0, 0xFF0080];
     var lowsFilter = null;
     var phase = 0;
     var lastTime = 0;
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -87,7 +81,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(audio.bands.low);
+        var power = lowsFilter.update(audio.lows);
         var speed = algo.presetSpeed / 5.0;
         phase += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -95,6 +89,9 @@ var testAlgo;
         var cy = height / 2;
         var maxDist = Math.sqrt(cx * cx + cy * cy);
         var ringCount = algo.presetRings;
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
@@ -119,15 +116,12 @@ var testAlgo;
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 // Audio modulates ring brightness
-                var bright = AudioParams.applyFloor(algo, Math.min(1, ringVal * power));
+                var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, ringVal * power)), audio) * beatBoost * noveltyBoost;
 
-                // Color gradient from center to edge
-                var t = normDist;
-                var r = startColor[0] + (endColor[0] - startColor[0]) * t;
-                var g = startColor[1] + (endColor[1] - startColor[1]) * t;
-                var b = startColor[2] + (endColor[2] - startColor[2]) * t;
-
-                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
+                map[y][x] = RGBUtil.rgb(
+                    blended[0] * bright,
+                    blended[1] * bright,
+                    blended[2] * bright);
             }
         }
 

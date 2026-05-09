@@ -18,8 +18,14 @@
 */
 
 #include <QDebug>
+#include <QLoggingCategory>
 
 #include "ddpcontroller.h"
+
+// DDP UDP write failures (interface flap, no listener, blocked datagram) are
+// expected at runtime and must NOT spam qWarning. Filter via
+// QT_LOGGING_RULES="qlcplus.plugins.ddp.debug=true" to inspect.
+Q_LOGGING_CATEGORY(ddpLog, "qlcplus.plugins.ddp")
 
 DDPController::DDPController(QNetworkInterface const& iface,
                              QNetworkAddressEntry const& address,
@@ -28,11 +34,12 @@ DDPController::DDPController(QNetworkInterface const& iface,
     , m_interface(iface)
     , m_ipAddr(address.ip())
     , m_line(line)
-    , m_packetSent(0)
-    , m_frameCount(0)
 {
-    m_udpSocket.reset(new QUdpSocket(this));
+    m_udpSocket.reset(new QUdpSocket());  // no QObject parent — QSharedPointer owns it
     m_udpSocket->bind(m_ipAddr, 0);
+
+    // Monotonic clock for FPS throttling and keep-alive (Fix 2/3).
+    m_sendTimer.start();
 
     qDebug() << "[DDP] Controller created on" << m_ipAddr.toString();
 }
@@ -43,8 +50,11 @@ DDPController::~DDPController()
     m_udpSocket->close();
 }
 
-void DDPController::sendDmx(quint32 universe, const QByteArray &data)
+void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataChanged)
 {
+    // Hold m_dataMutex for the entire send: protects m_universeMap as well as
+    // serialising socket writes (multiple universe threads may share this
+    // controller via QSharedPointer).
     QMutexLocker locker(&m_dataMutex);
 
     if (!m_universeMap.contains(universe))
@@ -53,17 +63,43 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data)
         return;
     }
 
-    DDPUniverseInfo const& info = m_universeMap[universe];
+    DDPUniverseInfo &info = m_universeMap[universe];
 
-    QByteArray txData;
-    if (info.transmissionMode == Full)
+    // FPS throttle (Fix 2) — per-universe, monotonic clock.
+    const qint64 now = m_sendTimer.elapsed();
+    const qint64 minInterval = (m_maxFps > 0) ? (1000 / m_maxFps) : 0;
+    if (minInterval > 0 && (now - info.lastSendElapsed) < minInterval)
+        return;
+    info.lastSendElapsed = now;
+
+    // Skip when data unchanged unless keep-alive due (Fix 3).
+    if (!dataChanged && (now - info.lastSendDataElapsed) < kKeepAliveMs)
+        return;
+    info.lastSendDataElapsed = now;
+
+    // Unicast only (Fix 5): skip silently in debug log if no destination IP.
+    if (info.destAddress.isNull())
     {
-        txData = QByteArray(512, 0);
-        txData.replace(0, data.length(), data);
+        qCDebug(ddpLog) << "sendDmx: skipping universe" << universe
+                        << "no destination IP configured";
+        return;
+    }
+
+    // Build txData (Fix 6) — exact pixel length, never pad to 512.
+    QByteArray txData;
+    if (m_pixelCount > 0)
+    {
+        // Explicit pixel count: send exactly pixelCount * bpp.
+        const int bpp = (m_bytesPerPixel > 0) ? m_bytesPerPixel : 3;
+        const int targetLen = m_pixelCount * bpp;
+        txData = data.left(targetLen);
+        if (txData.size() < targetLen)
+            txData.append(QByteArray(targetLen - txData.size(), 0));
     }
     else
     {
-        txData = QByteArray(data.constData(), data.size());
+        // Auto: send exactly what the engine produced.
+        txData = data;
     }
 
     if (txData.isEmpty())
@@ -73,10 +109,7 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data)
     // independently after MasterTimer's per-universe QueuedConnection tick;
     // batching across universes is impossible to do reliably without a
     // cross-thread barrier, and DDP receivers (WLED etc.) handle a PUSH per
-    // universe just fine. The inter-universe gap is sub-millisecond, far
-    // below any visible frame boundary. This matches Art-Net behaviour
-    // (no sync packet) and avoids partial-frame stalls when one universe
-    // thread is briefly delayed by the OS scheduler.
+    // universe just fine.
     m_frameCount++;
     quint8 seq = DDPPacketizer::sequenceForFrame(m_frameCount);
 
@@ -99,13 +132,17 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data)
             info.ddpOffset + static_cast<quint32>(chunkStart),
             seq, push, dataType, info.destId);
 
+        // UDP is fire-and-forget. If the datagram fails, drop the rest of
+        // the frame and move on — the next tick will try again. Logged at
+        // debug level only; transient failures are expected.
         qint64 sent = m_udpSocket->writeDatagram(
             packet.data(), packet.size(),
             info.destAddress, info.destPort);
 
         if (sent < 0)
         {
-            qWarning() << "[DDP] sendDmx failed:" << m_udpSocket->errorString();
+            qCDebug(ddpLog) << "sendDmx: writeDatagram failed for universe"
+                            << universe << ":" << m_udpSocket->errorString();
             break;
         }
         m_packetSent++;
@@ -124,7 +161,9 @@ void DDPController::addUniverse(quint32 universe)
     if (!m_universeMap.contains(universe))
     {
         DDPUniverseInfo info;
-        info.destAddress = QHostAddress::Broadcast;
+        // Unicast by default (Fix 5): null = "user must configure".
+        // sendDmx() will skip silently (logged via qlcplus.plugins.ddp).
+        info.destAddress = QHostAddress();
         info.destPort = DDP_PORT;
         info.destId = DDP_DEST_DEFAULT;
         info.ddpOffset = 0;
@@ -142,14 +181,21 @@ void DDPController::removeUniverse(quint32 universe)
 
 QList<quint32> DDPController::universesList() const
 {
+    QMutexLocker locker(&m_dataMutex);
     return m_universeMap.keys();
 }
 
-DDPUniverseInfo *DDPController::getUniverseInfo(quint32 universe)
+DDPUniverseInfo DDPController::getUniverseInfo(quint32 universe, bool *found) const
 {
-    if (m_universeMap.contains(universe))
-        return &m_universeMap[universe];
-    return nullptr;
+    QMutexLocker locker(&m_dataMutex);
+    auto it = m_universeMap.constFind(universe);
+    if (it == m_universeMap.constEnd())
+    {
+        if (found) *found = false;
+        return DDPUniverseInfo{};
+    }
+    if (found) *found = true;
+    return it.value();
 }
 
 void DDPController::setDestAddress(quint32 universe, const QString &address)
@@ -235,4 +281,40 @@ quint32 DDPController::line() const
 quint64 DDPController::getPacketSentNumber() const
 {
     return m_packetSent;
+}
+
+void DDPController::setMaxFps(int fps)
+{
+    QMutexLocker locker(&m_dataMutex);
+    m_maxFps = qBound(0, fps, kMaxFpsLimit);
+}
+
+int DDPController::maxFps() const
+{
+    QMutexLocker locker(&m_dataMutex);
+    return m_maxFps;
+}
+
+void DDPController::setPixelCount(int pixels)
+{
+    QMutexLocker locker(&m_dataMutex);
+    m_pixelCount = qMax(0, pixels);
+}
+
+int DDPController::pixelCount() const
+{
+    QMutexLocker locker(&m_dataMutex);
+    return m_pixelCount;
+}
+
+void DDPController::setBytesPerPixel(int bpp)
+{
+    QMutexLocker locker(&m_dataMutex);
+    m_bytesPerPixel = (bpp > 0) ? bpp : 3;
+}
+
+int DDPController::bytesPerPixel() const
+{
+    QMutexLocker locker(&m_dataMutex);
+    return m_bytesPerPixel;
 }

@@ -49,17 +49,21 @@ void AudioAnalyzer::processFrame(AudioFrame &frame)
 
     const double frameUs = double(frameTimer.nsecsElapsed()) / 1000.0;
 
-    if (!m_hasTimingSample)
+    if (!m_hasTimingSample.load(std::memory_order_relaxed))
     {
-        m_avgChannelTimeUs = channelUs;
-        m_avgFrameTimeUs = frameUs;
-        m_hasTimingSample = true;
+        m_avgChannelTimeUs.store(channelUs, std::memory_order_relaxed);
+        m_avgFrameTimeUs.store(frameUs, std::memory_order_relaxed);
+        m_hasTimingSample.store(true, std::memory_order_relaxed);
     }
     else
     {
         constexpr double a = 0.1;
-        m_avgChannelTimeUs = (1.0 - a) * m_avgChannelTimeUs + a * channelUs;
-        m_avgFrameTimeUs   = (1.0 - a) * m_avgFrameTimeUs   + a * frameUs;
+        const double prevCh = m_avgChannelTimeUs.load(std::memory_order_relaxed);
+        const double prevFr = m_avgFrameTimeUs.load(std::memory_order_relaxed);
+        m_avgChannelTimeUs.store((1.0 - a) * prevCh + a * channelUs,
+                                 std::memory_order_relaxed);
+        m_avgFrameTimeUs.store((1.0 - a) * prevFr + a * frameUs,
+                               std::memory_order_relaxed);
     }
 }
 
@@ -93,12 +97,12 @@ AudioChannel *AudioAnalyzer::defaultChannel()
 
 double AudioAnalyzer::avgFrameTimeUs() const
 {
-    return m_avgFrameTimeUs;
+    return m_avgFrameTimeUs.load(std::memory_order_relaxed);
 }
 
 double AudioAnalyzer::avgChannelTimeUs() const
 {
-    return m_avgChannelTimeUs;
+    return m_avgChannelTimeUs.load(std::memory_order_relaxed);
 }
 
 double AudioAnalyzer::computeAudioDtMs(const AudioFrame &frame)

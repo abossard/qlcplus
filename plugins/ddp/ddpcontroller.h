@@ -24,8 +24,10 @@
 #include <QHostAddress>
 #include <QUdpSocket>
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QMap>
+#include <atomic>
 
 #include "ddppacketizer.h"
 
@@ -38,6 +40,8 @@ typedef struct
     quint32 ddpOffset;        // byte offset into the device's pixel buffer
     int transmissionMode;     // 0 = Full (512 ch), 1 = Partial
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
+    qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
+    qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
 } DDPUniverseInfo;
 
 class DDPController final : public QObject
@@ -53,8 +57,10 @@ public:
                            quint32 line, QObject *parent = nullptr);
     ~DDPController();
 
-    /** Send DMX data for a specific QLC+ universe */
-    void sendDmx(quint32 universe, const QByteArray &data);
+    /** Send DMX data for a specific QLC+ universe.
+     *  When dataChanged is false, the send is suppressed unless the
+     *  keep-alive interval (kKeepAliveMs) has elapsed since the last send. */
+    void sendDmx(quint32 universe, const QByteArray &data, bool dataChanged = true);
 
     /** Return the controller IP address */
     QString getNetworkIP() const;
@@ -68,8 +74,9 @@ public:
     /** Return the list of universes handled by this controller */
     QList<quint32> universesList() const;
 
-    /** Return per-universe info (or nullptr if not found) */
-    DDPUniverseInfo *getUniverseInfo(quint32 universe);
+    /** Return a thread-safe copy of per-universe info. `found` (if non-null)
+     *  is set to true if the universe exists, false otherwise. */
+    DDPUniverseInfo getUniverseInfo(quint32 universe, bool *found = nullptr) const;
 
     // Per-universe setters
     void setDestAddress(quint32 universe, const QString &address);
@@ -90,6 +97,21 @@ public:
     /** Get the number of packets sent by this controller */
     quint64 getPacketSentNumber() const;
 
+    /** Maximum frames per second sent over the wire (0 = no limit). */
+    void setMaxFps(int fps);
+    int maxFps() const;
+
+    /** Explicit pixel count (0 = auto: send exactly what the engine produced). */
+    void setPixelCount(int pixels);
+    int pixelCount() const;
+
+    /** Bytes per pixel for explicit pixelCount mode (3=RGB, 4=RGBW). */
+    void setBytesPerPixel(int bpp);
+    int bytesPerPixel() const;
+
+    /** Keep-alive interval: re-send unchanged data at least every kKeepAliveMs. */
+    static constexpr qint64 kKeepAliveMs = 1000;
+
 private:
     QNetworkInterface m_interface;
     QHostAddress m_ipAddr;
@@ -97,10 +119,24 @@ private:
 
     QSharedPointer<QUdpSocket> m_udpSocket;
     QMap<quint32, DDPUniverseInfo> m_universeMap;
-    QMutex m_dataMutex;
+    mutable QMutex m_dataMutex;
 
-    quint64 m_packetSent;
-    quint64 m_frameCount;
+    std::atomic<quint64> m_packetSent{0};
+    std::atomic<quint64> m_frameCount{0};
+
+    // Rate limiting (Fix 2) — per-controller, monotonic clock.
+    // Default 20 FPS: DDP over Wi-Fi (e.g. WLED) doesn't benefit from more
+    // than ~20–30 FPS. Users can raise this in the plugin config dialog.
+    // This throttle lives ONLY inside DDPController::sendDmx — the universe
+    // thread, MasterTimer, and other output plugins are unaffected.
+    static constexpr int kMaxFpsLimit = 50;
+    static constexpr int kDefaultFps = 20;
+    int m_maxFps = kDefaultFps;
+    QElapsedTimer m_sendTimer;
+
+    // Explicit pixel framing (Fix 6) — 0 means "auto/legacy"
+    int m_pixelCount = 0;
+    int m_bytesPerPixel = 3;
 };
 
 #endif // DDPCONTROLLER_H

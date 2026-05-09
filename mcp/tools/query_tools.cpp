@@ -207,7 +207,17 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     fxi->setName(fxName);
                     fxi->setUniverse(universe);
                     fxi->setAddress(fxAddr);
-                    doc->addFixture(fxi);
+                    if (!doc->addFixture(fxi))
+                    {
+                        delete fxi;
+                        results.push_back({
+                            {"name", fxName.toStdString()},
+                            {"address", fxAddr},
+                            {"universe", universe},
+                            {"error", "address overlap with existing fixture"}
+                        });
+                        continue;
+                    }
 
                     results.push_back({
                         {"id", (int)fxi->id()},

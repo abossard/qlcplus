@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Aurora";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -37,6 +37,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetWaveSize|type:range|display:Wave Size|" +
       "values:1,10|write:setWaveSize|read:getWaveSize");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -45,26 +46,25 @@ var testAlgo;
     algo.setWaveSize = function(_v) { algo.presetWaveSize = parseInt(_v); };
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
-    var color1 = [0, 255, 100];
-    var color2 = [0, 100, 255];
-    var color3 = [128, 0, 255];
     var elapsedSec = 0;
     var lastTime = 0;
     var initialized = false;
 
+    // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
+    // algo.gradientBandColors when the matrix supplies color stops.
+    var DEFAULT_BAND_COLORS = [0x6400FF, 0x00FF64, 0xFF8000];
+    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            color1 = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            color2 = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-        if (rawColors && rawColors.length >= 3)
-            color3 = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
-    };
+
+    // Required by apiVersion 3 loader; ignored — colors come from the
+    // auto-injected algo.gradientBandColors / algo.gradientColors instead.
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(color1[0], color1[1], color1[2]),
-                RGBUtil.rgb(color2[0], color2[1], color2[2]),
-                RGBUtil.rgb(color3[0], color3[1], color3[2])];
+        return algo.gradientBandColors
+            ? algo.gradientBandColors.slice()
+            : DEFAULT_BAND_COLORS.slice();
     };
 
 
@@ -83,9 +83,15 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var lows = audio.bands.low;
-        var mids = audio.bands.mid;
-        var highs = audio.bands.high;
+        // 3 mel banks, each driving its own gradient color.
+        var bandPowers = AudioParams.bandWeights(algo, audio);
+        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+
+        var cols = new Array(3);
+        for (var k = 0; k < 3; k++) {
+            var packed = bandColors[k] | 0;
+            cols[k] = [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+        }
 
         var speed = algo.presetSpeed / 5.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -93,7 +99,9 @@ var testAlgo;
 
         var waveFreq = algo.presetWaveSize / 5.0;
         var layers = algo.presetLayers;
-        var colors = [color1, color2, color3];
+
+        // Beat-pulse brightness boost
+        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
 
         // True 2D: multiple sine wave layers drifting across the grid
         for (var y = 0; y < height; y++) {
@@ -101,13 +109,14 @@ var testAlgo;
 
             for (var x = 0; x < width; x++) {
                 var xNorm = x / Math.max(1, width - 1);
-                var r = 0, g = 0, b = 0;
+                var r = 0, g = 0, b2 = 0;
 
                 for (var l = 0; l < layers; l++) {
                     var layerSpeed = (l + 1) * 0.7;
                     var layerPhase = l * 2.1;
-                    var power = [lows, mids, highs][l % 3];
-                    var col = colors[l % 3];
+                    var bandIdx = l % 3;
+                    var power = bandPowers[bandIdx];
+                    var col = cols[bandIdx];
 
                     // Horizontal drifting wave with vertical offset
                     var wave = Math.sin(
@@ -130,21 +139,21 @@ var testAlgo;
 
                     r += col[0] * intensity / layers;
                     g += col[1] * intensity / layers;
-                    b += col[2] * intensity / layers;
+                    b2 += col[2] * intensity / layers;
                 }
 
-                var maxChannel = Math.max(r, g, b) / 255.0;
+                var maxChannel = Math.max(r, g, b2) / 255.0;
                 if (maxChannel > 0) {
                     var floored = AudioParams.applyFloor(algo, Math.min(1, maxChannel));
-                    var floorScale = floored / maxChannel;
+                    var floorScale = floored / maxChannel * beatBoost;
                     r *= floorScale;
                     g *= floorScale;
-                    b *= floorScale;
+                    b2 *= floorScale;
                 }
                 map[y][x] = RGBUtil.rgb(
                     Math.min(255, r),
                     Math.min(255, g),
-                    Math.min(255, b)
+                    Math.min(255, b2)
                 );
             }
         }

@@ -13,6 +13,8 @@
 #include <QMutex>
 #include <QVector>
 
+#include <atomic>
+
 class AudioChannel;
 struct AudioChannelConfig;
 struct AudioFrame;
@@ -38,9 +40,12 @@ private:
     AudioChannel *m_defaultChannel = nullptr;
     mutable QMutex m_channelsMutex;
 
-    double m_avgChannelTimeUs = 0.0;
-    double m_avgFrameTimeUs = 0.0;
-    bool m_hasTimingSample = false;
+    // Written on the audio capture thread, read from the UI thread (telemetry
+    // overlay). std::atomic<double> is lock-free on x86_64 / arm64 with the
+    // toolchains QLC+ ships against.
+    std::atomic<double> m_avgChannelTimeUs { 0.0 };
+    std::atomic<double> m_avgFrameTimeUs   { 0.0 };
+    std::atomic<bool>   m_hasTimingSample  { false };
 
     double computeAudioDtMs(const AudioFrame &frame);
 };

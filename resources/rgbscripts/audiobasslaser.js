@@ -174,11 +174,12 @@ var testAlgo;
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio || !audio.mel || audio.mel.length === 0) return map;
-        var bass = Math.min(2.0, audio.bands.low);
-        var highs = Math.min(1.0, audio.bands.high);
-        var glowMul = 0.8 + highs * 0.4;
+        var bass = Math.min(2.0, audio.lows);
+        var highs = Math.min(1.0, audio.highs);
+        var onsetIntensity = Math.max(0.4, AudioParams.maxOnsetIntensity(audio));
+        var glowMul = (0.8 + highs * 0.4) * onsetIntensity;
 
-        if (audio.triggers.bass.firedThisFrame || (algo.beams.length < 3 && bass > 0.15))
+        if (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio) || (algo.beams.length < 3 && bass > 0.15))
             spawnBeam(width, height, Math.max(0.3, bass));
 
         for (var bi = algo.beams.length - 1; bi >= 0; bi--) {

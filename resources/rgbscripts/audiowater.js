@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Water";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -52,8 +53,7 @@ var testAlgo;
     algo.setHighSize = function(_v) { algo.presetHighSize = parseInt(_v); };
     algo.getHighSize = function() { return algo.presetHighSize; };
 
-    var startColor = [0, 64, 255];
-    var endColor = [0, 255, 200];
+    var DEFAULT_BAND_COLORS = [0x0040FF, 0x00C8FF, 0xA0FFFF];
     var buf0 = null;
     var buf1 = null;
     var curBuf = 0;
@@ -83,15 +83,9 @@ var testAlgo;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -104,9 +98,9 @@ var testAlgo;
         var dampFactor = Math.pow(2, algo.presetViscosity);
         var dtMs = (typeof audio.audioDtMs === "number" && audio.audioDtMs > 0) ? audio.audioDtMs : 40;
         var dtScale = Math.max(0.25, Math.min(4.0, dtMs / 40.0));
-        var bassIntensity = Math.min(1, Math.pow(audio.bands.low, 2));
-        var midsIntensity = Math.min(1, Math.pow(audio.bands.mid, 2));
-        var highIntensity = Math.min(1, Math.pow(audio.bands.high, 2));
+        var bassIntensity = Math.min(1, Math.pow(audio.lows, 2));
+        var midsIntensity = Math.min(1, Math.pow(audio.mids, 2));
+        var highIntensity = Math.min(1, Math.pow(audio.highs, 2));
 
         // Create drops based on audio
         createDrop(1, bassIntensity * algo.presetBassSize, width);
@@ -129,18 +123,22 @@ var testAlgo;
         for (var s = 0; s < speedSteps; s++)
             doRipple(dampFactor, dtScale, width);
 
-        // Render: map water height to colors
+        // Render: map water height to the energy-weighted band color
         var current = (curBuf === 0) ? buf0 : buf1;
+        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
+        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
+        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
         for (var x = 0; x < width; x++) {
             var val = current[x];
             // Triangle wave for hue variation
             var hue = Math.abs((val * 2) % 2 - 1);
             // Brightness from water height
-            var bright = AudioParams.applyFloor(algo, Math.min(1, Math.max(0, val * 0.8 + 0.12)));
+            var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, Math.max(0, val * 0.8 + 0.12))), audio) * beatBoost * noveltyBoost;
 
-            var r = startColor[0] + (endColor[0] - startColor[0]) * hue;
-            var g = startColor[1] + (endColor[1] - startColor[1]) * hue;
-            var b = startColor[2] + (endColor[2] - startColor[2]) * hue;
+            var colorScale = 0.65 + hue * 0.35;
+            var r = blended[0] * colorScale;
+            var g = blended[1] * colorScale;
+            var b = blended[2] * colorScale;
 
             // Saturation reduction for bright peaks (whitewash effect)
             if (bright > 0.8) {

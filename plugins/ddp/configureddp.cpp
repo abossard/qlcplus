@@ -18,6 +18,7 @@
 */
 
 #include <QTreeWidgetItem>
+#include <QSharedPointer>
 #include <QMessageBox>
 #include <QSettings>
 #include <QComboBox>
@@ -26,6 +27,7 @@
 #include <QDebug>
 
 #include "configureddp.h"
+#include "ddpcontroller.h"
 #include "ddpplugin.h"
 
 #define KColumnInterface    0
@@ -55,6 +57,19 @@ ConfigureDDP::ConfigureDDP(DDPPlugin* plugin, QWidget* parent)
     setupUi(this);
     fillMappingTree();
 
+    m_maxFpsSpin->setMaximum(DDPController::kMaxFpsLimit);
+    m_maxFpsSpin->setValue(DDPController::kDefaultFps);
+
+    const QList<DDPIO> IOmap = m_plugin->getIOMapping();
+    for (const DDPIO &io : IOmap)
+    {
+        if (!io.controller.isNull())
+        {
+            m_maxFpsSpin->setValue(qBound(1, io.controller->maxFps(), DDPController::kMaxFpsLimit));
+            break;
+        }
+    }
+
     QSettings settings;
     QVariant geometrySettings = settings.value(SETTINGS_GEOMETRY);
     if (geometrySettings.isValid())
@@ -74,8 +89,8 @@ void ConfigureDDP::fillMappingTree()
     QList<DDPIO> IOmap = m_plugin->getIOMapping();
     foreach (DDPIO io, IOmap)
     {
-        DDPController *controller = io.controller;
-        if (controller == nullptr)
+        QSharedPointer<DDPController> controller = io.controller;
+        if (controller.isNull())
             continue;
 
         if (outputItem == nullptr)
@@ -87,8 +102,9 @@ void ConfigureDDP::fillMappingTree()
 
         foreach (quint32 universe, controller->universesList())
         {
-            DDPUniverseInfo *info = controller->getUniverseInfo(universe);
-            if (info == nullptr)
+            bool found = false;
+            DDPUniverseInfo info = controller->getUniverseInfo(universe, &found);
+            if (!found)
                 continue;
 
             QTreeWidgetItem *item = new QTreeWidgetItem(outputItem);
@@ -100,26 +116,26 @@ void ConfigureDDP::fillMappingTree()
             item->setTextAlignment(KColumnUniverse, Qt::AlignHCenter | Qt::AlignVCenter);
 
             // IP Address
-            QLineEdit *ipEdit = new QLineEdit(info->destAddress.toString(), this);
+            QLineEdit *ipEdit = new QLineEdit(info.destAddress.toString(), this);
             m_uniMapTree->setItemWidget(item, KColumnIPAddress, ipEdit);
 
             // Port
             QSpinBox *portSpin = new QSpinBox(this);
             portSpin->setRange(0, 0xFFFF);
-            portSpin->setValue(info->destPort);
+            portSpin->setValue(info.destPort);
             m_uniMapTree->setItemWidget(item, KColumnPort, portSpin);
 
             // DDP Offset (byte offset into device pixel buffer)
             QSpinBox *offsetSpin = new QSpinBox(this);
             offsetSpin->setRange(0, 999999);
-            offsetSpin->setValue(static_cast<int>(info->ddpOffset));
+            offsetSpin->setValue(static_cast<int>(info.ddpOffset));
             offsetSpin->setToolTip(tr("Byte offset into the device's pixel buffer"));
             m_uniMapTree->setItemWidget(item, KColumnOffset, offsetSpin);
 
             // Destination ID
             QSpinBox *destIdSpin = new QSpinBox(this);
             destIdSpin->setRange(1, 255);
-            destIdSpin->setValue(info->destId);
+            destIdSpin->setValue(info.destId);
             destIdSpin->setToolTip(tr("DDP destination ID (1 = default for WLED)"));
             m_uniMapTree->setItemWidget(item, KColumnDestId, destIdSpin);
 
@@ -127,7 +143,7 @@ void ConfigureDDP::fillMappingTree()
             QComboBox *transCombo = new QComboBox(this);
             transCombo->addItem(tr("Full"));
             transCombo->addItem(tr("Partial"));
-            if (info->transmissionMode == DDPController::Partial)
+            if (info.transmissionMode == DDPController::Partial)
                 transCombo->setCurrentIndex(1);
             m_uniMapTree->setItemWidget(item, KColumnTransmitMode, transCombo);
 
@@ -135,7 +151,7 @@ void ConfigureDDP::fillMappingTree()
             QComboBox *compCombo = new QComboBox(this);
             compCombo->addItem(tr("RGB"));
             compCombo->addItem(tr("RGBW"));
-            if (info->components == DDPController::RGBW)
+            if (info.components == DDPController::RGBW)
                 compCombo->setCurrentIndex(1);
             compCombo->setToolTip(tr("RGB = 3 bytes/pixel (480 max/packet), RGBW = 4 bytes/pixel (360 max/packet)"));
             m_uniMapTree->setItemWidget(item, KColumnComponents, compCombo);
@@ -173,7 +189,7 @@ void ConfigureDDP::accept()
             QLineEdit *ipEdit = qobject_cast<QLineEdit*>(
                 m_uniMapTree->itemWidget(item, KColumnIPAddress));
             QHostAddress addr(ipEdit->text());
-            if (addr.isNull() && ipEdit->text() != "255.255.255.255")
+            if (addr.isNull())
             {
                 showIPAlert(ipEdit->text());
                 return;
@@ -215,6 +231,15 @@ void ConfigureDDP::accept()
             m_plugin->setParameter(universe, line, QLCIOPlugin::Output,
                 DDP_COMPONENTS, DDPController::componentsToString(comp));
         }
+    }
+
+    const int maxFps = m_maxFpsSpin->value();
+    const QList<DDPIO> IOmap = m_plugin->getIOMapping();
+    for (const DDPIO &io : IOmap)
+    {
+        if (!io.controller.isNull())
+            m_plugin->setParameter(0, io.controller->line(), QLCIOPlugin::Output,
+                DDP_MAXFPS, maxFps);
     }
 
     QDialog::accept();

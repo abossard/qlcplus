@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Strobe";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -34,12 +35,11 @@ var testAlgo;
     algo.presetMode = 0;
     algo.properties.push(
       "name:presetMode|type:list|display:Trigger|" +
-      "values:Beat,Bass,Mids,Highs,Volume|write:setMode|read:getMode");
-
-    algo.presetRandomColor = 0;
+      "values:Beat,Bass,Mids,Highs,Volume,Kick|write:setMode|read:getMode");
+    algo.presetTriggerMode = 0;
     algo.properties.push(
-      "name:presetRandomColor|type:list|display:Random Color|" +
-      "values:Off,On|write:setRandomColor|read:getRandomColor");
+      "name:triggerMode|type:list|display:Trigger Mode|" +
+      "values:Beat,Onset,Note|write:setTriggerMode|read:getTriggerMode");
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
@@ -48,6 +48,7 @@ var testAlgo;
         else if (_v === "Mids") algo.presetMode = 2;
         else if (_v === "Highs") algo.presetMode = 3;
         else if (_v === "Volume") algo.presetMode = 4;
+        else if (_v === "Kick") algo.presetMode = 5;
         else algo.presetMode = 0;
     };
     algo.getMode = function() {
@@ -55,28 +56,25 @@ var testAlgo;
         if (algo.presetMode === 2) return "Mids";
         if (algo.presetMode === 3) return "Highs";
         if (algo.presetMode === 4) return "Volume";
+        if (algo.presetMode === 5) return "Kick";
         return "Beat";
     };
-    algo.setRandomColor = function(_v) { algo.presetRandomColor = (_v === "On") ? 1 : 0; };
-    algo.getRandomColor = function() { return algo.presetRandomColor ? "On" : "Off"; };
-
-    var strobeColor = [255, 255, 255];
-    var bgColor = [0, 0, 0];
+    algo.setTriggerMode = function(_v) {
+        if (_v === "Onset") algo.presetTriggerMode = 1;
+        else if (_v === "Note") algo.presetTriggerMode = 2;
+        else algo.presetTriggerMode = 0;
+    };
+    algo.getTriggerMode = function() {
+        return ["Beat", "Onset", "Note"][algo.presetTriggerMode];
+    };
+    var DEFAULT_BAND_COLORS = [0xFFFFFF, 0xFF8000, 0xFFFFFF];
     var activeColor = [255, 255, 255];
     var brightness = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            strobeColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            bgColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
-
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(strobeColor[0], strobeColor[1], strobeColor[2]),
-                RGBUtil.rgb(bgColor[0], bgColor[1], bgColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -88,26 +86,29 @@ var testAlgo;
 
         // Determine if we should flash
         var trigger = false;
-        if (algo.presetMode === 0) {
+        if (algo.presetTriggerMode === 1) {
+            trigger = AudioParams.anyOnsetFired(audio);
+        } else if (algo.presetTriggerMode === 2) {
+            trigger = !!(audio.note && audio.note.noteOn);
+        } else if (algo.presetMode === 0) {
             trigger = audio.triggers.beat.firedThisFrame;
         } else if (algo.presetMode === 1) {
-            trigger = audio.triggers.bass.firedThisFrame;
+            trigger = audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio);
         } else if (algo.presetMode === 2) {
             trigger = audio.triggers.mid.firedThisFrame;
         } else if (algo.presetMode === 3) {
             trigger = audio.triggers.high.firedThisFrame;
+        } else if (algo.presetMode === 4) {
+            trigger = audio.triggers.volume.firedThisFrame;
         } else {
-            trigger = audio.triggers.volume.active;
+            trigger = AudioParams.kickFired(audio);
         }
 
         if (trigger) {
-            brightness = 1.0;
-            if (algo.presetRandomColor) {
-                var c = RGBUtil.hsv2rgb(Math.random(), 1, 1);
-                activeColor = [c[0], c[1], c[2]];
-            } else {
-                activeColor = strobeColor;
-            }
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+            brightness = hitScale;
+            activeColor = AudioParams.colorChannels(
+                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
         }
 
         // Decay
@@ -115,9 +116,9 @@ var testAlgo;
         brightness = Math.max(0, brightness - decayRate);
 
         // Render
-        var r = bgColor[0] + (activeColor[0] - bgColor[0]) * brightness;
-        var g = bgColor[1] + (activeColor[1] - bgColor[1]) * brightness;
-        var b = bgColor[2] + (activeColor[2] - bgColor[2]) * brightness;
+        var r = activeColor[0] * brightness;
+        var g = activeColor[1] * brightness;
+        var b = activeColor[2] * brightness;
         var packed = RGBUtil.rgb(r, g, b);
 
         for (var y = 0; y < height; y++)

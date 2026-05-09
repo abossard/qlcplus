@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Chaser";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // bass, mids, highs colors
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -45,6 +45,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetBounce|type:list|display:Bounce|" +
       "values:No,Yes|write:setBounce|read:getBounce");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseInt(_v); };
     algo.getBaseSpeed = function() { return algo.presetBaseSpeed; };
@@ -63,11 +64,9 @@ var testAlgo;
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
 
-    var bassColor = [255, 0, 0];
-    var midsColor = [0, 255, 0];
-    var highsColor = [0, 0, 255];
+    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
 
-    // Dots: [{pos, speed, dir, band}]  band: 0=bass, 1=mids, 2=highs
+    // Dots: [{pos, speed, dir, band}]  band: 0=low, 1=mid, 2=high
     var dots = null;
     var lowsFilter = null;
     var midsFilter = null;
@@ -88,23 +87,14 @@ var testAlgo;
             });
         }
     }
+    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            bassColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            midsColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-        if (rawColors && rawColors.length >= 3)
-            highsColor = [(rawColors[2] >> 16) & 0xFF, (rawColors[2] >> 8) & 0xFF, rawColors[2] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [
-            RGBUtil.rgb(bassColor[0], bassColor[1], bassColor[2]),
-            RGBUtil.rgb(midsColor[0], midsColor[1], midsColor[2]),
-            RGBUtil.rgb(highsColor[0], highsColor[1], highsColor[2])
-        ];
+        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
 
@@ -125,26 +115,30 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        // Get audio powers
-        var lows = audio.bands.low;
-        var mids = audio.bands.mid;
-        var highs = audio.bands.high;
+        // Get 3 mel-bank powers and matching gradient colors
+        var powers = AudioParams.bandWeights(algo, audio);
         var vol = Number((audio.volume && audio.volume.normalized) || 0);
-        var powers = [lows, mids, highs];
-        var colors = [bassColor, midsColor, highsColor];
+        var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var colors = [];
+        for (var ci = 0; ci < 3; ci++)
+            colors.push(unpackColor(colorStops[ci]));
 
         // Speed multiplier from audio
         var speedMult;
         if (algo.presetSpeedMode === 0) {
             speedMult = 0.5 + vol * 4;
         } else if (algo.presetSpeedMode === 1) {
-            speedMult = 0.5 + lows * 5;
+            speedMult = 0.5 + powers[1] * 5;
         } else {
-            speedMult = 0.5 + (lows + mids + highs) * 2;
+            speedMult = 0.5 + (powers[0] + powers[1] + powers[2]) * 2.0;
         }
 
         var baseSpeed = algo.presetBaseSpeed * 5;
         var trailLen = algo.presetTrailLength;
+
+        // Kick flash for speed boost
+        var kickFlash = AudioParams.kickFired(audio) ? 1.0 : 0.0;
+        speedMult += kickFlash * 0.5;
 
         // Move dots
         for (var di = 0; di < dots.length; di++) {
@@ -166,7 +160,8 @@ var testAlgo;
 
             // Render dot with trail
             var color = colors[dot.band];
-            var brightness = 0.5 + bandPower * 0.5;
+            var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+            var brightness = (0.5 + bandPower * 0.5) * beatBoost;
             var headX = Math.floor(dot.pos);
 
             for (var t = 0; t < trailLen + 1; t++) {

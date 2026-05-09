@@ -150,6 +150,19 @@ private:
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
     QJSValue buildAudioDataObject();
 
+    /**
+     * Build the gradientColors / gradientBandColors arrays from the owning
+     * RGBMatrix and inject them as properties on m_script (the algo object).
+     * Also stashes them on m_currentGradientColors / m_currentBandColors so
+     * buildAudioDataObject() can republish them on the audio object.
+     *
+     * @param rgb fallback color used when the matrix has no valid color stops.
+     */
+    void injectGradientArrays(uint rgb);
+
+    /** Linear interpolation matching RGBUtil.gradientColorAt. Returns 0xRRGGBB. */
+    static uint interpolateGradientColor(const QVector<uint> &colors, double t);
+
 private:
     AudioCapture *m_audioInput;
     // ID of the last AudioProfile we logged for this script. When the
@@ -159,6 +172,14 @@ private:
     // already handles correctness; this only governs the debug log.
     quint32 m_loggedAudioProfileId;
     bool m_audioRegistered;
+
+    // Transient per-frame cache of the gradient arrays injected on m_script.
+    // Set by injectGradientArrays() at the top of rgbMap(), consumed by
+    // buildAudioDataObject() so audio.gradientColors / audio.bandColors mirror
+    // algo.gradientColors / algo.gradientBandColors. Both run on s_jsThread,
+    // so no synchronization is required.
+    QJSValue m_currentGradientColors;
+    QJSValue m_currentBandColors;
 
     /************************************************************************
      * Properties

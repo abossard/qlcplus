@@ -19,11 +19,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Shot";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -41,11 +42,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetMaxShots|type:range|display:Max Shots|" +
       "values:1,20|write:setMaxShots|read:getMaxShots");
-    algo.presetColorMode = 0;
-    algo.properties.push(
-      "name:presetColorMode|type:list|display:Color Mode|" +
-      "values:Random,Palette,Fixed|write:setColorMode|read:getColorMode");
-
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setSize = function(_v) { algo.presetSize = parseInt(_v); };
@@ -61,63 +57,30 @@ var testAlgo;
     };
     algo.setMaxShots = function(_v) { algo.presetMaxShots = parseInt(_v); };
     algo.getMaxShots = function() { return algo.presetMaxShots; };
-    algo.setColorMode = function(_v) {
-        if (_v === "Palette") algo.presetColorMode = 1;
-        else if (_v === "Fixed") algo.presetColorMode = 2;
-        else algo.presetColorMode = 0;
-    };
-    algo.getColorMode = function() {
-        return ["Random", "Palette", "Fixed"][algo.presetColorMode];
-    };
-
-    var util = new Object;
-    util.colorArray = new Array(5);
-    for (var i = 0; i < 5; i++) util.colorArray[i] = 0;
+    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
 
     // Active shots: [{x, y, r, g, b, brightness, size}]
     var shots = [];
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapSetColors = function(rawColors) {
-        for (var i = 0; i < Math.min(rawColors.length, 5); i++)
-            util.colorArray[i] = rawColors[i];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        var arr = [];
-        for (var i = 0; i < 5; i++) arr.push(util.colorArray[i]);
-        return arr;
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
-    function getColor(index) {
-        var c = util.colorArray[index % 5] || 0xFF0000;
-        return [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
-    }
 
-
-
-    function spawnShot(width, height) {
-        var r, g, b;
-        if (algo.presetColorMode === 0) {
-            // Random vibrant color via HSV
-            var c = RGBUtil.hsv2rgb(Math.random(), 0.8 + Math.random() * 0.2, 1);
-            r = c[0]; g = c[1]; b = c[2];
-        } else if (algo.presetColorMode === 1) {
-            // Cycle through palette colors
-            var ci = Math.floor(Math.random() * 5);
-            var c = getColor(ci);
-            r = c[0]; g = c[1]; b = c[2];
-        } else {
-            var c = getColor(0);
-            r = c[0]; g = c[1]; b = c[2];
-        }
+    function spawnShot(width, height, audio) {
+        var color = AudioParams.colorChannels(
+            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        var r = color[0], g = color[1], b = color[2];
+        var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
 
         shots.push({
             x: Math.floor(Math.random() * width),
             y: Math.floor(Math.random() * height),
             r: r, g: g, b: b,
-            brightness: 1.0,
+            brightness: hitScale,
             size: algo.presetSize
         });
 
@@ -134,11 +97,12 @@ var testAlgo;
         // Check trigger
         var trigger = false;
         if (algo.presetTrigger === 0) trigger = audio.triggers.beat.firedThisFrame;
-        else if (algo.presetTrigger === 1) trigger = audio.triggers.bass.firedThisFrame;
+        else if (algo.presetTrigger === 1) trigger = audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio);
         else if (algo.presetTrigger === 2) trigger = audio.triggers.mid.firedThisFrame;
         else trigger = audio.triggers.high.firedThisFrame;
+        trigger = trigger || AudioParams.anyOnsetFired(audio);
 
-        if (trigger) spawnShot(width, height);
+        if (trigger) spawnShot(width, height, audio);
 
         // Decay rate
         var decayRate = algo.presetDecay / 200.0;

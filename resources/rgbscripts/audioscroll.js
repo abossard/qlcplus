@@ -20,7 +20,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Scroll";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -37,7 +37,8 @@ var testAlgo;
     algo.presetColorMode = 0;
     algo.properties.push(
       "name:presetColorMode|type:list|display:Color Mode|" +
-      "values:Gradient,RGB Bands,Rainbow|write:setColorMode|read:getColorMode");
+      "values:Gradient,Rainbow|write:setColorMode|read:getColorMode");
+    AudioParams.installBandPowerControls(algo);
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
@@ -51,29 +52,26 @@ var testAlgo;
         return ["Down", "Up", "Right", "Left"][algo.presetDirection];
     };
     algo.setColorMode = function(_v) {
-        if (_v === "RGB Bands") algo.presetColorMode = 1;
-        else if (_v === "Rainbow") algo.presetColorMode = 2;
+        if (_v === "Rainbow") algo.presetColorMode = 1;
         else algo.presetColorMode = 0;
     };
     algo.getColorMode = function() {
-        return ["Gradient", "RGB Bands", "Rainbow"][algo.presetColorMode];
+        return ["Gradient", "Rainbow"][algo.presetColorMode];
     };
 
-    var startColor = [255, 0, 0];
-    var endColor = [0, 0, 255];
+    var DEFAULT_GRADIENT = [0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF80, 0x4080FF];
+    var gradientLut = null;
+    var lutWidth = -1;
+    var lutSig = "";
     var history = null; // 2D buffer of packed colors
     var initialized = false;
+    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
     };
 
 
@@ -95,40 +93,44 @@ var testAlgo;
         }
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        
+        var melSrc = AudioParams.fullMel(audio);
+        if (!melSrc || melSrc.length === 0) return map;
 
         // Decay rate
         var decay = 1 - algo.presetDecay / 15.0;
 
         // Get current spectrum for new row
-        var bands = RGBUtil.interpolate(audio.mel, bandLen);
+        var bands = RGBUtil.interpolate(melSrc, bandLen);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi]);
+            bands[bi] = Math.min(1, bands[bi]) * bandScaleForColumn(bi, bandLen);
+
+        var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        var sig = stops.length + ":" + stops.join(",");
+        if (gradientLut === null || lutWidth !== bandLen || lutSig !== sig) {
+            gradientLut = RGBUtil.gradientLut(stops, bandLen);
+            lutWidth = bandLen;
+            lutSig = sig;
+        }
 
         // Build new row of colors
+        var beatMod = 1 + AudioParams.beatPulse(audio) * 0.15;
         var newRow = new Array(bandLen);
         for (var i = 0; i < bandLen; i++) {
-            var val = AudioParams.applyFloor(algo, Math.min(1, bands[i]));
+            var val = AudioParams.applyFloor(algo, Math.min(1, bands[i])) * beatMod;
             var t = i / Math.max(1, bandLen - 1);
             var r, g, b;
 
             if (algo.presetColorMode === 1) {
-                // RGB Bands: R=lows, G=mids, B=highs
-                var lowsV = Math.min(1, audio.bands.low);
-                var midsV = Math.min(1, audio.bands.mid);
-                var highV = Math.min(1, audio.bands.high);
-                r = val * (lowsV * 255);
-                g = val * (midsV * 255);
-                b = val * (highV * 255);
-            } else if (algo.presetColorMode === 2) {
                 // Rainbow
                 var c = RGBUtil.hsv2rgb(t, 1, val);
                 r = c[0]; g = c[1]; b = c[2];
             } else {
-                // Gradient
-                r = (startColor[0] + (endColor[0] - startColor[0]) * t) * val;
-                g = (startColor[1] + (endColor[1] - startColor[1]) * t) * val;
-                b = (startColor[2] + (endColor[2] - startColor[2]) * t) * val;
+                // N-stop gradient sampled per column
+                var packed = gradientLut[i];
+                r = ((packed >> 16) & 0xFF) * val;
+                g = ((packed >> 8) & 0xFF) * val;
+                b = (packed & 0xFF) * val;
             }
             newRow[i] = RGBUtil.rgb(r, g, b);
         }

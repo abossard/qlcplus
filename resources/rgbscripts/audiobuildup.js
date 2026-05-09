@@ -185,9 +185,9 @@ function normalizeFeature(name, value, fallbackScale, fallbackOffset) {
 
 function extractFeatures(audio) {
     var hasAudio = audio && audio.mel && audio.mel.length > 0;
-    var rawLows = audio.bands.low;
-    var rawMids = audio.bands.mid;
-    var rawHighs = audio.bands.high;
+    var rawLows = audio.lows;
+    var rawMids = audio.mids;
+    var rawHighs = audio.highs;
     var rawTotal = rawLows + rawMids + rawHighs + 0.001;
 
     var energyFast = algo.energyFastFilter.update(rawTotal);
@@ -206,6 +206,9 @@ function extractFeatures(audio) {
     }
     flux /= 16.0;
     algo.prevMel = mel.slice();
+    
+    // Augment flux with audio_common helper for stronger buildup signal
+    flux = Math.max(flux, AudioParams.flux(audio) * 0.8);
 
     if (algo.presetAutoTune && algo.state === algo.IDLE) {
         updateCalibration("energyTrend", energyTrend);
@@ -219,10 +222,13 @@ function extractFeatures(audio) {
     var fluxNorm = normalizeFeature("flux", flux, 5.0, 0);
     var lowsNorm = normalizeFeature("lows", rawLows, 1.4, 0);
 
+    // Add onset intensity to buildup signal
+    var onsetBoost = AudioParams.maxOnsetIntensity(audio) * 0.15;
     var buildScoreRaw = 0.35 * energyTrendNorm +
                         0.20 * highRatioNorm +
                         0.25 * fluxNorm +
-                        0.20 * (1 - lowsNorm);
+                        0.20 * (1 - lowsNorm) +
+                        onsetBoost;
     var buildScore = algo.buildScoreFilter.update(buildScoreRaw);
 
     var featureVotes = 0;
@@ -238,7 +244,7 @@ function extractFeatures(audio) {
     if (algo.bassAbsentFrames > 10)
         algo.dropArmed = true;
 
-    var dropDetected = algo.dropArmed && audio.triggers.bass.firedThisFrame;
+    var dropDetected = algo.dropArmed && (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio));
 
     algo.history[algo.historyIndex] = buildScore;
     algo.historyIndex = (algo.historyIndex + 1) % algo.history.length;

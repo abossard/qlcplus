@@ -33,24 +33,11 @@ Rectangle
     property VCAudioTriggers widgetRef: null
 
     property int gridItemsHeight: UISettings.listItemHeight
-    property var perceptualBandNames: [ qsTr("Sub"), qsTr("Bass"), qsTr("Low Mid"), qsTr("Mid"), qsTr("High") ]
-    property var perceptualBandColors: [ "#ff3333", "#ff9900", "#ffdd33", "#33cc66", "#33ccff" ]
-
-    function bandPower(index)
-    {
-        if (!widgetRef)
-            return 0
-
-        switch (index)
-        {
-        case 0: return widgetRef.subPower
-        case 1: return widgetRef.bassPower
-        case 2: return widgetRef.lowMidPower
-        case 3: return widgetRef.midPower
-        case 4: return widgetRef.highPower
-        default: return 0
-        }
-    }
+    // 3-bank trigger labels (low/mid/high) — matches AudioSnapshot::triggers[3]
+    // and the multi-resolution mel banks. Volume + beat triggers are rendered
+    // separately as dedicated lamps elsewhere in the panel.
+    property var bankTriggerNames: [ qsTr("Low"), qsTr("Mid"), qsTr("High") ]
+    property var bankTriggerColors: [ "#ff9900", "#33cc66", "#33ccff" ]
 
     function percentText(value)
     {
@@ -366,6 +353,110 @@ Rectangle
 
         SectionBox
         {
+            sectionLabel: qsTr("Mel Processing")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Post-processing"); tooltipText: qsTr("Master toggle for the LedFx-style mel post-processor (power scaling, Gaussian smoothing, AGC, common/diff filters). When off, mel arrays are passed through raw.") }
+                    CustomCheckBox
+                    {
+                        Layout.fillWidth: true
+                        enabled: widgetRef !== null
+                        checked: widgetRef ? widgetRef.melPostEnabled : true
+                        onToggled: if (widgetRef) widgetRef.setMelPostEnabled(checked)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Power factor"); tooltipText: qsTr("Exponent applied to mel magnitudes before AGC (LedFx mel_power). 1.0 = linear, 2.0 = squared (default), >2 = more peaky.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 50; to: 500; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melPowerFactor * 100) : 200
+                        onValueModified: if (widgetRef) widgetRef.setMelPowerFactor(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Gaussian sigma"); tooltipText: qsTr("Width (in bands) of the Gaussian kernel used to smooth mel across bins (LedFx gaussian_sigma_size). Higher = smoother spectrum.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 10; to: 1000; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melGaussianSigma * 100) : 100
+                        onValueModified: if (widgetRef) widgetRef.setMelGaussianSigma(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Smoothing decay"); tooltipText: qsTr("LedFx mel_smoothing alpha_decay. Higher = faster fall.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melSmoothDecay * 100) : 70
+                        onValueModified: if (widgetRef) widgetRef.setMelSmoothDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Smoothing rise"); tooltipText: qsTr("LedFx mel_smoothing alpha_rise. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melSmoothRise * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelSmoothRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Common decay"); tooltipText: qsTr("LedFx common_filter alpha_decay.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melCommonDecay * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelCommonDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Common rise"); tooltipText: qsTr("LedFx common_filter alpha_rise.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melCommonRise * 100) : 1
+                        onValueModified: if (widgetRef) widgetRef.setMelCommonRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Diff decay"); tooltipText: qsTr("LedFx diff_filter alpha_decay.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melDiffDecay * 100) : 15
+                        onValueModified: if (widgetRef) widgetRef.setMelDiffDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Diff rise"); tooltipText: qsTr("LedFx diff_filter alpha_rise.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melDiffRise * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelDiffRise(value / 100)
+                    }
+                }
+        }
+
+
+        SectionBox
+        {
             sectionLabel: qsTr("aubio: Onset Detection")
 
             sectionContents:
@@ -381,97 +472,10 @@ Rectangle
                         columnSpacing: 6
                         rowSpacing: 4
 
-                        RobotoText { height: gridItemsHeight; label: qsTr("Threshold"); tooltipText: qsTr("Peak-picking sensitivity for all 9 onset detectors. Lower = more onsets, higher = stricter.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Slider
-                            {
-                                Layout.fillWidth: true
-                                from: 0; to: 1; stepSize: 0.01
-                                enabled: widgetRef !== null
-                                value: widgetRef ? widgetRef.onsetThreshold : 0.3
-                                onPressedChanged: if (!pressed && widgetRef) widgetRef.setOnsetThreshold(value)
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? widgetRef.onsetThreshold.toFixed(2) : "--"
-                            }
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Silence"); tooltipText: qsTr("dBFS gate. Onsets are suppressed when input level is below this.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Slider
-                            {
-                                Layout.fillWidth: true
-                                from: -90; to: 0; stepSize: 1
-                                enabled: widgetRef !== null
-                                value: widgetRef ? widgetRef.onsetSilenceDb : -70
-                                onPressedChanged: if (!pressed && widgetRef) widgetRef.setOnsetSilenceDb(value)
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? Math.round(widgetRef.onsetSilenceDb) + " dB" : "--"
-                            }
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Min interval"); tooltipText: qsTr("Minimum time (ms) between consecutive onsets.") }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 500; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.onsetMinInterval) : 50
-                            onValueModified: if (widgetRef) widgetRef.setOnsetMinInterval(value)
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Delay"); tooltipText: qsTr("Post-detection delay (ms) before reporting an onset. Negative values report earlier.") }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: -500; to: 500; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.onsetDelayMs) : 0
-                            onValueModified: if (widgetRef) widgetRef.setOnsetDelayMs(value)
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Adaptive whitening"); tooltipText: qsTr("Pre-whiten the spectrum so onset detectors react to spectral change rather than absolute energy.") }
-                        CustomCheckBox
-                        {
-                            Layout.fillWidth: true
-                            enabled: widgetRef !== null
-                            checked: widgetRef ? widgetRef.onsetAdaptiveWhitening : false
-                            onToggled: if (widgetRef) widgetRef.setOnsetAdaptiveWhitening(checked)
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Compression λ"); tooltipText: qsTr("Logarithmic compression of magnitudes. 0 = off; higher values flatten dynamics before detection.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Slider
-                            {
-                                Layout.fillWidth: true
-                                from: 0; to: 10; stepSize: 0.1
-                                enabled: widgetRef !== null
-                                value: widgetRef ? widgetRef.onsetCompressionLambda : 0
-                                onPressedChanged: if (!pressed && widgetRef) widgetRef.setOnsetCompressionLambda(value)
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? widgetRef.onsetCompressionLambda.toFixed(1) : "--"
-                            }
-                        }
+                        // Global onset parameters (threshold/silence/min interval/delay/
+                        // adaptive whitening/compression) were removed: aubio exposes
+                        // them only via per-method overrides now. Use the per-method
+                        // override editor below to tune each detector individually.
                     }
 
                     RobotoText
@@ -580,6 +584,24 @@ Rectangle
                         value: widgetRef ? Math.round(widgetRef.tempoDelayMs) : 0
                         onValueModified: if (widgetRef) widgetRef.setTempoDelayMs(value)
                     }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beats per bar"); tooltipText: qsTr("Number of beats per musical bar. Drives the bar-phase dot row in the live widget.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 1; to: 8
+                        enabled: widgetRef !== null
+                        value: widgetRef ? widgetRef.beatsPerBar : 4
+                        onValueModified: if (widgetRef) widgetRef.setBeatsPerBar(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Pre-emphasis"); tooltipText: qsTr("LedFx-style high-pass pre-emphasis on the tempo input. Boosts transients to improve beat tracking on bass-heavy material.") }
+                    CustomCheckBox
+                    {
+                        Layout.fillWidth: true
+                        enabled: widgetRef !== null
+                        checked: widgetRef ? widgetRef.preEmphasisEnabled : true
+                        onToggled: if (widgetRef) widgetRef.setPreEmphasisEnabled(checked)
+                    }
                 }
         }
 
@@ -662,10 +684,10 @@ Rectangle
                         model: units
                         currentIndex: {
                             if (!widgetRef) return 0
-                            var idx = units.indexOf(widgetRef.pitchDisplayUnit)
+                            var idx = units.indexOf(widgetRef.pitchUnit)
                             return idx >= 0 ? idx : 0
                         }
-                        onActivated: if (widgetRef) widgetRef.setPitchDisplayUnit(units[currentIndex])
+                        onActivated: if (widgetRef) widgetRef.setPitchUnit(units[currentIndex])
                     }
                 }
         }
@@ -710,8 +732,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 500; suffix: " ms"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.noteMinInterval) : 50
-                        onValueModified: if (widgetRef) widgetRef.setNoteMinInterval(value)
+                        value: widgetRef ? Math.round(widgetRef.noteMinIntervalMs) : 50
+                        onValueModified: if (widgetRef) widgetRef.setNoteMinIntervalMs(value)
                     }
 
                     RobotoText { height: gridItemsHeight; label: qsTr("Release drop"); tooltipText: qsTr("Drop in dB below the note's peak that triggers a note-off.") }
@@ -724,14 +746,14 @@ Rectangle
                             Layout.fillWidth: true
                             from: 0; to: 60; stepSize: 1
                             enabled: widgetRef !== null
-                            value: widgetRef ? widgetRef.noteReleaseDrop : 10
-                            onPressedChanged: if (!pressed && widgetRef) widgetRef.setNoteReleaseDrop(value)
+                            value: widgetRef ? widgetRef.noteReleaseDropDb : 10
+                            onPressedChanged: if (!pressed && widgetRef) widgetRef.setNoteReleaseDropDb(value)
                         }
                         RobotoText
                         {
                             Layout.preferredWidth: UISettings.bigItemHeight
                             height: gridItemsHeight
-                            label: widgetRef ? Math.round(widgetRef.noteReleaseDrop) + " dB" : "--"
+                            label: widgetRef ? Math.round(widgetRef.noteReleaseDropDb) + " dB" : "--"
                         }
                     }
                 }
@@ -743,6 +765,19 @@ Rectangle
             sectionLabel: qsTr("aubio: MFCC")
 
             sectionContents:
+                Column
+                {
+                    width: parent.width
+                    spacing: 6
+
+                    RobotoText
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        label: qsTr("About MFCC")
+                        tooltipText: qsTr("Mel-Frequency Cepstral Coefficients describe the timbral envelope (shape of the spectrum). Useful as inputs to texture / scene selection — different MFCC fingerprints can switch palettes.")
+                    }
+
                 GridLayout
                 {
                     width: parent.width
@@ -791,7 +826,8 @@ Rectangle
                             label: widgetRef ? widgetRef.mfccScale.toFixed(1) : "--"
                         }
                     }
-                }
+                } // GridLayout
+                } // Column
         }
 
         SectionBox
@@ -799,6 +835,19 @@ Rectangle
             sectionLabel: qsTr("aubio: TSS (Transient/Steady)")
 
             sectionContents:
+                Column
+                {
+                    width: parent.width
+                    spacing: 6
+
+                    RobotoText
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        label: qsTr("About TSS")
+                        tooltipText: qsTr("Transient/Steady-State separation splits the signal into percussive (transient) vs sustained (steady) components. Useful for separating drum hits from pads.")
+                    }
+
                 GridLayout
                 {
                     width: parent.width
@@ -868,11 +917,12 @@ Rectangle
                             label: widgetRef ? widgetRef.tssThreshold.toFixed(2) : "--"
                         }
                     }
-                }
+                } // GridLayout
+                } // Column
         }
         SectionBox
         {
-            sectionLabel: qsTr("QLC+: Band Grouping")
+            sectionLabel: qsTr("Band Crossovers")
 
             sectionContents:
                 GridLayout
@@ -882,54 +932,64 @@ Rectangle
                     columnSpacing: 6
                     rowSpacing: 4
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Sub ≤"); tooltipText: qsTr("Upper mel-band index for the Sub band (very low frequencies, ~20–60 Hz). Bands at and below this index are routed to Sub.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat ≤"); tooltipText: qsTr("Upper Hz for the Beat (kick) slice. Diagnostic — canonical lows/mids/highs come from the engine pipeline.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
-                        from: 20; to: 5000; suffix: " Hz"
+                        from: 20; to: 1000; suffix: " Hz"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bandSubMaxHz) : 60
-                        onValueModified: if (widgetRef) widgetRef.setBandSubMaxHz(value)
+                        value: widgetRef ? Math.round(widgetRef.beatCutoffHz) : 100
+                        onValueModified: if (widgetRef) widgetRef.setBeatCutoffHz(value)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Bass ≤"); tooltipText: qsTr("Upper mel-band index for the Bass band (kick / low end). Bands above Sub up to this index are routed to Bass.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass ≤"); tooltipText: qsTr("Upper Hz for the Bass slice (diagnostic, must be > Beat).") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
-                        from: 20; to: 5000; suffix: " Hz"
+                        from: 30; to: 2000; suffix: " Hz"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bandBassMaxHz) : 250
-                        onValueModified: if (widgetRef) widgetRef.setBandBassMaxHz(value)
+                        value: widgetRef ? Math.round(widgetRef.bassCutoffHz) : 250
+                        onValueModified: if (widgetRef) widgetRef.setBassCutoffHz(value)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Low Mid ≤"); tooltipText: qsTr("Upper mel-band index for the Low-Mid band (warmth / lower vocals).") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids ≤"); tooltipText: qsTr("Upper Hz for the Mids slice (diagnostic, must be > Bass).") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
-                        from: 20; to: 5000; suffix: " Hz"
+                        from: 200; to: 8000; suffix: " Hz"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bandLowMidMaxHz) : 500
-                        onValueModified: if (widgetRef) widgetRef.setBandLowMidMaxHz(value)
+                        value: widgetRef ? Math.round(widgetRef.midsCutoffHz) : 3000
+                        onValueModified: if (widgetRef) widgetRef.setMidsCutoffHz(value)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mid ≤"); tooltipText: qsTr("Upper mel-band index for the Mid band (vocals / instruments).") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Highs ≤"); tooltipText: qsTr("Upper Hz for the Highs slice (diagnostic, must be > Mids).") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
-                        from: 20; to: 5000; suffix: " Hz"
+                        from: 1000; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bandMidMaxHz) : 2000
-                        onValueModified: if (widgetRef) widgetRef.setBandMidMaxHz(value)
+                        value: widgetRef ? Math.round(widgetRef.highsCutoffHz) : 10000
+                        onValueModified: if (widgetRef) widgetRef.setHighsCutoffHz(value)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("High ≤"); tooltipText: qsTr("Upper mel-band index for the High band (cymbals / air / sibilance). Everything above this is unused.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Freq decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay. Higher = faster release.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
-                        from: 20; to: 5000; suffix: " Hz"
+                        from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bandHighMaxHz) : 5000
-                        onValueModified: if (widgetRef) widgetRef.setBandHighMaxHz(value)
+                        value: widgetRef ? Math.round(widgetRef.freqPowerDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Freq rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerRise(value / 100)
                     }
                 }
         }
@@ -1030,25 +1090,6 @@ Rectangle
                     columnSpacing: 6
                     rowSpacing: 4
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("State"); tooltipText: qsTr("Whether the noise gate is currently passing audio (open) or muting it (closed).") }
-                    Row
-                    {
-                        spacing: 6
-                        height: gridItemsHeight
-                        Rectangle
-                        {
-                            width: 14; height: 14; radius: 7
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: widgetRef && widgetRef.noiseGateOpen ? "#33cc66" : "#cc3333"
-                            border.width: 1; border.color: "#222222"
-                        }
-                        RobotoText
-                        {
-                            height: gridItemsHeight
-                            label: widgetRef && widgetRef.noiseGateOpen ? qsTr("Open") : qsTr("Closed")
-                        }
-                    }
-
                     RobotoText { height: gridItemsHeight; label: qsTr("Threshold"); tooltipText: qsTr("RMS level (in dBFS) below which the noise gate closes. Raise to ignore room noise; lower to let quieter audio through.") }
                     RowLayout
                     {
@@ -1126,7 +1167,7 @@ Rectangle
 
                     Repeater
                     {
-                        model: 5
+                        model: 3
 
                         Column
                         {
@@ -1155,8 +1196,8 @@ Rectangle
                             {
                                 width: parent.width
                                 height: gridItemsHeight
-                                label: perceptualBandNames[index]
-                                labelColor: perceptualBandColors[index]
+                                label: bankTriggerNames[index]
+                                labelColor: bankTriggerColors[index]
                                 fontSize: UISettings.textSizeSmall
                                 textHAlign: Text.AlignHCenter
                             }
@@ -1273,6 +1314,79 @@ Rectangle
 
         SectionBox
         {
+            sectionLabel: qsTr("Kick Detection")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Enabled"); tooltipText: qsTr("Master toggle for the LedFx volume_beat_now kick detector. When off, audio.triggers.kick never fires.") }
+                    CustomCheckBox
+                    {
+                        Layout.fillWidth: true
+                        enabled: widgetRef !== null
+                        checked: widgetRef ? widgetRef.kickEnabled : true
+                        onToggled: if (widgetRef) widgetRef.setKickEnabled(checked)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat max"); tooltipText: qsTr("Upper Hz cutoff for the LedFx volume_beat_now low-mel slice.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 20; to: 1000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMaxHz) : 100
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMaxHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Min diff"); tooltipText: qsTr("Minimum percent difference over history for a kick.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 500; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMinPercentDiff * 100) : 50
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinPercentDiff(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Min amplitude"); tooltipText: qsTr("Minimum LedFx beat power required before a kick can fire.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 1000; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMinAmplitude * 100) : 50
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinAmplitude(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Refractory"); tooltipText: qsTr("Minimum seconds between LedFx kick detections.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 2000; suffix: " ms"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatRefractorySec * 1000) : 100
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatRefractorySec(value / 1000)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("History"); tooltipText: qsTr("Fixed LedFx history deque capacity used in the percent-diff denominator.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 1; to: 500; suffix: qsTr(" frames")
+                        enabled: widgetRef !== null
+                        value: widgetRef ? widgetRef.kickBeatHistoryLen : 10
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatHistoryLen(value)
+                    }
+                }
+        }
+
+        SectionBox
+        {
             sectionLabel: qsTr("QLC+: Volume & Display")
 
             sectionContents:
@@ -1280,59 +1394,6 @@ Rectangle
                 {
                     width: parent.width
                     spacing: 6
-
-                    Column
-                    {
-                        width: parent.width
-                        spacing: 4
-
-                        Repeater
-                        {
-                            model: 5
-
-                            RowLayout
-                            {
-                                width: parent.width
-                                height: gridItemsHeight
-                                spacing: 6
-
-                                RobotoText
-                                {
-                                    Layout.preferredWidth: UISettings.bigItemHeight
-                                    height: gridItemsHeight
-                                    label: perceptualBandNames[index]
-                                    labelColor: perceptualBandColors[index]
-                                }
-
-                                Rectangle
-                                {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 10
-                                    radius: 4
-                                    color: UISettings.bgStrong
-                                    border.width: 1
-                                    border.color: UISettings.bgLight
-
-                                    Rectangle
-                                    {
-                                        anchors.left: parent.left
-                                        anchors.top: parent.top
-                                        anchors.bottom: parent.bottom
-                                        width: parent.width * Math.max(0, Math.min(1, bandPower(index)))
-                                        radius: parent.radius
-                                        color: perceptualBandColors[index]
-                                    }
-                                }
-
-                                RobotoText
-                                {
-                                    Layout.preferredWidth: UISettings.bigItemHeight
-                                    height: gridItemsHeight
-                                    label: percentText(bandPower(index))
-                                }
-                            }
-                        }
-                    }
 
                     GridLayout
                     {
@@ -1707,6 +1768,38 @@ Rectangle
                         }
                     } // ListView
                 } // GridLayout
+        } // SectionBox
+
+        SectionBox
+        {
+            sectionLabel: qsTr("History")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText
+                    {
+                        height: gridItemsHeight
+                        label: qsTr("Onset history window")
+                        tooltipText: qsTr("Duration of onset history to retain for analysis (seconds). Affects onset rate calculations.")
+                    }
+
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        height: gridItemsHeight
+                        suffix: " s"
+                        from: 1
+                        to: 30
+                        value: widgetRef ? widgetRef.onsetHistorySeconds : 5
+                        onValueModified: if (widgetRef) widgetRef.onsetHistorySeconds = value
+                    }
+                }
         } // SectionBox
 
     } // Column

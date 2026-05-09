@@ -20,11 +20,12 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Power";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 7, reactivity: 8});
+    AudioParams.installBandPowerControls(algo);
 
     algo.presetSparks = 0;
     algo.properties.push(
@@ -34,31 +35,27 @@ var testAlgo;
     algo.setSparks = function(_v) { algo.presetSparks = (_v === "On") ? 1 : 0; };
     algo.getSparks = function() { return algo.presetSparks ? "On" : "Off"; };
 
-    var startColor = [255, 0, 0];
-    var endColor = [0, 0, 255];
+    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
     var bassFilter = null;
     var sparksPixels = null;
+    var sparkColors = null;
     var initialized = false;
 
     function init(width) {
         bassFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
         sparksPixels = new Array(width);
-        for (var i = 0; i < width; i++) sparksPixels[i] = 0;
+        sparkColors = new Array(width);
+        for (var i = 0; i < width; i++) {
+            sparksPixels[i] = 0;
+            sparkColors[i] = [255, 255, 255];
+        }
         initialized = true;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
-
+    algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
+        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
     };
 
 
@@ -73,18 +70,24 @@ var testAlgo;
         var bands = RGBUtil.interpolate(audio.mel, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
             bands[bi] = Math.min(1, bands[bi]);
-        var bass = bassFilter.update(audio.bands.low);
+        var bass = bassFilter.update(audio.lows);
+        var dominant = AudioParams.colorChannels(
+            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
 
         // Bass overlay: fill from edge based on bass power
         var bassIdx = Math.min(width, Math.floor(bass * width * 1.5));
 
         // Sparks: random pixels on beat
-        var beat = audio.triggers.beat.firedThisFrame;
+        var beat = audio.triggers.beat.firedThisFrame || AudioParams.kickFired(audio) || AudioParams.anyOnsetFired(audio);
         if (algo.presetSparks && beat) {
+            var sparkColor = AudioParams.colorChannels(
+                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
             var sparkCount = Math.max(1, Math.floor(width / 15));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
-                sparksPixels[sx] = 1.0;
+                sparksPixels[sx] = hitScale;
+                sparkColors[sx] = sparkColor;
             }
         }
         // Decay sparks
@@ -93,11 +96,10 @@ var testAlgo;
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                // Gradient color based on position
-                var t = x / Math.max(1, width - 1);
-                var r = startColor[0] + (endColor[0] - startColor[0]) * t;
-                var g = startColor[1] + (endColor[1] - startColor[1]) * t;
-                var b = startColor[2] + (endColor[2] - startColor[2]) * t;
+                var edgeGlow = 0.75 + 0.25 * x / Math.max(1, width - 1);
+                var r = dominant[0] * edgeGlow;
+                var g = dominant[1] * edgeGlow;
+                var b = dominant[2] * edgeGlow;
 
                 // Brightness from spectrum
                 var specBright = Math.min(1, bands[x % bands.length]);
@@ -111,9 +113,10 @@ var testAlgo;
                 // Add sparks (white flash)
                 if (sparksPixels[x] > 0.1) {
                     var sparkVal = sparksPixels[x];
-                    r = r * (1 - sparkVal) + 255 * sparkVal;
-                    g = g * (1 - sparkVal) + 255 * sparkVal;
-                    b = b * (1 - sparkVal) + 255 * sparkVal;
+                    var sc = sparkColors[x] || [255, 255, 255];
+                    r = r * (1 - sparkVal) + sc[0] * sparkVal;
+                    g = g * (1 - sparkVal) + sc[1] * sparkVal;
+                    b = b * (1 - sparkVal) + sc[2] * sparkVal;
                     bright = Math.max(bright, sparkVal);
                 }
 

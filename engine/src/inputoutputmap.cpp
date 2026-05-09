@@ -1020,7 +1020,8 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
     if (m_beatGeneratorType == Audio)
     {
         m_inputCapture->unregisterBandsNumber(4);
-        disconnect(m_inputCapture, SIGNAL(beatDetected()), this, SLOT(slotProcessBeat()));
+        disconnect(m_inputCapture, SIGNAL(aubioDataReady(AubioResults,quint32)),
+                   this, SLOT(slotProcessAubioData(AubioResults,quint32)));
     }
 
     m_beatGeneratorType = type;
@@ -1050,7 +1051,9 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
             m_beatTime->restart();
             QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
             m_inputCapture = capture.data();
-            connect(m_inputCapture, SIGNAL(beatDetected()), this, SLOT(slotProcessBeat()));
+            connect(m_inputCapture, SIGNAL(aubioDataReady(AubioResults,quint32)),
+                    this, SLOT(slotProcessAubioData(AubioResults,quint32)),
+                    Qt::QueuedConnection);
             m_inputCapture->registerBandsNumber(4);
         }
         break;
@@ -1140,6 +1143,22 @@ void InputOutputMap::slotMasterTimerBeat()
         return;
 
     emit beat();
+}
+
+void InputOutputMap::slotProcessAubioData(const AubioResults &results, quint32 power)
+{
+    Q_UNUSED(power)
+    if (m_beatGeneratorType != Audio)
+        return;
+
+    if (results.bpm > 0)
+        setBpmNumber(qRound(results.bpm));
+
+    if (results.beat)
+    {
+        m_doc->masterTimer()->requestBeat();
+        emit beat();
+    }
 }
 
 void InputOutputMap::slotPluginBeat(quint32 universe, quint32 channel, uchar value, const QString &key)

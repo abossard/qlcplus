@@ -58,16 +58,37 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileTriggersHold         QStringLiteral("Hold")
 #define KXMLQLCAudioProfileTriggersCooldown     QStringLiteral("Cooldown")
 
+// Legacy 5-perceptual-band layout (BandLayout struct removed). The element
+// name is still recognised by the loader so old profiles parse cleanly; the
+// per-band attributes are silently dropped.
 #define KXMLQLCAudioProfileBands                QStringLiteral("Bands")
-#define KXMLQLCAudioProfileBandsSubMax          QStringLiteral("SubMax")
-#define KXMLQLCAudioProfileBandsBassMax         QStringLiteral("BassMax")
-#define KXMLQLCAudioProfileBandsLowMidMax       QStringLiteral("LowMidMax")
-#define KXMLQLCAudioProfileBandsMidMax          QStringLiteral("MidMax")
-#define KXMLQLCAudioProfileBandsHighMax         QStringLiteral("HighMax")
 
 #define KXMLQLCAudioProfileNoiseGate            QStringLiteral("NoiseGate")
 #define KXMLQLCAudioProfileNoiseGateThreshold   QStringLiteral("Threshold")
 #define KXMLQLCAudioProfileNoiseGateHold        QStringLiteral("Hold")
+
+#define KXMLQLCAudioProfileKick                 QStringLiteral("Kick")
+#define KXMLQLCAudioProfileKickEnabled          QStringLiteral("Enabled")
+#define KXMLQLCAudioProfileKickBeatMaxHz        QStringLiteral("BeatMaxHz")
+#define KXMLQLCAudioProfileKickBeatMinPercentDiff QStringLiteral("BeatMinPercentDiff")
+#define KXMLQLCAudioProfileKickBeatMinAmplitude QStringLiteral("BeatMinAmplitude")
+#define KXMLQLCAudioProfileKickBeatRefractorySec QStringLiteral("BeatRefractorySec")
+#define KXMLQLCAudioProfileKickBeatHistoryLen   QStringLiteral("BeatHistoryLen")
+
+#define KXMLQLCAudioProfileMelPost              QStringLiteral("MelPost")
+#define KXMLQLCAudioProfileMelPostEnabled       QStringLiteral("Enabled")
+#define KXMLQLCAudioProfileMelPostPowerFactor   QStringLiteral("PowerFactor")
+#define KXMLQLCAudioProfileMelPostGaussianSigma QStringLiteral("GaussianSigma")
+#define KXMLQLCAudioProfileMelPostSmoothDecay   QStringLiteral("SmoothDecay")
+#define KXMLQLCAudioProfileMelPostSmoothRise    QStringLiteral("SmoothRise")
+#define KXMLQLCAudioProfileMelPostCommonDecay   QStringLiteral("CommonDecay")
+#define KXMLQLCAudioProfileMelPostCommonRise    QStringLiteral("CommonRise")
+#define KXMLQLCAudioProfileMelPostDiffDecay     QStringLiteral("DiffDecay")
+#define KXMLQLCAudioProfileMelPostDiffRise      QStringLiteral("DiffRise")
+
+#define KXMLQLCAudioProfileFreqPower            QStringLiteral("FreqPower")
+#define KXMLQLCAudioProfileFreqPowerDecay       QStringLiteral("Decay")
+#define KXMLQLCAudioProfileFreqPowerRise        QStringLiteral("Rise")
 
 #define KXMLQLCAudioProfileVolume               QStringLiteral("Volume")
 #define KXMLQLCAudioProfileVolumeSmoothing      QStringLiteral("Smoothing")
@@ -82,13 +103,13 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioTempoMinBpm     QStringLiteral("TempoMinBpm")
 #define KXMLQLCAudioProfileAubioTempoMaxBpm     QStringLiteral("TempoMaxBpm")
 #define KXMLQLCAudioProfileAubioTatumSubdivision QStringLiteral("TatumSubdivision")
+#define KXMLQLCAudioProfileAubioBeatsPerBar     QStringLiteral("BeatsPerBar")
+#define KXMLQLCAudioProfileAubioPreEmphasisEnabled QStringLiteral("PreEmphasisEnabled")
 #define KXMLQLCAudioProfileAubioTssAlpha        QStringLiteral("TssAlpha")
 #define KXMLQLCAudioProfileAubioTssBeta         QStringLiteral("TssBeta")
 #define KXMLQLCAudioProfileAubioTssThreshold    QStringLiteral("TssThreshold")
 #define KXMLQLCAudioProfileAubioWindowType      QStringLiteral("WindowType")
 #define KXMLQLCAudioProfileAubioMelScale        QStringLiteral("MelScale")
-#define KXMLQLCAudioProfileAubioOnsetAdaptiveWhitening QStringLiteral("OnsetAdaptiveWhitening")
-#define KXMLQLCAudioProfileAubioOnsetCompressionLambda QStringLiteral("OnsetCompressionLambda")
 #define KXMLQLCAudioProfileAubioOnsetMethodsEnabled QStringLiteral("OnsetMethodsEnabled")
 #define KXMLQLCAudioProfileAubioTempoDelayMs    QStringLiteral("TempoDelayMs")
 #define KXMLQLCAudioProfileAubioNoteSilenceDb   QStringLiteral("NoteSilenceDb")
@@ -96,6 +117,22 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioNoteReleaseDropDb QStringLiteral("NoteReleaseDropDb")
 #define KXMLQLCAudioProfileAubioMfccPower       QStringLiteral("MfccPower")
 #define KXMLQLCAudioProfileAubioMfccScale       QStringLiteral("MfccScale")
+#define KXMLQLCAudioProfileAubioPitchUnit       QStringLiteral("PitchUnit")
+#define KXMLQLCAudioProfileAubioOnsetOverride   QStringLiteral("OnsetOverride")
+#define KXMLQLCAudioProfileAubioOnsetOverrideMethod      QStringLiteral("Method")
+#define KXMLQLCAudioProfileAubioOnsetOverrideThreshold   QStringLiteral("Threshold")
+#define KXMLQLCAudioProfileAubioOnsetOverrideSilence     QStringLiteral("Silence")
+#define KXMLQLCAudioProfileAubioOnsetOverrideMinioi      QStringLiteral("Minioi")
+#define KXMLQLCAudioProfileAubioOnsetOverrideDelay       QStringLiteral("Delay")
+#define KXMLQLCAudioProfileAubioOnsetOverrideCompression QStringLiteral("Compression")
+#define KXMLQLCAudioProfileAubioOnsetOverrideAwhitening  QStringLiteral("Awhitening")
+
+#define KXMLQLCAudioProfileAubioMelBank         QStringLiteral("MelBank")
+#define KXMLQLCAudioProfileAubioMelBankRole     QStringLiteral("Role")
+#define KXMLQLCAudioProfileAubioMelBankMinHz    QStringLiteral("MinHz")
+#define KXMLQLCAudioProfileAubioMelBankMaxHz    QStringLiteral("MaxHz")
+#define KXMLQLCAudioProfileAubioMelBankBands    QStringLiteral("Bands")
+#define KXMLQLCAudioProfileAubioMelBankPreset   QStringLiteral("Preset")
 
 class AudioProfile : public QObject
 {
