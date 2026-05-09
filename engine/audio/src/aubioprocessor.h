@@ -116,6 +116,10 @@ private:
     double m_lastBeatTimeS = 0.0;      // stream-time of last detected beat (aubio_tempo_get_last_s())
     uint64_t m_processedSamples = 0;   // total mono samples processed → currentTimeS
     uint32_t m_hopsSinceBeat = 0;      // gate phase to 0 after N silent hops
+    double m_decayPhaseAccum = 0.0;    // phase accumulator for decay-rate beat synthesis
+    double m_lastActiveBpm = 0.0;      // last BPM seen during active music (for snap-back on resume)
+    bool m_wasDecaying = false;        // true if decay was active on previous hop
+    int m_resumeHopsLeft = 0;          // hops to hold m_lastActiveBpm after resume
     int m_barBeatCount = -1;
     int m_beatsPerBar = 4;
 };

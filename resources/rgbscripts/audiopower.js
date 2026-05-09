@@ -25,7 +25,6 @@ var testAlgo;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 7, reactivity: 8});
-    AudioParams.installBandPowerControls(algo);
 
     algo.presetSparks = 0;
     algo.properties.push(
@@ -63,11 +62,11 @@ var testAlgo;
     {
         if (!initialized || !sparksPixels || sparksPixels.length !== width) init(width);
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         // Get spectrum and bass power
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bands = RGBUtil.interpolate(audio.mel, effectiveWidth);
+        var bands = RGBUtil.interpolate(AudioParams.fullMel(audio), effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
             bands[bi] = Math.min(1, bands[bi]);
         var bass = bassFilter.update(audio.lows);

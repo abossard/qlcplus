@@ -45,7 +45,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetBounce|type:list|display:Bounce|" +
       "values:No,Yes|write:setBounce|read:getBounce");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseInt(_v); };
     algo.getBaseSpeed = function() { return algo.presetBaseSpeed; };
@@ -87,7 +86,7 @@ var testAlgo;
             });
         }
     }
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -108,7 +107,7 @@ var testAlgo;
             initDots(width, height, algo.presetDotCount);
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;

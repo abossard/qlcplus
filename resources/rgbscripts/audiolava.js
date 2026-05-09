@@ -34,7 +34,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetContrast|type:range|display:Contrast|" +
       "values:0,10|write:setContrast|read:getContrast");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -46,7 +45,7 @@ var testAlgo;
     var elapsedMs = 0;
     var lastTime = 0;
     var initialized = false;
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -64,7 +63,7 @@ var testAlgo;
         }
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;

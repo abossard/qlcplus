@@ -36,7 +36,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setMode = function(_v) {
         if (_v === "Rainbow") algo.presetMode = 1;
@@ -74,7 +73,6 @@ var testAlgo;
         initialized = true;
         filterDirty = false;
     }
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -98,7 +96,7 @@ var testAlgo;
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var bands = RGBUtil.interpolate(melSrc, effectiveWidth);
         for (var i = 0; i < bands.length; i++)
-            bands[i] = Math.min(1, bands[i]) * bandScaleForColumn(i, effectiveWidth);
+            bands[i] = Math.min(1, bands[i]);
 
         var filtered = filter.updateArray(bands);
         if (!prevBands || prevBands.length !== bands.length) prevBands = bands.slice();

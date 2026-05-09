@@ -93,10 +93,7 @@ var AudioParams = {
     // 3 default colors: low (warm) / mid (neutral) / high (cool).
     defaultBandColors: [0xFF4000, 0x00FF64, 0x4080FF],
 
-    // Deprecated: 5-band per-script power sliders are gone — bank balance is
-    // configured globally in the AudioProfile mel-bank section. Kept as a
-    // no-op so older scripts that still call it keep loading.
-    installBandPowerControls: function(_algo) { /* no-op (v3) */ },
+    installBandPowerControls: function() { /* removed in v3 */ },
 
     // Returns [low, mid, high] bank powers from the per-frame snapshot.
     // Defensive: missing scalars degrade gracefully to 0.
@@ -113,10 +110,28 @@ var AudioParams = {
         return AudioParams.bandPowers(audio, algo);
     },
 
-    bandScaleForColumn: function(_algo, x, width) {
-        // Columns map evenly across low/mid/high — no per-band sliders in v3.
-        Math.min(2, Math.floor((x / Math.max(1, width)) * 3));
+    bandScaleForColumn: function(_algo, _x, _width) {
+        // Per-band column scaling removed in v3 — always returns 1.0.
         return 1.0;
+    },
+
+    // Returns [beatPower, bassPower, lows, mids, highs] from snapshot.
+    // Defensive: missing scalars degrade gracefully to 0.
+    powerArray: function(audio) {
+        if (!audio) return [0, 0, 0, 0, 0];
+        return [
+            (typeof audio.beatPower === "number") ? audio.beatPower : 0,
+            (typeof audio.bassPower === "number") ? audio.bassPower : 0,
+            (typeof audio.lows      === "number") ? audio.lows      : 0,
+            (typeof audio.mids      === "number") ? audio.mids      : 0,
+            (typeof audio.highs     === "number") ? audio.highs     : 0
+        ];
+    },
+
+    // Sum of the 5 power bands (beat + bass + low + mid + high).
+    totalPower: function(audio) {
+        var p = AudioParams.powerArray(audio);
+        return p[0] + p[1] + p[2] + p[3] + p[4];
     },
 
     bandColors: function(algo, fallback) {
@@ -294,22 +309,45 @@ var AudioParams = {
         return audio.mel || [];
     },
 
+    // Internal: collect available novelty arrays — multi-bank preferred,
+    // with fallback to legacy audio.melNovelty.
+    _noveltySources: function(audio) {
+        if (!audio) return [];
+        var out = [];
+        if (audio.melLowNovelty && audio.melLowNovelty.length)   out.push(audio.melLowNovelty);
+        if (audio.melMidNovelty && audio.melMidNovelty.length)   out.push(audio.melMidNovelty);
+        if (audio.melHighNovelty && audio.melHighNovelty.length) out.push(audio.melHighNovelty);
+        if (out.length === 0 && audio.melNovelty && audio.melNovelty.length)
+            out.push(audio.melNovelty);
+        return out;
+    },
+
     // Average mel novelty across all bands, 0..~1. 0 if unavailable.
     melNoveltyAvg: function(audio) {
-        if (!audio || !audio.melNovelty || !audio.melNovelty.length) return 0;
-        var s = 0;
-        for (var i = 0; i < audio.melNovelty.length; i++)
-            s += audio.melNovelty[i] || 0;
-        return s / audio.melNovelty.length;
+        var sources = AudioParams._noveltySources(audio);
+        if (sources.length === 0) return 0;
+        var s = 0, n = 0;
+        for (var k = 0; k < sources.length; k++) {
+            var arr = sources[k];
+            for (var i = 0; i < arr.length; i++) {
+                s += arr[i] || 0;
+                n++;
+            }
+        }
+        return n ? (s / n) : 0;
     },
 
     // Maximum mel novelty across all bands.
     melNoveltyMax: function(audio) {
-        if (!audio || !audio.melNovelty || !audio.melNovelty.length) return 0;
+        var sources = AudioParams._noveltySources(audio);
+        if (sources.length === 0) return 0;
         var m = 0;
-        for (var i = 0; i < audio.melNovelty.length; i++) {
-            var v = audio.melNovelty[i] || 0;
-            if (v > m) m = v;
+        for (var k = 0; k < sources.length; k++) {
+            var arr = sources[k];
+            for (var i = 0; i < arr.length; i++) {
+                var v = arr[i] || 0;
+                if (v > m) m = v;
+            }
         }
         return m;
     },

@@ -45,7 +45,6 @@ var testAlgo;
     algo.properties.push(
       "name:triggerMode|type:list|display:Trigger Mode|" +
       "values:Beat,Onset,Note|write:setTriggerMode|read:getTriggerMode");
-    AudioParams.installBandPowerControls(algo);
 
     algo.particles = [];
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
@@ -99,11 +98,17 @@ var testAlgo;
 
     function randomWeightedBand(powers, start, end) {
         var total = 0;
-        for (var i = start; i <= end; i++) total += powers[i];
+        for (var i = start; i <= end; i++) {
+            var p = (powers && typeof powers[i] === "number" && isFinite(powers[i])) ? powers[i] : 0;
+            if (p < 0) p = 0;
+            total += p;
+        }
         if (total <= 0.001) return start + Math.floor(Math.random() * (end - start + 1));
         var pick = Math.random() * total;
         for (var j = start; j <= end; j++) {
-            pick -= powers[j];
+            var pj = (powers && typeof powers[j] === "number" && isFinite(powers[j])) ? powers[j] : 0;
+            if (pj < 0) pj = 0;
+            pick -= pj;
             if (pick <= 0) return j;
         }
         return end;
@@ -237,9 +242,9 @@ var testAlgo;
         initState();
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
-        var powers = AudioParams.bandWeights(algo, audio);
-        var totalPower = powers[0] + powers[1] + powers[2] + powers[3] + powers[4];
+        if (!audio) return map;
+        var powers = AudioParams.powerArray(audio);
+        var totalPower = AudioParams.totalPower(audio);
 
         // Kick flash triggers extra bursts
         var kickFlash = AudioParams.kickFired(audio) ? 1.0 : 0.0;

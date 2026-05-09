@@ -52,7 +52,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetSpread|type:list|display:Per Column|" +
       "values:No,Yes|write:setSpread|read:getSpread");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function()  { return algo.presetSpeed; };
@@ -98,7 +97,6 @@ var testAlgo;
     var columnLut = null;
     var columnLutWidth = -1;
     var columnLutSig = "";
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -198,7 +196,7 @@ var testAlgo;
         var spectrum = (audio.spectrum && audio.spectrum.length) ? audio.spectrum : melSrc;
         var specBands = RGBUtil.interpolate(spectrum, effectiveWidth);
         for (var si = 0; si < specBands.length; si++)
-            specBands[si] = Math.min(1, specBands[si]) * bandScaleForColumn(si, effectiveWidth);
+            specBands[si] = Math.min(1, specBands[si]);
         var spectrumMix = algo.presetSpread ? 0.7 : 0.35;
         var beatMod = 1 + AudioParams.beatPulse(audio) * 0.15;
 

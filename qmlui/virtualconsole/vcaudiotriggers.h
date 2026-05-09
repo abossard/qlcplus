@@ -275,6 +275,11 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double midsPowerSliced  READ midsPowerSliced  NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double highsPowerSliced READ highsPowerSliced NOTIFY audioSnapshotChanged)
 
+    /// LedFx audio.py:1306 get_freq_power(0/1, filtered=True) — beat (0-100 Hz)
+    /// and bass (100-250 Hz). The sliced lowsPower above is (beat+bass)/2.
+    Q_PROPERTY(double beatPower READ beatPower NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(double bassPower READ bassPower NOTIFY audioSnapshotChanged)
+
     /// AGC scalar (`mel_gain`) currently applied by the MelPostProcessor.
     /// 1.0 when post-processing is disabled. NOTIFY audioSnapshotChanged
     /// since it updates every hop.
@@ -382,6 +387,10 @@ public:
     double lowsPowerSliced() const  { return m_cachedSnapshot.lows;  }
     double midsPowerSliced() const  { return m_cachedSnapshot.mids;  }
     double highsPowerSliced() const { return m_cachedSnapshot.highs; }
+    // LedFx audio.py:1306 get_freq_power(0, filtered=True) — beat (0-100 Hz)
+    double beatPower() const        { return m_cachedSnapshot.beatPower;  }
+    // LedFx audio.py:1306 get_freq_power(1, filtered=True) — bass (100-250 Hz)
+    double bassPower() const        { return m_cachedSnapshot.bassPower;  }
     double melAgcGain() const       { return m_melAgcGain;       }
     QVariantList onsetDescriptorDisplay() const { return m_onsetDescriptorDisplayCache; }
     double pitchDisplay() const     { return m_pitchDisplay; }

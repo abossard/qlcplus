@@ -47,7 +47,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetGap|type:list|display:Bar Gap|" +
       "values:Off,On|write:setGap|read:getGap");
-    AudioParams.installBandPowerControls(algo);
 
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
@@ -81,7 +80,6 @@ var testAlgo;
         }
         initialized = true;
     }
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -109,7 +107,7 @@ var testAlgo;
         // Get spectrum interpolated to match grid width
         var rawBands = RGBUtil.interpolate(melSrc, bandCount);
         for (var i = 0; i < rawBands.length; i++)
-            rawBands[i] = Math.min(1, rawBands[i]) * bandScaleForColumn(i, bandCount);
+            rawBands[i] = Math.min(1, rawBands[i]);
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");

@@ -95,7 +95,7 @@ var testAlgo;
         }
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         // Get audio power based on selected range
         var power;
@@ -107,7 +107,7 @@ var testAlgo;
         power = filter.update(power);
 
         // Get spectrum for per-block variation
-        var bands = RGBUtil.interpolate(audio.mel, numBlocks);
+        var bands = RGBUtil.interpolate(AudioParams.fullMel(audio), numBlocks);
         for (var i = 0; i < bands.length; i++)
             bands[i] = Math.min(1, bands[i]);
 

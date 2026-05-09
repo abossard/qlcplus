@@ -8,7 +8,7 @@
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="129"/>
+   <BeatGenerator BeatType="Audio" BPM="126"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -3287,7 +3287,7 @@
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
    <AudioTriggers AudioProfileID="0" Caption="Audio Trigger 1" ID="0">
-    <WindowState Visible="True" X="30" Y="15" Width="990" Height="670"/>
+    <WindowState Visible="True" X="30" Y="15" Width="761" Height="319"/>
     <Appearance>
      <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
     </Appearance>

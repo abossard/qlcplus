@@ -217,6 +217,15 @@ struct AubioConfig
     // Tempo — aubio_tempo_set_delay_ms.
     double tempoDelayMs = 0.0;
 
+    // Tempo decay on silence — when no beats are detected for coastBeats
+    // beat-periods, BPM decays exponentially toward tempoDecayTargetBpm.
+    // coastBeats: how many beat-periods of silence before decay starts (default 2)
+    // tempoDecayHalfLifeBeats: BPM halves every N beats during decay (default 1.5)
+    // tempoDecayTargetBpm: floor BPM to decay toward (min 1; 0 is not safe for consumers)
+    double coastBeats = 4.0;
+    double tempoDecayHalfLifeBeats = 0.5;
+    double tempoDecayTargetBpm = 1.0;
+
     // Note detection — aubio_notes_set_*.
     double noteSilenceDb = -70.0;
     double noteMinIntervalMs = 30.0;

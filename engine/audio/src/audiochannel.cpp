@@ -631,7 +631,10 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         m_freqPower[i] = a * raw + (1.0 - a) * m_freqPower[i];
     }
 
-    // LedFx audio.py:1324-1343 — lows=(beat+bass)/2, mids=slot2, highs=slot3.
+    // LedFx audio.py:1324-1343 — beat=slot0, bass=slot1, lows=(beat+bass)/2,
+    // mids=slot2, highs=slot3.
+    snap.beatPower = std::min(1.0, m_freqPower[0]);
+    snap.bassPower = std::min(1.0, m_freqPower[1]);
     snap.lows = std::min(1.0, (m_freqPower[0] + m_freqPower[1]) * 0.5);
     snap.mids = std::min(1.0, m_freqPower[2]);
     snap.highs = std::min(1.0, m_freqPower[3]);

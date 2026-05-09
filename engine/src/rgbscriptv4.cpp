@@ -825,6 +825,33 @@ QJSValue RGBScript::buildAudioDataObject()
     audioObj.setProperty(QStringLiteral("lows"),  QJSValue(snap.lows));
     audioObj.setProperty(QStringLiteral("mids"),  QJSValue(snap.mids));
     audioObj.setProperty(QStringLiteral("highs"), QJSValue(snap.highs));
+    // LedFx audio.py:1306 get_freq_power(0/1, filtered=True) — beat (0-100 Hz)
+    // and bass (100-250 Hz). lows above is the (beat+bass)/2 composite.
+    audioObj.setProperty(QStringLiteral("beatPower"),  QJSValue(snap.beatPower));
+    audioObj.setProperty(QStringLiteral("bassPower"),  QJSValue(snap.bassPower));
+
+    // Convenience alias: audio.power.{beat, bass, low, mid, high, total}
+    QJSValue powerObj = engine->newObject();
+    powerObj.setProperty(QStringLiteral("beat"),  QJSValue(snap.beatPower));
+    powerObj.setProperty(QStringLiteral("bass"),  QJSValue(snap.bassPower));
+    powerObj.setProperty(QStringLiteral("low"),   QJSValue(snap.lows));
+    powerObj.setProperty(QStringLiteral("mid"),   QJSValue(snap.mids));
+    powerObj.setProperty(QStringLiteral("high"),  QJSValue(snap.highs));
+    powerObj.setProperty(QStringLiteral("total"),
+        QJSValue(snap.beatPower + snap.bassPower + snap.lows + snap.mids + snap.highs));
+    audioObj.setProperty(QStringLiteral("power"), powerObj);
+
+    // audio.dominant — strongest power band and its value.
+    static const char* const dominantNames[] = {"beat", "bass", "low", "mid", "high"};
+    const double dominantVals[] = {snap.beatPower, snap.bassPower, snap.lows, snap.mids, snap.highs};
+    int dominantIdx = 0;
+    for (int i = 1; i < 5; i++)
+        if (dominantVals[i] > dominantVals[dominantIdx]) dominantIdx = i;
+    QJSValue domObj = engine->newObject();
+    domObj.setProperty(QStringLiteral("band"),
+        QJSValue(QString::fromLatin1(dominantNames[dominantIdx])));
+    domObj.setProperty(QStringLiteral("power"), QJSValue(dominantVals[dominantIdx]));
+    audioObj.setProperty(QStringLiteral("dominant"), domObj);
 
     QJSValue triggersObj = engine->newObject();
     triggersObj.setProperty(QStringLiteral("low"),    triggerObject(engine, snap.triggers[0]));

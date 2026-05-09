@@ -213,7 +213,23 @@ VCWidgetItem
                 if (sampleCount < cap) sampleCount++
 
                 if (sparklineCanvas.visible && sparklineCanvas.available)
-                    sparklineCanvas.requestPaint()
+                    sparklineCanvas.dirty = true
+            }
+
+            // Repaint sparkline at a fixed 20 Hz instead of on every sample
+            Timer
+            {
+                interval: 67
+                running: sparklineCanvas.visible && sparklineCanvas.available
+                repeat: true
+                onTriggered:
+                {
+                    if (sparklineCanvas.dirty)
+                    {
+                        sparklineCanvas.dirty = false
+                        sparklineCanvas.requestPaint()
+                    }
+                }
             }
 
             Connections
@@ -236,6 +252,10 @@ VCWidgetItem
                 anchors.margins: 2
                 spacing: 3
 
+                // Cached lists — one C++ getter call per signal instead of N
+                property var melCache: audioTriggerObj ? audioTriggerObj.melSpectrumProcessed : []
+                property var mfccCache: audioTriggerObj ? audioTriggerObj.mfccCoeffs : []
+
                 // ============================================================
                 // §1 — Master MEL spectrum (40 Rectangle bars)
                 // ============================================================
@@ -254,8 +274,7 @@ VCWidgetItem
 
                         Repeater
                         {
-                            model: audioTriggerObj && audioTriggerObj.melSpectrumProcessed
-                                   ? audioTriggerObj.melSpectrumProcessed.length : 0
+                            model: stack.melCache ? stack.melCache.length : 0
 
                             Rectangle
                             {
@@ -270,7 +289,7 @@ VCWidgetItem
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
                                     height: parent.height * Math.max(0, Math.min(1,
-                                        +audioTriggerObj.melSpectrumProcessed[index] || 0))
+                                        +stack.melCache[index] || 0))
                                     color: melBandColor(index)
                                 }
                             }
@@ -279,91 +298,98 @@ VCWidgetItem
                 }
 
                 // ============================================================
-                // §2 — Low / Mid / High / Volume power bars
+                // §2 — Beat / Bass / Lows / Mids / Highs power bars
+                //      LedFx audio.py:1283-1342 — 4 raw freq_power slots +
+                //      lows = (beat + bass) / 2 composite. Vertical bars,
+                //      same width, height proportional to 0..1 power.
                 // ============================================================
-                Column
+                Item
                 {
                     id: powerSection
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 4 * 14
+                    Layout.preferredHeight: 64
                     Layout.minimumHeight: 0
-                    spacing: 1
 
-                    property var rows: [
-                        { name: "Low",  color: "#dd7722",
+                    // Per-band colors. Warm → cool across the spectrum.
+                    readonly property color colorBeat:  "#DC143C"  // crimson — sub-bass / kick (0-100 Hz)
+                    readonly property color colorBass:  "#FF4500"  // orange-red — bass (100-250 Hz)
+                    readonly property color colorLows:  "#FF8C00"  // orange — composite (beat+bass)/2
+                    readonly property color colorMids:  "#9ACD32"  // yellow-green — mids (250-3000 Hz)
+                    readonly property color colorHighs: "#00CED1"  // cyan — highs (3000-10000 Hz)
+
+                    property var bands: [
+                        { name: "Beat", color: powerSection.colorBeat,
+                          value: audioTriggerObj ? +(audioTriggerObj.beatPower        || 0) : 0,
+                          active: false },
+                        { name: "Bass", color: powerSection.colorBass,
+                          value: audioTriggerObj ? +(audioTriggerObj.bassPower        || 0) : 0,
+                          active: false },
+                        { name: "Lows", color: powerSection.colorLows,
                           value: audioTriggerObj ? +(audioTriggerObj.lowsPowerSliced  || 0) : 0,
                           active: audioTriggerObj ? audioTriggerObj.triggerLowActive  : false },
-                        { name: "Mid",  color: "#44bb44",
+                        { name: "Mids", color: powerSection.colorMids,
                           value: audioTriggerObj ? +(audioTriggerObj.midsPowerSliced  || 0) : 0,
                           active: audioTriggerObj ? audioTriggerObj.triggerMidActive  : false },
-                        { name: "High", color: "#44cccc",
+                        { name: "High", color: powerSection.colorHighs,
                           value: audioTriggerObj ? +(audioTriggerObj.highsPowerSliced || 0) : 0,
-                          active: audioTriggerObj ? audioTriggerObj.triggerHighActive : false },
-                        { name: "Vol",  color: "#88aacc",
-                          value: audioTriggerObj ? Math.max(0, Math.min(1,
-                                     audioTriggerObj.volumeNormalized || 0)) : 0,
-                          active: false }
+                          active: audioTriggerObj ? audioTriggerObj.triggerHighActive : false }
                     ]
 
-                    Repeater
+                    Row
                     {
-                        model: powerSection.rows
+                        id: powerBarsRow
+                        anchors.fill: parent
+                        spacing: 2
 
-                        Item
+                        Repeater
                         {
-                            width: powerSection.width
-                            height: 13
+                            model: powerSection.bands
 
-                            // Label
-                            Text
+                            Item
                             {
-                                id: pwrLabel
-                                anchors.left: parent.left
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 32
-                                text: modelData.name
-                                color: "#cccccc"
-                                font.pixelSize: 10
-                            }
+                                width: Math.max(1, (powerBarsRow.width -
+                                            (powerSection.bands.length - 1) * powerBarsRow.spacing) /
+                                            powerSection.bands.length)
+                                height: powerBarsRow.height
 
-                            // Track
-                            Rectangle
-                            {
-                                id: pwrTrack
-                                anchors.left: pwrLabel.right
-                                anchors.leftMargin: 2
-                                anchors.right: pwrPctText.left
-                                anchors.rightMargin: 4
-                                anchors.verticalCenter: parent.verticalCenter
-                                height: parent.height - 2
-                                color: "#1a1a1a"
-                                border.color: modelData.active ? "#ffffff" : "#333333"
-                                border.width: 1
-
-                                // Fill
+                                // Track (background + border highlights when active)
                                 Rectangle
                                 {
+                                    id: pwrTrack
                                     anchors.left: parent.left
+                                    anchors.right: parent.right
                                     anchors.top: parent.top
-                                    anchors.bottom: parent.bottom
-                                    anchors.margins: 1
-                                    width: Math.max(0, (parent.width - 2) *
-                                            Math.max(0, Math.min(1, modelData.value)))
-                                    color: modelData.color
-                                }
-                            }
+                                    anchors.bottom: pwrLabel.top
+                                    anchors.bottomMargin: 1
+                                    color: "#1a1a1a"
+                                    border.color: modelData.active ? "#ffffff" : "#333333"
+                                    border.width: 1
 
-                            // Percentage text
-                            Text
-                            {
-                                id: pwrPctText
-                                anchors.right: parent.right
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: 36
-                                horizontalAlignment: Text.AlignRight
-                                text: Math.round(Math.max(0, Math.min(1, modelData.value)) * 100) + "%"
-                                color: "#cccccc"
-                                font.pixelSize: 10
+                                    // Fill grows up from the bottom; height = value * available
+                                    Rectangle
+                                    {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        anchors.margins: 1
+                                        height: Math.max(0, (parent.height - 2) *
+                                                Math.max(0, Math.min(1, modelData.value)))
+                                        color: modelData.color
+                                    }
+                                }
+
+                                // Band label below the bar
+                                Text
+                                {
+                                    id: pwrLabel
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    horizontalAlignment: Text.AlignHCenter
+                                    text: modelData.name
+                                    color: "#cccccc"
+                                    font.pixelSize: 10
+                                }
                             }
                         }
                     }
@@ -378,6 +404,7 @@ VCWidgetItem
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 80
+                    Layout.maximumHeight: 300
 
                     // Sub-section heights (in fractions of section height)
                     property real onsetFrac:   0.45
@@ -391,6 +418,13 @@ VCWidgetItem
                         anchors.fill: parent
                         renderStrategy: Canvas.Cooperative
                         renderTarget: Canvas.FramebufferObject
+                        // Force 1x pixel ratio — Retina 2x quadruples paint cost
+                        // for a diagnostic sparkline where sub-pixel detail is unnecessary
+                        layer.enabled: true
+                        layer.smooth: false
+                        layer.textureSize: Qt.size(Math.max(1, Math.round(width)),
+                                                   Math.max(1, Math.round(height)))
+                        property bool dirty: false
 
                         function laneCount(n)
                         {
@@ -531,6 +565,7 @@ VCWidgetItem
 
                         onPaint:
                         {
+                            var t0 = Date.now()
                             var ctx = getContext("2d")
                             ctx.reset()
                             ctx.fillStyle = "#0a0a0a"
@@ -550,6 +585,9 @@ VCWidgetItem
                             var yPitch    = yOnset + hOnset
                             var ySpectral = yPitch + hPitch
                             var yTss      = ySpectral + hSpectral
+
+                            // Draw gridlines ONCE across full canvas height
+                            paintGridlines(ctx, x0, 0, w, height)
 
                             // ----- §3 ONSETS (merged lanes) ----------------
                             var enabledArr = audioTriggerObj ? audioTriggerObj.onsetMethodsEnabled : null
@@ -606,7 +644,6 @@ VCWidgetItem
                                     }
                                     paintLabel(ctx, 1, yOnset + li * laneH + 1, letters, "#aaaaaa")
                                 }
-                                paintGridlines(ctx, x0, yOnset, w, hOnset)
                             }
                             else
                             {
@@ -617,7 +654,6 @@ VCWidgetItem
                             ctx.fillStyle = "#0d0d0d"
                             ctx.fillRect(x0, yPitch, w, hPitch)
                             paintChannelTrace(ctx, 9, x0, yPitch, w, hPitch, "#ffcc33")
-                            paintGridlines(ctx, x0, yPitch, w, hPitch)
                             paintLabel(ctx, 1, yPitch + 1, "Pit", "#aaaaaa")
 
                             // ----- §5 SPECTRAL (4 stacked sparklines) --------
@@ -633,7 +669,6 @@ VCWidgetItem
                                 paintChannelTrace(ctx, 10 + sr, x0, rowY, w, thisH, spColors[sr])
                                 paintLabel(ctx, 1, rowY + 1, spLabels[sr], "#aaaaaa")
                             }
-                            paintGridlines(ctx, x0, ySpectral, w, hSpectral)
 
                             // ----- §7 TSS (transient + steady) ---------------
                             var tssRowH = Math.floor(hTss / 2)
@@ -643,8 +678,9 @@ VCWidgetItem
                             paintChannelTrace(ctx, 15, x0, yTss + tssRowH, w, hTss - tssRowH, "#66ffff")
                             paintLabel(ctx, 1, yTss + 1, "Tr",  "#ff8888")
                             paintLabel(ctx, 1, yTss + tssRowH + 1, "St", "#88ffff")
-                            paintGridlines(ctx, x0, yTss, w, hTss)
 
+                            var elapsed = Date.now() - t0
+                            console.log("sparkline paint: " + elapsed + "ms, w=" + w + " sampleCount=" + barsItem.sampleCount)
                         }
                     }
 
@@ -739,66 +775,6 @@ VCWidgetItem
                             }
                         }
                     }
-                }
-
-                // ============================================================
-                // §6 — MFCC (13 signed Rectangle bars)
-                // ============================================================
-                Item
-                {
-                    id: mfccSection
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 38
-                    Layout.minimumHeight: 0
-
-                    // Center axis
-                    Rectangle
-                    {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        height: 1
-                        color: "#222222"
-                    }
-
-                    Row
-                    {
-                        id: mfccRow
-                        anchors.fill: parent
-                        spacing: 2
-
-                        Repeater
-                        {
-                            model: audioTriggerObj && audioTriggerObj.mfccCoeffs
-                                   ? audioTriggerObj.mfccCoeffs.length : 0
-
-                            Item
-                            {
-                                width: Math.max(1, (mfccRow.width - (mfccRow.children.length - 1) * 2) /
-                                                Math.max(1, mfccRow.children.length))
-                                height: mfccRow.height
-
-                                Rectangle
-                                {
-                                    property real raw: +(audioTriggerObj.mfccCoeffs[index] || 0)
-                                    property real scale: +(audioTriggerObj.mfccDisplayScale || 1)
-                                    // Signed: positive grows up from midline, negative grows down.
-                                    property real magPx: Math.max(0, Math.min(parent.height / 2,
-                                                                  Math.abs(raw * scale) * (parent.height / 2)))
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    width: parent.width - 1
-                                    height: magPx
-                                    y: raw >= 0 ? (parent.height / 2 - magPx) : (parent.height / 2)
-                                    color: raw >= 0 ? "#4488dd" : "#dd8844"
-                                }
-                            }
-                        }
-                    }
-
-                    ToolTip.visible: mfccHover.hovered
-                    ToolTip.delay: 600
-                    ToolTip.text: qsTr("MFCC: shape (timbre) of the spectrum. Useful as a fingerprint to switch palettes / scenes.")
-                    HoverHandler { id: mfccHover }
                 }
 
                 // ============================================================

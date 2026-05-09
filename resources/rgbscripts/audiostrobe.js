@@ -25,7 +25,6 @@ var testAlgo;
     algo.properties = new Array();
 
     AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
-    AudioParams.installBandPowerControls(algo);
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -82,7 +81,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         // Determine if we should flash
         var trigger = false;

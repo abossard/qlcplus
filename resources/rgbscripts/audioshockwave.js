@@ -111,7 +111,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     algo.frame++;
 
     var map = RGBUtil.createMap(width, height);
-    if (!audio || !audio.mel || audio.mel.length === 0) return map;
+    if (!audio) return map;
     var cx = width / 2;
     var cy = height / 2;
     var maxRadius = Math.sqrt(width * width + height * height);

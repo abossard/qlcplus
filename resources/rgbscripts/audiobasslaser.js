@@ -173,7 +173,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
         var bass = Math.min(2.0, audio.lows);
         var highs = Math.min(1.0, audio.highs);
         var onsetIntensity = Math.max(0.4, AudioParams.maxOnsetIntensity(audio));

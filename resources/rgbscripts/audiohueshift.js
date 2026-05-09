@@ -91,7 +91,7 @@ var testAlgo;
         initState();
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
         var bass = audio.lows;
         var mids = audio.mids;
         var highs = audio.highs;

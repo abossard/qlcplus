@@ -39,7 +39,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetMultiplier|type:range|display:Fill Amount|" +
       "values:5,30|write:setMultiplier|read:getMultiplier");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
@@ -90,7 +89,7 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
 
         // If no audio data, return black
-        if (!audio || !audio.mel || audio.mel.length === 0)
+        if (!audio)
             return map;
 
         // Pull the 3 mel-bank powers and matching gradient colors.

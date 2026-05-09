@@ -38,7 +38,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetColorMode|type:list|display:Color Mode|" +
       "values:Gradient,Rainbow|write:setColorMode|read:getColorMode");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
@@ -65,7 +64,6 @@ var testAlgo;
     var lutSig = "";
     var history = null; // 2D buffer of packed colors
     var initialized = false;
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -103,7 +101,7 @@ var testAlgo;
         // Get current spectrum for new row
         var bands = RGBUtil.interpolate(melSrc, bandLen);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi]) * bandScaleForColumn(bi, bandLen);
+            bands[bi] = Math.min(1, bands[bi]);
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");

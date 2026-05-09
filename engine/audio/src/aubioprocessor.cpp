@@ -519,10 +519,39 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
 
     if (m_tempo)
     {
-        // Raw aubio output. NO clamping. A zero/negative bpm means aubio hasn't
-        // locked yet; consumers must handle that explicitly.
         m_results.bpm = double(aubio_tempo_get_bpm(m_tempo));
         m_results.beatConfidence = double(aubio_tempo_get_confidence(m_tempo));
+
+        // BPM decay on silence: once coasting beyond the coast window, decay
+        // BPM exponentially toward the configured target.
+        if (m_beatPeriodS > 0.0 && m_results.bpm > 0.0)
+        {
+            const double coastB = std::max(0.0, m_config.coastBeats);
+            const double hopsPerBeat = m_beatPeriodS * double(m_sampleRate) / double(hopSize());
+            const uint32_t coastHops = uint32_t(coastB * hopsPerBeat);
+
+            if (m_hopsSinceBeat > coastHops && hopsPerBeat > 0.0)
+            {
+                m_wasDecaying = true;
+                const double beatsIntoDecay =
+                    double(m_hopsSinceBeat - coastHops) / hopsPerBeat;
+                const double halfLife = std::max(0.1, m_config.tempoDecayHalfLifeBeats);
+                const double target = std::max(1.0, m_config.tempoDecayTargetBpm);
+                const double factor = std::exp2(-beatsIntoDecay / halfLife);
+                m_results.bpm = target + (m_results.bpm - target) * factor;
+                if (std::abs(m_results.bpm - target) < 0.5)
+                    m_results.bpm = target;
+            }
+        }
+
+        // Resume hold: override aubio's re-locking BPM with the last known
+        // good BPM for ~2 beats so consumers see an instant snap-back.
+        if (m_resumeHopsLeft > 0)
+        {
+            --m_resumeHopsLeft;
+            if (m_lastActiveBpm > 0.0)
+                m_results.bpm = m_lastActiveBpm;
+        }
     }
 
 #ifdef AUDIO_DEBUG
@@ -698,34 +727,61 @@ void AubioProcessor::processHop()
 
         if (m_results.beat)
         {
-            // Snapshot aubio's authoritative period and last-beat timestamp
-            // (RD: prefer aubio_tempo_get_last_s() over a local hop clock —
-            // accounts for aubio's internal peak-pick delay/onset latency).
             m_beatPeriodS  = double(aubio_tempo_get_period_s(m_tempo));
             m_lastBeatTimeS = double(aubio_tempo_get_last_s(m_tempo));
             m_hopsSinceBeat = 0;
+            m_decayPhaseAccum = 0.0;
             m_barBeatCount = (m_barBeatCount + 1) % std::max(1, m_beatsPerBar);
+
+            // On resume after decay: hold last active BPM for ~2 beats
+            // while aubio re-locks to the new tempo.
+            if (m_wasDecaying)
+            {
+                const double hopsPerBeat = m_beatPeriodS > 0.0
+                    ? m_beatPeriodS * double(m_sampleRate) / double(hopSize()) : 0.0;
+                m_resumeHopsLeft = int(2.0 * hopsPerBeat);
+                m_wasDecaying = false;
+            }
+
+            // Track last known good BPM during active playback
+            if (m_results.bpm > 0.0 && m_resumeHopsLeft <= 0)
+                m_lastActiveBpm = m_results.bpm;
         }
         else
         {
             ++m_hopsSinceBeat;
         }
 
-        // Gate phase to 0 when no beats have fired for several beat periods —
-        // prevents a runaway "ghost" ramp during silence or before tempo lock.
-        // 4 beat periods of silence (≈345 hops at 120 BPM/44.1k/hop=512) is a
-        // generous bound that still keeps phase live across short audio drops.
-        const uint32_t silenceHopLimit =
+        // Phase coast and decay: advance beatPhase using the last known period
+        // during coast, then slow it down using decayed period during BPM decay.
+        // m_beatPeriodS is only updated on real beats, so it reflects the
+        // pre-silence tempo — that's intentional.
+        const double coastB = std::max(0.0, m_config.coastBeats);
+        const uint32_t coastHopLimit =
             (m_beatPeriodS > 0.0)
-                ? uint32_t(4.0 * m_beatPeriodS * double(m_sampleRate) / double(hopSize()))
+                ? uint32_t(coastB * m_beatPeriodS * double(m_sampleRate) / double(hopSize()))
                 : 0u;
 
-        if (m_beatPeriodS > 0.0 && m_hopsSinceBeat <= silenceHopLimit)
+        if (m_beatPeriodS > 0.0 && m_hopsSinceBeat <= coastHopLimit)
         {
+            // Within coast window: phase advances at original tempo
             const double elapsed = currentTimeS - m_lastBeatTimeS;
             const double phase = elapsed / m_beatPeriodS;
-            // Wrap into [0, 1) — handles dropouts and minor period drift.
             m_results.beatPhase = phase - std::floor(phase);
+        }
+        else if (m_results.bpm > 0.0)
+        {
+            // Past coast window but BPM still decaying: advance phase at
+            // decayed rate using hop duration as time step
+            const double decayedPeriodS = 60.0 / m_results.bpm;
+            const double hopDurationS = double(hopSize()) / double(m_sampleRate);
+            m_decayPhaseAccum += hopDurationS / decayedPeriodS;
+            if (m_decayPhaseAccum >= 1.0)
+            {
+                m_decayPhaseAccum -= 1.0;
+                m_barBeatCount = (m_barBeatCount + 1) % std::max(1, m_beatsPerBar);
+            }
+            m_results.beatPhase = m_decayPhaseAccum;
         }
         else
         {

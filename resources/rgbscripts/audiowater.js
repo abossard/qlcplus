@@ -25,7 +25,6 @@ var testAlgo;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
-    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -93,7 +92,7 @@ var testAlgo;
     {
         if (!initialized || !buf0 || buf0.length !== width) init(width);
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
         var dtMs = (typeof audio.audioDtMs === "number" && audio.audioDtMs > 0) ? audio.audioDtMs : 40;

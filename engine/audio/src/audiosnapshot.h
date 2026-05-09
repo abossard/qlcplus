@@ -64,9 +64,12 @@ struct AudioSnapshot
 
     // LedFx-parity scalar bank power (mean of each mel bank's processed[]).
     // Populated by AudioChannel::buildSnapshot(); zero when banks disabled.
-    double lows  = 0.0;
-    double mids  = 0.0;
-    double highs = 0.0;
+    // LedFx audio.py:1283-1342 — 4 raw freq_power slots + lows composite.
+    double beatPower = 0.0;   // freq_power_filter[0], 0-100 Hz
+    double bassPower = 0.0;   // freq_power_filter[1], 100-250 Hz
+    double lows  = 0.0;   // (beat + bass) / 2
+    double mids  = 0.0;   // freq_power_filter[2], 250-3000 Hz
+    double highs = 0.0;   // freq_power_filter[3], 3000-10000 Hz
 
     // 3 mel-bank Schmitt triggers ([0]=low, [1]=mid, [2]=high) plus
     // volume / beat / kick = 6 triggers total.

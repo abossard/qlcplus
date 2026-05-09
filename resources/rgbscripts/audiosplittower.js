@@ -41,7 +41,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay|" +
       "values:1,10|write:setDecay|read:getDecay");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setBands = function(_v) { algo.presetBands = Math.max(2, Math.min(5, parseInt(_v))); };
     algo.getBands = function() { return algo.presetBands; };
@@ -55,7 +54,7 @@ var testAlgo;
     algo.peakValues = [];
     algo.peakHolds = [];
     algo.smoothBands = [];
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
+
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -83,7 +82,7 @@ var testAlgo;
     {
         ensureState();
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         var numBands = algo.presetBands;
         var sourceBands = AudioParams.bandWeights(algo, audio);

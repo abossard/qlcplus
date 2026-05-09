@@ -24,7 +24,6 @@ var testAlgo;
     algo.properties = new Array();
 
     AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
-    AudioParams.installBandPowerControls(algo);
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -68,7 +67,7 @@ var testAlgo;
         }
 
         var map = RGBUtil.createMap(width, height);
-        if (!audio || !audio.mel || audio.mel.length === 0) return map;
+        if (!audio) return map;
 
         var now = Date.now();
         var dt = (now - lastTime) / 1000.0;

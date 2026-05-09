@@ -132,9 +132,6 @@ function initState() {
     algo.highsFastFilter = createAudioFilter(0.2);
     algo.buildScoreFilter = createAudioFilter(0.3);
 
-    algo.prevMel = new Array(16);
-    for (var i = 0; i < 16; i++) algo.prevMel[i] = 0;
-
     algo.featureMin = {
         energyTrend: -0.05,
         highRatio: 0.0,
@@ -184,7 +181,7 @@ function normalizeFeature(name, value, fallbackScale, fallbackOffset) {
 }
 
 function extractFeatures(audio) {
-    var hasAudio = audio && audio.mel && audio.mel.length > 0;
+    var hasAudio = !!audio;
     var rawLows = audio.lows;
     var rawMids = audio.mids;
     var rawHighs = audio.highs;
@@ -197,18 +194,7 @@ function extractFeatures(audio) {
     var energyTrend = energyFast - energySlow;
     var highRatio = rawHighs / rawTotal;
 
-    var mel = hasAudio ? RGBUtil.interpolate(audio.mel, 16) : new Array(16);
-    var flux = 0;
-    for (var i = 0; i < 16; i++) {
-        if (!hasAudio) mel[i] = 0;
-        else mel[i] = Math.min(1, mel[i]);
-        flux += Math.max(0, mel[i] - algo.prevMel[i]);
-    }
-    flux /= 16.0;
-    algo.prevMel = mel.slice();
-    
-    // Augment flux with audio_common helper for stronger buildup signal
-    flux = Math.max(flux, AudioParams.flux(audio) * 0.8);
+    var flux = AudioParams.flux(audio);
 
     if (algo.presetAutoTune && algo.state === algo.IDLE) {
         updateCalibration("energyTrend", energyTrend);
@@ -434,7 +420,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     initState();
 
     var map = RGBUtil.createMap(width, height);
-    if (!audio || !audio.mel || audio.mel.length === 0) return map;
+    if (!audio) return map;
     var features = extractFeatures(audio);
 
     updateState(features);

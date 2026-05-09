@@ -30,7 +30,6 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    AudioParams.installBandPowerControls(algo);
 
     algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
@@ -41,7 +40,6 @@ var testAlgo;
     var lutSig = "";
     var filter = null;
     var initialized = false;
-    function bandScaleForColumn(x, width) { return AudioParams.bandScaleForColumn(algo, x, width); }
     function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -70,7 +68,7 @@ var testAlgo;
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var bands = RGBUtil.interpolate(melSrc, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi]) * bandScaleForColumn(bi, effectiveWidth);
+            bands[bi] = Math.min(1, bands[bi]);
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");
         if (gradientLut === null || lutWidth !== width || lutSig !== sig) {
