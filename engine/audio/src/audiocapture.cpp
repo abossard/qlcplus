@@ -51,7 +51,9 @@ AudioCapture::AudioCapture(QObject* parent)
     if (var.isValid())
         m_channels = var.toInt();
 
+#ifdef AUDIO_DEBUG
     qDebug() << "[AudioCapture] initialize" << m_sampleRate << m_channels;
+#endif
 
     m_captureSize = m_bufferSize * m_channels;
     m_audioBuffer = new int16_t[m_captureSize];
@@ -145,7 +147,9 @@ void AudioCapture::unregisterBandsNumber(int number)
 
 void AudioCapture::stop()
 {
+#ifdef AUDIO_DEBUG
     qDebug() << "[AudioCapture] stop capture";
+#endif
     while (this->isRunning())
     {
         m_userStop = true;
@@ -249,7 +253,9 @@ void AudioCapture::processData()
 
 void AudioCapture::run()
 {
+#ifdef AUDIO_DEBUG
     qDebug() << "[AudioCapture] start capture";
+#endif
 
     m_userStop = false;
 

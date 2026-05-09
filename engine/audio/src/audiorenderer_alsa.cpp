@@ -56,7 +56,6 @@ AudioRendererAlsa::AudioRendererAlsa(QString device, QObject * parent)
 
 AudioRendererAlsa::~AudioRendererAlsa()
 {
-    qDebug() << Q_FUNC_INFO;
     uninitialize();
     free (pcm_name);
 }
@@ -135,7 +134,7 @@ bool AudioRendererAlsa::initialize(quint32 freq, int chan, AudioFormat format)
     }
     if ((err = snd_pcm_hw_params_set_format(pcm_handle, hwparams, alsa_format)) < 0)
     {
-        qDebug("OutputALSA: Error setting format: %s", snd_strerror(err));
+        qWarning("OutputALSA: Error setting format: %s", snd_strerror(err));
         return false;
     }
     exact_rate = rate;
@@ -199,7 +198,9 @@ bool AudioRendererAlsa::initialize(quint32 freq, int chan, AudioFormat format)
     m_chunk_size = period_size;
     m_can_pause = snd_pcm_hw_params_can_pause(hwparams);
 
+#ifdef AUDIO_DEBUG
     qDebug("OutputALSA: can pause: %d", m_can_pause);
+#endif
 
     //create alsa prebuffer;
     m_prebuf_size = m_bits_per_frame * m_chunk_size / 8;
@@ -243,11 +244,13 @@ QList<AudioDeviceInfo> AudioRendererAlsa::getDevicesInfo()
         // Tell ALSA to fill in our snd_ctl_card_info_t with info about this card
         if ((err = snd_ctl_card_info(cardHandle, cardInfo)) < 0)
         {
-            printf("Can't get info for card %i: %s\n", cardIdx, snd_strerror(err));
+            qWarning("Can't get info for card %i: %s\n", cardIdx, snd_strerror(err));
             continue;
         }
 
+#ifdef AUDIO_DEBUG
         qDebug() << "[getDevicesInfo] Card" << cardIdx << "=" << snd_ctl_card_info_get_name(cardInfo);
+#endif
 
         while (snd_ctl_pcm_next_device(cardHandle, &devIdx) == 0 && devIdx >= 0)
         {
@@ -428,7 +431,6 @@ void AudioRendererAlsa::resume()
 
 void AudioRendererAlsa::uninitialize()
 {
-    qDebug() << Q_FUNC_INFO;
 
     if (!m_inited)
         return;
@@ -437,7 +439,9 @@ void AudioRendererAlsa::uninitialize()
     if (pcm_handle)
     {
         snd_pcm_drop(pcm_handle);
+#ifdef AUDIO_DEBUG
         qDebug("OutputALSA: closing pcm_handle");
+#endif
         snd_pcm_close(pcm_handle);
         pcm_handle = 0;
     }

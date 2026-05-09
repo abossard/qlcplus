@@ -151,9 +151,11 @@ bool InputOutputMap::addUniverse(quint32 id)
         }
         else if (id > universesCount())
         {
+#ifdef AUDIO_DEBUG
             qDebug() << Q_FUNC_INFO
                 << "Gap between universe" << (universesCount() - 1)
                 << "and universe" << id << ", filling the gap...";
+#endif
             while (id > universesCount())
             {
                 uni = new Universe(universesCount(), m_grandMaster);
@@ -428,13 +430,17 @@ bool InputOutputMap::setInputPatch(quint32 universe, const QString &pluginName,
         int lIdx = inputs.indexOf(inputUID);
         if (lIdx != -1)
         {
+#ifdef AUDIO_DEBUG
             qDebug() << "[IOMAP] Found match on input by name on universe" << universe << "-" << input << "vs" << lIdx;
+#endif
             input = lIdx;
         }
         else
         {
+#ifdef AUDIO_DEBUG
             qDebug() << "[IOMAP] !!No match found!! for input on universe" << universe << "-" << input << inputUID;
             qDebug() << plugin->inputs();
+#endif
         }
     }
 
@@ -502,13 +508,17 @@ bool InputOutputMap::setOutputPatch(quint32 universe, const QString &pluginName,
         int lIdx = inputs.indexOf(outputUID);
         if (lIdx != -1)
         {
+#ifdef AUDIO_DEBUG
             qDebug() << "[IOMAP] Found match on output by name on universe" << universe << "-" << output << "vs" << lIdx;
+#endif
             output = lIdx;
         }
         else
         {
+#ifdef AUDIO_DEBUG
             qDebug() << "[IOMAP] !!No match found!! for output on universe" << universe << "-" << output << outputUID;
             qDebug() << plugin->outputs();
+#endif
         }
     }
 
@@ -869,7 +879,9 @@ QLCInputProfile* InputOutputMap::profile(const QString& name)
 
         m_localProfilesLoaded = true;
 
+#ifdef AUDIO_DEBUG
         qDebug() << "Input profile" << name << "not found. Attempt to load it from" << m_doc->workspacePath();
+#endif
         QDir localDir(m_doc->workspacePath());
         localDir.setFilter(QDir::Files);
         localDir.setNameFilters(QStringList() << QString("*%1").arg(KExtInputProfile));
@@ -1025,7 +1037,9 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
     }
 
     m_beatGeneratorType = type;
+#ifdef AUDIO_DEBUG
     qDebug() << "[InputOutputMap] setting beat type:" << m_beatGeneratorType;
+#endif
 
     switch (m_beatGeneratorType)
     {
@@ -1100,7 +1114,6 @@ void InputOutputMap::setBpmNumber(int bpm)
     if (m_beatGeneratorType == Disabled || bpm == m_currentBPM)
         return;
 
-    //qDebug() << "[InputOutputMap] set BPM to" << bpm;
     m_currentBPM = bpm;
 
     if (bpm != 0)
@@ -1164,12 +1177,11 @@ void InputOutputMap::slotProcessAubioData(const AubioResults &results, quint32 p
 void InputOutputMap::slotPluginBeat(quint32 universe, quint32 channel, uchar value, const QString &key)
 {
     Q_UNUSED(universe)
+    Q_UNUSED(channel)
 
     // not interested in synthetic release or non-beat event
     if (m_beatGeneratorType != Plugin || value == 0 || key != "beat")
         return;
-
-    qDebug() << "Plugin beat:" << channel << m_beatTime->elapsed();
 
     slotProcessBeat();
 }

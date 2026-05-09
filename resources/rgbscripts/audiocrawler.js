@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -47,7 +48,6 @@ var testAlgo;
     algo.getChop = function() { return algo.presetChop; };
 
     var DEFAULT_BAND_COLORS = [0x00FF80, 0x80A0FF, 0xFFFFFF];
-    var lowsFilter = null;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
@@ -56,14 +56,13 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
@@ -76,7 +75,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        var lowsPower = lowsFilter.update(audio.lows);
+        var lowPower = audio.power.low;
 
         var speed = algo.presetSpeed / 10.0;
         var sway = algo.presetSway / 5.0;
@@ -85,15 +84,15 @@ var testAlgo;
 
         // Accumulate time with audio modulation
         timestep += dt;
-        timestep += lowsPower * reactivity * 50;
+        timestep += lowPower * reactivity * 50;
 
         // Three time phases at different rates (smooth undulation)
         var t1 = (timestep * speed * sway * 0.0003) % (Math.PI * 20);
         var t2 = (timestep * speed * chop * 0.0005) % (Math.PI * 20);
-        var t3 = (timestep * speed * (chop + reactivity * lowsPower) * 0.0004) % (Math.PI * 20);
-        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio) || !activeColor) {
-            activeColor = AudioParams.colorChannels(
-                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        var t3 = (timestep * speed * (chop + reactivity * lowPower) * 0.0004) % (Math.PI * 20);
+        if (audio.onset.fired || audio.beat.kick || !activeColor) {
+            var dominantColor = AudioColors.dominant(algo, audio);
+            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
         }
         var dominant = activeColor;
 
@@ -116,7 +115,8 @@ var testAlgo;
             var b = dominant[2] * colorScale;
 
             // Apply brightness
-            var bright = AudioParams.applyFloor(algo, Math.max(0, Math.min(1, v)));
+            var baseBright = Math.max(0, Math.min(1, v));
+            var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
 
             var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
             for (var y = 0; y < height; y++)

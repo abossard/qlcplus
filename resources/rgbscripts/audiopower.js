@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 7, reactivity: 8});
+    algo.presetReactivity = 8;
+    algo.presetFloor = 0;
 
     algo.presetSparks = 0;
     algo.properties.push(
@@ -35,13 +36,11 @@ var testAlgo;
     algo.getSparks = function() { return algo.presetSparks ? "On" : "Off"; };
 
     var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
-    var bassFilter = null;
     var sparksPixels = null;
     var sparkColors = null;
     var initialized = false;
 
     function init(width) {
-        bassFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
         sparksPixels = new Array(width);
         sparkColors = new Array(width);
         for (var i = 0; i < width; i++) {
@@ -54,7 +53,7 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
@@ -66,22 +65,22 @@ var testAlgo;
 
         // Get spectrum and bass power
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bands = RGBUtil.interpolate(AudioParams.fullMel(audio), effectiveWidth);
+        var bands = RGBUtil.interpolate(audio.spectrum.full, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
             bands[bi] = Math.min(1, bands[bi]);
-        var bass = bassFilter.update(audio.lows);
-        var dominant = AudioParams.colorChannels(
-            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        var bass = audio.power.low;
+        var dominantPacked = AudioColors.dominant(algo, audio);
+        var dominant = [(dominantPacked >> 16) & 0xFF, (dominantPacked >> 8) & 0xFF, dominantPacked & 0xFF];
 
         // Bass overlay: fill from edge based on bass power
         var bassIdx = Math.min(width, Math.floor(bass * width * 1.5));
 
         // Sparks: random pixels on beat
-        var beat = audio.triggers.beat.firedThisFrame || AudioParams.kickFired(audio) || AudioParams.anyOnsetFired(audio);
+        var beat = audio.beat.fired || audio.beat.kick || audio.onset.fired;
         if (algo.presetSparks && beat) {
-            var sparkColor = AudioParams.colorChannels(
-                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
-            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+            var sparkPacked = AudioColors.dominant(algo, audio);
+            var sparkColor = [(sparkPacked >> 16) & 0xFF, (sparkPacked >> 8) & 0xFF, sparkPacked & 0xFF];
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
             var sparkCount = Math.max(1, Math.floor(width / 15));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
@@ -107,7 +106,8 @@ var testAlgo;
                 var bassBright = (x < bassIdx) ? bass : 0;
 
                 // Combine
-                var bright = AudioParams.applyFloor(algo, Math.max(specBright, bassBright));
+                var baseBright = Math.max(specBright, bassBright);
+                var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
 
                 // Add sparks (white flash)
                 if (sparksPixels[x] > 0.1) {

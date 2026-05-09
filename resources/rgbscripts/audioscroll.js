@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -64,7 +65,6 @@ var testAlgo;
     var lutSig = "";
     var history = null; // 2D buffer of packed colors
     var initialized = false;
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -92,7 +92,8 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
         
-        var melSrc = AudioParams.fullMel(audio);
+        if (!audio) return map;
+        var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0) return map;
 
         // Decay rate
@@ -112,10 +113,11 @@ var testAlgo;
         }
 
         // Build new row of colors
-        var beatMod = 1 + AudioParams.beatPulse(audio) * 0.15;
+        var beatMod = 1 + audio.beat.cosPulse * 0.15;
         var newRow = new Array(bandLen);
         for (var i = 0; i < bandLen; i++) {
-            var val = AudioParams.applyFloor(algo, Math.min(1, bands[i])) * beatMod;
+            var baseVal = Math.min(1, bands[i]);
+            var val = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseVal) * beatMod;
             var t = i / Math.max(1, bandLen - 1);
             var r, g, b;
 

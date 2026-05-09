@@ -58,7 +58,8 @@ build*
 .playwright-mcp/
 docs/static-analysis-logs/
 docs/audio-dsp-reviews/
-docs/audio-dsp-plans/
+docs/audio-dsp-plans/*
+!docs/audio-dsp-plans/plan-ledfx-effect-ports.md
 __pycache__/
 compile_commands.json
 qml_properties_list.txt

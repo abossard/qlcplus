@@ -25,7 +25,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 3, reactivity: 9});
+    algo.presetReactivity = 9;
+    algo.presetFloor = 0;
 
     // --- Properties ---
     algo.presetSpeed = 4;
@@ -68,7 +69,6 @@ var testAlgo;
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
-    var lowsFilter = null;
     var initialized = false;
     var lastTime = 0;
 
@@ -85,19 +85,16 @@ var testAlgo;
             sparkX[i] = Math.random() * 5;
         }
 
-        lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo));
         initialized = true;
         lastTime = Date.now();
     }
 
     // Colors for fire gradient. algo.gradientColors is auto-injected by C++.
     var DEFAULT_GRADIENT = [0x200000, 0xAA0000, 0xFF5500, 0xFFFF00, 0xFFFFFF];
-    var heatLut = null;
-    var heatLutSig = "";
     var columnLut = null;
     var columnLutWidth = -1;
     var columnLutSig = "";
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -113,7 +110,8 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
 
-        var melSrc = AudioParams.fullMel(audio);
+        if (!audio) return map;
+        var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0)
             return map;
 
@@ -127,13 +125,12 @@ var testAlgo;
         var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
 
         // Audio influence: bass drives the fire
-        var bandPowers = AudioParams.bandWeights(algo, audio);
-        var rawLows = bandPowers[0];
-        var lowsPower = lowsFilter.update(rawLows);
+        var bandPowers = audio.power.bands;
+        var lowPower = bandPowers[0];
 
-        var cooling = baseCooling + lowsPower * 0.15;
-        var accel = 0.02 + lowsPower * 0.1;
-        var adjustedSpeed = speed + lowsPower * 0.01;
+        var cooling = baseCooling + lowPower * 0.15;
+        var accel = 0.02 + lowPower * 0.1;
+        var adjustedSpeed = speed + lowPower * 0.01;
         var deltaScaled = deltaMs * adjustedSpeed;
 
         // Cool all pixels
@@ -182,10 +179,6 @@ var testAlgo;
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");
-        if (heatLut === null || heatLutSig !== sig) {
-            heatLut = RGBUtil.gradientLut(stops, 256);
-            heatLutSig = sig;
-        }
         if (columnLut === null || columnLutWidth !== width || columnLutSig !== sig) {
             columnLut = RGBUtil.gradientLut(stops, width);
             columnLutWidth = width;
@@ -193,12 +186,12 @@ var testAlgo;
         }
 
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var spectrum = (audio.spectrum && audio.spectrum.length) ? audio.spectrum : melSrc;
+        var spectrum = melSrc;
         var specBands = RGBUtil.interpolate(spectrum, effectiveWidth);
         for (var si = 0; si < specBands.length; si++)
             specBands[si] = Math.min(1, specBands[si]);
         var spectrumMix = algo.presetSpread ? 0.7 : 0.35;
-        var beatMod = 1 + AudioParams.beatPulse(audio) * 0.15;
+        var beatMod = 1 + audio.beat.cosPulse * 0.15;
 
         // Map heat values to colors using fire gradient and render into 2D grid
         for (var y = 0; y < height; y++) {
@@ -213,7 +206,7 @@ var testAlgo;
                 var cr = (packed >> 16) & 0xFF;
                 var cg = (packed >> 8) & 0xFF;
                 var cb = packed & 0xFF;
-                var cb2 = AudioParams.applyFloor(algo, Math.min(1, colHeat * 2)) * beatMod;
+                var cb2 = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, colHeat * 2)) * beatMod;
                 map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
             }
         }

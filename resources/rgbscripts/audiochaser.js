@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetBaseSpeed = 5;
     algo.properties.push(
@@ -67,10 +68,6 @@ var testAlgo;
 
     // Dots: [{pos, speed, dir, band}]  band: 0=low, 1=mid, 2=high
     var dots = null;
-    var lowsFilter = null;
-    var midsFilter = null;
-    var highsFilter = null;
-    var volFilter = null;
     var lastTime = 0;
     var initialized = false;
 
@@ -87,7 +84,7 @@ var testAlgo;
         }
     }
 
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -115,8 +112,8 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
         // Get 3 mel-bank powers and matching gradient colors
-        var powers = AudioParams.bandWeights(algo, audio);
-        var vol = Number((audio.volume && audio.volume.normalized) || 0);
+        var powers = audio.power.bands;
+        var vol = audio.volume.normalized;
         var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
         var colors = [];
         for (var ci = 0; ci < 3; ci++)
@@ -136,7 +133,7 @@ var testAlgo;
         var trailLen = algo.presetTrailLength;
 
         // Kick flash for speed boost
-        var kickFlash = AudioParams.kickFired(audio) ? 1.0 : 0.0;
+        var kickFlash = audio.beat.kick ? 1.0 : 0.0;
         speedMult += kickFlash * 0.5;
 
         // Move dots
@@ -159,7 +156,7 @@ var testAlgo;
 
             // Render dot with trail
             var color = colors[dot.band];
-            var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+            var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
             var brightness = (0.5 + bandPower * 0.5) * beatBoost;
             var headX = Math.floor(dot.pos);
 
@@ -180,7 +177,8 @@ var testAlgo;
                 for (var dy = -spread; dy <= spread; dy++) {
                     var py = centerY + dy;
                     if (py < 0 || py >= height) continue;
-                    var yFade = AudioParams.applyFloor(algo, fade * (1 - Math.abs(dy) / (spread + 1)));
+                    var baseFade = fade * (1 - Math.abs(dy) / (spread + 1));
+                    var yFade = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseFade;
 
                     var existing = map[py][tx];
                     var er = (existing >> 16) & 0xFF;

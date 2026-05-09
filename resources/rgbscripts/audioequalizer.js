@@ -25,7 +25,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     // --- Properties ---
     algo.presetDecay = 5;
@@ -59,7 +60,6 @@ var testAlgo;
     algo.getGap = function() { return algo.presetGap ? "On" : "Off"; };
 
     // --- Internal state ---
-    var barFilter = null;
     var peakValues = null;
     var peakHolds = null;
     var DEFAULT_GRADIENT = [0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF80, 0x4080FF];
@@ -70,8 +70,6 @@ var testAlgo;
 
     function init(bandCount)
     {
-        var decay = algo.presetDecay / 20.0;
-        barFilter = new AudioDSP.Filter(decay, AudioParams.filterRise(algo));
         peakValues = new Array(bandCount);
         peakHolds = new Array(bandCount);
         for (var i = 0; i < bandCount; i++) {
@@ -80,7 +78,7 @@ var testAlgo;
         }
         initialized = true;
     }
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -100,7 +98,8 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
 
-        var melSrc = AudioParams.fullMel(audio);
+        if (!audio) return map;
+        var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0)
             return map;
 
@@ -117,10 +116,8 @@ var testAlgo;
             lutSig = sig;
         }
 
-        // Apply smoothing
-        var bands = barFilter.updateArray(rawBands);
-
-        var onset = AudioParams.anyOnsetFired(audio);
+        var bands = rawBands;
+        var onset = audio.onset.fired;
 
         for (var x = 0; x < Math.min(bandCount, width); x++)
         {
@@ -132,7 +129,7 @@ var testAlgo;
 
             // Update peak marker
             if (algo.presetPeaks) {
-                if (AudioParams.isDownbeat(audio)) {
+                if (audio.bar.downbeat) {
                     peakValues[x] *= 0.5;
                 }
                 if (magnitude >= peakValues[x]) {
@@ -156,9 +153,8 @@ var testAlgo;
                 for (var y = mid - halfBar; y <= mid + halfBar; y++)
                 {
                     if (y < 0 || y >= height) continue;
-                    var t = Math.abs(y - mid) / (height / 2);
                     var c = unpackColor(gradientLut[x]);
-                    var brightness = AudioParams.applyFloor(algo, magnitude);
+                    var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * magnitude;
                     map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
@@ -169,9 +165,8 @@ var testAlgo;
                 {
                     var y = height - 1 - dy;
                     if (y < 0) break;
-                    var t = dy / height;
                     var c = unpackColor(gradientLut[x]);
-                    var brightness = AudioParams.applyFloor(algo, magnitude);
+                    var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * magnitude;
                     map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
@@ -187,7 +182,7 @@ var testAlgo;
                     peakY = height - 1 - Math.floor(peakValues[x] * height);
                 }
                 if (peakY >= 0 && peakY < height) {
-                    var peakBrightness = AudioParams.applyFloor(algo, peakValues[x]);
+                    var peakBrightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * peakValues[x];
                     map[peakY][x] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
                 }
             }

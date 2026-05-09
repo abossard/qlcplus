@@ -147,11 +147,10 @@ qint64 AudioRendererQt5::writeAudio(unsigned char *data, qint64 maxSize)
     if (m_audioOutput == NULL || m_audioOutput->bytesFree() < maxSize)
         return 0;
 
-    //qDebug() << "writeAudio called !! - " << maxSize;
     qint64 written = m_output->write((const char *)data, maxSize);
 
     if (written != maxSize)
-        qDebug() << "[writeAudio] expected to write" << maxSize << "but wrote" << written;
+        qWarning() << "[writeAudio] expected to write" << maxSize << "but wrote" << written;
 
     return written;
 }

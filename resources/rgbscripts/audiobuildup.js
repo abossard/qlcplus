@@ -19,7 +19,8 @@ algo.acceptColors = 2;  // buildup color + drop color
 algo.usesAudio = true;
 algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 6, reactivity: 8, sensitivity: 6});
+algo.presetReactivity = 8;
+algo.presetSensitivity = 6;
 
 algo.presetDropIntensity = 8;
 algo.properties.push(
@@ -83,10 +84,6 @@ function unpackColor(color) {
 
 
 
-function createAudioFilter(baseDecay) {
-    return new AudioDSP.Filter(baseDecay, AudioParams.filterRise(algo));
-}
-
 function colorHue(color) {
     var r = color[0] / 255.0, g = color[1] / 255.0, b = color[2] / 255.0;
     var max = Math.max(r, g, b), min = Math.min(r, g, b);
@@ -125,12 +122,6 @@ function initState() {
     algo.buildProgress = 0;
     algo.bassAbsentFrames = 0;
     algo.dropArmed = false;
-
-    algo.energyFastFilter = createAudioFilter(0.1);
-    algo.energySlowFilter = new AudioDSP.Filter(0.97, 0.05);
-    algo.lowsFastFilter = createAudioFilter(0.2);
-    algo.highsFastFilter = createAudioFilter(0.2);
-    algo.buildScoreFilter = createAudioFilter(0.3);
 
     algo.featureMin = {
         energyTrend: -0.05,
@@ -181,20 +172,15 @@ function normalizeFeature(name, value, fallbackScale, fallbackOffset) {
 }
 
 function extractFeatures(audio) {
-    var hasAudio = !!audio;
-    var rawLows = audio.lows;
-    var rawMids = audio.mids;
-    var rawHighs = audio.highs;
+    var rawLows = audio.power.low;
+    var rawMids = audio.power.mid;
+    var rawHighs = audio.power.high;
     var rawTotal = rawLows + rawMids + rawHighs + 0.001;
 
-    var energyFast = algo.energyFastFilter.update(rawTotal);
-    var energySlow = algo.energySlowFilter.update(rawTotal);
-    var lowsFast = algo.lowsFastFilter.update(rawLows);
-    var highsFast = algo.highsFastFilter.update(rawHighs);
-    var energyTrend = energyFast - energySlow;
+    var energyTrend = audio.features.flux;
     var highRatio = rawHighs / rawTotal;
 
-    var flux = AudioParams.flux(audio);
+    var flux = audio.features.flux;
 
     if (algo.presetAutoTune && algo.state === algo.IDLE) {
         updateCalibration("energyTrend", energyTrend);
@@ -209,13 +195,13 @@ function extractFeatures(audio) {
     var lowsNorm = normalizeFeature("lows", rawLows, 1.4, 0);
 
     // Add onset intensity to buildup signal
-    var onsetBoost = AudioParams.maxOnsetIntensity(audio) * 0.15;
+    var onsetBoost = audio.onset.intensity * 0.15;
     var buildScoreRaw = 0.35 * energyTrendNorm +
                         0.20 * highRatioNorm +
                         0.25 * fluxNorm +
                         0.20 * (1 - lowsNorm) +
                         onsetBoost;
-    var buildScore = algo.buildScoreFilter.update(buildScoreRaw);
+    var buildScore = buildScoreRaw;
 
     var featureVotes = 0;
     if (energyTrendNorm > 0.4) featureVotes++;
@@ -230,16 +216,13 @@ function extractFeatures(audio) {
     if (algo.bassAbsentFrames > 10)
         algo.dropArmed = true;
 
-    var dropDetected = algo.dropArmed && (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio));
+    var dropDetected = algo.dropArmed && (audio.bands.low.fired || audio.beat.kick);
 
     algo.history[algo.historyIndex] = buildScore;
     algo.historyIndex = (algo.historyIndex + 1) % algo.history.length;
 
     return {
-        hasAudio: hasAudio,
         rawLows: rawLows,
-        lowsFast: lowsFast,
-        highsFast: highsFast,
         energyTrendNorm: energyTrendNorm,
         highRatioNorm: highRatioNorm,
         fluxNorm: fluxNorm,
@@ -263,8 +246,7 @@ function updateState(features) {
 
     if (algo.state === algo.IDLE) {
         algo.buildProgress = Math.max(0, algo.buildProgress - 0.03);
-        if (features.hasAudio &&
-            features.buildScore > buildEnterThresh &&
+        if (features.buildScore > buildEnterThresh &&
             features.featureVotes >= 2 &&
             algo.cooldown === 0) {
             transitionTo(algo.BUILDING);
@@ -292,11 +274,11 @@ function updateState(features) {
     }
 }
 
-function renderIdle(map, width, height, features, forceDim) {
+function renderIdle(map, width, height, features) {
     var baseHue = colorHue(algo.buildColor);
-    var bass = forceDim ? 0.02 : features.lowsNorm;
-    var mids = forceDim ? 0.01 : features.midsNorm;
-    var highs = forceDim ? 0.01 : features.highsNorm;
+    var bass = features.lowsNorm;
+    var mids = features.midsNorm;
+    var highs = features.highsNorm;
     var centerX = width / 2.0;
     var centerY = height / 2.0;
 
@@ -426,7 +408,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     updateState(features);
 
     if (algo.state === algo.IDLE)
-        renderIdle(map, width, height, features, !features.hasAudio);
+        renderIdle(map, width, height, features);
     else if (algo.state === algo.BUILDING)
         renderBuilding(map, width, height, features);
     else if (algo.state === algo.PEAK)

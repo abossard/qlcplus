@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -52,21 +53,19 @@ var testAlgo;
     var scanPos = 0;
     var returning = false;
     var lastTime = 0;
-    var powerFilter = null;
     var initialized = false;
     var activeColor = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            powerFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
@@ -81,7 +80,7 @@ var testAlgo;
         if (deltaSec <= 0 || deltaSec > 0.2) deltaSec = 0.02;
 
         // Audio drives speed
-        var power = powerFilter.update(audio.lows);
+        var power = audio.power.low;
         var speedMult = 1 + power * 8;
         var baseSpeed = algo.presetSpeed * 5;
         var stepSize = deltaSec * baseSpeed * speedMult;
@@ -103,12 +102,13 @@ var testAlgo;
         }
 
         // Brightness varies with audio power
-        var bright = AudioParams.applyFloor(algo, Math.min(1, 0.3 + power * 2.0));
+        var baseBright = Math.min(1, 0.3 + power * 2.0);
+        var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
 
         // Fill background
-        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio) || !activeColor) {
-            activeColor = AudioParams.colorChannels(
-                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        if (audio.onset.fired || audio.beat.kick || !activeColor) {
+            var dominantColor = AudioColors.dominant(algo, audio);
+            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
         }
         var dominant = activeColor;
         var bgPacked = RGBUtil.rgb(0, 0, 0);

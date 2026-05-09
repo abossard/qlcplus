@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -46,7 +47,6 @@ var testAlgo;
     algo.getTightness = function() { return algo.presetTightness; };
 
     var DEFAULT_BAND_COLORS = [0xFF0080, 0x8064D8, 0x00C8FF];
-    var lowsFilter = null;
     var angle = 0;
     var lastTime = 0;
     var initialized = false;
@@ -54,14 +54,13 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
@@ -74,7 +73,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
-        var power = lowsFilter.update(audio.lows);
+        var power = audio.power.low;
         var speed = algo.presetSpeed / 5.0;
         angle += dt * speed * (1 + power * algo.presetReactivity / 3.0);
 
@@ -83,9 +82,11 @@ var testAlgo;
         var maxDist = Math.sqrt(cx * cx + cy * cy);
         var arms = algo.presetArms;
         var tightness = algo.presetTightness / 3.0;
-        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
-        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
-        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
+        var blendedPacked = AudioColors.blendByPower(algo, audio);
+        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
+        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var noveltyBoost = AudioColors.noveltyBoost(audio);
+        var fluxPunch = AudioColors.fluxPunch(audio);
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
@@ -104,7 +105,9 @@ var testAlgo;
                 var armVal = Math.sin(spiral * arms) * 0.5 + 0.5;
 
                 // Brightness: arms visible, fades toward edge
-                var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, armVal * power * (1 - normDist * 0.5))), audio) * beatBoost * noveltyBoost;
+                var baseBright = Math.min(1, armVal * power * (1 - normDist * 0.5));
+                var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+                var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
                 map[y][x] = RGBUtil.rgb(
                     blended[0] * bright,

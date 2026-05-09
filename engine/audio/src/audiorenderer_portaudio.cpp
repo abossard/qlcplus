@@ -42,7 +42,7 @@ AudioRendererPortAudio::~AudioRendererPortAudio()
     PaError err;
     err = Pa_Terminate();
     if (err != paNoError)
-        qDebug() << "PortAudio error: " << Pa_GetErrorText(err);
+        qWarning() << "PortAudio error: " << Pa_GetErrorText(err);
 }
 
 int AudioRendererPortAudio::dataCallback(const void *, void *outputBuffer,
@@ -69,7 +69,6 @@ int AudioRendererPortAudio::dataCallback(const void *, void *outputBuffer,
 
     memcpy(outputBuffer, PAobj->m_buffer.data(), requestedData);
     PAobj->m_buffer.remove(0, requestedData);
-    qDebug() << "PortAudio dataCallback. RequestedData: " << requestedData << "buffer size:" << PAobj->m_buffer.size();
 
     return paContinue;
 }
@@ -98,7 +97,7 @@ bool AudioRendererPortAudio::initialize(quint32 freq, int chan, AudioFormat form
 
     if (outputParameters.device == paNoDevice)
     {
-        qDebug() << "Error: No default output device";
+        qWarning() << "Error: No default output device";
         return false;
     }
 
@@ -186,7 +185,7 @@ QList<AudioDeviceInfo> AudioRendererPortAudio::getDevicesInfo()
 
     err = Pa_Terminate();
     if (err != paNoError)
-        qDebug() << "PortAudio error: " << Pa_GetErrorText(err);
+        qWarning() << "PortAudio error: " << Pa_GetErrorText(err);
 
     return devList;
 }
@@ -196,7 +195,6 @@ qint64 AudioRendererPortAudio::writeAudio(unsigned char *data, qint64 maxSize)
     if (m_buffer.size() > (8192 * 4))
         return 0;
 
-    qDebug() << "writeAudio called !! - " << maxSize;
     QMutexLocker locker(&m_paMutex);
     m_buffer.append((const char *)data, maxSize);
 
@@ -217,11 +215,11 @@ void AudioRendererPortAudio::reset()
     PaError err;
     err = Pa_StopStream(m_paStream);
     if (err != paNoError)
-        qDebug() << "PortAudio Error: Stop stream failed!";
+        qWarning() << "PortAudio Error: Stop stream failed!";
 
     err = Pa_CloseStream(m_paStream);
     if (err != paNoError)
-        qDebug() << "PortAudio Error: Close stream failed!";
+        qWarning() << "PortAudio Error: Close stream failed!";
     m_buffer.clear();
     m_paStream = NULL;
 }

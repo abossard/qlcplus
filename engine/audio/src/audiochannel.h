@@ -87,6 +87,7 @@ private:
 
     // LedFx audio.py:1159 — freq_power_filter initialized to zeros
     double m_freqPower[4] = {};  // beat, bass, mids, highs
+    bool m_prevDownbeat = false;
 
     // Mel post-processing — legacy 40-band path.
     MelPostProcessor m_melPost;
@@ -111,6 +112,7 @@ private:
     double m_melHighNovelty  [AudioSnapshot::kMelBankBandsMax] = {};
 
     void updateNoiseGateState(const AudioFrame &frame, double dtMs);
+    void updateFreqPower(const AudioFrame &frame);
     void updateEnvelopes(const AudioFrame &frame, double dtMs);
     void updateTriggers(double dtMs);
     void updateVolume(const AudioFrame &frame, double dtMs);

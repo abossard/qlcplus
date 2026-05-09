@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -43,9 +44,6 @@ var testAlgo;
       "values:10,100|write:setMinBrightness|read:getMinBrightness");
 
     algo.currentHue = null;
-    algo.bassFilter = null;
-    algo.midsFilter = null;
-    algo.highsFilter = null;
 
     algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -92,12 +90,12 @@ var testAlgo;
 
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
-        var bass = audio.lows;
-        var mids = audio.mids;
-        var highs = audio.highs;
+        var bass = audio.power.low;
+        var mids = audio.power.mid;
+        var highs = audio.power.high;
 
         // Pitch-driven hue: map pitch to hue offset (one octave = full hue cycle)
-        var pitch = AudioParams.pitchHz(audio, 0.5);
+        var pitch = audio.pitch.confidence < 0.5 ? 0 : audio.pitch.hz;
         var pitchHueOffset = 0;
         if (pitch > 0) {
             pitchHueOffset = ((Math.log2(pitch / 110) % 1) + 1) % 1;
@@ -105,14 +103,14 @@ var testAlgo;
 
         var totalPower = bass + mids + highs + 0.001;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
-        targetHue = wrapHue(targetHue + AudioParams.centroidWarmCool(audio) * 0.33 + pitchHueOffset * 0.4);
+        targetHue = wrapHue(targetHue + Math.max(0, Math.min(1, (audio.features.centroidHz - 200) / 3800)) * 0.33 + pitchHueOffset * 0.4);
         var speedRate = 0.05 + (algo.presetSpeed / 10.0) * 0.45;
         algo.currentHue = lerpHue(algo.currentHue, targetHue, speedRate);
 
         var minBrightness = algo.presetMinBrightness / 100.0;
         var volume = (bass + mids + highs) / 3.0;
         // Steady brightness with subtle audio + beat pulse modulation
-        var beatMod = AudioParams.beatPulse(audio) * 0.12;
+        var beatMod = audio.beat.cosPulse * 0.12;
         var brightness = clamp(minBrightness + volume * 0.15 + beatMod, minBrightness, 1.0);
         var waveScale = algo.presetWaveScale / 20.0;
         var saturation = algo.presetSaturation / 100.0;
@@ -121,7 +119,8 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var wave = Math.sin(x * 0.3 + y * 0.2 + step * 0.05) * waveScale;
                 var pixelHue = wrapHue(algo.currentHue + wave);
-                var pixelBri = AudioParams.applyFloor(algo, clamp(brightness + wave * 0.2, minBrightness, 1.0));
+                var baseBri = clamp(brightness + wave * 0.2, minBrightness, 1.0);
+                var pixelBri = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBri;
                 var color = RGBUtil.hsv2rgb(pixelHue, saturation, pixelBri);
                 map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
             }

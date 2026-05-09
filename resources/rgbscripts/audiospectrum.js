@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetFloor = 0;
 
     algo.presetMode = 0;
     algo.properties.push(
@@ -54,7 +55,6 @@ var testAlgo;
     // provide any (red -> blue). algo.gradientColors is auto-injected by C++
     // every frame from the matrix's color stops.
     var DEFAULT_GRADIENT = [0xFF0000, 0x0000FF];
-    var filter = null;
     var prevBands = null;
     var peakValues = null;
     var peakHolds = null;
@@ -65,15 +65,11 @@ var testAlgo;
     var lutSig = "";
 
     function init() {
-        var decay = algo.presetSmoothing / 15.0;
-        var rise = 0.1 + algo.presetReactivity * 0.09;
-        filter = new AudioDSP.Filter(decay, rise);
         peakValues = null;
         peakHolds = null;
         initialized = true;
         filterDirty = false;
     }
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -90,7 +86,8 @@ var testAlgo;
         if (!initialized || filterDirty) init();
         var map = RGBUtil.createMap(width, height);
         
-        var melSrc = AudioParams.fullMel(audio);
+        if (!audio) return map;
+        var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0) return map;
 
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
@@ -98,7 +95,7 @@ var testAlgo;
         for (var i = 0; i < bands.length; i++)
             bands[i] = Math.min(1, bands[i]);
 
-        var filtered = filter.updateArray(bands);
+        var filtered = bands;
         if (!prevBands || prevBands.length !== bands.length) prevBands = bands.slice();
         if (!peakValues || peakValues.length !== bands.length) {
             peakValues = new Array(bands.length);
@@ -108,7 +105,7 @@ var testAlgo;
                 peakHolds[pi] = 0;
             }
         }
-        var onset = AudioParams.anyOnsetFired(audio);
+        var onset = audio.onset.fired;
 
         // Build/refresh per-column gradient LUT lazily for Gradient mode.
         // Rebuild also when the auto-injected gradient changes (signature check).
@@ -131,7 +128,7 @@ var testAlgo;
             if (val > 0.01)
                 barHeight = Math.max(1, barHeight);
             var t = x / Math.max(1, width - 1);
-            if (AudioParams.isDownbeat(audio)) {
+            if (audio.bar.downbeat) {
                 peakValues[x] *= 0.5;
             }
             if (val >= peakValues[x]) {
@@ -168,7 +165,8 @@ var testAlgo;
                     b = packed & 0xFF;
                 }
                 // Brightness from height position
-                var bright = AudioParams.applyFloor(algo, (dy / height) * 0.5 + 0.5);
+                var baseBright = (dy / height) * 0.5 + 0.5;
+                var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
                 map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
             if (peakValues[x] > 0.01) {

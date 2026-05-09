@@ -210,6 +210,11 @@ struct AubioConfig
     // create/destroy of the affected onset detector(s) only.
     bool onsetMethodEnabled[9] = { true, true, true, true, true, true, true, true, true };
 
+    // Primary onset method for audio.onset.fired/intensity.
+    // 0=energy 1=hfc 2=complex 3=phase 4=wphase 5=specdiff 6=kl 7=mkl 8=specflux
+    // Default: specflux (best general-purpose, pending validation vs hfc).
+    int onsetMethodIndex = 8;
+
     // Per-method tuning overrides (sentinel = aubio default). Applied AFTER
     // aubio_onset_set_default_parameters() in initialize() / on enable.
     OnsetMethodOverride onsetOverrides[9];

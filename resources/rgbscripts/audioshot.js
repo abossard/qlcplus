@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetSensitivity = 5;
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -65,15 +66,15 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     function spawnShot(width, height, audio) {
-        var color = AudioParams.colorChannels(
-            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        var colorPacked = AudioColors.dominant(algo, audio);
+        var color = [(colorPacked >> 16) & 0xFF, (colorPacked >> 8) & 0xFF, colorPacked & 0xFF];
         var r = color[0], g = color[1], b = color[2];
-        var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+        var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
 
         shots.push({
             x: Math.floor(Math.random() * width),
@@ -95,11 +96,11 @@ var testAlgo;
 
         // Check trigger
         var trigger = false;
-        if (algo.presetTrigger === 0) trigger = audio.triggers.beat.firedThisFrame;
-        else if (algo.presetTrigger === 1) trigger = audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio);
-        else if (algo.presetTrigger === 2) trigger = audio.triggers.mid.firedThisFrame;
-        else trigger = audio.triggers.high.firedThisFrame;
-        trigger = trigger || AudioParams.anyOnsetFired(audio);
+        if (algo.presetTrigger === 0) trigger = audio.beat.fired;
+        else if (algo.presetTrigger === 1) trigger = audio.bands.low.fired || audio.beat.kick;
+        else if (algo.presetTrigger === 2) trigger = audio.bands.mid.fired;
+        else trigger = audio.bands.high.fired;
+        trigger = trigger || audio.onset.fired;
 
         if (trigger) spawnShot(width, height, audio);
 

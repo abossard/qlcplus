@@ -650,33 +650,6 @@ void AubioProcessor::processHop()
     runBank(m_filterbankHigh, m_melHighOut,
             m_results.melHigh, m_results.melHighCount);
 
-    // TEMP forensic debug: dump raw mel sums/maxes every ~200 frames (~4s @ 50Hz).
-    {
-        static int dbgCounter = 0;
-        if (++dbgCounter % 200 == 0)
-        {
-            double sumLow=0, sumMid=0, sumHigh=0;
-            double maxLow=0, maxMid=0, maxHigh=0;
-            for (int i = 0; i < m_results.melLowCount;  i++) {
-                sumLow  += m_results.melLow[i];
-                if (m_results.melLow[i]  > maxLow)  maxLow  = m_results.melLow[i];
-            }
-            for (int i = 0; i < m_results.melMidCount;  i++) {
-                sumMid  += m_results.melMid[i];
-                if (m_results.melMid[i]  > maxMid)  maxMid  = m_results.melMid[i];
-            }
-            for (int i = 0; i < m_results.melHighCount; i++) {
-                sumHigh += m_results.melHigh[i];
-                if (m_results.melHigh[i] > maxHigh) maxHigh = m_results.melHigh[i];
-            }
-            qDebug() << "[FORENSIC] RAW MEL sums:" << sumLow << sumMid << sumHigh
-                     << "maxes:" << maxLow << maxMid << maxHigh
-                     << "counts:" << m_results.melLowCount
-                                  << m_results.melMidCount
-                                  << m_results.melHighCount;
-        }
-    }
-
     // 3. MFCC
     if (m_mfcc)
     {

@@ -136,7 +136,9 @@ quint32 Audio::totalDuration()
 
 void Audio::setTotalDuration(quint32 msec)
 {
+#ifdef AUDIO_DEBUG
     qDebug() << "Audio set total duration:" << msec;
+#endif
     m_audioDuration = msec;
 
     emit totalDurationChanged();

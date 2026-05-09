@@ -141,8 +141,6 @@ bool AudioCaptureQt5::readAudio(int maxSize)
     QByteArray readBuffer = m_input->readAll();
     m_currentReadBuffer += readBuffer;
 
-    // qDebug() << "[QT readAudio] " << readBuffer.size() << "bytes read -> (" << m_currentReadBuffer.size() << "/" << bufferSize << ")";
-
     if (m_currentReadBuffer.size() < bufferSize)
     {
         // nothing has been read

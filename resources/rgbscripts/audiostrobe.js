@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 5, reactivity: 5, sensitivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetSensitivity = 5;
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -73,7 +74,7 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
@@ -86,28 +87,28 @@ var testAlgo;
         // Determine if we should flash
         var trigger = false;
         if (algo.presetTriggerMode === 1) {
-            trigger = AudioParams.anyOnsetFired(audio);
+            trigger = audio.onset.fired;
         } else if (algo.presetTriggerMode === 2) {
-            trigger = !!(audio.note && audio.note.noteOn);
+            trigger = audio.note.on;
         } else if (algo.presetMode === 0) {
-            trigger = audio.triggers.beat.firedThisFrame;
+            trigger = audio.beat.fired;
         } else if (algo.presetMode === 1) {
-            trigger = audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio);
+            trigger = audio.bands.low.fired || audio.beat.kick;
         } else if (algo.presetMode === 2) {
-            trigger = audio.triggers.mid.firedThisFrame;
+            trigger = audio.bands.mid.fired;
         } else if (algo.presetMode === 3) {
-            trigger = audio.triggers.high.firedThisFrame;
+            trigger = audio.bands.high.fired;
         } else if (algo.presetMode === 4) {
-            trigger = audio.triggers.volume.firedThisFrame;
+            trigger = audio.volume.trigger.fired;
         } else {
-            trigger = AudioParams.kickFired(audio);
+            trigger = audio.beat.kick;
         }
 
         if (trigger) {
-            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
             brightness = hitScale;
-            activeColor = AudioParams.colorChannels(
-                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+            var dominantColor = AudioColors.dominant(algo, audio);
+            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
         }
 
         // Decay

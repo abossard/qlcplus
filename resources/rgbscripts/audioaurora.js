@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 3, reactivity: 1});
+    algo.presetReactivity = 1;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 4;
     algo.properties.push(
@@ -53,7 +54,7 @@ var testAlgo;
     // algo.gradientBandColors when the matrix supplies color stops.
     var DEFAULT_BAND_COLORS = [0x6400FF, 0x00FF64, 0xFF8000];
 
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -83,7 +84,7 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
 
         // 3 mel banks, each driving its own gradient color.
-        var bandPowers = AudioParams.bandWeights(algo, audio);
+        var bandPowers = audio.power.bands;
         var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
 
         var cols = new Array(3);
@@ -100,7 +101,7 @@ var testAlgo;
         var layers = algo.presetLayers;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         // True 2D: multiple sine wave layers drifting across the grid
         for (var y = 0; y < height; y++) {
@@ -143,7 +144,7 @@ var testAlgo;
 
                 var maxChannel = Math.max(r, g, b2) / 255.0;
                 if (maxChannel > 0) {
-                    var floored = AudioParams.applyFloor(algo, Math.min(1, maxChannel));
+                    var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, maxChannel);
                     var floorScale = floored / maxChannel * beatBoost;
                     r *= floorScale;
                     g *= floorScale;

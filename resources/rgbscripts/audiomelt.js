@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -41,8 +42,7 @@ var testAlgo;
     algo.getColorSpeed = function() { return algo.presetColorSpeed; };
 
     var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
-    var lowsFilter = null;
-    var lowsPower = 0;
+    var lowPower = 0;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
@@ -50,14 +50,13 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!initialized) {
-            lowsFilter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             lastTime = Date.now();
             initialized = true;
         }
@@ -70,20 +69,22 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = lowsFilter.update(audio.lows);
+        lowPower = audio.power.low;
 
         // Accumulate time with audio reactivity
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
         timestep += dt;
-        timestep += lowsPower * reactivity / speed * 50;
+        timestep += lowPower * reactivity / speed * 50;
 
         var t1 = (timestep * speed * 0.0005) % 1;
         var t2 = (timestep * speed * 0.00065) % 1;
         var colorT = (timestep * algo.presetColorSpeed * 0.0001) % 1;
-        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
-        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
-        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
+        var blendedPacked = AudioColors.blendByPower(algo, audio);
+        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
+        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var noveltyBoost = AudioColors.noveltyBoost(audio);
+        var fluxPunch = AudioColors.fluxPunch(audio);
 
         for (var x = 0; x < width; x++) {
             var il = 1 - x / Math.max(1, width - 1);
@@ -100,7 +101,8 @@ var testAlgo;
             var g = blended[1] * colorScale;
             var b = blended[2] * colorScale;
 
-            var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, v), audio) * beatBoost * noveltyBoost;
+            var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * v;
+            var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
             var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
 
             for (var y = 0; y < height; y++)

@@ -105,17 +105,17 @@ void AudioCapturePortAudio::uninitialize()
     /* -- Now we stop the stream -- */
     err = Pa_StopStream(stream);
     if (err != paNoError)
-        qDebug() << "PortAudio error: " << Pa_GetErrorText(err);
+        qWarning() << "PortAudio error: " << Pa_GetErrorText(err);
 
     /* -- don't forget to cleanup! -- */
     err = Pa_CloseStream(stream);
     if (err != paNoError)
-        qDebug() << "PortAudio error: " << Pa_GetErrorText(err);
+        qWarning() << "PortAudio error: " << Pa_GetErrorText(err);
     stream = NULL;
 
     err = Pa_Terminate();
     if (err != paNoError)
-        qDebug() << "PortAudio error: " << Pa_GetErrorText(err);
+        qWarning() << "PortAudio error: " << Pa_GetErrorText(err);
 }
 
 qint64 AudioCapturePortAudio::latency() const
@@ -141,8 +141,6 @@ bool AudioCapturePortAudio::readAudio(int maxSize)
         qWarning("read from audio interface failed (%s)\n", Pa_GetErrorText(err));
         return false;
     }
-
-    qDebug() << "[PORTAUDIO readAudio] " << maxSize << "bytes read";
 
     return true;
 }

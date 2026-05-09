@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSmoothing = 7;
     algo.properties.push(
@@ -38,9 +39,7 @@ var testAlgo;
     var gradientLut = null;
     var lutWidth = -1;
     var lutSig = "";
-    var filter = null;
-    var initialized = false;
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    var prevBands = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -52,16 +51,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var pixelCount = width * height;
-        if (!initialized || !filter) {
-            var decay = algo.presetSmoothing / 15.0;
-            filter = new AudioDSP.Filter(decay, AudioParams.filterRise(algo));
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         
-        var melSrc = AudioParams.fullMel(audio);
+        if (!audio) return map;
+        var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0) return map;
 
         // Get spectrum interpolated to physical display width
@@ -69,6 +62,13 @@ var testAlgo;
         var bands = RGBUtil.interpolate(melSrc, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
             bands[bi] = Math.min(1, bands[bi]);
+        if (prevBands === null || prevBands.length !== bands.length)
+            prevBands = bands.slice();
+        var alpha = 1.0 / Math.max(1, algo.presetSmoothing);
+        for (var si = 0; si < bands.length; si++) {
+            bands[si] = prevBands[si] + alpha * (bands[si] - prevBands[si]);
+            prevBands[si] = bands[si];
+        }
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");
         if (gradientLut === null || lutWidth !== width || lutSig !== sig) {
@@ -76,12 +76,10 @@ var testAlgo;
             lutWidth = width;
             lutSig = sig;
         }
-        var smoothed = filter.updateArray(bands);
 
         // Map each column: spectrum magnitude → gradient color × brightness
         for (var x = 0; x < width; x++) {
-            var magnitude = Math.max(0, Math.min(1, smoothed[x]));
-            var t = x / Math.max(1, width - 1);
+            var magnitude = Math.max(0, Math.min(1, bands[x]));
 
             // Gradient color based on position
             var packed = gradientLut[x];
@@ -96,7 +94,8 @@ var testAlgo;
                 var y = height - 1 - dy;
                 if (y < 0) break;
                 // Fade brightness toward top
-                var bright = AudioParams.applyFloor(algo, magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight)));
+                var baseBright = magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight));
+                var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
                 map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
             }
         }

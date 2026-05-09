@@ -1720,7 +1720,6 @@ Rectangle
 
                                 onDropped:
                                 {
-                                    console.log("Function item dropped here. x: " + drag.x + " y: " + drag.y)
 
                                     if (drag.source.hasOwnProperty("fromFunctionManager"))
                                     {

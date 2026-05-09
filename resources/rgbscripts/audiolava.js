@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 7;
     algo.properties.push(
@@ -41,12 +42,12 @@ var testAlgo;
     algo.getContrast = function() { return algo.presetContrast; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFAA00, 0x80FF00];
-    var lowsPower = 0;
+    var lowPower = 0;
     var elapsedMs = 0;
     var lastTime = 0;
     var initialized = false;
 
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -71,8 +72,8 @@ var testAlgo;
         if (dt <= 0 || dt > 0.2) dt = 0.02;
         elapsedMs += dt * 1000;
 
-        var bandPowers = AudioParams.bandWeights(algo, audio);
-        lowsPower = bandPowers[0];
+        var bandPowers = audio.power.bands;
+        lowPower = bandPowers[0];
         var midsPower = bandPowers[1];
         var highsPower = bandPowers[2];
         var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
@@ -83,11 +84,11 @@ var testAlgo;
         var contrast = 1 - algo.presetContrast / 10.0;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         // Time phases — bass accelerates significantly
-        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowsPower * 2)) % 1;
-        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowsPower * 3)) % 1;
+        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowPower * 2)) % 1;
+        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowPower * 3)) % 1;
 
         // True 2D: each pixel gets unique wave value
         for (var y = 0; y < height; y++) {
@@ -104,9 +105,9 @@ var testAlgo;
                 var w5 = Math.sin((t2 * 1.3 - xNorm + yNorm * 1.2) * Math.PI * 2);
 
                 // Combine waves for pattern
-                var pattern = (w1 + 0.1) * (w2 + lowsPower * 2) * (w3 + midsPower * 1.5) + (w4 * midsPower + w5 * highsPower) * 0.35;
+                var pattern = (w1 + 0.1) * (w2 + lowPower * 2) * (w3 + midsPower * 1.5) + (w4 * midsPower + w5 * highsPower) * 0.35;
                 pattern = Math.pow(Math.max(0, pattern + contrast), 2);
-                pattern = AudioParams.applyFloor(algo, Math.min(1, pattern)) * beatBoost;
+                pattern = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, pattern)) * beatBoost;
 
                 // Mix 3 gradient colors weighted by mel-bank powers
                 var r = 0, g = 0, b = 0, total = 0;

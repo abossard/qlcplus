@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 7, reactivity: 7, sensitivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetSensitivity = 7;
 
     algo.presetMaxParticles = 200;
     algo.properties.push(
@@ -88,9 +89,6 @@ var testAlgo;
         return RGBUtil.rgb(Math.min(255, er+nr), Math.min(255, eg+ng), Math.min(255, eb+nb));
     }
 
-    function initState() {
-    }
-
     function bandColorPacked(bandIndex) {
         var colors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
         return colors[Math.max(0, Math.min(2, bandIndex))] & 0xFFFFFF;
@@ -99,14 +97,14 @@ var testAlgo;
     function randomWeightedBand(powers, start, end) {
         var total = 0;
         for (var i = start; i <= end; i++) {
-            var p = (powers && typeof powers[i] === "number" && isFinite(powers[i])) ? powers[i] : 0;
+            var p = powers[i];
             if (p < 0) p = 0;
             total += p;
         }
         if (total <= 0.001) return start + Math.floor(Math.random() * (end - start + 1));
         var pick = Math.random() * total;
         for (var j = start; j <= end; j++) {
-            var pj = (powers && typeof powers[j] === "number" && isFinite(powers[j])) ? powers[j] : 0;
+            var pj = powers[j];
             if (pj < 0) pj = 0;
             pick -= pj;
             if (pick <= 0) return j;
@@ -186,7 +184,7 @@ var testAlgo;
     }
 
     function dominantBandType(audio) {
-        return ["low", "mid", "high"][AudioParams.dominantBandIndex(algo, audio)];
+        return audio.power.dominant;
     }
 
     function addPixel(map, width, height, x, y, color) {
@@ -225,12 +223,12 @@ var testAlgo;
 
     function renderAmbientSparkle(map, width, height, powers) {
         var count = Math.max(1, Math.floor(width * height / 80));
-        var audioPower = powers[0] + powers[1] + powers[2] + powers[3] + powers[4];
+        var audioPower = powers[0] + powers[1] + powers[2];
         var brightness = 0.02 + Math.min(0.03, audioPower * 0.01);
         for (var i = 0; i < count; i++) {
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
-            var packed = bandColorPacked(randomWeightedBand(powers, 0, 4));
+            var packed = bandColorPacked(randomWeightedBand(powers, 0, 2));
             var sr = (packed >> 16) & 0xFF, sg = (packed >> 8) & 0xFF, sb = packed & 0xFF;
             var sparkle = brightness * (0.5 + Math.random() * 0.5);
             map[y][x] = additive(map[y][x], RGBUtil.rgb(sr * sparkle, sg * sparkle, sb * sparkle));
@@ -239,18 +237,16 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        initState();
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
-        var powers = AudioParams.powerArray(audio);
-        var totalPower = AudioParams.totalPower(audio);
+        var powers = audio.power.bands;
+        var totalPower = audio.power.total;
 
         // Kick flash triggers extra bursts
-        var kickFlash = AudioParams.kickFired(audio) ? 1.0 : 0.0;
-        var onsetIntensity = AudioParams.maxOnsetIntensity(audio);
+        var kickFlash = audio.beat.kick ? 1.0 : 0.0;
+        var onsetIntensity = audio.onset.intensity;
 
-        if (AudioParams.triggerModeFired(algo, audio))
+        if (algo.presetTriggerMode === 1 ? audio.onset.fired : (algo.presetTriggerMode === 2 ? audio.note.on : audio.beat.fired))
             spawnBurst(width, height, dominantBandType(audio), powers);
 
         // Extra burst on strong kicks

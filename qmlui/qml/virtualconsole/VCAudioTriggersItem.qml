@@ -680,7 +680,6 @@ VCWidgetItem
                             paintLabel(ctx, 1, yTss + tssRowH + 1, "St", "#88ffff")
 
                             var elapsed = Date.now() - t0
-                            console.log("sparkline paint: " + elapsed + "ms, w=" + w + " sampleCount=" + barsItem.sampleCount)
                         }
                     }
 

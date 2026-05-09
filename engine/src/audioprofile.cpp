@@ -445,9 +445,13 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
                         config.aubio.onsetMethodEnabled[i] = (mask.at(i) != QLatin1Char('0'));
                 }
             }
+            config.aubio.onsetMethodIndex = std::clamp(intAttribute(childAttrs,
+                                                                    KXMLQLCAudioProfileAubioOnsetMethodIndex,
+                                                                    config.aubio.onsetMethodIndex),
+                                                       0, AUBIO_ONSET_METHODS - 1);
             config.aubio.tempoDelayMs = doubleAttribute(childAttrs,
-                                                        KXMLQLCAudioProfileAubioTempoDelayMs,
-                                                        config.aubio.tempoDelayMs);
+                                                         KXMLQLCAudioProfileAubioTempoDelayMs,
+                                                         config.aubio.tempoDelayMs);
             config.aubio.noteSilenceDb = doubleAttribute(childAttrs,
                                                          KXMLQLCAudioProfileAubioNoteSilenceDb,
                                                          config.aubio.noteSilenceDb);
@@ -638,6 +642,9 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
             mask.append(m_config.aubio.onsetMethodEnabled[i] ? QLatin1Char('1') : QLatin1Char('0'));
         doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetMethodsEnabled, mask);
     }
+    doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetMethodIndex,
+                        QString::number(std::clamp(m_config.aubio.onsetMethodIndex,
+                                                   0, AUBIO_ONSET_METHODS - 1)));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDelayMs, QString::number(m_config.aubio.tempoDelayMs));
     doc->writeAttribute(KXMLQLCAudioProfileAubioNoteSilenceDb, QString::number(m_config.aubio.noteSilenceDb));
     doc->writeAttribute(KXMLQLCAudioProfileAubioNoteMinIntervalMs, QString::number(m_config.aubio.noteMinIntervalMs));

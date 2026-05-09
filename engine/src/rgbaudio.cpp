@@ -62,7 +62,9 @@ RGBAlgorithm* RGBAudio::clone() const
 
 void RGBAudio::setAudioCapture(AudioCapture* cap)
 {
+#ifdef AUDIO_DEBUG
     qDebug() << Q_FUNC_INFO << "Audio capture set";
+#endif
 
     m_audioInput = cap;
     m_audioConn = QObject::connect(m_audioInput, &AudioCapture::aubioDataReady,
@@ -169,7 +171,9 @@ void RGBAudio::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_bandsNumber == -1)
     {
         m_bandsNumber = size.width();
+#ifdef AUDIO_DEBUG
         qDebug() << "[RGBAudio] set" << m_bandsNumber << "bars";
+#endif
         m_audioInput->registerBandsNumber(m_bandsNumber);
         return;
     }

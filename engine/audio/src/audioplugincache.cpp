@@ -52,7 +52,9 @@ AudioPluginCache::~AudioPluginCache()
 
 void AudioPluginCache::load(const QDir &dir)
 {
+#ifdef AUDIO_DEBUG
     qDebug() << Q_FUNC_INFO << dir.path();
+#endif
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
 #if defined(__APPLE__) || defined(Q_OS_MAC)
@@ -88,7 +90,9 @@ void AudioPluginCache::load(const QDir &dir)
         AudioDecoder* ptr = qobject_cast<AudioDecoder*> (loader.instance());
         if (ptr != NULL)
         {
+#ifdef AUDIO_DEBUG
             qDebug() << "Loaded audio decoder plugin from" << fileName;
+#endif
             /* Just append the plugin path to be used at runtime
              * for dynamic creation of instances */
             ptr->initialize("");
@@ -96,7 +100,7 @@ void AudioPluginCache::load(const QDir &dir)
             loader.unload();
         }
         else
-            qDebug() << "Failed to load plugin: " << loader.errorString();
+            qWarning() << "Failed to load plugin: " << loader.errorString();
     }
 }
 

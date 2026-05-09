@@ -26,7 +26,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     // --- Configurable Properties ---
 
@@ -46,15 +47,8 @@ var testAlgo;
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
     // --- Internal state ---
-    var initialized = false;
-
     // Default 3-bank palette (low, mid, high).
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
-
-    function initFilters()
-    {
-        initialized = true;
-    }
 
     algo.rgbMapStepCount = function(width, height)
     {
@@ -84,8 +78,6 @@ var testAlgo;
      */
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) initFilters();
-
         var map = RGBUtil.createMap(width, height);
 
         // If no audio data, return black
@@ -93,11 +85,11 @@ var testAlgo;
             return map;
 
         // Pull the 3 mel-bank powers and matching gradient colors.
-        var bandPowers = AudioParams.bandWeights(algo, audio);
+        var bandPowers = audio.power.bands;
         var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         // Convert each packed 0xRRGGBB to a [r,g,b] array.
         var cols = new Array(3);
@@ -137,7 +129,7 @@ var testAlgo;
                     }
                 }
 
-                var brightness = (r > 0 || g > 0 || b2 > 0) ? AudioParams.applyFloor(algo, 1.0) * beatBoost : 0;
+                var brightness = (r > 0 || g > 0 || b2 > 0) ? (algo.presetFloor/100 + (1 - algo.presetFloor/100) * 1.0) * beatBoost : 0;
                 map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
             }
         }

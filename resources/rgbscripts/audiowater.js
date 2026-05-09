@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 5});
+    algo.presetReactivity = 5;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -84,7 +85,7 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
@@ -95,11 +96,11 @@ var testAlgo;
         if (!audio) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
-        var dtMs = (typeof audio.audioDtMs === "number" && audio.audioDtMs > 0) ? audio.audioDtMs : 40;
+        var dtMs = audio.timing.audioDtMs > 0 ? audio.timing.audioDtMs : 40;
         var dtScale = Math.max(0.25, Math.min(4.0, dtMs / 40.0));
-        var bassIntensity = Math.min(1, Math.pow(audio.lows, 2));
-        var midsIntensity = Math.min(1, Math.pow(audio.mids, 2));
-        var highIntensity = Math.min(1, Math.pow(audio.highs, 2));
+        var bassIntensity = Math.min(1, Math.pow(audio.power.low, 2));
+        var midsIntensity = Math.min(1, Math.pow(audio.power.mid, 2));
+        var highIntensity = Math.min(1, Math.pow(audio.power.high, 2));
 
         // Create drops based on audio
         createDrop(1, bassIntensity * algo.presetBassSize, width);
@@ -124,15 +125,19 @@ var testAlgo;
 
         // Render: map water height to the energy-weighted band color
         var current = (curBuf === 0) ? buf0 : buf1;
-        var blended = AudioParams.colorChannels(AudioParams.blendBandColors(algo, audio, DEFAULT_BAND_COLORS));
-        var beatBoost = 1.0 + 0.20 * AudioParams.beatPulse(audio);
-        var noveltyBoost = 1.0 + 0.30 * AudioParams.melNoveltyAvg(audio);
+        var blendedPacked = AudioColors.blendByPower(algo, audio);
+        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
+        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var noveltyBoost = AudioColors.noveltyBoost(audio);
+        var fluxPunch = AudioColors.fluxPunch(audio);
         for (var x = 0; x < width; x++) {
             var val = current[x];
             // Triangle wave for hue variation
             var hue = Math.abs((val * 2) % 2 - 1);
             // Brightness from water height
-            var bright = AudioParams.applyPunch(AudioParams.applyFloor(algo, Math.min(1, Math.max(0, val * 0.8 + 0.12))), audio) * beatBoost * noveltyBoost;
+            var baseBright = Math.min(1, Math.max(0, val * 0.8 + 0.12));
+            var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+            var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
             var colorScale = 0.65 + hue * 0.35;
             var r = blended[0] * colorScale;

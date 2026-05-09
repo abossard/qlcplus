@@ -32,6 +32,7 @@
 // cppcheck-suppress missingIncludeSystem
 #include <QSemaphore>
 #include <algorithm>
+#include <cmath>
 
 #include "rgbscriptv4.h"
 
@@ -63,16 +64,134 @@ namespace
         return NULL;
     }
 
-    QJSValue triggerObject(QJSEngine *engine, const TriggerState &trigger)
+    static constexpr int kAudioApiVersion = 4;
+    static constexpr int kPowerBandCount = 3;
+    static constexpr int kBeatsPerBar = 4;
+    static constexpr double kDownbeatWindow = 0.25;
+    static constexpr double kPi = 3.14159265358979323846;
+    static constexpr double kA4Hz = 440.0;
+    static constexpr double kA4Midi = 69.0;
+    static constexpr double kSemitonesPerOctave = 12.0;
+    static const char* const kPowerBandNames[kPowerBandCount] = {
+        "low", "mid", "high"
+    };
+    static const char* const kOnsetMethodNames[AUBIO_ONSET_METHODS] = {
+        "energy", "hfc", "complex", "phase", "wphase",
+        "specdiff", "kl", "mkl", "specflux"
+    };
+
+    QJSValue triggerToJs(QJSEngine *engine, const TriggerState &trigger)
     {
         QJSValue obj = engine->newObject();
         obj.setProperty(QStringLiteral("value"), QJSValue(trigger.value));
         obj.setProperty(QStringLiteral("active"), QJSValue(trigger.active));
-        obj.setProperty(QStringLiteral("firedThisFrame"), QJSValue(trigger.firedThisFrame));
-        obj.setProperty(QStringLiteral("releasedThisFrame"), QJSValue(trigger.releasedThisFrame));
+        obj.setProperty(QStringLiteral("fired"), QJSValue(trigger.firedThisFrame));
+        obj.setProperty(QStringLiteral("released"), QJSValue(trigger.releasedThisFrame));
         obj.setProperty(QStringLiteral("heldMs"), QJSValue(trigger.heldMs));
-        obj.setProperty(QStringLiteral("cooldownRemainingMs"), QJSValue(trigger.cooldownRemainingMs));
+        obj.setProperty(QStringLiteral("cooldownMs"), QJSValue(trigger.cooldownRemainingMs));
         return obj;
+    }
+
+    QJSValue doubleArrayToJs(QJSEngine *engine, const double *values, int count)
+    {
+        QJSValue arr = engine->newArray(quint32(std::max(0, count)));
+        for (int i = 0; i < count; i++)
+            arr.setProperty(quint32(i), QJSValue(values[i]));
+        return arr;
+    }
+
+    QJSValue packedColorArrayToJs(QJSEngine *engine, const QJSValue &source, int fallbackCount)
+    {
+        if (!source.isUndefined())
+            return source;
+        QJSValue arr = engine->newArray(quint32(fallbackCount));
+        for (int i = 0; i < fallbackCount; i++)
+            arr.setProperty(quint32(i), QJSValue(0));
+        return arr;
+    }
+
+    double meanOf(const double *values, int count)
+    {
+        if (values == nullptr || count <= 0)
+            return 0.0;
+        double sum = 0.0;
+        for (int i = 0; i < count; i++)
+            sum += values[i];
+        return sum / double(count);
+    }
+
+    double maxOf(const double *values, int count)
+    {
+        if (values == nullptr || count <= 0)
+            return 0.0;
+        double maxValue = values[0];
+        for (int i = 1; i < count; i++)
+            maxValue = std::max(maxValue, values[i]);
+        return maxValue;
+    }
+
+    QJSValue spectrumBankToJs(QJSEngine *engine,
+                              const AudioSnapshot::MelBankSnapshot &bank)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("values"),
+                        doubleArrayToJs(engine, bank.processed, bank.count));
+        obj.setProperty(QStringLiteral("novelty"),
+                        doubleArrayToJs(engine, bank.novelty, bank.count));
+        obj.setProperty(QStringLiteral("raw"),
+                        doubleArrayToJs(engine, bank.raw, bank.count));
+        obj.setProperty(QStringLiteral("mean"), QJSValue(meanOf(bank.processed, bank.count)));
+        obj.setProperty(QStringLiteral("max"), QJSValue(maxOf(bank.processed, bank.count)));
+        return obj;
+    }
+
+    QJSValue spectrumRangeToJs(QJSEngine *engine,
+                               const AudioSnapshot::MelBankSnapshot &bank,
+                               const MelBankConfig::Bank &fallback)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("minHz"),
+                        QJSValue(bank.count > 0 ? bank.minHz : fallback.minHz));
+        obj.setProperty(QStringLiteral("maxHz"),
+                        QJSValue(bank.count > 0 ? bank.maxHz : fallback.maxHz));
+        obj.setProperty(QStringLiteral("bands"),
+                        QJSValue(bank.count > 0 ? bank.count : fallback.bands));
+        return obj;
+    }
+
+    bool onsetFiredAt(const AudioSnapshot &snap, int methodIndex)
+    {
+        switch (methodIndex)
+        {
+        case 0: return snap.onsets.energy;
+        case 1: return snap.onsets.hfc;
+        case 2: return snap.onsets.complex_;
+        case 3: return snap.onsets.phase;
+        case 4: return snap.onsets.wphase;
+        case 5: return snap.onsets.specdiff;
+        case 6: return snap.onsets.kl;
+        case 7: return snap.onsets.mkl;
+        case 8: return snap.onsets.specflux;
+        default: return false;
+        }
+    }
+
+    QJSValue onsetMethodToJs(QJSEngine *engine, const AudioSnapshot &snap, int methodIndex)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("fired"), QJSValue(onsetFiredAt(snap, methodIndex)));
+        obj.setProperty(QStringLiteral("descriptor"),
+                        QJSValue(snap.onsets.descriptors[methodIndex]));
+        obj.setProperty(QStringLiteral("thresholded"),
+                        QJSValue(snap.onsets.thresholdedDescriptors[methodIndex]));
+        return obj;
+    }
+
+    double hzToMidi(double hz)
+    {
+        if (hz <= 0.0)
+            return 0.0;
+        return kA4Midi + kSemitonesPerOctave * std::log2(hz / kA4Hz);
     }
 }
 
@@ -209,8 +328,7 @@ void RGBScript::initEngine()
         QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
         const QStringList shimNames = {
             QStringLiteral("rgbutil.js"),
-            QStringLiteral("audiodsp.js"),
-            QStringLiteral("audio_common.js")
+            QStringLiteral("audio_colors.js")
         };
         for (const QString &shimName : shimNames)
         {
@@ -593,7 +711,7 @@ void RGBScript::setupAudioCapture()
     teardownAudioCapture();
     m_audioInput = capture.data();
 
-    // The v3 audio object is sourced exclusively from the AudioProfile's
+    // The audio object is sourced exclusively from the AudioProfile's
     // AudioChannel snapshot inside buildAudioDataObject(). We don't need
     // to subscribe to aubioDataReady — we just need the capture thread
     // to be running.
@@ -700,6 +818,7 @@ QJSValue RGBScript::buildAudioDataObject()
     QJSEngine *engine = s_jsThread->engine;
     QJSValue audioObj = engine->newObject();
     AudioChannel *channel = NULL;
+    AudioChannelConfig config = AudioChannelConfig::defaults();
     Doc *currentDoc = doc();
     RGBMatrix *matrix = owningMatrix(currentDoc, this);
     AudioProfile *profile = (currentDoc != NULL && matrix != NULL)
@@ -707,6 +826,7 @@ QJSValue RGBScript::buildAudioDataObject()
     if (profile != NULL)
     {
         channel = profile->channel();
+        config = (channel != NULL) ? channel->config() : profile->channelConfig();
         if (m_loggedAudioProfileId != profile->id())
         {
             qDebug().noquote() << QStringLiteral("RGBScript %1: using audio profile %2 (ID: %3)")
@@ -721,225 +841,191 @@ QJSValue RGBScript::buildAudioDataObject()
     }
 
     // Use a default-constructed snapshot when no profile is assigned, so the
-    // v3 shape is always present and scripts can run safely.
+    // v4 shape is always present and scripts can run safely.
     AudioSnapshot snap;
     if (channel != NULL)
         snap = channel->snapshot();
 
-    // Mel filterbank: `audio.mel` returns post-processed values (LedFx-style
-    // power scaling + AGC + smoothing) when MelPostProcessor is enabled, or
-    // raw aubio values when disabled (bypass). Scripts that need the raw
-    // aubio output unconditionally can use `audio.melRaw`. `audio.melNovelty`
-    // exposes the diff signal (zero when post-processing is disabled).
-    QJSValue melArr = engine->newArray(AUBIO_MEL_BANDS);
-    QJSValue melRawArr = engine->newArray(AUBIO_MEL_BANDS);
-    QJSValue melNoveltyArr = engine->newArray(AUBIO_MEL_BANDS);
-    for (int i = 0; i < AUBIO_MEL_BANDS; i++)
-    {
-        melArr.setProperty(i, QJSValue(snap.melProcessed[i]));
-        melRawArr.setProperty(i, QJSValue(snap.mel[i]));
-        melNoveltyArr.setProperty(i, QJSValue(snap.melNovelty[i]));
-    }
-    audioObj.setProperty(QStringLiteral("mel"), melArr);
-    audioObj.setProperty(QStringLiteral("melRaw"), melRawArr);
-    audioObj.setProperty(QStringLiteral("melNovelty"), melNoveltyArr);
+    audioObj.setProperty(QStringLiteral("version"), QJSValue(kAudioApiVersion));
 
-    // Multi-resolution mel banks (Phase 3): three nested matt-mel banks
-    // sharing the same FFT. Bass effects read `audio.melLow` (high resolution
-    // under 350 Hz), vocals/snare effects read `audio.melMid`, hats/air
-    // effects read `audio.melHigh`. `audio.mel` (the legacy 40-band) is kept
-    // unchanged for backward compatibility.
-    if (snap.melLow.count > 0 || snap.melMid.count > 0 || snap.melHigh.count > 0)
+    const double powerBands[kPowerBandCount] = { snap.lows, snap.mids, snap.highs };
+    int dominantIdx = 0;
+    for (int i = 1; i < kPowerBandCount; i++)
     {
-        QJSValue melLowArr = engine->newArray(snap.melLow.count);
-        QJSValue melMidArr = engine->newArray(snap.melMid.count);
-        QJSValue melHighArr = engine->newArray(snap.melHigh.count);
-        QJSValue melLowRawArr = engine->newArray(snap.melLow.count);
-        QJSValue melMidRawArr = engine->newArray(snap.melMid.count);
-        QJSValue melHighRawArr = engine->newArray(snap.melHigh.count);
-        QJSValue melLowNovArr = engine->newArray(snap.melLow.count);
-        QJSValue melMidNovArr = engine->newArray(snap.melMid.count);
-        QJSValue melHighNovArr = engine->newArray(snap.melHigh.count);
-        for (int i = 0; i < snap.melLow.count; i++)
-        {
-            melLowArr.setProperty(i, QJSValue(snap.melLow.processed[i]));
-            melLowRawArr.setProperty(i, QJSValue(snap.melLow.raw[i]));
-            melLowNovArr.setProperty(i, QJSValue(snap.melLow.novelty[i]));
-        }
-        for (int i = 0; i < snap.melMid.count; i++)
-        {
-            melMidArr.setProperty(i, QJSValue(snap.melMid.processed[i]));
-            melMidRawArr.setProperty(i, QJSValue(snap.melMid.raw[i]));
-            melMidNovArr.setProperty(i, QJSValue(snap.melMid.novelty[i]));
-        }
-        for (int i = 0; i < snap.melHigh.count; i++)
-        {
-            melHighArr.setProperty(i, QJSValue(snap.melHigh.processed[i]));
-            melHighRawArr.setProperty(i, QJSValue(snap.melHigh.raw[i]));
-            melHighNovArr.setProperty(i, QJSValue(snap.melHigh.novelty[i]));
-        }
-        audioObj.setProperty(QStringLiteral("melLow"), melLowArr);
-        audioObj.setProperty(QStringLiteral("melMid"), melMidArr);
-        audioObj.setProperty(QStringLiteral("melHigh"), melHighArr);
-        audioObj.setProperty(QStringLiteral("melLowRaw"), melLowRawArr);
-        audioObj.setProperty(QStringLiteral("melMidRaw"), melMidRawArr);
-        audioObj.setProperty(QStringLiteral("melHighRaw"), melHighRawArr);
-        audioObj.setProperty(QStringLiteral("melLowNovelty"), melLowNovArr);
-        audioObj.setProperty(QStringLiteral("melMidNovelty"), melMidNovArr);
-        audioObj.setProperty(QStringLiteral("melHighNovelty"), melHighNovArr);
+        if (powerBands[i] > powerBands[dominantIdx])
+            dominantIdx = i;
     }
 
-    // Per-bank Hz metadata so scripts can pick the right bank for an effect's
-    // frequency range without hardcoding constants. Always emitted (even when
-    // the banks aren't populated yet) so feature detection via
-    // `typeof audio.melRanges !== 'undefined'` works deterministically.
-    QJSValue melRangesObj = engine->newObject();
-    auto buildBankMeta = [&](const AudioSnapshot::MelBankSnapshot &bank,
-                             double defaultMin, double defaultMax,
-                             int defaultBands) {
-        QJSValue obj = engine->newObject();
-        obj.setProperty(QStringLiteral("minHz"),
-                        QJSValue(bank.count > 0 ? bank.minHz : defaultMin));
-        obj.setProperty(QStringLiteral("maxHz"),
-                        QJSValue(bank.count > 0 ? bank.maxHz : defaultMax));
-        obj.setProperty(QStringLiteral("bands"),
-                        QJSValue(bank.count > 0 ? bank.count : defaultBands));
-        return obj;
-    };
-    melRangesObj.setProperty(QStringLiteral("low"),
-                             buildBankMeta(snap.melLow,  20.0,   350.0, 24));
-    melRangesObj.setProperty(QStringLiteral("mid"),
-                             buildBankMeta(snap.melMid,  20.0,  2000.0, 24));
-    melRangesObj.setProperty(QStringLiteral("high"),
-                             buildBankMeta(snap.melHigh, 20.0, 15000.0, 24));
-    audioObj.setProperty(QStringLiteral("melRanges"), melRangesObj);
-
-    // MFCC (13 coefficients)
-    QJSValue mfccArr = engine->newArray(AUBIO_MFCC_COEFFS);
-    for (int i = 0; i < AUBIO_MFCC_COEFFS; i++)
-        mfccArr.setProperty(i, QJSValue(snap.mfcc[i]));
-    audioObj.setProperty(QStringLiteral("mfcc"), mfccArr);
-
-    // LedFx-parity scalar bank power: mean of each mel bank's processed[].
-    // Use these for simple frequency-balanced effects without iterating mel arrays.
-    audioObj.setProperty(QStringLiteral("lows"),  QJSValue(snap.lows));
-    audioObj.setProperty(QStringLiteral("mids"),  QJSValue(snap.mids));
-    audioObj.setProperty(QStringLiteral("highs"), QJSValue(snap.highs));
-    // LedFx audio.py:1306 get_freq_power(0/1, filtered=True) — beat (0-100 Hz)
-    // and bass (100-250 Hz). lows above is the (beat+bass)/2 composite.
-    audioObj.setProperty(QStringLiteral("beatPower"),  QJSValue(snap.beatPower));
-    audioObj.setProperty(QStringLiteral("bassPower"),  QJSValue(snap.bassPower));
-
-    // Convenience alias: audio.power.{beat, bass, low, mid, high, total}
     QJSValue powerObj = engine->newObject();
-    powerObj.setProperty(QStringLiteral("beat"),  QJSValue(snap.beatPower));
-    powerObj.setProperty(QStringLiteral("bass"),  QJSValue(snap.bassPower));
     powerObj.setProperty(QStringLiteral("low"),   QJSValue(snap.lows));
     powerObj.setProperty(QStringLiteral("mid"),   QJSValue(snap.mids));
     powerObj.setProperty(QStringLiteral("high"),  QJSValue(snap.highs));
-    powerObj.setProperty(QStringLiteral("total"),
-        QJSValue(snap.beatPower + snap.bassPower + snap.lows + snap.mids + snap.highs));
+    powerObj.setProperty(QStringLiteral("total"), QJSValue(snap.lows + snap.mids + snap.highs));
+    powerObj.setProperty(QStringLiteral("dominant"),
+                         QJSValue(QString::fromLatin1(kPowerBandNames[dominantIdx])));
+    powerObj.setProperty(QStringLiteral("dominantValue"), QJSValue(powerBands[dominantIdx]));
+    QJSValue powerBandsArr = engine->newArray(kPowerBandCount);
+    for (int i = 0; i < kPowerBandCount; i++)
+        powerBandsArr.setProperty(quint32(i), QJSValue(powerBands[i]));
+    powerObj.setProperty(QStringLiteral("bands"), powerBandsArr);
+    QJSValue detailObj = engine->newObject();
+    detailObj.setProperty(QStringLiteral("beat"), QJSValue(snap.beatPower));
+    detailObj.setProperty(QStringLiteral("bass"), QJSValue(snap.bassPower));
+    powerObj.setProperty(QStringLiteral("detail"), detailObj);
     audioObj.setProperty(QStringLiteral("power"), powerObj);
 
-    // audio.dominant — strongest power band and its value.
-    static const char* const dominantNames[] = {"beat", "bass", "low", "mid", "high"};
-    const double dominantVals[] = {snap.beatPower, snap.bassPower, snap.lows, snap.mids, snap.highs};
-    int dominantIdx = 0;
-    for (int i = 1; i < 5; i++)
-        if (dominantVals[i] > dominantVals[dominantIdx]) dominantIdx = i;
-    QJSValue domObj = engine->newObject();
-    domObj.setProperty(QStringLiteral("band"),
-        QJSValue(QString::fromLatin1(dominantNames[dominantIdx])));
-    domObj.setProperty(QStringLiteral("power"), QJSValue(dominantVals[dominantIdx]));
-    audioObj.setProperty(QStringLiteral("dominant"), domObj);
+    const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
+                                            0, AUBIO_ONSET_METHODS - 1);
+    QJSValue onsetObj = engine->newObject();
+    onsetObj.setProperty(QStringLiteral("fired"),
+                         QJSValue(onsetFiredAt(snap, onsetMethodIndex)));
+    onsetObj.setProperty(QStringLiteral("intensity"),
+                         QJSValue(snap.onsets.thresholdedDescriptors[onsetMethodIndex]));
+    onsetObj.setProperty(QStringLiteral("method"),
+                         QJSValue(QString::fromLatin1(kOnsetMethodNames[onsetMethodIndex])));
+    QJSValue onsetMethodsObj = engine->newObject();
+    for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
+    {
+        onsetMethodsObj.setProperty(QString::fromLatin1(kOnsetMethodNames[i]),
+                                    onsetMethodToJs(engine, snap, i));
+    }
+    onsetObj.setProperty(QStringLiteral("methods"), onsetMethodsObj);
+    audioObj.setProperty(QStringLiteral("onset"), onsetObj);
 
-    QJSValue triggersObj = engine->newObject();
-    triggersObj.setProperty(QStringLiteral("low"),    triggerObject(engine, snap.triggers[0]));
-    triggersObj.setProperty(QStringLiteral("mid"),    triggerObject(engine, snap.triggers[1]));
-    triggersObj.setProperty(QStringLiteral("high"),   triggerObject(engine, snap.triggers[2]));
-    triggersObj.setProperty(QStringLiteral("volume"), triggerObject(engine, snap.volumeTrigger));
-    triggersObj.setProperty(QStringLiteral("beat"),   triggerObject(engine, snap.beatTrigger));
-    triggersObj.setProperty(QStringLiteral("kick"),   triggerObject(engine, snap.kickTrigger));
-    audioObj.setProperty(QStringLiteral("triggers"), triggersObj);
+    QJSValue beatObj = engine->newObject();
+    beatObj.setProperty(QStringLiteral("fired"), QJSValue(snap.beatTrigger.firedThisFrame));
+    beatObj.setProperty(QStringLiteral("kick"), QJSValue(snap.kickTrigger.firedThisFrame));
+    beatObj.setProperty(QStringLiteral("kickHeld"), QJSValue(snap.kickTrigger.active));
+    beatObj.setProperty(QStringLiteral("kickIntensity"), QJSValue(snap.kickTrigger.value));
+    beatObj.setProperty(QStringLiteral("phase"), QJSValue(snap.music.beatPhase));
+    // Gate beat/bar pre-computations on active tempo tracking.
+    // When no audio profile is bound, bpm==0 → cosPulse=0, downbeat=false.
+    const bool tempoActive = snap.music.bpm > 0.0;
+    beatObj.setProperty(QStringLiteral("cosPulse"),
+                        QJSValue(tempoActive
+                            ? std::max(0.0, std::cos(snap.music.beatPhase * kPi))
+                            : 0.0));
+    beatObj.setProperty(QStringLiteral("bpm"), QJSValue(snap.music.bpm));
+    beatObj.setProperty(QStringLiteral("confidence"), QJSValue(snap.music.beatConfidence));
+    beatObj.setProperty(QStringLiteral("tatum"), QJSValue(snap.music.tatum));
+    audioObj.setProperty(QStringLiteral("beat"), beatObj);
+
+    const int barPhaseInt = int(snap.music.barPhase);
+    const double barFract = snap.music.barPhase - double(barPhaseInt);
+    int barBeat = barPhaseInt % kBeatsPerBar;
+    if (barBeat < 0)
+        barBeat += kBeatsPerBar;
+    const bool downbeat = tempoActive && barPhaseInt == 0 && barFract < kDownbeatWindow;
+    QJSValue barObj = engine->newObject();
+    barObj.setProperty(QStringLiteral("phase"), QJSValue(snap.music.barPhase));
+    barObj.setProperty(QStringLiteral("phase01"), QJSValue(snap.music.barPhase / double(kBeatsPerBar)));
+    barObj.setProperty(QStringLiteral("beat"), QJSValue(barBeat));
+    barObj.setProperty(QStringLiteral("downbeat"), QJSValue(downbeat));
+    barObj.setProperty(QStringLiteral("downbeatFired"), QJSValue(snap.downbeatFired));
+    audioObj.setProperty(QStringLiteral("bar"), barObj);
+
+    QJSValue spectrumObj = engine->newObject();
+    spectrumObj.setProperty(QStringLiteral("low"), spectrumBankToJs(engine, snap.melLow));
+    spectrumObj.setProperty(QStringLiteral("mid"), spectrumBankToJs(engine, snap.melMid));
+    spectrumObj.setProperty(QStringLiteral("high"), spectrumBankToJs(engine, snap.melHigh));
+    QJSValue fullSpectrumArr = engine->newArray(quint32(snap.melLow.count + snap.melMid.count + snap.melHigh.count));
+    int fullIndex = 0;
+    auto appendBank = [&](const AudioSnapshot::MelBankSnapshot &bank) {
+        for (int i = 0; i < bank.count; i++)
+            fullSpectrumArr.setProperty(quint32(fullIndex++), QJSValue(bank.processed[i]));
+    };
+    appendBank(snap.melLow);
+    appendBank(snap.melMid);
+    appendBank(snap.melHigh);
+    spectrumObj.setProperty(QStringLiteral("full"), fullSpectrumArr);
+    QJSValue rangesObj = engine->newObject();
+    rangesObj.setProperty(QStringLiteral("low"),
+                          spectrumRangeToJs(engine, snap.melLow, config.aubio.melBanks.low));
+    rangesObj.setProperty(QStringLiteral("mid"),
+                          spectrumRangeToJs(engine, snap.melMid, config.aubio.melBanks.mid));
+    rangesObj.setProperty(QStringLiteral("high"),
+                          spectrumRangeToJs(engine, snap.melHigh, config.aubio.melBanks.high));
+    spectrumObj.setProperty(QStringLiteral("ranges"), rangesObj);
+    double noveltySum = 0.0;
+    double noveltyMax = 0.0;
+    int noveltyCount = 0;
+    auto accumulateNovelty = [&](const AudioSnapshot::MelBankSnapshot &bank) {
+        for (int i = 0; i < bank.count; i++)
+        {
+            noveltySum += bank.novelty[i];
+            noveltyMax = (noveltyCount == 0) ? bank.novelty[i] : std::max(noveltyMax, bank.novelty[i]);
+            noveltyCount++;
+        }
+    };
+    accumulateNovelty(snap.melLow);
+    accumulateNovelty(snap.melMid);
+    accumulateNovelty(snap.melHigh);
+    QJSValue spectrumNoveltyObj = engine->newObject();
+    spectrumNoveltyObj.setProperty(QStringLiteral("mean"),
+                                   QJSValue(noveltyCount > 0 ? noveltySum / double(noveltyCount) : 0.0));
+    spectrumNoveltyObj.setProperty(QStringLiteral("max"), QJSValue(noveltyMax));
+    spectrumObj.setProperty(QStringLiteral("novelty"), spectrumNoveltyObj);
+    audioObj.setProperty(QStringLiteral("spectrum"), spectrumObj);
 
     QJSValue volObj = engine->newObject();
     volObj.setProperty(QStringLiteral("raw"), QJSValue(snap.volume.raw));
     volObj.setProperty(QStringLiteral("smoothed"), QJSValue(snap.volume.smoothed));
     volObj.setProperty(QStringLiteral("normalized"), QJSValue(snap.volume.normalized));
+    volObj.setProperty(QStringLiteral("ledfx"), QJSValue(snap.volume.volumeNorm));
+    volObj.setProperty(QStringLiteral("rmsDb"), QJSValue(snap.features.rmsDb));
+    volObj.setProperty(QStringLiteral("peakDb"), QJSValue(snap.features.peakDb));
+    volObj.setProperty(QStringLiteral("crestFactor"), QJSValue(snap.features.crestFactor));
+    volObj.setProperty(QStringLiteral("trigger"), triggerToJs(engine, snap.volumeTrigger));
+    volObj.setProperty(QStringLiteral("fired"), QJSValue(snap.volumeTrigger.firedThisFrame));
+    volObj.setProperty(QStringLiteral("held"), QJSValue(snap.volumeTrigger.active));
     audioObj.setProperty(QStringLiteral("volume"), volObj);
 
-    QJSValue musicObj = engine->newObject();
-    musicObj.setProperty(QStringLiteral("beat"), QJSValue(snap.music.beat));
-    musicObj.setProperty(QStringLiteral("bpm"), QJSValue(snap.music.bpm));
-    musicObj.setProperty(QStringLiteral("beatPhase"), QJSValue(snap.music.beatPhase));
-    musicObj.setProperty(QStringLiteral("barPhase"), QJSValue(snap.music.barPhase));
-    musicObj.setProperty(QStringLiteral("beatConfidence"), QJSValue(snap.music.beatConfidence));
-    musicObj.setProperty(QStringLiteral("tatum"), QJSValue(snap.music.tatum));
-    audioObj.setProperty(QStringLiteral("music"), musicObj);
+    QJSValue bandsObj = engine->newObject();
+    bandsObj.setProperty(QStringLiteral("low"), triggerToJs(engine, snap.triggers[0]));
+    bandsObj.setProperty(QStringLiteral("mid"), triggerToJs(engine, snap.triggers[1]));
+    bandsObj.setProperty(QStringLiteral("high"), triggerToJs(engine, snap.triggers[2]));
+    audioObj.setProperty(QStringLiteral("bands"), bandsObj);
 
     QJSValue featuresObj = engine->newObject();
-    featuresObj.setProperty(QStringLiteral("rmsDb"), QJSValue(snap.features.rmsDb));
-    featuresObj.setProperty(QStringLiteral("peakDb"), QJSValue(snap.features.peakDb));
-    featuresObj.setProperty(QStringLiteral("crestFactor"), QJSValue(snap.features.crestFactor));
     featuresObj.setProperty(QStringLiteral("centroidHz"), QJSValue(snap.features.centroidHz));
     featuresObj.setProperty(QStringLiteral("spread"), QJSValue(snap.features.spread));
     featuresObj.setProperty(QStringLiteral("rolloffHz"), QJSValue(snap.features.rolloffHz));
     featuresObj.setProperty(QStringLiteral("flux"), QJSValue(snap.features.flux));
     featuresObj.setProperty(QStringLiteral("hfc"), QJSValue(snap.features.hfc));
     featuresObj.setProperty(QStringLiteral("flatness"), QJSValue(snap.features.flatness));
+    featuresObj.setProperty(QStringLiteral("mfcc"),
+                            doubleArrayToJs(engine, snap.mfcc, AUBIO_MFCC_COEFFS));
     audioObj.setProperty(QStringLiteral("features"), featuresObj);
-
-    QJSValue onsetsObj = engine->newObject();
-    onsetsObj.setProperty(QStringLiteral("energy"), QJSValue(snap.onsets.energy));
-    onsetsObj.setProperty(QStringLiteral("hfc"), QJSValue(snap.onsets.hfc));
-    onsetsObj.setProperty(QStringLiteral("complex"), QJSValue(snap.onsets.complex_));
-    onsetsObj.setProperty(QStringLiteral("phase"), QJSValue(snap.onsets.phase));
-    onsetsObj.setProperty(QStringLiteral("wphase"), QJSValue(snap.onsets.wphase));
-    onsetsObj.setProperty(QStringLiteral("specdiff"), QJSValue(snap.onsets.specdiff));
-    onsetsObj.setProperty(QStringLiteral("kl"), QJSValue(snap.onsets.kl));
-    onsetsObj.setProperty(QStringLiteral("mkl"), QJSValue(snap.onsets.mkl));
-    onsetsObj.setProperty(QStringLiteral("specflux"), QJSValue(snap.onsets.specflux));
-
-    // Continuous onset magnitudes (raw + after adaptive whitening). Mirrors
-    // LedFx's get_descriptor() / get_thresholded_descriptor() pattern: lets
-    // scripts react to "how hard" an onset fires, not just on/off.
-    // Method order matches the booleans above:
-    //   0=energy 1=hfc 2=complex 3=phase 4=wphase
-    //   5=specdiff 6=kl 7=mkl 8=specflux
-    QJSValue descArr = engine->newArray(AUBIO_ONSET_METHODS);
-    QJSValue threshArr = engine->newArray(AUBIO_ONSET_METHODS);
-    for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
-    {
-        descArr.setProperty(i, QJSValue(snap.onsets.descriptors[i]));
-        threshArr.setProperty(i, QJSValue(snap.onsets.thresholdedDescriptors[i]));
-    }
-    onsetsObj.setProperty(QStringLiteral("descriptors"), descArr);
-    onsetsObj.setProperty(QStringLiteral("thresholdedDescriptors"), threshArr);
-    audioObj.setProperty(QStringLiteral("onsets"), onsetsObj);
 
     QJSValue pitchObj = engine->newObject();
     pitchObj.setProperty(QStringLiteral("hz"), QJSValue(snap.pitch.hz));
+    pitchObj.setProperty(QStringLiteral("midi"), QJSValue(hzToMidi(snap.pitch.hz)));
     pitchObj.setProperty(QStringLiteral("confidence"), QJSValue(snap.pitch.confidence));
     audioObj.setProperty(QStringLiteral("pitch"), pitchObj);
 
     QJSValue noteObj = engine->newObject();
     noteObj.setProperty(QStringLiteral("midi"), QJSValue(snap.note.midi));
     noteObj.setProperty(QStringLiteral("velocity"), QJSValue(snap.note.velocity));
-    noteObj.setProperty(QStringLiteral("noteOn"), QJSValue(snap.note.noteOn));
-    noteObj.setProperty(QStringLiteral("noteOff"), QJSValue(snap.note.noteOff));
+    noteObj.setProperty(QStringLiteral("on"), QJSValue(snap.note.noteOn));
+    noteObj.setProperty(QStringLiteral("off"), QJSValue(snap.note.noteOff));
     audioObj.setProperty(QStringLiteral("note"), noteObj);
 
-    audioObj.setProperty(QStringLiteral("audioDtMs"), QJSValue(snap.audioDtMs));
-    audioObj.setProperty(QStringLiteral("brightnessFloor"), QJSValue(snap.brightnessFloor));
-    audioObj.setProperty(QStringLiteral("noiseGateClosed"), QJSValue(snap.noiseGateClosed));
-    audioObj.setProperty(QStringLiteral("consumerDtMs"), QJSValue(double(MasterTimer::tick())));
+    QJSValue gateObj = engine->newObject();
+    gateObj.setProperty(QStringLiteral("closed"), QJSValue(snap.noiseGateClosed));
+    gateObj.setProperty(QStringLiteral("brightnessFloor"), QJSValue(snap.brightnessFloor));
+    audioObj.setProperty(QStringLiteral("gate"), gateObj);
 
-    // Mirror the auto-injected gradient arrays on the audio object so
-    // audio-aware scripts can grab them via either algo.* or audio.*.
-    if (!m_currentGradientColors.isUndefined())
-        audioObj.setProperty(QStringLiteral("gradientColors"), m_currentGradientColors);
-    if (!m_currentBandColors.isUndefined())
-        audioObj.setProperty(QStringLiteral("bandColors"), m_currentBandColors);
+    QJSValue timingObj = engine->newObject();
+    timingObj.setProperty(QStringLiteral("audioDtMs"), QJSValue(snap.audioDtMs));
+    timingObj.setProperty(QStringLiteral("consumerDtMs"), QJSValue(double(MasterTimer::tick())));
+    audioObj.setProperty(QStringLiteral("timing"), timingObj);
+
+    QJSValue colorsObj = engine->newObject();
+    colorsObj.setProperty(QStringLiteral("gradient"),
+                          packedColorArrayToJs(engine, m_currentGradientColors, 0));
+    colorsObj.setProperty(QStringLiteral("bands"),
+                          packedColorArrayToJs(engine, m_currentBandColors, kPowerBandCount));
+    audioObj.setProperty(QStringLiteral("colors"), colorsObj);
 
     return audioObj;
 }

@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7, floor: 15});
+    algo.presetReactivity = 7;
+    algo.presetFloor = 15;
 
     algo.presetBands = 3;
     algo.properties.push(
@@ -55,7 +56,7 @@ var testAlgo;
     algo.peakHolds = [];
     algo.smoothBands = [];
 
-    function unpackColor(packed) { return AudioParams.colorChannels(packed); }
+    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -85,18 +86,18 @@ var testAlgo;
         if (!audio) return map;
 
         var numBands = algo.presetBands;
-        var sourceBands = AudioParams.bandWeights(algo, audio);
+        var sourceBands = audio.power.bands;
         var bands = (numBands === 3) ? sourceBands : RGBUtil.interpolate(sourceBands, numBands);
         var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
         var sectionColors = [];
         for (var ci = 0; ci < 3; ci++)
             sectionColors.push(unpackColor(colorStops[ci]));
-        var floorBrightness = AudioParams.applyFloor(algo, 0);
+        var floorBrightness = algo.presetFloor/100;
         var fallStep = algo.presetDecay / 100.0;
         var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * AudioParams.beatPulse(audio);
+        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         for (var section = 0; section < numBands; section++) {
             var magnitude = Math.max(0, Math.min(1, bands[section]));
@@ -130,7 +131,8 @@ var testAlgo;
                 for (var y = 0; y < height; y++) {
                     var fromBottom = height - 1 - y;
                     if (fromBottom < barHeight) {
-                        var brightness = AudioParams.applyFloor(algo, smoothMagnitude * (1 - y / height * 0.3)) * beatBoost;
+                        var baseBrightness = smoothMagnitude * (1 - y / height * 0.3);
+                        var brightness = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBrightness) * beatBoost;
                         map[y][x] = RGBUtil.rgb(
                             color[0] * brightness,
                             color[1] * brightness,

@@ -111,6 +111,7 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioWindowType      QStringLiteral("WindowType")
 #define KXMLQLCAudioProfileAubioMelScale        QStringLiteral("MelScale")
 #define KXMLQLCAudioProfileAubioOnsetMethodsEnabled QStringLiteral("OnsetMethodsEnabled")
+#define KXMLQLCAudioProfileAubioOnsetMethodIndex QStringLiteral("OnsetMethodIndex")
 #define KXMLQLCAudioProfileAubioTempoDelayMs    QStringLiteral("TempoDelayMs")
 #define KXMLQLCAudioProfileAubioNoteSilenceDb   QStringLiteral("NoteSilenceDb")
 #define KXMLQLCAudioProfileAubioNoteMinIntervalMs QStringLiteral("NoteMinIntervalMs")

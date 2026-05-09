@@ -2321,9 +2321,6 @@ void VCAudioTriggers::slotTreeDataChanged(TreeModelItem *item, int role, const Q
     if (m_isUpdating || m_selectedBar < 0 || m_selectedBar >= m_bandMappings.count())
         return;
 
-    qDebug() << "VCAudioTriggers tree data changed" << value.toInt();
-    qDebug() << "Item data:" << item->data();
-
     if (role != TreeModel::IsCheckedRole)
         return;
 
@@ -2439,7 +2436,7 @@ void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
                 if (!warned.contains(universe))
                 {
                     warned.insert(universe);
-                    qDebug() << "VCAudioTriggers: skipping mapping for missing universe"
+                    qWarning() << "VCAudioTriggers: skipping mapping for missing universe"
                              << universe;
                 }
                 continue;
@@ -2568,7 +2565,7 @@ bool VCAudioTriggers::saveBarXML(QXmlStreamWriter *doc, int index) const
 
     if (index < 0 || index >= m_bandMappings.count())
     {
-        qDebug() << "Audio Triggers mapping index out of bounds!" << index;
+        qWarning() << "Audio Triggers mapping index out of bounds!" << index;
         return false;
     }
 

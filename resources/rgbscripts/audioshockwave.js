@@ -19,7 +19,8 @@ algo.acceptColors = 2;  // wave color + bg color
 algo.usesAudio = true;
 algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 7, reactivity: 7, sensitivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetSensitivity = 7;
 
 algo.presetMaxWaves = 6;
 algo.properties.push(
@@ -39,7 +40,6 @@ algo.properties.push(
   "values:1,10|write:setDecay|read:getDecay");
 
 algo.waves = new Array();
-algo.bassFilter = null;
 algo.frame = 0;
 
 var waveColor = [255, 255, 255];
@@ -117,9 +117,9 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var maxRadius = Math.sqrt(width * width + height * height);
     renderAmbient(map, width, height, cx, cy, maxRadius);
 
-    var bass = clamp(audio.lows, 0, 1);
+    var bass = clamp(audio.power.low, 0, 1);
 
-    if (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio))
+    if (audio.bands.low.fired || audio.beat.kick)
         spawnWave(width, height, Math.max(0.5, bass));
 
     if (algo.waves.length < 3 && bass > 0.1)
@@ -133,7 +133,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     }
 
     var waveWidth = algo.presetWaveWidth;
-    var onsetIntensity = Math.max(0.4, AudioParams.maxOnsetIntensity(audio));
+    var onsetIntensity = Math.max(0.4, audio.onset.intensity);
     for (var wi = 0; wi < algo.waves.length; wi++) {
         var wave = algo.waves[wi];
         var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));

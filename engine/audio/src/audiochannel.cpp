@@ -173,6 +173,7 @@ void AudioChannel::update(const AudioFrame &frame, double audioDtMs)
     updateNoiseGateState(frame, audioDtMs);
 
     updateMelPost(frame);
+    updateFreqPower(frame);
     updateEnvelopes(frame, audioDtMs);
     updateVolume(frame, audioDtMs);
     updateTriggers(audioDtMs);
@@ -222,42 +223,60 @@ void AudioChannel::updateNoiseGateState(const AudioFrame &frame, double dtMs)
 
     // Diagnostic: log gate transitions
     if (wasClosed && !m_noiseGateClosed)
+    {
+#ifdef AUDIO_DEBUG
         qDebug() << "[GATE_OPEN] rmsDb=" << frame.rmsDb
                  << "smoothedDb=" << m_gateVolumeSmoothed
                  << "threshold=" << m_config.noiseGate.thresholdDb
                  << "rms=" << frame.rms
                  << "heldMs=" << m_noiseGateHeldMs;
+#endif
+    }
 }
 
-void AudioChannel::updateEnvelopes(const AudioFrame &frame, double dtMs)
+void AudioChannel::updateFreqPower(const AudioFrame &frame)
 {
-    // 3 mel-bank powers — one scalar per matt_mel bank, computed as the mean
-    // of the post-processed bank output. Matches LedFx's
-    // lows_power / mids_power / high_power scalars. When AubioProcessor has
-    // not yet populated the banks (count==0) the band value is zero.
-    const bool banksReady = (frame.aubio != nullptr) &&
-                            frame.aubio->melLowCount  > 0 &&
-                            frame.aubio->melMidCount  > 0 &&
-                            frame.aubio->melHighCount > 0;
+    if (frame.aubio == nullptr)
+        return;
 
-    double rawBand[kBandCount] = {};
-    if (banksReady)
+    const QString &melScale = m_config.aubio.melScale;
+    const int kBeatCutBin = hzToMasterMelBin(100.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kLowCutBin  = hzToMasterMelBin(250.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kMidCutBin  = hzToMasterMelBin(3000.0,  frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    const int kHighEndBin = hzToMasterMelBin(10000.0, frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+
+    const int beatEnd = std::clamp(kBeatCutBin, 1, AUBIO_MEL_BANDS - 3);
+    const int lowEnd  = std::clamp(std::max(beatEnd + 1, kLowCutBin), beatEnd + 1, AUBIO_MEL_BANDS - 2);
+    const int midEnd  = std::clamp(std::max(lowEnd + 1, kMidCutBin), lowEnd + 1, AUBIO_MEL_BANDS - 1);
+    const int highEnd = std::clamp(std::max(midEnd + 1, kHighEndBin), midEnd + 1, AUBIO_MEL_BANDS);
+
+    double rawFreqPower[4] = {};
+    rawFreqPower[0] = averageMel(m_melProcessed, 0, beatEnd);
+    rawFreqPower[1] = averageMel(m_melProcessed, beatEnd, lowEnd);
+    rawFreqPower[2] = averageMel(m_melProcessed, lowEnd, midEnd);
+    rawFreqPower[3] = averageMel(m_melProcessed, midEnd, highEnd);
+
+    const double freqRise = std::clamp(m_config.freqPowerRise, 0.0, 1.0);
+    const double freqDecay = std::clamp(m_config.freqPowerDecay, 0.0, 1.0);
+    for (int i = 0; i < 4; i++)
     {
-        const int lowN  = std::clamp(frame.aubio->melLowCount,  0, AudioSnapshot::kMelBankBandsMax);
-        const int midN  = std::clamp(frame.aubio->melMidCount,  0, AudioSnapshot::kMelBankBandsMax);
-        const int highN = std::clamp(frame.aubio->melHighCount, 0, AudioSnapshot::kMelBankBandsMax);
-
-        rawBand[0] = averageMel(m_melLowProcessed,  0, lowN);
-        rawBand[1] = averageMel(m_melMidProcessed,  0, midN);
-        rawBand[2] = averageMel(m_melHighProcessed, 0, highN);
+        const double raw = std::min(rawFreqPower[i], 1.0);
+        const double a = (raw > m_freqPower[i]) ? freqRise : freqDecay;
+        m_freqPower[i] = a * raw + (1.0 - a) * m_freqPower[i];
     }
+}
+
+void AudioChannel::updateEnvelopes(const AudioFrame & /*frame*/, double dtMs)
+{
+    // Drive Low/Mid/High envelopes from the master-mel freq_power slots
+    // (single AGC), matching LedFx's lows_power/mids_power/high_power.
+    double rawBand[kBandCount] = {};
+    rawBand[0] = std::min(1.0, (m_freqPower[0] + m_freqPower[1]) * 0.5);
+    rawBand[1] = std::min(1.0, m_freqPower[2]);
+    rawBand[2] = std::min(1.0, m_freqPower[3]);
 
     for (int i = 0; i < kBandCount; i++)
     {
-        // Raw bank-mean power, gated by the noise gate. NOT clamped — mel
-        // values may exceed 1.0 depending on aubio_filterbank_set_norm/power;
-        // the smoothed envelope reflects that. Triggers must be configured in
-        // raw mel units.
         m_bandValues[i] = m_noiseGateClosed ? 0.0 : rawBand[i];
 
         const double tauMs = (m_bandValues[i] > m_envSmoothed[i]) ?
@@ -265,15 +284,25 @@ void AudioChannel::updateEnvelopes(const AudioFrame &frame, double dtMs)
         m_envSmoothed[i] += alpha(dtMs, tauMs) * (m_bandValues[i] - m_envSmoothed[i]);
     }
 
+    // Diagnostic: trace Low/Mid/High through the pipeline every ~0.3s
 #ifdef AUDIO_DEBUG
     static int _bandDbg = 0;
     if (++_bandDbg >= 25)
     {
         _bandDbg = 0;
-        qDebug().nospace() << "[AudioChannel] raw: L=" << m_bandValues[0]
-            << " M=" << m_bandValues[1] << " H=" << m_bandValues[2]
-            << " | env: L=" << m_envSmoothed[0]
-            << " M=" << m_envSmoothed[1] << " H=" << m_envSmoothed[2];
+        if (m_freqPower[0] > 0.0 || m_freqPower[1] > 0.0 ||
+            m_freqPower[2] > 0.0 || m_freqPower[3] > 0.0 || !m_noiseGateClosed)
+        {
+            qDebug("[BAND-DIAG] gate=%d | freqPow: beat=%.3f bass=%.3f mid=%.3f hi=%.3f"
+                   " | rawBand: L=%.3f M=%.3f H=%.3f"
+                   " | env: L=%.3f M=%.3f H=%.3f"
+                   " | masterAgc=%.4f",
+                   m_noiseGateClosed ? 1 : 0,
+                   m_freqPower[0], m_freqPower[1], m_freqPower[2], m_freqPower[3],
+                   rawBand[0], rawBand[1], rawBand[2],
+                   m_envSmoothed[0], m_envSmoothed[1], m_envSmoothed[2],
+                   m_melPost.melGain());
+        }
     }
 #endif
 }
@@ -525,6 +554,12 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         snap.music.tatum = a.tatum;
         snap.music.beatPhase = a.beatPhase;
         snap.music.barPhase = a.barPhase;
+        constexpr double kDownbeatWindow = 0.25;
+        const int barBeat = int(std::floor(a.barPhase));
+        const double barFract = a.barPhase - std::floor(a.barPhase);
+        const bool downbeat = barBeat == 0 && barFract < kDownbeatWindow;
+        snap.downbeatFired = downbeat && !m_prevDownbeat;
+        m_prevDownbeat = downbeat;
 
         const int n = std::min<int>(a.tssBinCount, AubioResults::kMaxTssBins);
         snap.tss.binCount = n;
@@ -564,75 +599,7 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         snap.note.noteOff = a.noteOff;
     }
 
-    // ===================================================================
-    // LedFx parity: lows/mids/highs from ONE mel bank with ONE AGC.
-    // ===================================================================
-    //
-    // LedFx audio.py:1287
-    //     melbank = self.melbanks.melbanks[2]
-    //
-    //     melbanks[2] is the LARGEST of LedFx's three multi-resolution
-    //     mel banks (max ~10 kHz) — but crucially it is a SINGLE bank
-    //     normalised by a SINGLE mel_gain ExpFilter
-    //     (melbanks.py: Melbank._gain). LedFx does NOT recombine its
-    //     three banks here.
-    //
-    // QLC+ equivalent: m_melProcessed is the master 40-band mel
-    //     populated in updateMelPost() (audiochannel.cpp:244-245):
-    //
-    //         m_melPost.process(frame.aubio->mel, AUBIO_MEL_BANDS,
-    //                           m_melProcessed, m_melNovelty);
-    //
-    //     m_melPost is a SINGLE MelPostProcessor instance with ONE
-    //     mel_gain AGC — same shape as LedFx's melbanks[2] gain.
-    //     The 3 per-bank processors (m_melPostLow/Mid/High) are
-    //     deliberately NOT used here; they have per-bank AGCs that
-    //     would each saturate to ~1.0 (the original bug).
-    //
-    // LedFx audio.py:1107-1112 — freq_max_mels (Hz cutoffs):
-    //         freq_max_mels = [
-    //             100,    # beat
-    //             250,    # bass
-    //             3000,   # mids
-    //             10000,  # high
-    //         ]
-    //
-    // LedFx audio.py:1162-1182 — convert each Hz to a bin index in
-    //     melbanks[2]. We do the same with hzToMasterMelBin() above.
-    const QString &melScale = m_config.aubio.melScale;
-    const int kBeatCutBin = hzToMasterMelBin(100.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kLowCutBin  = hzToMasterMelBin(250.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kMidCutBin  = hzToMasterMelBin(3000.0,  frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kHighEndBin = hzToMasterMelBin(10000.0, frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-
-    // Defensive ordering: guarantee strictly-increasing, non-empty
-    // slices even if cutoffs collide at very low/high sample rates.
-    const int beatEnd = std::clamp(kBeatCutBin, 1, AUBIO_MEL_BANDS - 3);
-    const int lowEnd  = std::clamp(std::max(beatEnd + 1, kLowCutBin), beatEnd + 1, AUBIO_MEL_BANDS - 2);
-    const int midEnd  = std::clamp(std::max(lowEnd + 1, kMidCutBin), lowEnd + 1, AUBIO_MEL_BANDS - 1);
-    const int highEnd = std::clamp(std::max(midEnd + 1, kHighEndBin), midEnd + 1, AUBIO_MEL_BANDS);
-
-    double rawFreqPower[4] = {};
-    // LedFx audio.py:1289-1300 — four raw freq_power values: beat, bass, mids, highs.
-    rawFreqPower[0] = averageMel(m_melProcessed, 0, beatEnd);
-    rawFreqPower[1] = averageMel(m_melProcessed, beatEnd, lowEnd);
-    rawFreqPower[2] = averageMel(m_melProcessed, lowEnd, midEnd);
-    rawFreqPower[3] = averageMel(m_melProcessed, midEnd, highEnd);
-
-    const double freqRise = std::clamp(m_config.freqPowerRise, 0.0, 1.0);
-    const double freqDecay = std::clamp(m_config.freqPowerDecay, 0.0, 1.0);
-    for (int i = 0; i < 4; i++)
-    {
-        // LedFx audio.py:1301-1302 — np.minimum(..., 1.0), then
-        // freq_power_filter.update(freq_power_raw). No noise-gate bypass.
-        const double raw = std::min(rawFreqPower[i], 1.0);
-        // LedFx audio.py:1159 — freq_power_filter initialized to zeros
-        const double a = (raw > m_freqPower[i]) ? freqRise : freqDecay;
-        m_freqPower[i] = a * raw + (1.0 - a) * m_freqPower[i];
-    }
-
-    // LedFx audio.py:1324-1343 — beat=slot0, bass=slot1, lows=(beat+bass)/2,
-    // mids=slot2, highs=slot3.
+    // m_freqPower[] already computed by updateFreqPower() earlier in the frame.
     snap.beatPower = std::min(1.0, m_freqPower[0]);
     snap.bassPower = std::min(1.0, m_freqPower[1]);
     snap.lows = std::min(1.0, (m_freqPower[0] + m_freqPower[1]) * 0.5);

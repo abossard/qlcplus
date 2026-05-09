@@ -86,7 +86,9 @@ void AudioRenderer::setFadeIn(uint fadeTime)
     m_fadeStep = m_intensity / stepsCount;
     m_currentIntensity = 0;
 
+#ifdef AUDIO_DEBUG
     qDebug() << Q_FUNC_INFO << "stepsCount:" << stepsCount << ", fadeStep:" << m_fadeStep;
+#endif
 }
 
 void AudioRenderer::setFadeOut(uint fadeTime)
@@ -100,7 +102,9 @@ void AudioRenderer::setFadeOut(uint fadeTime)
     m_fadeStep = -(m_intensity / stepsCount);
     m_currentIntensity = m_intensity;
 
+#ifdef AUDIO_DEBUG
     qDebug() << Q_FUNC_INFO << "stepsCount:" << stepsCount << ", fadeStep:" << m_fadeStep;
+#endif
 }
 
 void AudioRenderer::stop()
@@ -127,7 +131,9 @@ void AudioRenderer::run()
     qint64 audioDataWritten;
     audioDataRead = 0;
     bool sourceEofReached = false;
+#ifdef AUDIO_DEBUG
     quint32 eosWaitCycles = 0;
+#endif
 
     int sampleSize = m_adec->audioParameters().sampleSize();
     if (sampleSize > 2)
@@ -139,7 +145,6 @@ void AudioRenderer::run()
 
         if (m_pause == false && m_isEos == false)
         {
-            //qDebug() << "Pending audio bytes: " << pendingAudioBytes;
             if (pendingAudioBytes == 0)
             {
                 audioDataRead = m_adec->read((char *)audioData, 8192);
@@ -155,26 +160,31 @@ void AudioRenderer::run()
                         if (sourceEofReached == false)
                         {
                             sourceEofReached = true;
+#ifdef AUDIO_DEBUG
                             qDebug() << "[AudioRenderer] decoder EOF reached, waiting for backend drain";
+#endif
                         }
 
                         if (backendDrainedAtEos())
                         {
+#ifdef AUDIO_DEBUG
                             qDebug() << "[AudioRenderer] backend drained, setting EOS";
+#endif
                             m_isEos = true;
                         }
                         else
                         {
+#ifdef AUDIO_DEBUG
                             eosWaitCycles++;
                             if ((eosWaitCycles % 100) == 0)
                                 qDebug() << "[AudioRenderer] waiting EOS drain..." << eosWaitCycles;
+#endif
                             usleep(5000);
                         }
                     }
                 }
                 if (m_intensity != 1.0 || m_fadeStep != 0)
                 {
-                    //qDebug() << "Intensity" << m_intensity << ", current" << m_currentIntensity << ", fadeStep" << m_fadeStep;
 
                     for (int i = 0; i < audioDataRead; i+=sampleSize)
                     {
@@ -234,7 +244,6 @@ void AudioRenderer::run()
                 if (audioDataWritten == 0)
                     usleep(15000);
             }
-            //qDebug() << "[Cycle] read:" << audioDataRead << ", written:" << audioDataWritten << ", pending:" << pendingAudioBytes;
         }
         else
         {
@@ -242,7 +251,9 @@ void AudioRenderer::run()
         }
     }
 
+#ifdef AUDIO_DEBUG
     qDebug() << "Audio renderer thread stopped";
+#endif
 
     reset();
 }

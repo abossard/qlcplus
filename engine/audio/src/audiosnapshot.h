@@ -170,4 +170,5 @@ struct AudioSnapshot
     double audioDtMs = 0.0;
     double brightnessFloor = 0.0;
     bool noiseGateClosed = false;
+    bool downbeatFired = false;
 };

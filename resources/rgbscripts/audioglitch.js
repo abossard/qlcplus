@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 5, reactivity: 3});
+    algo.presetReactivity = 3;
+    algo.presetFloor = 0;
 
     algo.presetSpeed = 5;
     algo.properties.push(
@@ -47,8 +48,7 @@ var testAlgo;
     algo.getComplexity = function() { return algo.presetComplexity; };
 
     var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
-    var lowsPower = 0;
-    var lowsFilter = null;
+    var lowPower = 0;
     var timestep = 0;
     var lastTime = 0;
     var initialized = false;
@@ -60,13 +60,13 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioParams.bandColors(algo, DEFAULT_BAND_COLORS).slice();
+        return AudioColors.bands(algo).slice();
     };
 
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) { lowsFilter = new AudioDSP.Filter(0.05, AudioParams.filterRise(algo)); lastTime = Date.now(); initialized = true; }
+        if (!initialized) { lastTime = Date.now(); initialized = true; }
 
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
@@ -76,7 +76,7 @@ var testAlgo;
         lastTime = now;
         if (dt <= 0 || dt > 200) dt = 20;
 
-        lowsPower = lowsFilter.update(audio.lows);
+        lowPower = audio.power.low;
 
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;
@@ -84,7 +84,7 @@ var testAlgo;
         var complexity = algo.presetComplexity;
 
         timestep += dt;
-        timestep += lowsPower * reactivity / speed * 50;
+        timestep += lowPower * reactivity / speed * 50;
 
         var t1 = (timestep * speed * 0.0005) * Math.PI * 2;
         var t2 = (timestep * speed * 0.0005) % 1;
@@ -92,14 +92,15 @@ var testAlgo;
         var t4 = (timestep * speed * 0.001) * Math.PI * 2;
         var t5 = (timestep * speed * 0.00025) % 1;
         var t6 = (timestep * speed * 0.01) % 1;
-        if (AudioParams.anyOnsetFired(audio) || AudioParams.kickFired(audio)) {
-            flashColor = AudioParams.colorChannels(
-                AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
-            var hitScale = Math.min(1.0, 0.4 + 0.6 * AudioParams.maxOnsetIntensity(audio));
+        if (audio.onset.fired || audio.beat.kick) {
+            var flashPacked = AudioColors.dominant(algo, audio);
+            flashColor = [(flashPacked >> 16) & 0xFF, (flashPacked >> 8) & 0xFF, flashPacked & 0xFF];
+            var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
             flashLevel = hitScale;
         }
-        var dominant = (flashLevel > 0.01 && flashColor) ? flashColor : AudioParams.colorChannels(
-            AudioParams.dominantBandColor(algo, audio, DEFAULT_BAND_COLORS));
+        var dominantPacked = AudioColors.dominant(algo, audio);
+        var dominant = (flashLevel > 0.01 && flashColor) ? flashColor :
+            [(dominantPacked >> 16) & 0xFF, (dominantPacked >> 8) & 0xFF, dominantPacked & 0xFF];
 
         for (var x = 0; x < width; x++) {
             var il = (x - width / 2) / width;
@@ -129,7 +130,8 @@ var testAlgo;
             var g = dominant[1] * (0.35 + c1[1] / 255.0 * glitchMix);
             var b = dominant[2] * (0.35 + c1[2] / 255.0 * glitchMix);
 
-            var brightness = AudioParams.applyFloor(algo, Math.max(0.4, flashLevel));
+            var baseBrightness = Math.max(0.4, flashLevel);
+            var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBrightness;
             var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;

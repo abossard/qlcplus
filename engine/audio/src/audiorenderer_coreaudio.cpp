@@ -37,7 +37,6 @@ AudioRendererCoreAudio::~AudioRendererCoreAudio()
 void AudioRendererCoreAudio::inCallback(void *inUserData, AudioQueueRef, AudioQueueBufferRef)
 {
     AudioRendererCoreAudio *CAobj = (AudioRendererCoreAudio *)inUserData;
-    qDebug() << "inCallback called !!";
     CAobj->m_buffersFilled--;
 }
 
@@ -77,22 +76,22 @@ bool AudioRendererCoreAudio::initialize(quint32 freq, int chan, AudioFormat form
 
     if (status == kAudioFormatUnsupportedDataFormatError)
     {
-        qDebug() << Q_FUNC_INFO << "Fatal: Unsupported data format";
+        qWarning() << Q_FUNC_INFO << "Fatal: Unsupported data format";
         return false;
     }
     else
-        qDebug() << Q_FUNC_INFO << "initialize status: " << status;
+        qWarning() << Q_FUNC_INFO << "initialize status: " << status;
 
     for (int i = 0; i < AUDIO_BUFFERS_NUM; i++)
     {
         status = AudioQueueAllocateBuffer (m_queue, AUDIO_BUFFER_SIZE, &m_buffer[i]);
-        qDebug() << Q_FUNC_INFO << "Buffer #" << i << " allocate status: " << status;
+        qWarning() << Q_FUNC_INFO << "Buffer #" << i << " allocate status: " << status;
     }
 
     status = AudioQueueStart(m_queue, NULL);
     if (status)
     {
-        qDebug() << Q_FUNC_INFO << "Cannot start Audio Queue!";
+        qWarning() << Q_FUNC_INFO << "Cannot start Audio Queue!";
         return false;
     }
 
@@ -140,7 +139,7 @@ void AudioRendererCoreAudio::reset()
     {
         status = AudioQueueFreeBuffer(m_queue, m_buffer[i]);
         if (status)
-            qDebug() << Q_FUNC_INFO << "Failed to free buffer #" << i;
+            qWarning() << Q_FUNC_INFO << "Failed to free buffer #" << i;
     }
 }
 
@@ -150,7 +149,7 @@ void AudioRendererCoreAudio::suspend()
 
     status = AudioQueuePause(m_queue);
     if (status)
-        qDebug() << Q_FUNC_INFO << "Failed to pause Audio Queue !!";
+        qWarning() << Q_FUNC_INFO << "Failed to pause Audio Queue !!";
 }
 
 void AudioRendererCoreAudio::resume()
@@ -159,5 +158,5 @@ void AudioRendererCoreAudio::resume()
 
     status = AudioQueueStart(m_queue, NULL);
     if (status)
-        qDebug() << Q_FUNC_INFO << "Failed to resume Audio Queue !!";
+        qWarning() << Q_FUNC_INFO << "Failed to resume Audio Queue !!";
 }

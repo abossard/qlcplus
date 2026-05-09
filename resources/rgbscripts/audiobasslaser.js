@@ -23,7 +23,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installTrigger(algo, {gain: 7, reactivity: 7, sensitivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetSensitivity = 7;
 
     algo.presetTrailLength = 8;
     algo.properties.push(
@@ -61,8 +62,6 @@ var testAlgo;
     var trailColor = [32, 128, 255];
 
     algo.beams = [];
-    algo.bassFilter = null;
-    algo.highsFilter = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
@@ -174,12 +173,12 @@ var testAlgo;
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
-        var bass = Math.min(2.0, audio.lows);
-        var highs = Math.min(1.0, audio.highs);
-        var onsetIntensity = Math.max(0.4, AudioParams.maxOnsetIntensity(audio));
+        var bass = Math.min(2.0, audio.power.low);
+        var highs = Math.min(1.0, audio.power.high);
+        var onsetIntensity = Math.max(0.4, audio.onset.intensity);
         var glowMul = (0.8 + highs * 0.4) * onsetIntensity;
 
-        if (audio.triggers.low.firedThisFrame || AudioParams.kickFired(audio) || (algo.beams.length < 3 && bass > 0.15))
+        if (audio.bands.low.fired || audio.beat.kick || (algo.beams.length < 3 && bass > 0.15))
             spawnBeam(width, height, Math.max(0.3, bass));
 
         for (var bi = algo.beams.length - 1; bi >= 0; bi--) {

@@ -6,8 +6,7 @@ set(SCRIPT_FILES
     audiobasslaser.js
     audiobuildup.js
     audioblocks.js
-    audio_common.js
-    audiodsp.js
+    audio_colors.js
     audiochaser.js
     audiocrawler.js
     audioenergy.js

@@ -24,7 +24,8 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    AudioParams.installContinuous(algo, {gain: 7, reactivity: 7});
+    algo.presetReactivity = 7;
+    algo.presetFloor = 0;
 
     algo.presetBlockSize = 5;
     algo.properties.push(
@@ -65,7 +66,6 @@ var testAlgo;
     var startColor = [255, 0, 64];
     var endColor = [0, 64, 255];
     var blockBrightness = null;
-    var filter = null;
     var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -90,7 +90,6 @@ var testAlgo;
         if (!initialized || !blockBrightness || blockBrightness.length !== numBlocks) {
             blockBrightness = new Array(numBlocks);
             for (var i = 0; i < numBlocks; i++) blockBrightness[i] = 0;
-            filter = new AudioDSP.Filter(0.1, AudioParams.filterRise(algo));
             initialized = true;
         }
 
@@ -99,21 +98,19 @@ var testAlgo;
 
         // Get audio power based on selected range
         var power;
-        if (algo.presetReactTo === 1) power = audio.mids;
-        else if (algo.presetReactTo === 2) power = audio.highs;
+        if (algo.presetReactTo === 1) power = audio.power.mid;
+        else if (algo.presetReactTo === 2) power = audio.power.high;
         else if (algo.presetReactTo === 3) power = audio.volume.normalized;
-        else power = audio.lows;
-
-        power = filter.update(power);
+        else power = audio.power.low;
 
         // Get spectrum for per-block variation
-        var bands = RGBUtil.interpolate(AudioParams.fullMel(audio), numBlocks);
+        var bands = RGBUtil.interpolate(audio.spectrum.full, numBlocks);
         for (var i = 0; i < bands.length; i++)
             bands[i] = Math.min(1, bands[i]);
 
         // Decay and update blocks
         var decayRate = 1 - algo.presetDecay / 50.0;
-        var kickBoost = AudioParams.kickFired(audio) ? 0.3 : 0;
+        var kickBoost = audio.beat.kick ? 0.3 : 0;
         for (var bi = 0; bi < numBlocks; bi++) {
             blockBrightness[bi] *= decayRate;
             // Trigger blocks based on spectrum + overall power
@@ -123,9 +120,9 @@ var testAlgo;
         }
 
         // Render blocks
-        var beatPulse = AudioParams.beatPulse(audio);
+        var beatPulse = audio.beat.cosPulse;
         for (var bi = 0; bi < numBlocks; bi++) {
-            var bright = AudioParams.applyFloor(algo, blockBrightness[bi]);
+            var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * blockBrightness[bi];
             if (bright < 0.01) continue;
             
             // Add subtle beat pulse modulation (0-20%)

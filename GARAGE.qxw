@@ -8,7 +8,7 @@
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="129"/>
+   <BeatGenerator BeatType="Audio" BPM="127"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -516,7 +516,7 @@
    <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.1" SmoothRise="0.8" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
    <FreqPower Decay="0.2" Rise="0.97"/>
    <Volume Smoothing="100" BrightnessFloor="0"/>
-   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="hanningz" MelScale="matt_mel" OnsetMethodsEnabled="010000001" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="hanningz" MelScale="matt_mel" OnsetMethodsEnabled="010000001" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
     <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
     <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
     <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
@@ -3287,7 +3287,7 @@
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
    <AudioTriggers AudioProfileID="0" Caption="Audio Trigger 1" ID="0">
-    <WindowState Visible="True" X="30" Y="15" Width="990" Height="670"/>
+    <WindowState Visible="True" X="30" Y="15" Width="746" Height="319"/>
     <Appearance>
      <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
     </Appearance>
