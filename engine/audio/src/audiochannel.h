@@ -68,6 +68,13 @@ private:
     // the gate near threshold. Initialized very low so the gate starts closed.
     static constexpr double kGateVolumeAlpha = 0.99;
     double m_gateVolumeSmoothed = -100.0;
+    // LedFx audio.py:409 — default min_volume = 0.2 in the 0..1 normalized
+    // domain (volume = 1 + db_spl/100). NOT yet wired into the gate; the
+    // dB-domain smoothed gate (Fix 3) is working well. Kept here so future
+    // work can swap the comparison to:
+    //     m_gateVolumeSmoothedNorm < kLedFxMinVolume
+    // with the threshold expressed in LedFx-portable units.
+    static constexpr double kLedFxMinVolume = 0.2;
     bool m_currentBeat = false;
 
     // Kick detector state

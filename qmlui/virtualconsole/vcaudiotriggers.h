@@ -162,6 +162,9 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double volumeRaw READ volumeRaw NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double volumeSmoothedValue READ volumeSmoothedValue NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double volumeNormalized READ volumeNormalized NOTIFY audioSnapshotChanged)
+    // LedFx audio.py:1021 — 0..1 normalized volume (1 + db_spl/100).
+    // Diagnostic display alongside rmsDb; comparable to LedFx min_volume = 0.2.
+    Q_PROPERTY(double volumeNorm READ volumeNorm NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double rmsDb READ rmsDb NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double peakDb READ peakDb NOTIFY audioSnapshotChanged)
     Q_PROPERTY(double flux READ flux NOTIFY audioSnapshotChanged)
@@ -512,6 +515,7 @@ public:
     double volumeRaw() const;
     double volumeSmoothedValue() const;
     double volumeNormalized() const;
+    double volumeNorm() const;
     double rmsDb() const;
     double peakDb() const;
     double flux() const;

@@ -680,6 +680,9 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
     snap.volume.raw = m_volumeRaw;
     snap.volume.smoothed = m_volumeSmoothed;
     snap.volume.normalized = m_volumeNormalized;
+    // LedFx audio.py:1021 — passthrough of the AudioFrame normalized volume.
+    // Gated to 0 while the noise gate is closed, matching m_volumeNormalized.
+    snap.volume.volumeNorm = m_noiseGateClosed ? 0.0 : frame.volumeNorm;
 
     snap.music.beat = frame.beatDetected;
     snap.features.rmsDb = frame.rmsDb;

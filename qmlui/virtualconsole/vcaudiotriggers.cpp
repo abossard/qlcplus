@@ -745,6 +745,7 @@ double VCAudioTriggers::brightnessFloor() const { return profileChannelConfig().
 double VCAudioTriggers::volumeRaw() const { return m_cachedSnapshot.volume.raw; }
 double VCAudioTriggers::volumeSmoothedValue() const { return m_cachedSnapshot.volume.smoothed; }
 double VCAudioTriggers::volumeNormalized() const { return m_cachedSnapshot.volume.normalized; }
+double VCAudioTriggers::volumeNorm() const { return m_cachedSnapshot.volume.volumeNorm; }
 double VCAudioTriggers::rmsDb() const { return m_cachedSnapshot.features.rmsDb; }
 double VCAudioTriggers::peakDb() const { return m_cachedSnapshot.features.peakDb; }
 double VCAudioTriggers::flux() const { return m_cachedSnapshot.features.flux; }

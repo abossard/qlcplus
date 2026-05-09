@@ -223,6 +223,15 @@ void AudioCapture::processData()
     frame.rmsDb = (rms > 0.0) ? (20.0 * std::log10(rms)) : -96.0;
     frame.peakDb = (peakAbs > 0.0) ? (20.0 * std::log10(peakAbs)) : -96.0;
     frame.crestFactor = (rms > 0.0) ? (peakAbs / rms) : 1.0;
+
+    // LedFx audio.py:1021 — volume = 1 + aubio.db_spl(raw) / 100.
+    // Map rmsDb (≤ 0 for normalized PCM) into 0..1 with the same shape so
+    // downstream consumers (gates / brightness floors) can compare against
+    // LedFx-style thresholds such as min_volume = 0.2 (audio.py:409).
+    // Digital silence (frame.silent) is explicitly zeroed so volumeNorm == 0
+    // is a reliable silence indicator at the AudioFrame level.
+    frame.volumeNorm = frame.silent ? 0.0
+        : std::clamp(1.0 + frame.rmsDb / 100.0, 0.0, 1.0);
     frame.aubio = &aubio;
 
     if (m_analyzer)

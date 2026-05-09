@@ -37,6 +37,15 @@ struct AudioFrame
     double peakDb = -96.0;
     double crestFactor = 1.0;
 
+    // LedFx audio.py:1021 — volume = 1 + aubio.db_spl(raw) / 100.
+    // Normalized volume in 0..1: 0.0 = silence (≤ -100 dBFS), 1.0 = 0 dBFS.
+    // QLC+ derives this from frame.rmsDb (= 20*log10(rms)), while LedFx uses
+    // aubio.db_spl(raw); the absolute scale may differ by a constant due to
+    // windowing / SPL convention but the formula shape matches. Lets QLC+
+    // gate / brightness thresholds be expressed using LedFx's `min_volume`
+    // convention (audio.py:409, default 0.2).
+    double volumeNorm = 0.0;
+
     /** Aubio analysis results for this frame. Non-owning — borrowed from AudioCapture. */
     const AubioResults *aubio = nullptr;
 };

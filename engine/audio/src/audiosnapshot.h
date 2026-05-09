@@ -82,6 +82,11 @@ struct AudioSnapshot
         double raw = 0.0;
         double smoothed = 0.0;
         double normalized = 0.0;
+        // LedFx audio.py:1021 — volume = 1 + aubio.db_spl(raw) / 100.
+        // Mirrors AudioFrame::volumeNorm; lets QML / scripts read a 0..1
+        // volume that's directly comparable to LedFx's min_volume threshold
+        // (audio.py:409, default 0.2).
+        double volumeNorm = 0.0;
     } volume;
 
     struct
