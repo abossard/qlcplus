@@ -2498,8 +2498,9 @@ void WebAccessQml::cleanupDmxSubscription(QHttpConnection *conn)
 
 void WebAccessQml::slotUniverseWritten(quint32 uniIdx, QByteArray data)
 {
-    qDebug() << "[DMX-WS] slotUniverseWritten uni=" << uniIdx
-             << "subs=" << m_dmxSubs.size() << "dataLen=" << data.size();
+    if (m_dmxSubs.isEmpty())
+        return;
+
     for (auto it = m_dmxSubs.begin(); it != m_dmxSubs.end(); ++it)
     {
         DmxSubscription &sub = it.value();
@@ -2515,8 +2516,6 @@ void WebAccessQml::slotUniverseWritten(quint32 uniIdx, QByteArray data)
             if (!mask.testBit(a)) continue;
             if (data.at(a) != last.at(a))
             {
-                qDebug() << "[DMX-WS] delta uni=" << uniIdx << "addr=" << a
-                         << "old=" << (uchar)last.at(a) << "new=" << (uchar)data.at(a);
                 last[a] = data.at(a);
                 deltas.append(qMakePair(a, (uchar)data.at(a)));
             }
@@ -2528,9 +2527,6 @@ void WebAccessQml::slotFlushDmxDeltas(QHttpConnection *conn)
 {
     if (!m_dmxSubs.contains(conn)) return;
     DmxSubscription &sub = m_dmxSubs[conn];
-
-    qDebug() << "[DMX-WS] flushDmxDeltas conn has"
-             << sub.pendingDeltas.size() << "universes with pending deltas";
 
     // Heartbeat TTL: auto-release subscription after 30s idle.
     // Do NOT reset Simple Desk channels — the user's fader values should persist
