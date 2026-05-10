@@ -104,6 +104,7 @@ var testAlgo;
     algo.returning = false;
     algo.sparkles = [];
     algo.lastSparkleMs = 0;
+    algo.elapsedMs = 0;
     algo.lastN = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -135,15 +136,14 @@ var testAlgo;
             algo.lastN = n;
         }
 
-        var nowMs = Date.now();
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var dtSec = dtMs / 1000.0;
+        var dt = audio.timing.consumerDtMs / 1000.0;
+        algo.elapsedMs += audio.timing.consumerDtMs;
 
         var power = audio.power.low;
         var multiplier = algo.presetMultiplier / 100.0;
         var bar = power * multiplier;
         var stepPerSec = (n / 100.0) * algo.presetSpeed;
-        var stepSize = dtSec * stepPerSec * bar;
+        var stepSize = dt * stepPerSec * bar;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
         var bounce = algo.presetBounce === 1;
 
@@ -164,7 +164,7 @@ var testAlgo;
         var threshold = algo.presetSparkleThreshold / 100.0;
         if (power > threshold &&
             algo.sparkles.length < algo.presetMaxSparkles &&
-            (nowMs - algo.lastSparkleMs) >= SPARKLE_MIN_INTERVAL_MS) {
+            (algo.elapsedMs - algo.lastSparkleMs) >= SPARKLE_MIN_INTERVAL_MS) {
 
             var trailingPos = algo.returning
                 ? (algo.scanPos + scanW)
@@ -176,10 +176,10 @@ var testAlgo;
                 pos: trailingPos,
                 width: sparkleW,
                 speed: sparkleSpeed,
-                bornMs: nowMs,
+                bornMs: algo.elapsedMs,
                 dieMs: algo.presetSparkleTime
             });
-            algo.lastSparkleMs = nowMs;
+            algo.lastSparkleMs = algo.elapsedMs;
         }
 
         var strip = new Array(n);
@@ -193,10 +193,10 @@ var testAlgo;
         var alive = [];
         for (var i = 0; i < algo.sparkles.length; i++) {
             var sp = algo.sparkles[i];
-            var age = nowMs - sp.bornMs;
+            var age = algo.elapsedMs - sp.bornMs;
             var health = 1 - (age / sp.dieMs);
             if (health <= 0) continue;
-            sp.pos += sp.speed * dtSec * health;
+            sp.pos += sp.speed * dt * health;
             if (sp.pos < -sp.width || sp.pos >= n) continue;
             var sparkleColor = RGBUtil.scaleColor(0xFFFFFF, health);
             drawSegment(strip, n, sp.pos, sp.width, sparkleColor);

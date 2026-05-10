@@ -27,6 +27,7 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Random Fill Row";
         algo.author = "David Garyga";
+        algo.acceptColors = 2;
         algo.width = 0;
         algo.height = 0;
 

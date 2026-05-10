@@ -29,6 +29,7 @@ function()
     algo.apiVersion = 2;
     algo.name = "Waves";
     algo.author = "Nathan Durnan";
+    algo.acceptColors = 2;
 
     algo.properties = new Array();
     algo.taillength = 50;

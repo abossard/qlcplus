@@ -3,7 +3,7 @@
   audiowavelength.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Wavelength" effect (MIT License)
+  Ported from LedFx "Wavelength" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,66 +20,145 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Wavelength";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 8;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetFloor = 0;
+    algo.presetBlur = 3;
+    algo.properties.push(
+      "name:blur|type:range|display:Blur|" +
+      "values:0,10|write:setBlur|read:getBlur");
+    algo.setBlur = function(_v) { algo.presetBlur = clampFloat(_v, 0, 10, 3); };
+    algo.getBlur = function() { return algo.presetBlur; };
 
-    var DEFAULT_GRADIENT = [0x00FF00, 0x80FF00, 0xFFFF00, 0x00FFFF, 0x0000FF];
-    var gradientLut = null;
-    var lutWidth = -1;
-    var lutSig = "";
+    algo.presetGradientRoll = 0;
+    algo.properties.push(
+      "name:gradient_roll|type:range|display:Gradient Roll|" +
+      "values:0,10|write:setGradientRoll|read:getGradientRoll");
+    algo.setGradientRoll = function(_v) { algo.presetGradientRoll = clampFloat(_v, 0, 10, 0); };
+    algo.getGradientRoll = function() { return algo.presetGradientRoll; };
+
+    algo.presetGradient =
+      "linear-gradient(90deg, rgb(255, 0, 0) 0%, rgb(255, 120, 0) 14%, " +
+      "rgb(255, 200, 0) 28%, rgb(0, 255, 0) 42%, rgb(0, 199, 140) 56%, " +
+      "rgb(0, 0, 255) 70%, rgb(128, 0, 128) 84%, rgb(255, 0, 178) 98%)";
+    algo.properties.push(
+      "name:gradient|type:string|display:Gradient|" +
+      "write:setGradient|read:getGradient");
+    algo.setGradient = function(_v) {
+      var parsed = parseGradientString(_v);
+      if (parsed.length > 0) {
+        algo.presetGradient = String(_v);
+        gradientColors = parsed;
+      }
+    };
+    algo.getGradient = function() { return algo.presetGradient; };
+
+    var DEFAULT_GRADIENT = [
+      0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00,
+      0x00C78C, 0x0000FF, 0x800080, 0xFF00B2
+    ];
+    var gradientColors = DEFAULT_GRADIENT.slice();
+    var gradientRollCounter = 0;
+
+    function clampFloat(v, lo, hi, fallback) {
+      v = parseFloat(v);
+      if (isNaN(v)) v = fallback;
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function toHex(c) {
+      c = c & 0xFFFFFF;
+      var s = c.toString(16).toUpperCase();
+      while (s.length < 6) s = "0" + s;
+      return "#" + s;
+    }
+
+    function parseGradientString(s) {
+      if (typeof s !== "string") return [];
+      var out = [];
+      var rgbRe = /rgb\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)/ig;
+      var m;
+      while ((m = rgbRe.exec(s)) !== null) {
+        out.push(RGBUtil.rgb(parseInt(m[1]), parseInt(m[2]), parseInt(m[3])));
+      }
+      var hexRe = /#([0-9a-fA-F]{6})/g;
+      while ((m = hexRe.exec(s)) !== null) out.push(parseInt(m[1], 16));
+      return out;
+    }
+
+    function boxBlur(src, amount) {
+      var radius = Math.round(amount);
+      if (radius <= 0 || src.length <= 3) return src;
+      var out = new Array(src.length);
+      for (var i = 0; i < src.length; i++) {
+        var r = 0, g = 0, b = 0, count = 0;
+        for (var j = i - radius; j <= i + radius; j++) {
+          if (j < 0 || j >= src.length) continue;
+          r += src[j][0]; g += src[j][1]; b += src[j][2]; count++;
+        }
+        out[i] = [r / count, g / count, b / count];
+      }
+      return out;
+    }
+
+    function rolledGradientColor(t, pixelCount) {
+      if (algo.presetGradientRoll !== 0 && pixelCount > 0) {
+        t = RGBUtil.mod1(t - gradientRollCounter / Math.max(pixelCount, 256));
+      }
+      return RGBUtil.gradientColorAt(gradientColors, t);
+    }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
-    algo.rgbMapSetColors = function(rawColors) { };
-
-    algo.rgbMapGetColors = function() {
-        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
+    algo.rgbMapSetColors = function(rawColors) {
+      var colors = RGBUtil.buildGradientColors(rawColors);
+      if (colors.length > 0) {
+        gradientColors = colors;
+        var parts = [];
+        for (var i = 0; i < colors.length; i++) parts.push(toHex(colors[i]));
+        algo.presetGradient = parts.join(",");
+      } else {
+        gradientColors = DEFAULT_GRADIENT.slice();
+      }
     };
+
+    algo.rgbMapGetColors = function() { return gradientColors.slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
-        if (!audio) return map;
-        var melSrc = audio.spectrum.full;
-        if (!melSrc || melSrc.length === 0) return map;
+      var pixelCount = width * height;
+      var map = RGBUtil.createMap(width, height);
+      if (!audio || pixelCount <= 0) return map;
 
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bands = RGBUtil.interpolate(melSrc, effectiveWidth);
-        for (var bi = 0; bi < bands.length; bi++)
-            bands[bi] = Math.min(1, bands[bi]);
+      var rValues = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
+      var pixels = new Array(pixelCount);
+      var denom = Math.max(1, pixelCount - 1);
 
-        var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
-        var sig = stops.length + ":" + stops.join(",");
-        if (gradientLut === null || lutWidth !== width || lutSig !== sig) {
-            gradientLut = RGBUtil.gradientLut(stops, width);
-            lutWidth = width;
-            lutSig = sig;
-        }
+      for (var i = 0; i < pixelCount; i++) {
+        var packed = rolledGradientColor(i / denom, pixelCount);
+        var scale = RGBUtil.clamp01(rValues[i]);
+        pixels[i] = [
+          ((packed >> 16) & 0xFF) * scale,
+          ((packed >> 8) & 0xFF) * scale,
+          (packed & 0xFF) * scale
+        ];
+      }
 
-        // Each column: spectrum magnitude → gradient color × brightness
+      pixels = boxBlur(pixels, algo.presetBlur);
+
+      for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
-            var magnitude = bands[x];
-            var packed = gradientLut[x];
-            var r = (packed >> 16) & 0xFF;
-            var g = (packed >> 8) & 0xFF;
-            var b = packed & 0xFF;
-
-            var barHeight = Math.round(magnitude * height);
-
-            for (var dy = 0; dy < barHeight; dy++) {
-                var y = height - 1 - dy;
-                if (y < 0) break;
-                var baseBright = magnitude * (0.5 + 0.5 * dy / Math.max(1, barHeight));
-                var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
-                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
-            }
+          var px = pixels[y * width + x];
+          map[y][x] = RGBUtil.rgb(px[0], px[1], px[2]);
         }
+      }
 
-        return map;
+      if (algo.presetGradientRoll !== 0) {
+        gradientRollCounter += algo.presetGradientRoll / Math.max(1, pixelCount) * Math.max(pixelCount, 256);
+        if (gradientRollCounter >= 1.0) gradientRollCounter -= Math.floor(gradientRollCounter);
+      }
+      return map;
     };
 
     testAlgo = algo;

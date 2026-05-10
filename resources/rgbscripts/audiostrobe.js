@@ -3,7 +3,7 @@
   audiostrobe.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "BPM Strobe" effect (MIT License)
+  Ported from LedFx "Real Strobe" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,111 +20,149 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Strobe";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetSensitivity = 5;
+    var DANCEFLOOR_GRADIENT = [0xFF0000, 0xFF00B2, 0x0000FF];
 
-    algo.presetDecay = 5;
-    algo.properties.push(
-      "name:presetDecay|type:range|display:Decay Speed|" +
-      "values:1,10|write:setDecay|read:getDecay");
+    algo.color_step = 0.0625;
+    algo.bass_strobe_decay_rate = 0.5;
+    algo.strobe_color = "#FFFFFF";
+    algo.strobe_width = 10;
+    algo.strobe_decay_rate = 0.5;
+    algo.color_shift_delay = 1.0;
 
-    algo.presetMode = 0;
-    algo.properties.push(
-      "name:presetMode|type:list|display:Trigger|" +
-      "values:Beat,Bass,Mids,Highs,Volume,Kick|write:setMode|read:getMode");
-    algo.presetTriggerMode = 0;
-    algo.properties.push(
-      "name:triggerMode|type:list|display:Trigger Mode|" +
-      "values:Beat,Onset,Note|write:setTriggerMode|read:getTriggerMode");
+    algo.properties.push("name:color_step|type:float|display:Color Step|write:setColorStep|read:getColorStep");
+    algo.properties.push("name:bass_strobe_decay_rate|type:float|display:Bass Strobe Decay Rate|write:setBassStrobeDecayRate|read:getBassStrobeDecayRate");
+    algo.properties.push("name:strobe_color|type:string|display:Strobe Color|write:setStrobeColor|read:getStrobeColor");
+    algo.properties.push("name:strobe_width|type:range|display:Strobe Width|values:0,1000|write:setStrobeWidth|read:getStrobeWidth");
+    algo.properties.push("name:strobe_decay_rate|type:float|display:Strobe Decay Rate|write:setStrobeDecayRate|read:getStrobeDecayRate");
+    algo.properties.push("name:color_shift_delay|type:float|display:Color Shift Delay|write:setColorShiftDelay|read:getColorShiftDelay");
 
-    algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
-    algo.getDecay = function() { return algo.presetDecay; };
-    algo.setMode = function(_v) {
-        if (_v === "Bass") algo.presetMode = 1;
-        else if (_v === "Mids") algo.presetMode = 2;
-        else if (_v === "Highs") algo.presetMode = 3;
-        else if (_v === "Volume") algo.presetMode = 4;
-        else if (_v === "Kick") algo.presetMode = 5;
-        else algo.presetMode = 0;
-    };
-    algo.getMode = function() {
-        if (algo.presetMode === 1) return "Bass";
-        if (algo.presetMode === 2) return "Mids";
-        if (algo.presetMode === 3) return "Highs";
-        if (algo.presetMode === 4) return "Volume";
-        if (algo.presetMode === 5) return "Kick";
-        return "Beat";
-    };
-    algo.setTriggerMode = function(_v) {
-        if (_v === "Onset") algo.presetTriggerMode = 1;
-        else if (_v === "Note") algo.presetTriggerMode = 2;
-        else algo.presetTriggerMode = 0;
-    };
-    algo.getTriggerMode = function() {
-        return ["Beat", "Onset", "Note"][algo.presetTriggerMode];
-    };
-    var DECAY_DIVISOR = 50.0;
-    var activeColor = [255, 255, 255];
-    var brightness = 0;
+    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
+    algo.setColorStep = function(v) { algo.color_step = clamp(parseFloat(v), 0, 0.25); };
+    algo.getColorStep = function() { return algo.color_step; };
+    algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.getBassStrobeDecayRate = function() { return algo.bass_strobe_decay_rate; };
+    algo.setStrobeColor = function(v) { algo.strobe_color = String(v); };
+    algo.getStrobeColor = function() { return algo.strobe_color; };
+    algo.setStrobeWidth = function(v) { algo.strobe_width = clamp(parseInt(v), 0, 1000); };
+    algo.getStrobeWidth = function() { return algo.strobe_width; };
+    algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.getStrobeDecayRate = function() { return algo.strobe_decay_rate; };
+    algo.setColorShiftDelay = function(v) { algo.color_shift_delay = clamp(parseFloat(v), 0, 1); };
+    algo.getColorShiftDelay = function() { return algo.color_shift_delay; };
+
+    var strobeOverlay = [];
+    var bassStrobeOverlay = [];
+    var onsetsQueued = 0;
+    var elapsedMs = 0;
+    var lastColorShiftMs = 0;
+    var lastStrobeMs = 0;
+    var lastBassStrobeMs = 0;
+    var colorIdx = 0;
+    var bassStrobeColor = [0, 0, 0];
+    var lastWidth = 0;
+
+    function parseColor(value, fallback) {
+        if (typeof value === "number") return value & 0xFFFFFF;
+        var s = String(value || "").replace(/^#/, "");
+        if (s.length === 3)
+            s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
+        var n = parseInt(s, 16);
+        return isNaN(n) ? fallback : (n & 0xFFFFFF);
+    }
+
+    function colorArray(packed) {
+        packed = packed & 0xFFFFFF;
+        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+    }
+
+    function zeroStrip(n) {
+        var out = new Array(n);
+        for (var i = 0; i < n; i++) out[i] = [0, 0, 0];
+        return out;
+    }
+
+    function gradientStops() {
+        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DANCEFLOOR_GRADIENT;
+    }
+
+    function ensure(width) {
+        if (lastWidth === width && strobeOverlay.length === width) return;
+        strobeOverlay = zeroStrip(width);
+        bassStrobeOverlay = zeroStrip(width);
+        onsetsQueued = 0;
+        colorIdx = 0;
+        bassStrobeColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), colorIdx));
+        lastWidth = width;
+    }
+
+    function scaleInPlace(strip, factor) {
+        for (var i = 0; i < strip.length; i++) {
+            strip[i][0] *= factor;
+            strip[i][1] *= factor;
+            strip[i][2] *= factor;
+        }
+    }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapSetColors = function(rawColors) { algo.gradientColors = RGBUtil.buildGradientColors(rawColors); };
+    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
 
-
-
-    algo.rgbMap = function(width, height, rgb, step, audio)
-    {
+    algo.rgbMap = function(width, height, rgb, step, audio) {
+        ensure(width);
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Determine if we should flash
-        var trigger = false;
-        if (algo.presetTriggerMode === 1) {
-            trigger = audio.onset.fired;
-        } else if (algo.presetTriggerMode === 2) {
-            trigger = audio.note.on;
-        } else if (algo.presetMode === 0) {
-            trigger = audio.beat.fired;
-        } else if (algo.presetMode === 1) {
-            trigger = audio.bands.low.fired || audio.beat.kick;
-        } else if (algo.presetMode === 2) {
-            trigger = audio.bands.mid.fired;
-        } else if (algo.presetMode === 3) {
-            trigger = audio.bands.high.fired;
-        } else if (algo.presetMode === 4) {
-            trigger = audio.volume.trigger.fired;
-        } else {
-            trigger = audio.beat.kick;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        elapsedMs += dtMs;
+
+        if (elapsedMs - lastColorShiftMs > clamp(parseFloat(algo.color_shift_delay), 0, 1) * 1000.0) {
+            colorIdx = (colorIdx + clamp(parseFloat(algo.color_step), 0, 0.25)) % 1.0;
+            bassStrobeColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), colorIdx));
+            lastColorShiftMs = elapsedMs;
         }
 
-        if (trigger) {
-            var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
-            brightness = hitScale;
-            var dominantColor = AudioColors.dominant(algo, audio);
-            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
+        var bassDecay = 1.0 - clamp(parseFloat(algo.bass_strobe_decay_rate), 0, 1);
+        if (audio.beat.fired && elapsedMs - lastBassStrobeMs > 200 && bassDecay) {
+            for (var b = 0; b < width; b++)
+                bassStrobeOverlay[b] = [bassStrobeColor[0], bassStrobeColor[1], bassStrobeColor[2]];
+            lastBassStrobeMs = elapsedMs;
         }
 
-        // Decay
-        var decayRate = algo.presetDecay / DECAY_DIVISOR;
-        brightness = Math.max(0, brightness - decayRate);
+        if (audio.onset.fired && elapsedMs - lastStrobeMs > 0) {
+            onsetsQueued++;
+            lastStrobeMs = elapsedMs;
+        }
 
-        // Render
-        var r = activeColor[0] * brightness;
-        var g = activeColor[1] * brightness;
-        var b = activeColor[2] * brightness;
-        var packed = RGBUtil.rgb(r, g, b);
+        var pixels = new Array(width);
+        for (var i = 0; i < width; i++)
+            pixels[i] = [bassStrobeOverlay[i][0], bassStrobeOverlay[i][1], bassStrobeOverlay[i][2]];
+
+        if (onsetsQueued > 0) {
+            onsetsQueued--;
+            var strobeWidth = Math.min(clamp(parseInt(algo.strobe_width), 0, 1000), width);
+            var lengthDiff = width - strobeWidth;
+            var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
+            var scol = colorArray(parseColor(algo.strobe_color, 0xFFFFFF));
+            for (var s = position; s < position + strobeWidth; s++)
+                strobeOverlay[s] = [scol[0], scol[1], scol[2]];
+        }
+
+        for (var x = 0; x < width; x++) {
+            pixels[x][0] += strobeOverlay[x][0];
+            pixels[x][1] += strobeOverlay[x][1];
+            pixels[x][2] += strobeOverlay[x][2];
+        }
+
+        scaleInPlace(strobeOverlay, 1.0 - clamp(parseFloat(algo.strobe_decay_rate), 0, 1));
+        scaleInPlace(bassStrobeOverlay, bassDecay);
 
         for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++)
-                map[y][x] = packed;
-
+            for (var px = 0; px < width; px++)
+                map[y][px] = RGBUtil.rgb(pixels[px][0], pixels[px][1], pixels[px][2]);
         return map;
     };
 

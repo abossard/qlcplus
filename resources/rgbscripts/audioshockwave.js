@@ -21,7 +21,6 @@ algo.properties = new Array();
 
     algo.presetReactivity = 7;
     algo.presetSensitivity = 7;
-
 algo.presetMaxWaves = 6;
 algo.properties.push(
   "name:presetMaxWaves|type:range|display:MaxWaves|" +
@@ -39,16 +38,23 @@ algo.properties.push(
   "name:presetDecay|type:range|display:Decay|" +
   "values:1,10|write:setDecay|read:getDecay");
 
+algo.presetAmbientSpeed = 12;
+algo.properties.push(
+  "name:presetAmbientSpeed|type:range|display:Ambient Speed|" +
+  "values:1,30|write:setAmbientSpeed|read:getAmbientSpeed");
+algo.presetWaveDecay = 3;
+algo.properties.push(
+  "name:presetWaveDecay|type:range|display:Wave Decay|" +
+  "values:1,10|write:setWaveDecay|read:getWaveDecay");
+
 algo.waves = new Array();
 algo.frame = 0;
 
-var AMBIENT_PHASE_RATE = 0.12;
 var AMBIENT_RING_FREQ = 0.65;
 var AMBIENT_BASE_BRI = 0.08;
 var AMBIENT_RING_BRI = 0.12;
 var AMBIENT_CENTER_BRI = 0.08;
 var SPEED_SCALE = 0.5;
-var DECAY_PER_STEP = 0.03;
 var KICK_INTENSITY_BOOST = 1.5;
 var MAX_INTENSITY = 1.5;
 var MIN_BASS_FOR_FILL = 0.1;
@@ -77,6 +83,10 @@ algo.getSpeed = function() { return algo.presetSpeed; };
 algo.setDecay = function(_v) { algo.presetDecay = clampInt(_v, 1, 10, 5); };
 algo.getDecay = function() { return algo.presetDecay; };
 
+algo.setAmbientSpeed = function(_v) { algo.presetAmbientSpeed = clampInt(_v, 1, 30, 12); };
+algo.getAmbientSpeed = function() { return algo.presetAmbientSpeed; };
+algo.setWaveDecay = function(_v) { algo.presetWaveDecay = clampInt(_v, 1, 10, 3); };
+algo.getWaveDecay = function() { return algo.presetWaveDecay; };
 function clamp(value, minValue, maxValue) {
     return Math.max(minValue, Math.min(maxValue, value));
 }
@@ -90,8 +100,6 @@ function clampInt(value, minValue, maxValue, defaultValue) {
 function unpackColor(color) {
     return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
 }
-
-
 
 function spawnWave(width, height, intensity) {
     algo.waves.push({
@@ -108,7 +116,7 @@ function spawnWave(width, height, intensity) {
 }
 
 function renderAmbient(map, width, height, cx, cy, maxRadius) {
-    var phase = algo.frame * AMBIENT_PHASE_RATE;
+    var phase = algo.frame * (algo.presetAmbientSpeed / 100);
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var dist = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
@@ -136,7 +144,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var maxRadius = Math.sqrt(width * width + height * height);
     renderAmbient(map, width, height, cx, cy, maxRadius);
 
-    var bass = clamp(audio.power.low, 0, 1);
+    var bass = audio.power.low;
 
     if (audio.bands.low.fired || audio.beat.kick)
         spawnWave(width, height, Math.max(0.5, bass));
@@ -152,7 +160,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     }
 
     var waveWidth = algo.presetWaveWidth;
-    var onsetIntensity = Math.max(0.4, audio.onset.intensity);
+    var onsetIntensity = audio.onset.intensity;
     for (var wi = 0; wi < algo.waves.length; wi++) {
         var wave = algo.waves[wi];
         var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));
@@ -179,7 +187,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     }
 
     var speed = algo.presetSpeed * SPEED_SCALE;
-    var decayFactor = 1 - algo.presetDecay * DECAY_PER_STEP;
+    var decayFactor = 1 - algo.presetDecay * (algo.presetWaveDecay / 100);
     for (var ui = algo.waves.length - 1; ui >= 0; ui--) {
         algo.waves[ui].radius += speed;
         algo.waves[ui].intensity *= decayFactor;

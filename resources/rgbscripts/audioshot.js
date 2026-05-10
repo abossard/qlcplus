@@ -25,7 +25,6 @@ var testAlgo;
 
     algo.presetReactivity = 5;
     algo.presetSensitivity = 5;
-
     algo.presetDecay = 5;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay Speed|" +
@@ -67,7 +66,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     function spawnShot(width, height, audio) {
         var colorPacked = AudioColors.dominant(algo, audio);

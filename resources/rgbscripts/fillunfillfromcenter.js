@@ -27,6 +27,7 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Fill Unfill From Center";
     algo.author = "Massimo Callegari";
+    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();

@@ -28,17 +28,19 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 30;
+    // LedFx defaults: speed=0.5, reactivity=0.5
+    algo.presetSpeed = 50;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
       "values:1,100|write:setSpeed|read:getSpeed");
 
-    algo.presetReactivity = 40;
+    algo.presetReactivity = 50;
     algo.properties.push(
       "name:presetReactivity|type:range|display:Reactivity|" +
       "values:1,100|write:setReactivity|read:getReactivity");
 
-    algo.presetBgBright = 30;
+    // LedFx parity: bg_bright default = 0.4 (was 0.30 in earlier QLC+ port)
+    algo.presetBgBright = 40;
     algo.properties.push(
       "name:presetBgBright|type:range|display:Background Brightness|" +
       "values:1,100|write:setBgBright|read:getBgBright");
@@ -48,12 +50,14 @@ var testAlgo;
       "name:presetLavaWidth|type:range|display:Lava Width|" +
       "values:1,100|write:setLavaWidth|read:getLavaWidth");
 
-    algo.presetStrobeThreshold = 40;
+    // LedFx parity: strobe_threshold default = 0.75 (was 0.40 in earlier QLC+ port)
+    algo.presetStrobeThreshold = 75;
     algo.properties.push(
       "name:presetStrobeThreshold|type:range|display:Strobe Threshold|" +
       "values:1,100|write:setStrobeThreshold|read:getStrobeThreshold");
 
-    algo.presetStrobeRate = 50;
+    // LedFx default: strobe_rate=0.75
+    algo.presetStrobeRate = 75;
     algo.properties.push(
       "name:presetStrobeRate|type:range|display:Strobe Rate|" +
       "values:1,100|write:setStrobeRate|read:getStrobeRate");
@@ -63,12 +67,14 @@ var testAlgo;
       "name:presetStrobeWidth|type:range|display:Strobe Width|" +
       "values:1,100|write:setStrobeWidth|read:getStrobeWidth");
 
-    algo.presetStrobeDecay = 50;
+    // LedFx default: strobe_decay_rate=0.25
+    algo.presetStrobeDecay = 25;
     algo.properties.push(
       "name:presetStrobeDecay|type:range|display:Strobe Decay|" +
       "values:1,100|write:setStrobeDecay|read:getStrobeDecay");
 
-    algo.presetStrobeBlur = 2;
+    // LedFx default: strobe_blur=3.5 (rounded to 4 for integer range)
+    algo.presetStrobeBlur = 4;
     algo.properties.push(
       "name:presetStrobeBlur|type:range|display:Strobe Blur|" +
       "values:0,10|write:setStrobeBlur|read:getStrobeBlur");
@@ -104,13 +110,12 @@ var testAlgo;
     var MAX_STROBE_WIDTH_FRAC = 0.5;   // a single strobe spans at most this fraction of the strip
     var MAX_STROBE_COOLDOWN_MS = 1000; // span of the cooldown range mapped from rate
     var LAVA_POWER_BASE = 30;          // base exponent for lava chunk shaping
-    var DEFAULT_DT_MS = 40;            // fallback frame interval when audio timing is missing
 
     algo.timestep = 0;
     algo.direction = 1;
     algo.strobeOverlay = [];
     algo.lastStrobeMs = 0;
-    algo.lastMs = 0;
+    algo.elapsedMs = 0;
     algo.lastSize = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -153,10 +158,9 @@ var testAlgo;
 
         if (algo.lastSize !== n) resetState(n);
 
-        var nowMs = Date.now();
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : DEFAULT_DT_MS;
-        var dtSec = dtMs / 1000.0;
-        algo.lastMs = nowMs;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var dt = dtMs / 1000.0;
+        algo.elapsedMs += dtMs;
 
         var lowPower = audio.power.low;
         var midPower = audio.power.mid;
@@ -173,11 +177,11 @@ var testAlgo;
         var strobeDecay01 = algo.presetStrobeDecay / 100.0;
         var strobeBlur = algo.presetStrobeBlur;
 
-        algo.timestep += dtSec * algo.direction;
-        algo.timestep += lowPower * reactivity01 * speed01 * dtSec * algo.direction;
+        algo.timestep += dt * algo.direction;
+        algo.timestep += lowPower * reactivity01 * speed01 * dt * algo.direction;
 
         if (lowPower > strobeCutoff) {
-            var flipProb = DIRECTION_FLIP_CHANCE * dtSec;
+            var flipProb = DIRECTION_FLIP_CHANCE * dt;
             if (Math.random() < flipProb) algo.direction = -algo.direction;
         }
 
@@ -187,7 +191,7 @@ var testAlgo;
         if (lavaPower < 1) lavaPower = 1;
 
         var cooldownMs = MIN_STROBE_COOLDOWN_MS + (1 - strobeRate01) * MAX_STROBE_COOLDOWN_MS;
-        if (onsetFired && highMax > strobeCutoff && (nowMs - algo.lastStrobeMs) >= cooldownMs) {
+        if (onsetFired && highMax > strobeCutoff && (algo.elapsedMs - algo.lastStrobeMs) >= cooldownMs) {
             var widthFrac = strobeWidth01 * strobeWidth01 * strobeWidth01;
             if (widthFrac > MAX_STROBE_WIDTH_FRAC) widthFrac = MAX_STROBE_WIDTH_FRAC;
             var sw = Math.max(1, Math.round(widthFrac * n));
@@ -195,7 +199,7 @@ var testAlgo;
             var maxStart = n - sw;
             var startIdx = maxStart > 0 ? Math.floor(Math.random() * (maxStart + 1)) : 0;
             for (var s = 0; s < sw; s++) algo.strobeOverlay[startIdx + s] = 1.0;
-            algo.lastStrobeMs = nowMs;
+            algo.lastStrobeMs = algo.elapsedMs;
         }
 
         var decayMul = 1 - strobeDecay01;
@@ -205,6 +209,12 @@ var testAlgo;
 
         var strip = new Array(n);
         var denom = Math.max(1, n - 1);
+
+        // LedFx parity: t1 = self.time(speed * 20, timestep=self.timestep)
+        // HSVEffect.time() uses period = _conversion_factor / modifier = 65.536 / (speed * 20)
+        var t1Period = 65.536 / Math.max(0.001, speed01 * 20.0);
+        var t1 = ((algo.timestep / t1Period) % 1.0 + 1.0) % 1.0;
+
         for (var i = 0; i < n; i++) {
             var u = 1 - i / denom;
 
@@ -212,9 +222,19 @@ var testAlgo;
             var h1 = RGBUtil.triangle(h0 + bassFactor + algo.timestep * 0.3);
             var hue = RGBUtil.mod1(RGBUtil.triangle(h1) + algo.timestep * 0.1);
 
-            var v0 = RGBUtil.sin01(u * 3 + algo.timestep);
-            var v1 = RGBUtil.triangle(v0 + bassFactor);
-            var v = RGBUtil.triangle(v1);
+            // LedFx parity: 4-pass value pipeline (render_hsv lines 156-172).
+            //   v_init = copy of h = sin(1 - ramp)        -> here u already == 1 - ramp
+            //   sin(v); v += t1
+            //   sin(v); v += (1 - t1)
+            //   triangle(v); v += bass_factor * direction
+            //   triangle(v)
+            // Earlier QLC+ port only ran 1 sin + 2 triangles, so values never reached
+            // as high before the lavaPower crush, leaving the strip too dark.
+            var vInit = RGBUtil.sin01(u);
+            var vA = RGBUtil.sin01(vInit);
+            var vB = RGBUtil.sin01(vA + t1);
+            var vC = RGBUtil.triangle(vB + (1.0 - t1));
+            var v = RGBUtil.triangle(vC + bassFactor * algo.direction);
             v = Math.pow(v, lavaPower);
             v *= bgBright01;
 

@@ -3,7 +3,7 @@
   audiospectrum.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Spectrum" effect (MIT License)
+  Ported from LedFx "Spectrum" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,136 +20,84 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Spectrum";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
-    algo.presetFloor = 0;
-
-    algo.presetMode = 0;
+    algo.presetRgbMix = 0;
     algo.properties.push(
-      "name:presetMode|type:list|display:Color Mode|" +
-      "values:Gradient,Rainbow,RGB Mix|write:setMode|read:getMode");
-
-    algo.setMode = function(_v) {
-        if (_v === "Rainbow") algo.presetMode = 1;
-        else if (_v === "RGB Mix") algo.presetMode = 2;
-        else algo.presetMode = 0;
+      "name:rgb_mix|type:range|display:RGB Mix|" +
+      "values:0,5|write:setRgbMix|read:getRgbMix");
+    algo.setRgbMix = function(_v) {
+      _v = parseInt(_v);
+      if (isNaN(_v)) _v = 0;
+      algo.presetRgbMix = Math.max(0, Math.min(5, _v));
     };
-    algo.getMode = function() {
-        if (algo.presetMode === 1) return "Rainbow";
-        if (algo.presetMode === 2) return "RGB Mix";
-        return "Gradient";
-    };
+    algo.getRgbMix = function() { return algo.presetRgbMix; };
 
-    var DEFAULT_GRADIENT = [0xFF0000, 0x0000FF];
-    var PEAK_HOLD_FRAMES = 5;
-    var PEAK_DECAY = 0.95;
-    var DOWNBEAT_PEAK_DROP = 0.5;
-    var prevBands = null;
-    var peakValues = null;
-    var peakHolds = null;
-    var gradientLut = null;
-    var lutWidth = -1;
-    var lutSig = "";
+    var rgbMixes = [
+      [0, 1, 2],
+      [0, 2, 1],
+      [1, 0, 2],
+      [1, 2, 0],
+      [2, 0, 1],
+      [2, 1, 0]
+    ];
+    var prevY = null;
+    var bFilter = null;
+    var lastPixelCount = -1;
+
+    function ensureState(pixelCount) {
+      if (lastPixelCount === pixelCount && prevY && bFilter) return;
+      prevY = new Array(pixelCount);
+      bFilter = null;
+      for (var i = 0; i < pixelCount; i++) prevY[i] = 0;
+      lastPixelCount = pixelCount;
+    }
+
+    function updateFilter(values) {
+      if (!bFilter || bFilter.length !== values.length) {
+        bFilter = values.slice();
+        return bFilter.slice();
+      }
+      var out = new Array(values.length);
+      for (var i = 0; i < values.length; i++) {
+        var alpha = values[i] > bFilter[i] ? 0.5 : 0.1;
+        bFilter[i] = alpha * values[i] + (1.0 - alpha) * bFilter[i];
+        out[i] = bFilter[i];
+      }
+      return out;
+    }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-
-    algo.rgbMapGetColors = function() {
-        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
-        if (!audio) return map;
-        var melSrc = audio.spectrum.full;
-        if (!melSrc || melSrc.length === 0) return map;
+      var pixelCount = width * height;
+      ensureState(pixelCount);
+      var map = RGBUtil.createMap(width, height);
+      if (!audio) return map;
 
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bands = RGBUtil.interpolate(melSrc, effectiveWidth);
-        for (var i = 0; i < bands.length; i++)
-            bands[i] = Math.min(1, bands[i]);
+      var y = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
+      var filtered = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
+      var filt = updateFilter(y);
+      var mix = rgbMixes[algo.presetRgbMix];
+      var nextPrev = y.slice();
 
-        if (!prevBands || prevBands.length !== bands.length) prevBands = bands.slice();
-        if (!peakValues || peakValues.length !== bands.length) {
-            peakValues = new Array(bands.length);
-            peakHolds = new Array(bands.length);
-            for (var pi = 0; pi < bands.length; pi++) {
-                peakValues[pi] = 0;
-                peakHolds[pi] = 0;
-            }
-        }
+      for (var i = 0; i < pixelCount; i++) {
+        var channels = [0, 0, 0];
+        channels[mix[0]] = filtered[i] * 1000.0;
+        channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 1000.0;
+        channels[mix[2]] = filt[i] * 1000.0;
+        var x = i % width;
+        var row = Math.floor(i / width);
+        map[row][x] = RGBUtil.rgb(channels[0], channels[1], channels[2]);
+      }
 
-        var onset = audio.onset.fired;
-
-        if (algo.presetMode === 0) {
-            var stops = (algo.gradientColors && algo.gradientColors.length > 0)
-                ? algo.gradientColors
-                : DEFAULT_GRADIENT;
-            var sig = stops.length + ":" + stops.join(",");
-            if (gradientLut === null || lutWidth !== width || lutSig !== sig) {
-                gradientLut = RGBUtil.gradientLut(stops, width);
-                lutWidth = width;
-                lutSig = sig;
-            }
-        }
-
-        for (var x = 0; x < Math.min(width, bands.length); x++) {
-            var val = bands[x];
-            var diff = Math.abs(bands[x] - prevBands[x]);
-            var barHeight = Math.round(val * height);
-            if (val > 0.01)
-                barHeight = Math.max(1, barHeight);
-            if (audio.bar.downbeat) {
-                peakValues[x] *= DOWNBEAT_PEAK_DROP;
-            }
-            if (val >= peakValues[x]) {
-                peakValues[x] = val;
-                peakHolds[x] = PEAK_HOLD_FRAMES;
-            } else if (onset && bands[x] > 0.05) {
-                peakValues[x] = Math.max(peakValues[x], val);
-                peakHolds[x] = PEAK_HOLD_FRAMES;
-            } else if (peakHolds[x] > 0) {
-                peakHolds[x]--;
-            } else {
-                peakValues[x] *= PEAK_DECAY;
-            }
-
-            for (var dy = 0; dy < barHeight; dy++) {
-                var y = height - 1 - dy;
-                if (y < 0) break;
-
-                var r, g, b;
-                if (algo.presetMode === 1) {
-                    var t = x / Math.max(1, width - 1);
-                    var c = RGBUtil.hsv2rgb(t, 1, 1);
-                    r = c[0]; g = c[1]; b = c[2];
-                } else if (algo.presetMode === 2) {
-                    // RGB Mix: R=value, G=frame-to-frame diff, B=value (lower gain)
-                    r = Math.min(255, val * 1000);
-                    g = Math.min(255, diff * 2000);
-                    b = Math.min(255, val * 800);
-                } else {
-                    var packed = gradientLut[x];
-                    r = (packed >> 16) & 0xFF;
-                    g = (packed >> 8) & 0xFF;
-                    b = packed & 0xFF;
-                }
-                var baseBright = (dy / height) * 0.5 + 0.5;
-                var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
-                map[y][x] = RGBUtil.rgb(r * bright, g * bright, b * bright);
-            }
-            if (peakValues[x] > 0.01) {
-                var peakY = height - 1 - Math.floor(peakValues[x] * height);
-                if (peakY >= 0 && peakY < height)
-                    map[peakY][x] = RGBUtil.rgb(255, 255, 255);
-            }
-        }
-        prevBands = bands.slice();
-        return map;
+      prevY = nextPrev;
+      return map;
     };
 
     testAlgo = algo;

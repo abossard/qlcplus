@@ -3,25 +3,35 @@ project(scripts)
 set(SCRIPT_FILES
     alternate.js
     audioaurora.js
+    audiobarcode.js
     audiobasslaser.js
+    audiobeatcolors.js
     audiobuildup.js
     audioblocks.js
+    audioblurz.js
+    audiocellular.js
     audio_colors.js
     audiochaser.js
+    audiochromatic.js
     audiocrawler.js
+    audiodjlight.js
     audioenergy.js
     audioenergy2.js
     audioequalizer.js
     audiofire.js
     audiofireworks.js
+    audioflowfield.js
     audioglitch.js
     audioglitch2.js
+    audiogravimeter.js
     audiohueshift.js
     audiolava.js
     audiomelt.js
     audiomeltsparkle.js
     audioplasma.js
     audiopower.js
+    audiopuddles.js
+    audioreaction.js
     audioreactor.js
     audioscan.js
     audioscanflare.js
@@ -36,6 +46,7 @@ set(SCRIPT_FILES
     audiotunnel.js
     audiovortex.js
     audiowater.js
+    audiowaterfall.js
     audiowavelength.js
     balls.js
     blinder.js

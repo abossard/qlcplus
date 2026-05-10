@@ -27,6 +27,7 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "One By One";
     algo.author = "Jano Svitok";
+    algo.acceptColors = 2;
 
     algo.properties = new Array();
 

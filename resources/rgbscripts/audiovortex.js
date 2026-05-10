@@ -24,8 +24,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -46,6 +47,8 @@ var testAlgo;
     algo.setTightness = function(_v) { algo.presetTightness = parseInt(_v); };
     algo.getTightness = function() { return algo.presetTightness; };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var angle = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -53,7 +56,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -95,7 +97,7 @@ var testAlgo;
 
                 // Brightness: arms visible, fades toward edge
                 var baseBright = Math.min(1, armVal * power * (1 - normDist * 0.5));
-                var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+                var floored = baseBright;
                 var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
                 map[y][x] = RGBUtil.rgb(

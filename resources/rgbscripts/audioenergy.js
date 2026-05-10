@@ -27,8 +27,6 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
     // --- Configurable Properties ---
 
     algo.presetMixing = 0;
@@ -68,7 +66,6 @@ var testAlgo;
             ? algo.gradientBandColors.slice()
             : DEFAULT_BAND_COLORS.slice();
     };
-
 
     /**
      * Main render function.
@@ -119,15 +116,15 @@ var testAlgo;
                         }
                     }
                 } else {
-                    // Overlap mode: lowest-frequency band covering x wins.
-                    for (var k = 2; k >= 0; k--) {
+                    // Overlap mode: highest-frequency band covering x wins (last write).
+                    for (var k = 0; k < 3; k++) {
                         if (x < idx[k]) {
                             r = cols[k][0]; g = cols[k][1]; b2 = cols[k][2];
                         }
                     }
                 }
 
-                var brightness = (r > 0 || g > 0 || b2 > 0) ? (algo.presetFloor/100 + (1 - algo.presetFloor/100) * 1.0) * beatBoost : 0;
+                var brightness = (r > 0 || g > 0 || b2 > 0) ? (1.0) * beatBoost : 0;
                 map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
             }
         }

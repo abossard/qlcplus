@@ -24,8 +24,6 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 7;
-    algo.presetFloor = 0;
-
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -113,7 +111,7 @@ var testAlgo;
                 var wave = Math.sin(x * 0.3 + y * 0.2 + step * 0.05) * waveScale;
                 var pixelHue = wrapHue(currentHue + wave);
                 var baseBri = clamp(brightness + wave * 0.2, minBrightness, 1.0);
-                var pixelBri = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBri;
+                var pixelBri = baseBri;
                 var color = RGBUtil.hsv2rgb(pixelHue, saturation, pixelBri);
                 map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
             }

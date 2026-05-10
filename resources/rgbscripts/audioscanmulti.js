@@ -75,7 +75,6 @@ var testAlgo;
         { pos: 0, returning: false },
         { pos: 0, returning: false }
     ];
-    algo.lastMs = 0;
     algo.lastN = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -108,8 +107,7 @@ var testAlgo;
             algo.lastN = n;
         }
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var dtSec = dtMs / 1000.0;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var multiplier = algo.presetMultiplier / 100.0;
         var stepPerSec = (n / 100.0) * algo.presetSpeed;
@@ -128,7 +126,7 @@ var testAlgo;
             var scan = algo.scans[b];
             var power = audio.power.bands[b];
             var bar = power * multiplier;
-            var stepSize = dtSec * stepPerSec * bar;
+            var stepSize = dt * stepPerSec * bar;
 
             if (scan.returning) scan.pos -= stepSize;
             else scan.pos += stepSize;

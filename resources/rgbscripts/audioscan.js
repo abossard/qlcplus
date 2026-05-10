@@ -3,7 +3,7 @@
   audioscan.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Scan" effect (MIT License)
+  Ported from LedFx "Scan" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,98 +20,218 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Scan";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetFloor = 0;
+    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
 
-    algo.presetSpeed = 5;
-    algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+    algo.blur = 3.0;
+    algo.mirror = "No";
+    algo.bounce = "Yes";
+    algo.scan_width = 30;
+    algo.speed = 50;
+    algo.color_scan = "#FF0000";
+    algo.frequency_range = "Lows (beat+bass)";
+    algo.multiplier = 3.0;
+    algo.color_intensity = "Yes";
+    algo.use_grad = "No";
+    algo.full_grad = "No";
+    algo.count = 1;
 
-    algo.presetWidth = 3;
-    algo.properties.push(
-      "name:presetWidth|type:range|display:Scan Width|" +
-      "values:1,10|write:setWidth|read:getWidth");
+    algo.properties.push("name:blur|type:float|display:Blur|write:setBlur|read:getBlur");
+    algo.properties.push("name:mirror|type:list|display:Mirror|values:Yes,No|write:setMirror|read:getMirror");
+    algo.properties.push("name:bounce|type:list|display:Bounce|values:Yes,No|write:setBounce|read:getBounce");
+    algo.properties.push("name:scan_width|type:range|display:Scan Width (%)|values:1,100|write:setScanWidth|read:getScanWidth");
+    algo.properties.push("name:speed|type:range|display:Speed (%/s)|values:0,100|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:color_scan|type:string|display:Scan Color|write:setColorScan|read:getColorScan");
+    algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
+    algo.properties.push("name:multiplier|type:float|display:Multiplier|write:setMultiplier|read:getMultiplier");
+    algo.properties.push("name:color_intensity|type:list|display:Color Intensity|values:Yes,No|write:setColorIntensity|read:getColorIntensity");
+    algo.properties.push("name:use_grad|type:list|display:Use Gradient|values:Yes,No|write:setUseGrad|read:getUseGrad");
+    algo.properties.push("name:full_grad|type:list|display:Full Gradient|values:Yes,No|write:setFullGrad|read:getFullGrad");
+    algo.properties.push("name:count|type:range|display:Count|values:1,10|write:setCount|read:getCount");
 
-    algo.presetBounce = 0;
-    algo.properties.push(
-      "name:presetBounce|type:list|display:Bounce|" +
-      "values:Yes,No|write:setBounce|read:getBounce");
+    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
+    algo.setBlur = function(v) { algo.blur = clamp(parseFloat(v), 0, 10); };
+    algo.getBlur = function() { return algo.blur; };
+    algo.setMirror = function(v) { algo.mirror = (v === "Yes") ? "Yes" : "No"; };
+    algo.getMirror = function() { return algo.mirror; };
+    algo.setBounce = function(v) { algo.bounce = (v === "No") ? "No" : "Yes"; };
+    algo.getBounce = function() { return algo.bounce; };
+    algo.setScanWidth = function(v) { algo.scan_width = clamp(parseInt(v), 1, 100); };
+    algo.getScanWidth = function() { return algo.scan_width; };
+    algo.setSpeed = function(v) { algo.speed = clamp(parseInt(v), 0, 100); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setColorScan = function(v) { algo.color_scan = String(v); };
+    algo.getColorScan = function() { return algo.color_scan; };
+    algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
+    algo.getFrequencyRange = function() { return algo.frequency_range; };
+    algo.setMultiplier = function(v) { algo.multiplier = clamp(parseFloat(v), 0, 5); };
+    algo.getMultiplier = function() { return algo.multiplier; };
+    algo.setColorIntensity = function(v) { algo.color_intensity = (v === "No") ? "No" : "Yes"; };
+    algo.getColorIntensity = function() { return algo.color_intensity; };
+    algo.setUseGrad = function(v) { algo.use_grad = (v === "Yes") ? "Yes" : "No"; };
+    algo.getUseGrad = function() { return algo.use_grad; };
+    algo.setFullGrad = function(v) { algo.full_grad = (v === "Yes") ? "Yes" : "No"; };
+    algo.getFullGrad = function() { return algo.full_grad; };
+    algo.setCount = function(v) { algo.count = clamp(parseInt(v), 1, 10); };
+    algo.getCount = function() { return algo.count; };
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWidth = function(_v) { algo.presetWidth = parseInt(_v); };
-    algo.getWidth = function() { return algo.presetWidth; };
-    algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
-    algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
-
-    var SCAN_SPEED_SCALE = 5;
-    var SCAN_WIDTH_DIVISOR = 20;
-    var scanPos = 0;
+    var scanPos = 0.0;
     var returning = false;
-    var activeColor = null;
     var lastWidth = 0;
 
+    function parseColor(value, fallback) {
+        if (typeof value === "number") return value & 0xFFFFFF;
+        var s = String(value || "").replace(/^#/, "");
+        if (s.length === 3)
+            s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
+        var n = parseInt(s, 16);
+        return isNaN(n) ? fallback : (n & 0xFFFFFF);
+    }
+
+    function colorArray(packed) {
+        packed = packed & 0xFFFFFF;
+        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+    }
+
+    function gradientStops() {
+        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+    }
+
+    function powerFor(audio) {
+        if (algo.frequency_range === "Beat") return audio.beat.fired ? 1.0 : audio.power.low;
+        if (algo.frequency_range === "Bass") return audio.power.low;
+        if (algo.frequency_range === "Mids") return audio.power.mid;
+        if (algo.frequency_range === "High") return audio.power.high;
+        return Math.max(audio.power.low, audio.beat.fired ? 1.0 : 0.0);
+    }
+
+    function setStrip(strip, idx, color) {
+        if (idx < 0 || idx >= strip.length) return;
+        strip[idx] = [color[0], color[1], color[2]];
+    }
+
+    function clearStrip(strip, idx) {
+        if (idx < 0 || idx >= strip.length) return;
+        strip[idx] = [0, 0, 0];
+    }
+
+    function boxBlur(strip, amount) {
+        var radius = Math.round(amount);
+        if (radius <= 0 || strip.length <= 3) return strip;
+        var n = strip.length;
+        var out = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var r = 0, g = 0, b = 0, c = 0;
+            for (var k = -radius; k <= radius; k++) {
+                var idx = i + k;
+                if (idx < 0 || idx >= n) continue;
+                r += strip[idx][0]; g += strip[idx][1]; b += strip[idx][2]; c++;
+            }
+            out[i] = [r / c, g / c, b / c];
+        }
+        return out;
+    }
+
+    function applyMirror(strip) {
+        if (algo.mirror !== "Yes") return strip;
+        var n = strip.length;
+        var out = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var a = strip[n - 1 - (2 * i)];
+            var b = strip[n - 2 - (2 * i)];
+            if (i >= Math.ceil(n / 2)) {
+                var j = 2 * i - n;
+                a = strip[j];
+                b = strip[j + 1];
+            }
+            if (!b) b = a;
+            out[i] = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
+        }
+        return out;
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapSetColors = function(rawColors) { algo.gradientColors = RGBUtil.buildGradientColors(rawColors); };
+    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
 
-
-    algo.rgbMap = function(width, height, rgb, step, audio)
-    {
+    algo.rgbMap = function(width, height, rgb, step, audio) {
+        var map = RGBUtil.createMap(width, height);
+        if (!audio) return map;
         if (lastWidth !== width) {
-            scanPos = 0;
+            scanPos = 0.0;
             returning = false;
             lastWidth = width;
         }
 
-        var map = RGBUtil.createMap(width, height);
-        if (!audio) return map;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var passed = dtMs / 1000.0;
+        var count = clamp(parseInt(algo.count), 1, 10);
+        var block = width / count;
+        var stepPerSec = width / 100.0 * clamp(parseInt(algo.speed), 0, 100);
+        var scanWidthPixels = Math.max(1, Math.floor(block / 100.0 * clamp(parseInt(algo.scan_width), 1, 100)));
+        var power = powerFor(audio) * 2.0;
+        var bar = power * clamp(parseFloat(algo.multiplier), 0, 5);
+        var stepSize = passed * stepPerSec * bar;
 
-        var deltaSec = audio.timing.consumerDtMs / 1000.0;
-
-        var power = audio.power.low;
-        var speedMult = 1 + power * 8;
-        var stepSize = deltaSec * algo.presetSpeed * SCAN_SPEED_SCALE * speedMult;
-
-        var scanW = Math.max(1, Math.round(width * algo.presetWidth / SCAN_WIDTH_DIVISOR));
-        scanW = Math.min(width, scanW + Math.round(power * 4));
-
-        // Move scan position
-        if (algo.presetBounce) {
-            scanPos += returning ? -stepSize : stepSize;
-            if (scanPos > width - scanW) { returning = true; scanPos = width - scanW; }
+        scanPos += returning ? -stepSize : stepSize;
+        if (algo.bounce === "Yes") {
+            if (scanPos > width - scanWidthPixels) { returning = true; scanPos = width - scanWidthPixels; }
             if (scanPos < 0) { returning = false; scanPos = 0; }
         } else {
-            scanPos += stepSize;
-            if (scanPos >= width) scanPos -= width;
+            if (scanPos > width) scanPos = scanPos % width;
+            if (scanPos < 0) returning = false;
         }
 
-        var baseBright = Math.min(1, 0.3 + power * 2.0);
-        var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
-
-        if (audio.onset.fired || audio.beat.kick || !activeColor) {
-            var dominantColor = AudioColors.dominant(algo, audio);
-            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
+        var strip = new Array(width);
+        if (algo.full_grad === "Yes") {
+            for (var gx = 0; gx < width; gx++)
+                strip[gx] = colorArray(RGBUtil.gradientColorAt(gradientStops(), width <= 1 ? 0 : gx / (width - 1)));
+        } else {
+            for (var zx = 0; zx < width; zx++) strip[zx] = [0, 0, 0];
         }
-        var bgPacked = 0;
-        var scanPacked = RGBUtil.rgb(
-            activeColor[0] * bright, activeColor[1] * bright, activeColor[2] * bright);
 
-        var sp = Math.floor(scanPos);
-        for (var y = 0; y < height; y++) {
-            for (var x = 0; x < width; x++) {
-                var d = (x - sp + width) % width;
-                map[y][x] = (d < scanW) ? scanPacked : bgPacked;
+        var scanColor;
+        if (algo.use_grad === "Yes")
+            scanColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), ((scanPos / width) % 1 + 1) % 1));
+        else
+            scanColor = colorArray(parseColor(algo.color_scan, 0xFF0000));
+        if (algo.color_intensity === "Yes") {
+            var intensity = Math.min(1.0, power);
+            scanColor = [scanColor[0] * intensity, scanColor[1] * intensity, scanColor[2] * intensity];
+        }
+
+        for (var bi = 0; bi < count; bi++) {
+            var blockStart = Math.floor(block * bi);
+            var blockMid = Math.floor(block * bi + scanWidthPixels);
+            var blockEnd = Math.floor(block * bi + block);
+            if (algo.full_grad === "Yes") {
+                var midPos = Math.floor(blockMid + scanPos);
+                var endPos = Math.floor(blockEnd + scanPos);
+                for (var c1 = Math.min(midPos, width); c1 < Math.min(endPos, width); c1++) clearStrip(strip, c1);
+                var endFlow = endPos - width;
+                if (endFlow > 0) {
+                    var midFlow = Math.max(0, midPos - width);
+                    for (var c2 = midFlow; c2 < endFlow; c2++) clearStrip(strip, c2);
+                }
+            } else {
+                var startPos = Math.floor(blockStart + scanPos);
+                var mid = Math.floor(blockMid + scanPos);
+                for (var s1 = Math.min(startPos, width); s1 < Math.min(mid, width); s1++) setStrip(strip, s1, scanColor);
+                var midFlow2 = mid - width;
+                if (midFlow2 > 0) {
+                    var startFlow = Math.max(0, startPos - width);
+                    for (var s2 = startFlow; s2 < midFlow2; s2++) setStrip(strip, s2, scanColor);
+                }
             }
         }
 
+        strip = boxBlur(applyMirror(strip), algo.blur);
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+                map[y][x] = RGBUtil.rgb(strip[x][0], strip[x][1], strip[x][2]);
         return map;
     };
 

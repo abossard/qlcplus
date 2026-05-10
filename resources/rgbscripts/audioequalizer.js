@@ -25,8 +25,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetFloor = 0;
-
     // --- Properties ---
     algo.presetDecay = 5;
     algo.properties.push(
@@ -48,6 +46,20 @@ var testAlgo;
       "name:presetGap|type:list|display:Bar Gap|" +
       "values:Off,On|write:setGap|read:getGap");
 
+    algo.presetPeakHold = 5;
+    algo.properties.push(
+      "name:presetPeakHold|type:range|display:Peak Hold|" +
+      "values:1,20|write:setPeakHold|read:getPeakHold");
+
+    algo.presetPeakDecay = 95;
+    algo.properties.push(
+      "name:presetPeakDecay|type:range|display:Peak Decay (%)|" +
+      "values:50,99|write:setPeakDecay|read:getPeakDecay");
+
+    algo.presetDownbeatDrop = 50;
+    algo.properties.push(
+      "name:presetDownbeatDrop|type:range|display:Downbeat Drop (%)|" +
+      "values:0,100|write:setDownbeatDrop|read:getDownbeatDrop");
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function()  { return algo.presetDecay; };
@@ -57,6 +69,12 @@ var testAlgo;
     algo.getCenter = function()  { return algo.presetCenter ? "On" : "Off"; };
     algo.setGap = function(_v) { algo.presetGap = (_v === "On") ? 1 : 0; };
     algo.getGap = function() { return algo.presetGap ? "On" : "Off"; };
+    algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
+    algo.getPeakHold = function() { return algo.presetPeakHold; };
+    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = parseInt(_v); };
+    algo.getPeakDecay = function() { return algo.presetPeakDecay; };
+    algo.setDownbeatDrop = function(_v) { algo.presetDownbeatDrop = parseInt(_v); };
+    algo.getDownbeatDrop = function() { return algo.presetDownbeatDrop; };
 
     // --- Internal state ---
     var peakValues = null;
@@ -101,8 +119,6 @@ var testAlgo;
 
         // Get spectrum interpolated to match grid width
         var rawBands = RGBUtil.interpolate(melSrc, bandCount);
-        for (var i = 0; i < rawBands.length; i++)
-            rawBands[i] = Math.min(1, rawBands[i]);
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
         var sig = stops.length + ":" + stops.join(",");
@@ -120,24 +136,24 @@ var testAlgo;
             // Gap mode: leave every other column dark
             if (algo.presetGap && (x % 2 === 1)) continue;
 
-            var magnitude = Math.max(0, Math.min(1, bands[x]));
+            var magnitude = Math.max(0, bands[x]);
             var barHeight = Math.round(magnitude * height);
 
             // Update peak marker
             if (algo.presetPeaks) {
                 if (audio.bar.downbeat) {
-                    peakValues[x] *= 0.5;
+                    peakValues[x] *= algo.presetDownbeatDrop / 100;
                 }
                 if (magnitude >= peakValues[x]) {
                     peakValues[x] = magnitude;
-                    peakHolds[x] = 5;
+                    peakHolds[x] = algo.presetPeakHold;
                 } else if (onset && rawBands[x] > 0.05) {
                     peakValues[x] = Math.max(peakValues[x], magnitude);
-                    peakHolds[x] = 5;
+                    peakHolds[x] = algo.presetPeakHold;
                 } else if (peakHolds[x] > 0) {
                     peakHolds[x]--;
                 } else {
-                    peakValues[x] *= 0.95;
+                    peakValues[x] *= algo.presetPeakDecay / 100;
                 }
             }
 
@@ -150,7 +166,7 @@ var testAlgo;
                 {
                     if (y < 0 || y >= height) continue;
                     var c = unpackColor(gradientLut[x]);
-                    var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * magnitude;
+                    var brightness = magnitude;
                     map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
@@ -162,7 +178,7 @@ var testAlgo;
                     var y = height - 1 - dy;
                     if (y < 0) break;
                     var c = unpackColor(gradientLut[x]);
-                    var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * magnitude;
+                    var brightness = magnitude;
                     map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
@@ -175,10 +191,10 @@ var testAlgo;
                     var peakHalf = Math.floor(peakValues[x] * height / 2);
                     peakY = Math.floor(height / 2) - peakHalf;
                 } else {
-                    peakY = height - 1 - Math.floor(peakValues[x] * height);
+                    peakY = height - 1 - Math.min(height - 1, Math.floor(peakValues[x] * height));
                 }
                 if (peakY >= 0 && peakY < height) {
-                    var peakBrightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * peakValues[x];
+                    var peakBrightness = peakValues[x];
                     map[peakY][x] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
                 }
             }

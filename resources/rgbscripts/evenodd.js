@@ -31,6 +31,7 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Even/Odd";
         algo.author = "Heikki Junnila";
+        algo.acceptColors = 2;
 
         /**
          * The actual "algorithm" for this RGB script. Produces a map of

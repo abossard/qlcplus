@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -8,7 +8,7 @@
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="149"/>
+   <BeatGenerator BeatType="Audio" BPM="1"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -3025,13 +3025,12 @@
    <Speed FadeIn="0" FadeOut="0" Duration="125"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Blocks</Algorithm>
+   <Algorithm Type="Script">Audio DJ Light</Algorithm>
    <Color Index="0">4278190335</Color>
    <Color Index="1">4278255360</Color>
    <ControlMode>RGBWBrighter</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <Property Name="presetFill" Value="Gradient"/>
-   <Property Name="presetReactTo" Value="All"/>
+   <Property Name="presetAxis" Value="Horizontal"/>
   </Function>
   <Function ID="319" Type="RGBMatrix" Name="New RGB Matrix 319">
    <Speed FadeIn="0" FadeOut="0" Duration="500"/>

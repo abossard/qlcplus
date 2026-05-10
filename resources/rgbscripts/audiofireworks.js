@@ -25,7 +25,6 @@ var testAlgo;
 
     algo.presetReactivity = 7;
     algo.presetSensitivity = 7;
-
     algo.presetMaxParticles = 200;
     algo.properties.push(
       "name:presetMaxParticles|type:range|display:MaxParticles|" +
@@ -78,6 +77,19 @@ var testAlgo;
         return ["Beat", "Onset", "Note"][algo.presetTriggerMode];
     };
 
+    algo.presetKickThreshold = 6;
+    algo.properties.push(
+      "name:presetKickThreshold|type:range|display:Kick Threshold|" +
+      "values:1,10|write:setKickThreshold|read:getKickThreshold");
+    algo.presetAmbientMin = 10;
+    algo.properties.push(
+      "name:presetAmbientMin|type:range|display:Ambient Min|" +
+      "values:1,30|write:setAmbientMin|read:getAmbientMin");
+
+    algo.setKickThreshold = function(_v) { algo.presetKickThreshold = clampInt(_v, 1, 10, 6); };
+    algo.getKickThreshold = function() { return algo.presetKickThreshold; };
+    algo.setAmbientMin = function(_v) { algo.presetAmbientMin = clampInt(_v, 1, 30, 10); };
+    algo.getAmbientMin = function() { return algo.presetAmbientMin; };
     function clampInt(value, minValue, maxValue, defaultValue) {
         var parsed = parseInt(value);
         if (isNaN(parsed)) parsed = defaultValue;
@@ -112,7 +124,6 @@ var testAlgo;
         }
         return end;
     }
-
 
     function chooseOrigin(width, height) {
         if (algo.presetOrigin === 1)
@@ -241,9 +252,7 @@ var testAlgo;
         1: function(a) { return a.onset.fired; },
         2: function(a) { return a.note.on; }
     };
-    var KICK_INTENSITY_THRESHOLD = 0.6;
     var KICK_PARTICLE_BUDGET_RATIO = 0.7;
-    var AMBIENT_MIN_PARTICLES = 10;
     var AMBIENT_MIN_POWER = 0.1;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
@@ -263,11 +272,11 @@ var testAlgo;
             spawnBurst(width, height, dominantBandType(audio), powers);
 
         // Extra burst on strong kicks
-        if (audio.beat.kick && onsetIntensity > KICK_INTENSITY_THRESHOLD
+        if (audio.beat.kick && onsetIntensity > algo.presetKickThreshold / 10
             && algo.particles.length < algo.presetMaxParticles * KICK_PARTICLE_BUDGET_RATIO)
             spawnBurst(width, height, "low", powers);
 
-        if (algo.particles.length < AMBIENT_MIN_PARTICLES && totalPower > AMBIENT_MIN_POWER)
+        if (algo.particles.length < algo.presetAmbientMin && totalPower > AMBIENT_MIN_POWER)
             spawnAmbient(width, height, powers);
 
         var gravity = algo.presetGravity * 0.02;

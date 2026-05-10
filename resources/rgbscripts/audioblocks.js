@@ -3,7 +3,8 @@
   audioblocks.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Block Reflections" effect (MIT License)
+  Ported from LedFx "Block Reflections" effect (MIT License)
+  Original by LedFX contributors: https://github.com/LedFx/LedFx
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,129 +21,108 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Blocks";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 2;
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
-    algo.presetFloor = 0;
+    algo.speed = 0.5;
+    algo.properties.push(
+      "name:speed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
 
-    algo.presetBlockSize = 5;
+    algo.reactivity = 0.5;
     algo.properties.push(
-      "name:presetBlockSize|type:range|display:Block Size|" +
-      "values:1,10|write:setBlockSize|read:getBlockSize");
-    algo.presetDecay = 5;
-    algo.properties.push(
-      "name:presetDecay|type:range|display:Decay|" +
-      "values:1,10|write:setDecay|read:getDecay");
-    algo.presetReactTo = 0;
-    algo.properties.push(
-      "name:presetReactTo|type:list|display:React To|" +
-      "values:Bass,Mids,Highs,All|write:setReactTo|read:getReactTo");
-    algo.presetFill = 0;
-    algo.properties.push(
-      "name:presetFill|type:list|display:Fill Mode|" +
-      "values:Solid,Gradient|write:setFill|read:getFill");
+      "name:reactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
 
-    algo.setBlockSize = function(_v) { algo.presetBlockSize = parseInt(_v); };
-    algo.getBlockSize = function() { return algo.presetBlockSize; };
-    algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
-    algo.getDecay = function() { return algo.presetDecay; };
-    algo.setReactTo = function(_v) {
-        if (_v === "Mids") algo.presetReactTo = 1;
-        else if (_v === "Highs") algo.presetReactTo = 2;
-        else if (_v === "All") algo.presetReactTo = 3;
-        else algo.presetReactTo = 0;
-    };
-    algo.getReactTo = function() {
-        if (algo.presetReactTo === 1) return "Mids";
-        if (algo.presetReactTo === 2) return "Highs";
-        if (algo.presetReactTo === 3) return "All";
-        return "Bass";
-    };
-    algo.setFill = function(_v) { algo.presetFill = (_v === "Gradient") ? 1 : 0; };
-    algo.getFill = function() { return algo.presetFill ? "Gradient" : "Solid"; };
+    algo.fix_hues = "Yes";
+    algo.properties.push(
+      "name:fix_hues|type:list|display:Fix Hues|" +
+      "values:No,Yes|write:setFixHues|read:getFixHues");
 
-    var startColor = [255, 0, 64];
-    var endColor = [0, 64, 255];
-    var blockBrightness = null;
+    algo.setSpeed = function(_v) { algo.speed = clampFloat(_v, 0.00001, 1.0); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setReactivity = function(_v) { algo.reactivity = clampFloat(_v, 0.00001, 1.0); };
+    algo.getReactivity = function() { return algo.reactivity; };
+    algo.setFixHues = function(_v) { algo.fix_hues = (_v === "No") ? "No" : "Yes"; };
+    algo.getFixHues = function() { return algo.fix_hues; };
+
+    algo.timestep = 0;
+    algo.lowsPower = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            startColor = [(rawColors[0] >> 16) & 0xFF, (rawColors[0] >> 8) & 0xFF, rawColors[0] & 0xFF];
-        if (rawColors && rawColors.length >= 2)
-            endColor = [(rawColors[1] >> 16) & 0xFF, (rawColors[1] >> 8) & 0xFF, rawColors[1] & 0xFF];
-    };
-    algo.rgbMapGetColors = function() {
-        return [RGBUtil.rgb(startColor[0], startColor[1], startColor[2]),
-                RGBUtil.rgb(endColor[0], endColor[1], endColor[2])];
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
+    function clampFloat(v, min, max) {
+        var parsed = parseFloat(v);
+        if (isNaN(parsed)) parsed = min;
+        return Math.max(min, Math.min(max, parsed));
+    }
+
+    function mod(x, m) {
+        return ((x % m) + m) % m;
+    }
+
+    function ledFxTime(modifier, timestep) {
+        if (modifier <= 0) modifier = 0.00001;
+        var t = ((timestep / (65.536 / modifier)) % 1.0 + 1.0) % 1.0;
+        return t;
+    }
+
+    function triangle(x) {
+        return 1 - 2 * Math.abs(RGBUtil.mod1(x) - 0.5);
+    }
+
+    function sin01(x) {
+        return 0.5 * Math.sin(x * 2 * Math.PI) + 0.5;
+    }
+
+    function fixHueFast(hue) {
+        hue = RGBUtil.mod1(hue);
+        return sin01((hue - 0.5) / 2.0);
+    }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var blockW = Math.max(1, algo.presetBlockSize);
-        var numBlocks = Math.ceil(algo.displayWidth / blockW);
-
-        if (!blockBrightness || blockBrightness.length !== numBlocks) {
-            blockBrightness = new Array(numBlocks);
-            for (var i = 0; i < numBlocks; i++) blockBrightness[i] = 0;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Get audio power based on selected range
-        var power;
-        if (algo.presetReactTo === 1) power = audio.power.mid;
-        else if (algo.presetReactTo === 2) power = audio.power.high;
-        else if (algo.presetReactTo === 3) power = audio.volume.normalized;
-        else power = audio.power.low;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        algo.timestep += dtMs / 1000.0;
 
-        // Get spectrum for per-block variation
-        var bands = RGBUtil.interpolate(audio.spectrum.full, numBlocks);
-        for (var i = 0; i < bands.length; i++)
-            bands[i] = Math.min(1, bands[i]);
+        var rawLows = audio.power.low;
+        algo.lowsPower = rawLows * 0.05 + algo.lowsPower * 0.95;
 
-        // Decay and update blocks
-        var decayRate = 1 - algo.presetDecay / 50.0;
-        var kickBoost = audio.beat.kick ? 0.3 : 0;
-        for (var bi = 0; bi < numBlocks; bi++) {
-            blockBrightness[bi] *= decayRate;
-            // Trigger blocks based on spectrum + overall power
-            var trigger = bands[bi] * power + kickBoost;
-            if (trigger > blockBrightness[bi])
-                blockBrightness[bi] = Math.min(1, trigger);
-        }
+        var speed = algo.speed;
+        var reactivity = algo.reactivity;
+        var t1 = ledFxTime(1.0 * speed, algo.timestep);
+        var t2 = t1 * (Math.PI * Math.PI) + (0.8 * reactivity * algo.lowsPower);
+        var t3 = ledFxTime(5.0 * speed, algo.timestep) + (reactivity * algo.lowsPower);
+        var t4 = ledFxTime(2.0 * speed, algo.timestep) * (Math.PI * Math.PI);
 
-        // Render blocks
-        var beatPulse = audio.beat.cosPulse;
-        for (var bi = 0; bi < numBlocks; bi++) {
-            var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * blockBrightness[bi];
-            if (bright < 0.01) continue;
-            
-            // Add subtle beat pulse modulation (0-20%)
-            bright *= (1.0 + beatPulse * 0.2);
+        var m = 0.3 + triangle(t1) * 0.2;
+        var c = triangle(t3) * 10.0 + 4.0 * sin01(t4);
+        var fixHues = algo.fix_hues !== "No";
+        var pixelCount = Math.max(1, width);
 
-            var t = bi / Math.max(1, numBlocks - 1);
-            var r, g, b;
-            if (algo.presetFill) {
-                // Gradient across blocks
-                r = startColor[0] + (endColor[0] - startColor[0]) * t;
-                g = startColor[1] + (endColor[1] - startColor[1]) * t;
-                b = startColor[2] + (endColor[2] - startColor[2]) * t;
-            } else {
-                r = startColor[0]; g = startColor[1]; b = startColor[2];
-            }
+        for (var x = 0; x < width; x++) {
+            var h = x;
+            h -= pixelCount / 2.0;
+            h /= pixelCount;
+            h *= c;
+            h = mod(h, m);
+            h += sin01(t2);
 
-            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
-            var xStart = bi * blockW;
-            var xEnd = Math.min(xStart + blockW, width);
+            var v = Math.abs(h);
+            v += Math.abs(m) + t1;
+            v = RGBUtil.mod1(v);
+            v *= v;
 
+            var hue = fixHues ? fixHueFast(h) : h;
+            var packed = RGBUtil.hsvToRgb(hue, 1.0, v);
             for (var y = 0; y < height; y++)
-                for (var x = xStart; x < xEnd; x++)
-                    map[y][x] = packed;
+                map[y][x] = packed;
         }
 
         return map;

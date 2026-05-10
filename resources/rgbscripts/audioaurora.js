@@ -24,8 +24,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 1;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 4;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -46,6 +47,8 @@ var testAlgo;
     algo.setWaveSize = function(_v) { algo.presetWaveSize = parseInt(_v); };
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var elapsedSec = 0;
 
     // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
@@ -131,7 +134,7 @@ var testAlgo;
 
                 var maxChannel = Math.max(r, g, b2) / 255.0;
                 if (maxChannel > 0) {
-                    var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, maxChannel);
+                    var floored = Math.min(1, maxChannel);
                     var floorScale = floored / maxChannel * beatBoost;
                     r *= floorScale;
                     g *= floorScale;

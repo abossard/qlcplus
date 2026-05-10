@@ -20,6 +20,9 @@ algo.usesAudio = true;
 algo.properties = new Array();
 
 algo.presetSensitivity = 6;
+    algo.properties.push(
+      "name:presetSensitivity|type:range|display:Sensitivity|" +
+      "values:1,10|write:setSensitivity|read:getSensitivity");
 
 algo.presetDropIntensity = 8;
 algo.properties.push(
@@ -63,6 +66,8 @@ algo.getColorScheme = function() { return ["Cool2Warm", "Rainbow", "Monochrome"]
 algo.setAutoTune = function(_v) { algo.presetAutoTune = (_v === "No" || parseInt(_v) === 0) ? 0 : 1; };
 algo.getAutoTune = function() { return algo.presetAutoTune ? "Yes" : "No"; };
 
+    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
+    algo.getSensitivity = function() { return algo.presetSensitivity; };
 function clamp(value, minValue, maxValue) {
     return Math.max(minValue, Math.min(maxValue, value));
 }
@@ -80,8 +85,6 @@ function lerp(a, b, t) {
 function unpackColor(color) {
     return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
 }
-
-
 
 function colorHue(color) {
     var r = color[0] / 255.0, g = color[1] / 255.0, b = color[2] / 255.0;
@@ -106,8 +109,6 @@ function packScaled(color, brightness) {
 }
 
 function initState() {
-    if (algo.initialized) return;
-
     algo.IDLE = 0;
     algo.BUILDING = 1;
     algo.PEAK = 2;
@@ -138,8 +139,6 @@ function initState() {
     algo.history = new Array(150);
     for (var h = 0; h < algo.history.length; h++) algo.history[h] = 0;
     algo.historyIndex = 0;
-
-    algo.initialized = true;
 }
 
 function transitionTo(newState) {
@@ -398,8 +397,6 @@ function renderPostDrop(map, width, height, features) {
 
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
-    initState();
-
     var map = RGBUtil.createMap(width, height);
     if (!audio) return map;
     var features = extractFeatures(audio);
@@ -423,5 +420,6 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     return map;
 };
 
+initState();
 testAlgo = algo;
 algo;

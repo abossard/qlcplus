@@ -179,9 +179,9 @@ var testAlgo;
             lastHeight = height;
         }
 
-        var bass = Math.min(2.0, audio.power.low);
-        var highs = Math.min(1.0, audio.power.high);
-        var onsetIntensity = Math.max(0.4, audio.onset.intensity);
+        var bass = audio.power.low;
+        var highs = audio.power.high;
+        var onsetIntensity = audio.onset.intensity;
         var glowMul = (0.8 + highs * 0.4) * onsetIntensity;
 
         if (audio.bands.low.fired || audio.beat.kick || (algo.beams.length < 3 && bass > 0.15))

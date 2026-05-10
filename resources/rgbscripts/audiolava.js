@@ -25,8 +25,6 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
     algo.presetSpeed = 7;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -52,7 +50,6 @@ var testAlgo;
         return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
-
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
@@ -75,8 +72,8 @@ var testAlgo;
         var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         // Time phases — bass accelerates significantly
-        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowPower * 2)) % 1;
-        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowPower * 3)) % 1;
+        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowPower * 0.004)) % 1;
+        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowPower * 0.007)) % 1;
 
         // True 2D: each pixel gets unique wave value
         for (var y = 0; y < height; y++) {
@@ -95,7 +92,7 @@ var testAlgo;
                 // Combine waves for pattern
                 var pattern = (w1 + 0.1) * (w2 + lowPower * 2) * (w3 + midsPower * 1.5) + (w4 * midsPower + w5 * highsPower) * 0.35;
                 pattern = Math.pow(Math.max(0, pattern + contrast), 2);
-                pattern = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, pattern)) * beatBoost;
+                pattern = (Math.min(1, pattern)) * beatBoost;
 
                 // Mix 3 gradient colors weighted by mel-bank powers
                 var r = 0, g = 0, b = 0, total = 0;

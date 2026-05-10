@@ -27,6 +27,7 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Fill Unfill Squares From Center";
         algo.author = "David Garyga";
+        algo.acceptColors = 2;
 
         algo.rgbMap = function(width, height, rgb, step)
         {

@@ -24,9 +24,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -59,6 +56,9 @@ var testAlgo;
     var buf0 = null;
     var buf1 = null;
     var curBuf = 0;
+    var midPhase = 0;
+    var highPhase1 = 0;
+    var highPhase2 = 0.5;
 
     function init(w) {
         buf0 = new Array(w); buf1 = new Array(w);
@@ -88,7 +88,6 @@ var testAlgo;
         return AudioColors.bands(algo).slice();
     };
 
-
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!buf0 || buf0.length !== width) init(width);
@@ -96,11 +95,12 @@ var testAlgo;
         if (!audio) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
-        var dtMs = audio.timing.audioDtMs > 0 ? audio.timing.audioDtMs : DEFAULT_DT_MS;
+        var dtMs = audio.timing.audioDtMs;
+        var dt = audio.timing.consumerDtMs / 1000.0;
         var dtScale = Math.max(0.25, Math.min(4.0, dtMs / DEFAULT_DT_MS));
-        var bassIntensity = Math.min(1, Math.pow(audio.power.low, 2));
-        var midsIntensity = Math.min(1, Math.pow(audio.power.mid, 2));
-        var highIntensity = Math.min(1, Math.pow(audio.power.high, 2));
+        var bassIntensity = Math.pow(audio.power.low, 2);
+        var midsIntensity = Math.pow(audio.power.mid, 2);
+        var highIntensity = Math.pow(audio.power.high, 2);
 
         // Create drops based on audio
         createDrop(1, bassIntensity * algo.presetBassSize, width);
@@ -108,13 +108,16 @@ var testAlgo;
         createDrop(width - 2, bassIntensity * algo.presetBassSize, width);
 
         // Mids drops at moving positions
-        var midPos = Math.floor((Date.now() * 0.0002 * algo.presetSpeed) % 1 * (width - 2)) + 1;
+        midPhase = (midPhase + dt * 1000.0 * 0.0002 * algo.presetSpeed) % 1;
+        var midPos = Math.floor(midPhase * (width - 2)) + 1;
         createDrop(midPos, midsIntensity * 6, width);
 
         // Highs drops at multiple positions
-        var highPos1 = Math.floor((Date.now() * 0.0003 * algo.presetSpeed) % 1 * (width - 2)) + 1;
-        var highPos2 = Math.floor((Date.now() * -0.00025 * algo.presetSpeed + 0.5) % 1 * (width - 2)) + 1;
-        if (highPos2 < 1) highPos2 = 1;
+        highPhase1 = (highPhase1 + dt * 1000.0 * 0.0003 * algo.presetSpeed) % 1;
+        highPhase2 = (highPhase2 - dt * 1000.0 * 0.00025 * algo.presetSpeed) % 1;
+        if (highPhase2 < 0) highPhase2 += 1;
+        var highPos1 = Math.floor(highPhase1 * (width - 2)) + 1;
+        var highPos2 = Math.floor(highPhase2 * (width - 2)) + 1;
         createDrop(highPos1, highIntensity * algo.presetHighSize, width);
         createDrop(highPos2, highIntensity * algo.presetHighSize, width);
 
@@ -136,7 +139,7 @@ var testAlgo;
             var hue = Math.abs((val * 2) % 2 - 1);
             // Brightness from water height
             var baseBright = Math.min(1, Math.max(0, val * 0.8 + 0.12));
-            var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+            var floored = baseBright;
             var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
             var colorScale = 0.65 + hue * 0.35;

@@ -24,19 +24,15 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 7;
-    algo.presetFloor = 15;
-
     algo.presetBands = 3;
     algo.properties.push(
       "name:presetBands|type:range|display:Bands|" +
       "values:2,5|write:setBands|read:getBands");
 
-
     algo.presetPeakHold = 10;
     algo.properties.push(
       "name:presetPeakHold|type:range|display:PeakHold|" +
       "values:1,20|write:setPeakHold|read:getPeakHold");
-
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -93,7 +89,6 @@ var testAlgo;
         var sectionColors = [];
         for (var ci = 0; ci < 3; ci++)
             sectionColors.push(unpackColor(colorStops[ci]));
-        var floorBrightness = algo.presetFloor/100;
         var fallStep = algo.presetDecay / 100.0;
         var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
 
@@ -101,13 +96,13 @@ var testAlgo;
         var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
 
         for (var section = 0; section < numBands; section++) {
-            var magnitude = Math.max(0, Math.min(1, bands[section]));
+            var magnitude = Math.max(0, bands[section]);
             if (magnitude > algo.smoothBands[section])
                 algo.smoothBands[section] = magnitude;
             else
                 algo.smoothBands[section] = Math.max(0, algo.smoothBands[section] - fallStep);
 
-            var smoothMagnitude = Math.max(0, Math.min(1, algo.smoothBands[section]));
+            var smoothMagnitude = Math.max(0, algo.smoothBands[section]);
             var barHeight = Math.round(smoothMagnitude * height);
             if (magnitude > 0.01)
                 barHeight = Math.max(1, barHeight);
@@ -133,18 +128,13 @@ var testAlgo;
                     var fromBottom = height - 1 - y;
                     if (fromBottom < barHeight) {
                         var baseBrightness = smoothMagnitude * (1 - y / height * TOP_DARKEN);
-                        var brightness = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBrightness) * beatBoost;
+                        var brightness = (baseBrightness) * beatBoost;
                         map[y][x] = RGBUtil.rgb(
                             color[0] * brightness,
                             color[1] * brightness,
                             color[2] * brightness);
                     } else if (fromBottom === peakPosition && peakPosition < height) {
                         map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
-                    } else if (floorBrightness > 0 && magnitude > 0.01) {
-                        map[y][x] = RGBUtil.rgb(
-                            color[0] * floorBrightness,
-                            color[1] * floorBrightness,
-                            color[2] * floorBrightness);
                     }
                 }
             }

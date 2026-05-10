@@ -26,8 +26,6 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 9;
-    algo.presetFloor = 0;
-
     // --- Properties ---
     algo.presetSpeed = 4;
     algo.properties.push(
@@ -54,6 +52,11 @@ var testAlgo;
       "name:presetSpread|type:list|display:Per Column|" +
       "values:No,Yes|write:setSpread|read:getSpread");
 
+    algo.presetSparkFade = 5;
+    algo.properties.push(
+      "name:presetSparkFade|type:range|display:Spark Fade (%)|" +
+      "values:0,20|write:setSparkFade|read:getSparkFade");
+
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function()  { return algo.presetSpeed; };
     algo.setIntensity = function(_v) { algo.presetIntensity = parseInt(_v); };
@@ -65,6 +68,8 @@ var testAlgo;
     algo.setSpread = function(_v) { algo.presetSpread = (_v === "Yes") ? 1 : 0; };
     algo.getSpread = function() { return algo.presetSpread ? "Yes" : "No"; };
 
+    algo.setSparkFade = function(_v) { algo.presetSparkFade = parseInt(_v); };
+    algo.getSparkFade = function() { return algo.presetSparkFade; };
     // --- Internal state ---
     var sparkPixels = null;
     var sparks = null;
@@ -96,7 +101,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -153,7 +157,7 @@ var testAlgo;
             sparkX[i] += stepSize;
 
             // Random fade or out of bounds
-            if (sparkX[i] >= pixelCount || Math.random() < 0.05) {
+            if (sparkX[i] >= pixelCount || Math.random() < algo.presetSparkFade / 100) {
                 sparks[i] = 0;
                 sparkX[i] = 0;
                 continue;
@@ -177,8 +181,6 @@ var testAlgo;
 
         var spectrum = melSrc;
         var specBands = RGBUtil.interpolate(spectrum, algo.displayWidth);
-        for (var si = 0; si < specBands.length; si++)
-            specBands[si] = Math.min(1, specBands[si]);
         var spectrumMix = algo.presetSpread ? 0.7 : 0.35;
         var beatMod = 1 + audio.beat.cosPulse * 0.15;
 
@@ -195,7 +197,7 @@ var testAlgo;
                 var cr = (packed >> 16) & 0xFF;
                 var cg = (packed >> 8) & 0xFF;
                 var cb = packed & 0xFF;
-                var cb2 = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * Math.min(1, colHeat * 2)) * beatMod;
+                var cb2 = (Math.min(1, colHeat * 2)) * beatMod;
                 map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
             }
         }

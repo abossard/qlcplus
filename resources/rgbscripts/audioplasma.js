@@ -25,8 +25,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 2;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -47,6 +48,8 @@ var testAlgo;
     algo.setTwist = function(_v) { algo.presetTwist = parseInt(_v); };
     algo.getTwist = function() { return algo.presetTwist; };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var DEFAULT_BAND_COLORS = [0xFF0080, 0x8040E0, 0x0080FF];
     var elapsedSec = 0;
 
@@ -55,7 +58,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -92,7 +94,7 @@ var testAlgo;
                 // Combine and normalize to 0-1
                 var plasma = (v1 + v2 + v3 + 3) / 6.0;
 
-                var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * plasma;
+                var floored = plasma;
                 var brightness = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
                 map[y][x] = RGBUtil.rgb(
                     blended[0] * brightness,

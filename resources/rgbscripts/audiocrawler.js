@@ -25,8 +25,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -47,6 +48,8 @@ var testAlgo;
     algo.setChop = function(_v) { algo.presetChop = parseInt(_v); };
     algo.getChop = function() { return algo.presetChop; };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var DEFAULT_BAND_COLORS = [0x00FF80, 0x80A0FF, 0xFFFFFF];
     var timestep = 0;
     var activeColor = null;
@@ -56,7 +59,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -105,7 +107,7 @@ var testAlgo;
 
             // Apply brightness
             var baseBright = Math.max(0, Math.min(1, v));
-            var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+            var bright = baseBright;
 
             var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
             for (var y = 0; y < height; y++)

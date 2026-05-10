@@ -45,7 +45,6 @@ var testAlgo;
     var SPEED_SCALE = 0.5;
 
     algo.phase = 0;
-    algo.lastMs = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -56,14 +55,7 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = (audio.timing && audio.timing.consumerDtMs)
-                   ? audio.timing.consumerDtMs : 0;
-        if (dtMs <= 0) {
-            var now = Date.now();
-            dtMs = algo.lastMs ? (now - algo.lastMs) : 20;
-            algo.lastMs = now;
-        }
-        var dt = dtMs / 1000.0;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var speed = algo.presetSpeed / 100.0;
         var reactivity01 = algo.presetReactivity / 100.0;

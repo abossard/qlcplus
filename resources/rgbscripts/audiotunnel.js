@@ -24,8 +24,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 5;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -52,6 +53,8 @@ var testAlgo;
         return ["Circle", "Diamond", "Square"][algo.presetShape];
     };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var phase = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -59,7 +62,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -103,7 +105,7 @@ var testAlgo;
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 var baseBright = Math.min(1, ringVal * power);
-                var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
+                var floored = baseBright;
                 var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
                 map[y][x] = RGBUtil.rgb(

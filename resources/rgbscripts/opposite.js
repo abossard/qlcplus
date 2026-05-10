@@ -27,6 +27,7 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Opposite";
     algo.author = "Massimo Callegari";
+    algo.acceptColors = 2;
     algo.orientation = 0;
     algo.properties = new Array();
     algo.properties.push("name:orientation|type:list|display:Orientation|values:Horizontal,Vertical|write:setOrientation|read:getOrientation");

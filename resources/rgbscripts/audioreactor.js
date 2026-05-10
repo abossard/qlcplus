@@ -80,8 +80,8 @@ var testAlgo;
     }
 
     function colorFor(audio, bandIndex) {
-        if (algo.presetPalette && audio.pitch && audio.pitch.hz > 0 && audio.pitch.confidence > 0.2) {
-            var midi = audio.pitch.midi || 0;
+        if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > 0.2) {
+            var midi = audio.pitch.midi;
             var hue = RGBUtil.mod1((midi % 12) / 12 + bandIndex / 12);
             return RGBUtil.hsv2rgb(hue, 0.85, 1.0);
         }
@@ -114,42 +114,42 @@ var testAlgo;
 
         ensureSparks(width, height);
 
-        var dt = (audio.timing && audio.timing.consumerDtMs) ? audio.timing.consumerDtMs : 40;
+        var dt = audio.timing.consumerDtMs / 1000.0;
         var sensitivity = algo.presetSensitivity / 7.0;
         var motion = algo.presetMotion / 6.0;
-        var low = Math.min(1, (audio.power ? audio.power.low : 0) * sensitivity);
-        var mid = Math.min(1, (audio.power ? audio.power.mid : 0) * sensitivity);
-        var high = Math.min(1, (audio.power ? audio.power.high : 0) * sensitivity);
-        var beatPower = audio.power && audio.power.detail ? audio.power.detail.beat : low;
-        var beatPulse = audio.beat ? Math.max(audio.beat.cosPulse || 0, audio.beat.kickIntensity || 0) : 0;
+        var lowVis = Math.min(1, audio.power.low * sensitivity);
+        var midVis = Math.min(1, audio.power.mid * sensitivity);
+        var highVis = Math.min(1, audio.power.high * sensitivity);
+        var beatPower = audio.power.detail.beat;
+        var beatPulse = Math.max(audio.beat.cosPulse, audio.beat.kickIntensity);
         var speed = (0.015 + 0.025 * motion) * (1 + beatPower * 2.5);
-        time += dt * speed;
+        time += dt * 1000.0 * speed;
         if (time > 1e6) time -= 1e6;
-        sweep = RGBUtil.mod1(sweep + dt * 0.00025 * motion * (1 + mid * 3));
+        sweep = RGBUtil.mod1(sweep + dt * 0.25 * motion * (1 + midVis * 3));
 
-        var dominant = audio.power ? audio.power.dominant : "low";
+        var dominant = audio.power.dominant;
         var dominantIndex = dominant === "high" ? 2 : (dominant === "mid" ? 1 : 0);
-        var dominantValue = [low, mid, high][dominantIndex];
+        var dominantValue = [lowVis, midVis, highVis][dominantIndex];
         var lowColor = colorFor(audio, 0);
         var midColor = colorFor(audio, 1);
         var highColor = colorFor(audio, 2);
         var dominantColor = [lowColor, midColor, highColor][dominantIndex];
 
-        var onset = audio.onset && audio.onset.fired;
-        if (onset || (audio.beat && audio.beat.fired) || (audio.beat && audio.beat.kick)) {
-            var onsetIntensity = audio.onset ? Math.min(1, audio.onset.intensity || 0.5) : 0.5;
+        var onset = audio.onset.fired;
+        if (onset || audio.beat.fired || audio.beat.kick) {
+            var onsetIntensity = audio.onset.intensity;
             flash = Math.max(flash, onsetIntensity * algo.presetFlash / 10.0);
         }
         flash *= 0.82;
 
         if (algo.presetSparkles && (onset || dominant === "high")) {
-            var sparkCount = Math.max(1, Math.floor(width * height * high * 0.10));
+            var sparkCount = Math.max(1, Math.floor(width * height * highVis * 0.10));
             if (onset) sparkCount += Math.max(1, Math.floor(width / 4));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
                 var sy = Math.floor(Math.random() * Math.max(1, height / 2));
                 var si = sy * width + sx;
-                sparkEnergy[si] = Math.max(sparkEnergy[si], 0.5 + high * 0.5 + flash * 0.5);
+                sparkEnergy[si] = Math.max(sparkEnergy[si], 0.5 + highVis * 0.5 + flash * 0.5);
                 sparkColor[si] = highColor;
             }
         }
@@ -159,7 +159,7 @@ var testAlgo;
 
         var floor = 0;
         var overall = 0.35 + dominantValue + beatPulse * 0.35;
-        var barPhase = audio.bar ? audio.bar.phase01 || 0 : 0;
+        var barPhase = audio.bar.phase01;
 
         for (var y = 0; y < height; y++) {
             var y01 = height <= 1 ? 0 : y / (height - 1);
@@ -173,7 +173,7 @@ var testAlgo;
 
                 if (dominant === "low") {
                     var wave = 0.5 + 0.5 * Math.sin((x01 * 2.5 + time + barPhase) * Math.PI * 2);
-                    var pulseHeight = Math.min(1, 0.15 + low * 1.15 + beatPulse * 0.25);
+                    var pulseHeight = Math.min(1, 0.15 + lowVis * 1.15 + beatPulse * 0.25);
                     level = Math.max(0, (pulseHeight - bottom) / Math.max(0.001, pulseHeight));
                     base = mix(lowColor, midColor, wave * 0.25);
                     level *= 0.55 + 0.45 * wave;
@@ -181,19 +181,19 @@ var testAlgo;
                     var center = sweep;
                     var dx = Math.abs(x01 - center);
                     dx = Math.min(dx, 1 - dx);
-                    var ripple = Math.max(0, 1 - dx * (4 + mid * 8));
+                    var ripple = Math.max(0, 1 - dx * (4 + midVis * 8));
                     var rowWave = 0.5 + 0.5 * Math.sin((y01 * 3 + time * 0.65) * Math.PI * 2);
-                    level = Math.max(ripple, rowWave * mid * 0.65);
+                    level = Math.max(ripple, rowWave * midVis * 0.65);
                     base = mix(midColor, lowColor, rowWave * 0.25);
                 } else {
                     var shimmer = 0.5 + 0.5 * Math.sin((x01 * 9 + y01 * 5 + time * 1.8) * Math.PI * 2);
-                    level = high * (0.25 + 0.75 * top) * (0.45 + 0.55 * shimmer);
+                    level = highVis * (0.25 + 0.75 * top) * (0.45 + 0.55 * shimmer);
                     base = mix(highColor, midColor, shimmer * 0.20);
                 }
 
-                level += low * Math.max(0, 0.25 - bottom) * 0.8;
-                level += mid * (0.5 + 0.5 * Math.sin((x01 + time * 0.2) * Math.PI * 2)) * 0.15;
-                level += high * top * 0.20;
+                level += lowVis * Math.max(0, 0.25 - bottom) * 0.8;
+                level += midVis * (0.5 + 0.5 * Math.sin((x01 + time * 0.2) * Math.PI * 2)) * 0.15;
+                level += highVis * top * 0.20;
 
                 var spark = sparkEnergy[y * width + x];
                 if (spark > 0.01) {
@@ -218,4 +218,3 @@ var testAlgo;
     return algo;
   }
 )();
-

@@ -25,8 +25,9 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 3;
-    algo.presetFloor = 0;
-
+    algo.properties.push(
+      "name:presetReactivity|type:range|display:Reactivity|" +
+      "values:1,10|write:setReactivity|read:getReactivity");
     algo.presetSpeed = 5;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
@@ -47,6 +48,8 @@ var testAlgo;
     algo.setComplexity = function(_v) { algo.presetComplexity = parseInt(_v); };
     algo.getComplexity = function() { return algo.presetComplexity; };
 
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.getReactivity = function() { return algo.presetReactivity; };
     var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
     var timestep = 0;
     var flashColor = null;
@@ -59,7 +62,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return AudioColors.bands(algo).slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -123,7 +125,7 @@ var testAlgo;
             var b = dominant[2] * (0.35 + c1[2] / 255.0 * glitchMix);
 
             var baseBrightness = Math.max(0.4, flashLevel);
-            var brightness = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBrightness;
+            var brightness = baseBrightness;
             var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;

@@ -23,8 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetFloor = 0;
-
     algo.presetBaseSpeed = 5;
     algo.properties.push(
       "name:presetBaseSpeed|type:range|display:Base Speed|" +
@@ -91,7 +89,6 @@ var testAlgo;
     algo.rgbMapGetColors = function() {
         return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
     };
-
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -174,7 +171,7 @@ var testAlgo;
                     var py = centerY + dy;
                     if (py < 0 || py >= height) continue;
                     var baseFade = fade * (1 - Math.abs(dy) / (spread + 1));
-                    var yFade = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseFade;
+                    var yFade = baseFade;
 
                     var existing = map[py][tx];
                     var er = (existing >> 16) & 0xFF;
