@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Blurz";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -144,23 +144,7 @@ var testAlgo;
     };
 
     algo.bandBlend = function(audio) {
-        var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            ? algo.gradientBandColors : DEFAULT_BANDS;
-        var w = audio.power.bands;
-        var sum = w[0] + w[1] + w[2];
-        if (sum < 0.001) return bands[0] | 0;
-        var r = 0, g = 0, b = 0;
-        for (var i = 0; i < 3; i++) {
-            var c = bands[i] | 0;
-            r += ((c >> 16) & 0xFF) * w[i];
-            g += ((c >> 8) & 0xFF) * w[i];
-            b += (c & 0xFF) * w[i];
-        }
-        r = Math.round(r / sum); g = Math.round(g / sum); b = Math.round(b / sum);
-        if (r > 255) r = 255;
-        if (g > 255) g = 255;
-        if (b > 255) b = 255;
-        return (r << 16) | (g << 8) | b;
+        return AudioColors.blendByPower(algo, audio);
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {

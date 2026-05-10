@@ -23,11 +23,13 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QRandomGenerator>
 #include <cmath>
 #include <QDir>
 
 #include "rgbscriptscache.h"
 #include "qlcfixturehead.h"
+#include "audiochannel.h"
 #include "fixturegroup.h"
 #include "genericfader.h"
 #include "fadechannel.h"
@@ -62,6 +64,10 @@
 #define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
 #define KXMLQLCRGBMatrixMirrorBlend         QStringLiteral("MirrorBlend")
 
+#define KXMLQLCRGBMatrixBeatEffect          QStringLiteral("BeatEffect")
+#define KXMLQLCRGBMatrixBeatSelection       QStringLiteral("BeatSelection")
+#define KXMLQLCRGBMatrixBeatOrientation     QStringLiteral("BeatOrientation")
+
 static const int RGBMatrixColorMask = 0x00FFFFFF;
 
 /****************************************************************************
@@ -87,6 +93,12 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_rotation(0)
     , m_mirror(0)
     , m_mirrorBlend(MirrorFlip)
+    , m_beatEffect(BeatEffectOff)
+    , m_beatSelection(BeatSelAllBeat4)
+    , m_beatOrientation(BeatOrientRows)
+    , m_currentBeat(0)
+    , m_lastBeat(-1)
+    , m_randomSegment(0)
 {
     setName(tr("New RGB Matrix"));
     setDuration(500);
@@ -215,6 +227,9 @@ bool RGBMatrix::copyFrom(const Function* function)
     setRotation(mtx->rotation());
     setMirror(mtx->mirror());
     setMirrorBlend(mtx->mirrorBlend());
+    setBeatEffect(mtx->beatEffect());
+    setBeatSelection(mtx->beatSelection());
+    setBeatOrientation(mtx->beatOrientation());
 
     return Function::copyFrom(function);
 }
@@ -571,6 +586,18 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setMirrorBlend(stringToMirrorBlend(root.readElementText()));
         }
+        else if (root.name() == KXMLQLCRGBMatrixBeatEffect)
+        {
+            setBeatEffect(stringToBeatEffect(root.readElementText()));
+        }
+        else if (root.name() == KXMLQLCRGBMatrixBeatSelection)
+        {
+            setBeatSelection(stringToBeatSelection(root.readElementText()));
+        }
+        else if (root.name() == KXMLQLCRGBMatrixBeatOrientation)
+        {
+            setBeatOrientation(stringToBeatOrientation(root.readElementText()));
+        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown RGB matrix tag:" << root.name();
@@ -651,6 +678,14 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeTextElement(KXMLQLCRGBMatrixMirror, QString::number(m_mirror));
     if (m_mirrorBlend != MirrorFlip)
         doc->writeTextElement(KXMLQLCRGBMatrixMirrorBlend, mirrorBlendToString(m_mirrorBlend));
+
+    /* Beat Transform */
+    if (m_beatEffect != BeatEffectOff)
+    {
+        doc->writeTextElement(KXMLQLCRGBMatrixBeatEffect, beatEffectToString(m_beatEffect));
+        doc->writeTextElement(KXMLQLCRGBMatrixBeatSelection, beatSelectionToString(m_beatSelection));
+        doc->writeTextElement(KXMLQLCRGBMatrixBeatOrientation, beatOrientationToString(m_beatOrientation));
+    }
 
     /* End the <Function> tag */
     doc->writeEndElement();
@@ -755,7 +790,7 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
         if (tempoType() == Beats)
             m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
 
-        // --- Step 1: Advance step if due (BEFORE map computation) ---
+        // Advance step if due
         // Save pre-increment elapsed for the map-compute guard below
         quint32 prevElapsed = elapsed();
         incrementElapsed();
@@ -782,9 +817,36 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             }
         }
 
-        // --- Step 2: Compute and output map (now always for the correct step) ---
-        // Recompute when: step just changed, first tick of a step, or audio-reactive
-        if (stepChanged || prevElapsed < MasterTimer::tick() || m_runAlgorithm->usesAudio())
+        // --- Beat Transform: update current beat ---
+        if (m_beatEffect != BeatEffectOff)
+        {
+            AudioProfile *profile = doc()->audioProfileForFunction(id());
+            AudioChannel *channel = (profile != NULL) ? profile->channel() : NULL;
+            if (channel != NULL)
+            {
+                AudioSnapshot snap = channel->snapshot();
+                if (snap.music.barPhase > 0)
+                    m_currentBeat = int(snap.music.barPhase) % 4;
+                else if (timer->isBeat())
+                    m_currentBeat = (m_currentBeat + 1) % 4;
+            }
+            else if (timer->isBeat())
+            {
+                m_currentBeat = (m_currentBeat + 1) % 4;
+            }
+
+            // Latch random segment on beat change
+            if (m_beatSelection == BeatSelRandom && m_currentBeat != m_lastBeat)
+            {
+                m_randomSegment = QRandomGenerator::global()->bounded(4);
+                m_lastBeat = m_currentBeat;
+            }
+        }
+
+        // Compute and output map
+        // Recompute when: step just changed, first tick of a step, audio-reactive, or beat transform active
+        if (stepChanged || prevElapsed < MasterTimer::tick() || m_runAlgorithm->usesAudio()
+            || m_beatEffect != BeatEffectOff)
         {
             QSize algoSize = effectiveAlgorithmSize(m_group);
             if (m_runAlgorithm->usesAudio())
@@ -794,6 +856,8 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             if (m_rotation || m_mirror)
                 applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
                                 m_rotation, m_mirror, m_mirrorBlend);
+            if (m_beatEffect != BeatEffectOff)
+                applyBeatTransform(m_stepHandler->m_map, m_currentBeat);
             updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
         }
     }
@@ -1453,6 +1517,198 @@ void RGBMatrix::applyTransforms(RGBMap &map, const QSize & /* srcSize */, const 
     }
 
     map = rotated;
+}
+
+/*************************************************************************
+ * Beat Transform
+ *************************************************************************/
+
+RGBMatrix::BeatEffect RGBMatrix::beatEffect() const
+{
+    return m_beatEffect;
+}
+
+void RGBMatrix::setBeatEffect(BeatEffect e)
+{
+    m_beatEffect = e;
+}
+
+RGBMatrix::BeatSelection RGBMatrix::beatSelection() const
+{
+    return m_beatSelection;
+}
+
+void RGBMatrix::setBeatSelection(BeatSelection s)
+{
+    m_beatSelection = s;
+}
+
+RGBMatrix::BeatOrientation RGBMatrix::beatOrientation() const
+{
+    return m_beatOrientation;
+}
+
+void RGBMatrix::setBeatOrientation(BeatOrientation o)
+{
+    m_beatOrientation = o;
+}
+
+QString RGBMatrix::beatEffectToString(BeatEffect e)
+{
+    switch (e)
+    {
+        case BeatEffectMirror:      return QStringLiteral("Mirror");
+        case BeatEffectColorInvert: return QStringLiteral("ColorInvert");
+        case BeatEffectBlackout:    return QStringLiteral("Blackout");
+        case BeatEffectWhiteout:    return QStringLiteral("Whiteout");
+        default:                    return QStringLiteral("Off");
+    }
+}
+
+RGBMatrix::BeatEffect RGBMatrix::stringToBeatEffect(const QString &s)
+{
+    if (s == QStringLiteral("Mirror"))      return BeatEffectMirror;
+    if (s == QStringLiteral("ColorInvert")) return BeatEffectColorInvert;
+    if (s == QStringLiteral("Blackout"))    return BeatEffectBlackout;
+    if (s == QStringLiteral("Whiteout"))    return BeatEffectWhiteout;
+    return BeatEffectOff;
+}
+
+QString RGBMatrix::beatSelectionToString(BeatSelection s)
+{
+    switch (s)
+    {
+        case BeatSelWalk:    return QStringLiteral("Walk");
+        case BeatSelRandom:  return QStringLiteral("Random");
+        default:             return QStringLiteral("AllBeat4");
+    }
+}
+
+RGBMatrix::BeatSelection RGBMatrix::stringToBeatSelection(const QString &s)
+{
+    if (s == QStringLiteral("Walk"))   return BeatSelWalk;
+    if (s == QStringLiteral("Random")) return BeatSelRandom;
+    return BeatSelAllBeat4;
+}
+
+QString RGBMatrix::beatOrientationToString(BeatOrientation o)
+{
+    switch (o)
+    {
+        case BeatOrientColumns: return QStringLiteral("Columns");
+        default:                return QStringLiteral("Rows");
+    }
+}
+
+RGBMatrix::BeatOrientation RGBMatrix::stringToBeatOrientation(const QString &s)
+{
+    if (s == QStringLiteral("Columns")) return BeatOrientColumns;
+    return BeatOrientRows;
+}
+
+void RGBMatrix::segmentRange(int segment, int total, int &start, int &end)
+{
+    int base = total / 4;
+    int remainder = total % 4;
+    start = segment * base + qMin(segment, remainder);
+    end = start + base + (segment < remainder ? 1 : 0);
+}
+
+void RGBMatrix::applyBeatTransform(RGBMap &map, int currentBeat)
+{
+    if (m_beatEffect == BeatEffectOff)
+        return;
+
+    int rows = map.size();
+    if (rows == 0) return;
+    int cols = map[0].size();
+    if (cols == 0) return;
+
+    int total = (m_beatOrientation == BeatOrientRows) ? rows : cols;
+
+    // Determine affected segments
+    QVector<int> affected;
+    if (m_beatSelection == BeatSelAllBeat4)
+    {
+        if (currentBeat != 3) return;
+        affected = {0, 1, 2, 3};
+    }
+    else if (m_beatSelection == BeatSelWalk)
+    {
+        affected = {currentBeat & 3};
+    }
+    else // BeatSelRandom
+    {
+        affected = {m_randomSegment};
+    }
+
+    for (int seg : affected)
+    {
+        int start, end;
+        segmentRange(seg, total, start, end);
+
+        switch (m_beatEffect)
+        {
+            case BeatEffectMirror:
+                if (m_beatOrientation == BeatOrientRows)
+                {
+                    for (int y = start; y < end; y++)
+                        std::reverse(map[y].begin(), map[y].end());
+                }
+                else
+                {
+                    for (int y = 0; y < rows; y++)
+                        std::reverse(map[y].begin() + start, map[y].begin() + end);
+                }
+                break;
+
+            case BeatEffectColorInvert:
+                if (m_beatOrientation == BeatOrientRows)
+                {
+                    for (int y = start; y < end; y++)
+                        for (int x = 0; x < cols; x++)
+                            map[y][x] ^= 0x00FFFFFF;
+                }
+                else
+                {
+                    for (int y = 0; y < rows; y++)
+                        for (int x = start; x < end; x++)
+                            map[y][x] ^= 0x00FFFFFF;
+                }
+                break;
+
+            case BeatEffectBlackout:
+                if (m_beatOrientation == BeatOrientRows)
+                {
+                    for (int y = start; y < end; y++)
+                        map[y].fill(0);
+                }
+                else
+                {
+                    for (int y = 0; y < rows; y++)
+                        for (int x = start; x < end; x++)
+                            map[y][x] = 0;
+                }
+                break;
+
+            case BeatEffectWhiteout:
+                if (m_beatOrientation == BeatOrientRows)
+                {
+                    for (int y = start; y < end; y++)
+                        map[y].fill(0x00FFFFFF);
+                }
+                else
+                {
+                    for (int y = 0; y < rows; y++)
+                        for (int x = start; x < end; x++)
+                            map[y][x] = 0x00FFFFFF;
+                }
+                break;
+
+            default:
+                break;
+        }
+    }
 }
 
 

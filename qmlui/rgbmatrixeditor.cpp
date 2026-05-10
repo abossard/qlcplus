@@ -666,6 +666,58 @@ void RGBMatrixEditor::setMirrorBlend(int b)
 }
 
 /************************************************************************
+ * Beat Transform
+ ************************************************************************/
+
+int RGBMatrixEditor::beatEffect() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->beatEffect();
+}
+
+void RGBMatrixEditor::setBeatEffect(int e)
+{
+    if (m_matrix == nullptr || e == m_matrix->beatEffect())
+        return;
+    m_matrix->setBeatEffect(RGBMatrix::BeatEffect(e));
+    initPreviewData();
+    emit beatEffectChanged();
+}
+
+int RGBMatrixEditor::beatSelection() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->beatSelection();
+}
+
+void RGBMatrixEditor::setBeatSelection(int s)
+{
+    if (m_matrix == nullptr || s == m_matrix->beatSelection())
+        return;
+    m_matrix->setBeatSelection(RGBMatrix::BeatSelection(s));
+    initPreviewData();
+    emit beatSelectionChanged();
+}
+
+int RGBMatrixEditor::beatOrientation() const
+{
+    if (m_matrix == nullptr)
+        return 0;
+    return m_matrix->beatOrientation();
+}
+
+void RGBMatrixEditor::setBeatOrientation(int o)
+{
+    if (m_matrix == nullptr || o == m_matrix->beatOrientation())
+        return;
+    m_matrix->setBeatOrientation(RGBMatrix::BeatOrientation(o));
+    initPreviewData();
+    emit beatOrientationChanged();
+}
+
+/************************************************************************
  * Save to Sequence
  ************************************************************************/
 

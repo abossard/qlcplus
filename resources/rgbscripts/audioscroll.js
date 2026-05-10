@@ -31,13 +31,6 @@ var testAlgo;
     algo.setBlur = function(_v) { algo.presetBlur = clampFloat(_v, 0, 10, 3); };
     algo.getBlur = function() { return algo.presetBlur; };
 
-    algo.presetMirror = "Yes";
-    algo.properties.push(
-      "name:mirror|type:list|display:Mirror|" +
-      "values:No,Yes|write:setMirror|read:getMirror");
-    algo.setMirror = function(_v) { algo.presetMirror = (_v === "No") ? "No" : "Yes"; };
-    algo.getMirror = function() { return algo.presetMirror; };
-
     algo.presetSpeed = 3;
     algo.properties.push(
       "name:speed|type:range|display:Speed|" +
@@ -58,38 +51,6 @@ var testAlgo;
       "values:0,100|write:setThreshold|read:getThreshold");
     algo.setThreshold = function(_v) { algo.presetThreshold = clampInt(_v, 0, 100); };
     algo.getThreshold = function() { return algo.presetThreshold; };
-
-    var lowsColor = [255, 0, 0];
-    var midsColor = [0, 255, 0];
-    var highColor = [0, 0, 255];
-    algo.presetColorLows = "#FF0000";
-    algo.presetColorMids = "#00FF00";
-    algo.presetColorHigh = "#0000FF";
-    algo.properties.push(
-      "name:color_lows|type:string|display:Color Lows|" +
-      "write:setColorLows|read:getColorLows");
-    algo.properties.push(
-      "name:color_mids|type:string|display:Color Mids|" +
-      "write:setColorMids|read:getColorMids");
-    algo.properties.push(
-      "name:color_high|type:string|display:Color High|" +
-      "write:setColorHigh|read:getColorHigh");
-
-    algo.setColorLows = function(_v) {
-      algo.presetColorLows = normalizeColorString(_v, algo.presetColorLows);
-      lowsColor = unpack(parseColorString(algo.presetColorLows));
-    };
-    algo.getColorLows = function() { return algo.presetColorLows; };
-    algo.setColorMids = function(_v) {
-      algo.presetColorMids = normalizeColorString(_v, algo.presetColorMids);
-      midsColor = unpack(parseColorString(algo.presetColorMids));
-    };
-    algo.getColorMids = function() { return algo.presetColorMids; };
-    algo.setColorHigh = function(_v) {
-      algo.presetColorHigh = normalizeColorString(_v, algo.presetColorHigh);
-      highColor = unpack(parseColorString(algo.presetColorHigh));
-    };
-    algo.getColorHigh = function() { return algo.presetColorHigh; };
 
     var pixels = null;
     var lastPixelCount = -1;
@@ -118,24 +79,6 @@ var testAlgo;
       return [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
     }
 
-    function toHex(c) {
-      c = c & 0xFFFFFF;
-      var s = c.toString(16).toUpperCase();
-      while (s.length < 6) s = "0" + s;
-      return "#" + s;
-    }
-
-    function parseColorString(s) {
-      if (typeof s !== "string") return 0;
-      var m = s.match(/#?([0-9a-fA-F]{6})/);
-      return m ? parseInt(m[1], 16) : 0;
-    }
-
-    function normalizeColorString(s, fallback) {
-      var c = parseColorString(s);
-      return c === 0 && !String(s).match(/#?0{6}/) ? fallback : toHex(c);
-    }
-
     function maxInRange(arr, start, end) {
       var m = 0;
       for (var i = start; i < end; i++) {
@@ -160,45 +103,13 @@ var testAlgo;
       return out;
     }
 
-    function mirrorPixels(src) {
-      var n = src.length;
-      var out = new Array(n);
-      for (var i = 0; i < n; i++) {
-        var a = src[n - 1 - (2 * i)];
-        var b = src[n - 2 - (2 * i)];
-        if (i >= Math.ceil(n / 2)) {
-          var k = 2 * i - n;
-          a = src[k];
-          b = src[Math.min(k + 1, n - 1)];
-        } else if (!b) {
-          b = src[0];
-        }
-        out[i] = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
-      }
-      return out;
-    }
-
     function renderPixelsForOutput() {
-      var out = pixels;
-      if (algo.presetMirror === "Yes") out = mirrorPixels(out);
-      out = boxBlur(out, algo.presetBlur);
-      return out;
+      return boxBlur(pixels, algo.presetBlur);
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
-    algo.rgbMapSetColors = function(rawColors) {
-      var colors = RGBUtil.buildGradientColors(rawColors);
-      if (colors.length > 0) algo.setColorLows(toHex(colors[0]));
-      if (colors.length > 1) algo.setColorMids(toHex(colors[1]));
-      if (colors.length > 2) algo.setColorHigh(toHex(colors[2]));
-    };
-
-    algo.rgbMapGetColors = function() {
-      return [RGBUtil.rgb(lowsColor[0], lowsColor[1], lowsColor[2]),
-              RGBUtil.rgb(midsColor[0], midsColor[1], midsColor[2]),
-              RGBUtil.rgb(highColor[0], highColor[1], highColor[2])];
-    };
+    algo.rgbMapGetColors = function() { return AudioColors.bands(algo).slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -206,6 +117,11 @@ var testAlgo;
       ensurePixels(pixelCount);
 
       if (audio) {
+        var bands = AudioColors.bands(algo);
+        var lowsColor = unpack(bands[0]);
+        var midsColor = unpack(bands[1]);
+        var highColor = unpack(bands[2]);
+
         var mel = (audio.spectrum && audio.spectrum.full) || [];
         var split1 = Math.floor(0.2 * mel.length);
         var split2 = Math.floor(0.5 * mel.length);

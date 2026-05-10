@@ -38,15 +38,6 @@ Rectangle
 
     signal requestView(int ID, string qmlSrc, bool back)
 
-    onAlgoColorsChanged:
-    {
-        var cCount = rgbMatrixEditor.algoColorsCount
-        color1Button.color = algoColors[0]
-        color2Button.color = cCount > 1 && rgbMatrixEditor.hasColorAtIndex(1) ? algoColors[1] : "transparent"
-        color3Button.color = cCount > 2 && rgbMatrixEditor.hasColorAtIndex(2) ? algoColors[2] : "transparent"
-        color4Button.color = cCount > 3 && rgbMatrixEditor.hasColorAtIndex(3) ? algoColors[3] : "transparent"
-        color5Button.color = cCount > 4 && rgbMatrixEditor.hasColorAtIndex(4) ? algoColors[4] : "transparent"
-    }
 
     TimeEditTool
     {
@@ -98,8 +89,7 @@ Rectangle
         onToolColorChanged:
             function(r, g, b, w, a, uv)
             {
-                previewBtn.color = Qt.rgba(r, g, b, 1.0)
-                rgbMatrixEditor.setColorAtIndex(colorIndex, previewBtn.color)
+                rgbMatrixEditor.setColorAtIndex(colorIndex, Qt.rgba(r, g, b, 1.0))
             }
         onClose: visible = false
     }
@@ -373,12 +363,92 @@ Rectangle
                     onCurrentIndexChanged: rgbMatrixEditor.mirrorBlend = currentIndex
                 }
 
-                // row 6
+                // Beat Transform - Effect
+                RobotoText
+                {
+                    label: qsTr("Beat effect")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Off") },
+                        { mLabel: qsTr("Mirror") },
+                        { mLabel: qsTr("Color Invert") },
+                        { mLabel: qsTr("Blackout") },
+                        { mLabel: qsTr("Whiteout") }
+                    ]
+                    currentIndex: rgbMatrixEditor.beatEffect
+                    onCurrentIndexChanged: rgbMatrixEditor.beatEffect = currentIndex
+                }
+
+                // Beat Transform - Selection (only visible when effect != Off)
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.beatEffect > 0
+                    label: qsTr("Beat selection")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.beatEffect > 0
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("All on Beat 4") },
+                        { mLabel: qsTr("Walk") },
+                        { mLabel: qsTr("Random") }
+                    ]
+                    currentIndex: rgbMatrixEditor.beatSelection
+                    onCurrentIndexChanged: rgbMatrixEditor.beatSelection = currentIndex
+                }
+
+                // Beat Transform - Orientation (only visible when effect != Off)
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.beatEffect > 0
+                    label: qsTr("Beat orientation")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.beatEffect > 0
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Rows") },
+                        { mLabel: qsTr("Columns") }
+                    ]
+                    currentIndex: rgbMatrixEditor.beatOrientation
+                    onCurrentIndexChanged: rgbMatrixEditor.beatOrientation = currentIndex
+                }
+
+                // row 6: dynamic color pickers (one per algoColorsCount)
                 RobotoText
                 {
                     id: colorLabel
                     label: qsTr("Colors")
-                    visible: rgbMatrixEditor.algoColorsCount > 0 ? true : false
+                    visible: rgbMatrixEditor.algoColorsCount > 0
                     height: editorColumn.itemsHeight
                     onWidthChanged:
                     {
@@ -387,236 +457,56 @@ Rectangle
                     }
                 }
 
-                Row
-                {
-                    //width: editorColumn.colWidth
-                    Layout.columnSpan: 2
-                    height: editorColumn.itemsHeight
-                    spacing: 4
-
-                    Rectangle
-                    {
-                        id: color1Button
-                        width: UISettings.iconSizeDefault * 2
-                        height: editorColumn.itemsHeight
-                        radius: 5
-                        border.color: color1MouseArea.containsMouse ? "white" : UISettings.bgLight
-                        border.width: 2
-                        visible: rgbMatrixEditor.algoColorsCount > 0 ? true : false
-
-                        MouseArea
-                        {
-                            id: color1MouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked:
-                            {
-                                if (colorTool.visible)
-                                    colorTool.hide()
-                                else
-                                    colorTool.showTool(0, color1Button)
-                            }
-                        }
-                    }
-                    Rectangle
-                    {
-                        width: UISettings.listItemHeight
-                        height: width
-                        color: "transparent"
-                        visible: rgbMatrixEditor.algoColorsCount > 2 ? true : false
-                    }
-
-                    Rectangle
-                    {
-                        id: color2Button
-                        width: UISettings.iconSizeDefault * 2
-                        height: editorColumn.itemsHeight
-                        radius: 5
-                        border.color: color2MouseArea.containsMouse ? "white" : UISettings.bgLight
-                        border.width: 2
-                        visible: rgbMatrixEditor.algoColorsCount > 1 ? true : false
-
-                        MouseArea
-                        {
-                            id: color2MouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked:
-                            {
-                                if (colorTool.visible)
-                                    colorTool.hide()
-                                else
-                                    colorTool.showTool(1, color2Button)
-                            }
-                        }
-                    }
-                    IconButton
-                    {
-                        width: UISettings.listItemHeight
-                        height: width
-                        faSource: FontAwesome.fa_xmark
-                        faColor: "darkred"
-                        tooltip: qsTr("Reset color 2")
-                        visible: rgbMatrixEditor.algoColorsCount > 1 ? true : false
-                        onClicked:
-                        {
-                            color2Button.color = "transparent"
-                            rgbMatrixEditor.resetColorAtIndex(1)
-                        }
-                    }
-                }
-
-                // row 7
-                Rectangle
-                {
-                    id: colorRow1
-                    height: editorColumn.itemsHeight
-                    width: colorLabel.width
-                    color: "transparent"
-                    visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
-                }
-
-                Row
+                Flow
                 {
                     Layout.columnSpan: 2
-                    //width: editorColumn.colWidth
-                    height: editorColumn.itemsHeight
-                    spacing: 4
-                    visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
+                    Layout.fillWidth: true
+                    spacing: 6
+                    visible: rgbMatrixEditor.algoColorsCount > 0
 
-                    Rectangle
+                    Repeater
                     {
-                        id: color3Button
-                        width: UISettings.iconSizeDefault * 2
-                        height: editorColumn.itemsHeight
-                        radius: 5
-                        border.color: color3MouseArea.containsMouse ? "white" : UISettings.bgLight
-                        border.width: 2
-                        visible: rgbMatrixEditor.algoColorsCount > 2 ? true : false
+                        model: Math.min(rgbMatrixEditor.algoColorsCount, 5)
 
-                        MouseArea
+                        delegate: Row
                         {
-                            id: color3MouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked:
+                            spacing: 2
+
+                            Rectangle
                             {
-                                if (colorTool.visible)
-                                    colorTool.hide()
-                                else
-                                    colorTool.showTool(2, color3Button)
+                                id: colorBtn
+                                width: UISettings.iconSizeDefault * 2
+                                height: editorColumn.itemsHeight
+                                radius: 5
+                                border.color: colorMA.containsMouse ? "white" : UISettings.bgLight
+                                border.width: 2
+                                color: rgbmeContainer.algoColors && rgbMatrixEditor.hasColorAtIndex(index)
+                                       ? rgbmeContainer.algoColors[index] : "transparent"
+
+                                MouseArea
+                                {
+                                    id: colorMA
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked:
+                                    {
+                                        if (colorTool.visible)
+                                            colorTool.hide()
+                                        else
+                                            colorTool.showTool(index, colorBtn)
+                                    }
+                                }
                             }
-                        }
-                    }
-                    IconButton
-                    {
-                        width: UISettings.listItemHeight
-                        height: width
-                        faSource: FontAwesome.fa_xmark
-                        faColor: "darkred"
-                        tooltip: qsTr("Reset color 3")
-                        visible: rgbMatrixEditor.algoColorsCount > 2 ? true : false
-                        onClicked:
-                        {
-                            color3Button.color = "transparent"
-                            rgbMatrixEditor.resetColorAtIndex(2)
-                        }
-                    }
-
-                    Rectangle
-                    {
-                        id: color4Button
-                        width: UISettings.iconSizeDefault * 2
-                        height: editorColumn.itemsHeight
-                        radius: 5
-                        border.color: color4MouseArea.containsMouse ? "white" : UISettings.bgLight
-                        border.width: 2
-                        visible: rgbMatrixEditor.algoColorsCount > 3 ? true : false
-
-                        MouseArea
-                        {
-                            id: color4MouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked:
+                            IconButton
                             {
-                                if (colorTool.visible)
-                                    colorTool.hide()
-                                else
-                                    colorTool.showTool(3, color4Button)
+                                width: UISettings.listItemHeight
+                                height: width
+                                faSource: FontAwesome.fa_xmark
+                                faColor: "darkred"
+                                tooltip: qsTr("Reset color %1").arg(index + 1)
+                                visible: index > 0
+                                onClicked: rgbMatrixEditor.resetColorAtIndex(index)
                             }
-                        }
-                    }
-                    IconButton
-                    {
-                        width: UISettings.listItemHeight
-                        height: width
-                        faSource: FontAwesome.fa_xmark
-                        faColor: "darkred"
-                        tooltip: qsTr("Reset color 4")
-                        visible: rgbMatrixEditor.algoColorsCount > 3 ? true : false
-                        onClicked:
-                        {
-                            color4Button.color = "transparent"
-                            rgbMatrixEditor.resetColorAtIndex(3)
-                        }
-                    }
-                }
-
-                // row 8
-                Rectangle
-                {
-                    id: colorRow2
-                    height: editorColumn.itemsHeight
-                    width: colorLabel.width
-                    color: "transparent"
-                    visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
-                }
-
-                Row
-                {
-                    Layout.columnSpan: 2
-                    //width: editorColumn.colWidth
-                    height: editorColumn.itemsHeight
-                    spacing: 4
-                    visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
-
-                    Rectangle
-                    {
-                        id: color5Button
-                        width: UISettings.iconSizeDefault * 2
-                        height: editorColumn.itemsHeight
-                        radius: 5
-                        border.color: color5MouseArea.containsMouse ? "white" : UISettings.bgLight
-                        border.width: 2
-                        visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
-
-                        MouseArea
-                        {
-                            id: color5MouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked:
-                            {
-                                if (colorTool.visible)
-                                    colorTool.hide()
-                                else
-                                    colorTool.showTool(4, color5Button)
-                            }
-                        }
-                    }
-                    IconButton
-                    {
-                        width: UISettings.listItemHeight
-                        height: width
-                        faSource: FontAwesome.fa_xmark
-                        faColor: "darkred"
-                        tooltip: qsTr("Reset color 5")
-                        visible: rgbMatrixEditor.algoColorsCount > 4 ? true : false
-                        onClicked:
-                        {
-                            color5Button.color = "transparent"
-                            rgbMatrixEditor.resetColorAtIndex(4)
                         }
                     }
                 }

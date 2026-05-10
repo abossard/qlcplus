@@ -27,9 +27,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 1.0;
+    algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
     algo.presetArms = 3;
     algo.properties.push(
@@ -53,7 +53,7 @@ var testAlgo;
     var BEAT_PULSE_AMP = 0.20;
     var SPIRAL_FREQ = 0.3;
     var DIST_FADE = 0.5;
-    var angle = 0;
+    var vortexState = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -66,11 +66,12 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed;
-        angle += dt * speed * (1 + power * algo.presetReactivity);
+        var angle = RGBUtil.beatTime(speed * (1 + power * algo.presetReactivity), vortexState, bpm, dtMs) * Math.PI * 2;
 
         var cx = width / 2;
         var cy = height / 2;

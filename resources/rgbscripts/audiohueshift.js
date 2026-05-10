@@ -23,7 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
     algo.presetSpeed = 0.275;
     algo.properties.push(
       "name:presetSpeed|type:float|display:Speed|" +

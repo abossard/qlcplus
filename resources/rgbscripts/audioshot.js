@@ -71,9 +71,18 @@ var testAlgo;
         var colorPacked = AudioColors.dominant(algo, audio);
         var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
 
+        var band = AudioColors.dominantIndex(audio);
+        var y;
+        if (band === 0)
+            y = Math.floor(height * 0.5 + Math.random() * height * 0.5);
+        else if (band === 2)
+            y = Math.floor(Math.random() * height * 0.5);
+        else
+            y = Math.floor(Math.random() * height);
+
         shots.push({
             x: Math.floor(Math.random() * width),
-            y: Math.floor(Math.random() * height),
+            y: y,
             r: (colorPacked >> 16) & 0xFF,
             g: (colorPacked >> 8) & 0xFF,
             b: colorPacked & 0xFF,

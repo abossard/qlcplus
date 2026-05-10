@@ -27,10 +27,10 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 30;
+    algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,100|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
+      "write:setSpeed|read:getSpeed");
 
     algo.presetWidth = 15;
     algo.properties.push(
@@ -77,7 +77,7 @@ var testAlgo;
       "name:presetAxis|type:list|display:Axis|" +
       "values:Horizontal,Vertical|write:setAxis|read:getAxis");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setWidth = function(_v) { algo.presetWidth = parseInt(_v); };
     algo.getWidth = function() { return algo.presetWidth; };
@@ -139,12 +139,17 @@ var testAlgo;
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.elapsedMs += audio.timing.consumerDtMs;
 
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var bpmEff = (bpm > 0) ? bpm : 120;
+        var beatsPerSec = bpmEff / 60.0;
+
         var power = audio.power.low;
         var multiplier = algo.presetMultiplier / 100.0;
         var bar = power * multiplier;
-        var stepPerSec = (n / 100.0) * algo.presetSpeed;
-        var stepSize = dt * stepPerSec * bar;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
+        // Beat-locked velocity: presetSpeed cycles/beat across (n - scanW) px.
+        var stepPerSec = Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec;
+        var stepSize = dt * stepPerSec * bar;
         var bounce = algo.presetBounce === 1;
 
         if (algo.returning) algo.scanPos -= stepSize;

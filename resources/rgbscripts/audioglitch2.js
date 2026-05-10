@@ -25,9 +25,9 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 0.5;
+    algo.presetSpeed = 0.125;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
 
     algo.presetReactivity = 0.4;
@@ -47,19 +47,22 @@ var testAlgo;
     algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
     algo.getSaturation = function() { return algo.presetSaturation; };
 
-    // Speed multipliers picked so default presetSpeed (0.5) yields a glitch
-    // tempo close to LedFx's default. Time is kept in seconds.
-    var SPEED_SCALE = 0.5;
-    var PHASE_MULT_T1 = 0.5;
-    var PHASE_MULT_T2 = 0.5;
-    var PHASE_MULT_T3 = 2.5;
-    var PHASE_MULT_T4 = 1.0;
-    var PHASE_MULT_T5 = 0.25;
-    var PHASE_MULT_T6 = 10.0;
+    // Per-track ratios relative to presetSpeed (preserve the original PHASE_MULT_T*
+    // proportions). T4 runs at the base rate (no ratio constant).
+    var T1_RATIO = 0.5;
+    var T2_RATIO = 0.5;
+    var T3_RATIO = 2.5;
+    var T5_RATIO = 0.25;
+    var T6_RATIO = 10.0;
     var STRIPE_MID = 0.3;
     var STRIPE_AMP = 0.2;
 
-    algo.timestep = 0;
+    var stT1 = { phase: 0 };
+    var stT2 = { phase: 0 };
+    var stT3 = { phase: 0 };
+    var stT4 = { phase: 0 };
+    var stT5 = { phase: 0 };
+    var stT6 = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -70,22 +73,24 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
-        var speed = algo.presetSpeed * SPEED_SCALE;
+        var speed = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
         var satThreshold = algo.presetSaturation;
         var lowPower = audio.power.low;
 
-        algo.timestep += dt + (lowPower * reactivity01) / Math.max(0.001, speed);
+        // Old code added `(lowPower*reactivity01)/speed` to a seconds-based
+        // accumulator. Convert to ms-equivalent boost (×1000).
+        var boostMs = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000;
 
-        var ts = algo.timestep * speed;
-        var t1 = ts * PHASE_MULT_T1;
-        var t2 = ts * PHASE_MULT_T2;
-        var t3 = ts * PHASE_MULT_T3;
-        var t4 = ts * PHASE_MULT_T4;
-        var t5 = ts * PHASE_MULT_T5;
-        var t6 = ts * PHASE_MULT_T6;
+        var t1 = RGBUtil.beatTime(speed * T1_RATIO, stT1, bpm, dtMs + boostMs);
+        var t2 = RGBUtil.beatTime(speed * T2_RATIO, stT2, bpm, dtMs + boostMs);
+        var t3 = RGBUtil.beatTime(speed * T3_RATIO, stT3, bpm, dtMs + boostMs);
+        var t4 = RGBUtil.beatTime(speed,            stT4, bpm, dtMs + boostMs);
+        var t5 = RGBUtil.beatTime(speed * T5_RATIO, stT5, bpm, dtMs + boostMs);
+        var t6 = RGBUtil.beatTime(speed * T6_RATIO, stT6, bpm, dtMs + boostMs);
 
         var m = STRIPE_MID + RGBUtil.triangle(t2) * STRIPE_AMP;
         var c = RGBUtil.triangle(t3) * 10 + 4 * Math.sin(2 * Math.PI * t4);

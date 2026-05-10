@@ -1,7 +1,7 @@
 ---
 description: "Use when managing QLC+ MCP: live lighting workspace queries, fixture patching, scenes, palettes, Virtual Console widgets, MCP tool behavior, QLC+ MCP server code, or qlcplusmcp testing."
 name: "QLC+ MCP Manager"
-tools: [read, edit, search, execute, todo, web, qlcplus/*]
+tools: [vscode, execute, read, agent, browser, edit, search, web, 'qlcplus/*', azure/azure-mcp/search, todo]
 argument-hint: "Describe the QLC+ MCP task, workspace state, fixture/effect goal, or MCP tool change."
 user-invocable: true
 ---

@@ -75,6 +75,20 @@ var testAlgo;
     var sparkEnergy = null;
     var sparkColor = null;
 
+    // --- Rendering constants ---
+    var PITCH_CONF_THRESH = 0.2;
+    var PITCH_SATURATION = 0.85;
+    var BEAT_PULSE_LEVEL = 0.35;
+    var SPARK_INIT_BASE = 0.5;
+    var SPARK_VIS_THRESHOLD = 0.01;
+    var FLASH_VIS_THRESHOLD = 0.01;
+    var MAX_FLASH_BLEND = 0.75;
+    var LOW_FLOOR_HEIGHT = 0.25;
+    var LOW_FLOOR_WEIGHT = 0.8;
+    var MID_OVERLAY_SPEED = 0.2;
+    var MID_OVERLAY_WEIGHT = 0.15;
+    var HIGH_TOP_WEIGHT = 0.20;
+
     function unpack(packed) {
         return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
     }
@@ -88,10 +102,10 @@ var testAlgo;
     }
 
     function colorFor(audio, bandIndex) {
-        if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > 0.2) {
+        if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > PITCH_CONF_THRESH) {
             var midi = audio.pitch.midi;
             var hue = RGBUtil.mod1((midi % 12) / 12 + bandIndex / 12);
-            return RGBUtil.hsv2rgb(hue, 0.85, 1.0);
+            return RGBUtil.hsv2rgb(hue, PITCH_SATURATION, 1.0);
         }
         var colors = AudioColors.bands(algo);
         return unpack(colors[bandIndex] || DEFAULT_BAND_COLORS[bandIndex]);
@@ -157,7 +171,7 @@ var testAlgo;
                 var sx = Math.floor(Math.random() * width);
                 var sy = Math.floor(Math.random() * Math.max(1, height / 2));
                 var si = sy * width + sx;
-                sparkEnergy[si] = Math.max(sparkEnergy[si], 0.5 + highVis * 0.5 + flash * 0.5);
+                sparkEnergy[si] = Math.max(sparkEnergy[si], SPARK_INIT_BASE + highVis * 0.5 + flash * 0.5);
                 sparkColor[si] = highColor;
             }
         }
@@ -166,7 +180,7 @@ var testAlgo;
             sparkEnergy[i] *= SPARK_DECAY;
 
         var floor = 0;
-        var overall = OVERALL_BASE + dominantValue + beatPulse * 0.35;
+        var overall = OVERALL_BASE + dominantValue + beatPulse * BEAT_PULSE_LEVEL;
         var barPhase = audio.bar.phase01;
 
         for (var y = 0; y < height; y++) {
@@ -199,18 +213,18 @@ var testAlgo;
                     base = mix(highColor, midColor, shimmer * 0.20);
                 }
 
-                level += lowVis * Math.max(0, 0.25 - bottom) * 0.8;
-                level += midVis * (0.5 + 0.5 * Math.sin((x01 + time * 0.2) * Math.PI * 2)) * 0.15;
-                level += highVis * top * 0.20;
+                level += lowVis * Math.max(0, LOW_FLOOR_HEIGHT - bottom) * LOW_FLOOR_WEIGHT;
+                level += midVis * (0.5 + 0.5 * Math.sin((x01 + time * MID_OVERLAY_SPEED) * Math.PI * 2)) * MID_OVERLAY_WEIGHT;
+                level += highVis * top * HIGH_TOP_WEIGHT;
 
                 var spark = sparkEnergy[y * width + x];
-                if (spark > 0.01) {
+                if (spark > SPARK_VIS_THRESHOLD) {
                     base = mix(base, sparkColor[y * width + x], Math.min(1, spark));
                     level = Math.max(level, spark);
                 }
 
-                if (flash > 0.01) {
-                    base = mix(base, dominantColor, Math.min(0.75, flash));
+                if (flash > FLASH_VIS_THRESHOLD) {
+                    base = mix(base, dominantColor, Math.min(MAX_FLASH_BLEND, flash));
                     level = Math.max(level, flash);
                 }
 

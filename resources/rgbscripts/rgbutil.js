@@ -231,6 +231,70 @@ RGBUtil.scaleColor = function(c, factor) {
 };
 
 
+/**
+ * LedFX-compatible sawtooth 0→1.
+ * Loops every 65.536/modifier seconds (65536/modifier ms).
+ * modifier ≈ cycles per 65.536 seconds; higher = faster.
+ * @param {number} modifier - Speed multiplier
+ * @param {number} timestepMs - Accumulated time in milliseconds
+ * @returns {number} 0.0 to 1.0 sawtooth
+ */
+RGBUtil.time01 = function(modifier, timestepMs) {
+    if (modifier <= 0 || !isFinite(modifier) || !isFinite(timestepMs)) return 0;
+    var period = 65536.0 / modifier;
+    return (timestepMs % period) / period;
+};
+
+/**
+ * BPM-locked sawtooth 0→1.
+ *   speed = 1.0  → 1 cycle per beat (quarter note)
+ *   speed = 2.0  → 2 cycles per beat (8th note)
+ *   speed = 0.25 → 1 cycle per bar (whole note)
+ * Falls back to 120 BPM when bpm <= 0 (no audio).
+ * @param {number} speed  Cycles per beat (>0; 0/NaN→1)
+ * @param {Object} state  Persistent accumulator { phase: 0 }, owned by caller
+ * @param {number} bpm    Tempo in beats/min (0/NaN→120 fallback)
+ * @param {number} dtMs   Frame delta in ms (may be negative for direction flip)
+ * @returns {number} sawtooth in [0, 1)
+ */
+RGBUtil.beatTime = function(speed, state, bpm, dtMs) {
+    if (!state) return 0;
+    if (!isFinite(speed)) speed = 0;
+    if (!isFinite(dtMs)) dtMs = 0;
+    if (speed === 0) return state.phase || 0;
+    var effectiveBpm = (isFinite(bpm) && bpm > 0) ? bpm : 120;
+    var beatMs = 60000 / effectiveBpm;
+    var p = (state.phase || 0) + (dtMs / beatMs) * speed;
+    p = p - Math.floor(p);
+    state.phase = p;
+    return p;
+};
+
+/** Same as beatTime but returns 0→2π for use with Math.sin(). */
+RGBUtil.beatAngle = function(speed, state, bpm, dtMs) {
+    return RGBUtil.beatTime(speed, state, bpm, dtMs) * 2 * Math.PI;
+};
+
+/**
+ * BPM-locked continuous accumulator (no wrap). For noise field offsets
+ * and angles where phase wrapping causes visible discontinuities.
+ * @param {number} speed  Cycles per beat
+ * @param {Object} state  Persistent { position: 0 }, owned by caller
+ * @param {number} bpm    Tempo (0→120 fallback)
+ * @param {number} dtMs   Frame delta in ms
+ * @returns {number} cumulative position (unbounded)
+ */
+RGBUtil.beatPosition = function(speed, state, bpm, dtMs) {
+    if (!state) return 0;
+    if (!isFinite(speed)) speed = 0;
+    if (!isFinite(dtMs)) dtMs = 0;
+    if (speed === 0) return state.position || 0;
+    var effectiveBpm = (isFinite(bpm) && bpm > 0) ? bpm : 120;
+    state.position = (state.position || 0) + (dtMs / (60000 / effectiveBpm)) * speed;
+    return state.position;
+};
+
+
 /*
  * 2D Simplex noise (public domain, Stefan Gustavson).
  * Returns value in range -1 to 1.

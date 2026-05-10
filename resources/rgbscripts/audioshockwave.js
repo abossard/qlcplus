@@ -19,8 +19,6 @@ algo.acceptColors = 2;  // wave color + bg color
 algo.usesAudio = true;
 algo.properties = new Array();
 
-    algo.presetReactivity = 7;
-    algo.presetSensitivity = 7;
 algo.presetMaxWaves = 6;
 algo.properties.push(
   "name:presetMaxWaves|type:range|display:MaxWaves|" +
@@ -50,6 +48,7 @@ algo.properties.push(
 algo.waves = new Array();
 algo.frame = 0;
 
+var DOMINANT_TINT = 0.6;
 var AMBIENT_RING_FREQ = 0.65;
 var AMBIENT_BASE_BRI = 0.08;
 var AMBIENT_RING_BRI = 0.12;
@@ -64,14 +63,14 @@ var MAX_FILL_WAVES = 3;
 var MIN_RENDER_BRI = 0.005;
 var MIN_WAVE_INTENSITY = 0.01;
 
-var waveColor = [255, 255, 255];
+var waveColorPacked = 0xFFFFFF;
 var bgColor = [0, 16, 48];
 var lastW = 0, lastH = 0;
 
 algo.rgbMapStepCount = function(width, height) { return 1; };
 algo.rgbMapSetColors = function(rawColors) {
     if (rawColors && rawColors.length >= 1)
-        waveColor = unpackColor(rawColors[0]);
+        waveColorPacked = rawColors[0] & 0xFFFFFF;
     if (rawColors && rawColors.length >= 2)
         bgColor = unpackColor(rawColors[1]);
 };
@@ -104,14 +103,17 @@ function unpackColor(color) {
     return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
 }
 
-function spawnWave(width, height, intensity) {
+function spawnWave(width, height, intensity, audio) {
+    var dominantPacked = AudioColors.dominantColor(algo, audio, waveColorPacked, 0.05);
+    var color = AudioColors.blendPacked(waveColorPacked, dominantPacked, DOMINANT_TINT);
     algo.waves.push({
         cx: width / 2,
         cy: height / 2,
         radius: 0,
         maxRadius: Math.sqrt(width * width + height * height),
         intensity: clamp(intensity * KICK_INTENSITY_BOOST, 0, MAX_INTENSITY),
-        birth: algo.frame
+        birth: algo.frame,
+        color: color
     });
 
     while (algo.waves.length > algo.presetMaxWaves)
@@ -149,17 +151,24 @@ algo.rgbMap = function(width, height, rgb, step, audio)
 
     var bass = audio.power.low;
 
-    if (audio.bands.low.fired || audio.beat.kick)
-        spawnWave(width, height, Math.max(0.5, bass));
+    if (audio.bands.low.fired || audio.beat.kick || audio.onset.fired)
+        spawnWave(width, height, Math.max(0.5, bass), audio);
 
     if (algo.waves.length < MAX_FILL_WAVES && bass > MIN_BASS_FOR_FILL)
-        spawnWave(width, height, FILL_INTENSITY);
+        spawnWave(width, height, FILL_INTENSITY, audio);
 
-    var total = new Array(height);
+    var totalR = new Array(height);
+    var totalG = new Array(height);
+    var totalB = new Array(height);
     for (var ty = 0; ty < height; ty++) {
-        total[ty] = new Array(width);
-        for (var tx = 0; tx < width; tx++)
-            total[ty][tx] = 0;
+        totalR[ty] = new Array(width);
+        totalG[ty] = new Array(width);
+        totalB[ty] = new Array(width);
+        for (var tx = 0; tx < width; tx++) {
+            totalR[ty][tx] = 0;
+            totalG[ty][tx] = 0;
+            totalB[ty][tx] = 0;
+        }
     }
 
     var waveWidth = algo.presetWaveWidth;
@@ -167,6 +176,9 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     for (var wi = 0; wi < algo.waves.length; wi++) {
         var wave = algo.waves[wi];
         var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));
+        var wr = (wave.color >> 16) & 0xFF;
+        var wg = (wave.color >> 8) & 0xFF;
+        var wb = wave.color & 0xFF;
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
@@ -175,7 +187,9 @@ algo.rgbMap = function(width, height, rgb, step, audio)
                 if (ringDist < waveWidth) {
                     var ringBri = (1 - ringDist / waveWidth);
                     ringBri = Math.sqrt(ringBri) * wave.intensity * fade * onsetIntensity;
-                    total[y][x] += ringBri;
+                    totalR[y][x] += wr * ringBri;
+                    totalG[y][x] += wg * ringBri;
+                    totalB[y][x] += wb * ringBri;
                 }
             }
         }
@@ -183,9 +197,12 @@ algo.rgbMap = function(width, height, rgb, step, audio)
 
     for (var py = 0; py < height; py++) {
         for (var px = 0; px < width; px++) {
-            var totalBri = clamp(total[py][px], 0, 1.5);
-            if (totalBri > MIN_RENDER_BRI)
-                map[py][px] = RGBUtil.rgb(waveColor[0] * totalBri, waveColor[1] * totalBri, waveColor[2] * totalBri);
+            var rr = totalR[py][px], gg = totalG[py][px], bb = totalB[py][px];
+            var peak = Math.max(rr, gg, bb) / 255.0;
+            if (peak > MIN_RENDER_BRI) {
+                var scale = peak > 1.5 ? 1.5 / peak : 1.0;
+                map[py][px] = RGBUtil.rgb(rr * scale, gg * scale, bb * scale);
+            }
         }
     }
 

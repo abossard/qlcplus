@@ -32,11 +32,11 @@ var testAlgo;
     algo.setBlobWidth = function(_v) { algo.presetBlobWidth = parseInt(_v); };
     algo.getBlobWidth = function() { return algo.presetBlobWidth; };
 
-    algo.presetSpeed = 30;
+    algo.presetSpeed = 0.25;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Drift Speed|" +
-      "values:0,200|write:setSpeed|read:getSpeed");
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
+      "write:setSpeed|read:getSpeed");
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
 
     algo.presetAxis = "Horizontal";
@@ -69,14 +69,17 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dt = audio.timing.consumerDtMs / 1000.0;
+      var dtMs = audio.timing.consumerDtMs;
+      var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+      var bpmEff = (bpm > 0) ? bpm : 120;
+      var dtBeats = dtMs * bpmEff / 60000.0;
       var horizontal = (algo.presetAxis === "Horizontal");
       var N = horizontal ? width : height;
       ensureBlobs(N);
 
-      var speedScale = algo.presetSpeed / 100.0;
+      var speedScale = algo.presetSpeed;
       for (var i = 0; i < 3; i++) {
-        algo.pos[i] += algo.vel[i] * speedScale * dt;
+        algo.pos[i] += algo.vel[i] * speedScale * dtBeats;
         if (algo.pos[i] < 0) { algo.pos[i] = -algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
         if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
       }

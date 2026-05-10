@@ -20,92 +20,107 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Plasma";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 0.4;
-    algo.properties.push(
-      "name:presetReactivity|type:float|display:Reactivity|" +
-      "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 1.0;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetDensity = 0.5;
-    algo.properties.push(
-      "name:presetDensity|type:float|display:Density|" +
-      "write:setDensity|read:getDensity");
-    algo.presetTwist = 0.04;
-    algo.properties.push(
-      "name:presetTwist|type:float|display:Twist|" +
-      "write:setTwist|read:getTwist");
+    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDensity = function(_v) { algo.presetDensity = parseFloat(_v); };
-    algo.getDensity = function() { return algo.presetDensity; };
-    algo.setTwist = function(_v) { algo.presetTwist = parseFloat(_v); };
-    algo.getTwist = function() { return algo.presetTwist; };
+    algo.density = 0.5;
+    algo.lower = 0.01;
+    algo.density_vertical = 0.1;
+    algo.twist = 0.07;
+    algo.radius = 0.2;
+    algo.frequency_range = "Lows (beat+bass)";
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
+    algo.properties.push("name:density|type:float|display:Density|write:setDensity|read:getDensity");
+    algo.properties.push("name:lower|type:float|display:Lower|write:setLower|read:getLower");
+    algo.properties.push("name:density_vertical|type:float|display:Vertical Density|write:setDensityVertical|read:getDensityVertical");
+    algo.properties.push("name:twist|type:float|display:Twist|write:setTwist|read:getTwist");
+    algo.properties.push("name:radius|type:float|display:Radius|write:setRadius|read:getRadius");
+    algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    var DEFAULT_BAND_COLORS = [0xFF0080, 0x8040E0, 0x0080FF];
-    var DENSITY_FLOOR = 0.01;
-    var PLASMA_RADIUS = 0.2;
-    var BEAT_PULSE_AMP = 0.20;
-    var PLASMA_FREQ = 0.1;
-    var PLASMA_V2_FREQ = 2.5;
-    var elapsedSec = 0;
+    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
+    algo.setDensity = function(v) { algo.density = clamp(parseFloat(v), 0.001, 2.0); };
+    algo.getDensity = function() { return algo.density; };
+    algo.setLower = function(v) { algo.lower = clamp(parseFloat(v), 0.01, 1.0); };
+    algo.getLower = function() { return algo.lower; };
+    algo.setDensityVertical = function(v) { algo.density_vertical = clamp(parseFloat(v), 0.01, 0.3); };
+    algo.getDensityVertical = function() { return algo.density_vertical; };
+    algo.setTwist = function(v) { algo.twist = clamp(parseFloat(v), 0.01, 0.3); };
+    algo.getTwist = function() { return algo.twist; };
+    algo.setRadius = function(v) { algo.radius = clamp(parseFloat(v), 0.01, 1.0); };
+    algo.getRadius = function() { return algo.radius; };
+    algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
+    algo.getFrequencyRange = function() { return algo.frequency_range; };
+
+    var timeState = { position: 0 };
+
+    function gradientStops() {
+        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+    }
+
+    function powerFor(audio) {
+        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
+        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
+        if (algo.frequency_range === "Mids") return audio.power.mid;
+        if (algo.frequency_range === "High") return audio.power.high;
+        return audio.power.low; // Lows (beat+bass)
+    }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapSetColors = function(rawColors) {
+        algo.gradientColors = RGBUtil.buildGradientColors(rawColors);
+    };
     algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
+        return gradientStops().slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
+        if (width <= 0 || height <= 0) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
-        var power = audio.power.low;
-        var speed = algo.presetSpeed;
-        var noveltyMax = audio.spectrum.novelty.max;
-        elapsedSec += dt * speed * (1 + power * algo.presetReactivity) * (1 + 0.5 * noveltyMax);
+        // BPM-scaled free-running time replaces LedFX's wall-clock self.now.
+        // One unit of "time" advances per beat (matches LedFX seconds at 60 BPM).
+        var time = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
 
-        var density = DENSITY_FLOOR + (power * algo.presetDensity);
-        var twist = algo.presetTwist;
-        var radius = PLASMA_RADIUS;
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
-        var noveltyBoost = AudioColors.noveltyBoost(audio);
-        var fluxPunch = AudioColors.fluxPunch(audio);
+        var power = powerFor(audio);
+        var density = algo.density;
+        var lower = algo.lower;
+        var density_vertical = algo.density_vertical;
+        var twist = algo.twist;
+        var radius = algo.radius;
 
-        // True 2D plasma: different value at every (x,y)
-        for (var y = 0; y < height; y++) {
-            var py = y * density;
-            for (var x = 0; x < width; x++) {
-                var px = x * density;
+        // scale = lower + (power * density)
+        var scale = lower + (power * density);
 
-                // Three overlapping sine waves for plasma pattern
-                var v1 = Math.sin(px * PLASMA_FREQ + elapsedSec) * Math.cos(py * PLASMA_FREQ - elapsedSec);
-                var v2 = Math.sin((px * PLASMA_FREQ + py * twist + elapsedSec) * PLASMA_V2_FREQ);
-                var v3 = Math.sin(Math.sqrt(px * px + py * py) * radius - elapsedSec);
+        // Coordinate ranges, matching np.ogrid[0:min(W,W*scale):complex(W)]
+        var xExtent = Math.min(width,  width  * scale);
+        var yExtent = Math.min(height, height * scale);
+        var xStep = (width  > 1) ? xExtent / (width  - 1) : 0;
+        var yStep = (height > 1) ? yExtent / (height - 1) : 0;
 
-                // Combine and normalize to 0-1
-                var plasma = (v1 + v2 + v3 + 3) / 6.0;
+        var gradient = gradientStops();
 
-                var floored = plasma;
-                var brightness = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
-                map[y][x] = RGBUtil.rgb(
-                    blended[0] * brightness,
-                    blended[1] * brightness,
-                    blended[2] * brightness);
+        for (var iy = 0; iy < height; iy++) {
+            var y = iy * yStep;
+            for (var ix = 0; ix < width; ix++) {
+                var x = ix * xStep;
+
+                var v1 = Math.sin(x * 0.1 + time) * Math.cos(y * 0.1 - time);
+                var v2 = Math.sin((x * density_vertical + y * twist + time) * 2.5);
+                var v3 = Math.sin(Math.sqrt(x * x + y * y) * radius - time);
+
+                // No per-frame normalization. Map raw sum into [0,1].
+                var t = (v1 + v2 + v3 + 3) / 6.0;
+                if (t < 0) t = 0; else if (t > 1) t = 1;
+
+                map[iy][ix] = RGBUtil.gradientColorAt(gradient, t);
             }
         }
 

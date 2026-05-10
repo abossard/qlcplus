@@ -23,10 +23,11 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Barcode";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    var DOMINANT_TINT = 0.4;
     var DEFAULT_GRADIENT = [0xFF4000, 0xFFFFFF, 0x00C0FF];
 
     algo.presetLineWidth = 2;
@@ -148,6 +149,8 @@ var testAlgo;
         var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
           ? audio.colors.gradient : DEFAULT_GRADIENT;
         var color = RGBUtil.gradientColorAt(gradient, t);
+        var dominantPacked = AudioColors.dominantColor(algo, audio, color, 0.05);
+        color = AudioColors.blendPacked(color, dominantPacked, DOMINANT_TINT);
         algo.lines.push({
           position: N - 1,
           color: color,

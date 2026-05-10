@@ -26,21 +26,13 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
     // --- Configurable Properties ---
-
-    algo.presetMixing = 0;
-    algo.properties.push(
-      "name:presetMixing|type:list|display:Mixing Mode|" +
-      "values:Additive,Overlap|write:setMixing|read:getMixing");
 
     algo.presetMultiplier = 1.6;
     algo.properties.push(
       "name:presetMultiplier|type:float|display:Fill Amount|" +
       "write:setMultiplier|read:getMultiplier");
 
-    algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
-    algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
     algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
@@ -107,21 +99,10 @@ var testAlgo;
             {
                 var r = 0, g = 0, b2 = 0;
 
-                if (algo.presetMixing === 0) {
-                    // Additive mode: layer all bands whose bar covers x.
-                    for (var k = 0; k < 3; k++) {
-                        if (x < idx[k]) {
-                            r += cols[k][0];
-                            g += cols[k][1];
-                            b2 += cols[k][2];
-                        }
-                    }
-                } else {
-                    // Overlap mode: highest-frequency band covering x wins (last write).
-                    for (var k = 0; k < 3; k++) {
-                        if (x < idx[k]) {
-                            r = cols[k][0]; g = cols[k][1]; b2 = cols[k][2];
-                        }
+                // Use widest-reaching band's color (highest index covering x wins)
+                for (var k = 0; k < 3; k++) {
+                    if (x < idx[k]) {
+                        r = cols[k][0]; g = cols[k][1]; b2 = cols[k][2];
                     }
                 }
 

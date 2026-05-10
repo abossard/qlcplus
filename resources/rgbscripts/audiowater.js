@@ -24,10 +24,10 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 5;
+    algo.presetSpeed = 0.2;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
+      "write:setSpeed|read:getSpeed");
     algo.presetViscosity = 6;
     algo.properties.push(
       "name:presetViscosity|type:range|display:Viscosity|" +
@@ -41,7 +41,7 @@ var testAlgo;
       "name:presetHighSize|type:range|display:High Ripple Size|" +
       "values:1,15|write:setHighSize|read:getHighSize");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setViscosity = function(_v) { algo.presetViscosity = parseInt(_v); };
     algo.getViscosity = function() { return algo.presetViscosity; };
@@ -56,9 +56,13 @@ var testAlgo;
     var buf0 = null;
     var buf1 = null;
     var curBuf = 0;
-    var midPhase = 0;
-    var highPhase1 = 0;
-    var highPhase2 = 0.5;
+    // Per-track ratios relative to presetSpeed.
+    var MID_RATIO  = 0.1;
+    var HIGH1_RATIO = 0.15;
+    var HIGH2_RATIO = 0.125;
+    var midState = { position: 0 };
+    var high1State = { position: 0 };
+    var high2State = { position: 0.5 };
 
     function init(w) {
         buf0 = new Array(w); buf1 = new Array(w);
@@ -96,7 +100,8 @@ var testAlgo;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
         var dtMs = audio.timing.audioDtMs;
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var consumerDt = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
         var dtScale = Math.max(0.25, Math.min(4.0, dtMs / DEFAULT_DT_MS));
         var bassIntensity = Math.pow(audio.power.low, 2);
         var midsIntensity = Math.pow(audio.power.mid, 2);
@@ -108,21 +113,23 @@ var testAlgo;
         createDrop(width - 2, bassIntensity * algo.presetBassSize, width);
 
         // Mids drops at moving positions
-        midPhase = (midPhase + dt * 1000.0 * 0.0002 * algo.presetSpeed) % 1;
+        var midPhase = RGBUtil.beatPosition(algo.presetSpeed * MID_RATIO, midState, bpm, consumerDt);
+        midPhase = midPhase - Math.floor(midPhase);
         var midPos = Math.floor(midPhase * (width - 2)) + 1;
         createDrop(midPos, midsIntensity * 6, width);
 
-        // Highs drops at multiple positions
-        highPhase1 = (highPhase1 + dt * 1000.0 * 0.0003 * algo.presetSpeed) % 1;
-        highPhase2 = (highPhase2 - dt * 1000.0 * 0.00025 * algo.presetSpeed) % 1;
-        if (highPhase2 < 0) highPhase2 += 1;
+        // Highs drops at multiple positions (highPhase2 runs in reverse)
+        var highPhase1 = RGBUtil.beatPosition(algo.presetSpeed * HIGH1_RATIO, high1State, bpm, consumerDt);
+        highPhase1 = highPhase1 - Math.floor(highPhase1);
+        var highPhase2 = RGBUtil.beatPosition(-algo.presetSpeed * HIGH2_RATIO, high2State, bpm, consumerDt);
+        highPhase2 = highPhase2 - Math.floor(highPhase2);
         var highPos1 = Math.floor(highPhase1 * (width - 2)) + 1;
         var highPos2 = Math.floor(highPhase2 * (width - 2)) + 1;
         createDrop(highPos1, highIntensity * algo.presetHighSize, width);
         createDrop(highPos2, highIntensity * algo.presetHighSize, width);
 
         // Run ripple simulation
-        var speedSteps = Math.max(1, Math.floor(algo.presetSpeed / 3));
+        var speedSteps = Math.max(1, Math.min(5, Math.round(algo.presetSpeed * 1.5)));
         for (var s = 0; s < speedSteps; s++)
             doRipple(dampFactor, dtScale, width);
 

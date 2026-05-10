@@ -23,7 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
     algo.presetBands = 3;
     algo.properties.push(
       "name:presetBands|type:range|display:Bands|" +

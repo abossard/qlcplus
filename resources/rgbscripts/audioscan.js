@@ -27,11 +27,9 @@ var testAlgo;
     var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
 
     algo.blur = 3.0;
-    algo.mirror = "No";
     algo.bounce = "Yes";
     algo.scan_width = 30;
     algo.speed = 50;
-    algo.color_scan = "#FF0000";
     algo.frequency_range = "Lows (beat+bass)";
     algo.multiplier = 3.0;
     algo.color_intensity = "Yes";
@@ -40,11 +38,9 @@ var testAlgo;
     algo.count = 1;
 
     algo.properties.push("name:blur|type:float|display:Blur|write:setBlur|read:getBlur");
-    algo.properties.push("name:mirror|type:list|display:Mirror|values:Yes,No|write:setMirror|read:getMirror");
     algo.properties.push("name:bounce|type:list|display:Bounce|values:Yes,No|write:setBounce|read:getBounce");
     algo.properties.push("name:scan_width|type:range|display:Scan Width (%)|values:1,100|write:setScanWidth|read:getScanWidth");
     algo.properties.push("name:speed|type:range|display:Speed (%/s)|values:0,100|write:setSpeed|read:getSpeed");
-    algo.properties.push("name:color_scan|type:string|display:Scan Color|write:setColorScan|read:getColorScan");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
     algo.properties.push("name:multiplier|type:float|display:Multiplier|write:setMultiplier|read:getMultiplier");
     algo.properties.push("name:color_intensity|type:list|display:Color Intensity|values:Yes,No|write:setColorIntensity|read:getColorIntensity");
@@ -55,16 +51,12 @@ var testAlgo;
     function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
     algo.setBlur = function(v) { algo.blur = clamp(parseFloat(v), 0, 10); };
     algo.getBlur = function() { return algo.blur; };
-    algo.setMirror = function(v) { algo.mirror = (v === "Yes") ? "Yes" : "No"; };
-    algo.getMirror = function() { return algo.mirror; };
     algo.setBounce = function(v) { algo.bounce = (v === "No") ? "No" : "Yes"; };
     algo.getBounce = function() { return algo.bounce; };
     algo.setScanWidth = function(v) { algo.scan_width = clamp(parseInt(v), 1, 100); };
     algo.getScanWidth = function() { return algo.scan_width; };
     algo.setSpeed = function(v) { algo.speed = clamp(parseInt(v), 0, 100); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setColorScan = function(v) { algo.color_scan = String(v); };
-    algo.getColorScan = function() { return algo.color_scan; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
     algo.setMultiplier = function(v) { algo.multiplier = clamp(parseFloat(v), 0, 5); };
@@ -81,15 +73,6 @@ var testAlgo;
     var scanPos = 0.0;
     var returning = false;
     var lastWidth = 0;
-
-    function parseColor(value, fallback) {
-        if (typeof value === "number") return value & 0xFFFFFF;
-        var s = String(value || "").replace(/^#/, "");
-        if (s.length === 3)
-            s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
-        var n = parseInt(s, 16);
-        return isNaN(n) ? fallback : (n & 0xFFFFFF);
-    }
 
     function colorArray(packed) {
         packed = packed & 0xFFFFFF;
@@ -132,24 +115,6 @@ var testAlgo;
                 r += strip[idx][0]; g += strip[idx][1]; b += strip[idx][2]; c++;
             }
             out[i] = [r / c, g / c, b / c];
-        }
-        return out;
-    }
-
-    function applyMirror(strip) {
-        if (algo.mirror !== "Yes") return strip;
-        var n = strip.length;
-        var out = new Array(n);
-        for (var i = 0; i < n; i++) {
-            var a = strip[n - 1 - (2 * i)];
-            var b = strip[n - 2 - (2 * i)];
-            if (i >= Math.ceil(n / 2)) {
-                var j = 2 * i - n;
-                a = strip[j];
-                b = strip[j + 1];
-            }
-            if (!b) b = a;
-            out[i] = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
         }
         return out;
     }
@@ -198,7 +163,7 @@ var testAlgo;
         if (algo.use_grad === "Yes")
             scanColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), ((scanPos / width) % 1 + 1) % 1));
         else
-            scanColor = colorArray(parseColor(algo.color_scan, 0xFF0000));
+            scanColor = colorArray(AudioColors.bands(algo)[0]);
         if (algo.color_intensity === "Yes") {
             var intensity = Math.min(1.0, power);
             scanColor = [scanColor[0] * intensity, scanColor[1] * intensity, scanColor[2] * intensity];
@@ -229,7 +194,7 @@ var testAlgo;
             }
         }
 
-        strip = boxBlur(applyMirror(strip), algo.blur);
+        strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
                 map[y][x] = RGBUtil.rgb(strip[x][0], strip[x][1], strip[x][2]);

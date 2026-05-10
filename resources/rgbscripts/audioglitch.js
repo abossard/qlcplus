@@ -28,9 +28,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.5;
+    algo.presetSpeed = 0.125;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
     algo.presetSaturation = 1.0;
     algo.properties.push(
@@ -52,11 +52,12 @@ var testAlgo;
     algo.getReactivity = function() { return algo.presetReactivity; };
 
     var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
-    var PHASE_RATE_SLOW = 0.0005;
-    var PHASE_RATE_MED = 0.0025;
-    var PHASE_RATE_T4 = 0.001;
-    var PHASE_RATE_T5 = 0.00025;
-    var PHASE_RATE_FAST = 0.01;
+    // Per-track ratios relative to presetSpeed (preserves old PHASE_SPEED_* proportions).
+    var MED_RATIO  = 5.0;
+    var T4_RATIO   = 2.0;
+    var T5_RATIO   = 0.5;
+    var FAST_RATIO = 20.0;
+    var AUDIO_TIME_BOOST_PER_FRAME_MS = 50;
     var HIT_FLOOR = 0.4;
     var HIT_RANGE = 0.6;
     var STRIPE_MID = 0.3;
@@ -64,7 +65,11 @@ var testAlgo;
     var FLASH_DECAY = 0.15;
     var COLOR_FLOOR = 0.35;
     var BRIGHT_FLOOR = 0.4;
-    var timestep = 0;
+    var phaseSlow = { phase: 0 };
+    var phaseMed  = { phase: 0 };
+    var phaseT4   = { phase: 0 };
+    var phaseT5   = { phase: 0 };
+    var phaseFast = { phase: 0 };
     var flashColor = null;
     var flashLevel = 0;
 
@@ -82,6 +87,7 @@ var testAlgo;
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var lowPower = audio.power.low;
 
@@ -90,15 +96,16 @@ var testAlgo;
         var satThreshold = algo.presetSaturation;
         var complexity = algo.presetComplexity;
 
-        timestep += dt;
-        timestep += lowPower * reactivity / speed * 50;
+        var boost = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS;
 
-        var t1 = (timestep * speed * PHASE_RATE_SLOW) * Math.PI * 2;
-        var t2 = (timestep * speed * PHASE_RATE_SLOW) % 1;
-        var t3 = (timestep * speed * PHASE_RATE_MED) % 1;
-        var t4 = (timestep * speed * PHASE_RATE_T4) * Math.PI * 2;
-        var t5 = (timestep * speed * PHASE_RATE_T5) % 1;
-        var t6 = (timestep * speed * PHASE_RATE_FAST) % 1;
+        // t1 and t2 share the slow accumulator (read once, reuse value).
+        var slow01 = RGBUtil.beatTime(speed, phaseSlow, bpm, dt + boost);
+        var t1 = slow01 * Math.PI * 2;
+        var t2 = slow01;
+        var t3 = RGBUtil.beatTime(speed * MED_RATIO,  phaseMed,  bpm, dt + boost);
+        var t4 = RGBUtil.beatTime(speed * T4_RATIO,   phaseT4,   bpm, dt + boost) * Math.PI * 2;
+        var t5 = RGBUtil.beatTime(speed * T5_RATIO,   phaseT5,   bpm, dt + boost);
+        var t6 = RGBUtil.beatTime(speed * FAST_RATIO, phaseFast, bpm, dt + boost);
         if (audio.onset.fired || audio.beat.kick) {
             var flashPacked = AudioColors.dominant(algo, audio);
             flashColor = [(flashPacked >> 16) & 0xFF, (flashPacked >> 8) & 0xFF, flashPacked & 0xFF];

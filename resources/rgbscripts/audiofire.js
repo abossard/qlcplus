@@ -25,7 +25,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 9;
     // --- Properties ---
     algo.presetSpeed = 0.04;
     algo.properties.push(

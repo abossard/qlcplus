@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="1"/>
+   <BeatGenerator BeatType="Audio" BPM="130"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -518,7 +518,63 @@
    <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.1" SmoothRise="0.8" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
    <FreqPower Decay="0.1" Rise="0.99"/>
    <Volume Smoothing="100" BrightnessFloor="0"/>
-   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="hanningz" MelScale="matt_mel" OnsetMethodsEnabled="010000001" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="hanningz" MelScale="matt_mel" OnsetMethodsEnabled="110000001" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
+   </Aubio>
+  </AudioProfile>
+  <AudioProfile ID="1" Name="Migrated Audio" IsDefault="False" Version="1">
+   <Envelope Attack="50.0934" Release="200.374"/>
+   <Triggers High="0.25" Low="0.05" Hold="80" Cooldown="120"/>
+   <NoiseGate Threshold="-60" Hold="120"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
+   <FreqPower Decay="0.2" Rise="0.97"/>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="111111111" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
+   </Aubio>
+  </AudioProfile>
+  <AudioProfile ID="2" Name="Migrated Audio" IsDefault="False" Version="1">
+   <Envelope Attack="50.0934" Release="200.374"/>
+   <Triggers High="0.25" Low="0.05" Hold="80" Cooldown="120"/>
+   <NoiseGate Threshold="-60" Hold="120"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
+   <FreqPower Decay="0.2" Rise="0.97"/>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="111111111" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
+   </Aubio>
+  </AudioProfile>
+  <AudioProfile ID="3" Name="Migrated Audio" IsDefault="False" Version="1">
+   <Envelope Attack="50.0934" Release="200.374"/>
+   <Triggers High="0.25" Low="0.05" Hold="80" Cooldown="120"/>
+   <NoiseGate Threshold="-60" Hold="120"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
+   <FreqPower Decay="0.2" Rise="0.97"/>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="111111111" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
+   </Aubio>
+  </AudioProfile>
+  <AudioProfile ID="4" Name="Migrated Audio" IsDefault="False" Version="1">
+   <Envelope Attack="50.0934" Release="200.374"/>
+   <Triggers High="0.25" Low="0.05" Hold="80" Cooldown="120"/>
+   <NoiseGate Threshold="-60" Hold="120"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
+   <FreqPower Decay="0.2" Rise="0.97"/>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="111111111" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
     <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
     <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
     <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
@@ -550,6 +606,241 @@
    <FixtureVal ID="4">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
    <FixtureVal ID="5">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
    <FixtureVal ID="6">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
+  </Function>
+  <Function ID="3" Type="RGBMatrix" Name="EXP-1-A Audio Spectrum">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="1000"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Audio"/>
+   <Color Index="0">4294901760</Color>
+   <Color Index="1">4294967040</Color>
+   <Color Index="2">4278255360</Color>
+   <Color Index="3">4278255615</Color>
+   <Color Index="4">4278190335</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+  </Function>
+  <Function ID="4" Type="RGBMatrix" Name="EXP-1-B Audio Equalizer" BlendMode="Additive">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="250" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Melt</Algorithm>
+   <Color Index="0">4294967295</Color>
+   <Color Index="1">4294928127</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <AudioProfileID>3</AudioProfileID>
+   <Property Name="presetColorSpeed" Value="4"/>
+   <Property Name="presetReactivity" Value="0.5"/>
+   <Property Name="presetSpeed" Value="0.001"/>
+  </Function>
+  <Function ID="5" Type="RGBMatrix" Name="EXP-1-C Audio Wavelength">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="1000"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Wavelength</Algorithm>
+   <Color Index="0">4288217343</Color>
+   <Color Index="1">4278255462</Color>
+   <Color Index="2">4290930431</Color>
+   <Color Index="3">4278255615</Color>
+   <Color Index="4">4294967091</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="gradient_roll" Value="4"/>
+  </Function>
+  <Function ID="6" Type="RGBMatrix" Name="EXP-1-D Audio Power">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="1000"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Glitch 2</Algorithm>
+   <Color Index="0">4294927872</Color>
+   <Color Index="1">4294941183</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <AudioProfileID>1</AudioProfileID>
+   <Property Name="presetReactivity" Value="0.4"/>
+   <Property Name="presetSaturation" Value="1"/>
+   <Property Name="presetSpeed" Value="0.5"/>
+  </Function>
+  <Function ID="7" Type="RGBMatrix" Name="EXP-1-E Audio Scroll">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="1000"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Scroll</Algorithm>
+   <Color Index="0">4294914867</Color>
+   <Color Index="1">4281584742</Color>
+   <Color Index="2">4281565439</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="mirror" Value="No"/>
+  </Function>
+  <Function ID="8" Type="RGBMatrix" Name="EXP-2-A Audio Beat Colors">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Reactor</Algorithm>
+   <Color Index="0">4283826262</Color>
+   <Color Index="1">4278190190</Color>
+   <Color Index="2">4294967295</Color>
+   <Color Index="3">4288322048</Color>
+   <Color Index="4">4294914867</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetFlash" Value="0.8"/>
+   <Property Name="presetMotion" Value="1"/>
+   <Property Name="presetPalette" Value="Band Colors"/>
+   <Property Name="presetSensitivity" Value="1"/>
+   <Property Name="presetSparkles" Value="On"/>
+  </Function>
+  <Function ID="9" Type="RGBMatrix" Name="EXP-2-B Audio Energy">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Melt</Algorithm>
+   <Color Index="0">4284901119</Color>
+   <Color Index="1">4294915071</Color>
+   <Color Index="2">4282417407</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <AudioProfileID>4</AudioProfileID>
+   <Property Name="presetColorSpeed" Value="1"/>
+   <Property Name="presetReactivity" Value="0.011"/>
+   <Property Name="presetSpeed" Value="0.001"/>
+  </Function>
+  <Function ID="10" Type="RGBMatrix" Name="EXP-2-C Audio Strobe">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Hue Shift</Algorithm>
+   <Color Index="0">4294967295</Color>
+   <Color Index="1">4294901930</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetMinBrightness" Value="0.2"/>
+   <Property Name="presetSaturation" Value="0.545"/>
+   <Property Name="presetSpeed" Value="2.1"/>
+   <Property Name="presetWaveScale" Value="0.715"/>
+  </Function>
+  <Function ID="11" Type="RGBMatrix" Name="EXP-2-D Audio Glitch 2">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Glitch 2</Algorithm>
+   <Color Index="0">4294901930</Color>
+   <Color Index="1">4278244607</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <AudioProfileID>2</AudioProfileID>
+   <Property Name="presetReactivity" Value="0.4"/>
+   <Property Name="presetSaturation" Value="1"/>
+   <Property Name="presetSpeed" Value="0.5"/>
+  </Function>
+  <Function ID="12" Type="RGBMatrix" Name="EXP-2-E Audio Hue Shift">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="0"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Hue Shift</Algorithm>
+   <Color Index="0">4294927872</Color>
+   <Color Index="1">4294945280</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetMinBrightness" Value="0.4"/>
+   <Property Name="presetSaturation" Value="0.9"/>
+   <Property Name="presetSpeed" Value="0.275"/>
+   <Property Name="presetWaveScale" Value="0.2"/>
+  </Function>
+  <Function ID="13" Type="RGBMatrix" Name="EXP-3-A Audio Scan">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Scan</Algorithm>
+   <Color Index="0">4294901930</Color>
+   <Color Index="1">4278244607</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="blur" Value="3"/>
+   <Property Name="bounce" Value="Yes"/>
+   <Property Name="color_intensity" Value="Yes"/>
+   <Property Name="frequency_range" Value="Lows (beat+bass)"/>
+   <Property Name="full_grad" Value="No"/>
+   <Property Name="mirror" Value="No"/>
+   <Property Name="multiplier" Value="3"/>
+   <Property Name="use_grad" Value="No"/>
+  </Function>
+  <Function ID="14" Type="RGBMatrix" Name="EXP-3-B Audio Fire">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Fire</Algorithm>
+   <Color Index="0">4294901760</Color>
+   <Color Index="1">4294927872</Color>
+   <Color Index="2">4294967040</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetDirection" Value="Up"/>
+   <Property Name="presetSparkFade" Value="0.05"/>
+   <Property Name="presetSpeed" Value="0.04"/>
+   <Property Name="presetSpread" Value="No"/>
+  </Function>
+  <Function ID="15" Type="RGBMatrix" Name="EXP-3-C Audio Fireworks">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Fireworks</Algorithm>
+   <Color Index="0">4294901930</Color>
+   <Color Index="1">4278244607</Color>
+   <Color Index="2">4294967295</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetGravity" Value="1"/>
+   <Property Name="presetMaxParticles" Value="203"/>
+   <Property Name="presetOrigin" Value="Center"/>
+   <Property Name="presetParticleSize" Value="2"/>
+   <Property Name="triggerMode" Value="Beat"/>
+  </Function>
+  <Function ID="16" Type="RGBMatrix" Name="EXP-3-D Audio Bass Laser">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Bass Laser</Algorithm>
+   <Color Index="0">4278255360</Color>
+   <Color Index="1">4294901760</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetDirection" Value="Both"/>
+   <Property Name="presetMaxBeams" Value="9"/>
+   <Property Name="presetSpeed" Value="1"/>
+   <Property Name="presetTrailLength" Value="11"/>
+  </Function>
+  <Function ID="17" Type="RGBMatrix" Name="EXP-3-E Audio Shockwave">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Shockwave</Algorithm>
+   <Color Index="0">4294967295</Color>
+   <Color Index="1">4278190335</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetAmbientSpeed" Value="0.12"/>
+   <Property Name="presetDecay" Value="4"/>
+   <Property Name="presetSpeed" Value="9"/>
+   <Property Name="presetWaveDecay" Value="0.03"/>
+   <Property Name="presetWaveWidth" Value="5"/>
   </Function>
   <Function ID="309" Type="Scene" Name="BALLM" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -596,74 +887,6 @@
     </Mapping>
     <Mapping Source="Kick" Type="1" DmxScale="1" DmxFloor="0" BeatHoldMs="80"/>
    </AudioTriggers>
-   <SoloFrame Caption="Solo Frame 2" ID="1">
-    <WindowState Visible="True" X="30" Y="335" Width="746" Height="167"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="STANDBY" ID="5">
-     <WindowState Visible="True" X="15" Y="45" Width="91" Height="76"/>
-     <Appearance>
-      <BackgroundColor>4288306176</BackgroundColor>
-     </Appearance>
-     <Function ID="0"/>
-     <Action>Toggle</Action>
-    </Button>
-   </SoloFrame>
-   <Frame Caption="SYSTEM" ID="7">
-    <Appearance>
-     <BackgroundColor>4278190080</BackgroundColor>
-    </Appearance>
-    <WindowState Visible="True" X="807" Y="15" Width="243" Height="670"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>False</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Button Caption="BLACKOUT" ID="4">
-     <WindowState Visible="True" X="0" Y="411" Width="137" Height="76"/>
-     <Appearance>
-      <BackgroundColor>4285399040</BackgroundColor>
-     </Appearance>
-     <Function ID="4294967295"/>
-     <Action>Blackout</Action>
-    </Button>
-    <Button Caption="FLASH" ID="10">
-     <WindowState Visible="True" X="0" Y="563" Width="137" Height="76"/>
-     <Appearance>
-      <ForegroundColor>4278190080</ForegroundColor>
-      <BackgroundColor>4294967295</BackgroundColor>
-     </Appearance>
-     <Function ID="1"/>
-     <Action Override="0" ForceLTP="0">Flash</Action>
-    </Button>
-    <Button Caption="STOP" ID="8">
-     <WindowState Visible="True" X="822" Y="517" Width="121" Height="152"/>
-     <Appearance>
-      <BackgroundColor>4280558628</BackgroundColor>
-     </Appearance>
-     <Function ID="4294967295"/>
-     <Action>StopAll</Action>
-    </Button>
-    <Slider Caption="MASTER" ID="6" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="0" Y="30" Width="137" Height="380"/>
-     <Appearance>
-      <BackgroundColor>4278190080</BackgroundColor>
-     </Appearance>
-     <SliderMode ValueDisplayStyle="Percentage">GrandMaster</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255"/>
-    </Slider>
-    <Button Caption="STOP" ID="9">
-     <WindowState Visible="True" X="0" Y="487" Width="137" Height="76"/>
-     <Appearance>
-      <BackgroundColor>4278190190</BackgroundColor>
-     </Appearance>
-     <Function ID="4294967295"/>
-     <Action>StopAll</Action>
-    </Button>
-   </Frame>
   </Frame>
  </VirtualConsole>
  <FlowConsole>

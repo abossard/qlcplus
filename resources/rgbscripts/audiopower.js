@@ -26,24 +26,16 @@ var testAlgo;
 
     var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
 
-    algo.mirror = "Yes";
     algo.blur = 0.0;
-    algo.sparks_color = "#ffffff";
     algo.bass_decay_rate = 0.05;
     algo.sparks_decay_rate = 0.15;
 
-    algo.properties.push("name:mirror|type:list|display:Mirror|values:Yes,No|write:setMirror|read:getMirror");
     algo.properties.push("name:blur|type:float|display:Blur|write:setBlur|read:getBlur");
-    algo.properties.push("name:sparks_color|type:string|display:Sparks Color|write:setSparksColor|read:getSparksColor");
     algo.properties.push("name:bass_decay_rate|type:float|display:Bass Decay Rate|write:setBassDecayRate|read:getBassDecayRate");
     algo.properties.push("name:sparks_decay_rate|type:float|display:Sparks Decay Rate|write:setSparksDecayRate|read:getSparksDecayRate");
 
-    algo.setMirror = function(v) { algo.mirror = (v === "No") ? "No" : "Yes"; };
-    algo.getMirror = function() { return algo.mirror; };
     algo.setBlur = function(v) { algo.blur = clamp(parseFloat(v), 0, 10); };
     algo.getBlur = function() { return algo.blur; };
-    algo.setSparksColor = function(v) { algo.sparks_color = String(v); };
-    algo.getSparksColor = function() { return algo.sparks_color; };
     algo.setBassDecayRate = function(v) { algo.bass_decay_rate = clamp(parseFloat(v), 0, 1); };
     algo.getBassDecayRate = function() { return algo.bass_decay_rate; };
     algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = clamp(parseFloat(v), 0, 1); };
@@ -64,14 +56,6 @@ var testAlgo;
         return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
     }
 
-    function parseColor(value, fallback) {
-        if (typeof value === "number") return value & 0xFFFFFF;
-        var s = String(value || "").replace(/^#/, "");
-        if (s.length === 3)
-            s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
-        var n = parseInt(s, 16);
-        return isNaN(n) ? fallback : (n & 0xFFFFFF);
-    }
 
     function zeroStrip(n) {
         var out = new Array(n);
@@ -109,23 +93,6 @@ var testAlgo;
         return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
     }
 
-    function applyMirror(strip) {
-        if (algo.mirror !== "Yes") return strip;
-        var n = strip.length;
-        var out = new Array(n);
-        for (var i = 0; i < n; i++) {
-            var a = strip[n - 1 - (2 * i)];
-            var b = strip[n - 2 - (2 * i)];
-            if (i >= Math.ceil(n / 2)) {
-                var j = 2 * i - n;
-                a = strip[j];
-                b = strip[j + 1];
-            }
-            if (!b) b = a;
-            out[i] = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
-        }
-        return out;
-    }
 
     function boxBlur(strip, amount) {
         var radius = Math.round(amount);
@@ -158,7 +125,10 @@ var testAlgo;
 
         if (audio.onset.fired) {
             var sparks = Math.floor(width / 20);
-            var sc = colorArray(parseColor(algo.sparks_color, 0xFFFFFF));
+            var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
+                ? algo.gradientBandColors : AudioColors.DEFAULT_BANDS;
+            var sparkPacked = bands[2] | 0; // high band color for sparks
+            var sc = colorArray(sparkPacked);
             for (var s = 0; s < sparks; s++) {
                 var sx = Math.floor(Math.random() * width);
                 sparksOverlay[sx] = [sc[0], sc[1], sc[2]];
@@ -184,7 +154,7 @@ var testAlgo;
             ];
         }
 
-        strip = boxBlur(applyMirror(strip), algo.blur);
+        strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var px = 0; px < width; px++)
                 map[y][px] = RGBUtil.rgb(strip[px][0], strip[px][1], strip[px][2]);

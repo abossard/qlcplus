@@ -24,18 +24,17 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    var DOMINANT_TINT = 0.5;
     var DANCEFLOOR_GRADIENT = [0xFF0000, 0xFF00B2, 0x0000FF];
 
     algo.color_step = 0.0625;
     algo.bass_strobe_decay_rate = 0.5;
-    algo.strobe_color = "#FFFFFF";
     algo.strobe_width = 10;
     algo.strobe_decay_rate = 0.5;
     algo.color_shift_delay = 1.0;
 
     algo.properties.push("name:color_step|type:float|display:Color Step|write:setColorStep|read:getColorStep");
     algo.properties.push("name:bass_strobe_decay_rate|type:float|display:Bass Strobe Decay Rate|write:setBassStrobeDecayRate|read:getBassStrobeDecayRate");
-    algo.properties.push("name:strobe_color|type:string|display:Strobe Color|write:setStrobeColor|read:getStrobeColor");
     algo.properties.push("name:strobe_width|type:range|display:Strobe Width|values:0,1000|write:setStrobeWidth|read:getStrobeWidth");
     algo.properties.push("name:strobe_decay_rate|type:float|display:Strobe Decay Rate|write:setStrobeDecayRate|read:getStrobeDecayRate");
     algo.properties.push("name:color_shift_delay|type:float|display:Color Shift Delay|write:setColorShiftDelay|read:getColorShiftDelay");
@@ -53,8 +52,6 @@ var testAlgo;
     algo.getColorStep = function() { return algo.color_step; };
     algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
     algo.getBassStrobeDecayRate = function() { return algo.bass_strobe_decay_rate; };
-    algo.setStrobeColor = function(v) { algo.strobe_color = String(v); };
-    algo.getStrobeColor = function() { return algo.strobe_color; };
     algo.setStrobeWidth = function(v) { algo.strobe_width = clamp(parseInt(v), 0, 1000); };
     algo.getStrobeWidth = function() { return algo.strobe_width; };
     algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
@@ -72,15 +69,6 @@ var testAlgo;
     var colorIdx = 0;
     var bassStrobeColor = [0, 0, 0];
     var lastWidth = 0;
-
-    function parseColor(value, fallback) {
-        if (typeof value === "number") return value & 0xFFFFFF;
-        var s = String(value || "").replace(/^#/, "");
-        if (s.length === 3)
-            s = s.charAt(0) + s.charAt(0) + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2);
-        var n = parseInt(s, 16);
-        return isNaN(n) ? fallback : (n & 0xFFFFFF);
-    }
 
     function colorArray(packed) {
         packed = packed & 0xFFFFFF;
@@ -159,7 +147,10 @@ var testAlgo;
             var strobeWidth = Math.min(clamp(parseInt(algo.strobe_width), 0, 1000), width);
             var lengthDiff = width - strobeWidth;
             var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
-            var scol = colorArray(parseColor(algo.strobe_color, 0xFFFFFF));
+            var strobeColorPacked = AudioColors.bands(algo)[0] | 0;
+            var dominantPacked = AudioColors.dominantColor(algo, audio, strobeColorPacked, 0.05);
+            var blended = AudioColors.blendPacked(strobeColorPacked, dominantPacked, DOMINANT_TINT);
+            var scol = colorArray(blended);
             for (var s = position; s < position + strobeWidth; s++)
                 strobeOverlay[s] = [scol[0], scol[1], scol[2]];
         }

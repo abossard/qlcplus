@@ -398,6 +398,60 @@ private:
     int m_rotation;
     int m_mirror;
     MirrorBlend m_mirrorBlend;
+
+    /*************************************************************************
+     * Beat Transform
+     *************************************************************************/
+public:
+    enum BeatEffect
+    {
+        BeatEffectOff = 0,
+        BeatEffectMirror,
+        BeatEffectColorInvert,
+        BeatEffectBlackout,
+        BeatEffectWhiteout
+    };
+
+    enum BeatSelection
+    {
+        BeatSelAllBeat4 = 0,
+        BeatSelWalk,
+        BeatSelRandom
+    };
+
+    enum BeatOrientation
+    {
+        BeatOrientRows = 0,
+        BeatOrientColumns
+    };
+
+    BeatEffect beatEffect() const;
+    void setBeatEffect(BeatEffect e);
+
+    BeatSelection beatSelection() const;
+    void setBeatSelection(BeatSelection s);
+
+    BeatOrientation beatOrientation() const;
+    void setBeatOrientation(BeatOrientation o);
+
+    static QString beatEffectToString(BeatEffect e);
+    static BeatEffect stringToBeatEffect(const QString &s);
+    static QString beatSelectionToString(BeatSelection s);
+    static BeatSelection stringToBeatSelection(const QString &s);
+    static QString beatOrientationToString(BeatOrientation o);
+    static BeatOrientation stringToBeatOrientation(const QString &s);
+
+private:
+    void applyBeatTransform(RGBMap &map, int currentBeat);
+
+    static void segmentRange(int segment, int total, int &start, int &end);
+
+    BeatEffect m_beatEffect;
+    BeatSelection m_beatSelection;
+    BeatOrientation m_beatOrientation;
+    int m_currentBeat;
+    int m_lastBeat;
+    int m_randomSegment;
 };
 
 /** @} */

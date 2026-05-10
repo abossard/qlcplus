@@ -24,7 +24,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Reaction-Diffusion";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 

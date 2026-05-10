@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Cellular";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 5;
+    algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -50,11 +50,11 @@ var testAlgo;
     algo.setSeedThreshold = function(_v) { algo.presetSeedThreshold = parseInt(_v); };
     algo.getSeedThreshold = function() { return algo.presetSeedThreshold; };
 
-    algo.presetScrollHz = 8;
+    algo.presetScrollHz = 4.0;
     algo.properties.push(
-      "name:presetScrollHz|type:range|display:Scroll Rate (rows/s)|" +
-      "values:1,25|write:setScrollHz|read:getScrollHz");
-    algo.setScrollHz = function(_v) { algo.presetScrollHz = parseInt(_v); };
+      "name:presetScrollHz|type:float|display:Scroll Rate (rows/beat)|" +
+      "write:setScrollHz|read:getScrollHz");
+    algo.setScrollHz = function(_v) { algo.presetScrollHz = parseFloat(_v); };
     algo.getScrollHz = function() { return algo.presetScrollHz; };
 
     algo.history = null;
@@ -147,7 +147,9 @@ var testAlgo;
         algo.history[algo.row * N + seedX] = 1;
       }
 
-      algo.scrollAccum += dt * algo.presetScrollHz;
+      var bpm = (audio.beat && audio.beat.bpm > 0) ? audio.beat.bpm : 120;
+      var beatsPerSec = bpm / 60.0;
+      algo.scrollAccum += dt * algo.presetScrollHz * beatsPerSec;
       var rule = algo.rule;
       while (algo.scrollAccum >= 1.0) {
         algo.scrollAccum -= 1.0;

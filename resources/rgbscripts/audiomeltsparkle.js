@@ -31,7 +31,7 @@ var testAlgo;
     // LedFx defaults: speed=0.5, reactivity=0.5
     algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
 
     algo.presetReactivity = 0.5;
@@ -110,13 +110,16 @@ var testAlgo;
     var MAX_STROBE_WIDTH_FRAC = 0.5;   // a single strobe spans at most this fraction of the strip
     var MAX_STROBE_COOLDOWN_MS = 1000; // span of the cooldown range mapped from rate
     var LAVA_POWER_BASE = 30;          // base exponent for lava chunk shaping
-    var T1_PERIOD_BASE = 65.536;       // LedFx HSVEffect.time() conversion factor
-    var T1_SPEED_MULT = 20.0;          // LedFx parity: t1 modifier = speed * 20
-    var HUE_DRIFT_FAST = 0.3;          // hue advance per timestep on inner triangle
-    var HUE_DRIFT_SLOW = 0.1;          // hue advance per timestep on outer wrap
+    // Per-track ratios relative to presetSpeed. T1 runs ~4× faster (inner lava),
+    // hueFast/hueSlow trail behind the base rate.
+    var T1_RATIO = 4.0;
+    var HUE_FAST_RATIO = 0.3;
+    var HUE_SLOW_RATIO = 0.1;
 
-    algo.timestep = 0;
     algo.direction = 1;
+    var t1State = { phase: 0 };
+    var hueFastState = { phase: 0 };
+    var hueSlowState = { phase: 0 };
     algo.strobeOverlay = [];
     algo.lastStrobeMs = 0;
     algo.elapsedMs = 0;
@@ -130,7 +133,9 @@ var testAlgo;
         algo.strobeOverlay = new Array(n);
         for (var i = 0; i < n; i++) algo.strobeOverlay[i] = 0;
         algo.lastSize = n;
-        algo.timestep = 0;
+        t1State.phase = 0;
+        hueFastState.phase = 0;
+        hueSlowState.phase = 0;
         algo.direction = 1;
         algo.lastStrobeMs = 0;
     }
@@ -164,12 +169,14 @@ var testAlgo;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
         var dt = dtMs / 1000.0;
+        var bpm = audio.beat ? audio.beat.bpm : 0;
         algo.elapsedMs += dtMs;
 
         var lowPower = audio.power.low;
         var midPower = audio.power.mid;
         var highMax = audio.spectrum.high.max;
         var onsetFired = audio.onset.fired;
+        var lastDominant = AudioColors.dominantIndex(audio);
 
         var speed01 = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
@@ -181,8 +188,9 @@ var testAlgo;
         var strobeDecay01 = algo.presetStrobeDecay;
         var strobeBlur = algo.presetStrobeBlur;
 
-        algo.timestep += dt * algo.direction;
-        algo.timestep += lowPower * reactivity01 * speed01 * dt * algo.direction;
+        // Direction-flipped, audio-boosted dt fed to all beat helpers.
+        var boostMs = lowPower * reactivity01 * speed01 * dtMs;
+        var dirDtMs = (dtMs + boostMs) * algo.direction;
 
         if (lowPower > strobeCutoff) {
             var flipProb = DIRECTION_FLIP_CHANCE * dt;
@@ -214,26 +222,23 @@ var testAlgo;
         var strip = new Array(n);
         var denom = Math.max(1, n - 1);
 
-        // LedFx parity: t1 = self.time(speed * 20, timestep=self.timestep)
-        // HSVEffect.time() uses period = _conversion_factor / modifier = 65.536 / (speed * 20)
-        var t1Period = T1_PERIOD_BASE / Math.max(0.001, speed01 * T1_SPEED_MULT);
-        var t1 = ((algo.timestep / t1Period) % 1.0 + 1.0) % 1.0;
+        // Beat-locked replacements for the LedFx HSVEffect.time() outputs.
+        var t1 = RGBUtil.beatTime(speed01 * T1_RATIO, t1State, bpm, dirDtMs);
+        var hueFast = RGBUtil.beatTime(speed01 * HUE_FAST_RATIO, hueFastState, bpm, dirDtMs);
+        var hueSlow = RGBUtil.beatTime(speed01 * HUE_SLOW_RATIO, hueSlowState, bpm, dirDtMs);
+
+        var bandShift = 0;
+        if (lastDominant === 0) bandShift = 0.05;
+        else if (lastDominant === 2) bandShift = -0.1;
 
         for (var i = 0; i < n; i++) {
             var u = 1 - i / denom;
 
             var h0 = RGBUtil.sin01(u);
-            var h1 = RGBUtil.triangle(h0 + bassFactor + algo.timestep * HUE_DRIFT_FAST);
-            var hue = RGBUtil.mod1(RGBUtil.triangle(h1) + algo.timestep * HUE_DRIFT_SLOW);
+            var h1 = RGBUtil.triangle(h0 + bassFactor + hueFast);
+            var hue = RGBUtil.mod1(RGBUtil.triangle(h1) + hueSlow);
 
             // LedFx parity: 4-pass value pipeline (render_hsv lines 156-172).
-            //   v_init = copy of h = sin(1 - ramp)        -> here u already == 1 - ramp
-            //   sin(v); v += t1
-            //   sin(v); v += (1 - t1)
-            //   triangle(v); v += bass_factor * direction
-            //   triangle(v)
-            // Earlier QLC+ port only ran 1 sin + 2 triangles, so values never reached
-            // as high before the lavaPower crush, leaving the strip too dark.
             var vInit = RGBUtil.sin01(u);
             var vA = RGBUtil.sin01(vInit);
             var vB = RGBUtil.sin01(vA + t1);
@@ -245,12 +250,13 @@ var testAlgo;
             var sat = 1.0;
             var overlay = algo.strobeOverlay[i];
             if (overlay > 0) {
-                sat *= 1 - RGBUtil.clamp01(overlay);
+                var tintedHue = RGBUtil.mod1(hue + bandShift);
+                sat *= 1 - RGBUtil.clamp01(overlay) * 0.7;
                 v += overlay;
-                if (v > 1) v = 1;
+                strip[i] = RGBUtil.hsvToRgb(tintedHue, sat, RGBUtil.clamp01(v));
+            } else {
+                strip[i] = RGBUtil.hsvToRgb(hue, sat, RGBUtil.clamp01(v));
             }
-
-            strip[i] = RGBUtil.hsvToRgb(hue, sat, RGBUtil.clamp01(v));
         }
 
         if (algo.presetAxis === "Vertical") {

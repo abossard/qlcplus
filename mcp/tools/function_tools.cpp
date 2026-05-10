@@ -953,7 +953,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"animationStyle", {{"type", "string"}, {"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}, {"description", "Static, Letters, Horizontal, Vertical, or Animation (for RGBText/RGBImage algorithms)"}}},
                 {"rotation", {{"type", "integer"}, {"description", "Rotation in degrees: 0, 90, 180, or 270"}}},
                 {"mirror", {{"type", "string"}, {"enum", {"Off", "Horizontal", "Vertical", "Both"}}, {"description", "Mirror mode: Off, Horizontal, Vertical, or Both"}}},
-                {"mirrorBlend", {{"type", "string"}, {"enum", {"Flip", "Max", "Average", "Additive"}}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}}
+                {"mirrorBlend", {{"type", "string"}, {"enum", {"Flip", "Max", "Average", "Additive"}}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}},
+                {"beatEffect", {{"type", "string"}, {"enum", {"Off", "Mirror", "ColorInvert", "Blackout", "Whiteout"}}, {"description", "Beat transform effect applied per-segment on beat"}}},
+                {"beatSelection", {{"type", "string"}, {"enum", {"AllBeat4", "Walk", "Random"}}, {"description", "Segment selection mode: AllBeat4 (all on beat 4), Walk (one per beat), Random"}}},
+                {"beatOrientation", {{"type", "string"}, {"enum", {"Rows", "Columns"}}, {"description", "Segment orientation: Rows or Columns"}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -967,7 +970,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm",
                     "startColor", "endColor", "colors", "duration", "fadeIn", "fadeOut",
                     "tempoType", "runOrder", "direction", "controlMode", "blendMode",
-                    "properties", "text", "animationStyle", "rotation", "mirror", "mirrorBlend"});
+                    "properties", "text", "animationStyle", "rotation", "mirror", "mirrorBlend",
+                    "beatEffect", "beatSelection", "beatOrientation"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 static const Json kEnums = {
@@ -978,7 +982,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     {"blendMode", {{"enum", {"Normal", "Additive", "Mask", "Subtractive"}}}},
                     {"animationStyle", {{"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}}},
                     {"mirror", {{"enum", {"Off", "Horizontal", "Vertical", "Both"}}}},
-                    {"mirrorBlend", {{"enum", {"Flip", "Max", "Average", "Additive"}}}}
+                    {"mirrorBlend", {{"enum", {"Flip", "Max", "Average", "Additive"}}}},
+                    {"beatEffect", {{"enum", {"Off", "Mirror", "ColorInvert", "Blackout", "Whiteout"}}}},
+                    {"beatSelection", {{"enum", {"AllBeat4", "Walk", "Random"}}}},
+                    {"beatOrientation", {{"enum", {"Rows", "Columns"}}}}
                 };
                 err = validateEnums(item, kEnums);
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
@@ -1162,6 +1169,23 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {
                     QString mb = QString::fromStdString(item.at("mirrorBlend").get<std::string>());
                     matrix->setMirrorBlend(RGBMatrix::stringToMirrorBlend(mb));
+                }
+
+                // Beat Transform
+                if (item.contains("beatEffect"))
+                {
+                    QString be = QString::fromStdString(item.at("beatEffect").get<std::string>());
+                    matrix->setBeatEffect(RGBMatrix::stringToBeatEffect(be));
+                }
+                if (item.contains("beatSelection"))
+                {
+                    QString bs = QString::fromStdString(item.at("beatSelection").get<std::string>());
+                    matrix->setBeatSelection(RGBMatrix::stringToBeatSelection(bs));
+                }
+                if (item.contains("beatOrientation"))
+                {
+                    QString bo = QString::fromStdString(item.at("beatOrientation").get<std::string>());
+                    matrix->setBeatOrientation(RGBMatrix::stringToBeatOrientation(bo));
                 }
 
                 if (isNew)

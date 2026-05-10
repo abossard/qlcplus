@@ -28,9 +28,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.5;
+    algo.presetSpeed = 0.125;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
     algo.presetColorSpeed = 5;
     algo.properties.push(
@@ -46,13 +46,15 @@ var testAlgo;
     algo.getReactivity = function() { return algo.presetReactivity; };
 
     var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
-    var MELT_RATE_1 = 0.0005;
-    var MELT_RATE_2 = 0.00065;
-    var COLOR_RATE = 0.0001;
+    var MELT_RATIO_2 = 1.3;   // preserves old 0.00065/0.0005 ratio
+    var COLOR_RATIO = 0.2;    // preserves old 0.0001/0.0005 ratio
+    var AUDIO_BOOST_MS_PER_FRAME = 50;
     var BEAT_PULSE_AMP = 0.20;
     var COLOR_FLOOR = 0.65;
     var COLOR_RANGE = 0.35;
-    var timestep = 0;
+    var meltState1 = { phase: 0 };
+    var meltState2 = { phase: 0 };
+    var colorState = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -65,19 +67,20 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var lowPower = audio.power.low;
 
-        // Accumulate time with audio reactivity
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
-        timestep += dt;
-        timestep += lowPower * reactivity / speed * 50;
 
-        var t1 = (timestep * speed * MELT_RATE_1) % 1;
-        var t2 = (timestep * speed * MELT_RATE_2) % 1;
-        var colorT = (timestep * algo.presetColorSpeed * COLOR_RATE) % 1;
+        // Audio modulation extends the effective dt for this frame
+        var boost = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_BOOST_MS_PER_FRAME;
+
+        var t1 = RGBUtil.beatTime(speed, meltState1, bpm, dtMs + boost);
+        var t2 = RGBUtil.beatTime(speed * MELT_RATIO_2, meltState2, bpm, dtMs + boost);
+        var colorT = RGBUtil.beatTime(algo.presetColorSpeed * COLOR_RATIO, colorState, bpm, dtMs + boost);
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;

@@ -28,9 +28,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.5;
+    algo.presetSpeed = 2.5;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
     algo.presetDensity = 0.5;
     algo.properties.push(
@@ -60,6 +60,8 @@ var testAlgo;
     var MAX_SOAP_PIXELS = 2048;
     var phaseX = Math.random() * 100;
     var phaseY = Math.random() * 100;
+    var soapXState = { position: phaseX };
+    var soapYState = { position: phaseY };
     var lastW = 0, lastH = 0;
     algo.noiseField = null;
     algo.coarseNoise = null;
@@ -175,7 +177,8 @@ var testAlgo;
 
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed;
@@ -183,13 +186,10 @@ var testAlgo;
         var smooth = algo.presetSmooth;
         var density = algo.presetDensity;
 
-        // Audio-modulated speed
-        var audioSpeed = (reactivity === 0)
-            ? speed
-            : speed * (1 + power * reactivity * 6);
-        var move = audioSpeed * audioSpeed * 0.5 * dt;
-        phaseX += move;
-        phaseY += move * Y_MOVE_RATIO;
+        // Audio-modulated rate: presetSpeed cycles/beat at unity audio gain.
+        var audioGain = (reactivity === 0) ? 1 : (1 + power * reactivity * 6);
+        phaseX = RGBUtil.beatPosition(speed * audioGain, soapXState, bpm, dtMs);
+        phaseY = RGBUtil.beatPosition(speed * audioGain * Y_MOVE_RATIO, soapYState, bpm, dtMs);
 
         fillNoiseField(width, height, smooth);
 

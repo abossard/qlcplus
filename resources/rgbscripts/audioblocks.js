@@ -25,9 +25,9 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.speed = 0.5;
+    algo.speed = 1.0;
     algo.properties.push(
-      "name:speed|type:float|display:Speed|" +
+      "name:speed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
 
     algo.reactivity = 0.5;
@@ -40,15 +40,21 @@ var testAlgo;
       "name:fix_hues|type:list|display:Fix Hues|" +
       "values:No,Yes|write:setFixHues|read:getFixHues");
 
-    algo.setSpeed = function(_v) { algo.speed = clampFloat(_v, 0.00001, 1.0); };
+    algo.setSpeed = function(_v) { algo.speed = clampFloat(_v, 0.00001, 50.0); };
     algo.getSpeed = function() { return algo.speed; };
     algo.setReactivity = function(_v) { algo.reactivity = clampFloat(_v, 0.00001, 1.0); };
     algo.getReactivity = function() { return algo.reactivity; };
     algo.setFixHues = function(_v) { algo.fix_hues = (_v === "No") ? "No" : "Yes"; };
     algo.getFixHues = function() { return algo.fix_hues; };
 
-    algo.timestep = 0;
+    // Per-track ratios relative to algo.speed (the base rate).
+    var T3_RATIO = 5.0;
+    var T4_RATIO = 2.0;
+
     algo.lowsPower = 0;
+    var blocksState1 = { phase: 0 };
+    var blocksState3 = { phase: 0 };
+    var blocksState4 = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -62,12 +68,6 @@ var testAlgo;
 
     function mod(x, m) {
         return ((x % m) + m) % m;
-    }
-
-    function ledFxTime(modifier, timestep) {
-        if (modifier <= 0) modifier = 0.00001;
-        var t = ((timestep / (65.536 / modifier)) % 1.0 + 1.0) % 1.0;
-        return t;
     }
 
     function triangle(x) {
@@ -89,17 +89,17 @@ var testAlgo;
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        algo.timestep += dtMs / 1000.0;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var rawLows = audio.power.low;
         algo.lowsPower = rawLows * 0.05 + algo.lowsPower * 0.95;
 
         var speed = algo.speed;
         var reactivity = algo.reactivity;
-        var t1 = ledFxTime(1.0 * speed, algo.timestep);
+        var t1 = RGBUtil.beatTime(speed, blocksState1, bpm, dtMs);
         var t2 = t1 * (Math.PI * Math.PI) + (0.8 * reactivity * algo.lowsPower);
-        var t3 = ledFxTime(5.0 * speed, algo.timestep) + (reactivity * algo.lowsPower);
-        var t4 = ledFxTime(2.0 * speed, algo.timestep) * (Math.PI * Math.PI);
+        var t3 = RGBUtil.beatTime(speed * T3_RATIO, blocksState3, bpm, dtMs) + (reactivity * algo.lowsPower);
+        var t4 = RGBUtil.beatTime(speed * T4_RATIO, blocksState4, bpm, dtMs) * (Math.PI * Math.PI);
 
         var m = 0.3 + triangle(t1) * 0.2;
         var c = triangle(t3) * 10.0 + 4.0 * sin01(t4);

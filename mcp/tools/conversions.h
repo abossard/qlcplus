@@ -290,6 +290,14 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
     if (matrix->mirrorBlend() != RGBMatrix::MirrorFlip)
         entry["mirrorBlend"] = RGBMatrix::mirrorBlendToString(matrix->mirrorBlend()).toStdString();
 
+    // Beat Transform
+    if (matrix->beatEffect() != RGBMatrix::BeatEffectOff)
+    {
+        entry["beatEffect"] = RGBMatrix::beatEffectToString(matrix->beatEffect()).toStdString();
+        entry["beatSelection"] = RGBMatrix::beatSelectionToString(matrix->beatSelection()).toStdString();
+        entry["beatOrientation"] = RGBMatrix::beatOrientationToString(matrix->beatOrientation()).toStdString();
+    }
+
     return entry;
 }
 

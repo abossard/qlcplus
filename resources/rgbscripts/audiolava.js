@@ -24,25 +24,24 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetSpeed = 7;
+    algo.presetSpeed = 0.35;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,15|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
+      "write:setSpeed|read:getSpeed");
     algo.presetContrast = 0.6;
     algo.properties.push(
       "name:presetContrast|type:float|display:Contrast|" +
       "write:setContrast|read:getContrast");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setContrast = function(_v) { algo.presetContrast = parseFloat(_v); };
     algo.getContrast = function() { return algo.presetContrast; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFAA00, 0x80FF00];
     var BEAT_PULSE_AMP = 0.25;
-    var LAVA_RATE_1 = 0.0001;
-    var LAVA_RATE_2 = 0.0002;
+    // t2 runs at 2× the base rate (preserves old LAVA_SPEED_2/LAVA_SPEED_1 ratio).
+    var LAVA_RATIO_2 = 2.0;
     var BASS_MOD_1 = 0.004;
     var BASS_MOD_2 = 0.007;
     var WAVE1_Y_FREQ = 0.5;
@@ -52,7 +51,8 @@ var testAlgo;
     var WAVE5_T_FREQ = 1.3;
     var WAVE5_Y_FREQ = 1.2;
     var MIN_BRIGHTNESS = 0.01;
-    var elapsedMs = 0;
+    var lavaState1 = { phase: 0 };
+    var lavaState2 = { phase: 0 };
 
     function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
@@ -67,7 +67,8 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        elapsedMs += audio.timing.consumerDtMs;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var bandPowers = audio.power.bands;
         var lowPower = bandPowers[0];
@@ -83,9 +84,17 @@ var testAlgo;
         // Beat-pulse brightness boost
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
-        // Time phases — bass accelerates significantly
-        var t1 = (elapsedMs * speed * LAVA_RATE_1 * Math.max(1, 1 + lowPower * BASS_MOD_1)) % 1;
-        var t2 = (elapsedMs * speed * LAVA_RATE_2 * Math.max(1, 1 + lowPower * BASS_MOD_2)) % 1;
+        // Bass accelerates the rate (cycles/beat increases with bass).
+        var bassMul1 = Math.max(1, 1 + lowPower * BASS_MOD_1);
+        var bassMul2 = Math.max(1, 1 + lowPower * BASS_MOD_2);
+        var t1 = RGBUtil.beatTime(speed * bassMul1, lavaState1, bpm, dtMs);
+        var t2 = RGBUtil.beatTime(speed * LAVA_RATIO_2 * bassMul2, lavaState2, bpm, dtMs);
+
+        // Use dominant band color (no RGB averaging to white)
+        var domColor = AudioColors.blendByPower(algo, audio);
+        var dr = (domColor >> 16) & 0xFF;
+        var dg = (domColor >> 8) & 0xFF;
+        var db = domColor & 0xFF;
 
         // True 2D: each pixel gets unique wave value
         for (var y = 0; y < height; y++) {
@@ -106,22 +115,7 @@ var testAlgo;
                 pattern = Math.pow(Math.max(0, pattern + contrast), 2);
                 pattern = (Math.min(1, pattern)) * beatBoost;
 
-                // Mix 3 gradient colors weighted by mel-bank powers
-                var r = 0, g = 0, b = 0, total = 0;
-                for (var bk = 0; bk < 3; bk++) {
-                    r += colors[bk][0] * bandPowers[bk];
-                    g += colors[bk][1] * bandPowers[bk];
-                    b += colors[bk][2] * bandPowers[bk];
-                    total += bandPowers[bk];
-                }
-
-                // Normalize and apply pattern
-                total = Math.max(MIN_BRIGHTNESS, total);
-                map[y][x] = RGBUtil.rgb(
-                    r / total * pattern,
-                    g / total * pattern,
-                    b / total * pattern
-                );
+                map[y][x] = RGBUtil.rgb(dr * pattern, dg * pattern, db * pattern);
             }
         }
 

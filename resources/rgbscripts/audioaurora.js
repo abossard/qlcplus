@@ -27,9 +27,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.8;
+    algo.presetSpeed = 0.4;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
     algo.presetLayers = 3;
     algo.properties.push(
@@ -54,7 +54,7 @@ var testAlgo;
     var LAYER_SPEED_STEP = 0.7;
     var LAYER_PHASE_OFFSET = 2.1;
     var VERT_WAVE_FREQ = 1.5;
-    var elapsedSec = 0;
+    var auroraState = { phase: 0 };
 
     // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
     // algo.gradientBandColors when the matrix supplies color stops.
@@ -76,7 +76,8 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         // 3 mel banks, each driving its own gradient color.
         var bandPowers = audio.power.bands;
@@ -90,7 +91,7 @@ var testAlgo;
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
-        elapsedSec += dt * speed;
+        var theta = RGBUtil.beatTime(speed, auroraState, bpm, dtMs) * Math.PI * 2;
 
         var waveFreq = algo.presetWaveSize;
         var layers = algo.presetLayers;
@@ -117,7 +118,7 @@ var testAlgo;
                     var wave = Math.sin(
                         xNorm * waveFreq * Math.PI * 2 +
                         yNorm * (l + 1) * VERT_WAVE_FREQ +
-                        elapsedSec * layerSpeed +
+                        theta * layerSpeed +
                         layerPhase +
                         power * reactivity * 3
                     );
@@ -125,7 +126,7 @@ var testAlgo;
                     // Vertical undulation
                     var vertWave = Math.sin(
                         yNorm * Math.PI * 2 * (l + 1) +
-                        elapsedSec * layerSpeed * 0.5 -
+                        theta * layerSpeed * 0.5 -
                         xNorm * 2
                     );
 

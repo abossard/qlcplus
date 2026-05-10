@@ -25,9 +25,9 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 0.3;
+    algo.presetSpeed = 0.075;
     algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
+      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
 
     algo.presetReactivity = 0.4;
@@ -40,15 +40,13 @@ var testAlgo;
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
-    // Phase advance per second at presetSpeed = 1.0. Tuned so default speed (0.3)
-    // gives a slow, musical drift similar to LedFx default.
-    var SPEED_SCALE = 0.5;
     var REACTIVITY_SCALE = 5.0;
     var SAT_BASE = 0.9;
     var SAT_REACT_ADD = 0.3;
     var OFFSET_AMP = 2.0;
 
     algo.phase = 0;
+    var energyState = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -59,14 +57,15 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dtMs = audio.timing.consumerDtMs;
+        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var speed = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
         var reactivity = reactivity01 * REACTIVITY_SCALE;
         var lowPower = audio.power.low;
 
-        algo.phase = RGBUtil.mod1(algo.phase + dt * speed * SPEED_SCALE);
+        algo.phase = RGBUtil.beatTime(speed, energyState, bpm, dtMs);
 
         var hue = RGBUtil.mod1(lowPower + algo.phase);
         var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;
