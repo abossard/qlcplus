@@ -20,280 +20,232 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Soap";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 0.5;
-    algo.properties.push(
-      "name:presetReactivity|type:float|display:Reactivity|" +
-      "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 2.5;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetDensity = 0.5;
-    algo.properties.push(
-      "name:presetDensity|type:float|display:Smear|" +
-      "write:setDensity|read:getDensity");
-    algo.presetSmooth = 0.5;
-    algo.properties.push(
-      "name:presetSmooth|type:float|display:Smoothing|" +
-      "write:setSmooth|read:getSmooth");
+    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDensity = function(_v) { algo.presetDensity = parseFloat(_v); };
-    algo.getDensity = function() { return algo.presetDensity; };
-    algo.setSmooth = function(_v) { algo.presetSmooth = parseFloat(_v); };
-    algo.getSmooth = function() { return algo.presetSmooth; };
+    algo.density = 0.5;
+    algo.speed = 0.5;
+    algo.intensity = 1.0;
+    algo.frequency_range = "Lows (beat+bass)";
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
+    algo.properties.push("name:density|type:float|display:Density|write:setDensity|read:getDensity");
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
+    algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    var BRI_FLOOR = 0.45;
-    var BRI_RANGE = 0.55;
-    var Y_MOVE_RATIO = 0.7;
-    var BEAT_PULSE_AMP = 0.20;
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setDensity = function(v) { algo.density = clamp(v, 0, 1); };
+    algo.getDensity = function() { return algo.density; };
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 0, 1); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setIntensity = function(v) { algo.intensity = clamp(v, 0, 2); };
+    algo.getIntensity = function() { return algo.intensity; };
+    algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
+    algo.getFrequencyRange = function() { return algo.frequency_range; };
+
     var NOISE_FREQ = 3.0;
-    var MAX_NOISE_GRID = 8;
-    var MAX_SOAP_PIXELS = 2048;
-    var phaseX = Math.random() * 100;
-    var phaseY = Math.random() * 100;
-    var soapXState = { position: phaseX };
-    var soapYState = { position: phaseY };
+    var SMOOTH = 0.5;
+    var phaseX = Math.random() * 256;
+    var phaseY = Math.random() * 256;
+    var noiseField = null;
+    var prevPixels = null;
     var lastW = 0, lastH = 0;
-    algo.noiseField = null;
-    algo.coarseNoise = null;
-    algo.prevPixels = null; // persistent pixel buffer [y][x] = [r,g,b]
-    algo.newPixels = null;
+    var needSeed = true;
+
+    function gradientStops() {
+        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+    }
+
+    function powerFor(audio) {
+        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
+        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
+        if (algo.frequency_range === "Mids") return audio.power.mid;
+        if (algo.frequency_range === "High") return audio.power.high;
+        return audio.power.low;
+    }
 
     function initBuffers(w, h) {
-        algo.prevPixels = new Array(h);
-        algo.newPixels = new Array(h);
-        algo.noiseField = new Array(h);
+        noiseField = new Array(h);
+        prevPixels = new Array(h);
         for (var y = 0; y < h; y++) {
-            algo.prevPixels[y] = new Array(w);
-            algo.newPixels[y] = new Array(w);
-            algo.noiseField[y] = new Array(w);
+            noiseField[y] = new Array(w);
+            prevPixels[y] = new Array(w);
             for (var x = 0; x < w; x++) {
-                algo.prevPixels[y][x] = [0, 0, 0];
-                algo.newPixels[y][x] = [0, 0, 0];
-                algo.noiseField[y][x] = 0.5;
+                noiseField[y][x] = 0.5;
+                prevPixels[y][x] = [0, 0, 0];
             }
         }
-        var gridW = Math.min(MAX_NOISE_GRID, w);
-        var gridH = Math.min(MAX_NOISE_GRID, h);
-        algo.coarseNoise = new Array(gridH);
-        for (var gy = 0; gy < gridH; gy++) {
-            algo.coarseNoise[gy] = new Array(gridW);
-            for (var gx = 0; gx < gridW; gx++)
-                algo.coarseNoise[gy][gx] = 0.5;
-        }
-        algo.coarseNoiseWidth = gridW;
-        algo.coarseNoiseHeight = gridH;
-        lastW = w;
-        lastH = h;
-        var seedPacked = AudioColors.bands(algo)[0];
-        var seedR = (seedPacked >> 16) & 0xFF;
-        var seedG = (seedPacked >> 8) & 0xFF;
-        var seedB = seedPacked & 0xFF;
-        for (var y = 0; y < h; y++) {
-            for (var x = 0; x < w; x++) {
-                var t = ((x / Math.max(1, w - 1)) + (y / Math.max(1, h - 1))) / 2;
-                algo.prevPixels[y][x][0] = seedR * t;
-                algo.prevPixels[y][x][1] = seedG * t;
-                algo.prevPixels[y][x][2] = seedB * t;
+        lastW = w; lastH = h;
+        needSeed = true;
+    }
+
+    function genNoiseField(w, h) {
+        var spanX = NOISE_FREQ * 2;
+        var spanY = NOISE_FREQ * 2;
+        var stepX = spanX / Math.max(1, w - 1);
+        var stepY = spanY / Math.max(1, h - 1);
+        var x0 = phaseX - spanX * 0.5;
+        var y0 = phaseY - spanY * 0.5;
+        var newMix = 1 - SMOOTH;
+        for (var iy = 0; iy < h; iy++) {
+            var ny = y0 + iy * stepY;
+            for (var ix = 0; ix < w; ix++) {
+                var nx = x0 + ix * stepX;
+                var n = (RGBUtil.simplex2d(nx, ny) + 1) * 0.5;
+                noiseField[iy][ix] = noiseField[iy][ix] * SMOOTH + n * newMix;
             }
         }
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
+    algo.rgbMapSetColors = function(rawColors) {
+        algo.gradientColors = RGBUtil.buildGradientColors(rawColors);
     };
-
-    function fillNoiseField(w, h, smooth) {
-        var coarseNoise = algo.coarseNoise;
-        var noiseField = algo.noiseField;
-        var gridW = algo.coarseNoiseWidth;
-        var gridH = algo.coarseNoiseHeight;
-        var invGridW = 1 / Math.max(1, gridW - 1);
-        var invGridH = 1 / Math.max(1, gridH - 1);
-
-        for (var gy = 0; gy < gridH; gy++) {
-            for (var gx = 0; gx < gridW; gx++) {
-                var n = RGBUtil.simplex2d(
-                    gx * invGridW * NOISE_FREQ + phaseX,
-                    gy * invGridH * NOISE_FREQ + phaseY
-                );
-                coarseNoise[gy][gx] = (n + 1) * 0.5;
-            }
-        }
-
-        var fullScaleX = Math.max(1, gridW - 1) / Math.max(1, w - 1);
-        var fullScaleY = Math.max(1, gridH - 1) / Math.max(1, h - 1);
-        var newMix = 1 - smooth;
-        for (var y = 0; y < h; y++) {
-            var gyf = y * fullScaleY;
-            var gy0 = Math.floor(gyf);
-            var gy1 = Math.min(gridH - 1, gy0 + 1);
-            var fy = gyf - gy0;
-            var wy = fy * fy * (3 - 2 * fy);
-            var row0 = coarseNoise[gy0];
-            var row1 = coarseNoise[gy1];
-            var dstRow = noiseField[y];
-            for (var x = 0; x < w; x++) {
-                var gxf = x * fullScaleX;
-                var gx0 = Math.floor(gxf);
-                var gx1 = Math.min(gridW - 1, gx0 + 1);
-                var fx = gxf - gx0;
-                var wx = fx * fx * (3 - 2 * fx);
-                var top = row0[gx0] * (1 - wx) + row0[gx1] * wx;
-                var bottom = row1[gx0] * (1 - wx) + row1[gx1] * wx;
-                var n = top * (1 - wy) + bottom * wy;
-                dstRow[x] = dstRow[x] * smooth + n * newMix;
-            }
-        }
-    }
-
-    function colorScaleForNoise(noise) {
-        var t = ((1 - noise) * 3) % 1;
-        return BRI_FLOOR + t * BRI_RANGE;
-    }
+    algo.rgbMapGetColors = function() {
+        return gradientStops().slice();
+    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
-        if (width * height > MAX_SOAP_PIXELS) {
-            var fallbackColor = AudioColors.blendByPower(algo, audio);
-            for (var fy = 0; fy < height; fy++)
-                for (var fx = 0; fx < width; fx++)
-                    map[fy][fx] = fallbackColor;
-            return map;
-        }
+        if (width <= 0 || height <= 0) return map;
 
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var dtSec = dtMs / 1000;
 
-        var power = audio.power.low;
-        var speed = algo.presetSpeed;
-        var reactivity = algo.presetReactivity;
-        var smooth = algo.presetSmooth;
-        var density = algo.presetDensity;
+        var power = powerFor(audio);
+        var impulse = power * 6.0;
 
-        // Audio-modulated rate: presetSpeed cycles/beat at unity audio gain.
-        var audioGain = (reactivity === 0) ? 1 : (1 + power * reactivity * 6);
-        phaseX = RGBUtil.beatPosition(speed * audioGain, soapXState, bpm, dtMs);
-        phaseY = RGBUtil.beatPosition(speed * audioGain * Y_MOVE_RATIO, soapYState, bpm, dtMs);
+        var audioSpeed = (algo.intensity === 0)
+            ? algo.speed
+            : (algo.speed * impulse * algo.intensity);
+        var move = audioSpeed * audioSpeed * 0.5 * dtSec;
+        phaseX += move;
+        phaseY += move;
 
-        fillNoiseField(width, height, smooth);
+        genNoiseField(width, height);
 
-        // Compute palette color inline from noise (wrap 3x like WLED)
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blendedR = (blendedPacked >> 16) & 0xFF;
-        var blendedG = (blendedPacked >> 8) & 0xFF;
-        var blendedB = blendedPacked & 0xFF;
-        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
-        var noveltyBoost = AudioColors.noveltyBoost(audio);
-        var fluxPunch = AudioColors.fluxPunch(audio);
-        var noiseField = algo.noiseField;
-        var prevPixels = algo.prevPixels;
-        var newPixels = algo.newPixels;
-
-        // Smear: shift pixels based on noise, blend with palette for OOB
-        var ampX = Math.max(1, (width - 2) / 4) * (1 + 7 * density);
-        var ampY = Math.max(1, (height - 2) / 4) * (1 + 7 * density);
-
+        // Palette from noise: palIdx = ((1 - noise) * 3) % 1
+        var gradient = gradientStops();
+        var paletteR = new Array(height);
+        var paletteG = new Array(height);
+        var paletteB = new Array(height);
         for (var y = 0; y < height; y++) {
-            var rowShift = (noiseField[y][0] - 0.5) * ampX;
-
+            paletteR[y] = new Array(width);
+            paletteG[y] = new Array(width);
+            paletteB[y] = new Array(width);
             for (var x = 0; x < width; x++) {
-                var colShift = (noiseField[0][x] - 0.5) * ampY;
-
-                var srcX = x + rowShift;
-                var srcY = y + colShift;
-                var sx0 = Math.floor(srcX);
-                var sy0 = Math.floor(srcY);
-                var fx = srcX - sx0;
-                var fy = srcY - sy0;
-
-                var ar, ag, ab, br, bg, bb, cr, cg, cb, dr, dg, db;
-                var ax = sx0, ay = sy0;
-                if (ax >= 0 && ax < width && ay >= 0 && ay < height) {
-                    var a = prevPixels[ay][ax];
-                    ar = a[0]; ag = a[1]; ab = a[2];
-                } else {
-                    ax = Math.max(0, Math.min(width - 1, ax));
-                    ay = Math.max(0, Math.min(height - 1, ay));
-                    var as = colorScaleForNoise(noiseField[ay][ax]);
-                    ar = blendedR * as; ag = blendedG * as; ab = blendedB * as;
-                }
-                var bx = sx0 + 1, by = sy0;
-                if (bx >= 0 && bx < width && by >= 0 && by < height) {
-                    var b = prevPixels[by][bx];
-                    br = b[0]; bg = b[1]; bb = b[2];
-                } else {
-                    bx = Math.max(0, Math.min(width - 1, bx));
-                    by = Math.max(0, Math.min(height - 1, by));
-                    var bs = colorScaleForNoise(noiseField[by][bx]);
-                    br = blendedR * bs; bg = blendedG * bs; bb = blendedB * bs;
-                }
-                var cx = sx0, cy = sy0 + 1;
-                if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-                    var c = prevPixels[cy][cx];
-                    cr = c[0]; cg = c[1]; cb = c[2];
-                } else {
-                    cx = Math.max(0, Math.min(width - 1, cx));
-                    cy = Math.max(0, Math.min(height - 1, cy));
-                    var cs = colorScaleForNoise(noiseField[cy][cx]);
-                    cr = blendedR * cs; cg = blendedG * cs; cb = blendedB * cs;
-                }
-                var dx = sx0 + 1, dy = sy0 + 1;
-                if (dx >= 0 && dx < width && dy >= 0 && dy < height) {
-                    var d = prevPixels[dy][dx];
-                    dr = d[0]; dg = d[1]; db = d[2];
-                } else {
-                    dx = Math.max(0, Math.min(width - 1, dx));
-                    dy = Math.max(0, Math.min(height - 1, dy));
-                    var ds = colorScaleForNoise(noiseField[dy][dx]);
-                    dr = blendedR * ds; dg = blendedG * ds; db = blendedB * ds;
-                }
-
-                // Smoothstep for easing
-                var wx = fx * fx * (3 - 2 * fx);
-                var wy = fy * fy * (3 - 2 * fy);
-
-                var invWx = 1 - wx;
-                var invWy = 1 - wy;
-                var r = ar * invWx * invWy + br * wx * invWy + cr * invWx * wy + dr * wx * wy;
-                var g = ag * invWx * invWy + bg * wx * invWy + cg * invWx * wy + dg * wx * wy;
-                var bl = ab * invWx * invWy + bb * wx * invWy + cb * invWx * wy + db * wx * wy;
-
-                var maxChannel = Math.max(r, g, bl) / 255.0;
-                if (maxChannel > 0) {
-                    var baseFloor = Math.min(1, maxChannel);
-                    var floored = Math.min(1, baseFloor * fluxPunch) * beatBoost * noveltyBoost;
-                    var floorScale = floored / maxChannel;
-                    r *= floorScale;
-                    g *= floorScale;
-                    bl *= floorScale;
-                }
-                var out = newPixels[y][x];
-                out[0] = r;
-                out[1] = g;
-                out[2] = bl;
-                map[y][x] = RGBUtil.rgb(r, g, bl);
+                var palIdx = ((1 - noiseField[y][x]) * 3) % 1;
+                if (palIdx < 0) palIdx += 1;
+                var packed = RGBUtil.gradientColorAt(gradient, palIdx);
+                paletteR[y][x] = (packed >> 16) & 0xFF;
+                paletteG[y][x] = (packed >> 8) & 0xFF;
+                paletteB[y][x] = packed & 0xFF;
             }
         }
 
-        // Store for next frame (persistence)
-        algo.prevPixels = newPixels;
-        algo.newPixels = prevPixels;
+        // Seed prevPixels from palette on first frame or resize
+        if (needSeed) {
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                    prevPixels[y][x] = [paletteR[y][x], paletteG[y][x], paletteB[y][x]];
+            needSeed = false;
+        }
+
+        // Smear amplitudes
+        var ampX = Math.max(1, (width - 8) / 8) * (1 + 7 * algo.density);
+        var ampY = Math.max(1, (height - 8) / 8) * (1 + 7 * algo.density);
+
+        // Per-row and per-col shift amounts
+        var amtRows = new Array(height);
+        for (var y = 0; y < height; y++)
+            amtRows[y] = (noiseField[y][0] - 0.5) * ampX;
+        var amtCols = new Array(width);
+        for (var x = 0; x < width; x++)
+            amtCols[x] = (noiseField[0][x] - 0.5) * ampY;
+
+        // Pass 1: smear rows (horizontal) — prevPixels → afterRows
+        var afterR = new Array(height);
+        var afterG = new Array(height);
+        var afterB = new Array(height);
+        for (var y = 0; y < height; y++) {
+            afterR[y] = new Array(width);
+            afterG[y] = new Array(width);
+            afterB[y] = new Array(width);
+            var amt = amtRows[y];
+            var sgn = amt > 0 ? 1 : (amt < 0 ? -1 : 0);
+            var mag = Math.abs(amt);
+            var di = Math.floor(mag);
+            var frac = mag - di;
+            var wB = frac * frac * (3 - 2 * frac);
+            var wA = 1 - wB;
+
+            for (var x = 0; x < width; x++) {
+                var zD = x + sgn * di;
+                var zF = zD + sgn;
+                var ar, ag, ab, br, bg, bb;
+                if (zD >= 0 && zD < width) {
+                    var p = prevPixels[y][zD]; ar = p[0]; ag = p[1]; ab = p[2];
+                } else {
+                    var cx = Math.max(0, Math.min(width - 1, zD));
+                    ar = paletteR[y][cx]; ag = paletteG[y][cx]; ab = paletteB[y][cx];
+                }
+                if (zF >= 0 && zF < width) {
+                    var p = prevPixels[y][zF]; br = p[0]; bg = p[1]; bb = p[2];
+                } else {
+                    var cx = Math.max(0, Math.min(width - 1, zF));
+                    br = paletteR[y][cx]; bg = paletteG[y][cx]; bb = paletteB[y][cx];
+                }
+                afterR[y][x] = ar * wA + br * wB;
+                afterG[y][x] = ag * wA + bg * wB;
+                afterB[y][x] = ab * wA + bb * wB;
+            }
+        }
+
+        // Pass 2: smear cols (vertical) — afterRows → output
+        for (var x = 0; x < width; x++) {
+            var amt = amtCols[x];
+            var sgn = amt > 0 ? 1 : (amt < 0 ? -1 : 0);
+            var mag = Math.abs(amt);
+            var di = Math.floor(mag);
+            var frac = mag - di;
+            var wB = frac * frac * (3 - 2 * frac);
+            var wA = 1 - wB;
+
+            for (var y = 0; y < height; y++) {
+                var zD = y + sgn * di;
+                var zF = zD + sgn;
+                var ar, ag, ab, br, bg, bb;
+                if (zD >= 0 && zD < height) {
+                    ar = afterR[zD][x]; ag = afterG[zD][x]; ab = afterB[zD][x];
+                } else {
+                    var cy = Math.max(0, Math.min(height - 1, zD));
+                    ar = paletteR[cy][x]; ag = paletteG[cy][x]; ab = paletteB[cy][x];
+                }
+                if (zF >= 0 && zF < height) {
+                    br = afterR[zF][x]; bg = afterG[zF][x]; bb = afterB[zF][x];
+                } else {
+                    var cy = Math.max(0, Math.min(height - 1, zF));
+                    br = paletteR[cy][x]; bg = paletteG[cy][x]; bb = paletteB[cy][x];
+                }
+                var r = ar * wA + br * wB;
+                var g = ag * wA + bg * wB;
+                var b = ab * wA + bb * wB;
+
+                prevPixels[y][x] = [r, g, b];
+                map[y][x] = RGBUtil.rgb(
+                    Math.max(0, Math.min(255, r)),
+                    Math.max(0, Math.min(255, g)),
+                    Math.max(0, Math.min(255, b))
+                );
+            }
+        }
 
         return map;
     };

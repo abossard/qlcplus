@@ -4,7 +4,6 @@
 
   Copyright (c) QLC+ contributors
   Ported from LedFX "Fire" effect (MIT License)
-  Original by LedFX contributors: https://github.com/LedFx/LedFx
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -21,195 +20,124 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Fire";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // spectrum heat gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    // --- Properties ---
-    algo.presetSpeed = 0.04;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed|" +
-      "write:setSpeed|read:getSpeed");
+    algo.speed = 0.04;
+    algo.color_shift = 0.15;
+    algo.intensity = 8;
+    algo.fade_chance = 0.5;
 
-    algo.presetIntensity = 8;
-    algo.properties.push(
-      "name:presetIntensity|type:range|display:Spark Count|" +
-      "values:1,20|write:setIntensity|read:getIntensity");
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:color_shift|type:float|display:Color Shift|write:setColorShift|read:getColorShift");
+    algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
+    algo.properties.push("name:fade_chance|type:float|display:Fade Chance|write:setFadeChance|read:getFadeChance");
 
-    algo.presetCooling = 5;
-    algo.properties.push(
-      "name:presetCooling|type:range|display:Cooling|" +
-      "values:1,10|write:setCooling|read:getCooling");
-
-    algo.presetDirection = 0;
-    algo.properties.push(
-      "name:presetDirection|type:list|display:Direction|" +
-      "values:Up,Down|write:setDirection|read:getDirection");
-
-    algo.presetSpread = 0;
-    algo.properties.push(
-      "name:presetSpread|type:list|display:Per Column|" +
-      "values:No,Yes|write:setSpread|read:getSpread");
-
-    algo.presetSparkFade = 0.05;
-    algo.properties.push(
-      "name:presetSparkFade|type:float|display:Spark Fade|" +
-      "write:setSparkFade|read:getSparkFade");
-
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function()  { return algo.presetSpeed; };
-    algo.setIntensity = function(_v) { algo.presetIntensity = parseInt(_v); };
-    algo.getIntensity = function()  { return algo.presetIntensity; };
-    algo.setCooling = function(_v) { algo.presetCooling = parseInt(_v); };
-    algo.getCooling = function() { return algo.presetCooling; };
-    algo.setDirection = function(_v) { algo.presetDirection = (_v === "Down") ? 1 : 0; };
-    algo.getDirection = function() { return algo.presetDirection ? "Down" : "Up"; };
-    algo.setSpread = function(_v) { algo.presetSpread = (_v === "Yes") ? 1 : 0; };
-    algo.getSpread = function() { return algo.presetSpread ? "Yes" : "No"; };
-
-    algo.setSparkFade = function(_v) { algo.presetSparkFade = parseFloat(_v); };
-    algo.getSparkFade = function() { return algo.presetSparkFade; };
-    // --- Internal state ---
-    var COOL_FLOOR = 0.85;
-    var COOL_STEP = 0.015;
-    var COOL_BASS_BOOST = 0.15;
-    var SPEED_BASS_BOOST = 0.01;
-    var SPARK_MIN = 0.5;
-    var SPARK_BLEED = 0.4;
-    var SPARK_AMP = 0.5;
-    var MIX_SPREAD = 0.7;
-    var MIX_SINGLE = 0.35;
-    var BEAT_MOD_AMP = 0.15;
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.00001, 0.5); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setColorShift = function(v) { algo.color_shift = clamp(v, 0, 1); };
+    algo.getColorShift = function() { return algo.color_shift; };
+    algo.setIntensity = function(v) { algo.intensity = Math.max(1, Math.min(30, Math.round(parseFloat(v) || 8))); };
+    algo.getIntensity = function() { return algo.intensity; };
+    algo.setFadeChance = function(v) { algo.fade_chance = clamp(v, 0.05, 1); };
+    algo.getFadeChance = function() { return algo.fade_chance; };
 
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
+    var emaLows = 0;
+    var cooling = 0.95;
+    var accel = 0.03;
+    var curSpeed = 0.04;
+    var curFadeChance = 0.05;
 
-    function init(pixelCount)
-    {
-        sparkPixels = new Array(pixelCount);
-        for (var i = 0; i < pixelCount; i++) sparkPixels[i] = 0;
-
-        var sparkCount = algo.presetIntensity;
-        sparks = new Array(sparkCount);
-        sparkX = new Array(sparkCount);
-        for (var i = 0; i < sparkCount; i++) {
+    function init(n) {
+        sparkPixels = new Array(n);
+        for (var i = 0; i < n; i++) sparkPixels[i] = 0;
+        var sc = algo.intensity;
+        sparks = new Array(sc);
+        sparkX = new Array(sc);
+        for (var i = 0; i < sc; i++) {
             sparks[i] = 0;
             sparkX[i] = Math.random() * 5;
         }
     }
 
-    // Colors for fire gradient. algo.gradientColors is auto-injected by C++.
-    var DEFAULT_GRADIENT = [0x200000, 0xAA0000, 0xFF5500, 0xFFFF00, 0xFFFFFF];
-    var columnLut = null;
-    var columnLutWidth = -1;
-    var columnLutSig = "";
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
-    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var pixelCount = height; // fire rises vertically (bottom to top)
-        if (sparkPixels === null || sparkPixels.length !== pixelCount) init(pixelCount);
-
+        var N = width;
+        if (!sparkPixels || sparkPixels.length !== N || sparks.length !== algo.intensity) init(N);
         var map = RGBUtil.createMap(width, height);
-
         if (!audio) return map;
-        var melSrc = audio.spectrum.full;
-        if (!melSrc || melSrc.length === 0)
-            return map;
 
-        var deltaMs = audio.timing.consumerDtMs;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
 
-        var speed = algo.presetSpeed;
-        var baseCooling = COOL_FLOOR + (10 - algo.presetCooling) * COOL_STEP;
+        // EMA filter on lows (decay=0.05, rise=0.99)
+        var rawLows = audio.power.low;
+        var alphaL = (rawLows > emaLows) ? 0.99 : 0.05;
+        emaLows = alphaL * rawLows + (1 - alphaL) * emaLows;
 
-        // Audio influence: bass drives the fire
-        var bandPowers = audio.power.bands;
-        var lowPower = bandPowers[0];
+        // Audio modulation
+        cooling = 0.75 + emaLows * 0.25;
+        accel = 0.02 + emaLows * 0.1;
+        curSpeed = algo.speed + emaLows * 0.01;
+        curFadeChance = algo.fade_chance / 10;
 
-        var cooling = baseCooling + lowPower * COOL_BASS_BOOST;
-        var adjustedSpeed = speed + lowPower * SPEED_BASS_BOOST;
-        var deltaScaled = deltaMs * adjustedSpeed;
+        var deltaScaled = dtMs * curSpeed;
 
         // Cool all pixels
-        for (var i = 0; i < pixelCount; i++)
+        for (var i = 0; i < N; i++)
             sparkPixels[i] *= cooling;
 
-        // Heat diffusion (spread upward)
-        if (pixelCount > 5) {
-            for (var i = pixelCount - 1; i >= 5; i--) {
-                sparkPixels[i] = (
-                    sparkPixels[i - 1] +
-                    sparkPixels[i - 2] +
-                    sparkPixels[i - 3] * 2 +
-                    sparkPixels[i - 4] * 3
-                ) / 7;
-            }
+        // Heat diffusion
+        if (N > 5) {
+            for (var i = N - 1; i >= 5; i--)
+                sparkPixels[i] = (sparkPixels[i - 1] + sparkPixels[i - 2] + sparkPixels[i - 3] * 2 + sparkPixels[i - 4] * 3) / 7;
         }
 
-        var sparkCount = sparks.length;
-
-        // Advance sparks
-        for (var i = 0; i < sparkCount; i++) {
+        var sc = sparks.length;
+        for (var i = 0; i < sc; i++) {
+            // Reset dead sparks
             if (sparks[i] <= 0) {
-                // Respawn dead spark
-                sparks[i] = SPARK_MIN + Math.random() * SPARK_MIN;
+                sparks[i] = 0.5 + Math.random() * 0.5;
                 sparkX[i] = Math.random() * 5;
             }
 
-            var stepSize = sparks[i] * sparks[i] * deltaScaled * (pixelCount / 100);
-            sparkX[i] += stepSize;
+            // Advance
+            var step = sparks[i] * sparks[i] * deltaScaled * (N / 100);
+            sparkX[i] += step;
 
-            // Random fade or out of bounds
-            if (sparkX[i] >= pixelCount || Math.random() < algo.presetSparkFade) {
+            // Fade or out of bounds
+            if (sparkX[i] >= N || Math.random() < curFadeChance) {
                 sparks[i] = 0;
                 sparkX[i] = 0;
                 continue;
             }
 
             // Heat up pixels where sparks pass
-            var jStart = Math.max(0, Math.floor(sparkX[i] - stepSize));
+            var jStart = Math.max(0, Math.floor(sparkX[i] - step));
             var jEnd = Math.floor(sparkX[i]);
-            for (var j = jStart; j < jEnd && j < pixelCount; j++) {
-                sparkPixels[j] += Math.max(0, Math.min(1, 1 - sparks[i] * SPARK_BLEED)) * SPARK_AMP;
-            }
+            var heat = Math.max(0, Math.min(1, 1 - sparks[i] * 0.4)) * 0.5;
+            for (var j = jStart; j < jEnd && j < N; j++)
+                sparkPixels[j] += heat;
         }
 
-        var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
-        var sig = stops.length + ":" + stops.join(",");
-        if (columnLut === null || columnLutWidth !== width || columnLutSig !== sig) {
-            columnLut = RGBUtil.gradientLut(stops, width);
-            columnLutWidth = width;
-            columnLutSig = sig;
-        }
+        // HSV mapping
+        var colorShift = algo.color_shift;
+        for (var x = 0; x < N; x++) {
+            var px = sparkPixels[x];
 
-        var spectrum = melSrc;
-        var specBands = RGBUtil.interpolate(spectrum, algo.displayWidth);
-        var spectrumMix = algo.presetSpread ? MIX_SPREAD : MIX_SINGLE;
-        var beatMod = 1 + audio.beat.cosPulse * BEAT_MOD_AMP;
+            var h = Math.max(0, Math.min(1, px * px)) * 0.1 + colorShift;
+            var s = 1 - (px - 1) * 2;
+            var v = px * 2;
 
-        // Map heat values to colors using fire gradient and render into 2D grid
-        for (var y = 0; y < height; y++) {
-            // Direction: Up = bottom-to-top, Down = top-to-bottom
-            var fireIdx = algo.presetDirection ? y : (height - 1 - y);
-            var heat = Math.max(0, Math.min(1, sparkPixels[fireIdx]));
-
-            // Fill row with per-column gradient color and spectrum-scaled heat.
-            for (var x = 0; x < width; x++) {
-                var colHeat = heat * ((1 - spectrumMix) + specBands[x] * spectrumMix);
-                var packed = columnLut[x];
-                var cr = (packed >> 16) & 0xFF;
-                var cg = (packed >> 8) & 0xFF;
-                var cb = packed & 0xFF;
-                var cb2 = (Math.min(1, colHeat * 2)) * beatMod;
-                map[y][x] = RGBUtil.rgb(cr * cb2, cg * cb2, cb * cb2);
-            }
+            var packed = RGBUtil.hsvToRgb(h, s, v);
+            for (var y = 0; y < height; y++)
+                map[y][x] = packed;
         }
 
         return map;

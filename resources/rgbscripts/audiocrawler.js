@@ -20,104 +20,91 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Crawler";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 0.5;
-    algo.properties.push(
-      "name:presetReactivity|type:float|display:Reactivity|" +
-      "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.075;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetSway = 1.0;
-    algo.properties.push(
-      "name:presetSway|type:float|display:Sway|" +
-      "write:setSway|read:getSway");
-    algo.presetChop = 1.0;
-    algo.properties.push(
-      "name:presetChop|type:float|display:Chop|" +
-      "write:setChop|read:getChop");
+    algo.speed = 0.5;
+    algo.reactivity = 0.25;
+    algo.sway = 20;
+    algo.chop = 30;
+    algo.stretch = 2.5;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setSway = function(_v) { algo.presetSway = parseFloat(_v); };
-    algo.getSway = function() { return algo.presetSway; };
-    algo.setChop = function(_v) { algo.presetChop = parseFloat(_v); };
-    algo.getChop = function() { return algo.presetChop; };
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
+    algo.properties.push("name:sway|type:float|display:Sway|write:setSway|read:getSway");
+    algo.properties.push("name:chop|type:float|display:Chop|write:setChop|read:getChop");
+    algo.properties.push("name:stretch|type:float|display:Stretch|write:setStretch|read:getStretch");
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.00001, 1); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.00001, 1); };
+    algo.getReactivity = function() { return algo.reactivity; };
+    algo.setSway = function(v) { algo.sway = clamp(v, 0.00001, 50); };
+    algo.getSway = function() { return algo.sway; };
+    algo.setChop = function(v) { algo.chop = clamp(v, 0.00001, 100); };
+    algo.getChop = function() { return algo.chop; };
+    algo.setStretch = function(v) { algo.stretch = clamp(v, 0.00001, 10); };
+    algo.getStretch = function() { return algo.stretch; };
 
-    var DEFAULT_BAND_COLORS = [0x00FF80, 0x80A0FF, 0xFFFFFF];
-    var CHOP_RATIO = 1.67;   // chop is 1.67× the base sway rate
-    var AUDIO_BOOST_MS_PER_FRAME = 50;
-    var HUE_BAND = 0.3;
-    var HUE_PERTURB = 0.1;
-    var COLOR_FLOOR = 0.6;
-    var BASE_STRETCH = 2.0;
-    var swayState = { phase: 0 };
-    var chopState = { phase: 0 };
-    var activeColor = null;
+    var TWO_PI = 2 * Math.PI;
+    var timeState = { position: 0 };
+    var emaLows = 0;
+
+    function hsvTime(modifier, ts) {
+        var t = (ts * modifier / 65.536) % 1;
+        return t < 0 ? t + 1 : t;
+    }
+
+    function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
-        var lowPower = audio.power.low;
+        var rawLows = audio.power.low;
+        var alpha = (rawLows > emaLows) ? 0.1 : 0.1;
+        emaLows = alpha * rawLows + (1 - alpha) * emaLows;
+        var lows = emaLows;
 
-        var speed = algo.presetSpeed;
-        var sway = algo.presetSway;
-        var chop = algo.presetChop;
-        var reactivity = algo.presetReactivity;
+        var speed = algo.speed;
+        var reactivity = algo.reactivity;
+        var sway = algo.sway;
+        var chop = algo.chop;
+        var stretch = algo.stretch;
 
-        // Audio modulation extends the effective dt for this frame
-        var boost = lowPower * reactivity * AUDIO_BOOST_MS_PER_FRAME;
+        // BPM-scaled free-running time + audio-reactive offset (not accumulated).
+        var timeAccum = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var timestep = timeAccum + lows * reactivity * speed;
 
-        // Two BPM-locked phases at different rates (smooth undulation)
-        var t1 = RGBUtil.beatAngle(speed * sway, swayState, bpm, dtMs + boost);
-        var t2 = RGBUtil.beatAngle(speed * CHOP_RATIO * chop, chopState, bpm, dtMs + boost);
-        if (audio.onset.fired || audio.beat.kick || !activeColor) {
-            var dominantColor = AudioColors.dominant(algo, audio);
-            activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
-        }
-        var dominant = activeColor;
+        var t1 = hsvTime(speed * sway, timestep);
+        var t2 = hsvTime(speed * chop, timestep);
+        var t3 = hsvTime(speed * chop + lows * reactivity, timeAccum);
+
+        var sinT1 = hsvSin(t1);
+        var N = width;
 
         for (var x = 0; x < width; x++) {
-            var il = (x - width / 2) / width; // -0.5 to 0.5
+            var i = x;
+            var i1 = x / Math.max(1, width - 1);
 
-            // Crawling hue: modular arithmetic + sine interference
-            var stretch = BASE_STRETCH + Math.sin(t1) * sway;
-            var h = ((il * stretch) % HUE_BAND + HUE_BAND) % HUE_BAND;
-            h = h + Math.sin(t2 + il * 5) * HUE_PERTURB;
+            var h = (i + t3 * N) / N;
+            h *= stretch;
+            h = ((h % (stretch / 10)) + (stretch / 10)) % (stretch / 10);
+            h += i1;
+            h += sinT1;
 
-            // Smooth brightness modulation
-            var v = Math.sin(t2 + il * chop * 3);
-            v = v * v; // Square for contrast
+            var v = hsvSin(h);
+            v = v * v;
 
-            var hNorm = ((h * 3 + 0.5) % 1 + 1) % 1;
-            var colorScale = COLOR_FLOOR + hNorm * 0.4;
-            var r = dominant[0] * colorScale;
-            var g = dominant[1] * colorScale;
-            var b = dominant[2] * colorScale;
-
-            // Apply brightness
-            var baseBright = Math.max(0, Math.min(1, v));
-            var bright = baseBright;
-
-            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
+            var packed = RGBUtil.hsvToRgb(h, 1, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

@@ -20,103 +20,84 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Lava Lamp";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 0.35;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetContrast = 0.6;
-    algo.properties.push(
-      "name:presetContrast|type:float|display:Contrast|" +
-      "write:setContrast|read:getContrast");
+    algo.speed = 7;
+    algo.contrast = 0.6;
+    algo.reactivity = 0.3;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setContrast = function(_v) { algo.presetContrast = parseFloat(_v); };
-    algo.getContrast = function() { return algo.presetContrast; };
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:contrast|type:float|display:Contrast|write:setContrast|read:getContrast");
+    algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFAA00, 0x80FF00];
-    var BEAT_PULSE_AMP = 0.25;
-    // t2 runs at 2× the base rate (preserves old LAVA_SPEED_2/LAVA_SPEED_1 ratio).
-    var LAVA_RATIO_2 = 2.0;
-    var BASS_MOD_1 = 0.004;
-    var BASS_MOD_2 = 0.007;
-    var WAVE1_Y_FREQ = 0.5;
-    var WAVE2_Y_FREQ = 0.7;
-    var WAVE4_T_FREQ = 1.7;
-    var WAVE4_X_FREQ = 0.6;
-    var WAVE5_T_FREQ = 1.3;
-    var WAVE5_Y_FREQ = 1.2;
-    var MIN_BRIGHTNESS = 0.01;
-    var lavaState1 = { phase: 0 };
-    var lavaState2 = { phase: 0 };
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.1, 15); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setContrast = function(v) { algo.contrast = clamp(v, 0, 1); };
+    algo.getContrast = function() { return algo.contrast; };
+    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.00001, 0.9); };
+    algo.getReactivity = function() { return algo.reactivity; };
 
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
+    var TWO_PI = 2 * Math.PI;
+    var timeState = { position: 0 };
+    var emaLows = 0;
+
+    function hsvTime(modifier, ts) {
+        var t = (ts * modifier / 65.536) % 1;
+        return t < 0 ? t + 1 : t;
+    }
+
+    function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
-    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
-        var bandPowers = audio.power.bands;
-        var lowPower = bandPowers[0];
-        var midsPower = bandPowers[1];
-        var highsPower = bandPowers[2];
-        var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
-        var colors = [];
-        for (var ci = 0; ci < 3; ci++)
-            colors.push(unpackColor(colorStops[ci]));
-        var speed = algo.presetSpeed;
-        var contrast = 1 - algo.presetContrast;
+        // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
+        var timeAccum = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
 
-        // Beat-pulse brightness boost
-        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
+        var rawLows = audio.power.low;
+        var alpha = (rawLows > emaLows) ? algo.reactivity : 0.05;
+        emaLows = alpha * rawLows + (1 - alpha) * emaLows;
+        var lows = emaLows;
 
-        // Bass accelerates the rate (cycles/beat increases with bass).
-        var bassMul1 = Math.max(1, 1 + lowPower * BASS_MOD_1);
-        var bassMul2 = Math.max(1, 1 + lowPower * BASS_MOD_2);
-        var t1 = RGBUtil.beatTime(speed * bassMul1, lavaState1, bpm, dtMs);
-        var t2 = RGBUtil.beatTime(speed * LAVA_RATIO_2 * bassMul2, lavaState2, bpm, dtMs);
+        var speed = algo.speed;
+        var contrastInv = 1 - algo.contrast;
 
-        // Use dominant band color (no RGB averaging to white)
-        var domColor = AudioColors.blendByPower(algo, audio);
-        var dr = (domColor >> 16) & 0xFF;
-        var dg = (domColor >> 8) & 0xFF;
-        var db = domColor & 0xFF;
+        var t1 = hsvTime(speed * Math.max(1, 1 + lows * 0.004), timeAccum);
+        var t2 = hsvTime(speed * 2 * Math.max(1, 1 + lows * 0.007), timeAccum);
 
-        // True 2D: each pixel gets unique wave value
-        for (var y = 0; y < height; y++) {
-            var yNorm = y / Math.max(1, height - 1);
+        for (var x = 0; x < width; x++) {
+            var il = x / Math.max(1, width - 1);
 
-            for (var x = 0; x < width; x++) {
-                var xNorm = x / Math.max(1, width - 1);
+            var w1 = hsvSin(t1 + il);
+            var w2 = hsvSin(t2 - il);
+            var w3raw = (il + w1 + w2) % 1;
+            var w3 = hsvSin(w3raw);
 
-                // Five wave layers for a richer lava pattern
-                var w1 = Math.sin((t1 + xNorm + yNorm * WAVE1_Y_FREQ) * Math.PI * 2);
-                var w2 = Math.sin((t2 - xNorm + yNorm * WAVE2_Y_FREQ) * Math.PI * 2);
-                var w3 = Math.sin((xNorm + yNorm + w1 + w2) * Math.PI * 2);
-                var w4 = Math.sin((t1 * WAVE4_T_FREQ + xNorm * WAVE4_X_FREQ - yNorm) * Math.PI * 2);
-                var w5 = Math.sin((t2 * WAVE5_T_FREQ - xNorm + yNorm * WAVE5_Y_FREQ) * Math.PI * 2);
+            var h = t1 + il;
 
-                // Combine waves for pattern
-                var pattern = (w1 + 0.1) * (w2 + lowPower * 2) * (w3 + midsPower * 1.5) + (w4 * midsPower + w5 * highsPower) * 0.35;
-                pattern = Math.pow(Math.max(0, pattern + contrast), 2);
-                pattern = (Math.min(1, pattern)) * beatBoost;
+            w1 += 0.1;
+            w2 += lows * 0.7;
+            w3 += lows * 0.9;
 
-                map[y][x] = RGBUtil.rgb(dr * pattern, dg * pattern, db * pattern);
-            }
+            var pattern = w1 * w2 * w3;
+            h += pattern * 0.1;
+
+            var val = pattern + contrastInv;
+            val = val * val;
+
+            var packed = RGBUtil.hsvToRgb(h, 1, val);
+            for (var y = 0; y < height; y++)
+                map[y][x] = packed;
         }
 
         return map;

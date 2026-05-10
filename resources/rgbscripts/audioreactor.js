@@ -2,8 +2,9 @@
   Q Light Controller Plus
   audioreactor.js
 
-  Kitchen-sink audio demo: dominant-band scenes, beat power, pitch tint,
-  and onset flashes.
+  Kitchen-sink audio demo: dominant-band scenes, onset flash, beat-driven
+  sparkles, optional pitch-hue palette. Each audio feature drives a single
+  visual behavior (no stacking).
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -34,11 +35,6 @@ var testAlgo;
       "name:presetSensitivity|type:float|display:Sensitivity|" +
       "write:setSensitivity|read:getSensitivity");
 
-    algo.presetMotion = 1.0;
-    algo.properties.push(
-      "name:presetMotion|type:float|display:Motion|" +
-      "write:setMotion|read:getMotion");
-
     algo.presetFlash = 0.8;
     algo.properties.push(
       "name:presetFlash|type:float|display:Onset Flash|" +
@@ -53,74 +49,31 @@ var testAlgo;
     algo.getPalette = function() { return algo.presetPalette ? "Pitch Hue" : "Band Colors"; };
     algo.setSensitivity = function(_v) { algo.presetSensitivity = parseFloat(_v); };
     algo.getSensitivity = function() { return algo.presetSensitivity; };
-    algo.setMotion = function(_v) { algo.presetMotion = parseFloat(_v); };
-    algo.getMotion = function() { return algo.presetMotion; };
     algo.setFlash = function(_v) { algo.presetFlash = parseFloat(_v); };
     algo.getFlash = function() { return algo.presetFlash; };
     algo.setSparkles = function(_v) { algo.presetSparkles = (_v === "On") ? 1 : 0; };
     algo.getSparkles = function() { return algo.presetSparkles ? "On" : "Off"; };
 
     var DEFAULT_BAND_COLORS = [0xFF2040, 0x20FF80, 0x80C0FF];
-    var MOTION_SPD_BASE = 0.015;
-    var MOTION_SPD_RANGE = 0.025;
-    var BEAT_SPD_MULT = 2.5;
-    var SWEEP_RATE = 0.25;
-    var FLASH_DECAY = 0.82;
-    var SPARK_DENSITY = 0.10;
-    var SPARK_DECAY = 0.80;
-    var OVERALL_BASE = 0.35;
-    var time = 0;
-    var flash = 0;
-    var sweep = 0;
-    var sparkEnergy = null;
-    var sparkColor = null;
-
-    // --- Rendering constants ---
     var PITCH_CONF_THRESH = 0.2;
-    var PITCH_SATURATION = 0.85;
-    var BEAT_PULSE_LEVEL = 0.35;
-    var SPARK_INIT_BASE = 0.5;
-    var SPARK_VIS_THRESHOLD = 0.01;
-    var FLASH_VIS_THRESHOLD = 0.01;
-    var MAX_FLASH_BLEND = 0.75;
-    var LOW_FLOOR_HEIGHT = 0.25;
-    var LOW_FLOOR_WEIGHT = 0.8;
-    var MID_OVERLAY_SPEED = 0.2;
-    var MID_OVERLAY_WEIGHT = 0.15;
-    var HIGH_TOP_WEIGHT = 0.20;
+
+    // BPM-scaled wall clock (one unit per beat). No audio in time scale.
+    var timeState = { position: 0 };
+    var flash = 0;
+    var sparkleLevel = 0;
 
     function unpack(packed) {
         return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-    }
-
-    function mix(a, b, t) {
-        return [
-            a[0] * (1 - t) + b[0] * t,
-            a[1] * (1 - t) + b[1] * t,
-            a[2] * (1 - t) + b[2] * t
-        ];
     }
 
     function colorFor(audio, bandIndex) {
         if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > PITCH_CONF_THRESH) {
             var midi = audio.pitch.midi;
             var hue = RGBUtil.mod1((midi % 12) / 12 + bandIndex / 12);
-            return RGBUtil.hsv2rgb(hue, PITCH_SATURATION, 1.0);
+            return RGBUtil.hsv2rgb(hue, 0.85, 1.0);
         }
         var colors = AudioColors.bands(algo);
         return unpack(colors[bandIndex] || DEFAULT_BAND_COLORS[bandIndex]);
-    }
-
-    function ensureSparks(width, height) {
-        var count = width * height;
-        if (sparkEnergy && sparkEnergy.length === count)
-            return;
-        sparkEnergy = new Array(count);
-        sparkColor = new Array(count);
-        for (var i = 0; i < count; i++) {
-            sparkEnergy[i] = 0;
-            sparkColor[i] = [255, 255, 255];
-        }
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -134,20 +87,15 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        ensureSparks(width, height);
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var bpm = (audio.beat) ? audio.beat.bpm : 0;
+        // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
+        var time = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
         var sensitivity = algo.presetSensitivity;
-        var motion = algo.presetMotion;
         var lowVis = Math.min(1, audio.power.low * sensitivity);
         var midVis = Math.min(1, audio.power.mid * sensitivity);
         var highVis = Math.min(1, audio.power.high * sensitivity);
-        var beatPower = audio.power.detail.beat;
-        var beatPulse = Math.max(audio.beat.cosPulse, audio.beat.kickIntensity);
-        var speed = (MOTION_SPD_BASE + MOTION_SPD_RANGE * motion) * (1 + beatPower * BEAT_SPD_MULT);
-        time += dt * 1000.0 * speed;
-        if (time > 1e6) time -= 1e6;
-        sweep = RGBUtil.mod1(sweep + dt * SWEEP_RATE * motion * (1 + midVis * 3));
 
         var dominant = audio.power.dominant;
         var dominantIndex = dominant === "high" ? 2 : (dominant === "mid" ? 1 : 0);
@@ -157,31 +105,33 @@ var testAlgo;
         var highColor = colorFor(audio, 2);
         var dominantColor = [lowColor, midColor, highColor][dominantIndex];
 
-        var onset = audio.onset.fired;
-        if (onset || audio.beat.fired || audio.beat.kick) {
-            var onsetIntensity = audio.onset.intensity;
-            flash = Math.max(flash, onsetIntensity * algo.presetFlash);
-        }
-        flash *= FLASH_DECAY;
+        // Onset → flash overlay (single trigger source, no double-dipping).
+        if (audio.onset.fired)
+            flash = Math.max(flash, audio.onset.intensity * algo.presetFlash);
+        flash *= 0.82;
 
-        if (algo.presetSparkles && (onset || dominant === "high")) {
-            var sparkCount = Math.max(1, Math.floor(width * height * highVis * SPARK_DENSITY));
-            if (onset) sparkCount += Math.max(1, Math.floor(width / 4));
+        // Beat → sparkle intensity envelope (single behavior).
+        sparkleLevel *= 0.70;
+        if (algo.presetSparkles)
+            sparkleLevel = Math.max(sparkleLevel, audio.beat.cosPulse * highVis);
+
+        // Distribute sparkle pixels for this frame in the upper half.
+        var sparkleSet = null;
+        if (algo.presetSparkles && sparkleLevel > 0.02) {
+            sparkleSet = {};
+            var sparkRows = Math.max(1, Math.floor(height / 2));
+            var sparkCount = Math.max(1, Math.floor(width * sparkRows * 0.10 * sparkleLevel));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
-                var sy = Math.floor(Math.random() * Math.max(1, height / 2));
-                var si = sy * width + sx;
-                sparkEnergy[si] = Math.max(sparkEnergy[si], SPARK_INIT_BASE + highVis * 0.5 + flash * 0.5);
-                sparkColor[si] = highColor;
+                var sy = Math.floor(Math.random() * sparkRows);
+                sparkleSet[sy * width + sx] = 1;
             }
         }
 
-        for (var i = 0; i < sparkEnergy.length; i++)
-            sparkEnergy[i] *= SPARK_DECAY;
-
-        var floor = 0;
-        var overall = OVERALL_BASE + dominantValue + beatPulse * BEAT_PULSE_LEVEL;
         var barPhase = audio.bar.phase01;
+        var overall = 0.35 + dominantValue;
+        var flashActive = flash > 0.01;
+        var flashAmount = Math.min(1, flash);
 
         for (var y = 0; y < height; y++) {
             var y01 = height <= 1 ? 0 : y / (height - 1);
@@ -190,46 +140,41 @@ var testAlgo;
 
             for (var x = 0; x < width; x++) {
                 var x01 = width <= 1 ? 0 : x / (width - 1);
-                var base = [0, 0, 0];
-                var level = 0;
+                var color, level;
 
                 if (dominant === "low") {
                     var wave = 0.5 + 0.5 * Math.sin((x01 * 2.5 + time + barPhase) * Math.PI * 2);
-                    var pulseHeight = Math.min(1, 0.15 + lowVis * 1.15 + beatPulse * 0.25);
+                    var pulseHeight = Math.min(1, 0.15 + lowVis * 1.15);
                     level = Math.max(0, (pulseHeight - bottom) / Math.max(0.001, pulseHeight));
-                    base = mix(lowColor, midColor, wave * 0.25);
                     level *= 0.55 + 0.45 * wave;
+                    color = lowColor;
                 } else if (dominant === "mid") {
-                    var center = sweep;
-                    var dx = Math.abs(x01 - center);
+                    var dx = Math.abs(x01 - barPhase);
                     dx = Math.min(dx, 1 - dx);
                     var ripple = Math.max(0, 1 - dx * (4 + midVis * 8));
                     var rowWave = 0.5 + 0.5 * Math.sin((y01 * 3 + time * 0.65) * Math.PI * 2);
                     level = Math.max(ripple, rowWave * midVis * 0.65);
-                    base = mix(midColor, lowColor, rowWave * 0.25);
+                    color = midColor;
                 } else {
                     var shimmer = 0.5 + 0.5 * Math.sin((x01 * 9 + y01 * 5 + time * 1.8) * Math.PI * 2);
                     level = highVis * (0.25 + 0.75 * top) * (0.45 + 0.55 * shimmer);
-                    base = mix(highColor, midColor, shimmer * 0.20);
+                    color = highColor;
                 }
 
-                level += lowVis * Math.max(0, LOW_FLOOR_HEIGHT - bottom) * LOW_FLOOR_WEIGHT;
-                level += midVis * (0.5 + 0.5 * Math.sin((x01 + time * MID_OVERLAY_SPEED) * Math.PI * 2)) * MID_OVERLAY_WEIGHT;
-                level += highVis * top * HIGH_TOP_WEIGHT;
-
-                var spark = sparkEnergy[y * width + x];
-                if (spark > SPARK_VIS_THRESHOLD) {
-                    base = mix(base, sparkColor[y * width + x], Math.min(1, spark));
-                    level = Math.max(level, spark);
+                // Sparkle override (single white flicker, no per-pixel state).
+                if (sparkleSet && sparkleSet[y * width + x]) {
+                    color = highColor;
+                    level = Math.max(level, sparkleLevel);
                 }
 
-                if (flash > FLASH_VIS_THRESHOLD) {
-                    base = mix(base, dominantColor, Math.min(MAX_FLASH_BLEND, flash));
-                    level = Math.max(level, flash);
+                // Flash override (full-frame tint, single trigger source).
+                if (flashActive) {
+                    color = dominantColor;
+                    level = Math.max(level, flashAmount);
                 }
 
                 var brightness = Math.min(1, level) * overall;
-                map[y][x] = RGBUtil.rgb(base[0] * brightness, base[1] * brightness, base[2] * brightness);
+                map[y][x] = RGBUtil.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
             }
         }
 

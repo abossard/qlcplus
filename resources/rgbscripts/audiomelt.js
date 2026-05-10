@@ -20,92 +20,69 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Melt";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 0.5;
-    algo.properties.push(
-      "name:presetReactivity|type:float|display:Reactivity|" +
-      "write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 0.125;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetColorSpeed = 5;
-    algo.properties.push(
-      "name:presetColorSpeed|type:range|display:Color Speed|" +
-      "values:1,10|write:setColorSpeed|read:getColorSpeed");
+    algo.speed = 0.5;
+    algo.reactivity = 0.5;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setColorSpeed = function(_v) { algo.presetColorSpeed = parseInt(_v); };
-    algo.getColorSpeed = function() { return algo.presetColorSpeed; };
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
-    algo.getReactivity = function() { return algo.presetReactivity; };
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.001, 1); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.0001, 1); };
+    algo.getReactivity = function() { return algo.reactivity; };
 
-    var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
-    var MELT_RATIO_2 = 1.3;   // preserves old 0.00065/0.0005 ratio
-    var COLOR_RATIO = 0.2;    // preserves old 0.0001/0.0005 ratio
-    var AUDIO_BOOST_MS_PER_FRAME = 50;
-    var BEAT_PULSE_AMP = 0.20;
-    var COLOR_FLOOR = 0.65;
-    var COLOR_RANGE = 0.35;
-    var meltState1 = { phase: 0 };
-    var meltState2 = { phase: 0 };
-    var colorState = { phase: 0 };
+    var TWO_PI = 2 * Math.PI;
+    var timeState = { position: 0 };
+    var emaLows = 0;
+
+    function hsvTime(modifier, ts) {
+        var t = (ts * modifier / 65.536) % 1;
+        return t < 0 ? t + 1 : t;
+    }
+
+    function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
-        var lowPower = audio.power.low;
+        var rawLows = audio.power.low;
+        var alpha = (rawLows > emaLows) ? 0.1 : 0.1;
+        emaLows = alpha * rawLows + (1 - alpha) * emaLows;
+        var lows = emaLows;
 
-        var speed = algo.presetSpeed;
-        var reactivity = algo.presetReactivity;
+        var speed = algo.speed;
+        var reactivity = algo.reactivity;
 
-        // Audio modulation extends the effective dt for this frame
-        var boost = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_BOOST_MS_PER_FRAME;
+        // BPM-scaled free-running time + audio-reactive offset (not accumulated).
+        var baseTime = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var timestep = baseTime + lows * reactivity / speed;
 
-        var t1 = RGBUtil.beatTime(speed, meltState1, bpm, dtMs + boost);
-        var t2 = RGBUtil.beatTime(speed * MELT_RATIO_2, meltState2, bpm, dtMs + boost);
-        var colorT = RGBUtil.beatTime(algo.presetColorSpeed * COLOR_RATIO, colorState, bpm, dtMs + boost);
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
-        var noveltyBoost = AudioColors.noveltyBoost(audio);
-        var fluxPunch = AudioColors.fluxPunch(audio);
+        var t1 = hsvTime(speed * 5, timestep);
+        var t2 = hsvTime(speed * 6.5, timestep);
 
         for (var x = 0; x < width; x++) {
             var il = 1 - x / Math.max(1, width - 1);
 
-            // Melt: layered sine waves creating organic patterns
-            var v = Math.sin((il + t1) * Math.PI * 2);
-            v = Math.sin((v + t1) * Math.PI * 2);
-            v = Math.sin((v + t1) * Math.PI * 2);
-            v = v * v; // Square for contrast
+            var v = hsvSin(il);
+            v = hsvSin(v + t1);
+            v = hsvSin(v + t1);
+            v = v * v;
 
-            var huePos = (il + t2 + colorT) % 1;
-            var colorScale = COLOR_FLOOR + huePos * COLOR_RANGE;
-            var r = blended[0] * colorScale;
-            var g = blended[1] * colorScale;
-            var b = blended[2] * colorScale;
+            var h = il + t2;
 
-            var floored = v;
-            var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
-            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
-
+            var packed = RGBUtil.hsvToRgb(h, 1, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

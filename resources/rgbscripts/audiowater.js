@@ -20,149 +20,140 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Water";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 0.2;
-    algo.properties.push(
-      "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
-      "write:setSpeed|read:getSpeed");
-    algo.presetViscosity = 6;
-    algo.properties.push(
-      "name:presetViscosity|type:range|display:Viscosity|" +
-      "values:2,12|write:setViscosity|read:getViscosity");
-    algo.presetBassSize = 8;
-    algo.properties.push(
-      "name:presetBassSize|type:range|display:Bass Ripple Size|" +
-      "values:1,15|write:setBassSize|read:getBassSize");
-    algo.presetHighSize = 3;
-    algo.properties.push(
-      "name:presetHighSize|type:range|display:High Ripple Size|" +
-      "values:1,15|write:setHighSize|read:getHighSize");
+    algo.speed = 1;
+    algo.vertical_shift = 0.12;
+    algo.bass_size = 8;
+    algo.mids_size = 6;
+    algo.high_size = 3;
+    algo.viscosity = 6;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
-    algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setViscosity = function(_v) { algo.presetViscosity = parseInt(_v); };
-    algo.getViscosity = function() { return algo.presetViscosity; };
-    algo.setBassSize = function(_v) { algo.presetBassSize = parseInt(_v); };
-    algo.getBassSize = function() { return algo.presetBassSize; };
-    algo.setHighSize = function(_v) { algo.presetHighSize = parseInt(_v); };
-    algo.getHighSize = function() { return algo.presetHighSize; };
+    algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
+    algo.properties.push("name:vertical_shift|type:float|display:Vertical Shift|write:setVerticalShift|read:getVerticalShift");
+    algo.properties.push("name:bass_size|type:float|display:Bass Size|write:setBassSize|read:getBassSize");
+    algo.properties.push("name:mids_size|type:float|display:Mids Size|write:setMidsSize|read:getMidsSize");
+    algo.properties.push("name:high_size|type:float|display:High Size|write:setHighSize|read:getHighSize");
+    algo.properties.push("name:viscosity|type:float|display:Viscosity|write:setViscosity|read:getViscosity");
 
-    var DEFAULT_DT_MS = 40;
-    var BEAT_PULSE_AMOUNT = 0.20;
-    var WHITEWASH_THRESHOLD = 0.8;
-    var buf0 = null;
-    var buf1 = null;
-    var curBuf = 0;
-    // Per-track ratios relative to presetSpeed.
-    var MID_RATIO  = 0.1;
-    var HIGH1_RATIO = 0.15;
-    var HIGH2_RATIO = 0.125;
-    var midState = { position: 0 };
-    var high1State = { position: 0 };
-    var high2State = { position: 0.5 };
+    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
+    algo.setSpeed = function(v) { algo.speed = clamp(v, 1, 3); };
+    algo.getSpeed = function() { return algo.speed; };
+    algo.setVerticalShift = function(v) { algo.vertical_shift = clamp(v, -0.2, 1); };
+    algo.getVerticalShift = function() { return algo.vertical_shift; };
+    algo.setBassSize = function(v) { algo.bass_size = clamp(v, 0, 15); };
+    algo.getBassSize = function() { return algo.bass_size; };
+    algo.setMidsSize = function(v) { algo.mids_size = clamp(v, 0, 15); };
+    algo.getMidsSize = function() { return algo.mids_size; };
+    algo.setHighSize = function(v) { algo.high_size = clamp(v, 0, 15); };
+    algo.getHighSize = function() { return algo.high_size; };
+    algo.setViscosity = function(v) { algo.viscosity = clamp(v, 2, 12); };
+    algo.getViscosity = function() { return algo.viscosity; };
+
+    var buf0 = null, buf1 = null, curBuf = 0;
+    var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
+    var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
 
     function init(w) {
         buf0 = new Array(w); buf1 = new Array(w);
         for (var i = 0; i < w; i++) { buf0[i] = 0; buf1[i] = 0; }
         curBuf = 0;
+        midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
+        highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
     }
 
     function createDrop(pos, h, w) {
         if (pos < 1 || pos >= w - 1) return;
-        buf0[pos] = buf0[pos-1] = buf0[pos+1] = h;
-        buf1[pos] = buf1[pos-1] = buf1[pos+1] = h;
+        buf0[pos] = buf0[pos - 1] = buf0[pos + 1] = h;
+        buf1[pos] = buf1[pos - 1] = buf1[pos + 1] = h;
     }
 
-    function doRipple(dampFactor, dtScale, w) {
+    function smooth3(arr, w) {
+        if (w < 3) return;
+        var prev = arr[0];
+        for (var i = 1; i < w - 1; i++) {
+            var cur = arr[i];
+            arr[i] = (prev + cur + arr[i + 1]) / 3;
+            prev = cur;
+        }
+    }
+
+    function doRipple(dampFactor, w) {
         var src = (curBuf === 0) ? buf1 : buf0;
         var dst = (curBuf === 0) ? buf0 : buf1;
-        for (var i = 1; i < w - 1; i++) {
-            dst[i] = ((src[i-1] + src[i+1] + src[i] * 2) / 2) - dst[i];
-            dst[i] -= (dst[i] / dampFactor) * dtScale;
-        }
+        for (var i = 1; i < w - 1; i++)
+            dst[i] = ((src[i - 1] + src[i + 1] + src[i] * 2) / 2) - dst[i];
+        smooth3(dst, w);
+        for (var i = 0; i < w; i++)
+            dst[i] -= dst[i] / dampFactor;
         curBuf = 1 - curBuf;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!buf0 || buf0.length !== width) init(width);
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
+        if (width < 5) return map;
 
-        var dampFactor = Math.pow(2, algo.presetViscosity);
-        var dtMs = audio.timing.audioDtMs;
-        var consumerDt = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-        var dtScale = Math.max(0.25, Math.min(4.0, dtMs / DEFAULT_DT_MS));
-        var bassIntensity = Math.pow(audio.power.low, 2);
-        var midsIntensity = Math.pow(audio.power.mid, 2);
-        var highIntensity = Math.pow(audio.power.high, 2);
+        var speed = algo.speed;
+        var dampFactor = Math.pow(2, algo.viscosity);
+        var shift = algo.vertical_shift;
 
-        // Create drops based on audio
-        createDrop(1, bassIntensity * algo.presetBassSize, width);
-        createDrop(Math.floor(width / 2), bassIntensity * algo.presetBassSize, width);
-        createDrop(width - 2, bassIntensity * algo.presetBassSize, width);
+        var lowP = Math.min(1, Math.max(0, Math.pow(audio.power.low, 2)));
+        var midP = Math.min(1, Math.max(0, Math.pow(audio.power.mid, 2)));
+        var hiP  = Math.min(1, Math.max(0, Math.pow(audio.power.high, 2)));
 
-        // Mids drops at moving positions
-        var midPhase = RGBUtil.beatPosition(algo.presetSpeed * MID_RATIO, midState, bpm, consumerDt);
-        midPhase = midPhase - Math.floor(midPhase);
-        var midPos = Math.floor(midPhase * (width - 2)) + 1;
-        createDrop(midPos, midsIntensity * 6, width);
+        // 3 bass emitters at fixed positions
+        createDrop(1, lowP * algo.bass_size, width);
+        createDrop(Math.floor(width / 2), lowP * algo.bass_size, width);
+        createDrop(width - 2, lowP * algo.bass_size, width);
 
-        // Highs drops at multiple positions (highPhase2 runs in reverse)
-        var highPhase1 = RGBUtil.beatPosition(algo.presetSpeed * HIGH1_RATIO, high1State, bpm, consumerDt);
-        highPhase1 = highPhase1 - Math.floor(highPhase1);
-        var highPhase2 = RGBUtil.beatPosition(-algo.presetSpeed * HIGH2_RATIO, high2State, bpm, consumerDt);
-        highPhase2 = highPhase2 - Math.floor(highPhase2);
-        var highPos1 = Math.floor(highPhase1 * (width - 2)) + 1;
-        var highPos2 = Math.floor(highPhase2 * (width - 2)) + 1;
-        createDrop(highPos1, highIntensity * algo.presetHighSize, width);
-        createDrop(highPos2, highIntensity * algo.presetHighSize, width);
+        // 2 mid emitters (drifting)
+        for (var i = 0; i < midsEmitters.length; i++) {
+            var pos = 1 + Math.floor(midsEmitters[i][0] * (width - 2));
+            createDrop(pos, midP * algo.mids_size, width);
+            midsEmitters[i][0] += 0.0002 * midsEmitters[i][1] * speed;
+            if (midsEmitters[i][0] < 0) midsEmitters[i][0] += 1;
+            else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
+        }
 
-        // Run ripple simulation
-        var speedSteps = Math.max(1, Math.min(5, Math.round(algo.presetSpeed * 1.5)));
-        for (var s = 0; s < speedSteps; s++)
-            doRipple(dampFactor, dtScale, width);
+        // 4 high emitters (drifting)
+        for (var i = 0; i < highEmitters.length; i++) {
+            var pos = 1 + Math.floor(highEmitters[i][0] * (width - 2));
+            createDrop(pos, hiP * algo.high_size, width);
+            highEmitters[i][0] += 0.0002 * highEmitters[i][1] * speed;
+            if (highEmitters[i][0] < 0) highEmitters[i][0] += 1;
+            else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
+        }
 
-        // Render: map water height to the energy-weighted band color
+        // Ripple simulation
+        var speedInt = Math.floor(speed);
+        for (var s = 0; s < speedInt; s++)
+            doRipple(dampFactor, width);
+
+        // Render HSV
         var current = (curBuf === 0) ? buf0 : buf1;
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
-        var noveltyBoost = AudioColors.noveltyBoost(audio);
-        var fluxPunch = AudioColors.fluxPunch(audio);
         for (var x = 0; x < width; x++) {
             var val = current[x];
-            // Triangle wave for hue variation
-            var hue = Math.abs((val * 2) % 2 - 1);
-            // Brightness from water height
-            var baseBright = Math.min(1, Math.max(0, val * 0.8 + 0.12));
-            var floored = baseBright;
-            var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
-            var colorScale = 0.65 + hue * 0.35;
-            var r = blended[0] * colorScale;
-            var g = blended[1] * colorScale;
-            var b = blended[2] * colorScale;
+            // h = triangle(val)
+            var h = 1 - 2 * Math.abs(val - 0.5);
 
-            // Saturation reduction for bright peaks (whitewash effect)
-            if (bright > WHITEWASH_THRESHOLD) {
-                var whiteMix = (bright - WHITEWASH_THRESHOLD) * 5;
-                r = r + (255 - r) * whiteMix;
-                g = g + (255 - g) * whiteMix;
-                b = b + (255 - b) * whiteMix;
-            }
+            // vScaled = (val + shift) / (1 + shift)
+            var vScaled = (val + shift) / (1 + shift);
 
-            var packed = RGBUtil.rgb(r * bright, g * bright, b * bright);
+            // s = clamp(2 - (vScaled + shift), 0, 1)
+            var s = Math.max(0, Math.min(1, 2 - (vScaled + shift)));
+
+            // v = clamp(vScaled, 0, 1)
+            var v = Math.max(0, Math.min(1, vScaled));
+
+            var packed = RGBUtil.hsvToRgb(h, s, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }
