@@ -23,8 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
-    algo.presetSensitivity = 5;
     algo.presetDecay = 5;
     algo.properties.push(
       "name:presetDecay|type:range|display:Decay Speed|" +

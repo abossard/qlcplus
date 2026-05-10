@@ -23,8 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
-    algo.presetSensitivity = 7;
     algo.presetMaxParticles = 200;
     algo.properties.push(
       "name:presetMaxParticles|type:range|display:MaxParticles|" +
