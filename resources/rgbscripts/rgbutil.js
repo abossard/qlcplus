@@ -206,6 +206,48 @@ RGBUtil.hsvToRgb = function(h, s, v) {
 };
 
 /**
+ * Pre-built 256-entry rainbow gradient LUT. Each entry is [r, g, b] in 0-255.
+ */
+RGBUtil.RAINBOW_LUT = (function() {
+    var lut = new Array(256);
+    for (var i = 0; i < 256; i++) {
+        var h = i / 256;
+        var sector = Math.floor(h * 6);
+        var f = h * 6 - sector;
+        var r, g, b;
+        switch (sector % 6) {
+            case 0: r=255; g=f*255; b=0; break;
+            case 1: r=(1-f)*255; g=255; b=0; break;
+            case 2: r=0; g=255; b=f*255; break;
+            case 3: r=0; g=(1-f)*255; b=255; break;
+            case 4: r=f*255; g=0; b=255; break;
+            case 5: r=255; g=0; b=(1-f)*255; break;
+        }
+        lut[i] = [r, g, b];
+    }
+    return lut;
+})();
+
+/**
+ * LedFX-style HSV: gradient LUT lookup, then s/v applied in RGB domain.
+ * - h wraps to [0,1) and indexes the rainbow LUT.
+ * - s desaturates toward the max channel: pixel += (max - pixel) * (1 - s).
+ * - v multiplies brightness; final clamp happens at RGBUtil.rgb().
+ * s/v are NOT pre-clamped; out-of-range values clip naturally at rgb().
+ */
+RGBUtil.hsvLedFx = function(h, s, v) {
+    var idx = Math.floor(((h % 1 + 1) % 1) * 255.999);
+    var c = RGBUtil.RAINBOW_LUT[idx];
+    var r = c[0], g = c[1], b = c[2];
+    var m = Math.max(r, g, b);
+    var oneMinusS = 1 - s;
+    r = (r + (m - r) * oneMinusS) * v / 255;
+    g = (g + (m - g) * oneMinusS) * v / 255;
+    b = (b + (m - b) * oneMinusS) * v / 255;
+    return RGBUtil.rgb(r * 255, g * 255, b * 255);
+};
+
+/**
  * Additively blend two packed 0xRRGGBB colors with per-channel clamping at 255.
  */
 RGBUtil.blendAdd = function(a, b) {

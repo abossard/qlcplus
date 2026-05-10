@@ -53,6 +53,7 @@ var testAlgo;
     algo.getViscosity = function() { return algo.viscosity; };
 
     var buf0 = null, buf1 = null, curBuf = 0;
+    var EMITTER_DRIFT_RATE = 0.0002;
     var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
     var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
 
@@ -117,7 +118,7 @@ var testAlgo;
         for (var i = 0; i < midsEmitters.length; i++) {
             var pos = 1 + Math.floor(midsEmitters[i][0] * (width - 2));
             createDrop(pos, midP * algo.mids_size, width);
-            midsEmitters[i][0] += 0.0002 * midsEmitters[i][1] * speed;
+            midsEmitters[i][0] += EMITTER_DRIFT_RATE * midsEmitters[i][1] * speed;
             if (midsEmitters[i][0] < 0) midsEmitters[i][0] += 1;
             else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
         }
@@ -126,7 +127,7 @@ var testAlgo;
         for (var i = 0; i < highEmitters.length; i++) {
             var pos = 1 + Math.floor(highEmitters[i][0] * (width - 2));
             createDrop(pos, hiP * algo.high_size, width);
-            highEmitters[i][0] += 0.0002 * highEmitters[i][1] * speed;
+            highEmitters[i][0] += EMITTER_DRIFT_RATE * highEmitters[i][1] * speed;
             if (highEmitters[i][0] < 0) highEmitters[i][0] += 1;
             else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
         }

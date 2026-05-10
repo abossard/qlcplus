@@ -95,7 +95,7 @@ var testAlgo;
             var val = pattern + contrastInv;
             val = val * val;
 
-            var packed = RGBUtil.hsvToRgb(h, 1, val);
+            var packed = RGBUtil.hsvLedFx(h, 1, val);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

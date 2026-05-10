@@ -56,6 +56,10 @@ var testAlgo;
 
     var DEFAULT_BAND_COLORS = [0xFF2040, 0x20FF80, 0x80C0FF];
     var PITCH_CONF_THRESH = 0.2;
+    var FLASH_DECAY = 0.82;
+    var SPARKLE_DECAY = 0.70;
+    var SPARKLE_DENSITY = 0.10;
+    var BASE_OVERALL = 0.35;
 
     // BPM-scaled wall clock (one unit per beat). No audio in time scale.
     var timeState = { position: 0 };
@@ -108,10 +112,10 @@ var testAlgo;
         // Onset → flash overlay (single trigger source, no double-dipping).
         if (audio.onset.fired)
             flash = Math.max(flash, audio.onset.intensity * algo.presetFlash);
-        flash *= 0.82;
+        flash *= FLASH_DECAY;
 
         // Beat → sparkle intensity envelope (single behavior).
-        sparkleLevel *= 0.70;
+        sparkleLevel *= SPARKLE_DECAY;
         if (algo.presetSparkles)
             sparkleLevel = Math.max(sparkleLevel, audio.beat.cosPulse * highVis);
 
@@ -120,7 +124,7 @@ var testAlgo;
         if (algo.presetSparkles && sparkleLevel > 0.02) {
             sparkleSet = {};
             var sparkRows = Math.max(1, Math.floor(height / 2));
-            var sparkCount = Math.max(1, Math.floor(width * sparkRows * 0.10 * sparkleLevel));
+            var sparkCount = Math.max(1, Math.floor(width * sparkRows * SPARKLE_DENSITY * sparkleLevel));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
                 var sy = Math.floor(Math.random() * sparkRows);
@@ -129,7 +133,7 @@ var testAlgo;
         }
 
         var barPhase = audio.bar.phase01;
-        var overall = 0.35 + dominantValue;
+        var overall = BASE_OVERALL + dominantValue;
         var flashActive = flash > 0.01;
         var flashAmount = Math.min(1, flash);
 

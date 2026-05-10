@@ -70,7 +70,7 @@ var testAlgo;
         var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
         var rawLows = audio.power.low;
-        var alpha = (rawLows > emaLows) ? 0.1 : 0.1;
+        var alpha = 0.1;
         emaLows = alpha * rawLows + (1 - alpha) * emaLows;
         var lows = emaLows;
 
@@ -89,13 +89,11 @@ var testAlgo;
         var t3 = hsvTime(speed * chop + lows * reactivity, timeAccum);
 
         var sinT1 = hsvSin(t1);
-        var N = width;
 
         for (var x = 0; x < width; x++) {
-            var i = x;
             var i1 = x / Math.max(1, width - 1);
 
-            var h = (i + t3 * N) / N;
+            var h = (x + t3 * width) / width;
             h *= stretch;
             h = ((h % (stretch / 10)) + (stretch / 10)) % (stretch / 10);
             h += i1;
@@ -104,7 +102,7 @@ var testAlgo;
             var v = hsvSin(h);
             v = v * v;
 
-            var packed = RGBUtil.hsvToRgb(h, 1, v);
+            var packed = RGBUtil.hsvLedFx(h, 1, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

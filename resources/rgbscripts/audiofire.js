@@ -49,7 +49,6 @@ var testAlgo;
     var sparkX = null;
     var emaLows = 0;
     var cooling = 0.95;
-    var accel = 0.03;
     var curSpeed = 0.04;
     var curFadeChance = 0.05;
 
@@ -83,7 +82,6 @@ var testAlgo;
 
         // Audio modulation
         cooling = 0.75 + emaLows * 0.25;
-        accel = 0.02 + emaLows * 0.1;
         curSpeed = algo.speed + emaLows * 0.01;
         curFadeChance = algo.fade_chance / 10;
 
@@ -135,7 +133,7 @@ var testAlgo;
             var s = 1 - (px - 1) * 2;
             var v = px * 2;
 
-            var packed = RGBUtil.hsvToRgb(h, s, v);
+            var packed = RGBUtil.hsvLedFx(h, s, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }

@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="1"/>
+   <BeatGenerator BeatType="Audio" BPM="143"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -621,7 +621,7 @@
    <FixtureVal ID="5">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
    <FixtureVal ID="6">0,0,1,0,2,0,4,0,5,0,6,0,8,0,9,0,10,0,12,0,13,0,14,0,16,0,17,0,18,0,20,0,21,0,22,0,24,0,25,0,26,0,28,0,29,0,30,0,32,0,33,0,34,0,36,0,37,0,38,0,40,0,41,0,42,0,44,0,45,0,46,0,48,0,49,0,50,0,52,0,53,0,54,0,56,0,57,0,58,0,60,0,61,0,62,0,64,0,65,0,66,0,68,0,69,0,70,0,72,0,73,0,74,0,76,0,77,0,78,0,80,0,81,0,82,0,84,0,85,0,86,0,88,0,89,0,90,0,92,0,93,0,94,0,96,0,97,0,98,0,100,0,101,0,102,0,104,0,105,0,106,0,108,0,109,0,110,0,112,0,113,0,114,0,116,0,117,0,118,0,120,0,121,0,122,0,124,0,125,0,126,0,128,0,129,0,130,0,132,0,133,0,134,0,136,0,137,0,138,0,140,0,141,0,142,0,144,0,145,0,146,0,148,0,149,0,150,0,152,0,153,0,154,0,156,0,157,0,158,0,160,0,161,0,162,0,164,0,165,0,166,0,168,0,169,0,170,0,172,0,173,0,174,0,176,0,177,0,178,0,180,0,181,0,182,0,184,0,185,0,186,0,188,0,189,0,190,0,192,0,193,0,194,0,196,0,197,0,198,0,200,0,201,0,202,0,204,0,205,0,206,0,208,0,209,0,210,0,212,0,213,0,214,0,216,0,217,0,218,0,220,0,221,0,222,0,224,0,225,0,226,0,228,0,229,0,230,0,232,0,233,0,234,0,236,0,237,0,238,0,240,0,241,0,242,0,244,0,245,0,246,0,248,0,249,0,250,0,252,0,253,0,254,0,256,0,257,0,258,0,260,0,261,0,262,0,264,0,265,0,266,0,268,0,269,0,270,0,272,0,273,0,274,0,276,0,277,0,278,0,280,0,281,0,282,0,284,0,285,0,286,0,288,0,289,0,290,0,292,0,293,0,294,0,296,0,297,0,298,0,300,0,301,0,302,0,304,0,305,0,306,0,308,0,309,0,310,0,312,0,313,0,314,0,316,0,317,0,318,0</FixtureVal>
   </Function>
-  <Function ID="3" Type="RGBMatrix" Name="EXP-1-A Audio Spectrum">
+  <Function ID="3" Type="RGBMatrix" Name="EXP-1-A Audio Spectrum" BlendMode="Subtractive">
    <Tempo>Beats</Tempo>
    <Speed FadeIn="0" FadeOut="0" Duration="1000"/>
    <Direction>Forward</Direction>
@@ -634,8 +634,12 @@
    <Color Index="4">4278190335</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>AllBeat4</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
-  <Function ID="4" Type="RGBMatrix" Name="EXP-1-B Audio Equalizer" BlendMode="Additive">
+  <Function ID="4" Type="RGBMatrix" Name="EXP-1-B Audio Equalizer" BlendMode="Mask">
    <Tempo>Beats</Tempo>
    <Speed FadeIn="0" FadeOut="250" Duration="63"/>
    <Direction>Forward</Direction>
@@ -652,6 +656,10 @@
    <Property Name="lower" Value="0.01"/>
    <Property Name="radius" Value="0.2"/>
    <Property Name="twist" Value="0.07"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>Walk</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="5" Type="RGBMatrix" Name="EXP-1-C Audio Wavelength">
    <Tempo>Beats</Tempo>
@@ -667,13 +675,14 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <Property Name="gradient_roll" Value="4"/>
+   <Mirror>3</Mirror>
   </Function>
   <Function ID="6" Type="RGBMatrix" Name="EXP-1-D Audio Power">
    <Tempo>Beats</Tempo>
    <Speed FadeIn="0" FadeOut="0" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Scroll</Algorithm>
+   <Algorithm Type="Script">Audio Reactor</Algorithm>
    <Color Index="0">4294927872</Color>
    <Color Index="1">4294941183</Color>
    <Color Index="2">4294915071</Color>
@@ -682,6 +691,12 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>1</AudioProfileID>
+   <Property Name="presetFlash" Value="0.05"/>
+   <Property Name="presetMotion" Value="0.001"/>
+   <Property Name="presetPalette" Value="Pitch Hue"/>
+   <Property Name="presetSensitivity" Value="0.001"/>
+   <Property Name="presetSparkles" Value="Off"/>
+   <Mirror>3</Mirror>
   </Function>
   <Function ID="7" Type="RGBMatrix" Name="EXP-1-E Audio Scroll">
    <Tempo>Beats</Tempo>
@@ -695,6 +710,7 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <Property Name="mirror" Value="No"/>
+   <Mirror>3</Mirror>
   </Function>
   <Function ID="8" Type="RGBMatrix" Name="EXP-2-A Audio Beat Colors">
    <Tempo>Beats</Tempo>
@@ -703,8 +719,8 @@
    <RunOrder>Loop</RunOrder>
    <Algorithm Type="Script">Audio Reactor</Algorithm>
    <Color Index="0">4283826262</Color>
-   <Color Index="1">4278190190</Color>
-   <Color Index="2">4294967295</Color>
+   <Color Index="1">4294967142</Color>
+   <Color Index="2">4289541119</Color>
    <Color Index="3">4288322048</Color>
    <Color Index="4">4294914867</Color>
    <ControlMode>RGB</ControlMode>
@@ -715,6 +731,10 @@
    <Property Name="presetPalette" Value="Band Colors"/>
    <Property Name="presetSensitivity" Value="1"/>
    <Property Name="presetSparkles" Value="On"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>AllBeat4</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="9" Type="RGBMatrix" Name="EXP-2-B Audio Energy">
    <Tempo>Beats</Tempo>
@@ -731,6 +751,10 @@
    <Property Name="presetColorSpeed" Value="1"/>
    <Property Name="presetReactivity" Value="0.011"/>
    <Property Name="presetSpeed" Value="0.001"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>Mirror</BeatEffect>
+   <BeatSelection>Random</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="10" Type="RGBMatrix" Name="EXP-2-C Audio Strobe">
    <Tempo>Beats</Tempo>
@@ -746,6 +770,10 @@
    <Property Name="presetSaturation" Value="0.545"/>
    <Property Name="presetSpeed" Value="2.1"/>
    <Property Name="presetWaveScale" Value="0.715"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>Blackout</BeatEffect>
+   <BeatSelection>Random</BeatSelection>
+   <BeatOrientation>Columns</BeatOrientation>
   </Function>
   <Function ID="11" Type="RGBMatrix" Name="EXP-2-D Audio Glitch 2">
    <Tempo>Beats</Tempo>
@@ -761,6 +789,11 @@
    <Property Name="presetReactivity" Value="0.4"/>
    <Property Name="presetSaturation" Value="1"/>
    <Property Name="presetSpeed" Value="0.5"/>
+   <Rotation>3</Rotation>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>Walk</BeatSelection>
+   <BeatOrientation>Columns</BeatOrientation>
   </Function>
   <Function ID="12" Type="RGBMatrix" Name="EXP-2-E Audio Hue Shift">
    <Tempo>Beats</Tempo>
@@ -811,6 +844,11 @@
    <Property Name="presetSparkFade" Value="0.05"/>
    <Property Name="presetSpeed" Value="0.04"/>
    <Property Name="presetSpread" Value="No"/>
+   <Rotation>1</Rotation>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>AllBeat4</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="15" Type="RGBMatrix" Name="EXP-3-C Audio Fireworks">
    <Tempo>Beats</Tempo>
@@ -828,6 +866,10 @@
    <Property Name="presetOrigin" Value="Center"/>
    <Property Name="presetParticleSize" Value="2"/>
    <Property Name="triggerMode" Value="Beat"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>Random</BeatSelection>
+   <BeatOrientation>Columns</BeatOrientation>
   </Function>
   <Function ID="16" Type="RGBMatrix" Name="EXP-3-D Audio Bass Laser">
    <Tempo>Beats</Tempo>
@@ -859,6 +901,11 @@
    <Property Name="presetSpeed" Value="9"/>
    <Property Name="presetWaveDecay" Value="0.03"/>
    <Property Name="presetWaveWidth" Value="5"/>
+   <Mirror>3</Mirror>
+   <MirrorBlend>Additive</MirrorBlend>
+   <BeatEffect>Blackout</BeatEffect>
+   <BeatSelection>Walk</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="18" Type="RGBMatrix" Name="PLASMA">
    <Tempo>Beats</Tempo>
@@ -879,6 +926,10 @@
    <Property Name="lower" Value="6.129"/>
    <Property Name="radius" Value="0.2"/>
    <Property Name="twist" Value="0.07"/>
+   <Mirror>3</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>AllBeat4</BeatSelection>
+   <BeatOrientation>Rows</BeatOrientation>
   </Function>
   <Function ID="309" Type="Scene" Name="BALLM" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -925,6 +976,150 @@
     </Mapping>
     <Mapping Source="Kick" Type="1" DmxScale="1" DmxFloor="0" BeatHoldMs="80"/>
    </AudioTriggers>
+   <Frame Caption="Frame 2" ID="1">
+    <WindowState Visible="True" X="45" Y="350" Width="731" Height="441"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Frame Caption="Frame 3" ID="2">
+     <WindowState Visible="True" X="243" Y="45" Width="354" Height="354"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>False</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="EXP-2-C Audio Strobe" ID="10">
+      <WindowState Visible="True" X="263" Y="91" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="10"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-1-C Audio Wavelength" ID="5">
+      <WindowState Visible="True" X="177" Y="5" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="5"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-1-A Audio Spectrum" ID="3">
+      <WindowState Visible="True" X="5" Y="5" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="3"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-1-B Audio Equalizer" ID="4">
+      <WindowState Visible="True" X="91" Y="5" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="4"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-1-D Audio Power" ID="6">
+      <WindowState Visible="True" X="263" Y="5" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="6"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-1-E Audio Scroll" ID="7">
+      <WindowState Visible="True" X="5" Y="91" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="7"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-2-A Audio Beat Colors" ID="8">
+      <WindowState Visible="True" X="91" Y="91" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="8"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-2-B Audio Energy" ID="9">
+      <WindowState Visible="True" X="177" Y="91" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="9"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-3-C Audio Fireworks" ID="15">
+      <WindowState Visible="True" X="5" Y="263" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="15"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-3-D Audio Bass Laser" ID="16">
+      <WindowState Visible="True" X="91" Y="263" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="16"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="PLASMA" ID="18">
+      <WindowState Visible="True" X="263" Y="263" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="18"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-3-E Audio Shockwave" ID="17">
+      <WindowState Visible="True" X="177" Y="263" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="17"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-3-B Audio Fire" ID="14">
+      <WindowState Visible="True" X="263" Y="177" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="14"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-2-E Audio Hue Shift" ID="12">
+      <WindowState Visible="True" X="91" Y="177" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="12"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-2-D Audio Glitch 2" ID="11">
+      <WindowState Visible="True" X="5" Y="177" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="11"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="EXP-3-A Audio Scan" ID="13">
+      <WindowState Visible="True" X="177" Y="177" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="13"/>
+      <Action>Toggle</Action>
+     </Button>
+    </Frame>
+   </Frame>
   </Frame>
  </VirtualConsole>
  <FlowConsole>

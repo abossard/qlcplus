@@ -26,6 +26,7 @@ var testAlgo;
 
     var DOMINANT_TINT = 0.5;
     var DANCEFLOOR_GRADIENT = [0xFF0000, 0xFF00B2, 0x0000FF];
+    var BASS_REFRACTORY_MS = 200;
 
     algo.color_step = 0.0625;
     algo.bass_strobe_decay_rate = 0.5;
@@ -127,7 +128,7 @@ var testAlgo;
         else if (algo.presetBassTrigger === "Onset") bassTriggerFired = audio.onset.fired;
         else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.beat.kick;
         else bassTriggerFired = audio.volume.fired;
-        if (bassTriggerFired && elapsedMs - lastBassStrobeMs > 200 && bassDecay) {
+        if (bassTriggerFired && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay) {
             for (var b = 0; b < width; b++)
                 bassStrobeOverlay[b] = [bassStrobeColor[0], bassStrobeColor[1], bassStrobeColor[2]];
             lastBassStrobeMs = elapsedMs;

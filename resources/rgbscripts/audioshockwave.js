@@ -46,7 +46,7 @@ algo.properties.push(
   "write:setWaveDecay|read:getWaveDecay");
 
 algo.waves = new Array();
-algo.frame = 0;
+algo.dtAccum = 0;
 
 var DOMINANT_TINT = 0.6;
 var AMBIENT_RING_FREQ = 0.65;
@@ -112,7 +112,6 @@ function spawnWave(width, height, intensity, audio) {
         radius: 0,
         maxRadius: Math.sqrt(width * width + height * height),
         intensity: clamp(intensity * KICK_INTENSITY_BOOST, 0, MAX_INTENSITY),
-        birth: algo.frame,
         color: color
     });
 
@@ -121,7 +120,7 @@ function spawnWave(width, height, intensity, audio) {
 }
 
 function renderAmbient(map, width, height, cx, cy, maxRadius) {
-    var phase = algo.frame * algo.presetAmbientSpeed;
+    var phase = algo.dtAccum * algo.presetAmbientSpeed * 0.025;
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var dist = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
@@ -135,7 +134,9 @@ function renderAmbient(map, width, height, cx, cy, maxRadius) {
 
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
-    algo.frame++;
+    var dtMs = audio && audio.timing && audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+    var frameScale = dtMs / 40;
+    algo.dtAccum += dtMs;
     if (width !== lastW || height !== lastH) {
         algo.waves = [];
         lastW = width;
@@ -209,8 +210,8 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var speed = algo.presetSpeed * SPEED_SCALE;
     var decayFactor = 1 - algo.presetDecay * algo.presetWaveDecay;
     for (var ui = algo.waves.length - 1; ui >= 0; ui--) {
-        algo.waves[ui].radius += speed;
-        algo.waves[ui].intensity *= decayFactor;
+        algo.waves[ui].radius += speed * frameScale;
+        algo.waves[ui].intensity *= Math.pow(decayFactor, frameScale);
         if (algo.waves[ui].intensity < MIN_WAVE_INTENSITY || algo.waves[ui].radius > algo.waves[ui].maxRadius)
             algo.waves.splice(ui, 1);
     }

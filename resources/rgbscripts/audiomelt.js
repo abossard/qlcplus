@@ -58,7 +58,7 @@ var testAlgo;
         var bpm = (audio.beat) ? audio.beat.bpm : 0;
 
         var rawLows = audio.power.low;
-        var alpha = (rawLows > emaLows) ? 0.1 : 0.1;
+        var alpha = 0.1;
         emaLows = alpha * rawLows + (1 - alpha) * emaLows;
         var lows = emaLows;
 
@@ -82,7 +82,7 @@ var testAlgo;
 
             var h = il + t2;
 
-            var packed = RGBUtil.hsvToRgb(h, 1, v);
+            var packed = RGBUtil.hsvLedFx(h, 1, v);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }
