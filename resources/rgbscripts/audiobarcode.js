@@ -23,7 +23,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Barcode";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
 

@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="130"/>
+   <BeatGenerator BeatType="Audio" BPM="127"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -580,6 +580,20 @@
     <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
    </Aubio>
   </AudioProfile>
+  <AudioProfile ID="5" Name="Migrated Audio" IsDefault="False" Version="1">
+   <Envelope Attack="50.0934" Release="200.374"/>
+   <Triggers High="0.41" Low="0.21" Hold="80" Cooldown="120"/>
+   <NoiseGate Threshold="-60" Hold="120"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99"/>
+   <FreqPower Decay="0.2" Rise="0.97"/>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="111111111" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24"/>
+   </Aubio>
+  </AudioProfile>
   <Function ID="0" Type="Scene" Name="STANDBY" Path="GLOBAL">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
    <FixtureVal ID="0">15,255,16,153,17,0,18,0</FixtureVal>
@@ -626,15 +640,18 @@
    <Speed FadeIn="0" FadeOut="250" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Melt</Algorithm>
+   <Algorithm Type="Script">Audio Plasma</Algorithm>
    <Color Index="0">4294967295</Color>
    <Color Index="1">4294928127</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>3</AudioProfileID>
-   <Property Name="presetColorSpeed" Value="4"/>
-   <Property Name="presetReactivity" Value="0.5"/>
-   <Property Name="presetSpeed" Value="0.001"/>
+   <Property Name="density" Value="0.5"/>
+   <Property Name="density_vertical" Value="0.1"/>
+   <Property Name="frequency_range" Value="Lows (beat+bass)"/>
+   <Property Name="lower" Value="0.01"/>
+   <Property Name="radius" Value="0.2"/>
+   <Property Name="twist" Value="0.07"/>
   </Function>
   <Function ID="5" Type="RGBMatrix" Name="EXP-1-C Audio Wavelength">
    <Tempo>Beats</Tempo>
@@ -692,6 +709,7 @@
    <Color Index="4">4294914867</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
+   <AudioProfileID>5</AudioProfileID>
    <Property Name="presetFlash" Value="0.8"/>
    <Property Name="presetMotion" Value="1"/>
    <Property Name="presetPalette" Value="Band Colors"/>
@@ -841,6 +859,26 @@
    <Property Name="presetSpeed" Value="9"/>
    <Property Name="presetWaveDecay" Value="0.03"/>
    <Property Name="presetWaveWidth" Value="5"/>
+  </Function>
+  <Function ID="18" Type="RGBMatrix" Name="PLASMA">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Plasma</Algorithm>
+   <Color Index="0">4294901760</Color>
+   <Color Index="1">4294902015</Color>
+   <Color Index="2">4294967091</Color>
+   <Color Index="3">4281597951</Color>
+   <Color Index="4">4281545727</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="density" Value="0.5"/>
+   <Property Name="density_vertical" Value="0.1"/>
+   <Property Name="frequency_range" Value="Mids"/>
+   <Property Name="lower" Value="6.129"/>
+   <Property Name="radius" Value="0.2"/>
+   <Property Name="twist" Value="0.07"/>
   </Function>
   <Function ID="309" Type="Scene" Name="BALLM" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
