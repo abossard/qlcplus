@@ -34,16 +34,16 @@ var testAlgo;
       "name:presetPeakHold|type:range|display:PeakHold|" +
       "values:1,20|write:setPeakHold|read:getPeakHold");
 
-    algo.presetDecay = 5;
+    algo.presetDecay = 0.05;
     algo.properties.push(
-      "name:presetDecay|type:range|display:Decay|" +
-      "values:1,10|write:setDecay|read:getDecay");
+      "name:presetDecay|type:float|display:Decay|" +
+      "write:setDecay|read:getDecay");
 
     algo.setBands = function(_v) { algo.presetBands = Math.max(2, Math.min(5, parseInt(_v))); };
     algo.getBands = function() { return algo.presetBands; };
     algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
-    algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
@@ -89,8 +89,8 @@ var testAlgo;
         var sectionColors = [];
         for (var ci = 0; ci < 3; ci++)
             sectionColors.push(unpackColor(colorStops[ci]));
-        var fallStep = algo.presetDecay / 100.0;
-        var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
+        var fallStep = algo.presetDecay;
+        var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
 
         // Beat-pulse brightness boost
         var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;

@@ -40,6 +40,14 @@ var testAlgo;
     algo.properties.push("name:strobe_decay_rate|type:float|display:Strobe Decay Rate|write:setStrobeDecayRate|read:getStrobeDecayRate");
     algo.properties.push("name:color_shift_delay|type:float|display:Color Shift Delay|write:setColorShiftDelay|read:getColorShiftDelay");
 
+    algo.presetBassTrigger = "Volume Beat";
+    algo.properties.push("name:bass_trigger|type:list|display:Bass Trigger|values:Volume Beat,Tempo Beat,Onset,Kick|write:setBassTrigger|read:getBassTrigger");
+    algo.setBassTrigger = function(v) {
+      var valid = ["Volume Beat", "Tempo Beat", "Onset", "Kick"];
+      algo.presetBassTrigger = valid.indexOf(v) >= 0 ? v : "Volume Beat";
+    };
+    algo.getBassTrigger = function() { return algo.presetBassTrigger; };
+
     function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
     algo.setColorStep = function(v) { algo.color_step = clamp(parseFloat(v), 0, 0.25); };
     algo.getColorStep = function() { return algo.color_step; };
@@ -126,7 +134,12 @@ var testAlgo;
         }
 
         var bassDecay = 1.0 - clamp(parseFloat(algo.bass_strobe_decay_rate), 0, 1);
-        if (audio.beat.fired && elapsedMs - lastBassStrobeMs > 200 && bassDecay) {
+        var bassTriggerFired = false;
+        if (algo.presetBassTrigger === "Tempo Beat") bassTriggerFired = audio.beat.fired;
+        else if (algo.presetBassTrigger === "Onset") bassTriggerFired = audio.onset.fired;
+        else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.beat.kick;
+        else bassTriggerFired = audio.volume.fired;
+        if (bassTriggerFired && elapsedMs - lastBassStrobeMs > 200 && bassDecay) {
             for (var b = 0; b < width; b++)
                 bassStrobeOverlay[b] = [bassStrobeColor[0], bassStrobeColor[1], bassStrobeColor[2]];
             lastBassStrobeMs = elapsedMs;

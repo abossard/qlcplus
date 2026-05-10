@@ -24,32 +24,42 @@ var testAlgo;
     algo.properties = new Array();
 
     algo.presetReactivity = 7;
-    algo.presetSpeed = 5;
+    algo.presetSpeed = 0.275;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
-    algo.presetWaveScale = 4;
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
+    algo.presetWaveScale = 0.2;
     algo.properties.push(
-      "name:presetWaveScale|type:range|display:WaveScale|" +
-      "values:1,10|write:setWaveScale|read:getWaveScale");
-    algo.presetSaturation = 90;
+      "name:presetWaveScale|type:float|display:WaveScale|" +
+      "write:setWaveScale|read:getWaveScale");
+    algo.presetSaturation = 0.9;
     algo.properties.push(
-      "name:presetSaturation|type:range|display:Saturation|" +
-      "values:50,100|write:setSaturation|read:getSaturation");
-    algo.presetMinBrightness = 40;
+      "name:presetSaturation|type:float|display:Saturation|" +
+      "write:setSaturation|read:getSaturation");
+    algo.presetMinBrightness = 0.4;
     algo.properties.push(
-      "name:presetMinBrightness|type:range|display:MinBrightness|" +
-      "values:10,100|write:setMinBrightness|read:getMinBrightness");
+      "name:presetMinBrightness|type:float|display:MinBrightness|" +
+      "write:setMinBrightness|read:getMinBrightness");
+
+    var PITCH_CONF_THRESH = 0.5;
+    var CENTROID_MIN_HZ = 200;
+    var CENTROID_RANGE_HZ = 3800;
+    var BEAT_MOD = 0.12;
+    var VOL_BRI_SCALE = 0.15;
+    var WAVE_FREQ_X = 0.3;
+    var WAVE_FREQ_Y = 0.2;
+    var WAVE_TIME_FREQ = 0.05;
+    var WAVE_BRI_AMP = 0.2;
 
     var currentHue = 0;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWaveScale = function(_v) { algo.presetWaveScale = clampInt(_v, 1, 10); };
+    algo.setWaveScale = function(_v) { algo.presetWaveScale = parseFloat(_v); };
     algo.getWaveScale = function() { return algo.presetWaveScale; };
-    algo.setSaturation = function(_v) { algo.presetSaturation = clampInt(_v, 50, 100); };
+    algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
     algo.getSaturation = function() { return algo.presetSaturation; };
-    algo.setMinBrightness = function(_v) { algo.presetMinBrightness = clampInt(_v, 10, 100); };
+    algo.setMinBrightness = function(_v) { algo.presetMinBrightness = parseFloat(_v); };
     algo.getMinBrightness = function() { return algo.presetMinBrightness; };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -86,7 +96,7 @@ var testAlgo;
         var highs = audio.power.high;
 
         // Pitch-driven hue: map pitch to hue offset (one octave = full hue cycle)
-        var pitch = audio.pitch.confidence < 0.5 ? 0 : audio.pitch.hz;
+        var pitch = audio.pitch.confidence < PITCH_CONF_THRESH ? 0 : audio.pitch.hz;
         var pitchHueOffset = 0;
         if (pitch > 0) {
             pitchHueOffset = ((Math.log2(pitch / 110) % 1) + 1) % 1;
@@ -94,23 +104,23 @@ var testAlgo;
 
         var totalPower = bass + mids + highs + 0.001;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
-        targetHue = wrapHue(targetHue + Math.max(0, Math.min(1, (audio.features.centroidHz - 200) / 3800)) * 0.33 + pitchHueOffset * 0.4);
-        var speedRate = 0.05 + (algo.presetSpeed / 10.0) * 0.45;
+        targetHue = wrapHue(targetHue + Math.max(0, Math.min(1, (audio.features.centroidHz - CENTROID_MIN_HZ) / CENTROID_RANGE_HZ)) * 0.33 + pitchHueOffset * 0.4);
+        var speedRate = algo.presetSpeed;
         currentHue = lerpHue(currentHue, targetHue, speedRate);
 
-        var minBrightness = algo.presetMinBrightness / 100.0;
+        var minBrightness = algo.presetMinBrightness;
         var volume = (bass + mids + highs) / 3.0;
         // Steady brightness with subtle audio + beat pulse modulation
-        var beatMod = audio.beat.cosPulse * 0.12;
-        var brightness = clamp(minBrightness + volume * 0.15 + beatMod, minBrightness, 1.0);
-        var waveScale = algo.presetWaveScale / 20.0;
-        var saturation = algo.presetSaturation / 100.0;
+        var beatMod = audio.beat.cosPulse * BEAT_MOD;
+        var brightness = clamp(minBrightness + volume * VOL_BRI_SCALE + beatMod, minBrightness, 1.0);
+        var waveScale = algo.presetWaveScale;
+        var saturation = algo.presetSaturation;
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var wave = Math.sin(x * 0.3 + y * 0.2 + step * 0.05) * waveScale;
+                var wave = Math.sin(x * WAVE_FREQ_X + y * WAVE_FREQ_Y + step * WAVE_TIME_FREQ) * waveScale;
                 var pixelHue = wrapHue(currentHue + wave);
-                var baseBri = clamp(brightness + wave * 0.2, minBrightness, 1.0);
+                var baseBri = clamp(brightness + wave * WAVE_BRI_AMP, minBrightness, 1.0);
                 var pixelBri = baseBri;
                 var color = RGBUtil.hsv2rgb(pixelHue, saturation, pixelBri);
                 map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);

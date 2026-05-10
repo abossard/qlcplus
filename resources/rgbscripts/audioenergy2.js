@@ -25,24 +25,28 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetSpeed = 30;
+    algo.presetSpeed = 0.3;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,100|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
 
-    algo.presetReactivity = 40;
+    algo.presetReactivity = 0.4;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,100|write:setReactivity|read:getReactivity");
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
-    // Phase advance per second at presetSpeed = 100. Tuned so default speed (30)
+    // Phase advance per second at presetSpeed = 1.0. Tuned so default speed (0.3)
     // gives a slow, musical drift similar to LedFx default.
     var SPEED_SCALE = 0.5;
+    var REACTIVITY_SCALE = 5.0;
+    var SAT_BASE = 0.9;
+    var SAT_REACT_ADD = 0.3;
+    var OFFSET_AMP = 2.0;
 
     algo.phase = 0;
 
@@ -57,16 +61,16 @@ var testAlgo;
 
         var dt = audio.timing.consumerDtMs / 1000.0;
 
-        var speed = algo.presetSpeed / 100.0;
-        var reactivity01 = algo.presetReactivity / 100.0;
-        var reactivity = reactivity01 * 5.0;
+        var speed = algo.presetSpeed;
+        var reactivity01 = algo.presetReactivity;
+        var reactivity = reactivity01 * REACTIVITY_SCALE;
         var lowPower = audio.power.low;
 
         algo.phase = RGBUtil.mod1(algo.phase + dt * speed * SPEED_SCALE);
 
         var hue = RGBUtil.mod1(lowPower + algo.phase);
-        var satThreshold = 0.9 - (reactivity01 + 0.3) * lowPower;
-        var offset = 2.0 * RGBUtil.sin01(algo.phase + reactivity01 * lowPower);
+        var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;
+        var offset = OFFSET_AMP * RGBUtil.sin01(algo.phase + reactivity01 * lowPower);
 
         var n = Math.max(2, width);
         for (var x = 0; x < width; x++) {

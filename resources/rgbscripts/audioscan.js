@@ -101,11 +101,12 @@ var testAlgo;
     }
 
     function powerFor(audio) {
-        if (algo.frequency_range === "Beat") return audio.beat.fired ? 1.0 : audio.power.low;
-        if (algo.frequency_range === "Bass") return audio.power.low;
+        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
+        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
         if (algo.frequency_range === "Mids") return audio.power.mid;
         if (algo.frequency_range === "High") return audio.power.high;
-        return Math.max(audio.power.low, audio.beat.fired ? 1.0 : 0.0);
+        // Lows (beat+bass)
+        return (audio.power.detail.beat + audio.power.detail.bass) * 0.5;
     }
 
     function setStrip(strip, idx, color) {

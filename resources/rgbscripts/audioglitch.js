@@ -24,33 +24,46 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 3;
+    algo.presetReactivity = 0.3;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 5;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
-    algo.presetSaturation = 10;
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
+    algo.presetSaturation = 1.0;
     algo.properties.push(
-      "name:presetSaturation|type:range|display:Saturation|" +
-      "values:0,10|write:setSaturation|read:getSaturation");
+      "name:presetSaturation|type:float|display:Saturation|" +
+      "write:setSaturation|read:getSaturation");
     algo.presetComplexity = 5;
     algo.properties.push(
       "name:presetComplexity|type:range|display:Complexity|" +
       "values:1,10|write:setComplexity|read:getComplexity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setSaturation = function(_v) { algo.presetSaturation = parseInt(_v); };
+    algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
     algo.getSaturation = function() { return algo.presetSaturation; };
     algo.setComplexity = function(_v) { algo.presetComplexity = parseInt(_v); };
     algo.getComplexity = function() { return algo.presetComplexity; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
     var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
+    var PHASE_RATE_SLOW = 0.0005;
+    var PHASE_RATE_MED = 0.0025;
+    var PHASE_RATE_T4 = 0.001;
+    var PHASE_RATE_T5 = 0.00025;
+    var PHASE_RATE_FAST = 0.01;
+    var HIT_FLOOR = 0.4;
+    var HIT_RANGE = 0.6;
+    var STRIPE_MID = 0.3;
+    var STRIPE_AMP = 0.2;
+    var FLASH_DECAY = 0.15;
+    var COLOR_FLOOR = 0.35;
+    var BRIGHT_FLOOR = 0.4;
     var timestep = 0;
     var flashColor = null;
     var flashLevel = 0;
@@ -72,24 +85,24 @@ var testAlgo;
 
         var lowPower = audio.power.low;
 
-        var speed = algo.presetSpeed / 10.0;
-        var reactivity = algo.presetReactivity / 10.0;
-        var satThreshold = algo.presetSaturation / 10.0;
+        var speed = algo.presetSpeed;
+        var reactivity = algo.presetReactivity;
+        var satThreshold = algo.presetSaturation;
         var complexity = algo.presetComplexity;
 
         timestep += dt;
         timestep += lowPower * reactivity / speed * 50;
 
-        var t1 = (timestep * speed * 0.0005) * Math.PI * 2;
-        var t2 = (timestep * speed * 0.0005) % 1;
-        var t3 = (timestep * speed * 0.0025) % 1;
-        var t4 = (timestep * speed * 0.001) * Math.PI * 2;
-        var t5 = (timestep * speed * 0.00025) % 1;
-        var t6 = (timestep * speed * 0.01) % 1;
+        var t1 = (timestep * speed * PHASE_RATE_SLOW) * Math.PI * 2;
+        var t2 = (timestep * speed * PHASE_RATE_SLOW) % 1;
+        var t3 = (timestep * speed * PHASE_RATE_MED) % 1;
+        var t4 = (timestep * speed * PHASE_RATE_T4) * Math.PI * 2;
+        var t5 = (timestep * speed * PHASE_RATE_T5) % 1;
+        var t6 = (timestep * speed * PHASE_RATE_FAST) % 1;
         if (audio.onset.fired || audio.beat.kick) {
             var flashPacked = AudioColors.dominant(algo, audio);
             flashColor = [(flashPacked >> 16) & 0xFF, (flashPacked >> 8) & 0xFF, flashPacked & 0xFF];
-            var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
+            var hitScale = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onset.intensity);
             flashLevel = hitScale;
         }
         var dominantPacked = AudioColors.dominant(algo, audio);
@@ -100,7 +113,7 @@ var testAlgo;
             var il = (x - width / 2) / width;
 
             // Glitch: modular arithmetic creates digital artifacts
-            var m = 0.3 + triangle(t2) * 0.2;
+            var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
             var c = triangle(t3) * complexity * 2 + 4 * Math.sin(t4);
 
             var h = ((il * c) % m + m) % m;
@@ -120,17 +133,17 @@ var testAlgo;
 
             var t = Math.abs(il * 2);
             var glitchMix = 0.55 + (1 - t * 0.3) * 0.45;
-            var r = dominant[0] * (0.35 + c1[0] / 255.0 * glitchMix);
-            var g = dominant[1] * (0.35 + c1[1] / 255.0 * glitchMix);
-            var b = dominant[2] * (0.35 + c1[2] / 255.0 * glitchMix);
+            var r = dominant[0] * (COLOR_FLOOR + c1[0] / 255.0 * glitchMix);
+            var g = dominant[1] * (COLOR_FLOOR + c1[1] / 255.0 * glitchMix);
+            var b = dominant[2] * (COLOR_FLOOR + c1[2] / 255.0 * glitchMix);
 
-            var baseBrightness = Math.max(0.4, flashLevel);
+            var baseBrightness = Math.max(BRIGHT_FLOOR, flashLevel);
             var brightness = baseBrightness;
             var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
                 map[y][x] = packed;
         }
-        flashLevel = Math.max(0, flashLevel - 0.15);
+        flashLevel = Math.max(0, flashLevel - FLASH_DECAY);
 
         return map;
     };

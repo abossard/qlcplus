@@ -17,7 +17,7 @@ The full workflow lives in [`docs/lighting-research-guide.md`](../docs/lighting-
 1. Start QLC+ v5 with the MCP server enabled and fixtures patched.
 2. Ask an MCP-capable agent to create or improve a lighting effect.
 3. The agent reads `docs/lighting-research-guide.md`.
-4. The agent creates 2–3 `EXP-` experiments through QLC+ MCP tools.
+4. The agent creates 3–5 `EXP-` experiments through QLC+ MCP tools.
 5. Preview each experiment in QLC+ and tell the agent which one you prefer and why.
 6. Repeat with refinements until a winner is good enough.
 7. Export the winners:
@@ -48,5 +48,7 @@ The script clones supported winning `EXP-` functions as permanent names, removes
 ## Legacy Runner
 
 The old Python runner still works for historical workflows, but it is no longer the preferred path. Prefer the agent-led process because it is simpler, easier to adapt during a session, and avoids maintaining a second research engine outside the AI agent.
+
+See `docs/lighting-research-guide.md` for the full effect catalog (45 audio algorithms), genre guide, and experiment templates.
 
 If you use the legacy runner, install its dependencies from `autolight/requirements.txt` and run the existing `python3 -m autolight setup` / `python3 -m autolight` commands.

@@ -51,15 +51,15 @@ var testAlgo;
       "name:presetPeakHold|type:range|display:Peak Hold|" +
       "values:1,20|write:setPeakHold|read:getPeakHold");
 
-    algo.presetPeakDecay = 95;
+    algo.presetPeakDecay = 0.95;
     algo.properties.push(
-      "name:presetPeakDecay|type:range|display:Peak Decay (%)|" +
-      "values:50,99|write:setPeakDecay|read:getPeakDecay");
+      "name:presetPeakDecay|type:float|display:Peak Decay|" +
+      "write:setPeakDecay|read:getPeakDecay");
 
-    algo.presetDownbeatDrop = 50;
+    algo.presetDownbeatDrop = 0.5;
     algo.properties.push(
-      "name:presetDownbeatDrop|type:range|display:Downbeat Drop (%)|" +
-      "values:0,100|write:setDownbeatDrop|read:getDownbeatDrop");
+      "name:presetDownbeatDrop|type:float|display:Downbeat Drop|" +
+      "write:setDownbeatDrop|read:getDownbeatDrop");
 
     algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
     algo.getDecay = function()  { return algo.presetDecay; };
@@ -71,12 +71,15 @@ var testAlgo;
     algo.getGap = function() { return algo.presetGap ? "On" : "Off"; };
     algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
-    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = parseInt(_v); };
+    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = Math.min(0.999, parseFloat(_v)); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
-    algo.setDownbeatDrop = function(_v) { algo.presetDownbeatDrop = parseInt(_v); };
+    algo.setDownbeatDrop = function(_v) { algo.presetDownbeatDrop = parseFloat(_v); };
     algo.getDownbeatDrop = function() { return algo.presetDownbeatDrop; };
 
     // --- Internal state ---
+    var MIN_ONSET_BAND = 0.05;
+    var MIN_PEAK_RENDER = 0.01;
+
     var peakValues = null;
     var peakHolds = null;
     var DEFAULT_GRADIENT = [0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF80, 0x4080FF];
@@ -142,18 +145,18 @@ var testAlgo;
             // Update peak marker
             if (algo.presetPeaks) {
                 if (audio.bar.downbeat) {
-                    peakValues[x] *= algo.presetDownbeatDrop / 100;
+                    peakValues[x] *= algo.presetDownbeatDrop;
                 }
                 if (magnitude >= peakValues[x]) {
                     peakValues[x] = magnitude;
                     peakHolds[x] = algo.presetPeakHold;
-                } else if (onset && rawBands[x] > 0.05) {
+                } else if (onset && rawBands[x] > MIN_ONSET_BAND) {
                     peakValues[x] = Math.max(peakValues[x], magnitude);
                     peakHolds[x] = algo.presetPeakHold;
                 } else if (peakHolds[x] > 0) {
                     peakHolds[x]--;
                 } else {
-                    peakValues[x] *= algo.presetPeakDecay / 100;
+                    peakValues[x] *= algo.presetPeakDecay;
                 }
             }
 
@@ -184,7 +187,7 @@ var testAlgo;
             }
 
             // Peak marker (white dot)
-            if (algo.presetPeaks && peakValues[x] > 0.01)
+            if (algo.presetPeaks && peakValues[x] > MIN_PEAK_RENDER)
             {
                 var peakY;
                 if (algo.presetCenter) {

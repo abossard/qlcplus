@@ -29,17 +29,29 @@ var testAlgo;
     algo.properties.push(
       "name:presetSpeed|type:range|display:Speed|" +
       "values:1,15|write:setSpeed|read:getSpeed");
-    algo.presetContrast = 6;
+    algo.presetContrast = 0.6;
     algo.properties.push(
-      "name:presetContrast|type:range|display:Contrast|" +
-      "values:0,10|write:setContrast|read:getContrast");
+      "name:presetContrast|type:float|display:Contrast|" +
+      "write:setContrast|read:getContrast");
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setContrast = function(_v) { algo.presetContrast = parseInt(_v); };
+    algo.setContrast = function(_v) { algo.presetContrast = parseFloat(_v); };
     algo.getContrast = function() { return algo.presetContrast; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFAA00, 0x80FF00];
+    var BEAT_PULSE_AMP = 0.25;
+    var LAVA_RATE_1 = 0.0001;
+    var LAVA_RATE_2 = 0.0002;
+    var BASS_MOD_1 = 0.004;
+    var BASS_MOD_2 = 0.007;
+    var WAVE1_Y_FREQ = 0.5;
+    var WAVE2_Y_FREQ = 0.7;
+    var WAVE4_T_FREQ = 1.7;
+    var WAVE4_X_FREQ = 0.6;
+    var WAVE5_T_FREQ = 1.3;
+    var WAVE5_Y_FREQ = 1.2;
+    var MIN_BRIGHTNESS = 0.01;
     var elapsedMs = 0;
 
     function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
@@ -66,14 +78,14 @@ var testAlgo;
         for (var ci = 0; ci < 3; ci++)
             colors.push(unpackColor(colorStops[ci]));
         var speed = algo.presetSpeed;
-        var contrast = 1 - algo.presetContrast / 10.0;
+        var contrast = 1 - algo.presetContrast;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
         // Time phases — bass accelerates significantly
-        var t1 = (elapsedMs * speed * 0.0001 * Math.max(1, 1 + lowPower * 0.004)) % 1;
-        var t2 = (elapsedMs * speed * 0.0002 * Math.max(1, 1 + lowPower * 0.007)) % 1;
+        var t1 = (elapsedMs * speed * LAVA_RATE_1 * Math.max(1, 1 + lowPower * BASS_MOD_1)) % 1;
+        var t2 = (elapsedMs * speed * LAVA_RATE_2 * Math.max(1, 1 + lowPower * BASS_MOD_2)) % 1;
 
         // True 2D: each pixel gets unique wave value
         for (var y = 0; y < height; y++) {
@@ -83,11 +95,11 @@ var testAlgo;
                 var xNorm = x / Math.max(1, width - 1);
 
                 // Five wave layers for a richer lava pattern
-                var w1 = Math.sin((t1 + xNorm + yNorm * 0.5) * Math.PI * 2);
-                var w2 = Math.sin((t2 - xNorm + yNorm * 0.7) * Math.PI * 2);
+                var w1 = Math.sin((t1 + xNorm + yNorm * WAVE1_Y_FREQ) * Math.PI * 2);
+                var w2 = Math.sin((t2 - xNorm + yNorm * WAVE2_Y_FREQ) * Math.PI * 2);
                 var w3 = Math.sin((xNorm + yNorm + w1 + w2) * Math.PI * 2);
-                var w4 = Math.sin((t1 * 1.7 + xNorm * 0.6 - yNorm) * Math.PI * 2);
-                var w5 = Math.sin((t2 * 1.3 - xNorm + yNorm * 1.2) * Math.PI * 2);
+                var w4 = Math.sin((t1 * WAVE4_T_FREQ + xNorm * WAVE4_X_FREQ - yNorm) * Math.PI * 2);
+                var w5 = Math.sin((t2 * WAVE5_T_FREQ - xNorm + yNorm * WAVE5_Y_FREQ) * Math.PI * 2);
 
                 // Combine waves for pattern
                 var pattern = (w1 + 0.1) * (w2 + lowPower * 2) * (w3 + midsPower * 1.5) + (w4 * midsPower + w5 * highsPower) * 0.35;
@@ -104,7 +116,7 @@ var testAlgo;
                 }
 
                 // Normalize and apply pattern
-                total = Math.max(0.01, total);
+                total = Math.max(MIN_BRIGHTNESS, total);
                 map[y][x] = RGBUtil.rgb(
                     r / total * pattern,
                     g / total * pattern,

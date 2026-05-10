@@ -27,10 +27,10 @@ var testAlgo;
 
     algo.presetReactivity = 9;
     // --- Properties ---
-    algo.presetSpeed = 4;
+    algo.presetSpeed = 0.04;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
 
     algo.presetIntensity = 8;
     algo.properties.push(
@@ -52,12 +52,12 @@ var testAlgo;
       "name:presetSpread|type:list|display:Per Column|" +
       "values:No,Yes|write:setSpread|read:getSpread");
 
-    algo.presetSparkFade = 5;
+    algo.presetSparkFade = 0.05;
     algo.properties.push(
-      "name:presetSparkFade|type:range|display:Spark Fade (%)|" +
-      "values:0,20|write:setSparkFade|read:getSparkFade");
+      "name:presetSparkFade|type:float|display:Spark Fade|" +
+      "write:setSparkFade|read:getSparkFade");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function()  { return algo.presetSpeed; };
     algo.setIntensity = function(_v) { algo.presetIntensity = parseInt(_v); };
     algo.getIntensity = function()  { return algo.presetIntensity; };
@@ -68,9 +68,20 @@ var testAlgo;
     algo.setSpread = function(_v) { algo.presetSpread = (_v === "Yes") ? 1 : 0; };
     algo.getSpread = function() { return algo.presetSpread ? "Yes" : "No"; };
 
-    algo.setSparkFade = function(_v) { algo.presetSparkFade = parseInt(_v); };
+    algo.setSparkFade = function(_v) { algo.presetSparkFade = parseFloat(_v); };
     algo.getSparkFade = function() { return algo.presetSparkFade; };
     // --- Internal state ---
+    var COOL_FLOOR = 0.85;
+    var COOL_STEP = 0.015;
+    var COOL_BASS_BOOST = 0.15;
+    var SPEED_BASS_BOOST = 0.01;
+    var SPARK_MIN = 0.5;
+    var SPARK_BLEED = 0.4;
+    var SPARK_AMP = 0.5;
+    var MIX_SPREAD = 0.7;
+    var MIX_SINGLE = 0.35;
+    var BEAT_MOD_AMP = 0.15;
+
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
@@ -116,15 +127,15 @@ var testAlgo;
 
         var deltaMs = audio.timing.consumerDtMs;
 
-        var speed = algo.presetSpeed / 100.0;
-        var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
+        var speed = algo.presetSpeed;
+        var baseCooling = COOL_FLOOR + (10 - algo.presetCooling) * COOL_STEP;
 
         // Audio influence: bass drives the fire
         var bandPowers = audio.power.bands;
         var lowPower = bandPowers[0];
 
-        var cooling = baseCooling + lowPower * 0.15;
-        var adjustedSpeed = speed + lowPower * 0.01;
+        var cooling = baseCooling + lowPower * COOL_BASS_BOOST;
+        var adjustedSpeed = speed + lowPower * SPEED_BASS_BOOST;
         var deltaScaled = deltaMs * adjustedSpeed;
 
         // Cool all pixels
@@ -149,7 +160,7 @@ var testAlgo;
         for (var i = 0; i < sparkCount; i++) {
             if (sparks[i] <= 0) {
                 // Respawn dead spark
-                sparks[i] = 0.5 + Math.random() * 0.5;
+                sparks[i] = SPARK_MIN + Math.random() * SPARK_MIN;
                 sparkX[i] = Math.random() * 5;
             }
 
@@ -157,7 +168,7 @@ var testAlgo;
             sparkX[i] += stepSize;
 
             // Random fade or out of bounds
-            if (sparkX[i] >= pixelCount || Math.random() < algo.presetSparkFade / 100) {
+            if (sparkX[i] >= pixelCount || Math.random() < algo.presetSparkFade) {
                 sparks[i] = 0;
                 sparkX[i] = 0;
                 continue;
@@ -167,7 +178,7 @@ var testAlgo;
             var jStart = Math.max(0, Math.floor(sparkX[i] - stepSize));
             var jEnd = Math.floor(sparkX[i]);
             for (var j = jStart; j < jEnd && j < pixelCount; j++) {
-                sparkPixels[j] += Math.max(0, Math.min(1, 1 - sparks[i] * 0.4)) * 0.5;
+                sparkPixels[j] += Math.max(0, Math.min(1, 1 - sparks[i] * SPARK_BLEED)) * SPARK_AMP;
             }
         }
 
@@ -181,8 +192,8 @@ var testAlgo;
 
         var spectrum = melSrc;
         var specBands = RGBUtil.interpolate(spectrum, algo.displayWidth);
-        var spectrumMix = algo.presetSpread ? 0.7 : 0.35;
-        var beatMod = 1 + audio.beat.cosPulse * 0.15;
+        var spectrumMix = algo.presetSpread ? MIX_SPREAD : MIX_SINGLE;
+        var beatMod = 1 + audio.beat.cosPulse * BEAT_MOD_AMP;
 
         // Map heat values to colors using fire gradient and render into 2D grid
         for (var y = 0; y < height; y++) {

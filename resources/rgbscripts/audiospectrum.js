@@ -48,7 +48,7 @@ var testAlgo;
     var lastPixelCount = -1;
 
     function ensureState(pixelCount) {
-      if (lastPixelCount === pixelCount && prevY && bFilter) return;
+      if (lastPixelCount === pixelCount && prevY) return;
       prevY = new Array(pixelCount);
       bFilter = null;
       for (var i = 0; i < pixelCount; i++) prevY[i] = 0;
@@ -80,17 +80,18 @@ var testAlgo;
       var map = RGBUtil.createMap(width, height);
       if (!audio) return map;
 
+      // y = unfiltered channel (same source — QLC+ has one melbank flavor)
       var y = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
-      var filtered = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
+      var filtered = y.slice();
       var filt = updateFilter(y);
       var mix = rgbMixes[algo.presetRgbMix];
       var nextPrev = y.slice();
 
       for (var i = 0; i < pixelCount; i++) {
         var channels = [0, 0, 0];
-        channels[mix[0]] = filtered[i] * 1000.0;
-        channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 1000.0;
-        channels[mix[2]] = filt[i] * 1000.0;
+        channels[mix[0]] = filtered[i] * 255.0;
+        channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 255.0;
+        channels[mix[2]] = filt[i] * 255.0;
         var x = i % width;
         var row = Math.floor(i / width);
         map[row][x] = RGBUtil.rgb(channels[0], channels[1], channels[2]);

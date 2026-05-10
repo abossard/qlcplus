@@ -23,14 +23,14 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
+    algo.presetReactivity = 1.67;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 5;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 1.0;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
     algo.presetRings = 5;
     algo.properties.push(
       "name:presetRings|type:range|display:Ring Count|" +
@@ -40,7 +40,7 @@ var testAlgo;
       "name:presetShape|type:list|display:Shape|" +
       "values:Circle,Diamond,Square|write:setShape|read:getShape");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setRings = function(_v) { algo.presetRings = parseInt(_v); };
     algo.getRings = function() { return algo.presetRings; };
@@ -53,8 +53,10 @@ var testAlgo;
         return ["Circle", "Diamond", "Square"][algo.presetShape];
     };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
+    var BEAT_PULSE_AMP = 0.20;
     var phase = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -71,8 +73,8 @@ var testAlgo;
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
-        var speed = algo.presetSpeed / 5.0;
-        phase += dt * speed * (1 + power * algo.presetReactivity / 3.0);
+        var speed = algo.presetSpeed;
+        phase += dt * speed * (1 + power * algo.presetReactivity);
 
         var cx = width / 2;
         var cy = height / 2;
@@ -80,7 +82,7 @@ var testAlgo;
         var ringCount = algo.presetRings;
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
 

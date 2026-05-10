@@ -23,32 +23,37 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 1;
+    algo.presetReactivity = 0.1;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 4;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 0.8;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
     algo.presetLayers = 3;
     algo.properties.push(
       "name:presetLayers|type:range|display:Layers|" +
       "values:1,5|write:setLayers|read:getLayers");
-    algo.presetWaveSize = 5;
+    algo.presetWaveSize = 1.0;
     algo.properties.push(
-      "name:presetWaveSize|type:range|display:Wave Size|" +
-      "values:1,10|write:setWaveSize|read:getWaveSize");
+      "name:presetWaveSize|type:float|display:Wave Size|" +
+      "write:setWaveSize|read:getWaveSize");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setLayers = function(_v) { algo.presetLayers = parseInt(_v); };
     algo.getLayers = function() { return algo.presetLayers; };
-    algo.setWaveSize = function(_v) { algo.presetWaveSize = parseInt(_v); };
+    algo.setWaveSize = function(_v) { algo.presetWaveSize = parseFloat(_v); };
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
+    var BEAT_PULSE_AMP = 0.25;
+    var LAYER_SPEED_STEP = 0.7;
+    var LAYER_PHASE_OFFSET = 2.1;
+    var VERT_WAVE_FREQ = 1.5;
     var elapsedSec = 0;
 
     // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
@@ -83,15 +88,15 @@ var testAlgo;
             cols[k] = [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
         }
 
-        var speed = algo.presetSpeed / 5.0;
-        var reactivity = algo.presetReactivity / 10.0;
+        var speed = algo.presetSpeed;
+        var reactivity = algo.presetReactivity;
         elapsedSec += dt * speed;
 
-        var waveFreq = algo.presetWaveSize / 5.0;
+        var waveFreq = algo.presetWaveSize;
         var layers = algo.presetLayers;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
         // True 2D: multiple sine wave layers drifting across the grid
         for (var y = 0; y < height; y++) {
@@ -102,8 +107,8 @@ var testAlgo;
                 var r = 0, g = 0, b2 = 0;
 
                 for (var l = 0; l < layers; l++) {
-                    var layerSpeed = (l + 1) * 0.7;
-                    var layerPhase = l * 2.1;
+                    var layerSpeed = (l + 1) * LAYER_SPEED_STEP;
+                    var layerPhase = l * LAYER_PHASE_OFFSET;
                     var bandIdx = l % 3;
                     var power = bandPowers[bandIdx];
                     var col = cols[bandIdx];
@@ -111,7 +116,7 @@ var testAlgo;
                     // Horizontal drifting wave with vertical offset
                     var wave = Math.sin(
                         xNorm * waveFreq * Math.PI * 2 +
-                        yNorm * (l + 1) * 1.5 +
+                        yNorm * (l + 1) * VERT_WAVE_FREQ +
                         elapsedSec * layerSpeed +
                         layerPhase +
                         power * reactivity * 3

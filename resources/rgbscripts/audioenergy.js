@@ -34,19 +34,20 @@ var testAlgo;
       "name:presetMixing|type:list|display:Mixing Mode|" +
       "values:Additive,Overlap|write:setMixing|read:getMixing");
 
-    algo.presetMultiplier = 16;
+    algo.presetMultiplier = 1.6;
     algo.properties.push(
-      "name:presetMultiplier|type:range|display:Fill Amount|" +
-      "values:5,30|write:setMultiplier|read:getMultiplier");
+      "name:presetMultiplier|type:float|display:Fill Amount|" +
+      "write:setMultiplier|read:getMultiplier");
 
     algo.setMixing = function(_v) { algo.presetMixing = (_v === "Overlap") ? 1 : 0; };
     algo.getMixing = function()  { return algo.presetMixing ? "Overlap" : "Additive"; };
-    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
     // --- Internal state ---
     // Default 3-bank palette (low, mid, high).
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var BEAT_PULSE_AMP = 0.25;
     var cols = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     var idx = new Array(3);
 
@@ -84,7 +85,7 @@ var testAlgo;
         var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
         // Convert each packed 0xRRGGBB to a [r,g,b] array.
         for (var k = 0; k < 3; k++) {
@@ -95,7 +96,7 @@ var testAlgo;
         }
 
         // Calculate how many columns each band fills (from left)
-        var multiplier = algo.presetMultiplier / 10.0;
+        var multiplier = algo.presetMultiplier;
         for (var k = 0; k < 3; k++)
             idx[k] = Math.min(width, Math.floor(multiplier * width * bandPowers[k]));
 

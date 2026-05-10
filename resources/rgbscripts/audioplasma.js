@@ -24,33 +24,39 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 2;
+    algo.presetReactivity = 0.4;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 5;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 1.0;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
-    algo.presetDensity = 5;
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
+    algo.presetDensity = 0.5;
     algo.properties.push(
-      "name:presetDensity|type:range|display:Density|" +
-      "values:1,10|write:setDensity|read:getDensity");
-    algo.presetTwist = 4;
+      "name:presetDensity|type:float|display:Density|" +
+      "write:setDensity|read:getDensity");
+    algo.presetTwist = 0.04;
     algo.properties.push(
-      "name:presetTwist|type:range|display:Twist|" +
-      "values:1,10|write:setTwist|read:getTwist");
+      "name:presetTwist|type:float|display:Twist|" +
+      "write:setTwist|read:getTwist");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDensity = function(_v) { algo.presetDensity = parseInt(_v); };
+    algo.setDensity = function(_v) { algo.presetDensity = parseFloat(_v); };
     algo.getDensity = function() { return algo.presetDensity; };
-    algo.setTwist = function(_v) { algo.presetTwist = parseInt(_v); };
+    algo.setTwist = function(_v) { algo.presetTwist = parseFloat(_v); };
     algo.getTwist = function() { return algo.presetTwist; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
     var DEFAULT_BAND_COLORS = [0xFF0080, 0x8040E0, 0x0080FF];
+    var DENSITY_FLOOR = 0.01;
+    var PLASMA_RADIUS = 0.2;
+    var BEAT_PULSE_AMP = 0.20;
+    var PLASMA_FREQ = 0.1;
+    var PLASMA_V2_FREQ = 2.5;
     var elapsedSec = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -67,16 +73,16 @@ var testAlgo;
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
-        var speed = algo.presetSpeed / 5.0;
+        var speed = algo.presetSpeed;
         var noveltyMax = audio.spectrum.novelty.max;
-        elapsedSec += dt * speed * (1 + power * algo.presetReactivity / 5.0) * (1 + 0.5 * noveltyMax);
+        elapsedSec += dt * speed * (1 + power * algo.presetReactivity) * (1 + 0.5 * noveltyMax);
 
-        var density = 0.01 + (power * algo.presetDensity / 10.0);
-        var twist = algo.presetTwist / 100.0;
-        var radius = 0.2;
+        var density = DENSITY_FLOOR + (power * algo.presetDensity);
+        var twist = algo.presetTwist;
+        var radius = PLASMA_RADIUS;
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
 
@@ -87,8 +93,8 @@ var testAlgo;
                 var px = x * density;
 
                 // Three overlapping sine waves for plasma pattern
-                var v1 = Math.sin(px * 0.1 + elapsedSec) * Math.cos(py * 0.1 - elapsedSec);
-                var v2 = Math.sin((px * 0.1 + py * twist + elapsedSec) * 2.5);
+                var v1 = Math.sin(px * PLASMA_FREQ + elapsedSec) * Math.cos(py * PLASMA_FREQ - elapsedSec);
+                var v2 = Math.sin((px * PLASMA_FREQ + py * twist + elapsedSec) * PLASMA_V2_FREQ);
                 var v3 = Math.sin(Math.sqrt(px * px + py * py) * radius - elapsedSec);
 
                 // Combine and normalize to 0-1

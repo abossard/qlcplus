@@ -104,7 +104,7 @@ var testAlgo;
 
     function rolledGradientColor(t, pixelCount) {
       if (algo.presetGradientRoll !== 0 && pixelCount > 0) {
-        t = RGBUtil.mod1(t - gradientRollCounter / Math.max(pixelCount, 256));
+        t = RGBUtil.mod1(t - gradientRollCounter / pixelCount);
       }
       return RGBUtil.gradientColorAt(gradientColors, t);
     }
@@ -155,8 +155,8 @@ var testAlgo;
       }
 
       if (algo.presetGradientRoll !== 0) {
-        gradientRollCounter += algo.presetGradientRoll / Math.max(1, pixelCount) * Math.max(pixelCount, 256);
-        if (gradientRollCounter >= 1.0) gradientRollCounter -= Math.floor(gradientRollCounter);
+        var dtFrames = (audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40) / 40;
+        gradientRollCounter += algo.presetGradientRoll * dtFrames;
       }
       return map;
     };

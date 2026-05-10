@@ -28,20 +28,20 @@ var testAlgo;
       "name:presetTransition|type:list|display:Transition|" +
       "values:Cut,Fade,SweepLR,SweepTB,Pulse|write:setTransition|read:getTransition");
 
-    algo.presetPulse = 4;
+    algo.presetPulse = 0.4;
     algo.properties.push(
-      "name:presetPulse|type:range|display:Beat Pulse|" +
-      "values:0,10|write:setPulse|read:getPulse");
+      "name:presetPulse|type:float|display:Beat Pulse|" +
+      "write:setPulse|read:getPulse");
 
-    algo.presetDownbeatBoost = 3;
+    algo.presetDownbeatBoost = 0.3;
     algo.properties.push(
-      "name:presetDownbeatBoost|type:range|display:Downbeat Boost|" +
-      "values:0,10|write:setDownbeatBoost|read:getDownbeatBoost");
+      "name:presetDownbeatBoost|type:float|display:Downbeat Boost|" +
+      "write:setDownbeatBoost|read:getDownbeatBoost");
 
-    algo.presetSweepWidth = 3;
+    algo.presetSweepWidth = 0.3;
     algo.properties.push(
-      "name:presetSweepWidth|type:range|display:Sweep Width|" +
-      "values:1,10|write:setSweepWidth|read:getSweepWidth");
+      "name:presetSweepWidth|type:float|display:Sweep Width|" +
+      "write:setSweepWidth|read:getSweepWidth");
 
     algo.presetBeat1 = 1;
     algo.properties.push(
@@ -73,11 +73,11 @@ var testAlgo;
     algo.getTransition = function() {
         return ["Cut", "Fade", "SweepLR", "SweepTB", "Pulse"][algo.presetTransition];
     };
-    algo.setPulse = function(_v) { algo.presetPulse = parseInt(_v); };
+    algo.setPulse = function(_v) { algo.presetPulse = parseFloat(_v); };
     algo.getPulse = function() { return algo.presetPulse; };
-    algo.setDownbeatBoost = function(_v) { algo.presetDownbeatBoost = parseInt(_v); };
+    algo.setDownbeatBoost = function(_v) { algo.presetDownbeatBoost = parseFloat(_v); };
     algo.getDownbeatBoost = function() { return algo.presetDownbeatBoost; };
-    algo.setSweepWidth = function(_v) { algo.presetSweepWidth = parseInt(_v); };
+    algo.setSweepWidth = function(_v) { algo.presetSweepWidth = parseFloat(_v); };
     algo.getSweepWidth = function() { return algo.presetSweepWidth; };
     algo.setBeat1 = function(_v) { algo.presetBeat1 = (_v === "On") ? 1 : 0; };
     algo.getBeat1 = function() { return algo.presetBeat1 ? "On" : "Off"; };
@@ -89,6 +89,9 @@ var testAlgo;
     algo.getBeat4 = function() { return algo.presetBeat4 ? "On" : "Off"; };
 
     var DEFAULT_COLORS = [0xFF3030, 0xFFD020, 0x30FF80, 0x3080FF];
+    var BASE_BRIGHTNESS = 0.5;     // baseline brightness before cosPulse modulation
+    var SWEEP_FLOOR = 0.02;        // minimum sweep edge softness
+    var SWEEP_RANGE = 0.28;        // additional softness at max sweep width
 
     function clamp01(v) {
         return Math.max(0, Math.min(1, v));
@@ -161,14 +164,14 @@ var testAlgo;
         var previousColor = unpack(packed[prevBeat] | 0);
         var phase = (audio && audio.beat.bpm > 0) ? clamp01(audio.beat.phase) : 0;
         var cosPulse = audio ? clamp01(audio.beat.cosPulse) : 0;
-        var brightness = 0.5 + 0.5 * cosPulse;
+        var brightness = BASE_BRIGHTNESS + 0.5 * cosPulse;
 
-        brightness += cosPulse * (algo.presetPulse / 10.0);
+        brightness += cosPulse * algo.presetPulse;
         if (audio && audio.bar.downbeat)
-            brightness += algo.presetDownbeatBoost / 10.0;
+            brightness += algo.presetDownbeatBoost;
         brightness = clamp01(brightness);
 
-        var sweepWidth = 0.02 + 0.28 * (algo.presetSweepWidth / 10.0);
+        var sweepWidth = SWEEP_FLOOR + SWEEP_RANGE * algo.presetSweepWidth;
 
         for (var y = 0; y < height; y++) {
             var y01 = height <= 1 ? 0.5 : y / (height - 1);

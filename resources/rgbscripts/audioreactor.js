@@ -29,20 +29,20 @@ var testAlgo;
       "name:presetPalette|type:list|display:Palette|" +
       "values:Band Colors,Pitch Hue|write:setPalette|read:getPalette");
 
-    algo.presetSensitivity = 7;
+    algo.presetSensitivity = 1.0;
     algo.properties.push(
-      "name:presetSensitivity|type:range|display:Sensitivity|" +
-      "values:1,10|write:setSensitivity|read:getSensitivity");
+      "name:presetSensitivity|type:float|display:Sensitivity|" +
+      "write:setSensitivity|read:getSensitivity");
 
-    algo.presetMotion = 6;
+    algo.presetMotion = 1.0;
     algo.properties.push(
-      "name:presetMotion|type:range|display:Motion|" +
-      "values:1,10|write:setMotion|read:getMotion");
+      "name:presetMotion|type:float|display:Motion|" +
+      "write:setMotion|read:getMotion");
 
-    algo.presetFlash = 8;
+    algo.presetFlash = 0.8;
     algo.properties.push(
-      "name:presetFlash|type:range|display:Onset Flash|" +
-      "values:0,10|write:setFlash|read:getFlash");
+      "name:presetFlash|type:float|display:Onset Flash|" +
+      "write:setFlash|read:getFlash");
 
     algo.presetSparkles = 1;
     algo.properties.push(
@@ -51,16 +51,24 @@ var testAlgo;
 
     algo.setPalette = function(_v) { algo.presetPalette = (_v === "Pitch Hue") ? 1 : 0; };
     algo.getPalette = function() { return algo.presetPalette ? "Pitch Hue" : "Band Colors"; };
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
+    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseFloat(_v); };
     algo.getSensitivity = function() { return algo.presetSensitivity; };
-    algo.setMotion = function(_v) { algo.presetMotion = parseInt(_v); };
+    algo.setMotion = function(_v) { algo.presetMotion = parseFloat(_v); };
     algo.getMotion = function() { return algo.presetMotion; };
-    algo.setFlash = function(_v) { algo.presetFlash = parseInt(_v); };
+    algo.setFlash = function(_v) { algo.presetFlash = parseFloat(_v); };
     algo.getFlash = function() { return algo.presetFlash; };
     algo.setSparkles = function(_v) { algo.presetSparkles = (_v === "On") ? 1 : 0; };
     algo.getSparkles = function() { return algo.presetSparkles ? "On" : "Off"; };
 
     var DEFAULT_BAND_COLORS = [0xFF2040, 0x20FF80, 0x80C0FF];
+    var MOTION_SPD_BASE = 0.015;
+    var MOTION_SPD_RANGE = 0.025;
+    var BEAT_SPD_MULT = 2.5;
+    var SWEEP_RATE = 0.25;
+    var FLASH_DECAY = 0.82;
+    var SPARK_DENSITY = 0.10;
+    var SPARK_DECAY = 0.80;
+    var OVERALL_BASE = 0.35;
     var time = 0;
     var flash = 0;
     var sweep = 0;
@@ -115,17 +123,17 @@ var testAlgo;
         ensureSparks(width, height);
 
         var dt = audio.timing.consumerDtMs / 1000.0;
-        var sensitivity = algo.presetSensitivity / 7.0;
-        var motion = algo.presetMotion / 6.0;
+        var sensitivity = algo.presetSensitivity;
+        var motion = algo.presetMotion;
         var lowVis = Math.min(1, audio.power.low * sensitivity);
         var midVis = Math.min(1, audio.power.mid * sensitivity);
         var highVis = Math.min(1, audio.power.high * sensitivity);
         var beatPower = audio.power.detail.beat;
         var beatPulse = Math.max(audio.beat.cosPulse, audio.beat.kickIntensity);
-        var speed = (0.015 + 0.025 * motion) * (1 + beatPower * 2.5);
+        var speed = (MOTION_SPD_BASE + MOTION_SPD_RANGE * motion) * (1 + beatPower * BEAT_SPD_MULT);
         time += dt * 1000.0 * speed;
         if (time > 1e6) time -= 1e6;
-        sweep = RGBUtil.mod1(sweep + dt * 0.25 * motion * (1 + midVis * 3));
+        sweep = RGBUtil.mod1(sweep + dt * SWEEP_RATE * motion * (1 + midVis * 3));
 
         var dominant = audio.power.dominant;
         var dominantIndex = dominant === "high" ? 2 : (dominant === "mid" ? 1 : 0);
@@ -138,12 +146,12 @@ var testAlgo;
         var onset = audio.onset.fired;
         if (onset || audio.beat.fired || audio.beat.kick) {
             var onsetIntensity = audio.onset.intensity;
-            flash = Math.max(flash, onsetIntensity * algo.presetFlash / 10.0);
+            flash = Math.max(flash, onsetIntensity * algo.presetFlash);
         }
-        flash *= 0.82;
+        flash *= FLASH_DECAY;
 
         if (algo.presetSparkles && (onset || dominant === "high")) {
-            var sparkCount = Math.max(1, Math.floor(width * height * highVis * 0.10));
+            var sparkCount = Math.max(1, Math.floor(width * height * highVis * SPARK_DENSITY));
             if (onset) sparkCount += Math.max(1, Math.floor(width / 4));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
@@ -155,10 +163,10 @@ var testAlgo;
         }
 
         for (var i = 0; i < sparkEnergy.length; i++)
-            sparkEnergy[i] *= 0.80;
+            sparkEnergy[i] *= SPARK_DECAY;
 
         var floor = 0;
-        var overall = 0.35 + dominantValue + beatPulse * 0.35;
+        var overall = OVERALL_BASE + dominantValue + beatPulse * 0.35;
         var barPhase = audio.bar.phase01;
 
         for (var y = 0; y < height; y++) {

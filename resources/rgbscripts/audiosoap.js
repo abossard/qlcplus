@@ -24,32 +24,37 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
+    algo.presetReactivity = 0.5;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 5;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
-    algo.presetDensity = 5;
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
+    algo.presetDensity = 0.5;
     algo.properties.push(
-      "name:presetDensity|type:range|display:Smear|" +
-      "values:1,10|write:setDensity|read:getDensity");
-    algo.presetSmooth = 5;
+      "name:presetDensity|type:float|display:Smear|" +
+      "write:setDensity|read:getDensity");
+    algo.presetSmooth = 0.5;
     algo.properties.push(
-      "name:presetSmooth|type:range|display:Smoothing|" +
-      "values:1,10|write:setSmooth|read:getSmooth");
+      "name:presetSmooth|type:float|display:Smoothing|" +
+      "write:setSmooth|read:getSmooth");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDensity = function(_v) { algo.presetDensity = parseInt(_v); };
+    algo.setDensity = function(_v) { algo.presetDensity = parseFloat(_v); };
     algo.getDensity = function() { return algo.presetDensity; };
-    algo.setSmooth = function(_v) { algo.presetSmooth = parseInt(_v); };
+    algo.setSmooth = function(_v) { algo.presetSmooth = parseFloat(_v); };
     algo.getSmooth = function() { return algo.presetSmooth; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
+    var BRI_FLOOR = 0.45;
+    var BRI_RANGE = 0.55;
+    var Y_MOVE_RATIO = 0.7;
+    var BEAT_PULSE_AMP = 0.20;
     var NOISE_FREQ = 3.0;
     var MAX_NOISE_GRID = 8;
     var MAX_SOAP_PIXELS = 2048;
@@ -153,7 +158,7 @@ var testAlgo;
 
     function colorScaleForNoise(noise) {
         var t = ((1 - noise) * 3) % 1;
-        return 0.45 + t * 0.55;
+        return BRI_FLOOR + t * BRI_RANGE;
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
@@ -173,10 +178,10 @@ var testAlgo;
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
-        var speed = algo.presetSpeed / 10.0;
-        var reactivity = algo.presetReactivity / 10.0;
-        var smooth = algo.presetSmooth / 10.0;
-        var density = algo.presetDensity / 10.0;
+        var speed = algo.presetSpeed;
+        var reactivity = algo.presetReactivity;
+        var smooth = algo.presetSmooth;
+        var density = algo.presetDensity;
 
         // Audio-modulated speed
         var audioSpeed = (reactivity === 0)
@@ -184,7 +189,7 @@ var testAlgo;
             : speed * (1 + power * reactivity * 6);
         var move = audioSpeed * audioSpeed * 0.5 * dt;
         phaseX += move;
-        phaseY += move * 0.7;
+        phaseY += move * Y_MOVE_RATIO;
 
         fillNoiseField(width, height, smooth);
 
@@ -193,7 +198,7 @@ var testAlgo;
         var blendedR = (blendedPacked >> 16) & 0xFF;
         var blendedG = (blendedPacked >> 8) & 0xFF;
         var blendedB = blendedPacked & 0xFF;
-        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
         var noiseField = algo.noiseField;

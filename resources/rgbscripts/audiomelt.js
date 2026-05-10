@@ -24,27 +24,34 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
+    algo.presetReactivity = 0.5;
     algo.properties.push(
-      "name:presetReactivity|type:range|display:Reactivity|" +
-      "values:1,10|write:setReactivity|read:getReactivity");
-    algo.presetSpeed = 5;
+      "name:presetReactivity|type:float|display:Reactivity|" +
+      "write:setReactivity|read:getReactivity");
+    algo.presetSpeed = 0.5;
     algo.properties.push(
-      "name:presetSpeed|type:range|display:Speed|" +
-      "values:1,10|write:setSpeed|read:getSpeed");
+      "name:presetSpeed|type:float|display:Speed|" +
+      "write:setSpeed|read:getSpeed");
     algo.presetColorSpeed = 5;
     algo.properties.push(
       "name:presetColorSpeed|type:range|display:Color Speed|" +
       "values:1,10|write:setColorSpeed|read:getColorSpeed");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseInt(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setColorSpeed = function(_v) { algo.presetColorSpeed = parseInt(_v); };
     algo.getColorSpeed = function() { return algo.presetColorSpeed; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseInt(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
+
     var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
+    var MELT_RATE_1 = 0.0005;
+    var MELT_RATE_2 = 0.00065;
+    var COLOR_RATE = 0.0001;
+    var BEAT_PULSE_AMP = 0.20;
+    var COLOR_FLOOR = 0.65;
+    var COLOR_RANGE = 0.35;
     var timestep = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -63,17 +70,17 @@ var testAlgo;
         var lowPower = audio.power.low;
 
         // Accumulate time with audio reactivity
-        var speed = algo.presetSpeed / 10.0;
-        var reactivity = algo.presetReactivity / 10.0;
+        var speed = algo.presetSpeed;
+        var reactivity = algo.presetReactivity;
         timestep += dt;
         timestep += lowPower * reactivity / speed * 50;
 
-        var t1 = (timestep * speed * 0.0005) % 1;
-        var t2 = (timestep * speed * 0.00065) % 1;
-        var colorT = (timestep * algo.presetColorSpeed * 0.0001) % 1;
+        var t1 = (timestep * speed * MELT_RATE_1) % 1;
+        var t2 = (timestep * speed * MELT_RATE_2) % 1;
+        var colorT = (timestep * algo.presetColorSpeed * COLOR_RATE) % 1;
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
 
@@ -87,7 +94,7 @@ var testAlgo;
             v = v * v; // Square for contrast
 
             var huePos = (il + t2 + colorT) % 1;
-            var colorScale = 0.65 + huePos * 0.35;
+            var colorScale = COLOR_FLOOR + huePos * COLOR_RANGE;
             var r = blended[0] * colorScale;
             var g = blended[1] * colorScale;
             var b = blended[2] * colorScale;

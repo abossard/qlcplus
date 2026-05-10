@@ -19,19 +19,19 @@ algo.acceptColors = 2;  // buildup color + drop color
 algo.usesAudio = true;
 algo.properties = new Array();
 
-algo.presetSensitivity = 6;
+algo.presetSensitivity = 0.6;
     algo.properties.push(
-      "name:presetSensitivity|type:range|display:Sensitivity|" +
-      "values:1,10|write:setSensitivity|read:getSensitivity");
+      "name:presetSensitivity|type:float|display:Sensitivity|" +
+      "write:setSensitivity|read:getSensitivity");
 
-algo.presetDropIntensity = 8;
+algo.presetDropIntensity = 0.8;
 algo.properties.push(
-  "name:presetDropIntensity|type:range|display:DropIntensity|" +
-  "values:1,10|write:setDropIntensity|read:getDropIntensity");
-algo.presetBuildSpeed = 5;
+  "name:presetDropIntensity|type:float|display:DropIntensity|" +
+  "write:setDropIntensity|read:getDropIntensity");
+algo.presetBuildSpeed = 0.5;
 algo.properties.push(
-  "name:presetBuildSpeed|type:range|display:BuildSpeed|" +
-  "values:1,10|write:setBuildSpeed|read:getBuildSpeed");
+  "name:presetBuildSpeed|type:float|display:BuildSpeed|" +
+  "write:setBuildSpeed|read:getBuildSpeed");
 algo.presetColorScheme = 0;
 algo.properties.push(
   "name:presetColorScheme|type:list|display:ColorScheme|" +
@@ -53,9 +53,9 @@ algo.rgbMapSetColors = function(rawColors) {
 };
 algo.rgbMapGetColors = function() { return []; };
 
-algo.setDropIntensity = function(_v) { algo.presetDropIntensity = clampInt(_v, 1, 10, 8); };
+algo.setDropIntensity = function(_v) { algo.presetDropIntensity = parseFloat(_v); };
 algo.getDropIntensity = function() { return algo.presetDropIntensity; };
-algo.setBuildSpeed = function(_v) { algo.presetBuildSpeed = clampInt(_v, 1, 10, 5); };
+algo.setBuildSpeed = function(_v) { algo.presetBuildSpeed = parseFloat(_v); };
 algo.getBuildSpeed = function() { return algo.presetBuildSpeed; };
 algo.setColorScheme = function(_v) {
     if (_v === "Rainbow" || parseInt(_v) === 1) algo.presetColorScheme = 1;
@@ -66,8 +66,69 @@ algo.getColorScheme = function() { return ["Cool2Warm", "Rainbow", "Monochrome"]
 algo.setAutoTune = function(_v) { algo.presetAutoTune = (_v === "No" || parseInt(_v) === 0) ? 0 : 1; };
 algo.getAutoTune = function() { return algo.presetAutoTune ? "Yes" : "No"; };
 
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseInt(_v); };
+    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseFloat(_v); };
     algo.getSensitivity = function() { return algo.presetSensitivity; };
+
+// --- Named magic constants ---
+var ONSET_BOOST_WEIGHT = 0.15;
+var BUILD_W_ENERGY = 0.35;
+var BUILD_W_HIGH = 0.20;
+var BUILD_W_FLUX = 0.25;
+var BUILD_W_LOWS = 0.20;
+var VOTE_THR_ENERGY = 0.4;
+var VOTE_THR_HIGH = 0.5;
+var VOTE_THR_FLUX = 0.4;
+var VOTE_THR_LOWS_LOW = 0.3;
+var BASS_ABSENT_THRESH = 0.15;
+var BASS_ABSENT_FRAMES = 10;
+var BUILD_ENTER_THR_HIGH = 0.65;
+var BUILD_ENTER_THR_LOW = 0.35;
+var PEAK_THR_HIGH = 0.80;
+var PEAK_THR_LOW = 0.55;
+var IDLE_BUILD_DECAY = 0.03;
+var BUILD_PROGRESS_INC = 0.02;
+var BUILD_SPEED_MIN = 0.5;
+var BUILD_SPEED_MAX = 1.8;
+var COOLDOWN_FRAMES = 75;
+var IDLE_BASS_PULSE_AMP = 0.5;
+var IDLE_EDGE_SPARK_AMP = 0.3;
+var IDLE_MID_BAND_AMP = 0.2;
+var IDLE_BASE_BRI = 0.04;
+var IDLE_BRI_MIN = 0.02;
+var IDLE_BRI_MAX = 0.6;
+var IDLE_HUE_WAVE_AMP = 0.08;
+var IDLE_HUE_BASS_AMP = 0.05;
+var IDLE_HUE_HIGH_AMP = 0.05;
+var IDLE_SAT_BASE = 0.6;
+var IDLE_SAT_MID_AMP = 0.3;
+var ACTIVATION_WIDTH = 3.0;
+var BUILD_HUE_COOL = 0.62;
+var BUILD_HUE_WARM = 0.03;
+var BUILD_RAINBOW_SPREAD = 0.3;
+var BUILD_RAINBOW_PROG = 0.5;
+var BUILD_RAINBOW_TIME = 0.01;
+var BUILD_BRI_BASE = 0.05;
+var BUILD_BRI_ACT = 0.6;
+var BUILD_BRI_HEAT = 0.4;
+var BUILD_SAT_HIGH = 0.9;
+var BUILD_SAT_LOW = 0.3;
+var PEAK_FLICKER_BASE = 0.8;
+var PEAK_FLICKER_AMP = 0.2;
+var PEAK_HIGH_BASE = 0.85;
+var PEAK_HIGH_AMP = 0.15;
+var PEAK_HUE_FLASH = 0.08;
+var PEAK_SAT = 0.12;
+var PEAK_EDGE_BRI_BASE = 0.4;
+var PEAK_EDGE_BRI_AMP = 0.2;
+var DROP_FRAMES = 20.0;
+var DROP_RING_WIDTH = 3.0;
+var DROP_AFTERGLOW_AMP = 0.3;
+var DROP_RING_DECAY = 0.5;
+var POSTDROP_FRAMES = 50.0;
+var POSTDROP_BASE_BRI = 0.04;
+var POSTDROP_BASS_AMP = 0.10;
+var POSTDROP_HUE_AMP = 0.03;
+var POSTDROP_SAT = 0.75;
 function clamp(value, minValue, maxValue) {
     return Math.max(minValue, Math.min(maxValue, value));
 }
@@ -193,25 +254,25 @@ function extractFeatures(audio) {
     var lowsNorm = normalizeFeature("lows", rawLows, 1.4, 0);
 
     // Add onset intensity to buildup signal
-    var onsetBoost = audio.onset.intensity * 0.15;
-    var buildScoreRaw = 0.35 * energyTrendNorm +
-                        0.20 * highRatioNorm +
-                        0.25 * fluxNorm +
-                        0.20 * (1 - lowsNorm) +
+    var onsetBoost = audio.onset.intensity * ONSET_BOOST_WEIGHT;
+    var buildScoreRaw = BUILD_W_ENERGY * energyTrendNorm +
+                        BUILD_W_HIGH * highRatioNorm +
+                        BUILD_W_FLUX * fluxNorm +
+                        BUILD_W_LOWS * (1 - lowsNorm) +
                         onsetBoost;
     var buildScore = buildScoreRaw;
 
     var featureVotes = 0;
-    if (energyTrendNorm > 0.4) featureVotes++;
-    if (highRatioNorm > 0.5) featureVotes++;
-    if (fluxNorm > 0.4) featureVotes++;
-    if (lowsNorm < 0.3) featureVotes++;
+    if (energyTrendNorm > VOTE_THR_ENERGY) featureVotes++;
+    if (highRatioNorm > VOTE_THR_HIGH) featureVotes++;
+    if (fluxNorm > VOTE_THR_FLUX) featureVotes++;
+    if (lowsNorm < VOTE_THR_LOWS_LOW) featureVotes++;
 
-    if (lowsNorm < 0.15)
+    if (lowsNorm < BASS_ABSENT_THRESH)
         algo.bassAbsentFrames++;
     else
         algo.bassAbsentFrames = 0;
-    if (algo.bassAbsentFrames > 10)
+    if (algo.bassAbsentFrames > BASS_ABSENT_FRAMES)
         algo.dropArmed = true;
 
     var dropDetected = algo.dropArmed && (audio.bands.low.fired || audio.beat.kick);
@@ -229,21 +290,21 @@ function extractFeatures(audio) {
         highsNorm: clamp(rawHighs * 1.5, 0, 1),
         buildScore: buildScore,
         featureVotes: featureVotes,
-        bassAbsent: algo.bassAbsentFrames > 10,
+        bassAbsent: algo.bassAbsentFrames > BASS_ABSENT_FRAMES,
         dropDetected: dropDetected
     };
 }
 
 function updateState(features) {
-    var sens = algo.presetSensitivity / 10.0;
-    var buildEnterThresh = lerp(0.65, 0.35, sens);
-    var peakThresh = lerp(0.80, 0.55, sens);
+    var sens = algo.presetSensitivity;
+    var buildEnterThresh = lerp(BUILD_ENTER_THR_HIGH, BUILD_ENTER_THR_LOW, sens);
+    var peakThresh = lerp(PEAK_THR_HIGH, PEAK_THR_LOW, sens);
 
     if (algo.cooldown > 0)
         algo.cooldown--;
 
     if (algo.state === algo.IDLE) {
-        algo.buildProgress = Math.max(0, algo.buildProgress - 0.03);
+        algo.buildProgress = Math.max(0, algo.buildProgress - IDLE_BUILD_DECAY);
         if (features.buildScore > buildEnterThresh &&
             features.featureVotes >= 2 &&
             algo.cooldown === 0) {
@@ -267,7 +328,7 @@ function updateState(features) {
     } else if (algo.state === algo.POST_DROP) {
         if (algo.stateFrames >= 35) {  // shorter post-drop
             transitionTo(algo.IDLE);
-            algo.cooldown = 75;
+            algo.cooldown = COOLDOWN_FRAMES;
         }
     }
 }
@@ -288,20 +349,20 @@ function renderIdle(map, width, height, features) {
 
             // Bass pulses from center outward
             var dist = Math.abs(x - centerX) / Math.max(1, centerX);
-            var bassPulse = (1 - dist) * bass * 0.5;
+            var bassPulse = (1 - dist) * bass * IDLE_BASS_PULSE_AMP;
 
             // Highs sparkle at edges
-            var edgeSpark = dist * highs * wave1 * 0.3;
+            var edgeSpark = dist * highs * wave1 * IDLE_EDGE_SPARK_AMP;
 
             // Mids create horizontal bands
-            var midBand = mids * wave2 * 0.2;
+            var midBand = mids * wave2 * IDLE_MID_BAND_AMP;
 
-            var bri = 0.04 + bassPulse + edgeSpark + midBand;
-            bri = clamp(bri, 0.02, 0.6);
+            var bri = IDLE_BASE_BRI + bassPulse + edgeSpark + midBand;
+            bri = clamp(bri, IDLE_BRI_MIN, IDLE_BRI_MAX);
 
             // Hue shifts with position and audio
-            var hueShift = wave1 * 0.08 + bass * 0.05 - highs * 0.05;
-            var sat = 0.6 + mids * 0.3;
+            var hueShift = wave1 * IDLE_HUE_WAVE_AMP + bass * IDLE_HUE_BASS_AMP - highs * IDLE_HUE_HIGH_AMP;
+            var sat = IDLE_SAT_BASE + mids * IDLE_SAT_MID_AMP;
 
             map[y][x] = packHsv(baseHue + hueShift, sat, bri);
         }
@@ -309,9 +370,9 @@ function renderIdle(map, width, height, features) {
 }
 
 function renderBuilding(map, width, height, features) {
-    var buildSpeedFactor = lerp(0.5, 1.8, algo.presetBuildSpeed / 10.0);
+    var buildSpeedFactor = lerp(BUILD_SPEED_MIN, BUILD_SPEED_MAX, algo.presetBuildSpeed);
     algo.buildProgress = clamp(algo.buildProgress +
-                               features.buildScore * buildSpeedFactor * 0.02, 0, 1);
+                               features.buildScore * buildSpeedFactor * BUILD_PROGRESS_INC, 0, 1);
 
     var centerX = width / 2.0;
     var maxEdgeDist = Math.floor(width / 2);
@@ -321,19 +382,19 @@ function renderBuilding(map, width, height, features) {
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var edgeDist = Math.min(x, width - 1 - x);
-            var activation = clamp(1 - Math.abs(edgeDist - activeDepth) / 3.0, 0, 1);
+            var activation = clamp(1 - Math.abs(edgeDist - activeDepth) / ACTIVATION_WIDTH, 0, 1);
             var centerHeat = Math.pow(1 - Math.abs(x - centerX) / Math.max(1, centerX), 1.5) *
                              algo.buildProgress;
             var hue;
             if (algo.presetColorScheme === 0)
-                hue = lerp(0.62, 0.03, algo.buildProgress);
+                hue = lerp(BUILD_HUE_COOL, BUILD_HUE_WARM, algo.buildProgress);
             else if (algo.presetColorScheme === 1)
-                hue = ((x / Math.max(1, width)) * 0.3 + algo.buildProgress * 0.5 + algo.frame * 0.01) % 1.0;
+                hue = ((x / Math.max(1, width)) * BUILD_RAINBOW_SPREAD + algo.buildProgress * BUILD_RAINBOW_PROG + algo.frame * BUILD_RAINBOW_TIME) % 1.0;
             else
                 hue = colorHueValue;
 
-            var bri = 0.05 + activation * 0.6 + centerHeat * 0.4;
-            var sat = lerp(0.9, 0.3, algo.buildProgress);
+            var bri = BUILD_BRI_BASE + activation * BUILD_BRI_ACT + centerHeat * BUILD_BRI_HEAT;
+            var sat = lerp(BUILD_SAT_HIGH, BUILD_SAT_LOW, algo.buildProgress);
             map[y][x] = packHsv(hue, sat, bri);
         }
     }
@@ -343,24 +404,24 @@ function renderPeak(map, width, height, features) {
     algo.buildProgress = 1.0;
     var centerX = (width - 1) / 2.0;
     var centerCols = (width >= 12) ? 4 : 2;
-    var flicker = 0.8 + 0.2 * Math.sin(algo.frame * 0.5);
-    var highFlicker = 0.85 + features.highsNorm * 0.15;
-    var hue = (algo.presetColorScheme === 2) ? colorHue(algo.buildColor) : 0.08;
+    var flicker = PEAK_FLICKER_BASE + PEAK_FLICKER_AMP * Math.sin(algo.frame * 0.5);
+    var highFlicker = PEAK_HIGH_BASE + features.highsNorm * PEAK_HIGH_AMP;
+    var hue = (algo.presetColorScheme === 2) ? colorHue(algo.buildColor) : PEAK_HUE_FLASH;
 
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var dist = Math.abs(x - centerX);
             var center = dist <= centerCols / 2.0;
-            var bri = center ? 1.0 : 0.4 + Math.max(0, 1 - dist / Math.max(1, centerX)) * 0.2;
+            var bri = center ? 1.0 : PEAK_EDGE_BRI_BASE + Math.max(0, 1 - dist / Math.max(1, centerX)) * PEAK_EDGE_BRI_AMP;
             bri *= flicker * highFlicker;
-            map[y][x] = packHsv(hue, 0.12, bri);
+            map[y][x] = packHsv(hue, PEAK_SAT, bri);
         }
     }
 }
 
 function renderDrop(map, width, height) {
-    var dropProgress = clamp(algo.stateFrames / 20.0, 0, 1);
-    var intensity = clamp(algo.presetDropIntensity / 10.0, 0.1, 1.0);
+    var dropProgress = clamp(algo.stateFrames / DROP_FRAMES, 0, 1);
+    var intensity = clamp(algo.presetDropIntensity, 0.1, 1.0);
 
     if (algo.stateFrames <= 3) {
         var flash = RGBUtil.rgb(255 * intensity, 255 * intensity, 255 * intensity);
@@ -375,22 +436,22 @@ function renderDrop(map, width, height) {
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var dist = Math.abs(x - centerX);
-            var ringBri = Math.max(0, 1 - Math.abs(dist - waveRadius) / 3.0);
-            var afterglow = Math.max(0, 1 - dropProgress) * 0.3;
-            var bri = (ringBri * (1 - dropProgress * 0.5) + afterglow) * intensity;
+            var ringBri = Math.max(0, 1 - Math.abs(dist - waveRadius) / DROP_RING_WIDTH);
+            var afterglow = Math.max(0, 1 - dropProgress) * DROP_AFTERGLOW_AMP;
+            var bri = (ringBri * (1 - dropProgress * DROP_RING_DECAY) + afterglow) * intensity;
             map[y][x] = packScaled(algo.dropColor, bri);
         }
     }
 }
 
 function renderPostDrop(map, width, height, features) {
-    var afterglow = Math.max(0, 1 - algo.stateFrames / 50.0);
+    var afterglow = Math.max(0, 1 - algo.stateFrames / POSTDROP_FRAMES);
     var baseHue = colorHue(algo.dropColor);
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
-            var bassPulse = (0.04 + features.lowsNorm * 0.10) * afterglow;
-            var hueShift = Math.sin(x * 0.25 + algo.frame * 0.015) * 0.03;
-            map[y][x] = packHsv(baseHue + hueShift, 0.75, bassPulse);
+            var bassPulse = (POSTDROP_BASE_BRI + features.lowsNorm * POSTDROP_BASS_AMP) * afterglow;
+            var hueShift = Math.sin(x * 0.25 + algo.frame * 0.015) * POSTDROP_HUE_AMP;
+            map[y][x] = packHsv(baseHue + hueShift, POSTDROP_SAT, bassPulse);
         }
     }
 }
