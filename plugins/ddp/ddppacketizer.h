@@ -26,7 +26,6 @@
 #define DDP_PORT            4048
 #define DDP_HEADER_LEN      10
 #define DDP_MAX_DATALEN     1440   // 480 RGB pixels × 3 bytes
-#define DDP_MAX_PIXELS      480
 
 // Header byte 0: flags
 #define DDP_FLAGS_VER1      0x40   // Version 1
@@ -71,7 +70,7 @@ public:
 
     /**
      * Compute the sequence number for a given frame count.
-     * Cycles 1–15 as per the DDP spec.
+     * frameCount is 1-based; output cycles 1..15 (0 is reserved by the DDP spec).
      */
     static quint8 sequenceForFrame(quint64 frameCount);
 };

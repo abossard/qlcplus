@@ -30,12 +30,12 @@ static bool addressCompare(const DDPIO &v1, const DDPIO &v2)
     return v1.address.ip().toString() < v2.address.ip().toString();
 }
 
-DDPPlugin::~DDPPlugin()
-{
-}
+DDPPlugin::~DDPPlugin() = default;
 
 void DDPPlugin::init()
 {
+    QMutexLocker locker(&m_ioMutex);
+    m_IOmapping.clear();
     foreach (QNetworkInterface iface, QNetworkInterface::allInterfaces())
     {
         foreach (QNetworkAddressEntry entry, iface.addressEntries())
@@ -99,13 +99,19 @@ QByteArray DDPPlugin::pluginDiagnostics() const
     if (!isDiagnosticsEnabled())
         return QByteArray();
 
+    QList<DDPIO> mapping;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        mapping = m_IOmapping;
+    }
+
     QJsonObject root;
     root["type"] = name();
 
     quint64 totalSent = 0;
     QJsonArray controllersArr;
 
-    for (const DDPIO &io : m_IOmapping)
+    for (const DDPIO &io : mapping)
     {
         QJsonObject ctrlObj;
         ctrlObj["interface"] = io.iface.humanReadableName();
@@ -122,7 +128,7 @@ QByteArray DDPPlugin::pluginDiagnostics() const
 
     root["controllers"] = controllersArr;
     root["totalPacketsSent"] = (qint64)totalSent;
-    root["lines"] = m_IOmapping.count();
+    root["lines"] = mapping.count();
 
     return QJsonDocument(root).toJson(QJsonDocument::Compact);
 }
@@ -134,9 +140,13 @@ QStringList DDPPlugin::outputs()
 {
     QStringList list;
 
-    init();
+    QList<DDPIO> mapping;
+    {
+        QMutexLocker locker(&m_ioMutex);
+        mapping = m_IOmapping;
+    }
 
-    foreach (DDPIO line, m_IOmapping)
+    for (const DDPIO &line : mapping)
         list << line.address.ip().toString();
 
     return list;
@@ -213,8 +223,6 @@ void DDPPlugin::closeOutput(quint32 output, quint32 universe)
     if (output >= (quint32)m_IOmapping.length())
         return;
 
-    // Base class signature: removeFromMap(universe, line, type) — previous
-    // call swapped the first two args and silently corrupted the I/O map.
     removeFromMap(universe, output, Output);
 
     QSharedPointer<DDPController> controller;
@@ -301,6 +309,10 @@ bool DDPPlugin::canConfigure() const
 void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
                               QString name, QVariant value)
 {
+    // Persist into the base class first, so workspace XML stays in sync even
+    // when the controller for this line hasn't been opened yet.
+    QLCIOPlugin::setParameter(universe, line, type, name, value);
+
     if (line >= (quint32)m_IOmapping.length())
         return;
 
@@ -330,9 +342,6 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
             DDPController::Components comp =
                 DDPController::stringToComponents(value.toString());
             controller->setComponents(universe, comp);
-            // Keep per-controller bytes-per-pixel in sync for explicit
-            // pixelCount mode (Fix 6).
-            controller->setBytesPerPixel(comp == DDPController::RGBW ? 4 : 3);
         }
         else if (name == DDP_MAXFPS)
             controller->setMaxFps(value.toInt());
@@ -343,11 +352,10 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
         else
             qWarning() << Q_FUNC_INFO << name << "is not a valid DDP output parameter";
     }
-
-    QLCIOPlugin::setParameter(universe, line, type, name, value);
 }
 
 QList<DDPIO> DDPPlugin::getIOMapping() const
 {
+    QMutexLocker locker(&m_ioMutex);
     return m_IOmapping;
 }

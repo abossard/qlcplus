@@ -24,7 +24,6 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QSpinBox>
-#include <QDebug>
 
 #include "configureddp.h"
 #include "ddpcontroller.h"
@@ -88,7 +87,7 @@ void ConfigureDDP::fillMappingTree()
     QTreeWidgetItem* outputItem = nullptr;
 
     QList<DDPIO> IOmap = m_plugin->getIOMapping();
-    foreach (DDPIO io, IOmap)
+    for (const DDPIO &io : IOmap)
     {
         QSharedPointer<DDPController> controller = io.controller;
         if (controller.isNull())
@@ -253,9 +252,4 @@ void ConfigureDDP::accept()
     }
 
     QDialog::accept();
-}
-
-int ConfigureDDP::exec()
-{
-    return QDialog::exec();
 }

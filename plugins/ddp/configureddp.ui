@@ -26,121 +26,114 @@
   </property>
   <layout class="QGridLayout" name="gridLayout">
    <item row="0" column="0">
-    <widget class="QTabWidget" name="tabWidget">
-     <property name="currentIndex">
-      <number>0</number>
-     </property>
-     <widget class="QWidget" name="tab">
-      <attribute name="title">
-       <string>Universes Configuration</string>
-      </attribute>
-      <layout class="QVBoxLayout" name="verticalLayout">
+    <layout class="QVBoxLayout" name="verticalLayout">
+      <item>
+       <widget class="QTreeWidget" name="m_uniMapTree">
+       <property name="alternatingRowColors">
+        <bool>true</bool>
+       </property>
+       <property name="rootIsDecorated">
+        <bool>false</bool>
+       </property>
+       <column>
+        <property name="text">
+         <string>Interface</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Universe</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>IP Address</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Port</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>DDP Offset</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Dest. ID</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Transmission Mode</string>
+        </property>
+        <property name="toolTip">
+         <string>Currently unused — reserved for future implementation</string>
+        </property>
+       </column>
+       <column>
+        <property name="text">
+         <string>Components</string>
+        </property>
+       </column>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="maxFpsLayout">
         <item>
-         <widget class="QTreeWidget" name="m_uniMapTree">
-         <property name="alternatingRowColors">
-          <bool>true</bool>
-         </property>
-         <property name="rootIsDecorated">
-          <bool>false</bool>
-         </property>
-         <column>
+         <widget class="QLabel" name="m_maxFpsLabel">
           <property name="text">
-           <string>Interface</string>
+           <string>Max FPS</string>
           </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Universe</string>
+          <property name="buddy">
+           <cstring>m_maxFpsSpin</cstring>
           </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>IP Address</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Port</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>DDP Offset</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Dest. ID</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Transmission Mode</string>
-          </property>
-         </column>
-         <column>
-          <property name="text">
-           <string>Components</string>
-          </property>
-         </column>
          </widget>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="maxFpsLayout">
-          <item>
-           <widget class="QLabel" name="m_maxFpsLabel">
-            <property name="text">
-             <string>Max FPS</string>
-            </property>
-            <property name="buddy">
-             <cstring>m_maxFpsSpin</cstring>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QSpinBox" name="m_maxFpsSpin">
-            <property name="toolTip">
-             <string>Maximum output frames per second. Default 20 for WiFi/WLED. Increase for wired connections.</string>
-            </property>
-            <property name="minimum">
-             <number>1</number>
-            </property>
-            <property name="maximum">
-             <number>50</number>
-            </property>
-            <property name="value">
-             <number>20</number>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <spacer name="maxFpsSpacer">
-            <property name="orientation">
-             <enum>Qt::Horizontal</enum>
-            </property>
-            <property name="sizeHint" stdset="0">
-             <size>
-              <width>40</width>
-              <height>20</height>
-             </size>
-            </property>
-           </spacer>
-          </item>
-          <item>
-           <widget class="QCheckBox" name="m_skipUnchangedCheck">
-            <property name="text">
-             <string>Skip unchanged</string>
-            </property>
-            <property name="toolTip">
-             <string>Suppress sending when data hasn't changed. Saves bandwidth on Wi-Fi but may cause inter-universe sync drift on multi-universe setups.</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
+         <widget class="QSpinBox" name="m_maxFpsSpin">
+          <property name="toolTip">
+           <string>Maximum output frames per second. Default 20 for WiFi/WLED. Increase for wired connections.</string>
+          </property>
+          <property name="minimum">
+           <number>1</number>
+          </property>
+          <property name="maximum">
+           <number>50</number>
+          </property>
+          <property name="value">
+           <number>20</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="maxFpsSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="m_skipUnchangedCheck">
+          <property name="text">
+           <string>Skip unchanged</string>
+          </property>
+          <property name="toolTip">
+           <string>Suppress sending when data hasn't changed. Saves bandwidth on Wi-Fi but may cause inter-universe sync drift on multi-universe setups.</string>
+          </property>
+         </widget>
         </item>
        </layout>
-      </widget>
-    </widget>
+      </item>
+     </layout>
    </item>
    <item row="1" column="0" colspan="2">
     <widget class="QDialogButtonBox" name="m_buttonBox">

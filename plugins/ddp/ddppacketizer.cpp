@@ -19,6 +19,7 @@
 
 #include "ddppacketizer.h"
 #include <QtEndian>
+#include <cstring>
 
 QByteArray DDPPacketizer::buildPacket(const QByteArray &data, quint32 dataOffset,
                                       quint8 sequence, bool push,
@@ -49,5 +50,7 @@ int DDPPacketizer::packetsRequired(int dataLength)
 
 quint8 DDPPacketizer::sequenceForFrame(quint64 frameCount)
 {
-    return static_cast<quint8>((frameCount % 15) + 1);
+    if (frameCount == 0)
+        return 1;
+    return static_cast<quint8>(((frameCount - 1) % 15) + 1);
 }

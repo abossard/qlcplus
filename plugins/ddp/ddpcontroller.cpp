@@ -31,22 +31,27 @@ DDPController::DDPController(QNetworkInterface const& iface,
                              QNetworkAddressEntry const& address,
                              quint32 line, QObject *parent)
     : QObject(parent)
-    , m_interface(iface)
     , m_ipAddr(address.ip())
     , m_line(line)
 {
-    m_udpSocket.reset(new QUdpSocket());  // no QObject parent — QSharedPointer owns it
-    m_udpSocket->bind(m_ipAddr, 0);
+    Q_UNUSED(iface)
 
-    // Monotonic clock for FPS throttling and keep-alive (Fix 2/3).
+    m_udpSocket.reset(new QUdpSocket());  // no QObject parent — QSharedPointer owns it
+    if (!m_udpSocket->bind(m_ipAddr, 0))
+    {
+        qWarning() << "[DDP] Failed to bind UDP socket on" << m_ipAddr.toString()
+                   << ":" << m_udpSocket->errorString();
+    }
+
+    // Monotonic clock for FPS throttling and keep-alive.
     m_sendTimer.start();
 
-    qDebug() << "[DDP] Controller created on" << m_ipAddr.toString();
+    qCDebug(ddpLog) << "Controller created on" << m_ipAddr.toString();
 }
 
 DDPController::~DDPController()
 {
-    qDebug() << "[DDP] Controller destroyed on" << m_ipAddr.toString();
+    qCDebug(ddpLog) << "Controller destroyed on" << m_ipAddr.toString();
     m_udpSocket->close();
 }
 
@@ -77,10 +82,7 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
     if (m_skipUnchanged && !dataChanged && (now - info.lastSendDataElapsed) < kKeepAliveMs)
         return;
 
-    info.lastSendElapsed = now;
-    info.lastSendDataElapsed = now;
-
-    // Unicast only (Fix 5): skip silently in debug log if no destination IP.
+    // Unicast only: skip silently in debug log if no destination IP.
     if (info.destAddress.isNull())
     {
         qCDebug(ddpLog) << "sendDmx: skipping universe" << universe
@@ -88,12 +90,15 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
         return;
     }
 
-    // Build txData (Fix 6) — exact pixel length, never pad to 512.
+    // Only update timestamps once we know we're actually sending.
+    info.lastSendElapsed = now;
+    info.lastSendDataElapsed = now;
+
+    // Build txData — exact pixel length, never pad to 512.
+    const int bpp = (info.components == RGBW) ? 4 : 3;
     QByteArray txData;
     if (m_pixelCount > 0)
     {
-        // Explicit pixel count: send exactly pixelCount * bpp.
-        const int bpp = (m_bytesPerPixel > 0) ? m_bytesPerPixel : 3;
         const int targetLen = m_pixelCount * bpp;
         txData = data.left(targetLen);
         if (txData.size() < targetLen)
@@ -164,7 +169,7 @@ void DDPController::addUniverse(quint32 universe)
     if (!m_universeMap.contains(universe))
     {
         DDPUniverseInfo info;
-        // Unicast by default (Fix 5): null = "user must configure".
+        // Unicast by default: null = "user must configure".
         // sendDmx() will skip silently (logged via qlcplus.plugins.ddp).
         info.destAddress = QHostAddress();
         info.destPort = DDP_PORT;
@@ -308,18 +313,6 @@ int DDPController::pixelCount() const
 {
     QMutexLocker locker(&m_dataMutex);
     return m_pixelCount;
-}
-
-void DDPController::setBytesPerPixel(int bpp)
-{
-    QMutexLocker locker(&m_dataMutex);
-    m_bytesPerPixel = (bpp > 0) ? bpp : 3;
-}
-
-int DDPController::bytesPerPixel() const
-{
-    QMutexLocker locker(&m_dataMutex);
-    return m_bytesPerPixel;
 }
 
 void DDPController::setSkipUnchanged(bool skip)

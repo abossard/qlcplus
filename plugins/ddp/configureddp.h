@@ -35,9 +35,6 @@ public:
     /** @reimp */
     void accept() override;
 
-public slots:
-    int exec() override;
-
 private:
     void fillMappingTree();
     void showIPAlert(const QString &ip);

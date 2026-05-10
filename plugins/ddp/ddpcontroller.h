@@ -38,7 +38,7 @@ struct DDPUniverseInfo
     quint16 destPort;
     quint8 destId;
     quint32 ddpOffset;        // byte offset into the device's pixel buffer
-    int transmissionMode;     // 0 = Full (512 ch), 1 = Partial
+    int transmissionMode;     // Stored for XML compat but currently unused in packet output
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
     qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
     qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
@@ -105,10 +105,6 @@ public:
     void setPixelCount(int pixels);
     int pixelCount() const;
 
-    /** Bytes per pixel for explicit pixelCount mode (3=RGB, 4=RGBW). */
-    void setBytesPerPixel(int bpp);
-    int bytesPerPixel() const;
-
     /** Skip sending when data is unchanged (saves bandwidth on Wi-Fi). */
     void setSkipUnchanged(bool skip);
     bool skipUnchanged() const;
@@ -117,7 +113,6 @@ public:
     static constexpr qint64 kKeepAliveMs = 1000;
 
 private:
-    QNetworkInterface m_interface;
     QHostAddress m_ipAddr;
     quint32 m_line;
 
@@ -128,11 +123,11 @@ private:
     std::atomic<quint64> m_packetSent{0};
     std::atomic<quint64> m_frameCount{0};
 
-    // Rate limiting (Fix 2) — per-controller, monotonic clock.
     // Default 20 FPS: DDP over Wi-Fi (e.g. WLED) doesn't benefit from more
     // than ~20–30 FPS. Users can raise this in the plugin config dialog.
-    // This throttle lives ONLY inside DDPController::sendDmx — the universe
-    // thread, MasterTimer, and other output plugins are unaffected.
+    // The throttle is enforced per-universe inside DDPController::sendDmx via
+    // DDPUniverseInfo::lastSendElapsed; the universe thread, MasterTimer, and
+    // other output plugins are unaffected.
     static constexpr int kMaxFpsLimit = 50;
     static constexpr int kDefaultFps = 20;
 public:
@@ -143,9 +138,8 @@ private:
     bool m_skipUnchanged = false;
     QElapsedTimer m_sendTimer;
 
-    // Explicit pixel framing (Fix 6) — 0 means "auto/legacy"
+    // Explicit pixel framing — 0 means "auto/legacy" (send what the engine produced)
     int m_pixelCount = 0;
-    int m_bytesPerPixel = 3;
 };
 
 #endif // DDPCONTROLLER_H
