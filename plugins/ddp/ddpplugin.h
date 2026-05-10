@@ -47,6 +47,7 @@ typedef struct
 #define DDP_COMPONENTS   "ddpComponents"
 #define DDP_MAXFPS       "ddpMaxFps"
 #define DDP_PIXELCOUNT   "ddpPixelCount"
+#define DDP_SKIPUNCHANGED "ddpSkipUnchanged"
 
 class DDPPlugin final : public QLCIOPlugin
 {

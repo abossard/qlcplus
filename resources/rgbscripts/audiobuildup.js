@@ -19,7 +19,6 @@ algo.acceptColors = 2;  // buildup color + drop color
 algo.usesAudio = true;
 algo.properties = new Array();
 
-algo.presetReactivity = 8;
 algo.presetSensitivity = 6;
 
 algo.presetDropIntensity = 8;

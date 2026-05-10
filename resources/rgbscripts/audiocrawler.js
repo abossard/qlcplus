@@ -49,8 +49,6 @@ var testAlgo;
 
     var DEFAULT_BAND_COLORS = [0x00FF80, 0x80A0FF, 0xFFFFFF];
     var timestep = 0;
-    var lastTime = 0;
-    var initialized = false;
     var activeColor = null;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -62,18 +60,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = now - lastTime;
-        lastTime = now;
-        if (dt <= 0 || dt > 200) dt = 20;
+        var dt = audio.timing.consumerDtMs;
 
         var lowPower = audio.power.low;
 
@@ -86,10 +76,9 @@ var testAlgo;
         timestep += dt;
         timestep += lowPower * reactivity * 50;
 
-        // Three time phases at different rates (smooth undulation)
+        // Two time phases at different rates (smooth undulation)
         var t1 = (timestep * speed * sway * 0.0003) % (Math.PI * 20);
         var t2 = (timestep * speed * chop * 0.0005) % (Math.PI * 20);
-        var t3 = (timestep * speed * (chop + reactivity * lowPower) * 0.0004) % (Math.PI * 20);
         if (audio.onset.fired || audio.beat.kick || !activeColor) {
             var dominantColor = AudioColors.dominant(algo, audio);
             activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];

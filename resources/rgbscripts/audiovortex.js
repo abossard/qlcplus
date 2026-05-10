@@ -46,10 +46,7 @@ var testAlgo;
     algo.setTightness = function(_v) { algo.presetTightness = parseInt(_v); };
     algo.getTightness = function() { return algo.presetTightness; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0080, 0x8064D8, 0x00C8FF];
     var angle = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -60,18 +57,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed / 5.0;

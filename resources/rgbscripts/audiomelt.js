@@ -42,10 +42,7 @@ var testAlgo;
     algo.getColorSpeed = function() { return algo.presetColorSpeed; };
 
     var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066D0, 0x00FF80];
-    var lowPower = 0;
     var timestep = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -56,20 +53,12 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = now - lastTime;
-        lastTime = now;
-        if (dt <= 0 || dt > 200) dt = 20;
+        var dt = audio.timing.consumerDtMs;
 
-        lowPower = audio.power.low;
+        var lowPower = audio.power.low;
 
         // Accumulate time with audio reactivity
         var speed = algo.presetSpeed / 10.0;

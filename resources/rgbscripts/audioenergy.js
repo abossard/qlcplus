@@ -49,6 +49,8 @@ var testAlgo;
     // --- Internal state ---
     // Default 3-bank palette (low, mid, high).
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var cols = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    var idx = new Array(3);
 
     algo.rgbMapStepCount = function(width, height)
     {
@@ -70,11 +72,7 @@ var testAlgo;
 
     /**
      * Main render function.
-     * @param {number} width  - Grid width
-     * @param {number} height - Grid height
-     * @param {number} rgb    - Current color from RGBMatrix (unused, we use our own)
-     * @param {number} step   - Current step (always 0 for audio effects)
-     * @param {object} audio  - Audio data: { spectrum[], volume, beat, bpm, maxMagnitude }
+     * @param {object} audio  - Audio frame snapshot from the v4 audio engine.
      */
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -92,15 +90,15 @@ var testAlgo;
         var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
 
         // Convert each packed 0xRRGGBB to a [r,g,b] array.
-        var cols = new Array(3);
         for (var k = 0; k < 3; k++) {
             var packed = bandColors[k] | 0;
-            cols[k] = [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+            cols[k][0] = (packed >> 16) & 0xFF;
+            cols[k][1] = (packed >> 8) & 0xFF;
+            cols[k][2] = packed & 0xFF;
         }
 
         // Calculate how many columns each band fills (from left)
         var multiplier = algo.presetMultiplier / 10.0;
-        var idx = new Array(3);
         for (var k = 0; k < 3; k++)
             idx[k] = Math.min(width, Math.floor(multiplier * width * bandPowers[k]));
 

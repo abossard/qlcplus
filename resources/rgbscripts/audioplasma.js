@@ -49,8 +49,6 @@ var testAlgo;
 
     var DEFAULT_BAND_COLORS = [0xFF0080, 0x8040E0, 0x0080FF];
     var elapsedSec = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -61,18 +59,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed / 5.0;
@@ -82,7 +72,6 @@ var testAlgo;
         var density = 0.01 + (power * algo.presetDensity / 10.0);
         var twist = algo.presetTwist / 100.0;
         var radius = 0.2;
-        var t = elapsedSec;
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
         var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
@@ -96,9 +85,9 @@ var testAlgo;
                 var px = x * density;
 
                 // Three overlapping sine waves for plasma pattern
-                var v1 = Math.sin(px * 0.1 + t) * Math.cos(py * 0.1 - t);
-                var v2 = Math.sin((px * 0.1 + py * twist + t) * 2.5);
-                var v3 = Math.sin(Math.sqrt(px * px + py * py) * radius - t);
+                var v1 = Math.sin(px * 0.1 + elapsedSec) * Math.cos(py * 0.1 - elapsedSec);
+                var v2 = Math.sin((px * 0.1 + py * twist + elapsedSec) * 2.5);
+                var v3 = Math.sin(Math.sqrt(px * px + py * py) * radius - elapsedSec);
 
                 // Combine and normalize to 0-1
                 var plasma = (v1 + v2 + v3 + 3) / 6.0;

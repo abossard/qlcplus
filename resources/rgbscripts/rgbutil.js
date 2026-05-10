@@ -164,6 +164,73 @@ RGBUtil.gradientLut = function(colors, n) {
     return lut;
 };
 
+/**
+ * Clamp x into [0, 1].
+ */
+RGBUtil.clamp01 = function(x) {
+    return x < 0 ? 0 : (x > 1 ? 1 : x);
+};
+
+/**
+ * Wrap x into [0, 1) (positive modulo 1).
+ */
+RGBUtil.mod1 = function(x) {
+    var m = x - Math.floor(x);
+    return m < 0 ? m + 1 : m;
+};
+
+/**
+ * Triangle wave with period 1 and range [0, 1]. f(0)=0, f(0.5)=1, f(1)=0.
+ */
+RGBUtil.triangle = function(x) {
+    return 1 - Math.abs(2 * RGBUtil.mod1(x) - 1);
+};
+
+/**
+ * Sine wave normalized to [0, 1] with period 1.
+ */
+RGBUtil.sin01 = function(x) {
+    return 0.5 + 0.5 * Math.sin(2 * Math.PI * x);
+};
+
+/**
+ * HSV to RGB conversion returning a packed 0xRRGGBB integer.
+ * @param {number} h - Hue (0-1, wraps)
+ * @param {number} s - Saturation (0-1)
+ * @param {number} v - Value (0-1)
+ * @returns {number} packed 0xRRGGBB
+ */
+RGBUtil.hsvToRgb = function(h, s, v) {
+    var rgb = RGBUtil.hsv2rgb(h, s, v);
+    return RGBUtil.rgb(rgb[0], rgb[1], rgb[2]);
+};
+
+/**
+ * Additively blend two packed 0xRRGGBB colors with per-channel clamping at 255.
+ */
+RGBUtil.blendAdd = function(a, b) {
+    var r = ((a >> 16) & 0xFF) + ((b >> 16) & 0xFF);
+    var g = ((a >> 8) & 0xFF) + ((b >> 8) & 0xFF);
+    var bl = (a & 0xFF) + (b & 0xFF);
+    if (r > 255) r = 255;
+    if (g > 255) g = 255;
+    if (bl > 255) bl = 255;
+    return (r << 16) | (g << 8) | bl;
+};
+
+/**
+ * Scale a packed 0xRRGGBB color by a factor in [0, 1] (clamped).
+ */
+RGBUtil.scaleColor = function(c, factor) {
+    if (factor <= 0) return 0;
+    if (factor > 1) factor = 1;
+    var r = Math.round(((c >> 16) & 0xFF) * factor);
+    var g = Math.round(((c >> 8) & 0xFF) * factor);
+    var b = Math.round((c & 0xFF) * factor);
+    return (r << 16) | (g << 8) | b;
+};
+
+
 /*
  * 2D Simplex noise (public domain, Stefan Gustavson).
  * Returns value in range -1 to 1.

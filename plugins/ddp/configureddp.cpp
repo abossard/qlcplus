@@ -57,15 +57,16 @@ ConfigureDDP::ConfigureDDP(DDPPlugin* plugin, QWidget* parent)
     setupUi(this);
     fillMappingTree();
 
-    m_maxFpsSpin->setMaximum(DDPController::kMaxFpsLimit);
-    m_maxFpsSpin->setValue(DDPController::kDefaultFps);
+    m_maxFpsSpin->setMaximum(DDPController::maxFpsLimit());
+    m_maxFpsSpin->setValue(DDPController::defaultFps());
 
     const QList<DDPIO> IOmap = m_plugin->getIOMapping();
     for (const DDPIO &io : IOmap)
     {
         if (!io.controller.isNull())
         {
-            m_maxFpsSpin->setValue(qBound(1, io.controller->maxFps(), DDPController::kMaxFpsLimit));
+            m_maxFpsSpin->setValue(qBound(1, io.controller->maxFps(), DDPController::maxFpsLimit()));
+            m_skipUnchangedCheck->setChecked(io.controller->skipUnchanged());
             break;
         }
     }
@@ -234,12 +235,21 @@ void ConfigureDDP::accept()
     }
 
     const int maxFps = m_maxFpsSpin->value();
+    const bool skipUnchanged = m_skipUnchangedCheck->isChecked();
     const QList<DDPIO> IOmap = m_plugin->getIOMapping();
     for (const DDPIO &io : IOmap)
     {
         if (!io.controller.isNull())
-            m_plugin->setParameter(0, io.controller->line(), QLCIOPlugin::Output,
-                DDP_MAXFPS, maxFps);
+        {
+            const QList<quint32> universes = io.controller->universesList();
+            for (quint32 universe : universes)
+            {
+                m_plugin->setParameter(universe, io.controller->line(), QLCIOPlugin::Output,
+                    DDP_MAXFPS, maxFps);
+                m_plugin->setParameter(universe, io.controller->line(), QLCIOPlugin::Output,
+                    DDP_SKIPUNCHANGED, skipUnchanged);
+            }
+        }
     }
 
     QDialog::accept();

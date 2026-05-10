@@ -69,8 +69,6 @@ var testAlgo;
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
-    var initialized = false;
-    var lastTime = 0;
 
     function init(pixelCount)
     {
@@ -84,9 +82,6 @@ var testAlgo;
             sparks[i] = 0;
             sparkX[i] = Math.random() * 5;
         }
-
-        initialized = true;
-        lastTime = Date.now();
     }
 
     // Colors for fire gradient. algo.gradientColors is auto-injected by C++.
@@ -106,7 +101,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var pixelCount = height; // fire rises vertically (bottom to top)
-        if (!initialized || sparkPixels.length !== pixelCount) init(pixelCount);
+        if (sparkPixels === null || sparkPixels.length !== pixelCount) init(pixelCount);
 
         var map = RGBUtil.createMap(width, height);
 
@@ -115,11 +110,7 @@ var testAlgo;
         if (!melSrc || melSrc.length === 0)
             return map;
 
-        // Time delta
-        var now = Date.now();
-        var deltaMs = now - lastTime;
-        lastTime = now;
-        if (deltaMs <= 0 || deltaMs > 200) deltaMs = 25;
+        var deltaMs = audio.timing.consumerDtMs;
 
         var speed = algo.presetSpeed / 100.0;
         var baseCooling = 0.85 + (10 - algo.presetCooling) * 0.015;
@@ -129,7 +120,6 @@ var testAlgo;
         var lowPower = bandPowers[0];
 
         var cooling = baseCooling + lowPower * 0.15;
-        var accel = 0.02 + lowPower * 0.1;
         var adjustedSpeed = speed + lowPower * 0.01;
         var deltaScaled = deltaMs * adjustedSpeed;
 
@@ -185,9 +175,8 @@ var testAlgo;
             columnLutSig = sig;
         }
 
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var spectrum = melSrc;
-        var specBands = RGBUtil.interpolate(spectrum, effectiveWidth);
+        var specBands = RGBUtil.interpolate(spectrum, algo.displayWidth);
         for (var si = 0; si < specBands.length; si++)
             specBands[si] = Math.min(1, specBands[si]);
         var spectrumMix = algo.presetSpread ? 0.7 : 0.35;

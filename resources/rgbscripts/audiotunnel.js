@@ -52,10 +52,7 @@ var testAlgo;
         return ["Circle", "Diamond", "Square"][algo.presetShape];
     };
 
-    var DEFAULT_BAND_COLORS = [0x0080FF, 0x8040D0, 0xFF0080];
     var phase = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -66,18 +63,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed / 5.0;
@@ -98,24 +87,21 @@ var testAlgo;
                 var dx = x - cx + 0.5;
                 var dy = y - cy + 0.5;
 
-                // Distance based on shape
                 var dist;
-                if (algo.presetShape === 1) // Diamond
+                if (algo.presetShape === 1)        // Diamond
                     dist = Math.abs(dx) + Math.abs(dy);
-                else if (algo.presetShape === 2) // Square
+                else if (algo.presetShape === 2)   // Square
                     dist = Math.max(Math.abs(dx), Math.abs(dy));
-                else // Circle
+                else                               // Circle
                     dist = Math.sqrt(dx * dx + dy * dy);
 
-                // Normalize distance and add expanding phase
                 var normDist = dist / maxDist;
                 var ringPhase = (normDist * ringCount - phase) % 1;
                 ringPhase = ((ringPhase % 1) + 1) % 1; // wrap to 0-1
 
-                // Create ring pattern with smooth falloff
+                // Ring pattern with smooth falloff
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
-                // Audio modulates ring brightness
                 var baseBright = Math.min(1, ringVal * power);
                 var floored = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
                 var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;

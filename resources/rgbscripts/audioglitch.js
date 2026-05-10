@@ -48,10 +48,7 @@ var testAlgo;
     algo.getComplexity = function() { return algo.presetComplexity; };
 
     var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
-    var lowPower = 0;
     var timestep = 0;
-    var lastTime = 0;
-    var initialized = false;
     var flashColor = null;
     var flashLevel = 0;
 
@@ -66,17 +63,12 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) { lastTime = Date.now(); initialized = true; }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = now - lastTime;
-        lastTime = now;
-        if (dt <= 0 || dt > 200) dt = 20;
+        var dt = audio.timing.consumerDtMs;
 
-        lowPower = audio.power.low;
+        var lowPower = audio.power.low;
 
         var speed = algo.presetSpeed / 10.0;
         var reactivity = algo.presetReactivity / 10.0;

@@ -25,7 +25,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
     algo.presetFloor = 0;
 
     // --- Properties ---
@@ -66,7 +65,6 @@ var testAlgo;
     var gradientLut = null;
     var lutWidth = -1;
     var lutSig = "";
-    var initialized = false;
 
     function init(bandCount)
     {
@@ -76,7 +74,6 @@ var testAlgo;
             peakValues[i] = 0;
             peakHolds[i] = 0;
         }
-        initialized = true;
     }
     function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
@@ -91,9 +88,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
-        var bandCount = effectiveWidth;
-        if (!initialized || (peakValues && peakValues.length !== bandCount))
+        var bandCount = algo.displayWidth;
+        if (peakValues === null || peakValues.length !== bandCount)
             init(bandCount);
 
         var map = RGBUtil.createMap(width, height);

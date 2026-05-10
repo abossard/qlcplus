@@ -48,6 +48,7 @@ var testAlgo;
       "values:Beat,Onset,Note|write:setTriggerMode|read:getTriggerMode");
 
     algo.particles = [];
+    var lastW = 0, lastH = 0;
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -235,25 +236,38 @@ var testAlgo;
         }
     }
 
+    var SPAWN_TRIGGERS = {
+        0: function(a) { return a.beat.fired; },
+        1: function(a) { return a.onset.fired; },
+        2: function(a) { return a.note.on; }
+    };
+    var KICK_INTENSITY_THRESHOLD = 0.6;
+    var KICK_PARTICLE_BUDGET_RATIO = 0.7;
+    var AMBIENT_MIN_PARTICLES = 10;
+    var AMBIENT_MIN_POWER = 0.1;
+
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
+        if (width !== lastW || height !== lastH) {
+            algo.particles = [];
+            lastW = width;
+            lastH = height;
+        }
         var powers = audio.power.bands;
         var totalPower = audio.power.total;
-
-        // Kick flash triggers extra bursts
-        var kickFlash = audio.beat.kick ? 1.0 : 0.0;
         var onsetIntensity = audio.onset.intensity;
 
-        if (algo.presetTriggerMode === 1 ? audio.onset.fired : (algo.presetTriggerMode === 2 ? audio.note.on : audio.beat.fired))
+        if (SPAWN_TRIGGERS[algo.presetTriggerMode](audio))
             spawnBurst(width, height, dominantBandType(audio), powers);
 
         // Extra burst on strong kicks
-        if (kickFlash > 0 && onsetIntensity > 0.6 && algo.particles.length < algo.presetMaxParticles * 0.7)
+        if (audio.beat.kick && onsetIntensity > KICK_INTENSITY_THRESHOLD
+            && algo.particles.length < algo.presetMaxParticles * KICK_PARTICLE_BUDGET_RATIO)
             spawnBurst(width, height, "low", powers);
 
-        if (algo.particles.length < 10 && totalPower > 0.1)
+        if (algo.particles.length < AMBIENT_MIN_PARTICLES && totalPower > AMBIENT_MIN_POWER)
             spawnAmbient(width, height, powers);
 
         var gravity = algo.presetGravity * 0.02;

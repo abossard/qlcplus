@@ -60,11 +60,12 @@ var testAlgo;
     };
 
     var DEFAULT_GRADIENT = [0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF80, 0x4080FF];
+    var DECAY_DIVISOR = 15.0;
+    var BEAT_PULSE_AMOUNT = 0.15;
     var gradientLut = null;
     var lutWidth = -1;
     var lutSig = "";
     var history = null; // 2D buffer of packed colors
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -80,24 +81,21 @@ var testAlgo;
         var scrollLen = isVertical ? height : width;
         var bandLen = isVertical ? effectiveWidth : height;
 
-        if (!initialized || !history || history.length !== scrollLen || !history[0] || history[0].length !== bandLen) {
+        if (!history || history.length !== scrollLen || history[0].length !== bandLen) {
             history = new Array(scrollLen);
             for (var i = 0; i < scrollLen; i++) {
                 history[i] = new Array(bandLen);
                 for (var j = 0; j < bandLen; j++)
                     history[i][j] = 0;
             }
-            initialized = true;
         }
 
         var map = RGBUtil.createMap(width, height);
-        
         if (!audio) return map;
         var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0) return map;
 
-        // Decay rate
-        var decay = 1 - algo.presetDecay / 15.0;
+        var decay = 1 - algo.presetDecay / DECAY_DIVISOR;
 
         // Get current spectrum for new row
         var bands = RGBUtil.interpolate(melSrc, bandLen);
@@ -113,7 +111,7 @@ var testAlgo;
         }
 
         // Build new row of colors
-        var beatMod = 1 + audio.beat.cosPulse * 0.15;
+        var beatMod = 1 + audio.beat.cosPulse * BEAT_PULSE_AMOUNT;
         var newRow = new Array(bandLen);
         for (var i = 0; i < bandLen; i++) {
             var baseVal = Math.min(1, bands[i]);

@@ -42,10 +42,7 @@ var testAlgo;
     algo.getContrast = function() { return algo.presetContrast; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFAA00, 0x80FF00];
-    var lowPower = 0;
     var elapsedMs = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
@@ -58,22 +55,13 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
-        elapsedMs += dt * 1000;
+        elapsedMs += audio.timing.consumerDtMs;
 
         var bandPowers = audio.power.bands;
-        lowPower = bandPowers[0];
+        var lowPower = bandPowers[0];
         var midsPower = bandPowers[1];
         var highsPower = bandPowers[2];
         var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;

@@ -66,7 +66,6 @@ var testAlgo;
     var startColor = [255, 0, 64];
     var endColor = [0, 64, 255];
     var blockBrightness = null;
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
@@ -83,14 +82,12 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var blockW = Math.max(1, algo.presetBlockSize);
-        var numBlocks = Math.ceil(effectiveWidth / blockW);
+        var numBlocks = Math.ceil(algo.displayWidth / blockW);
 
-        if (!initialized || !blockBrightness || blockBrightness.length !== numBlocks) {
+        if (!blockBrightness || blockBrightness.length !== numBlocks) {
             blockBrightness = new Array(numBlocks);
             for (var i = 0; i < numBlocks; i++) blockBrightness[i] = 0;
-            initialized = true;
         }
 
         var map = RGBUtil.createMap(width, height);

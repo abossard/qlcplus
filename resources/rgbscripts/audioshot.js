@@ -57,11 +57,10 @@ var testAlgo;
     };
     algo.setMaxShots = function(_v) { algo.presetMaxShots = parseInt(_v); };
     algo.getMaxShots = function() { return algo.presetMaxShots; };
-    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
+    var DECAY_DIVISOR = 200.0;
 
     // Active shots: [{x, y, r, g, b, brightness, size}]
     var shots = [];
-    var initialized = false;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -72,19 +71,18 @@ var testAlgo;
 
     function spawnShot(width, height, audio) {
         var colorPacked = AudioColors.dominant(algo, audio);
-        var color = [(colorPacked >> 16) & 0xFF, (colorPacked >> 8) & 0xFF, colorPacked & 0xFF];
-        var r = color[0], g = color[1], b = color[2];
         var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
 
         shots.push({
             x: Math.floor(Math.random() * width),
             y: Math.floor(Math.random() * height),
-            r: r, g: g, b: b,
+            r: (colorPacked >> 16) & 0xFF,
+            g: (colorPacked >> 8) & 0xFF,
+            b: colorPacked & 0xFF,
             brightness: hitScale,
             size: algo.presetSize
         });
 
-        // Cap shots
         while (shots.length > algo.presetMaxShots)
             shots.shift();
     }
@@ -94,8 +92,7 @@ var testAlgo;
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Check trigger
-        var trigger = false;
+        var trigger;
         if (algo.presetTrigger === 0) trigger = audio.beat.fired;
         else if (algo.presetTrigger === 1) trigger = audio.bands.low.fired || audio.beat.kick;
         else if (algo.presetTrigger === 2) trigger = audio.bands.mid.fired;
@@ -104,8 +101,7 @@ var testAlgo;
 
         if (trigger) spawnShot(width, height, audio);
 
-        // Decay rate
-        var decayRate = algo.presetDecay / 200.0;
+        var decayRate = algo.presetDecay / DECAY_DIVISOR;
 
         // Render and decay shots
         for (var si = shots.length - 1; si >= 0; si--) {

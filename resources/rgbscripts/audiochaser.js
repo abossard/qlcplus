@@ -23,7 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 5;
     algo.presetFloor = 0;
 
     algo.presetBaseSpeed = 5;
@@ -66,10 +65,10 @@ var testAlgo;
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
 
-    // Dots: [{pos, speed, dir, band}]  band: 0=low, 1=mid, 2=high
+    // Dots: [{pos, row, speed, dir, band}]  band: 0=low, 1=mid, 2=high
     var dots = null;
-    var lastTime = 0;
-    var initialized = false;
+    var dotsWidth = 0;
+    var dotsHeight = 0;
 
     function initDots(width, height, count) {
         dots = [];
@@ -96,20 +95,17 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-        if (!dots || dots.length !== algo.presetDotCount)
+        if (!dots || dots.length !== algo.presetDotCount ||
+            dotsWidth !== width || dotsHeight !== height) {
             initDots(width, height, algo.presetDotCount);
+            dotsWidth = width;
+            dotsHeight = height;
+        }
 
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         // Get 3 mel-bank powers and matching gradient colors
         var powers = audio.power.bands;

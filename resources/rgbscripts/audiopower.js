@@ -35,19 +35,19 @@ var testAlgo;
     algo.setSparks = function(_v) { algo.presetSparks = (_v === "On") ? 1 : 0; };
     algo.getSparks = function() { return algo.presetSparks ? "On" : "Off"; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
+    var SPARK_DECAY = 0.85;
+    var SPARK_THRESHOLD = 0.1;
+    var SPARK_DENSITY = 15; // 1 spark per N pixels of width
     var sparksPixels = null;
     var sparkColors = null;
-    var initialized = false;
 
-    function init(width) {
+    function initSparks(width) {
         sparksPixels = new Array(width);
         sparkColors = new Array(width);
         for (var i = 0; i < width; i++) {
             sparksPixels[i] = 0;
             sparkColors[i] = [255, 255, 255];
         }
-        initialized = true;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -59,11 +59,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized || !sparksPixels || sparksPixels.length !== width) init(width);
+        if (!sparksPixels || sparksPixels.length !== width) initSparks(width);
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Get spectrum and bass power
         var effectiveWidth = (typeof algo.displayWidth !== 'undefined') ? algo.displayWidth : width;
         var bands = RGBUtil.interpolate(audio.spectrum.full, effectiveWidth);
         for (var bi = 0; bi < bands.length; bi++)
@@ -75,22 +74,18 @@ var testAlgo;
         // Bass overlay: fill from edge based on bass power
         var bassIdx = Math.min(width, Math.floor(bass * width * 1.5));
 
-        // Sparks: random pixels on beat
         var beat = audio.beat.fired || audio.beat.kick || audio.onset.fired;
         if (algo.presetSparks && beat) {
-            var sparkPacked = AudioColors.dominant(algo, audio);
-            var sparkColor = [(sparkPacked >> 16) & 0xFF, (sparkPacked >> 8) & 0xFF, sparkPacked & 0xFF];
             var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
-            var sparkCount = Math.max(1, Math.floor(width / 15));
+            var sparkCount = Math.max(1, Math.floor(width / SPARK_DENSITY));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
                 sparksPixels[sx] = hitScale;
-                sparkColors[sx] = sparkColor;
+                sparkColors[sx] = dominant;
             }
         }
-        // Decay sparks
         for (var i = 0; i < width; i++)
-            sparksPixels[i] *= 0.85;
+            sparksPixels[i] *= SPARK_DECAY;
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
@@ -109,8 +104,7 @@ var testAlgo;
                 var baseBright = Math.max(specBright, bassBright);
                 var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
 
-                // Add sparks (white flash)
-                if (sparksPixels[x] > 0.1) {
+                if (sparksPixels[x] > SPARK_THRESHOLD) {
                     var sparkVal = sparksPixels[x];
                     var sc = sparkColors[x] || [255, 255, 255];
                     r = r * (1 - sparkVal) + sc[0] * sparkVal;

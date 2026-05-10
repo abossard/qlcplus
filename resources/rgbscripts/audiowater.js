@@ -53,17 +53,17 @@ var testAlgo;
     algo.setHighSize = function(_v) { algo.presetHighSize = parseInt(_v); };
     algo.getHighSize = function() { return algo.presetHighSize; };
 
-    var DEFAULT_BAND_COLORS = [0x0040FF, 0x00C8FF, 0xA0FFFF];
+    var DEFAULT_DT_MS = 40;
+    var BEAT_PULSE_AMOUNT = 0.20;
+    var WHITEWASH_THRESHOLD = 0.8;
     var buf0 = null;
     var buf1 = null;
     var curBuf = 0;
-    var initialized = false;
 
     function init(w) {
         buf0 = new Array(w); buf1 = new Array(w);
         for (var i = 0; i < w; i++) { buf0[i] = 0; buf1[i] = 0; }
         curBuf = 0;
-        initialized = true;
     }
 
     function createDrop(pos, h, w) {
@@ -91,13 +91,13 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized || !buf0 || buf0.length !== width) init(width);
+        if (!buf0 || buf0.length !== width) init(width);
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dampFactor = Math.pow(2, algo.presetViscosity);
-        var dtMs = audio.timing.audioDtMs > 0 ? audio.timing.audioDtMs : 40;
-        var dtScale = Math.max(0.25, Math.min(4.0, dtMs / 40.0));
+        var dtMs = audio.timing.audioDtMs > 0 ? audio.timing.audioDtMs : DEFAULT_DT_MS;
+        var dtScale = Math.max(0.25, Math.min(4.0, dtMs / DEFAULT_DT_MS));
         var bassIntensity = Math.min(1, Math.pow(audio.power.low, 2));
         var midsIntensity = Math.min(1, Math.pow(audio.power.mid, 2));
         var highIntensity = Math.min(1, Math.pow(audio.power.high, 2));
@@ -127,7 +127,7 @@ var testAlgo;
         var current = (curBuf === 0) ? buf0 : buf1;
         var blendedPacked = AudioColors.blendByPower(algo, audio);
         var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
-        var beatBoost = 1.0 + 0.20 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
         for (var x = 0; x < width; x++) {
@@ -145,8 +145,8 @@ var testAlgo;
             var b = blended[2] * colorScale;
 
             // Saturation reduction for bright peaks (whitewash effect)
-            if (bright > 0.8) {
-                var whiteMix = (bright - 0.8) * 5;
+            if (bright > WHITEWASH_THRESHOLD) {
+                var whiteMix = (bright - WHITEWASH_THRESHOLD) * 5;
                 r = r + (255 - r) * whiteMix;
                 g = g + (255 - g) * whiteMix;
                 b = b + (255 - b) * whiteMix;

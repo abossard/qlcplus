@@ -49,12 +49,12 @@ var testAlgo;
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0000, 0xFFFF00, 0xFFFFFF];
+    var SCAN_SPEED_SCALE = 5;
+    var SCAN_WIDTH_DIVISOR = 20;
     var scanPos = 0;
     var returning = false;
-    var lastTime = 0;
-    var initialized = false;
     var activeColor = null;
+    var lastWidth = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -65,35 +65,27 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
+        if (lastWidth !== width) {
+            scanPos = 0;
+            returning = false;
+            lastWidth = width;
         }
 
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Time delta
-        var now = Date.now();
-        var deltaSec = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (deltaSec <= 0 || deltaSec > 0.2) deltaSec = 0.02;
+        var deltaSec = audio.timing.consumerDtMs / 1000.0;
 
-        // Audio drives speed
         var power = audio.power.low;
         var speedMult = 1 + power * 8;
-        var baseSpeed = algo.presetSpeed * 5;
-        var stepSize = deltaSec * baseSpeed * speedMult;
+        var stepSize = deltaSec * algo.presetSpeed * SCAN_SPEED_SCALE * speedMult;
 
-        // Scan width in pixels — widens with bass
-        var scanW = Math.max(1, Math.round(width * algo.presetWidth / 20));
+        var scanW = Math.max(1, Math.round(width * algo.presetWidth / SCAN_WIDTH_DIVISOR));
         scanW = Math.min(width, scanW + Math.round(power * 4));
 
         // Move scan position
         if (algo.presetBounce) {
-            if (returning) scanPos -= stepSize;
-            else scanPos += stepSize;
-
+            scanPos += returning ? -stepSize : stepSize;
             if (scanPos > width - scanW) { returning = true; scanPos = width - scanW; }
             if (scanPos < 0) { returning = false; scanPos = 0; }
         } else {
@@ -101,30 +93,22 @@ var testAlgo;
             if (scanPos >= width) scanPos -= width;
         }
 
-        // Brightness varies with audio power
         var baseBright = Math.min(1, 0.3 + power * 2.0);
         var bright = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBright;
 
-        // Fill background
         if (audio.onset.fired || audio.beat.kick || !activeColor) {
             var dominantColor = AudioColors.dominant(algo, audio);
             activeColor = [(dominantColor >> 16) & 0xFF, (dominantColor >> 8) & 0xFF, dominantColor & 0xFF];
         }
-        var dominant = activeColor;
-        var bgPacked = RGBUtil.rgb(0, 0, 0);
+        var bgPacked = 0;
         var scanPacked = RGBUtil.rgb(
-            dominant[0] * bright, dominant[1] * bright, dominant[2] * bright);
+            activeColor[0] * bright, activeColor[1] * bright, activeColor[2] * bright);
 
+        var sp = Math.floor(scanPos);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                // Check if pixel is within scan beam
-                var inScan = false;
-                var sp = Math.floor(scanPos);
-                for (var s = 0; s < scanW; s++) {
-                    var sx = (sp + s) % width;
-                    if (x === sx) { inScan = true; break; }
-                }
-                map[y][x] = inScan ? scanPacked : bgPacked;
+                var d = (x - sp + width) % width;
+                map[y][x] = (d < scanW) ? scanPacked : bgPacked;
             }
         }
 

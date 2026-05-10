@@ -32,7 +32,7 @@
 #include "ddppacketizer.h"
 
 /** Per-universe output configuration */
-typedef struct
+struct DDPUniverseInfo
 {
     QHostAddress destAddress;
     quint16 destPort;
@@ -42,7 +42,7 @@ typedef struct
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
     qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
     qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
-} DDPUniverseInfo;
+};
 
 class DDPController final : public QObject
 {
@@ -109,6 +109,10 @@ public:
     void setBytesPerPixel(int bpp);
     int bytesPerPixel() const;
 
+    /** Skip sending when data is unchanged (saves bandwidth on Wi-Fi). */
+    void setSkipUnchanged(bool skip);
+    bool skipUnchanged() const;
+
     /** Keep-alive interval: re-send unchanged data at least every kKeepAliveMs. */
     static constexpr qint64 kKeepAliveMs = 1000;
 
@@ -131,7 +135,12 @@ private:
     // thread, MasterTimer, and other output plugins are unaffected.
     static constexpr int kMaxFpsLimit = 50;
     static constexpr int kDefaultFps = 20;
+public:
+    static constexpr int maxFpsLimit() { return kMaxFpsLimit; }
+    static constexpr int defaultFps() { return kDefaultFps; }
+private:
     int m_maxFps = kDefaultFps;
+    bool m_skipUnchanged = false;
     QElapsedTimer m_sendTimer;
 
     // Explicit pixel framing (Fix 6) — 0 means "auto/legacy"

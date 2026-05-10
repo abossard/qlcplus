@@ -43,7 +43,7 @@ var testAlgo;
       "name:presetMinBrightness|type:range|display:MinBrightness|" +
       "values:10,100|write:setMinBrightness|read:getMinBrightness");
 
-    algo.currentHue = null;
+    var currentHue = 0;
 
     algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
@@ -79,15 +79,8 @@ var testAlgo;
         return wrapHue(current + delta * rate);
     }
 
-    function initState() {
-        if (algo.currentHue === null) algo.currentHue = 0.0;
-    }
-
-
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        initState();
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         var bass = audio.power.low;
@@ -105,7 +98,7 @@ var testAlgo;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
         targetHue = wrapHue(targetHue + Math.max(0, Math.min(1, (audio.features.centroidHz - 200) / 3800)) * 0.33 + pitchHueOffset * 0.4);
         var speedRate = 0.05 + (algo.presetSpeed / 10.0) * 0.45;
-        algo.currentHue = lerpHue(algo.currentHue, targetHue, speedRate);
+        currentHue = lerpHue(currentHue, targetHue, speedRate);
 
         var minBrightness = algo.presetMinBrightness / 100.0;
         var volume = (bass + mids + highs) / 3.0;
@@ -118,7 +111,7 @@ var testAlgo;
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
                 var wave = Math.sin(x * 0.3 + y * 0.2 + step * 0.05) * waveScale;
-                var pixelHue = wrapHue(algo.currentHue + wave);
+                var pixelHue = wrapHue(currentHue + wave);
                 var baseBri = clamp(brightness + wave * 0.2, minBrightness, 1.0);
                 var pixelBri = algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBri;
                 var color = RGBUtil.hsv2rgb(pixelHue, saturation, pixelBri);

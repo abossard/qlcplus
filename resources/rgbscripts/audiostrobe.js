@@ -67,7 +67,7 @@ var testAlgo;
     algo.getTriggerMode = function() {
         return ["Beat", "Onset", "Note"][algo.presetTriggerMode];
     };
-    var DEFAULT_BAND_COLORS = [0xFFFFFF, 0xFF8000, 0xFFFFFF];
+    var DECAY_DIVISOR = 50.0;
     var activeColor = [255, 255, 255];
     var brightness = 0;
 
@@ -112,7 +112,7 @@ var testAlgo;
         }
 
         // Decay
-        var decayRate = algo.presetDecay / 50.0;
+        var decayRate = algo.presetDecay / DECAY_DIVISOR;
         brightness = Math.max(0, brightness - decayRate);
 
         // Render

@@ -47,19 +47,15 @@ var testAlgo;
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
     var elapsedSec = 0;
-    var lastTime = 0;
-    var initialized = false;
 
     // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
     // algo.gradientBandColors when the matrix supplies color stops.
     var DEFAULT_BAND_COLORS = [0x6400FF, 0x00FF64, 0xFF8000];
 
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
     // Required by apiVersion 3 loader; ignored — colors come from the
-    // auto-injected algo.gradientBandColors / algo.gradientColors instead.
+    // auto-injected algo.gradientBandColors instead.
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
         return algo.gradientBandColors
@@ -67,21 +63,12 @@ var testAlgo;
             : DEFAULT_BAND_COLORS.slice();
     };
 
-
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            lastTime = Date.now();
-            initialized = true;
-        }
-
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         // 3 mel banks, each driving its own gradient color.
         var bandPowers = audio.power.bands;

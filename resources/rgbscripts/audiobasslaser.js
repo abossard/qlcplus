@@ -23,9 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    algo.presetReactivity = 7;
-    algo.presetSensitivity = 7;
-
     algo.presetTrailLength = 8;
     algo.properties.push(
       "name:presetTrailLength|type:range|display:Trail Length|" +
@@ -62,6 +59,8 @@ var testAlgo;
     var trailColor = [32, 128, 255];
 
     algo.beams = [];
+    var lastWidth = 0;
+    var lastHeight = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
@@ -107,8 +106,6 @@ var testAlgo;
         if (x < 0 || x >= width || y < 0 || y >= height) return;
         map[y][x] = additive(map[y][x], color);
     }
-
-
 
     function chooseDirection() {
         if (algo.presetDirection === 0) return 0;
@@ -173,6 +170,15 @@ var testAlgo;
     {
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
+
+        // Beam positions are pixel-absolute; flush them on dimension change
+        // to avoid stranded beams off the new grid.
+        if (width !== lastWidth || height !== lastHeight) {
+            algo.beams = [];
+            lastWidth = width;
+            lastHeight = height;
+        }
+
         var bass = Math.min(2.0, audio.power.low);
         var highs = Math.min(1.0, audio.power.high);
         var onsetIntensity = Math.max(0.4, audio.onset.intensity);

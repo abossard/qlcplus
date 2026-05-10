@@ -51,6 +51,8 @@ var testAlgo;
     algo.getDecay = function() { return algo.presetDecay; };
 
     var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var BEAT_PULSE_AMOUNT = 0.25;
+    var TOP_DARKEN = 0.3; // top of bar fades to (1 - TOP_DARKEN) brightness
 
     algo.peakValues = [];
     algo.peakHolds = [];
@@ -59,23 +61,22 @@ var testAlgo;
     function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
     algo.rgbMapSetColors = function(rawColors) { };
-
     algo.rgbMapGetColors = function() {
         return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
     function ensureState() {
         var n = algo.presetBands;
-        if (!algo.peakValues || algo.peakValues.length !== n) {
-            algo.peakValues = []; for (var i = 0; i < n; i++) algo.peakValues.push(0);
-        }
-        if (!algo.peakHolds || algo.peakHolds.length !== n) {
-            algo.peakHolds = []; for (var i = 0; i < n; i++) algo.peakHolds.push(0);
-        }
-        if (!algo.smoothBands || algo.smoothBands.length !== n) {
-            algo.smoothBands = []; for (var i = 0; i < n; i++) algo.smoothBands.push(0);
+        if (algo.peakValues.length !== n) {
+            algo.peakValues = new Array(n);
+            algo.peakHolds = new Array(n);
+            algo.smoothBands = new Array(n);
+            for (var i = 0; i < n; i++) {
+                algo.peakValues[i] = 0;
+                algo.peakHolds[i] = 0;
+                algo.smoothBands[i] = 0;
+            }
         }
     }
 
@@ -97,7 +98,7 @@ var testAlgo;
         var peakStep = Math.max(1, Math.round(algo.presetDecay / 2));
 
         // Beat-pulse brightness boost
-        var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
 
         for (var section = 0; section < numBands; section++) {
             var magnitude = Math.max(0, Math.min(1, bands[section]));
@@ -131,7 +132,7 @@ var testAlgo;
                 for (var y = 0; y < height; y++) {
                     var fromBottom = height - 1 - y;
                     if (fromBottom < barHeight) {
-                        var baseBrightness = smoothMagnitude * (1 - y / height * 0.3);
+                        var baseBrightness = smoothMagnitude * (1 - y / height * TOP_DARKEN);
                         var brightness = (algo.presetFloor/100 + (1 - algo.presetFloor/100) * baseBrightness) * beatBoost;
                         map[y][x] = RGBUtil.rgb(
                             color[0] * brightness,

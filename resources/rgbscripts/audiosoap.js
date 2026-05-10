@@ -47,12 +47,11 @@ var testAlgo;
     algo.setSmooth = function(_v) { algo.presetSmooth = parseInt(_v); };
     algo.getSmooth = function() { return algo.presetSmooth; };
 
-    var DEFAULT_BAND_COLORS = [0x8000FF, 0x4066E0, 0x00FFC8];
+    var NOISE_FREQ = 3.0;
     var noiseField = null;
     var prevPixels = null; // persistent pixel buffer [y][x] = {r,g,b}
-    var phaseX = 0, phaseY = 0;
-    var lastTime = 0;
-    var initialized = false;
+    var phaseX = Math.random() * 100;
+    var phaseY = Math.random() * 100;
     var lastW = 0, lastH = 0;
 
     function initBuffers(w, h) {
@@ -87,23 +86,22 @@ var testAlgo;
     };
 
 
+    function sampleBilinear(buf, w, h, fallback, sy, sx) {
+        if (sx >= 0 && sx < w && sy >= 0 && sy < h)
+            return buf[sy][sx];
+        var cx = Math.max(0, Math.min(w - 1, sx));
+        var cy = Math.max(0, Math.min(h - 1, sy));
+        return fallback[cy][cx];
+    }
+
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!initialized) {
-            phaseX = Math.random() * 100;
-            phaseY = Math.random() * 100;
-            lastTime = Date.now();
-            initialized = true;
-        }
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
         var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        var now = Date.now();
-        var dt = (now - lastTime) / 1000.0;
-        lastTime = now;
-        if (dt <= 0 || dt > 0.2) dt = 0.02;
+        var dt = audio.timing.consumerDtMs / 1000.0;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed / 10.0;
@@ -119,9 +117,7 @@ var testAlgo;
         phaseX += move;
         phaseY += move * 0.7;
 
-        // Generate new noise field
-        var freq = 3.0;
-        var newField = RGBUtil.noiseField2d(width, height, freq, phaseX, phaseY);
+        var newField = RGBUtil.noiseField2d(width, height, NOISE_FREQ, phaseX, phaseY);
 
         // EMA smooth noise field
         for (var y = 0; y < height; y++)
@@ -160,29 +156,17 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var colShift = (noiseField[0][x] - 0.5) * ampY;
 
-                // Source position (shifted)
                 var srcX = x + rowShift;
                 var srcY = y + colShift;
-
-                // Bilinear sample from prevPixels or palette for OOB
                 var sx0 = Math.floor(srcX);
                 var sy0 = Math.floor(srcY);
                 var fx = srcX - sx0;
                 var fy = srcY - sy0;
 
-                function sample(sy, sx) {
-                    if (sx >= 0 && sx < width && sy >= 0 && sy < height)
-                        return prevPixels[sy][sx];
-                    // OOB: use palette color
-                    var cx = Math.max(0, Math.min(width - 1, sx));
-                    var cy = Math.max(0, Math.min(height - 1, sy));
-                    return palette[cy][cx];
-                }
-
-                var a = sample(sy0, sx0);
-                var b = sample(sy0, sx0 + 1);
-                var c = sample(sy0 + 1, sx0);
-                var d = sample(sy0 + 1, sx0 + 1);
+                var a = sampleBilinear(prevPixels, width, height, palette, sy0,     sx0);
+                var b = sampleBilinear(prevPixels, width, height, palette, sy0,     sx0 + 1);
+                var c = sampleBilinear(prevPixels, width, height, palette, sy0 + 1, sx0);
+                var d = sampleBilinear(prevPixels, width, height, palette, sy0 + 1, sx0 + 1);
 
                 // Smoothstep for easing
                 var wx = fx * fx * (3 - 2 * fx);

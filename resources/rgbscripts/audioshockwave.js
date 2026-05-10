@@ -42,8 +42,22 @@ algo.properties.push(
 algo.waves = new Array();
 algo.frame = 0;
 
+var AMBIENT_PHASE_RATE = 0.12;
+var AMBIENT_RING_FREQ = 0.65;
+var AMBIENT_BASE_BRI = 0.08;
+var AMBIENT_RING_BRI = 0.12;
+var AMBIENT_CENTER_BRI = 0.08;
+var SPEED_SCALE = 0.5;
+var DECAY_PER_STEP = 0.03;
+var KICK_INTENSITY_BOOST = 1.5;
+var MAX_INTENSITY = 1.5;
+var MIN_BASS_FOR_FILL = 0.1;
+var FILL_INTENSITY = 0.6;
+var MAX_FILL_WAVES = 3;
+
 var waveColor = [255, 255, 255];
 var bgColor = [0, 16, 48];
+var lastW = 0, lastH = 0;
 
 algo.rgbMapStepCount = function(width, height) { return 1; };
 algo.rgbMapSetColors = function(rawColors) {
@@ -85,7 +99,7 @@ function spawnWave(width, height, intensity) {
         cy: height / 2,
         radius: 0,
         maxRadius: Math.sqrt(width * width + height * height),
-        intensity: clamp(intensity * 1.5, 0, 1.5),
+        intensity: clamp(intensity * KICK_INTENSITY_BOOST, 0, MAX_INTENSITY),
         birth: algo.frame
     });
 
@@ -94,13 +108,13 @@ function spawnWave(width, height, intensity) {
 }
 
 function renderAmbient(map, width, height, cx, cy, maxRadius) {
-    var phase = algo.frame * 0.12;
+    var phase = algo.frame * AMBIENT_PHASE_RATE;
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var dist = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
-            var ring = Math.sin(dist * 0.65 - phase) * 0.5 + 0.5;
+            var ring = Math.sin(dist * AMBIENT_RING_FREQ - phase) * 0.5 + 0.5;
             var centerLift = 1.0 - Math.min(1.0, dist / Math.max(1.0, maxRadius));
-            var bri = 0.08 + ring * 0.12 + centerLift * 0.08;
+            var bri = AMBIENT_BASE_BRI + ring * AMBIENT_RING_BRI + centerLift * AMBIENT_CENTER_BRI;
             map[y][x] = RGBUtil.rgb(bgColor[0] * bri, bgColor[1] * bri, bgColor[2] * bri);
         }
     }
@@ -109,6 +123,11 @@ function renderAmbient(map, width, height, cx, cy, maxRadius) {
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
     algo.frame++;
+    if (width !== lastW || height !== lastH) {
+        algo.waves = [];
+        lastW = width;
+        lastH = height;
+    }
 
     var map = RGBUtil.createMap(width, height);
     if (!audio) return map;
@@ -122,8 +141,8 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     if (audio.bands.low.fired || audio.beat.kick)
         spawnWave(width, height, Math.max(0.5, bass));
 
-    if (algo.waves.length < 3 && bass > 0.1)
-        spawnWave(width, height, 0.6);
+    if (algo.waves.length < MAX_FILL_WAVES && bass > MIN_BASS_FOR_FILL)
+        spawnWave(width, height, FILL_INTENSITY);
 
     var total = new Array(height);
     for (var ty = 0; ty < height; ty++) {
@@ -159,8 +178,8 @@ algo.rgbMap = function(width, height, rgb, step, audio)
         }
     }
 
-    var speed = algo.presetSpeed * 0.5;
-    var decayFactor = 1 - algo.presetDecay * 0.03;
+    var speed = algo.presetSpeed * SPEED_SCALE;
+    var decayFactor = 1 - algo.presetDecay * DECAY_PER_STEP;
     for (var ui = algo.waves.length - 1; ui >= 0; ui--) {
         algo.waves[ui].radius += speed;
         algo.waves[ui].intensity *= decayFactor;

@@ -65,16 +65,19 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
 
     DDPUniverseInfo &info = m_universeMap[universe];
 
-    // FPS throttle (Fix 2) — per-universe, monotonic clock.
+    // FPS throttle — per-universe, monotonic clock.
     const qint64 now = m_sendTimer.elapsed();
     const qint64 minInterval = (m_maxFps > 0) ? (1000 / m_maxFps) : 0;
     if (minInterval > 0 && (now - info.lastSendElapsed) < minInterval)
         return;
-    info.lastSendElapsed = now;
 
-    // Skip when data unchanged unless keep-alive due (Fix 3).
-    if (!dataChanged && (now - info.lastSendDataElapsed) < kKeepAliveMs)
+    // Skip unchanged data to save bandwidth (disabled by default).
+    // When enabled, a keep-alive is still sent every kKeepAliveMs so
+    // receivers don't lose state on packet loss.
+    if (m_skipUnchanged && !dataChanged && (now - info.lastSendDataElapsed) < kKeepAliveMs)
         return;
+
+    info.lastSendElapsed = now;
     info.lastSendDataElapsed = now;
 
     // Unicast only (Fix 5): skip silently in debug log if no destination IP.
@@ -317,4 +320,16 @@ int DDPController::bytesPerPixel() const
 {
     QMutexLocker locker(&m_dataMutex);
     return m_bytesPerPixel;
+}
+
+void DDPController::setSkipUnchanged(bool skip)
+{
+    QMutexLocker locker(&m_dataMutex);
+    m_skipUnchanged = skip;
+}
+
+bool DDPController::skipUnchanged() const
+{
+    QMutexLocker locker(&m_dataMutex);
+    return m_skipUnchanged;
 }

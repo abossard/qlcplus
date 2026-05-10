@@ -10,16 +10,22 @@ set(SCRIPT_FILES
     audiochaser.js
     audiocrawler.js
     audioenergy.js
+    audioenergy2.js
     audioequalizer.js
     audiofire.js
     audiofireworks.js
     audioglitch.js
+    audioglitch2.js
     audiohueshift.js
     audiolava.js
     audiomelt.js
+    audiomeltsparkle.js
     audioplasma.js
     audiopower.js
+    audioreactor.js
     audioscan.js
+    audioscanflare.js
+    audioscanmulti.js
     audioscroll.js
     audioshockwave.js
     audioshot.js

@@ -126,6 +126,16 @@
             </property>
            </spacer>
           </item>
+          <item>
+           <widget class="QCheckBox" name="m_skipUnchangedCheck">
+            <property name="text">
+             <string>Skip unchanged</string>
+            </property>
+            <property name="toolTip">
+             <string>Suppress sending when data hasn't changed. Saves bandwidth on Wi-Fi but may cause inter-universe sync drift on multi-universe setups.</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </item>
        </layout>

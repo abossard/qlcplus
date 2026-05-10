@@ -338,6 +338,8 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
             controller->setMaxFps(value.toInt());
         else if (name == DDP_PIXELCOUNT)
             controller->setPixelCount(value.toInt());
+        else if (name == DDP_SKIPUNCHANGED)
+            controller->setSkipUnchanged(value.toBool());
         else
             qWarning() << Q_FUNC_INFO << name << "is not a valid DDP output parameter";
     }
