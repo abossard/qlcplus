@@ -130,14 +130,13 @@ var testAlgo;
   }
 
   algo.rgbMap = function(width, height, rgb, step) {
-    var map = new Array(height);
+    var map = new Uint32Array(width * height);
     var colorSelectOne = (step === 1) ? false : true;
     var rowColorOne = colorSelectOne;
     var realBlockSize = algo.blockSize;
 
     // Setup the rgb map
     for (y = 0; y < height; y++) {
-      map[y] = new Array(width);
     }
 
     var xMax = width;
@@ -227,9 +226,9 @@ var testAlgo;
           }
         }
         if (colorSelectOne) {
-          map[y][x] = util.getRawColor(0);
+          map[(y) * width + (x)] = util.getRawColor(0);
         } else {
-          map[y][x] = util.getRawColor(1);
+          map[(y) * width + (x)] = util.getRawColor(1);
         }
       }
     }
@@ -238,21 +237,21 @@ var testAlgo;
       if (algo.orientation === 0) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[y][width - x - 1] = map[y][x];
+            map[(y) * width + (width - x - 1)] = map[(y) * width + (x)];
           }
         }
       } else if (algo.orientation === 1) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[height - y - 1][x] = map[y][x];
+            map[(height - y - 1) * width + (x)] = map[(y) * width + (x)];
           }
         }
       } else if (algo.orientation === 2) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[height - y - 1][x] = map[y][x];
-            map[y][width - x - 1] = map[y][x];
-            map[height - y - 1][width - x - 1] = map[y][x];
+            map[(height - y - 1) * width + (x)] = map[(y) * width + (x)];
+            map[(y) * width + (width - x - 1)] = map[(y) * width + (x)];
+            map[(height - y - 1) * width + (width - x - 1)] = map[(y) * width + (x)];
           }
         }
       }

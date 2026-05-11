@@ -326,10 +326,9 @@ var testAlgo;
       // keep the patten square
       var square = (width > height) ? width : height;
 
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++)
       {
-        map[y] = new Array();
 
         for (var x = 0; x < width; x++)
         {
@@ -337,7 +336,7 @@ var testAlgo;
           var ny = y / square;
           var n = util.noise(size * nx, size * ny, algo.bstepcount);
           var gradStep = Math.round(Math.pow(n, (algo.ramp / 10)) * util.gradientData.length);
-          map[y][x] = util.gradientData[gradStep];
+          map[(y) * width + (x)] = util.gradientData[gradStep];
         }
       }
 

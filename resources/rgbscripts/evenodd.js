@@ -43,17 +43,16 @@ var testAlgo;
          */
         algo.rgbMap = function(width, height, rgb, step)
         {
-            var map = new Array(height);
+            var map = new Uint32Array(width * height);
             var i = step;
             for (var y = 0; y < height; y++)
             {
-                map[y] = new Array();
                 for (var x = 0; x < width; x++)
                 {
                     if ((i % 2) === 0) {
-                        map[y][x] = rgb;
+                        map[(y) * width + (x)] = rgb;
                     } else {
-                        map[y][x] = 0;
+                        map[(y) * width + (x)] = 0;
                     }
                     i++;
                 }

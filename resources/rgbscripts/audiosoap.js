@@ -110,7 +110,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -239,7 +239,7 @@ var testAlgo;
                 var b = ab * wA + bb * wB;
 
                 prevPixels[y][x] = [r, g, b];
-                map[y][x] = RGBUtil.rgb(
+                map[(y) * width + (x)] = RGBUtil.rgb(
                     Math.max(0, Math.min(255, r)),
                     Math.max(0, Math.min(255, g)),
                     Math.max(0, Math.min(255, b))

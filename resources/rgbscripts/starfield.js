@@ -125,12 +125,11 @@ var testAlgo;
       }
 
       // Clear map data for a blank map
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
 
       for (var y = 0; y < height; y++) {
-        map[y] = new Array();
         for (var x = 0; x < width; x++) {
-          map[y][x] = 0;
+          map[(y) * width + (x)] = 0;
         }
       }
 
@@ -189,7 +188,7 @@ var testAlgo;
           var pRGB = (rr << 16) + (gg << 8) + bb;
           px = Math.floor(px); // get rid of x and y position fractions
           py = Math.floor(py);
-          map[py][px] = pRGB; // store the star's combined color in the map
+          map[(py) * width + (px)] = pRGB; // store the star's combined color in the map
           // console.log("i: " + i + " px: " + px + " py: " + py + " pz: " + stars[i].z + " color: " + r+g+b);
         } else {
           // console.log("i: " + i + " k: " + k + " px: " + px + " width: " + width + " py: " + py + " height: " + height);

@@ -65,14 +65,7 @@ var testAlgo;
                 fallObject[f] = stepRGB;
             }
 
-            objmap = new Array(height);
-            for (var y = 0; y < height; y++)
-            {
-                objmap[y] = new Array(width);
-                for (var x = 0; x < width; x++) {
-                    objmap[y][x] = 0;
-                }
-            }
+            objmap = new Uint32Array(width * height);
 
             util.color = rgb;
             util.width = width;
@@ -101,7 +94,7 @@ var testAlgo;
                     {
                         if (yPos < height)
                         {
-                            objmap[yPos][x] = fallObject[i];
+                            objmap[yPos * util.width + x] = fallObject[i];
                         }
                         yPos--;
                         if (yPos === -1) { break; }

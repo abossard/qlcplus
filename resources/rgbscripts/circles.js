@@ -177,7 +177,7 @@ var testAlgo;
       cx = Math.round(cx);
       cy = Math.round(cy);
       if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-        util.pixelMap[cy][cx] = color;
+        util.pixelMap[cy * width + cx] = color;
       }
     };
 
@@ -185,15 +185,8 @@ var testAlgo;
     {
       var x = 0;
       var y = 0;
-      // create an empty, black pixelMap
-      util.pixelMap = new Array(height);
-      for (y = 0; y < height; y++)
-      {
-        util.pixelMap[y] = new Array(width);
-        for (x = 0; x < width; x++) {
-          util.pixelMap[y][x] = 0;
-        }
-      }
+      // create an empty, black pixelMap (flat Uint32Array, row-major)
+      util.pixelMap = new Uint32Array(width * height);
 
       for (var i = 0; i < algo.circlesAmount; i++)
       {
@@ -209,7 +202,7 @@ var testAlgo;
           if (seed > 50) { continue; }
           circles[i].xCenter = Math.floor(Math.random() * width);
           circles[i].yCenter = Math.floor(Math.random() * height);
-          util.pixelMap[circles[i].yCenter][circles[i].xCenter] = color;
+          util.pixelMap[circles[i].yCenter * width + circles[i].xCenter] = color;
         }
         else
         {

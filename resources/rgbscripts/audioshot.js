@@ -94,7 +94,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var trigger;
@@ -133,12 +133,12 @@ var testAlgo;
                     var falloff = b * (1 - dist / (sz + 0.5));
 
                     // Additive blend
-                    var existing = map[py][px];
+                    var existing = map[(py) * width + (px)];
                     var er = (existing >> 16) & 0xFF;
                     var eg = (existing >> 8) & 0xFF;
                     var eb = existing & 0xFF;
 
-                    map[py][px] = RGBUtil.rgb(
+                    map[(py) * width + (px)] = RGBUtil.rgb(
                         Math.min(255, er + shot.r * falloff),
                         Math.min(255, eg + shot.g * falloff),
                         Math.min(255, eb + shot.b * falloff)

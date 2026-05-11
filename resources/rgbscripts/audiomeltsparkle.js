@@ -159,7 +159,7 @@ var testAlgo;
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -262,11 +262,11 @@ var testAlgo;
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {
                 var cy = strip[y];
-                for (var x = 0; x < width; x++) map[y][x] = cy;
+                for (var x = 0; x < width; x++) map[(y) * width + (x)] = cy;
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
-                for (var x2 = 0; x2 < width; x2++) map[y2][x2] = strip[x2];
+                for (var x2 = 0; x2 < width; x2++) map[(y2) * width + (x2)] = strip[x2];
             }
         }
 

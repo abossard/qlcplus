@@ -84,7 +84,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
       var pixelCount = width * height;
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       if (!audio || pixelCount <= 0) return map;
 
       var rValues = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
@@ -106,7 +106,7 @@ var testAlgo;
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
           var px = pixels[y * width + x];
-          map[y][x] = RGBUtil.rgb(px[0], px[1], px[2]);
+          map[(y) * width + (x)] = RGBUtil.rgb(px[0], px[1], px[2]);
         }
       }
 

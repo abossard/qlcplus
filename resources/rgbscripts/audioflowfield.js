@@ -250,10 +250,10 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
-          map[y][x] = fb[y * width + x];
+          map[(y) * width + (x)] = fb[y * width + x];
         }
       }
       return map;

@@ -956,9 +956,12 @@ bool Universe::write(int address, uchar value, bool forceLTP)
     if (address >= m_usedChannels)
         m_usedChannels = address + 1;
 
-    if (m_channelsMask->at(address) & HTP)
+    uchar *preGM = reinterpret_cast<uchar *>(m_preGMValues->data());
+    const uchar *mask = reinterpret_cast<const uchar *>(m_channelsMask->constData());
+
+    if (mask[address] & HTP)
     {
-        if (forceLTP == false && value < (uchar)m_preGMValues->at(address))
+        if (forceLTP == false && value < preGM[address])
         {
             return false;
         }
@@ -966,10 +969,10 @@ bool Universe::write(int address, uchar value, bool forceLTP)
     else
     {
         // preserve non HTP channels for blackout
-        (*m_blackoutValues)[address] = char(value);
+        reinterpret_cast<uchar *>(m_blackoutValues->data())[address] = value;
     }
 
-    (*m_preGMValues)[address] = char(value);
+    preGM[address] = value;
 
     updatePostGMValue(address);
 
@@ -978,17 +981,23 @@ bool Universe::write(int address, uchar value, bool forceLTP)
 
 bool Universe::writeMultiple(int address, quint32 value, int channelCount)
 {
+    uchar *preGM = reinterpret_cast<uchar *>(m_preGMValues->data());
+    uchar *blackout = reinterpret_cast<uchar *>(m_blackoutValues->data());
+    const uchar *mask = reinterpret_cast<const uchar *>(m_channelsMask->constData());
+    const uchar *valueBytes = reinterpret_cast<const uchar *>(&value);
+
     for (int i = 0; i < channelCount; i++)
     {
-        //qDebug() << "[Universe]" << id() << ": write channel" << (address + i) << ", value:" << QString::number(((uchar *)&value)[channelCount - 1 - i]);
+        const uchar v = valueBytes[channelCount - 1 - i];
+        const int addr = address + i;
 
         // preserve non HTP channels for blackout
-        if ((m_channelsMask->at(address + i) & HTP) == 0)
-            (*m_blackoutValues)[address + i] = ((uchar *)&value)[channelCount - 1 - i];
+        if ((mask[addr] & HTP) == 0)
+            blackout[addr] = v;
 
-        (*m_preGMValues)[address + i] = ((uchar *)&value)[channelCount - 1 - i];
+        preGM[addr] = v;
 
-        updatePostGMValue(address + i);
+        updatePostGMValue(addr);
     }
 
     return true;
@@ -1003,26 +1012,32 @@ bool Universe::writeRelative(int address, quint32 value, int channelCount)
     if (address + channelCount >= m_usedChannels)
         m_usedChannels = address + channelCount;
 
+    uchar *preGM = reinterpret_cast<uchar *>(m_preGMValues->data());
+    uchar *blackout = reinterpret_cast<uchar *>(m_blackoutValues->data());
+
     if (channelCount == 1)
     {
-        short newVal = uchar((*m_preGMValues)[address]);
+        short newVal = preGM[address];
         newVal += short(value) - RELATIVE_ZERO_8BIT;
-        (*m_preGMValues)[address] = char(CLAMP(newVal, 0, UCHAR_MAX));
-        (*m_blackoutValues)[address] = char(CLAMP(newVal, 0, UCHAR_MAX));
+        const uchar clamped = uchar(CLAMP(newVal, 0, UCHAR_MAX));
+        preGM[address] = clamped;
+        blackout[address] = clamped;
         updatePostGMValue(address);
     }
     else
     {
         quint32 currentValue = 0;
         for (int i = 0; i < channelCount; i++)
-            currentValue = (currentValue << 8) + uchar(m_preGMValues->at(address + i));
+            currentValue = (currentValue << 8) + preGM[address + i];
 
         currentValue = qint32(CLAMP((qint32)currentValue + (qint32)value - RELATIVE_ZERO_16BIT, 0, 0xFFFF));
 
+        const uchar *currentBytes = reinterpret_cast<const uchar *>(&currentValue);
         for (int i = 0; i < channelCount; i++)
         {
-            (*m_preGMValues)[address + i] = ((uchar *)&currentValue)[channelCount - 1 - i];
-            (*m_blackoutValues)[address + i] = ((uchar *)&currentValue)[channelCount - 1 - i];
+            const uchar v = currentBytes[channelCount - 1 - i];
+            preGM[address + i] = v;
+            blackout[address + i] = v;
             updatePostGMValue(address + i);
         }
     }
@@ -1035,15 +1050,18 @@ bool Universe::writeBlended(int address, quint32 value, int channelCount, Univer
     if (address + channelCount >= m_usedChannels)
         m_usedChannels = address + channelCount;
 
+    const uchar *preGM = reinterpret_cast<const uchar *>(m_preGMValues->constData());
+    const uchar *mask = reinterpret_cast<const uchar *>(m_channelsMask->constData());
+
     quint32 currentValue = 0;
     for (int i = 0; i < channelCount; i++)
-        currentValue = (currentValue << 8) + uchar(m_preGMValues->at(address + i));
+        currentValue = (currentValue << 8) + preGM[address + i];
 
     switch (blend)
     {
         case NormalBlend:
         {
-            if ((m_channelsMask->at(address) & HTP) && value < currentValue)
+            if ((mask[address] & HTP) && value < currentValue)
             {
                 return false;
             }

@@ -84,7 +84,7 @@ var testAlgo;
         if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       var colors = AudioColors.bands(algo);
       var powers = audio.power.bands;
       var sigma = Math.max(1, algo.presetBlobWidth);
@@ -122,9 +122,9 @@ var testAlgo;
         var bl = algo.accB[pos];
         var packed = RGBUtil.rgb(r, g, bl);
         if (horizontal) {
-          for (var y = 0; y < height; y++) map[y][pos] = packed;
+          for (var y = 0; y < height; y++) map[(y) * width + (pos)] = packed;
         } else {
-          for (var x = 0; x < width; x++) map[pos][x] = packed;
+          for (var x = 0; x < width; x++) map[(pos) * width + (x)] = packed;
         }
       }
 

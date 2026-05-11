@@ -176,7 +176,7 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       var halfW = algo.presetLineWidth / 2;
       for (var li = 0; li < algo.lines.length; li++) {
         var lln = algo.lines[li];
@@ -188,9 +188,9 @@ var testAlgo;
         var stamped = RGBUtil.scaleColor(lln.color, bright);
         for (var p = x0; p <= x1; p++) {
           if (horizontal) {
-            for (var y = 0; y < height; y++) map[y][p] = RGBUtil.blendAdd(map[y][p], stamped);
+            for (var y = 0; y < height; y++) map[(y) * width + (p)] = RGBUtil.blendAdd(map[(y) * width + (p)], stamped);
           } else {
-            for (var x = 0; x < width; x++) map[p][x] = RGBUtil.blendAdd(map[p][x], stamped);
+            for (var x = 0; x < width; x++) map[(p) * width + (x)] = RGBUtil.blendAdd(map[(p) * width + (x)], stamped);
           }
         }
       }

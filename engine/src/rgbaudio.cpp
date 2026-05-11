@@ -177,11 +177,12 @@ void RGBAudio::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
         m_audioInput->registerBandsNumber(m_bandsNumber);
         return;
     }
-    if (m_barColors.count() == 0)
+    if (m_barColors.count() == 0 || m_barColors.count() != size.height())
         calculateColors(size.height());
 
     double volHeight = (m_volumePower * size.height()) / 0x7FFF;
-    for (int x = 0; x < m_spectrumValues.count(); x++)
+    int spectrumCount = qMin(m_spectrumValues.count(), size.width());
+    for (int x = 0; x < spectrumCount; x++)
     {
         // Mel bands are already in [0..1]-ish linear units; clamp.
         double level = qBound(0.0, m_spectrumValues[x], 1.0);

@@ -37,19 +37,18 @@ var testAlgo;
             var isHeightEven = (height % 2 === 0);
             var centerStep = (widthCenter > heightCenter ? widthCenter : heightCenter) + 1;
 
-            var map = new Array(height);
+            var map = new Uint32Array(width * height);
             for (var y = 0; y < height; y++)
             {
-                map[y] = new Array();
                 for (var x = 0; x < width; x++)
                 {
                     if (step < centerStep)
                     {
                         if ((x <= widthCenter + step + (isWidthEven ? 1 : 0 ) && x >= widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                            map[y][x] = rgb;
+                            map[(y) * width + (x)] = rgb;
                         } else {
-                            map[y][x] = 0;
+                            map[(y) * width + (x)] = 0;
                         }
                     }
                     else
@@ -57,9 +56,9 @@ var testAlgo;
                         var step2 = step - centerStep;
                         if ((x <= widthCenter + step2 + (isWidthEven ? 1 : 0 ) && x >= widthCenter - step2) &&
                             (y <= heightCenter + step2 + (isHeightEven ? 1 : 0) && y >= heightCenter - step2)) {
-                            map[y][x] = 0;
+                            map[(y) * width + (x)] = 0;
                         } else {
-                            map[y][x] = rgb;
+                            map[(y) * width + (x)] = rgb;
                         }
                     }
                 }

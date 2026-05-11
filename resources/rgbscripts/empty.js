@@ -78,12 +78,11 @@ var testAlgo;
       */
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++)
       {
-        map[y] = new Array();
         for (var x = 0; x < width; x++) {
-          map[y][x] = rgb; // <-- step color goes here
+          map[(y) * width + (x)] = rgb; // <-- step color goes here
         }
       }
 

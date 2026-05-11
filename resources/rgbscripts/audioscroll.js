@@ -158,11 +158,11 @@ var testAlgo;
       }
 
       var outPixels = renderPixelsForOutput();
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
           var px = outPixels[y * width + x];
-          map[y][x] = RGBUtil.rgb(px[0], px[1], px[2]);
+          map[(y) * width + (x)] = RGBUtil.rgb(px[0], px[1], px[2]);
         }
       }
       return map;

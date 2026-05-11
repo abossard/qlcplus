@@ -99,7 +99,7 @@ var testAlgo;
             dotsHeight = height;
         }
 
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs / 1000.0;
@@ -173,11 +173,11 @@ var testAlgo;
                     var baseFade = fade * (1 - Math.abs(dy) / (spread + 1));
                     var yFade = baseFade;
 
-                    var existing = map[py][tx];
+                    var existing = map[(py) * width + (tx)];
                     var er = (existing >> 16) & 0xFF;
                     var eg = (existing >> 8) & 0xFF;
                     var eb = existing & 0xFF;
-                    map[py][tx] = RGBUtil.rgb(
+                    map[(py) * width + (tx)] = RGBUtil.rgb(
                         Math.min(255, er + color[0] * yFade),
                         Math.min(255, eg + color[1] * yFade),
                         Math.min(255, eb + color[2] * yFade)

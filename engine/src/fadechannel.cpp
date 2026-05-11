@@ -31,6 +31,7 @@ FadeChannel::FadeChannel()
     , m_fixture(Fixture::invalidId())
     , m_universe(Universe::invalid())
     , m_primaryChannel(QLCChannel::invalid())
+    , m_firstChannel(QLCChannel::invalid())
     , m_address(QLCChannel::invalid())
     , m_channelRef(NULL)
     , m_start(0)
@@ -48,6 +49,7 @@ FadeChannel::FadeChannel(const FadeChannel& ch)
     , m_universe(ch.m_universe)
     , m_primaryChannel(ch.m_primaryChannel)
     , m_channels(ch.m_channels)
+    , m_firstChannel(ch.m_firstChannel)
     , m_address(ch.m_address)
     , m_channelRef(ch.m_channelRef)
     , m_start(ch.m_start)
@@ -65,6 +67,7 @@ FadeChannel::FadeChannel(const Doc *doc, quint32 fxi, quint32 channel)
     , m_fixture(fxi)
     , m_universe(Universe::invalid())
     , m_primaryChannel(QLCChannel::invalid())
+    , m_firstChannel(channel)
     , m_address(QLCChannel::invalid())
     , m_channelRef(NULL)
     , m_start(0)
@@ -91,6 +94,7 @@ FadeChannel &FadeChannel::operator=(const FadeChannel &fc)
         m_universe = fc.m_universe;
         m_primaryChannel = fc.m_primaryChannel;
         m_channels = fc.m_channels;
+        m_firstChannel = fc.m_firstChannel;
         m_channelRef = fc.m_channelRef;
         m_address = fc.m_address;
         m_start = fc.m_start;
@@ -107,11 +111,6 @@ FadeChannel &FadeChannel::operator=(const FadeChannel &fc)
 bool FadeChannel::operator==(const FadeChannel& ch) const
 {
     return (m_fixture == ch.m_fixture && channel() == ch.channel());
-}
-
-int FadeChannel::flags() const
-{
-    return m_flags;
 }
 
 void FadeChannel::setFlags(int flags)
@@ -161,7 +160,10 @@ void FadeChannel::autoDetect(const Doc *doc)
         // if the fixture was invalid at the beginning of this method
         // it means channel was an absolute address, so, fix it
         if (fixtureWasInvalid)
+        {
             m_channels[0] -= fixture->address();
+            m_firstChannel = m_channels[0];
+        }
 
         quint32 chIndex = channel();
         m_primaryChannel = mode ? mode->primaryChannel(chIndex) : QLCChannel::invalid();
@@ -210,6 +212,8 @@ quint32 FadeChannel::universe() const
 
 void FadeChannel::addChannel(quint32 num)
 {
+    if (m_channels.isEmpty())
+        m_firstChannel = num;
     m_channels.append(num);
     //qDebug() << "[FadeChannel] ADD channel" << num << "count:" << m_channels.count();
 
@@ -230,11 +234,6 @@ int FadeChannel::channelCount() const
     return m_channels.count();
 }
 
-quint32 FadeChannel::channel() const
-{
-    return m_channels.isEmpty() ? QLCChannel::invalid() : m_channels.first();
-}
-
 int FadeChannel::channelIndex(quint32 channel) const
 {
     int idx = m_channels.indexOf(channel);
@@ -244,23 +243,6 @@ int FadeChannel::channelIndex(quint32 channel) const
 quint32 FadeChannel::primaryChannel() const
 {
     return m_primaryChannel;
-}
-
-quint32 FadeChannel::address() const
-{
-    if (m_address == QLCChannel::invalid())
-        return channel();
-
-    return (m_address + channel());
-}
-
-quint32 FadeChannel::addressInUniverse() const
-{
-    quint32 addr = address();
-    if (addr == QLCChannel::invalid())
-        return QLCChannel::invalid();
-
-    return addr % UNIVERSE_SIZE;
 }
 
 /************************************************************************

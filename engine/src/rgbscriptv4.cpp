@@ -33,6 +33,7 @@
 #include <QSemaphore>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "rgbscriptv4.h"
 
@@ -359,6 +360,15 @@ void RGBScript::cleanupEngine()
     s_jsThread = NULL;
 }
 
+bool RGBScript::scheduleOnJSThread(std::function<void()> fn)
+{
+    if (s_jsThread == NULL || s_jsThread->engine == NULL)
+        return false;
+
+    QMetaObject::invokeMethod(s_jsThread->engine, std::move(fn), Qt::QueuedConnection);
+    return true;
+}
+
 
 bool RGBScript::evaluate()
 {
@@ -562,28 +572,70 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
+    {
         displayError(yarray, m_fileName);
-
-    if (yarray.isArray())
-    {
-        QVariantList yvArray = yarray.toVariant().toList();
-        int ylen = yvArray.length();
-        map.resize(ylen);
-
-        for (int y = 0; y < ylen && y < size.height(); y++)
-        {
-            QVariantList xvArray = yvArray.at(y).toList();
-            int xlen = xvArray.length();
-            map[y].resize(xlen);
-
-            for (int x = 0; x < xlen && x < size.width(); x++)
-                map[y][x] = xvArray.at(x).toUInt();
-        }
-    }
-    else
-    {
-        qWarning() << "Returned value is not an array within an array!";
         return;
+    }
+
+    // Phase 3 single path: scripts MUST return a flat Uint32Array of length
+    // width*height (row-major). The C++ side reads its underlying ArrayBuffer
+    // as a QByteArray and copies uint32_t values directly into RGBMap. This
+    // avoids the per-element FastDtoa number→string conversions QV4 applies
+    // when toVariant().toList() walks a nested Array<Array<number>>.
+    //
+    // TypedArrays don't satisfy QJSValue::isArray(); detect via the
+    // BYTES_PER_ELEMENT property (only present on TypedArray instances).
+    const int width = size.width();
+    const int height = size.height();
+    if (width <= 0 || height <= 0)
+        return;
+
+    QJSValue bpeProp = yarray.property(QStringLiteral("BYTES_PER_ELEMENT"));
+    if (!bpeProp.isNumber())
+    {
+        qWarning() << "RGBScript" << m_fileName
+                   << "rgbMap() did not return a TypedArray. Phase 3 requires"
+                   << "a flat Uint32Array of length width*height.";
+        return;
+    }
+
+    const int bpe = bpeProp.toInt();
+    const int byteLength = yarray.property(QStringLiteral("byteLength")).toInt();
+    const int expectedBytes = width * height * 4;
+    if (bpe != 4 || byteLength != expectedBytes)
+    {
+        qWarning() << "RGBScript" << m_fileName
+                   << "returned a TypedArray with unexpected geometry: byteLength="
+                   << byteLength << "expected=" << expectedBytes
+                   << "BYTES_PER_ELEMENT=" << bpe;
+        return;
+    }
+
+    QJSValue bufProp = yarray.property(QStringLiteral("buffer"));
+    if (!bufProp.isObject())
+    {
+        qWarning() << "RGBScript" << m_fileName
+                   << "TypedArray has no underlying ArrayBuffer";
+        return;
+    }
+
+    QByteArray bytes = bufProp.toVariant().toByteArray();
+    if (bytes.size() != expectedBytes)
+    {
+        qWarning() << "RGBScript" << m_fileName
+                   << "ArrayBuffer extraction size mismatch: got" << bytes.size()
+                   << "expected" << expectedBytes;
+        return;
+    }
+
+    const uint32_t *src = reinterpret_cast<const uint32_t*>(bytes.constData());
+    map.resize(height);
+    for (int y = 0; y < height; ++y)
+    {
+        map[y].resize(width);
+        const uint32_t *row = src + (y * width);
+        for (int x = 0; x < width; ++x)
+            map[y][x] = row[x];
     }
 }
 

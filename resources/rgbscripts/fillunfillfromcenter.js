@@ -61,10 +61,9 @@ var testAlgo;
         }
         var centerStep = center + 1;
 
-        var map = new Array(height);
+        var map = new Uint32Array(width * height);
         for (var y = 0; y < height; y++)
         {
-            map[y] = new Array();
             for (var x = 0; x < width; x++)
             {
                 var cmpAxis = x;
@@ -74,18 +73,18 @@ var testAlgo;
                 if (step < centerStep)
                 {
                     if (cmpAxis <= center + step + (isEven ? 1 : 0 ) && cmpAxis >= center - step) {
-                        map[y][x] = rgb;
+                        map[(y) * width + (x)] = rgb;
                     } else {
-                        map[y][x] = 0;
+                        map[(y) * width + (x)] = 0;
                     }
                 }
                 else
                 {
                     var step2 = step - centerStep;
                     if (cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2) {
-                        map[y][x] = 0;
+                        map[(y) * width + (x)] = 0;
                     } else {
-                        map[y][x] = rgb;
+                        map[(y) * width + (x)] = rgb;
                     }
                 }
             }

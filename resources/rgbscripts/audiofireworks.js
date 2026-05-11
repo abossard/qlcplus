@@ -199,7 +199,7 @@ var testAlgo;
 
     function addPixel(map, width, height, x, y, color) {
         if (x < 0 || x >= width || y < 0 || y >= height) return;
-        map[y][x] = additive(map[y][x], color);
+        map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
     }
 
     function renderParticle(map, width, height, particle, particleSize) {
@@ -241,7 +241,7 @@ var testAlgo;
             var packed = bandColorPacked(randomWeightedBand(powers, 0, 2));
             var sr = (packed >> 16) & 0xFF, sg = (packed >> 8) & 0xFF, sb = packed & 0xFF;
             var sparkle = brightness * (0.5 + Math.random() * 0.5);
-            map[y][x] = additive(map[y][x], RGBUtil.rgb(sr * sparkle, sg * sparkle, sb * sparkle));
+            map[(y) * width + (x)] = additive(map[(y) * width + (x)], RGBUtil.rgb(sr * sparkle, sg * sparkle, sb * sparkle));
         }
     }
 
@@ -255,7 +255,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
         if (width !== lastW || height !== lastH) {
             algo.particles = [];

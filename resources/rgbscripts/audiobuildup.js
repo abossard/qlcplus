@@ -183,7 +183,7 @@ function renderFilling(map, width, height, audio, bpm, dtMs) {
             var bri = BUILD_BRI_BASE + activation * BUILD_BRI_ACT + centerHeat * BUILD_BRI_HEAT;
             bri *= (1.0 + 0.15 * beatPulse);
             var sat = lerp(BUILD_SAT_HIGH, BUILD_SAT_LOW, algo.fillProgress);
-            map[y][x] = packHsv(hue, sat, bri);
+            map[(y) * width + (x)] = packHsv(hue, sat, bri);
         }
     }
 }
@@ -198,7 +198,7 @@ function renderDrop(map, width, height, bpm, dtMs) {
         var flash = RGBUtil.rgb(255 * flashBri, 255 * flashBri, 255 * flashBri);
         for (var fy = 0; fy < height; fy++)
             for (var fx = 0; fx < width; fx++)
-                map[fy][fx] = flash;
+                map[(fy) * width + (fx)] = flash;
         if (dropProgress >= 1.0) transitionTo(algo.COOLDOWN);
         return;
     }
@@ -212,7 +212,7 @@ function renderDrop(map, width, height, bpm, dtMs) {
             var ringBri = Math.max(0, 1 - Math.abs(dist - waveRadius) / DROP_RING_WIDTH);
             var afterglow = Math.max(0, 1 - ringT) * DROP_AFTERGLOW_AMP;
             var bri = (ringBri * (1 - ringT * DROP_RING_DECAY) + afterglow) * intensity;
-            map[y][x] = packScaled(algo.dropColor, bri);
+            map[(y) * width + (x)] = packScaled(algo.dropColor, bri);
         }
     }
 
@@ -230,7 +230,7 @@ function renderCooldown(map, width, height, audio, bpm, dtMs) {
         for (var x = 0; x < width; x++) {
             var pulse = (COOLDOWN_BASE_BRI + beatPulse * COOLDOWN_PULSE_AMP) * afterglow;
             var hueShift = Math.sin(x * 0.25 + hueShift01 * Math.PI * 2) * COOLDOWN_HUE_AMP;
-            map[y][x] = packHsv(baseHue + hueShift, COOLDOWN_SAT, pulse);
+            map[(y) * width + (x)] = packHsv(baseHue + hueShift, COOLDOWN_SAT, pulse);
         }
     }
 
@@ -239,7 +239,7 @@ function renderCooldown(map, width, height, audio, bpm, dtMs) {
 
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
-    var map = RGBUtil.createMap(width, height);
+    var map = RGBUtil.createFlatMap(width, height);
     if (!audio) return map;
 
     var dtMs = (audio.timing && audio.timing.consumerDtMs) || 20;

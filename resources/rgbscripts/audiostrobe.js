@@ -110,7 +110,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -167,7 +167,7 @@ var testAlgo;
 
         for (var y = 0; y < height; y++)
             for (var px = 0; px < width; px++)
-                map[y][px] = RGBUtil.rgb(pixels[px][0], pixels[px][1], pixels[px][2]);
+                map[(y) * width + (px)] = RGBUtil.rgb(pixels[px][0], pixels[px][1], pixels[px][2]);
         return map;
     };
 

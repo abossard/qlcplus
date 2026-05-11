@@ -73,7 +73,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -146,7 +146,7 @@ var testAlgo;
                     g *= floorScale;
                     b2 *= floorScale;
                 }
-                map[y][x] = RGBUtil.rgb(
+                map[(y) * width + (x)] = RGBUtil.rgb(
                     Math.min(255, r),
                     Math.min(255, g),
                     Math.min(255, b2)

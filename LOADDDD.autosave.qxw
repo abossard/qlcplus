@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="130"/>
+   <BeatGenerator BeatType="Audio" BPM="129"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -948,21 +948,6 @@
    <Step Number="13">16</Step>
    <Step Number="14">17</Step>
    <Step Number="15">18</Step>
-  </Function>
-  <Function ID="20" Type="RGBMatrix" Name="TEXT">
-   <Speed FadeIn="0" FadeOut="0" Duration="500"/>
-   <Direction>Forward</Direction>
-   <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Text">
-    <Content>test</Content>
-    <Font>FiraCode Nerd Font Mono,9,-1,5,300,0,0,0,0,0,0,0,0,0,0,1,Light,0,0</Font>
-    <Animation>Horizontal</Animation>
-    <Offset X="0" Y="0"/>
-   </Algorithm>
-   <Color Index="0">4294901760</Color>
-   <ControlMode>RGB</ControlMode>
-   <FixtureGroup>0</FixtureGroup>
-   <Property Name="orientation" Value="Horizontal"/>
   </Function>
   <Function ID="309" Type="Scene" Name="BALLM" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>

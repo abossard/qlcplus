@@ -184,11 +184,10 @@ var testAlgo;
   util.getNextStep = function (width, height) {
     var x = 0;
     var y = 0;
-    var map = new Array(height);
+    var map = new Uint32Array(width * height);
     for (y = 0; y <= height - 1; y++) {
-      map[y] = new Array(width);
       for (x = 0; x <= width - 1; x++) {
-        map[y][x] = util.feature[y][x];
+        map[(y) * width + (x)] = util.feature[y][x];
       }
     }
 
@@ -209,7 +208,7 @@ var testAlgo;
     for (y = 0; y < height; y++) {
       x = 0;
       if (util.lights[p] === 1) {
-        map[y][x] = marqueeColor;
+        map[(y) * width + (x)] = marqueeColor;
       }
       p += 1;
     }
@@ -217,7 +216,7 @@ var testAlgo;
     for (x = 1; x < width; x++) {
       y = height - 1;
       if (util.lights[p] === 1) {
-        map[y][x] = marqueeColor;
+        map[(y) * width + (x)] = marqueeColor;
       }
       p += 1;
     }
@@ -225,7 +224,7 @@ var testAlgo;
     for (y = height - 2; y >= 0; y--) {
       x = width - 1;
       if (util.lights[p] === 1) {
-        map[y][x] = marqueeColor;
+        map[(y) * width + (x)] = marqueeColor;
       }
       p += 1;
     }
@@ -233,7 +232,7 @@ var testAlgo;
     for (x = width - 2; x >= 0; x--) {
       y = 0;
       if (util.lights[p] === 1) {
-        map[y][x] = marqueeColor;
+        map[(y) * width + (x)] = marqueeColor;
       }
       p += 1;
     }

@@ -148,7 +148,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.ensureBuffers(width, height);
 
@@ -214,7 +214,7 @@ var testAlgo;
 
         for (var y2 = 0; y2 < height; y2++) {
             for (var x2 = 0; x2 < width; x2++) {
-                map[y2][x2] = algo.fb[y2 * width + x2];
+                map[(y2) * width + (x2)] = algo.fb[y2 * width + x2];
             }
         }
         return map;

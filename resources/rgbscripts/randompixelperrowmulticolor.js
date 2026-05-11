@@ -38,9 +38,8 @@ var testAlgo;
           * @return A two-dimensional array[height][width].
           */
         algo.rgbMap = function (width, height, rgb, step) {
-            var map = new Array(height);
+            var map = new Uint32Array(width * height);
             for (var y = 0; y < height; y++) {
-                map[y] = [];
                 //get a random pixel in the curent row (y)
                 var index = Math.floor(Math.random() * (width));
 
@@ -51,9 +50,9 @@ var testAlgo;
 
                 for (var x = 0; x < width; x++) {
                     if (x === index) {
-                        map[y][x] = gradRGB;  //if this is the random pixel from above, set it to the user's chosen color
+                        map[(y) * width + (x)] = gradRGB;  //if this is the random pixel from above, set it to the user's chosen color
                     } else {
-                        map[y][x] = 0;    //otherwise, turn it off
+                        map[(y) * width + (x)] = 0;    //otherwise, turn it off
                     }
                 }
             }

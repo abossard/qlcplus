@@ -208,13 +208,7 @@ var testAlgo;
         util.circleRadius = height;
       }
 
-      util.map = new Array(height);
-      for (var y = 0; y < height; y++) {
-        util.map[y] = new Array(width);
-        for (var x = 0; x < width; x ++) {
-          util.map[y][x] = 0;
-        }
-      }
+      util.map = new Uint32Array(width * height);
       
       util.stepFade = algo.rgbMapStepCount(width, height) / algo.segmentsCount;
       util.circleFactor = algo.rgbMapStepCount(width, height) / 3;
@@ -296,7 +290,7 @@ var testAlgo;
       // clear algo.map data
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x ++) {
-          util.map[y][x] = 0;
+          util.map[y * width + x] = 0;
         }
       }
       
@@ -326,7 +320,7 @@ var testAlgo;
       // Draw the current map
       for (ry = 0; ry < height; ry++) {
         for (rx = 0; rx < width; rx++) {
-          util.map[ry][rx] = util.getMapPixelColor(ry, rx, r, g, b);
+          util.map[ry * width + rx] = util.getMapPixelColor(ry, rx, r, g, b);
         }
       }
     }
@@ -457,7 +451,7 @@ var testAlgo;
 
       // Normalize the factor      
       factor = Math.min(1, Math.max(0, factor));
-      return util.getColor(r * factor, g * factor, b * factor, util.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, util.map[ry * util.width + rx]);
     }
 
     algo.rgbMap = function(width, height, rgb, step)

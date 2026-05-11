@@ -71,12 +71,11 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++)
       {
-          map[y] = new Array();
           for (var x = 0; x < width; x++)
-            map[y][x] = 0;
+            map[(y) * width + (x)] = 0;
       }
 
       var stepsHeight = algo.orientation === 0 ? height : width;
@@ -98,9 +97,9 @@ var testAlgo;
           sinPos--;
 
         if (algo.orientation === 0)
-          map[sinPos][cStep] = rgb;
+          map[(sinPos) * width + (cStep)] = rgb;
         else
-          map[cStep][sinPos] = rgb;
+          map[(cStep) * width + (sinPos)] = rgb;
 
         // fill the previous column/row
         // to create continuous painting
@@ -114,9 +113,9 @@ var testAlgo;
             for (var f = startY; f < stopY; f++)
             {
               if (algo.orientation === 0)
-                map[f][col] = rgb;
+                map[(f) * width + (col)] = rgb;
               else
-                map[col][f] = rgb;
+                map[(col) * width + (f)] = rgb;
             }
           }
         }

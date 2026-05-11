@@ -23,6 +23,8 @@
 #include <QtGlobal>
 
 #include "doc.h"
+#include "qlcchannel.h"
+#include "universe.h"
 
 /** @addtogroup engine Engine
  * @{
@@ -74,7 +76,7 @@ public:
     bool operator==(const FadeChannel& fc) const;
 
     /** Get/Set the channel flags listed in ChannelFlag */
-    int flags() const;
+    inline int flags() const { return m_flags; }
     void setFlags(int flags);
 
     /** Add/Remove a single flag */
@@ -94,7 +96,7 @@ public:
     int channelCount() const;
 
     /** Get the first (or master) channel handled by this fader */
-    quint32 channel() const;
+    inline quint32 channel() const { return m_firstChannel; }
 
     /** Get the index of the provided $channel. This is useful only
      *  when multiple channels are handled and caller doesn't know
@@ -105,10 +107,21 @@ public:
     quint32 primaryChannel() const;
 
     /** Get the absolute address for this channel. */
-    quint32 address() const;
+    inline quint32 address() const
+    {
+        if (m_address == QLCChannel::invalid())
+            return m_firstChannel;
+        return (m_address + m_firstChannel);
+    }
 
     /** Get the absolute address in its universe for this channel. */
-    quint32 addressInUniverse() const;
+    inline quint32 addressInUniverse() const
+    {
+        const quint32 addr = address();
+        if (addr == QLCChannel::invalid())
+            return QLCChannel::invalid();
+        return addr % UNIVERSE_SIZE;
+    }
 
 protected:
     void autoDetect(const Doc *doc);
@@ -122,6 +135,8 @@ private:
     quint32 m_universe;
     quint32 m_primaryChannel;
     QVector<quint32> m_channels;
+    /** Cached first channel for fast inline access (mirrors m_channels.first()) */
+    quint32 m_firstChannel;
     quint32 m_address;
 
     /** Cache channel reference for faster lookup */

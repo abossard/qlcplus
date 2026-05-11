@@ -250,7 +250,7 @@ var testAlgo;
       cx = Math.round(cx);
       cy = Math.round(cy);
       if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-        util.pixelMap[cy][cx] = color;
+        util.pixelMap[cy * width + cx] = color;
       }
     };
 
@@ -258,14 +258,7 @@ var testAlgo;
     {
       var x, y;
       // create an empty, black pixelMap
-      util.pixelMap = new Array(height);
-      for (y = 0; y < height; y++)
-      {
-        util.pixelMap[y] = new Array(width);
-        for (x = 0; x < width; x++) {
-          util.pixelMap[y][x] = 0;
-        }
-      }
+      util.pixelMap = new Uint32Array(width * height);
 
       for (var i = 0; i < algo.linesAmount; i++)
       {
@@ -306,7 +299,7 @@ var testAlgo;
             lines[i].xCenter = Math.round(Math.random() * (width - 1));
           }
 
-          util.pixelMap[lines[i].yCenter][lines[i].xCenter] = lines[i].color;
+          util.pixelMap[lines[i].yCenter * width + lines[i].xCenter] = lines[i].color;
         } else {
           var color = util.getColor(lines[i].step, lines[i].color);
           //alert("Line " + i + " xCenter: " + lines[i].xCenter + " color: " + color.toString(16));

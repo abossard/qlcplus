@@ -182,14 +182,14 @@ var testAlgo;
       var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
         ? audio.colors.gradient : DEFAULT_GRADIENT;
 
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       for (var y = 0; y < H; y++) {
         var src = (algo.row - (H - 1 - y) + H) % H;
         var srcBase2 = src * N;
         var age = (H - 1) > 0 ? (H - 1 - y) / (H - 1) : 0;
         var rowColor = RGBUtil.gradientColorAt(gradient, age);
         for (var x = 0; x < N; x++) {
-          map[y][x] = algo.history[srcBase2 + x] ? rowColor : 0;
+          map[(y) * width + (x)] = algo.history[srcBase2 + x] ? rowColor : 0;
         }
       }
 

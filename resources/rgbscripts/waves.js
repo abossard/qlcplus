@@ -116,10 +116,9 @@ function()
       var tailSteps = Math.round(span * algo.taillength/100);
       if (tailSteps === 0) { tailSteps = 1; }
 
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++)
       {
-        map[y] = new Array();
         for (var x = 0; x < width; x++)
         {
           var pos = ((algo.orientation === 0) ? x : y);
@@ -180,8 +179,8 @@ function()
             thisRgb = (r << 16) + (g << 8) + b;
           }
           // Populate the matrix
-          map[y][x] = (fill ? thisRgb : 0);
-          map[y][x] = (fill ? thisRgb : 0);
+          map[(y) * width + (x)] = (fill ? thisRgb : 0);
+          map[(y) * width + (x)] = (fill ? thisRgb : 0);
         }
       }
       return map;

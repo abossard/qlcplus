@@ -158,12 +158,11 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = new Array(height); // Clear map data
+      var map = new Uint32Array(width * height); // Clear map data
       for (var y = 0; y < height; y++) {
-        map[y] = new Array();
 
         for (var x = 0; x < width; x++) {
-          map[y][x] = 0;
+          map[(y) * width + (x)] = 0;
         }
       }
 
@@ -183,7 +182,7 @@ var testAlgo;
           for (var rx = mx - boxSize; rx < mx + boxSize + 2; rx++) {  // to display ball
 
             if (rx < width && rx > -1 && ry < height && ry > -1) {  // if edges are off the map dont draw
-              var pointRGB = map[ry][rx];    // get curent colour on the map
+              var pointRGB = map[(ry) * width + (rx)];    // get curent colour on the map
               var pointr = (pointRGB >> 16) & 0x00FF;// so that colours mix and don't over
               var pointg = (pointRGB >> 8) & 0x00FF; // write.
               var pointb = pointRGB & 0x00FF;  // splt rgb in to components
@@ -204,7 +203,7 @@ var testAlgo;
 
               pointRGB = (pointr << 16) + (pointg << 8) + pointb; // combine colours
 
-              map[ry][rx] = pointRGB; // set mapped point
+              map[(ry) * width + (rx)] = pointRGB; // set mapped point
             }
           }
         }

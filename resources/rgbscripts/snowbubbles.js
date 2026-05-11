@@ -192,11 +192,10 @@ var testAlgo;
       }
 
       // Clear map data for a blank map
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++) {
-        map[y] = new Array();
         for (var x = 0; x < width; x++) {
-          map[y][x] = 0;
+          map[(y) * width + (x)] = 0;
         }
       }
       
@@ -237,7 +236,7 @@ var testAlgo;
           var colorLevel = 1 - (flakes[i].z / depth);
           
           // Get the current channel values
-          var pRGB = map[py][px];
+          var pRGB = map[(py) * width + (px)];
           var pr = (pRGB >> 16) & 0x00FF;
           var pg = (pRGB >> 8) & 0x00FF;
           var pb = pRGB & 0x00FF;
@@ -257,7 +256,7 @@ var testAlgo;
           pRGB = (r << 16) + (g << 8) + b;
 
           // store the flake's combined color in the map
-          map[py][px] = pRGB;
+          map[(py) * width + (px)] = pRGB;
         }
         
         // new position of flake

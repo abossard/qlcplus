@@ -135,10 +135,9 @@ var testAlgo;
       }
 
       var gradStep = 0;
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++)
       {
-          map[y] = new Array();
 
           if (algo.orientation === 1) {
             gradStep = step + y;
@@ -160,7 +159,7 @@ var testAlgo;
               gradStep = (gradStep % util.gradientData.length);
             }
 
-            map[y][x] = util.gradientData[gradStep];
+            map[(y) * width + (x)] = util.gradientData[gradStep];
           }
       }
 

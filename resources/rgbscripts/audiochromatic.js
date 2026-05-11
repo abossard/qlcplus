@@ -64,7 +64,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var glowDecayPerSec = 1.0 / (algo.presetGlowDecayMs / 1000.0);
         var glowWidth = algo.presetGlowWidth / 100.0;
@@ -132,9 +132,9 @@ var testAlgo;
             var bright = algo.zone[zoneIdx];
             var color = RGBUtil.scaleColor(base, bright);
             if (horizontal) {
-                for (var y = 0; y < height; y++) map[y][p] = color;
+                for (var y = 0; y < height; y++) map[(y) * width + (p)] = color;
             } else {
-                for (var x = 0; x < width; x++) map[p][x] = color;
+                for (var x = 0; x < width; x++) map[(p) * width + (x)] = color;
             }
         }
         return map;

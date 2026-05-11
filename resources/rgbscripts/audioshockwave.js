@@ -127,7 +127,7 @@ function renderAmbient(map, width, height, cx, cy, maxRadius) {
             var ring = Math.sin(dist * AMBIENT_RING_FREQ - phase) * 0.5 + 0.5;
             var centerLift = 1.0 - Math.min(1.0, dist / Math.max(1.0, maxRadius));
             var bri = AMBIENT_BASE_BRI + ring * AMBIENT_RING_BRI + centerLift * AMBIENT_CENTER_BRI;
-            map[y][x] = RGBUtil.rgb(bgColor[0] * bri, bgColor[1] * bri, bgColor[2] * bri);
+            map[(y) * width + (x)] = RGBUtil.rgb(bgColor[0] * bri, bgColor[1] * bri, bgColor[2] * bri);
         }
     }
 }
@@ -143,7 +143,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
         lastH = height;
     }
 
-    var map = RGBUtil.createMap(width, height);
+    var map = RGBUtil.createFlatMap(width, height);
     if (!audio) return map;
     var cx = width / 2;
     var cy = height / 2;
@@ -202,7 +202,7 @@ algo.rgbMap = function(width, height, rgb, step, audio)
             var peak = Math.max(rr, gg, bb) / 255.0;
             if (peak > MIN_RENDER_BRI) {
                 var scale = peak > 1.5 ? 1.5 / peak : 1.0;
-                map[py][px] = RGBUtil.rgb(rr * scale, gg * scale, bb * scale);
+                map[(py) * width + (px)] = RGBUtil.rgb(rr * scale, gg * scale, bb * scale);
             }
         }
     }

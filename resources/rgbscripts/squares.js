@@ -151,14 +151,13 @@ var testAlgo;
     util.getNextStep = function(width, height, rgb)
     {
       // create an empty, black map
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
 
       for (var y = 0; y < height; y++)
       {
-        map[y] = new Array();
         for (var x = 0; x < width; x++)
         {
-          map[y][x] = 0;
+          map[(y) * width + (x)] = 0;
         }
       }
 
@@ -172,8 +171,8 @@ var testAlgo;
           squares[i].xCenter = Math.floor(Math.random() * width);
           squares[i].yCenter = Math.floor(Math.random() * height);
           squares[i].color = rgb;
-          map[squares[i].yCenter][squares[i].xCenter] =
-              util.mergeRgb(map[squares[i].yCenter][squares[i].xCenter], squares[i].color);
+          map[(squares[i].yCenter) * width + (squares[i].xCenter)] =
+              util.mergeRgb(map[(squares[i].yCenter) * width + (squares[i].xCenter)], squares[i].color);
         }
         else
         {
@@ -191,12 +190,12 @@ var testAlgo;
               if (sx < 0 || sx >= width) { continue; }
               if (sy === firstY || sy === firstY + side || algo.fillSquares === 1)
               {
-                map[sy][sx] = util.mergeRgb(map[sy][sx], color);
+                map[(sy) * width + (sx)] = util.mergeRgb(map[(sy) * width + (sx)], color);
               }
               else
               {
                 if (sx === firstX || sx === firstX + side) {
-                  map[sy][sx] = util.mergeRgb(map[sy][sx], color);
+                  map[(sy) * width + (sx)] = util.mergeRgb(map[(sy) * width + (sx)], color);
                 }
               }
             }

@@ -101,7 +101,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var trigger = false;
@@ -188,7 +188,7 @@ var testAlgo;
                     var edge = 1 - Math.abs(d - rp.radius) / ringW;
                     if (edge > 0) {
                         var contribution = RGBUtil.scaleColor(rp.color, edge * alpha);
-                        map[y][x] = RGBUtil.blendAdd(map[y][x], contribution);
+                        map[(y) * width + (x)] = RGBUtil.blendAdd(map[(y) * width + (x)], contribution);
                     }
                 }
             }

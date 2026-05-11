@@ -66,7 +66,7 @@ var testAlgo;
      */
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
 
         // If no audio data, return black
         if (!audio)
@@ -107,7 +107,7 @@ var testAlgo;
                 }
 
                 var brightness = (r > 0 || g > 0 || b2 > 0) ? (1.0) * beatBoost : 0;
-                map[y][x] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
+                map[(y) * width + (x)] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
             }
         }
 

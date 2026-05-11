@@ -83,7 +83,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs;
@@ -148,7 +148,7 @@ var testAlgo;
             var brightness = baseBrightness;
             var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
             for (var y = 0; y < height; y++)
-                map[y][x] = packed;
+                map[(y) * width + (x)] = packed;
         }
         flashLevel = Math.max(0, flashLevel - FLASH_DECAY);
 

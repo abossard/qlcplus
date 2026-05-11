@@ -70,7 +70,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -115,7 +115,7 @@ var testAlgo;
 
             var packed = RGBUtil.hsvToRgb(hue, sat, 1);
             for (var y = 0; y < height; y++)
-                map[y][x] = packed;
+                map[(y) * width + (x)] = packed;
         }
 
         return map;

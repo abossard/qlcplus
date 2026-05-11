@@ -66,6 +66,12 @@ var testAlgo;
     var flash = 0;
     var sparkleLevel = 0;
 
+    // Reusable sparkle bitmap (Array of 0/1) — preallocated and reused across
+    // frames to avoid GC and the QV4 numeric-key→string conversion that an
+    // object literal `{}` would trigger when indexed with `y * width + x`.
+    var sparkleBitmap = null;
+    var sparkleBitmapLen = 0;
+
     function unpack(packed) {
         return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
     }
@@ -88,7 +94,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -120,15 +126,23 @@ var testAlgo;
             sparkleLevel = Math.max(sparkleLevel, audio.beat.cosPulse * highVis);
 
         // Distribute sparkle pixels for this frame in the upper half.
-        var sparkleSet = null;
+        var sparkleActive = false;
         if (algo.presetSparkles && sparkleLevel > 0.02) {
-            sparkleSet = {};
+            var pixelCount = width * height;
+            if (sparkleBitmap === null || sparkleBitmapLen !== pixelCount) {
+                sparkleBitmap = new Array(pixelCount);
+                sparkleBitmapLen = pixelCount;
+                for (var b = 0; b < pixelCount; b++) sparkleBitmap[b] = 0;
+            } else {
+                for (var b2 = 0; b2 < pixelCount; b2++) sparkleBitmap[b2] = 0;
+            }
+            sparkleActive = true;
             var sparkRows = Math.max(1, Math.floor(height / 2));
             var sparkCount = Math.max(1, Math.floor(width * sparkRows * SPARKLE_DENSITY * sparkleLevel));
             for (var s = 0; s < sparkCount; s++) {
                 var sx = Math.floor(Math.random() * width);
                 var sy = Math.floor(Math.random() * sparkRows);
-                sparkleSet[sy * width + sx] = 1;
+                sparkleBitmap[sy * width + sx] = 1;
             }
         }
 
@@ -166,7 +180,7 @@ var testAlgo;
                 }
 
                 // Sparkle override (single white flicker, no per-pixel state).
-                if (sparkleSet && sparkleSet[y * width + x]) {
+                if (sparkleActive && sparkleBitmap[y * width + x]) {
                     color = highColor;
                     level = Math.max(level, sparkleLevel);
                 }
@@ -178,7 +192,7 @@ var testAlgo;
                 }
 
                 var brightness = Math.min(1, level) * overall;
-                map[y][x] = RGBUtil.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
+                map[(y) * width + (x)] = RGBUtil.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
             }
         }
 

@@ -93,7 +93,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var nBands = (algo.presetBands === "1") ? 1 : 3;
         var gravity   = algo.presetGravity / 100.0;
@@ -157,18 +157,18 @@ var testAlgo;
                 if (horizontal) {
                     // bars extend from left
                     for (var x = 0; x < barLen; x++) {
-                        if (c >= 0 && c < height && x >= 0 && x < width) map[c][x] = barColor;
+                        if (c >= 0 && c < height && x >= 0 && x < width) map[(c) * width + (x)] = barColor;
                     }
                     if (peakIdx >= 0 && peakIdx < width && c >= 0 && c < height)
-                        map[c][peakIdx] = flashColor;
+                        map[(c) * width + (peakIdx)] = flashColor;
                 } else {
                     // bars rise from bottom
                     for (var y = 0; y < barLen; y++) {
                         var rowY = height - 1 - y;
-                        if (rowY >= 0 && rowY < height && c >= 0 && c < width) map[rowY][c] = barColor;
+                        if (rowY >= 0 && rowY < height && c >= 0 && c < width) map[(rowY) * width + (c)] = barColor;
                     }
                     var prow = height - 1 - peakIdx;
-                    if (prow >= 0 && prow < height && c >= 0 && c < width) map[prow][c] = flashColor;
+                    if (prow >= 0 && prow < height && c >= 0 && c < width) map[(prow) * width + (c)] = flashColor;
                 }
             }
         }

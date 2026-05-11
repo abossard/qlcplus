@@ -78,7 +78,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         ensureState();
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var numBands = algo.presetBands;
@@ -128,12 +128,12 @@ var testAlgo;
                     if (fromBottom < barHeight) {
                         var baseBrightness = smoothMagnitude * (1 - y / height * TOP_DARKEN);
                         var brightness = (baseBrightness) * beatBoost;
-                        map[y][x] = RGBUtil.rgb(
+                        map[(y) * width + (x)] = RGBUtil.rgb(
                             color[0] * brightness,
                             color[1] * brightness,
                             color[2] * brightness);
                     } else if (fromBottom === peakPosition && peakPosition < height) {
-                        map[y][x] = RGBUtil.rgb(color[0], color[1], color[2]);
+                        map[(y) * width + (x)] = RGBUtil.rgb(color[0], color[1], color[2]);
                     }
                 }
             }

@@ -58,21 +58,45 @@ RGBUtil.hsv2rgb = function(h, s, v) {
 };
 
 /**
- * Create an empty 2D map (height x width) filled with 0.
- * Indexed as map[y][x].
+ * Create an empty pixel map. Returns a flat Uint32Array of length
+ * width*height (row-major: index = y*width + x), per the Phase 3
+ * fast-path contract with the C++ engine (engine/src/rgbscriptv4.cpp).
+ *
+ * Note: this is no longer a 2D nested Array. Code that previously did
+ * `map[y][x] = c` must use `map[y * width + x] = c`.
  *
  * @param {number} width
  * @param {number} height
- * @returns {Array} 2D array of zeros
+ * @returns {Uint32Array} flat row-major map of zeros, length = width*height
  */
 RGBUtil.createMap = function(width, height) {
-    var map = new Array(height);
-    for (var y = 0; y < height; y++) {
-        map[y] = new Array(width);
-        for (var x = 0; x < width; x++)
-            map[y][x] = 0;
-    }
-    return map;
+    return new Uint32Array(width * height);
+};
+
+/**
+ * Alias of createMap kept for clarity in scripts that want to make the
+ * flat-array contract explicit at the call site.
+ *
+ * @param {number} width
+ * @param {number} height
+ * @returns {Uint32Array} flat row-major map of zeros, length = width*height
+ */
+RGBUtil.createFlatMap = function(width, height) {
+    return new Uint32Array(width * height);
+};
+
+/**
+ * Set a pixel in a flat Uint32Array map. Helper for readability;
+ * prefer inline `map[y * width + x] = color` in hot inner loops.
+ *
+ * @param {Uint32Array} map
+ * @param {number} width  - row stride
+ * @param {number} x
+ * @param {number} y
+ * @param {number} color  - packed 0xAARRGGBB
+ */
+RGBUtil.setPixel = function(map, width, x, y, color) {
+    map[y * width + x] = color;
 };
 
 /**

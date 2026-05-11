@@ -113,7 +113,7 @@ var testAlgo;
         if (peakValues === null || peakValues.length !== bandCount)
             init(bandCount);
 
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
 
         if (!audio) return map;
         var melSrc = audio.spectrum.full;
@@ -170,7 +170,7 @@ var testAlgo;
                     if (y < 0 || y >= height) continue;
                     var c = unpackColor(gradientLut[x]);
                     var brightness = magnitude;
-                    map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    map[(y) * width + (x)] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
             else
@@ -182,7 +182,7 @@ var testAlgo;
                     if (y < 0) break;
                     var c = unpackColor(gradientLut[x]);
                     var brightness = magnitude;
-                    map[y][x] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    map[(y) * width + (x)] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
                 }
             }
 
@@ -198,7 +198,7 @@ var testAlgo;
                 }
                 if (peakY >= 0 && peakY < height) {
                     var peakBrightness = peakValues[x];
-                    map[peakY][x] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
+                    map[(peakY) * width + (x)] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
                 }
             }
         }

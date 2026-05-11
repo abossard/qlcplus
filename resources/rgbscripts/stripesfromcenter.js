@@ -55,18 +55,17 @@ var testAlgo;
             isEven = (width % 2 === 0);
         }
 
-        var map = new Array(height);
+        var map = new Uint32Array(width * height);
         for (var y = 0; y < height; y++)
         {
-            map[y] = new Array();
             for (var x = 0; x < width; x++)
             {
                 var cmpAxis = (algo.orientation ? y : x);
 
                 if (cmpAxis === center + step + (isEven ? 1 : 0 ) || cmpAxis === center - step) {
-                    map[y][x] = rgb;
+                    map[(y) * width + (x)] = rgb;
                 } else {
-                    map[y][x] = 0;
+                    map[(y) * width + (x)] = 0;
                 }
             }
         }

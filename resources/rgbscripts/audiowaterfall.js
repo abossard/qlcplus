@@ -87,7 +87,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.ensureHistory(width, height);
 
@@ -126,7 +126,7 @@ var testAlgo;
             var srcCol = (algo.col - (width - 1 - x) + width) % width;
             for (var yi = 0; yi < height; yi++) {
                 var pix = algo.history[srcCol * height + yi];
-                map[yi][x] = pix;
+                map[(yi) * width + (x)] = pix;
             }
         }
         return map;

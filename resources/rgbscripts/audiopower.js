@@ -117,7 +117,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         scaleInPlace(sparksOverlay, 1.0 - clamp(algo.sparks_decay_rate, 0, 1));
@@ -157,7 +157,7 @@ var testAlgo;
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var px = 0; px < width; px++)
-                map[y][px] = RGBUtil.rgb(strip[px][0], strip[px][1], strip[px][2]);
+                map[(y) * width + (px)] = RGBUtil.rgb(strip[px][0], strip[px][1], strip[px][2]);
         return map;
     };
 

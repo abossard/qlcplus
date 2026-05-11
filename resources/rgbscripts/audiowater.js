@@ -97,7 +97,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!buf0 || buf0.length !== width) init(width);
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
         if (width < 5) return map;
 
@@ -156,7 +156,7 @@ var testAlgo;
 
             var packed = RGBUtil.hsvToRgb(h, s, v);
             for (var y = 0; y < height; y++)
-                map[y][x] = packed;
+                map[(y) * width + (x)] = packed;
         }
 
         return map;

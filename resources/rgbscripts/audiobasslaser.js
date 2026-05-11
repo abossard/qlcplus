@@ -104,7 +104,7 @@ var testAlgo;
         x = Math.round(x);
         y = Math.round(y);
         if (x < 0 || x >= width || y < 0 || y >= height) return;
-        map[y][x] = additive(map[y][x], color);
+        map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
     }
 
     function chooseDirection() {
@@ -162,13 +162,13 @@ var testAlgo;
             var y = Math.floor(Math.random() * height);
             var twinkle = ambient * (0.4 + Math.random() * 0.6);
             var color = RGBUtil.rgb(trailColor[0] * twinkle, trailColor[1] * twinkle, trailColor[2] * twinkle);
-            map[y][x] = additive(map[y][x], color);
+            map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
         }
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         // Beam positions are pixel-absolute; flush them on dimension change

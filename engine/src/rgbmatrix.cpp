@@ -24,6 +24,7 @@
 #include <QElapsedTimer>
 #include <QDebug>
 #include <QRandomGenerator>
+#include <QThread>
 #include <cmath>
 #include <QDir>
 
@@ -100,6 +101,17 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_lastBeat(-1)
     , m_randomSegment(0)
 {
+    // Phase 4: precomputed-map state starts empty. m_currentGeneration begins
+    // at 0; consumers only trust the precomputed map when ready==1, so the
+    // initial value of m_precomputedGeneration is harmless until first kick.
+    m_precomputedReady.storeRelease(0);
+    m_precomputedInFlight.storeRelease(0);
+    m_currentGeneration.storeRelease(0);
+    m_precomputedGeneration = 0;
+    m_precomputedStep = -1;
+    m_precomputedColor = 0;
+    m_precomputedAlgorithm = nullptr;
+
     setName(tr("New RGB Matrix"));
     setDuration(500);
 
@@ -116,13 +128,35 @@ RGBMatrix::RGBMatrix(Doc *doc)
 
     int algoCount = RGBAlgorithm::algorithms(doc).count();
     registerAttribute(tr("Pattern"), LastWins | Single, 0.0, algoCount > 0 ? algoCount - 1 : 0, algorithmIndex());
+
+    // Mark the PixelPlan dirty initially. It will be (re)built lazily on the
+    // first updateMapChannels() call. Connect to Doc signals so that fixture
+    // address/mode changes and group membership changes invalidate the cache.
+    m_pixelPlanDirty.storeRelease(1);
+    if (doc != NULL)
+    {
+        connect(doc, &Doc::fixtureChanged,
+                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
+        connect(doc, &Doc::fixtureRemoved,
+                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
+        connect(doc, &Doc::fixtureGroupChanged,
+                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
+        connect(doc, &Doc::fixtureGroupRemoved,
+                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
+    }
 }
 
 RGBMatrix::~RGBMatrix()
 {
+    // Phase 4: any async precompute task captures `this`. Wait for it to
+    // drain before we tear down. Bounded to ~one rgbMap duration (~10ms).
+    while (m_precomputedInFlight.loadAcquire() != 0)
+        QThread::yieldCurrentThread();
+
     //if (m_runAlgorithm != NULL)
     //    delete m_runAlgorithm;
-    delete m_algorithm;
+    deferDeleteAlgorithm(m_algorithm);
+    m_algorithm = NULL;
     delete m_stepHandler;
 }
 
@@ -174,6 +208,7 @@ quint32 RGBMatrix::totalDuration()
 void RGBMatrix::setDimmerControl(bool dimmerControl)
 {
     m_dimmerControl = dimmerControl;
+    m_pixelPlanDirty.storeRelease(1);
 }
 
 bool RGBMatrix::dimmerControl() const
@@ -251,6 +286,10 @@ void RGBMatrix::setFixtureGroup(quint32 id)
         m_group = doc()->fixtureGroup(m_fixtureGroupID);
     }
     m_stepsCount = algorithmStepsCount();
+    m_pixelPlanDirty.storeRelease(1);
+    // Phase 4: any precomputed map is for the OLD group. Invalidate.
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
 }
 
 quint32 RGBMatrix::audioProfileId() const
@@ -281,10 +320,18 @@ QList<quint32> RGBMatrix::components() const
 
 void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
 {
+    RGBAlgorithm *oldAlgo = nullptr;
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
-        delete m_algorithm;
+        oldAlgo = m_algorithm;
         m_algorithm = algo;
+
+        // Phase 4: invalidate any pending/stored precomputed frame BEFORE
+        // releasing the algorithm pointer for deletion. Bumping the generation
+        // ensures any in-flight JSThread task that captured the old generation
+        // will discard its result rather than store it.
+        m_currentGeneration.fetchAndAddRelaxed(1);
+        m_precomputedReady.storeRelease(0);
 
         m_requestEngineCreation = true;
 
@@ -311,6 +358,10 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
                 m_rgbColors.replace(i, QColor::fromRgb(colors.at(i)));
         }
     }
+    // Phase 4: deferred delete of the previous algorithm. For Script-typed
+    // algos, this serializes after any pending precompute tasks on the
+    // JSThread (FIFO), avoiding use-after-free in the async path.
+    deferDeleteAlgorithm(oldAlgo);
     m_stepsCount = algorithmStepsCount();
 
     if (m_applyingStyleAttributes == false)
@@ -758,6 +809,14 @@ void RGBMatrix::preRun(MasterTimer *timer)
 
     m_roundTime.restart();
 
+    // The resolved fixture group may have changed since last preRun; force the
+    // PixelPlan to be rebuilt on the first updateMapChannels() call.
+    m_pixelPlanDirty.storeRelease(1);
+
+    // Phase 4: drop any precomputed map carried over from a previous run.
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
+
     Function::preRun(timer);
 }
 
@@ -849,16 +908,59 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             || m_beatEffect != BeatEffectOff)
         {
             QSize algoSize = effectiveAlgorithmSize(m_group);
-            if (m_runAlgorithm->usesAudio())
-                m_runAlgorithm->setDisplaySize(m_group->size());
-            m_runAlgorithm->rgbMap(algoSize, m_stepHandler->stepColor().rgb(),
-                                   m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
-            if (m_rotation || m_mirror)
-                applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
-                                m_rotation, m_mirror, m_mirrorBlend);
+            uint stepColor = m_stepHandler->stepColor().rgb();
+            int stepIndex = m_stepHandler->currentStepIndex();
+            quint32 generation = m_currentGeneration.loadAcquire();
+
+            // --- Phase 4: try to consume a precomputed frame ---
+            //
+            // The precomputed map already has rotation/mirror applied (those
+            // are stable across ticks). Beat transform is NOT precomputed
+            // because m_currentBeat is determined per-tick on this thread.
+            bool mapReady = false;
+            if (m_precomputedReady.loadAcquire() == 1)
+            {
+                QMutexLocker pre(&m_precomputedMutex);
+                if (m_precomputedReady.loadAcquire() == 1
+                    && m_precomputedGeneration == generation
+                    && m_precomputedAlgorithm == m_runAlgorithm
+                    && m_precomputedStep == stepIndex
+                    && m_precomputedColor == stepColor
+                    && m_precomputedAlgoSize == algoSize)
+                {
+                    m_stepHandler->m_map = std::move(m_precomputedMap);
+                    m_precomputedMap = RGBMap();
+                    m_precomputedReady.storeRelease(0);
+                    mapReady = true;
+                }
+                else
+                {
+                    // Stale or mismatched: discard.
+                    m_precomputedReady.storeRelease(0);
+                }
+            }
+
+            if (!mapReady)
+            {
+                if (m_runAlgorithm->usesAudio())
+                    m_runAlgorithm->setDisplaySize(m_group->size());
+                m_runAlgorithm->rgbMap(algoSize, stepColor, stepIndex, m_stepHandler->m_map);
+                if (m_rotation || m_mirror)
+                    applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
+                                    m_rotation, m_mirror, m_mirrorBlend);
+            }
+
             if (m_beatEffect != BeatEffectOff)
                 applyBeatTransform(m_stepHandler->m_map, m_currentBeat);
             updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
+
+            // --- Phase 4: kick off async pre-computation for the NEXT tick ---
+            //
+            // We assume the next tick will use the same step/color (true for
+            // most ticks: step changes only when elapsed >= duration). If the
+            // assumption is wrong, the consumer will detect the mismatch and
+            // fall back to the synchronous path.
+            kickAsyncRgbMap(m_runAlgorithm, algoSize, stepColor, stepIndex, generation);
         }
     }
 }
@@ -959,6 +1061,265 @@ void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime, u
         fc.setFadeTime(fadeTime);
 }
 
+void RGBMatrix::invalidatePixelPlan(quint32 id)
+{
+    Q_UNUSED(id)
+    // Conservative: any fixture / fixture-group change may affect the resolved
+    // channels. Marking dirty is cheap; the rebuild only happens on next tick.
+    m_pixelPlanDirty.storeRelease(1);
+}
+
+/*****************************************************************************
+ * Phase 4: Async rgbMap pre-computation helpers
+ *****************************************************************************/
+
+void RGBMatrix::deferDeleteAlgorithm(RGBAlgorithm *algo)
+{
+    if (algo == nullptr)
+        return;
+
+#ifdef QT_QML_LIB
+    // Script-typed algorithms own QJSValue handles tied to the JSThread's
+    // QJSEngine. Even ignoring our async tasks, deleting them off-thread is
+    // unsafe. Queue the delete on the JSThread so it serializes after any
+    // pending precompute tasks (FIFO).
+    if (algo->type() == RGBAlgorithm::Script
+        && RGBScript::scheduleOnJSThread([algo]() { delete algo; }))
+    {
+        return;
+    }
+#endif
+    delete algo;
+}
+
+void RGBMatrix::kickAsyncRgbMap(RGBAlgorithm *algo, const QSize &algoSize,
+                                uint stepColor, int step, quint32 generation)
+{
+#ifdef QT_QML_LIB
+    if (algo == nullptr)
+        return;
+
+    // Only Script algorithms benefit — others (Image, PlainColor, Text, Audio)
+    // run inline on this thread already and are fast.
+    if (algo->type() != RGBAlgorithm::Script)
+        return;
+
+    // Throttle: at most one async task in flight per matrix. If a previous
+    // task hasn't been consumed yet, skip — the current frame's sync path is
+    // already producing usable output.
+    int expected = 0;
+    if (!m_precomputedInFlight.testAndSetAcquire(expected, 1))
+        return;
+
+    // Capture by value: algo pointer + immutable params + generation snapshot.
+    // We do NOT take m_algorithmMutex inside the JSThread task — that would
+    // deadlock with the synchronous rgbMap path (MasterTimer holds the mutex
+    // while BlockingQueuedConnection-waiting on JSThread).
+    //
+    // Lifetime safety:
+    //   - algo pointer remains valid as long as any in-flight task could be
+    //     using it: setAlgorithm() / ~RGBMatrix() use deferDeleteAlgorithm()
+    //     which queues the delete on the JSThread *after* this task (FIFO).
+    //   - `this` remains valid because ~RGBMatrix() spins on
+    //     m_precomputedInFlight before destroying members.
+    QSize captureAlgoSize = algoSize;
+    int captureRotation = m_rotation;
+    int captureMirror = m_mirror;
+    MirrorBlend captureBlend = m_mirrorBlend;
+    QSize captureGroupSize;
+    if (m_group != nullptr)
+        captureGroupSize = m_group->size();
+    bool captureUsesAudio = algo->usesAudio();
+
+    bool ok = RGBScript::scheduleOnJSThread(
+        [this, algo, captureAlgoSize, stepColor, step, generation,
+         captureRotation, captureMirror, captureBlend, captureGroupSize,
+         captureUsesAudio]()
+        {
+            // Re-check generation BEFORE we even call rgbMap. Cheap and lets
+            // us bail out if the matrix was reconfigured while we were queued.
+            if (m_currentGeneration.loadAcquire() != generation)
+            {
+                m_precomputedInFlight.storeRelease(0);
+                return;
+            }
+
+            if (captureUsesAudio && !captureGroupSize.isEmpty())
+                algo->setDisplaySize(captureGroupSize);
+
+            RGBMap localMap;
+            algo->rgbMap(captureAlgoSize, stepColor, step, localMap);
+
+            if ((captureRotation || captureMirror) && !captureGroupSize.isEmpty())
+                applyTransforms(localMap, captureAlgoSize, captureGroupSize,
+                                captureRotation, captureMirror, captureBlend);
+
+            // Re-check generation AFTER computation. If a parameter changed
+            // mid-flight, drop the result rather than poison the cache.
+            if (m_currentGeneration.loadAcquire() != generation)
+            {
+                m_precomputedInFlight.storeRelease(0);
+                return;
+            }
+
+            {
+                QMutexLocker pre(&m_precomputedMutex);
+                m_precomputedMap = std::move(localMap);
+                m_precomputedAlgoSize = captureAlgoSize;
+                m_precomputedStep = step;
+                m_precomputedColor = stepColor;
+                m_precomputedGeneration = generation;
+                m_precomputedAlgorithm = algo;
+            }
+            m_precomputedReady.storeRelease(1);
+            m_precomputedInFlight.storeRelease(0);
+        });
+
+    if (!ok)
+        m_precomputedInFlight.storeRelease(0);
+#else
+    Q_UNUSED(algo)
+    Q_UNUSED(algoSize)
+    Q_UNUSED(stepColor)
+    Q_UNUSED(step)
+    Q_UNUSED(generation)
+#endif
+}
+
+void RGBMatrix::rebuildPixelPlan(const FixtureGroup *grp)
+{
+    m_pixelPlan.clear();
+    m_pixelPlanGroup = grp;
+    m_pixelPlanDirty.storeRelease(0);
+
+    if (grp == NULL)
+        return;
+
+    Doc *d = doc();
+
+    QMapIterator<QLCPoint, GroupHead> it(grp->headsMap());
+    while (it.hasNext())
+    {
+        it.next();
+        const QLCPoint &pt = it.key();
+        const GroupHead &grpHead = it.value();
+
+        Fixture *fxi = d->fixture(grpHead.fxi);
+        if (fxi == NULL)
+            continue;
+
+        QLCFixtureHead head = fxi->head(grpHead.head);
+        const quint32 absAddress = fxi->universeAddress();
+        const quint32 fxID = grpHead.fxi;
+        const quint16 px = quint16(pt.x());
+        const quint16 py = quint16(pt.y());
+
+        auto addEntry = [&](quint32 ch, PixelValueSource src) {
+            if (ch == QLCChannel::invalid())
+                return;
+            PixelPlanEntry e;
+            e.x = px;
+            e.y = py;
+            e.universeIndex = quint32((absAddress + ch) / 512);
+            e.fixtureID = fxID;
+            e.channel = ch;
+            e.source = src;
+            m_pixelPlan.append(e);
+        };
+
+        if (m_controlMode == ControlModeRgb)
+        {
+            QVector<quint32> chList = head.rgbChannels();
+            if (chList.size() == 3)
+            {
+                addEntry(chList.at(0), VS_Red);
+                addEntry(chList.at(1), VS_Green);
+                addEntry(chList.at(2), VS_Blue);
+            }
+            else
+            {
+                chList = head.cmyChannels();
+                if (chList.size() == 3)
+                {
+                    addEntry(chList.at(0), VS_Cyan);
+                    addEntry(chList.at(1), VS_Magenta);
+                    addEntry(chList.at(2), VS_Yellow);
+                }
+            }
+        }
+        else if (m_controlMode == ControlModeRgbw || m_controlMode == ControlModeRgbwBrighter)
+        {
+            const bool subtractWhite = (m_controlMode == ControlModeRgbw);
+            quint32 rCh = head.channelNumber(QLCChannel::Red, QLCChannel::MSB);
+            quint32 gCh = head.channelNumber(QLCChannel::Green, QLCChannel::MSB);
+            quint32 bCh = head.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
+            quint32 wCh = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
+
+            if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
+            {
+                addEntry(rCh, subtractWhite ? VS_RedSubW : VS_Red);
+                addEntry(gCh, subtractWhite ? VS_GreenSubW : VS_Green);
+                addEntry(bCh, subtractWhite ? VS_BlueSubW : VS_Blue);
+
+                if (wCh != QLCChannel::invalid())
+                    addEntry(wCh, VS_White);
+
+                if (m_dimmerControl)
+                {
+                    quint32 masterDim = fxi->masterIntensityChannel();
+                    quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
+
+                    if (masterDim != QLCChannel::invalid())
+                        addEntry(masterDim, VS_Grey);
+
+                    if (headDim != QLCChannel::invalid() && headDim != masterDim)
+                        addEntry(headDim, VS_GreyOrFull);
+                }
+            }
+        }
+        else if (m_controlMode == ControlModeShutter)
+        {
+            QVector<quint32> chList = head.shutterChannels();
+            if (chList.size())
+                addEntry(chList.first(), VS_Grey);
+        }
+        else if (m_controlMode == ControlModeDimmer || m_dimmerControl)
+        {
+            quint32 masterDim = fxi->masterIntensityChannel();
+            quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
+
+            if (masterDim != QLCChannel::invalid())
+                addEntry(masterDim, VS_Grey);
+
+            if (headDim != QLCChannel::invalid() && headDim != masterDim)
+                addEntry(headDim, VS_GreyOrFull);
+        }
+        else
+        {
+            quint32 ch = QLCChannel::invalid();
+            if (m_controlMode == ControlModeWhite)
+                ch = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
+            else if (m_controlMode == ControlModeAmber)
+                ch = head.channelNumber(QLCChannel::Amber, QLCChannel::MSB);
+            else if (m_controlMode == ControlModeUV)
+                ch = head.channelNumber(QLCChannel::UV, QLCChannel::MSB);
+
+            addEntry(ch, VS_Grey);
+        }
+    }
+
+    // Sort by (universeIndex, y, x, channel) so the per-tick loop can amortize
+    // the getFader() lookup across consecutive entries from the same universe,
+    // and benefit from per-pixel scratch reuse within a universe.
+    std::sort(m_pixelPlan.begin(), m_pixelPlan.end(),
+              [](const PixelPlanEntry &a, const PixelPlanEntry &b) {
+                  if (a.universeIndex != b.universeIndex) return a.universeIndex < b.universeIndex;
+                  if (a.y != b.y) return a.y < b.y;
+                  if (a.x != b.x) return a.x < b.x;
+                  return a.channel < b.channel;
+              });
+}
+
 void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QList<Universe *> universes, int beatDuration)
 {
     uint fadeTime = (overrideFadeInSpeed() == defaultSpeed()) ? fadeInSpeed() : overrideFadeInSpeed();
@@ -970,175 +1331,96 @@ void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QL
         fadeOutTime = beatsToTime(fadeOutTime, beatDuration);
     }
 
-    // Create/modify fade channels for ALL heads in the group
-    QMapIterator<QLCPoint, GroupHead> it(grp->headsMap());
-    while (it.hasNext())
+    // Rebuild the pre-resolved channel plan whenever it has been invalidated
+    // (fixture group / control mode / dimmer control / fixture address change).
+    if (m_pixelPlanDirty.loadAcquire() || m_pixelPlanGroup != grp)
+        rebuildPixelPlan(grp);
+
+    if (m_pixelPlan.isEmpty())
+        return;
+
+    Doc *d = doc();
+    const int mapH = map.count();
+    const int universeCount = universes.size();
+
+    quint32 lastUni = UINT_MAX;
+    Universe *cachedUniverse = nullptr;
+    QSharedPointer<GenericFader> cachedFader;
+
+    quint16 lastX = 0xFFFF;
+    quint16 lastY = 0xFFFF;
+    bool pixelValid = false;
+    uchar r = 0, g = 0, b = 0, w = 0, grey = 0;
+    QColor cmyCol;
+
+    for (int i = 0, n = m_pixelPlan.size(); i < n; ++i)
     {
-        it.next();
-        QLCPoint pt = it.key();
-        GroupHead grpHead = it.value();
-        Fixture *fxi = doc()->fixture(grpHead.fxi);
-        if (fxi == NULL)
-            continue;
+        const PixelPlanEntry &e = m_pixelPlan.at(i);
 
-        QLCFixtureHead head = fxi->head(grpHead.head);
-
-        if (pt.y() >= map.count() || pt.x() >= map[pt.y()].count())
-            continue;
-
-        uint col = map[pt.y()][pt.x()];
-        QVector<quint32> channelList;
-        QVector<uchar> valueList;
-
-        if (m_controlMode == ControlModeRgb)
+        // Per-pixel scratch values. Recomputed only when (x, y) changes,
+        // which (after sorting) happens once per pixel within a universe.
+        if (e.x != lastX || e.y != lastY)
         {
-            channelList = head.rgbChannels();
-
-            if (channelList.size() == 3)
+            lastX = e.x;
+            lastY = e.y;
+            pixelValid = (int(e.y) < mapH && int(e.x) < map.at(e.y).count());
+            if (pixelValid)
             {
-                valueList.append(qRed(col));
-                valueList.append(qGreen(col));
-                valueList.append(qBlue(col));
+                uint col = map.at(e.y).at(e.x);
+                r = uchar(qRed(col));
+                g = uchar(qGreen(col));
+                b = uchar(qBlue(col));
+                w = qMin(r, qMin(g, b));
+                grey = rgbToGrey(col);
+                cmyCol = QColor::fromRgb(col);
+            }
+        }
+
+        if (!pixelValid)
+            continue;
+
+        // Universe / fader lookup is amortized across consecutive entries from
+        // the same universe thanks to the sort in rebuildPixelPlan().
+        if (e.universeIndex != lastUni)
+        {
+            lastUni = e.universeIndex;
+            if (int(e.universeIndex) >= universeCount)
+            {
+                cachedUniverse = nullptr;
+                cachedFader.clear();
             }
             else
             {
-                channelList = head.cmyChannels();
-
-                if (channelList.size() == 3)
-                {
-                    // CMY color mixing
-                    QColor cmyCol(col);
-                    valueList.append(cmyCol.cyan());
-                    valueList.append(cmyCol.magenta());
-                    valueList.append(cmyCol.yellow());
-                }
+                cachedUniverse = universes.at(e.universeIndex);
+                cachedFader = getFader(cachedUniverse);
             }
         }
-        else if (m_controlMode == ControlModeRgbw || m_controlMode == ControlModeRgbwBrighter)
+
+        if (cachedFader.isNull())
+            continue;
+
+        uchar value = 0;
+        switch (e.source)
         {
-            bool subtractWhite = (m_controlMode == ControlModeRgbw);
-            quint32 rCh = head.channelNumber(QLCChannel::Red, QLCChannel::MSB);
-            quint32 gCh = head.channelNumber(QLCChannel::Green, QLCChannel::MSB);
-            quint32 bCh = head.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
-            quint32 wCh = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
-
-            uchar r = uchar(qRed(col));
-            uchar g = uchar(qGreen(col));
-            uchar b = uchar(qBlue(col));
-            uchar w = wCh == QLCChannel::invalid() ? 0 : qMin(r, qMin(g, b));
-
-            if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
-            {
-                channelList.append(rCh);
-                valueList.append(subtractWhite ? uchar(r - w) : r);
-                channelList.append(gCh);
-                valueList.append(subtractWhite ? uchar(g - w) : g);
-                channelList.append(bCh);
-                valueList.append(subtractWhite ? uchar(b - w) : b);
-
-                if (wCh != QLCChannel::invalid())
-                {
-                    channelList.append(wCh);
-                    valueList.append(w);
-                }
-
-                if (m_dimmerControl)
-                {
-                    quint32 masterDim = fxi->masterIntensityChannel();
-                    quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
-
-                    if (masterDim != QLCChannel::invalid())
-                    {
-                        channelList.append(masterDim);
-                        valueList.append(rgbToGrey(col));
-                    }
-
-                    if (headDim != QLCChannel::invalid() && headDim != masterDim)
-                    {
-                        channelList.append(headDim);
-                        valueList.append(rgbToGrey(col) == 0 ? 0 : 255);
-                    }
-                }
-            }
-        }
-        else if (m_controlMode == ControlModeShutter)
-        {
-            channelList = head.shutterChannels();
-
-            if (channelList.size())
-            {
-                // make sure only one channel is in the list
-                channelList.resize(1);
-                valueList.append(rgbToGrey(col));
-            }
-        }
-        else if (m_controlMode == ControlModeDimmer || m_dimmerControl)
-        {
-            // Collect all dimmers that affect current head:
-            // They are the master dimmer (affects whole fixture)
-            // and per-head dimmer.
-            //
-            // If there are no RGB or CMY channels, the least important* dimmer channel
-            // is used to create grayscale image.
-            //
-            // The rest of the dimmer channels are set to full if dimmer control is
-            // enabled and target color is > 0 (see
-            // https://www.qlcplus.org/forum/viewtopic.php?f=29&t=11090)
-            //
-            // Note: If there is only one head, and only one dimmer channel,
-            // make it a master dimmer in fixture definition.
-            //
-            // *least important - per head dimmer if present,
-            // otherwise per fixture dimmer if present
-
-            quint32 masterDim = fxi->masterIntensityChannel();
-            quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
-
-            if (masterDim != QLCChannel::invalid())
-            {
-                channelList.append(masterDim);
-                valueList.append(rgbToGrey(col));
-            }
-
-            if (headDim != QLCChannel::invalid() && headDim != masterDim)
-            {
-                channelList.append(headDim);
-                valueList.append(rgbToGrey(col) == 0 ? 0 : 255);
-            }
-        }
-        else
-        {
-            if (m_controlMode == ControlModeWhite)
-                channelList.append(head.channelNumber(QLCChannel::White, QLCChannel::MSB));
-            else if (m_controlMode == ControlModeAmber)
-                channelList.append(head.channelNumber(QLCChannel::Amber, QLCChannel::MSB));
-            else if (m_controlMode == ControlModeUV)
-                channelList.append(head.channelNumber(QLCChannel::UV, QLCChannel::MSB));
-
-            valueList.append(rgbToGrey(col));
+            case VS_Red:        value = r; break;
+            case VS_Green:      value = g; break;
+            case VS_Blue:       value = b; break;
+            case VS_Cyan:       value = uchar(cmyCol.cyan()); break;
+            case VS_Magenta:    value = uchar(cmyCol.magenta()); break;
+            case VS_Yellow:     value = uchar(cmyCol.yellow()); break;
+            case VS_White:      value = w; break;
+            case VS_RedSubW:    value = uchar(r - w); break;
+            case VS_GreenSubW:  value = uchar(g - w); break;
+            case VS_BlueSubW:   value = uchar(b - w); break;
+            case VS_Grey:       value = grey; break;
+            case VS_GreyOrFull: value = grey == 0 ? 0 : 255; break;
         }
 
-        quint32 absAddress = fxi->universeAddress();
-
-        for (int i = 0; i < channelList.count(); i++)
+        cachedFader->updateChannel(d, cachedUniverse, e.fixtureID, e.channel,
+            [this, value, fadeTime, fadeOutTime](FadeChannel &fc)
         {
-            if (channelList.at(i) == QLCChannel::invalid())
-                continue;
-
-            quint32 universeIndex = floor((absAddress + channelList.at(i)) / 512);
-            Universe *universe = universes.at(universeIndex);
-            QSharedPointer<GenericFader> fader = getFader(universe);
-            if (fader.isNull())
-                continue;
-
-            const quint32 fixtureID = grpHead.fxi;
-            const quint32 channel = channelList.at(i);
-            const uchar value = valueList.at(i);
-            fader->updateChannel(doc(), universe, fixtureID, channel, [this, value, fadeTime, fadeOutTime](FadeChannel &fc)
-            {
-                updateFaderValues(fc, value, fadeTime, fadeOutTime);
-            });
-        }
+            updateFaderValues(fc, value, fadeTime, fadeOutTime);
+        });
     }
 }
 
@@ -1266,6 +1548,13 @@ RGBMatrix::ControlMode RGBMatrix::controlMode() const
 void RGBMatrix::setControlMode(RGBMatrix::ControlMode mode)
 {
     m_controlMode = mode;
+    m_pixelPlanDirty.storeRelease(1);
+    // Phase 4: control mode affects how rgbMap output is interpreted, but
+    // not the rgbMap output itself. Bump generation defensively to avoid any
+    // edge case where the script could observe controlMode (it currently
+    // doesn't, but better safe than sorry).
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
     emit changed(id());
 }
 
@@ -1335,6 +1624,8 @@ int RGBMatrix::rotation() const
 void RGBMatrix::setRotation(int r)
 {
     m_rotation = r & 3;
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
     emit changed(id());
 }
 
@@ -1346,6 +1637,8 @@ int RGBMatrix::mirror() const
 void RGBMatrix::setMirror(int m)
 {
     m_mirror = m & 3;
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
     emit changed(id());
 }
 
@@ -1359,6 +1652,8 @@ void RGBMatrix::setMirrorBlend(MirrorBlend b)
     if (b < MirrorFlip || b > MirrorAdditive)
         b = MirrorFlip;
     m_mirrorBlend = b;
+    m_currentGeneration.fetchAndAddRelaxed(1);
+    m_precomputedReady.storeRelease(0);
     emit changed(id());
 }
 

@@ -38,15 +38,14 @@ var testAlgo;
           * @return A two-dimensional array[height][width].
           */
         algo.rgbMap = function (width, height, rgb, step) {
-            var map = new Array(height);
+            var map = new Uint32Array(width * height);
             for (var y = 0; y < height; y++) {
-                map[y] = [];
                 var index = Math.floor(Math.random() * (width));
                 for (var x = 0; x < width; x++) {
                     if (x === index) {
-                        map[y][x] = rgb;
+                        map[(y) * width + (x)] = rgb;
                     } else {
-                        map[y][x] = 0;
+                        map[(y) * width + (x)] = 0;
                     }
                 }
             }

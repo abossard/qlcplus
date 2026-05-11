@@ -124,7 +124,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return gradientStops().slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
         if (lastWidth !== width) {
             scanPos = 0.0;
@@ -197,7 +197,7 @@ var testAlgo;
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
-                map[y][x] = RGBUtil.rgb(strip[x][0], strip[x][1], strip[x][2]);
+                map[(y) * width + (x)] = RGBUtil.rgb(strip[x][0], strip[x][1], strip[x][2]);
         return map;
     };
 

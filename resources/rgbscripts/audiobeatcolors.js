@@ -148,7 +148,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         var packed = packedBeatColors();
         var beat = beatIndexFor(audio, step);
         var beatMask = [algo.presetBeat1, algo.presetBeat2, algo.presetBeat3, algo.presetBeat4];
@@ -191,7 +191,7 @@ var testAlgo;
                     color = currentColor;
                 }
 
-                map[y][x] = RGBUtil.rgb(
+                map[(y) * width + (x)] = RGBUtil.rgb(
                     color[0] * brightness,
                     color[1] * brightness,
                     color[2] * brightness);

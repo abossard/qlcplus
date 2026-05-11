@@ -78,7 +78,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        // Phase 3 fast path: return a flat Uint32Array. The C++ engine
+        // detects this via BYTES_PER_ELEMENT and copies the raw ArrayBuffer
+        // instead of walking a nested QVariantList.
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -109,6 +112,7 @@ var testAlgo;
 
         for (var iy = 0; iy < height; iy++) {
             var y = iy * yStep;
+            var rowOffset = iy * width;
             for (var ix = 0; ix < width; ix++) {
                 var x = ix * xStep;
 
@@ -120,7 +124,7 @@ var testAlgo;
                 var t = (v1 + v2 + v3 + 3) / 6.0;
                 if (t < 0) t = 0; else if (t > 1) t = 1;
 
-                map[iy][ix] = RGBUtil.gradientColorAt(gradient, t);
+                map[rowOffset + ix] = RGBUtil.gradientColorAt(gradient, t);
             }
         }
 

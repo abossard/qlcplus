@@ -48,7 +48,7 @@ var testAlgo;
       if (factor < 0) {
         factor = 0;
       }
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var bellAlgo = new Object;
@@ -96,7 +96,7 @@ var testAlgo;
       }
 
       // add the object color to the algo.mapped location
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     };
 
     var candleAlgo = new Object;
@@ -150,7 +150,7 @@ var testAlgo;
       }
 
       // add the object color to the algo.mapped location
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var circleAlgo = new Object;
@@ -166,7 +166,7 @@ var testAlgo;
       // circle
       var factor = util.blindoutPercent(1 - distPercent, 0.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var diamondAlgo = new Object;
@@ -184,7 +184,7 @@ var testAlgo;
               + Math.sqrt(percentY * percentY / saturation);
       factor = 1 - Math.max(0, Math.min(1, factor));
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var diskAlgo = new Object;
@@ -215,7 +215,7 @@ var testAlgo;
       distPercent = distance / (algo.presetRadius * inner);
       factor -= util.blindoutPercent(1 - distPercent, 0.3);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var eyeAlgo = new Object;
@@ -257,7 +257,7 @@ var testAlgo;
       distPercent = distance / (eyeAlgo.cache.targetDistanceInner);
       factor += util.blindoutPercent(1 - distPercent, 0.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var flowerAlgo = new Object;
@@ -304,7 +304,7 @@ var testAlgo;
       // Draw a center
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentInner, 3));
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var heartAlgo = new Object;
@@ -350,7 +350,7 @@ var testAlgo;
       distPercent = distance / targetDistance;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercent, 2));
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var hexagonAlgo = new Object;
@@ -367,7 +367,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var maskAlgo = new Object;
@@ -408,7 +408,7 @@ var testAlgo;
       distPercent = distance / maskAlgo.cache.targetDistanceOpening;
       factor -= util.blindoutPercent(1 - distPercent, 3);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var pentagonAlgo = new Object;
@@ -425,7 +425,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var ringAlgo = new Object;
@@ -447,7 +447,7 @@ var testAlgo;
       distPercent = distance / (algo.presetRadius * inner);
       factor -= util.blindoutPercent(1 - distPercent, 0.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var snowflakeAlgo = new Object;
@@ -523,7 +523,7 @@ var testAlgo;
       c = c / cWidth;
       factor = Math.max(factor, 1 - (a * a) + 1 - (c * c) - 1);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var snowmanAlgo = new Object;
@@ -565,7 +565,7 @@ var testAlgo;
       var factor = Math.max(factor1, factor2);
       factor = Math.max(factor, factor3);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var squareAlgo = new Object;
@@ -586,7 +586,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 2.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var starAlgo = new Object;
@@ -648,7 +648,7 @@ var testAlgo;
         factor = factor * util.blindoutPercent(1 - distPercent, starAlgo.cache.sharpness);
       }
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var steeringwheelAlgo = new Object;
@@ -703,7 +703,7 @@ var testAlgo;
       // Draw a center
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var tornadoAlgo = new Object;
@@ -754,7 +754,7 @@ var testAlgo;
       var distPercentCenter = distance / tornadoAlgo.cache.centerCircle;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var treeAlgo = new Object;
@@ -805,7 +805,7 @@ var testAlgo;
       }
     
       // add the object color to the algo.mapped location
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
     treeAlgo.unused = function(i, rx, ry, r, g, b)
     {
@@ -827,7 +827,7 @@ var testAlgo;
       factor = factor / 3.27;
  
       // add the object color to the algo.mapped location
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     };
 
     var triangleAlgo = new Object;
@@ -848,7 +848,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 3);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var ufoAlgo = new Object;
@@ -881,7 +881,7 @@ var testAlgo;
         factor = 1;
       }
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     var ventilatorAlgo = new Object;
@@ -928,7 +928,7 @@ var testAlgo;
       
       factor = Math.max(factorC, factor * 1.5);
 
-      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[(ry) * algo.mapWidth + (rx)]);
     }
 
     // Algorithm registration and methods ------------------------
@@ -1248,14 +1248,10 @@ var testAlgo;
       }
       algo.progstep = progstep;
 
-      // Clear algo.map data
-      algo.map = new Array(height);
-      for (var y = 0; y < height; y++) {
-        algo.map[y] = new Array();
-        for (var x = 0; x < width; x++) {
-          algo.map[y][x] = 0;
-        }
-      }
+      // Clear algo.map data (flat Uint32Array, row-major)
+      algo.map = new Uint32Array(width * height);
+      algo.mapWidth = width;
+      algo.mapHeight = height;
 
       var shape = shapes.getAlgoObject(algo.selectedAlgo);
       // for each object displayed
@@ -1279,10 +1275,10 @@ var testAlgo;
             // Draw only if edges are on the map
             if (rx < width && rx > -1 && ry < height && ry > -1) {
               // DEVELOPMENT: Draw a box for debugging.
-              //algo.map[ry][rx] = util.getColor(0, 0, 80, algo.map[ry][rx]);
+              //algo.map[(ry) * algo.mapWidth + (rx)] = util.getColor(0, 0, 80, algo.map[(ry) * algo.mapWidth + (rx)]);
 
               // add the object color to the mapped location
-              algo.map[ry][rx] = shape.getMapPixelColor(i, rx, ry, r, g, b);
+              algo.map[(ry) * algo.mapWidth + (rx)] = shape.getMapPixelColor(i, rx, ry, r, g, b);
             }
           }
         }

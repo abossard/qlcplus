@@ -77,7 +77,7 @@ var testAlgo;
     {
       var pixelCount = width * height;
       ensureState(pixelCount);
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       if (!audio) return map;
 
       // y = unfiltered channel (same source — QLC+ has one melbank flavor)
@@ -94,7 +94,7 @@ var testAlgo;
         channels[mix[2]] = filt[i] * 255.0;
         var x = i % width;
         var row = Math.floor(i / width);
-        map[row][x] = RGBUtil.rgb(channels[0], channels[1], channels[2]);
+        map[(row) * width + (x)] = RGBUtil.rgb(channels[0], channels[1], channels[2]);
       }
 
       prevY = nextPrev;

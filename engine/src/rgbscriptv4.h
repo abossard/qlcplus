@@ -23,6 +23,7 @@
 #include <QHash>
 #include <QJSValue>
 #include <QMutex>
+#include <functional>
 
 #include "rgbalgorithm.h"
 #include "rgbscriptproperty.h"
@@ -69,6 +70,16 @@ public:
 
     /** Evaluate the script's contents and see if it checks out */
     bool evaluate();
+
+    /** Phase 4: Schedule a callable to run on the shared JS thread.
+     *  Used to dispatch async rgbMap pre-computations without blocking the
+     *  MasterTimer thread, and to safely defer deletion of script-typed
+     *  algorithms after any in-flight tasks have drained (FIFO).
+     *
+     *  Returns false if the JS thread is not running (caller should fall
+     *  back to a synchronous path). Safe to call from any thread.
+     */
+    static bool scheduleOnJSThread(std::function<void()> fn);
 
 private:
     static void initEngine();

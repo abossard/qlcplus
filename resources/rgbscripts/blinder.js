@@ -118,11 +118,10 @@ var testAlgo;
       }
 
       // Clear map data
-      var map = new Array(height);
+      var map = new Uint32Array(width * height);
       for (var y = 0; y < height; y++) {
-        map[y] = new Array();
         for (var x = 0; x < width; x++) {
-          map[y][x] = 0;
+          map[(y) * width + (x)] = 0;
         }
       }
 
@@ -148,7 +147,7 @@ var testAlgo;
             // Draw only if edges are on the map
             if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
               // Draw the box for debugging.
-              //map[ry][rx] = getColor(40, 40, 40, map[ry][rx]);
+              //map[(ry) * width + (rx)] = getColor(40, 40, 40, map[(ry) * width + (rx)]);
 
               // calculate the offset difference of map location to the float
               // location of the tree
@@ -184,7 +183,7 @@ var testAlgo;
                 var pointb = b * factor;
   
                 // add the bulb color to the mapped location
-                map[ry][rx] = getColor(pointr, pointg, pointb, map[ry][rx]);
+                map[(ry) * width + (rx)] = getColor(pointr, pointg, pointb, map[(ry) * width + (rx)]);
               }
             }
           }
@@ -193,10 +192,10 @@ var testAlgo;
       // Apply the backgruond color.
       for (var ry = 0; ry < height; ry++) {
         for (var rx = 0; rx < width; rx++) {
-          r = Math.max(bgPointr, (map[ry][rx] >> 16) & 0x00FF);
-          g = Math.max(bgPointg, (map[ry][rx] >> 8) & 0x00FF);
-          b = Math.max(bgPointb, map[ry][rx] & 0x00FF);
-          map[ry][rx] = getColor(r, g, b, 0);
+          r = Math.max(bgPointr, (map[(ry) * width + (rx)] >> 16) & 0x00FF);
+          g = Math.max(bgPointg, (map[(ry) * width + (rx)] >> 8) & 0x00FF);
+          b = Math.max(bgPointb, map[(ry) * width + (rx)] & 0x00FF);
+          map[(ry) * width + (rx)] = getColor(r, g, b, 0);
         }
       }
 

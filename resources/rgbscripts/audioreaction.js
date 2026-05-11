@@ -226,14 +226,14 @@ var testAlgo;
         ? audio.colors.gradient : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 
-      var map = RGBUtil.createMap(width, height);
+      var map = RGBUtil.createFlatMap(width, height);
       var Vfinal = algo.V;
       for (var ry = 0; ry < H; ry++) {
         for (var rx = 0; rx < W; rx++) {
           var t = Vfinal[ry * W + rx] * gain;
           if (t < 0) t = 0; else if (t > 1) t = 1;
           var c = RGBUtil.gradientColorAt(gradient, t);
-          map[ry][rx] = c;
+          map[(ry) * width + (rx)] = c;
         }
       }
       return map;

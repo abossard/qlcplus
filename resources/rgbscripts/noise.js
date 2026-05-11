@@ -45,11 +45,10 @@ var testAlgo;
         // QLC+ rgbMap function where the work is done
         algo.rgbMap = function (width, height, rgb, step)
         {
-            var map = new Array(height);
+            var map = new Uint32Array(width * height);
 
             for (var y = 0; y < height; y++)
             {
-                map[y] = [];
 
                 for (var x = 0; x < width; x++)
                 {
@@ -93,10 +92,10 @@ var testAlgo;
                     dCounter += 1;              // counter for noise trigger
                     if (dCounter >= vDiv) {     // compare counter to user noise amount selection value
                         dCounter = 0;           // clear the counter
-                        map[y][x] = cColor;     // set pixel to color created above
+                        map[(y) * width + (x)] = cColor;     // set pixel to color created above
                     }
                     else {
-                        map[y][x] = 0;          // otherwise, clear it
+                        map[(y) * width + (x)] = 0;          // otherwise, clear it
                     }
                 }
             }

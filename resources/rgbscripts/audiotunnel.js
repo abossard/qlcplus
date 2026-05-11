@@ -67,7 +67,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = RGBUtil.createFlatMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -111,7 +111,7 @@ var testAlgo;
                 var floored = baseBright;
                 var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
 
-                map[y][x] = RGBUtil.rgb(
+                map[(y) * width + (x)] = RGBUtil.rgb(
                     blended[0] * bright,
                     blended[1] * bright,
                     blended[2] * bright);

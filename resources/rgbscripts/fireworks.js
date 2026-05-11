@@ -133,15 +133,16 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, progstep)
     {
       if (algo.initialized === false ||
-          util.map.length != height ||
-          util.map[0].length != width) {
+          util.mapWidth != width ||
+          util.mapHeight != height) {
         util.initialize(width, height);
       }
 
       // Dim current map data
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x ++) {
-          util.map[y][x] = util.dimColor(util.map[y][x], 0.8);
+          var idx = y * width + x;
+          util.map[idx] = util.dimColor(util.map[idx], 0.8);
         }
       }
 
@@ -275,14 +276,15 @@ var testAlgo;
           // Draw only if edges are on the map
           if (rx < w && rx > -1 && ry < h && ry > -1) {
             // Draw the box for debugging.
-            //util.map[ry][rx] = util.getColor(45, 45, 45, 0);
+            //util.map[ry * w + rx] = util.getColor(45, 45, 45, 0);
             var offx = rx - x;
             var offy = ry - y;
             var hyp = Math.max(0, 1 - Math.abs(Math.sqrt( (offx * offx) + (offy * offy))));
             var pointr = Math.round(r * hyp);
             var pointg = Math.round(g * hyp);
             var pointb = Math.round(b * hyp);
-            util.map[ry][rx] = util.getColor(pointr, pointg, pointb, util.map[ry][rx]);
+            var idx = ry * w + rx;
+            util.map[idx] = util.getColor(pointr, pointg, pointb, util.map[idx]);
           }
         }
       }
@@ -344,14 +346,10 @@ var testAlgo;
         algo.rockets[i].initialized = false;
       }
 
-      // Clear map data
-      util.map = new Array(height);
-      for (var y = 0; y < height; y++) {
-        util.map[y] = new Array();
-        for (var x = 0; x < width; x++) {
-          util.map[y][x] = 0;
-        }
-      }
+      // Clear map data (flat Uint32Array, row-major)
+      util.map = new Uint32Array(width * height);
+      util.mapWidth = width;
+      util.mapHeight = height;
 
       for (var i = 0; i < algo.rocketsCount; i++) {
         algo.rockets[i] = {
