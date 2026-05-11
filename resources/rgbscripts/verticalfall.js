@@ -33,21 +33,15 @@ var testAlgo;
         util.initialized = false;
         util.width = 0;
         util.height = 0;
-        util.color = 0xFF0000;
+        util.color = {h: 0, s: 0, v: 0};
 
         var fallObject = new Array();
         var objYPos = new Array();
-        var objmap = new Array();
+        var objmap;
 
-        util.initialize = function(rgb, width, height)
+        util.initialize = function(width, height)
         {
-            var r = (rgb >> 16) & 0x00FF;
-            var g = (rgb >> 8) & 0x00FF;
-            var b = rgb & 0x00FF;
-
-            var rStep = (r / height);
-            var gStep = (g / height);
-            var bStep = (b / height);
+            var ch = algo.color.h, cs = algo.color.s, cv = algo.color.v;
 
             objYPos = new Array(width);
             for (var i = 0; i < width; i++) {
@@ -55,19 +49,17 @@ var testAlgo;
             }
 
             fallObject = new Array(height);
-            fallObject[0] = rgb;
-            fallObject[height - 1] = 0;
+            fallObject[0] = {h: ch, s: cs, v: cv};
+            fallObject[height - 1] = {h: 0, s: 0, v: 0};
             for (var f = 1; f < height - 1; f++)
             {
-                var stepRGB = (rStep * (height - f - 1)) << 16;
-                stepRGB += (gStep * (height - f - 1)) << 8;
-                stepRGB += (bStep * (height - f - 1));
-                fallObject[f] = stepRGB;
+                var factor = (height - f - 1) / height;
+                fallObject[f] = {h: ch, s: cs, v: cv * factor};
             }
 
-            objmap = new Uint32Array(width * height);
+            objmap = RGBUtil.createMap(width, height);
 
-            util.color = rgb;
+            util.color = {h: ch, s: cs, v: cv};
             util.width = width;
             util.height = height;
             util.initialized = true;
@@ -94,7 +86,11 @@ var testAlgo;
                     {
                         if (yPos < height)
                         {
-                            objmap[yPos * util.width + x] = fallObject[i];
+                            var fo = fallObject[i];
+                            var i3 = (yPos * util.width + x) * 3;
+                            objmap[i3] = fo.h;
+                            objmap[i3 + 1] = fo.s;
+                            objmap[i3 + 2] = fo.v;
                         }
                         yPos--;
                         if (yPos === -1) { break; }
@@ -111,9 +107,10 @@ var testAlgo;
 
         algo.rgbMap = function(width, height, rgb, step)
         {
-            if (util.initialized === false || util.color !== rgb ||
+            if (util.initialized === false ||
+                    util.color.h !== algo.color.h || util.color.s !== algo.color.s || util.color.v !== algo.color.v ||
                     util.width != width || util.height != height) {
-                util.initialize(rgb, width, height);
+                util.initialize(width, height);
             }
 
             return util.getNextStep(width, height);

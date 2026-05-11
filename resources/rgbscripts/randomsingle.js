@@ -63,16 +63,12 @@ var testAlgo;
          */
         util.createStep = function(width, height, sy, sx)
         {
-            var map = new Uint32Array(width * height);
+            var map = new Array(width * height);
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
-                    if (sy === y && sx === x) {
-                        map[(y) * width + (x)] = 1;
-                    } else {
-                        map[(y) * width + (x)] = 0;
-                    }
+                    map[y * width + x] = (sy === y && sx === x) ? 1 : 0;
                 }
             }
 
@@ -80,19 +76,18 @@ var testAlgo;
         };
 
         /**
-         * Create map with the real rgb value (because it now changes at each step)
+         * Create map with HSV color where mask is active
          */
-        util.createStepRgb = function(width, height, step, rgb)
+        util.createStepHsv = function(width, height, step)
         {
-            var map = new Uint32Array(width * height);
+            var map = RGBUtil.createMap(width, height);
+            var h = algo.color.h, s = algo.color.s, v = algo.color.v;
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
                     if (step[y * width + x] !== 0) {
-                        map[(y) * width + (x)] = rgb;
-                    } else {
-                        map[(y) * width + (x)] = 0;
+                        RGBUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
             }
@@ -141,7 +136,7 @@ var testAlgo;
 
             // refresh with real color
 
-            return util.createStepRgb(width, height, algo.steps[step], rgb);
+            return util.createStepHsv(width, height, algo.steps[step]);
         };
 
         /**

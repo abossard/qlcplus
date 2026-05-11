@@ -44,7 +44,7 @@ var testAlgo;
 
         util.createStep = function(length, si, lastStep)
         {
-            var map = new Uint32Array(width * height);
+            var map = new Array(length);
             for (var i = 0; i < length; i++)
             {
                 if (si === i) {
@@ -59,17 +59,16 @@ var testAlgo;
             return map;
         };
 
-        util.createStepRgb = function(width, height, step, rgb)
+        util.createStepHsv = function(width, height, step)
         {
-            var map = new Uint32Array(width * height);
+            var map = RGBUtil.createMap(width, height);
+            var h = algo.color.h, s = algo.color.s, v = algo.color.v;
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
                     if (step[x] !== 0) {
-                        map[(y) * width + (x)] = rgb;
-                    } else {
-                        map[(y) * width + (x)] = 0;
+                        RGBUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
             }
@@ -100,7 +99,7 @@ var testAlgo;
                 algo.height = height;
             }
 
-            return util.createStepRgb(width, height, algo.steps[step], rgb);
+            return util.createStepHsv(width, height, algo.steps[step]);
         };
 
         algo.rgbMapStepCount = function(width, height)

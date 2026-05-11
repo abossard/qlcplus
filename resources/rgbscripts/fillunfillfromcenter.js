@@ -61,7 +61,8 @@ var testAlgo;
         }
         var centerStep = center + 1;
 
-        var map = new Uint32Array(width * height);
+        var map = RGBUtil.createMap(width, height);
+        var h = algo.color.h, s = algo.color.s, v = algo.color.v;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -73,18 +74,14 @@ var testAlgo;
                 if (step < centerStep)
                 {
                     if (cmpAxis <= center + step + (isEven ? 1 : 0 ) && cmpAxis >= center - step) {
-                        map[(y) * width + (x)] = rgb;
-                    } else {
-                        map[(y) * width + (x)] = 0;
+                        RGBUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
                 else
                 {
                     var step2 = step - centerStep;
-                    if (cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2) {
-                        map[(y) * width + (x)] = 0;
-                    } else {
-                        map[(y) * width + (x)] = rgb;
+                    if (!(cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2)) {
+                        RGBUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
             }

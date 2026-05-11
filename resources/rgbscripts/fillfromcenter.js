@@ -55,7 +55,8 @@ var testAlgo;
             isEven = (height % 2 === 0);
         }
 
-        var map = new Uint32Array(width * height);
+        var map = RGBUtil.createMap(width, height);
+        var h = algo.color.h, s = algo.color.s, v = algo.color.v;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -75,9 +76,7 @@ var testAlgo;
                 }
 
                 if(fill === 1) {
-                    map[(y) * width + (x)] = rgb;
-                } else {
-                    map[(y) * width + (x)] = 0;
+                    RGBUtil.setPixel(map, width, x, y, h, s, v);
                 }
             }
         }

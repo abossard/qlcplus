@@ -46,7 +46,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = new Uint32Array(width * height);
+      var map = RGBUtil.createMap(width, height);
+      var h = algo.color.h, s = algo.color.s, v = algo.color.v;
       for (var y = 0; y < height; y++)
       {
         for (var x = 0; x < width; x++)
@@ -56,17 +57,13 @@ var testAlgo;
             if ((x % 2) === 0)
             {
               if (y === step) {
-                map[(y) * width + (x)] = rgb;
-              } else {
-                map[(y) * width + (x)] = 0;
+                RGBUtil.setPixel(map, width, x, y, h, s, v);
               }
             }
             else
             {
               if (y === ((height - 1) - step)) {
-                map[(y) * width + (x)] = rgb;
-              } else {
-                map[(y) * width + (x)] = 0;
+                RGBUtil.setPixel(map, width, x, y, h, s, v);
               }
             }
           }
@@ -75,17 +72,13 @@ var testAlgo;
             if ((y % 2) === 0)
             {
               if (x === step) {
-                map[(y) * width + (x)] = rgb;
-              } else {
-                map[(y) * width + (x)] = 0;
+                RGBUtil.setPixel(map, width, x, y, h, s, v);
               }
             }
             else
             {
               if (x === ((width - 1) - step)) {
-                map[(y) * width + (x)] = rgb;
-              } else {
-                map[(y) * width + (x)] = 0;
+                RGBUtil.setPixel(map, width, x, y, h, s, v);
               }
             }
           }

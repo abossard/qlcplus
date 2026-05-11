@@ -44,9 +44,8 @@ var testAlgo;
   util.initialized = false;
   util.width = 0;
   util.height = 0;
-  util.featureColor = 0;
+  util.featureColor = {h: 0, s: 0, v: 0};
   util.step = algo.marqueeCount;
-  util.colorArray = new Array(algo.acceptColors);
 
   util.lights = new Array();
   util.feature = new Array();
@@ -94,32 +93,14 @@ var testAlgo;
     return algo.marqueeCount;
   };
 
-  util.getRawColor = function (idx) {
-    var color = 0;
-    if (Array.isArray(util.colorArray) && util.colorArray.length > idx && util.colorArray[idx]) {
-      color = util.colorArray[idx];
-    }
-    return color;
-  }
-
-  algo.rgbMapSetColors = function(rawColors)
-  {
-    if (! Array.isArray(rawColors))
-      return;
-    for (var i = 0; i < algo.acceptColors; i++) {
-      if (i < rawColors.length)
-      {
-        util.colorArray[i] = rawColors[i];
-      } else {
-        util.colorArray[i] = 0;
-      }
-    }
-  }
+  algo.rgbMapSetColors = function(rawColors) { };
+  algo.rgbMapGetColors = function() { return []; };
 
 
   util.initialize = function (width, height) {
     // initialize feature
-    util.featureColor = util.getRawColor(0);
+    var fc = algo.gradientColors && algo.gradientColors.length > 0 ? algo.gradientColors[0] : algo.color;
+    util.featureColor = {h: fc.h, s: fc.s, v: fc.v};
     util.feature = new Array();
     var maxDistance = Math.min(width, height) / 2;
     for (var y = 0; y < height; y++) {
@@ -130,9 +111,8 @@ var testAlgo;
       }
 
       for (var x = 0; x < width; x++) {
-        // write color
         var distance = algo.edgeDepth + 1;
-        util.feature[y][x] = 0;
+        util.feature[y][x] = {h: 0, s: 0, v: 0};
 
         var x_distance = x;
         if (x >= width / 2) {
@@ -141,16 +121,13 @@ var testAlgo;
 
         distance = Math.min(x_distance, y_distance);
         if (distance <= algo.edgeDepth && distance <= maxDistance) {
-          var percent = ((algo.edgeDepth - distance) / algo.edgeDepth) * 100;
-          util.feature[y][x] = util.fadeColor(util.featureColor, percent);
-        } else {
-          util.feature[y][x] = 0;
+          var percent = ((algo.edgeDepth - distance) / algo.edgeDepth);
+          util.feature[y][x] = {h: util.featureColor.h, s: util.featureColor.s, v: util.featureColor.v * percent};
         }
       }
     }
 
     // initialize lights array: 2 heights, 2 widths, 4 duplicate corner pixels
-    // only if the dimensions have changes (not on color change)
     if (util.width != width || util.height != height || util.initialized !== true) {
       var length = height * 2 + width * 2 - 4;
       util.lights = new Array(length);
@@ -164,30 +141,21 @@ var testAlgo;
         }
       }
     }
-    // for testing for change
     util.width = width;
     util.height = height;
     util.initialized = true;
   };
 
-  util.fadeColor = function (rgb, percent) {
-    var r = (rgb >> 16) & 0x00ff;
-    var g = (rgb >> 8) & 0x00ff;
-    var b = rgb & 0x00ff;
-    var newR = Math.round(r * (percent / 100));
-    var newG = Math.round(g * (percent / 100));
-    var newB = Math.round(b * (percent / 100));
-    var newRGB = (newR << 16) + (newG << 8) + newB;
-    return newRGB;
-  };
-
   util.getNextStep = function (width, height) {
     var x = 0;
     var y = 0;
-    var map = new Uint32Array(width * height);
+    var map = RGBUtil.createMap(width, height);
     for (y = 0; y <= height - 1; y++) {
       for (x = 0; x <= width - 1; x++) {
-        map[(y) * width + (x)] = util.feature[y][x];
+        var c = util.feature[y][x];
+        if (c.v > 0) {
+          RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v);
+        }
       }
     }
 
@@ -202,13 +170,13 @@ var testAlgo;
     }
 
     // create light map add lights, go around the outside
-    var marqueeColor = util.getRawColor(1);
+    var mc = algo.gradientColors && algo.gradientColors.length > 1 ? algo.gradientColors[1] : algo.color;
     var p = 0;
     // left
     for (y = 0; y < height; y++) {
       x = 0;
       if (util.lights[p] === 1) {
-        map[(y) * width + (x)] = marqueeColor;
+        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -216,7 +184,7 @@ var testAlgo;
     for (x = 1; x < width; x++) {
       y = height - 1;
       if (util.lights[p] === 1) {
-        map[(y) * width + (x)] = marqueeColor;
+        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -224,7 +192,7 @@ var testAlgo;
     for (y = height - 2; y >= 0; y--) {
       x = width - 1;
       if (util.lights[p] === 1) {
-        map[(y) * width + (x)] = marqueeColor;
+        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -232,7 +200,7 @@ var testAlgo;
     for (x = width - 2; x >= 0; x--) {
       y = 0;
       if (util.lights[p] === 1) {
-        map[(y) * width + (x)] = marqueeColor;
+        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -240,9 +208,12 @@ var testAlgo;
   };
 
   algo.rgbMap = function(width, height, rgb, step) {
+    var fc = algo.gradientColors && algo.gradientColors.length > 0 ? algo.gradientColors[0] : algo.color;
     if (
       util.initialized === false ||
-      util.featureColor != util.getRawColor(0) ||
+      util.featureColor.h !== fc.h ||
+      util.featureColor.s !== fc.s ||
+      util.featureColor.v !== fc.v ||
       util.width !== width ||
       util.height !== height
     ) {

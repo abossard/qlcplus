@@ -33,18 +33,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-        var map = new Uint32Array(width * height);
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                map[(y) * width + (x)] = 0;
-            }
-        }
-
+        var map = RGBUtil.createMap(width, height);
         var xx = step % width;
         var yy = (step - xx) / width;
-        map[(yy) * width + (xx)] = rgb;
+        RGBUtil.setPixel(map, width, xx, yy, algo.color.h, algo.color.s, algo.color.v);
 
         return map;
     };
