@@ -257,7 +257,8 @@ VCWidgetItem
                     id: powerSection
                     Layout.fillWidth: true
                     Layout.preferredHeight: 64
-                    Layout.minimumHeight: 0
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 32
 
                     // Per-band colors. Warm → cool across the spectrum.
                     readonly property color colorBeat:  "#DC143C"  // crimson — sub-bass / kick (0-100 Hz)

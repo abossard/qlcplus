@@ -732,9 +732,19 @@ void RGBScript::rgbMapSetColors(const QVector<uint> &colors)
     int accColors = acceptColors();
     int rawColorCount = colors.count();
 
-    QJSValue jsRawColors = s_jsThread->engine->newArray(accColors);
+    // HSV-only contract: scripts receive an array of {h,s,v} objects, never
+    // packed RGB integers. Convert each stop here.
+    QJSEngine *engine = s_jsThread->engine;
+    QJSValue jsRawColors = engine->newArray(accColors);
     for (int i = 0; i < rawColorCount && i < accColors; i++)
-        jsRawColors.setProperty(i, QJSValue(colors.at(i)));
+    {
+        HsvColor hsv = rgbToHsv(colors.at(i) & 0xFFFFFFu);
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
+        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
+        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
+        jsRawColors.setProperty(i, obj);
+    }
 
     QJSValueList args;
     args << jsRawColors;
@@ -794,7 +804,16 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     }
 
     QJSValueList args;
-    args << size.width() << size.height() << rgb << step;
+    // 3rd argument is the primary color as {h,s,v} (HSV-only contract).
+    // Same value as algo.color set by injectGradientArrays(); kept positional
+    // so the rgbMap(width, height, color, step[, audio]) signature is stable.
+    QJSEngine *engine = s_jsThread->engine;
+    HsvColor primary = rgbToHsv(rgb & 0xFFFFFFu);
+    QJSValue colorArg = engine->newObject();
+    colorArg.setProperty(QStringLiteral("h"), QJSValue(double(primary.h)));
+    colorArg.setProperty(QStringLiteral("s"), QJSValue(double(primary.s)));
+    colorArg.setProperty(QStringLiteral("v"), QJSValue(double(primary.v)));
+    args << size.width() << size.height() << colorArg << step;
 
     if (m_usesAudio)
         args << buildAudioDataObject();
