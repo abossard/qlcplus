@@ -234,7 +234,7 @@ Rectangle
             from: 0
             to: 255
             stepSize: 1
-            wheelEnabled: true
+            wheelEnabled: false
             value: currentWAUV.r * 255
             onMoved: toolColorChanged(currentRGB.r, currentRGB.g, currentRGB.b,
                                   valueAt(position) / 255, currentWAUV.g, currentWAUV.b)
@@ -268,7 +268,7 @@ Rectangle
             from: 0
             to: 255
             stepSize: 1
-            wheelEnabled: true
+            wheelEnabled: false
             value: currentWAUV.g * 255
             onMoved: toolColorChanged(currentRGB.r, currentRGB.g, currentRGB.b,
                                   currentWAUV.r, valueAt(position) / 255, currentWAUV.b)
@@ -302,7 +302,7 @@ Rectangle
             from: 0
             to: 255
             stepSize: 1
-            wheelEnabled: true
+            wheelEnabled: false
             value: currentWAUV.b * 255
             onMoved: toolColorChanged(currentRGB.r, currentRGB.g, currentRGB.b,
                                   currentWAUV.r, currentWAUV.g, valueAt(position) / 255)

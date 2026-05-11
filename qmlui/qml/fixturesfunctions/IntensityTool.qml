@@ -203,7 +203,7 @@ Rectangle
                 stepSize: 1.0
                 background: Rectangle { color: "transparent" }
                 handle: Rectangle { color: "transparent" }
-                wheelEnabled: true
+                wheelEnabled: false
                 value: currentValue
 
                 onPositionChanged: currentValue = valueAt(position)

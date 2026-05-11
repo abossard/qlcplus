@@ -42,7 +42,7 @@ ComboBox
 
     textRole: "mLabel"
     valueRole: "mValue"
-    wheelEnabled: true
+    wheelEnabled: false
     currentIndex: 0
 
     property string currentIcon

@@ -34,7 +34,7 @@ SpinBox
     from: 0
     to: 255
     clip: true
-    wheelEnabled: true
+    wheelEnabled: false
 
     property bool showControls: true
     property string suffix: ""

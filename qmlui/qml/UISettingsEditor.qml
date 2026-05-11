@@ -189,7 +189,7 @@ Rectangle
                 from: 0.3
                 to: 2
                 value: UISettings.scalingFactor
-                wheelEnabled: true
+                wheelEnabled: false
                 onMoved: uiManager.setModified("scalingFactor", value)
             }
 
