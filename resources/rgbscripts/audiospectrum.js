@@ -43,6 +43,13 @@ var testAlgo;
       [2, 0, 1],
       [2, 1, 0]
     ];
+    algo.presetDecay = 0.05;
+    algo.properties.push(
+      "name:decay|type:float|display:Decay|" +
+      "write:setDecay|read:getDecay");
+    algo.setDecay = function(_v) { algo.presetDecay = Math.max(0, parseFloat(_v)); };
+    algo.getDecay = function() { return algo.presetDecay; };
+
     var prevY = null;
     var bFilter = null;
     var lastPixelCount = -1;
@@ -80,8 +87,9 @@ var testAlgo;
       var map = RGBUtil.createFlatMap(width, height);
       if (!audio) return map;
 
-      // y = unfiltered channel (same source — QLC+ has one melbank flavor)
-      var y = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
+      // Use audio.power.bands (dynamically sized frequency array from audio profile)
+      // instead of broken audio.spectrum.full (which comes from non-functional RGBAudio C++ class)
+      var y = RGBUtil.interpolate((audio.power && audio.power.bands) || [], pixelCount);
       var filtered = y.slice();
       var filt = updateFilter(y);
       var mix = rgbMixes[algo.presetRgbMix];

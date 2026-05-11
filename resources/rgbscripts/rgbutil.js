@@ -230,10 +230,12 @@ RGBUtil.hsvToRgb = function(h, s, v) {
 };
 
 /**
- * Pre-built 256-entry rainbow gradient LUT. Each entry is [r, g, b] in 0-255.
+ * Pre-built 256-entry rainbow gradient LUT as a flat Uint8ClampedArray(768).
+ * Layout: [r0, g0, b0, r1, g1, b1, ...]. Access: lut[idx*3], lut[idx*3+1], lut[idx*3+2].
+ * Eliminates per-lookup [r,g,b] tuple allocation that triggers QV4 number→string conversion.
  */
 RGBUtil.RAINBOW_LUT = (function() {
-    var lut = new Array(256);
+    var lut = new Uint8Array(256 * 3);
     for (var i = 0; i < 256; i++) {
         var h = i / 256;
         var sector = Math.floor(h * 6);
@@ -247,7 +249,10 @@ RGBUtil.RAINBOW_LUT = (function() {
             case 4: r=f*255; g=0; b=255; break;
             case 5: r=255; g=0; b=(1-f)*255; break;
         }
-        lut[i] = [r, g, b];
+        var i3 = i * 3;
+        lut[i3]     = Math.round(r);
+        lut[i3 + 1] = Math.round(g);
+        lut[i3 + 2] = Math.round(b);
     }
     return lut;
 })();
@@ -261,8 +266,8 @@ RGBUtil.RAINBOW_LUT = (function() {
  */
 RGBUtil.hsvLedFx = function(h, s, v) {
     var idx = Math.floor(((h % 1 + 1) % 1) * 255.999);
-    var c = RGBUtil.RAINBOW_LUT[idx];
-    var r = c[0], g = c[1], b = c[2];
+    var i3 = idx * 3;
+    var r = RGBUtil.RAINBOW_LUT[i3], g = RGBUtil.RAINBOW_LUT[i3 + 1], b = RGBUtil.RAINBOW_LUT[i3 + 2];
     var m = Math.max(r, g, b);
     var oneMinusS = 1 - s;
     r = (r + (m - r) * oneMinusS) * v / 255;

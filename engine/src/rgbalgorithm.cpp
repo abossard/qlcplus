@@ -25,7 +25,6 @@
 
 #include "rgbscriptscache.h"
 #include "rgbalgorithm.h"
-#include "rgbaudio.h"
 #include "rgbimage.h"
 #include "rgbplain.h"
 #include "rgbtext.h"
@@ -72,11 +71,9 @@ QStringList RGBAlgorithm::algorithms(Doc * doc)
     RGBPlain plain(doc);
     RGBText text(doc);
     RGBImage image(doc);
-    RGBAudio audio(doc);
     list << plain.name();
     list << text.name();
     list << image.name();
-    list << audio.name();
     list << doc->rgbScriptsCache()->names();
     return list;
 }
@@ -85,14 +82,11 @@ RGBAlgorithm* RGBAlgorithm::algorithm(Doc * doc, const QString& name)
 {
     RGBText text(doc);
     RGBImage image(doc);
-    RGBAudio audio(doc);
     RGBPlain plain(doc);
     if (name == text.name())
         return text.clone();
     else if (name == image.name())
         return image.clone();
-    else if (name == audio.name())
-        return audio.clone();
     else if (name == plain.name())
         return plain.clone();
     else
@@ -125,12 +119,6 @@ RGBAlgorithm* RGBAlgorithm::loader(Doc * doc, QXmlStreamReader &root)
         RGBText text(doc);
         if (text.loadXML(root) == true)
             algo = text.clone();
-    }
-    else if (type == KXMLQLCRGBAudio)
-    {
-        RGBAudio audio(doc);
-        if (audio.loadXML(root) == true)
-            algo = audio.clone();
     }
     else if (type == KXMLQLCRGBScript)
     {

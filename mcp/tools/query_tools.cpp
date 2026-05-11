@@ -32,7 +32,6 @@
 #include "rgbscriptv4.h"
 #include "rgbtext.h"
 #include "rgbimage.h"
-#include "rgbaudio.h"
 #include "fixturegroup.h"
 #include "inputoutputmap.h"
 #include "inputpatch.h"

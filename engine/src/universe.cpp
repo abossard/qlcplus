@@ -378,10 +378,6 @@ void Universe::run()
             //qWarning() << "Semaphore not acquired on universe" << id();
             continue;
         }
-#if 0
-        if (m_faders.count())
-            qDebug() << "<<<<<<<< UNIVERSE TICK - id" << id() << "faders:" << m_faders.count();
-#endif
         const qint64 elapsedNs = elapsedTimer.nsecsElapsed();
         elapsedTimer.restart();
         uint elapsedMs = uint((elapsedNs + 500000) / 1000000);
