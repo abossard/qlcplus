@@ -163,6 +163,24 @@ FadeChannel &GenericFader::channelFaderLocked(const Doc *doc, Universe *universe
 {
     const quint32 requestedHash = channelHash(fixtureID, channel);
 
+    // Fast path: when handleSecondary is off (RGBMatrix, most callers),
+    // skip the template cache entirely — one direct hash lookup.
+    if (!handleSecondary())
+    {
+        auto it = m_channels.find(requestedHash);
+        if (it != m_channels.end())
+            return it.value();
+
+        // Cold insert: construct FadeChannel, insert, return reference
+        FadeChannel fc(doc, fixtureID, channel);
+        if (universe)
+            fc.setCurrent(universe->preGMValue(fc.address()));
+        it = m_channels.insert(requestedHash, fc);
+        return it.value();
+    }
+
+    // Secondary-channel path (Scene/EFX with 16-bit channels):
+    // uses template cache to resolve primary↔secondary mapping.
     QSharedPointer<FadeChannel> channelTemplate = m_channelCache.value(requestedHash);
     if (channelTemplate.isNull())
     {
@@ -171,7 +189,7 @@ FadeChannel &GenericFader::channelFaderLocked(const Doc *doc, Universe *universe
     }
 
     const quint32 primary = channelTemplate->primaryChannel();
-    const quint32 hash = (handleSecondary() && primary != QLCChannel::invalid())
+    const quint32 hash = (primary != QLCChannel::invalid())
                          ? channelHash(channelTemplate->fixture(), primary)
                          : channelHash(channelTemplate->fixture(), channelTemplate->channel());
 
@@ -179,8 +197,7 @@ FadeChannel &GenericFader::channelFaderLocked(const Doc *doc, Universe *universe
     if (channelIterator != m_channels.end())
     {
         FadeChannel &fc = channelIterator.value();
-        if (handleSecondary() &&
-            fc.channelCount() == 1 &&
+        if (fc.channelCount() == 1 &&
             primary != QLCChannel::invalid() &&
             channel != primary)
         {
@@ -192,7 +209,7 @@ FadeChannel &GenericFader::channelFaderLocked(const Doc *doc, Universe *universe
     }
 
     FadeChannel fc;
-    if (handleSecondary() && primary != QLCChannel::invalid() && channel != primary)
+    if (primary != QLCChannel::invalid() && channel != primary)
     {
         const quint32 primaryRequestHash = channelHash(fixtureID, primary);
         QSharedPointer<FadeChannel> primaryTemplate = m_channelCache.value(primaryRequestHash);

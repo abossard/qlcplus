@@ -40,10 +40,14 @@ var testAlgo;
     util.initialized = false;
     util.gradientData = new Array();
     util.presets = new Array();
-    util.presets.push(new Array(0xFF0000, 0x00FF00, 0x0000FF));
-    util.presets.push(new Array(0xFFFF00, 0xFF0000));
-    util.presets.push(new Array(0x5571FF, 0x00FFFF, 0xFF00FF, 0xFFFF00));
-    util.presets.push(new Array(0x003AB9, 0x02EAFF));
+    // Rainbow: Red -> Green -> Blue
+    util.presets.push([{h: 0, s: 1, v: 1}, {h: 0.3333, s: 1, v: 1}, {h: 0.6667, s: 1, v: 1}]);
+    // Sunset: Yellow -> Red
+    util.presets.push([{h: 0.1667, s: 1, v: 1}, {h: 0, s: 1, v: 1}]);
+    // Abstract: Blue-ish -> Cyan -> Magenta -> Yellow
+    util.presets.push([{h: 0.639, s: 0.667, v: 1}, {h: 0.5, s: 1, v: 1}, {h: 0.8333, s: 1, v: 1}, {h: 0.1667, s: 1, v: 1}]);
+    // Ocean: Deep Blue -> Cyan
+    util.presets.push([{h: 0.614, s: 1, v: 0.725}, {h: 0.514, s: 0.992, v: 1}]);
 
     algo.setPreset = function(_preset)
     {
@@ -90,38 +94,37 @@ var testAlgo;
       else { return "Horizontal"; }
     };
 
+    // Shortest-arc hue interpolation
+    function lerpHue(h1, h2, t) {
+      var diff = h2 - h1;
+      if (diff > 0.5) { diff -= 1; }
+      else if (diff < -0.5) { diff += 1; }
+      var h = h1 + diff * t;
+      if (h < 0) { h += 1; }
+      else if (h >= 1) { h -= 1; }
+      return h;
+    }
+
     util.initialize = function()
     {
-      // calculate the gradient for the selected preset
-      // with the given width
       var gradIdx = 0;
       util.gradientData = new Array();
-      for (var i = 0; i < util.presets[algo.presetIndex].length; i++)
+      var preset = util.presets[algo.presetIndex];
+      for (var i = 0; i < preset.length; i++)
       {
-        var sColor = util.presets[algo.presetIndex][i];
-        var eColor = util.presets[algo.presetIndex][i + 1];
-        if (eColor == undefined) {
-          eColor = util.presets[algo.presetIndex][0];
-        }
-        util.gradientData[gradIdx++] = sColor;
-        var sr = (sColor >> 16) & 0x00FF;
-        var sg = (sColor >> 8) & 0x00FF;
-        var sb = sColor & 0x00FF;
-        var er = (eColor >> 16) & 0x00FF;
-        var eg = (eColor >> 8) & 0x00FF;
-        var eb = eColor & 0x00FF;
+        var sColor = preset[i];
+        var eColor = preset[(i + 1) % preset.length];
 
-        var stepR = ((er - sr) / (algo.presetSize));
-        var stepG = ((eg - sg) / (algo.presetSize));
-        var stepB = ((eb - sb) / (algo.presetSize));
+        util.gradientData[gradIdx++] = {h: sColor.h, s: sColor.s, v: sColor.v};
 
         for (var s = 1; s < algo.presetSize; s++)
         {
-          var gradR = Math.floor(sr + (stepR * s)) & 0x00FF;
-          var gradG = Math.floor(sg + (stepG * s)) & 0x00FF;
-          var gradB = Math.floor(sb + (stepB * s)) & 0x00FF;
-          var gradRGB = (gradR << 16) + (gradG << 8) + gradB;
-          util.gradientData[gradIdx++] = gradRGB;
+          var t = s / algo.presetSize;
+          util.gradientData[gradIdx++] = {
+            h: lerpHue(sColor.h, eColor.h, t),
+            s: sColor.s + (eColor.s - sColor.s) * t,
+            v: sColor.v + (eColor.v - sColor.v) * t
+          };
         }
       }
       util.initialized = true;
@@ -135,7 +138,7 @@ var testAlgo;
       }
 
       var gradStep = 0;
-      var map = new Uint32Array(width * height);
+      var map = RGBUtil.createMap(width, height);
       for (var y = 0; y < height; y++)
       {
 
@@ -159,7 +162,9 @@ var testAlgo;
               gradStep = (gradStep % util.gradientData.length);
             }
 
-            map[(y) * width + (x)] = util.gradientData[gradStep];
+            var color = util.gradientData[gradStep];
+            var i = (y * width + x) * 3;
+            map[i] = color.h; map[i + 1] = color.s; map[i + 2] = color.v;
           }
       }
 

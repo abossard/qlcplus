@@ -54,27 +54,6 @@ var testAlgo;
       return algo.divisor;
     };
 
-    // Combine RGB color from color channels
-    function mergeRgb(r, g, b) {
-      r = Math.min(255, Math.round(r));
-      g = Math.min(255, Math.round(g));
-      b = Math.min(255, Math.round(b));
-      return ((r << 16) + (g << 8) + b);
-    }
-    
-    function getColor(r, g, b, mRgb) {
-      // split rgb in to components
-      var pointr = (mRgb >> 16) & 0x00FF;
-      var pointg = (mRgb >> 8) & 0x00FF;
-      var pointb = mRgb & 0x00FF;
-      // add the color to the mapped location
-      pointr += r;
-      pointg += g;
-      pointb += b;
-      // set mapped point
-      return mergeRgb(pointr, pointg, pointb);
-    }
-
     util.initialize = function(width, height)
     {
       algo.width = width;
@@ -95,7 +74,6 @@ var testAlgo;
       for (var w = 0; w < algo.numX; w++) {
         for (var h = 0; h < algo.numY; h++) {
           algo.bulb[count] = {
-            // width / algo.numX * w + width / algo.numX / 2
             x: (2 * w + 1 ) * width / 2 / algo.numX - 0.5,
             y: (2 * h + 1 ) * height / 2 / algo.numY - 0.5,
           };
@@ -117,27 +95,17 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      // Clear map data
-      var map = new Uint32Array(width * height);
-      for (var y = 0; y < height; y++) {
-        for (var x = 0; x < width; x++) {
-          map[(y) * width + (x)] = 0;
-        }
-      }
+      var map = RGBUtil.createMap(width, height);
 
-      var r = (rgb >> 16) & 0x00FF;
-      var g = (rgb >> 8) & 0x00FF;
-      var b = rgb & 0x00FF;
+      var baseH = algo.color.h;
+      var baseS = algo.color.s;
+      var baseV = algo.color.v;
       
       var stepPercent =  progstep / (algo.rgbMapStepCount(width, height) - 1);
 
       var bgPower = Math.pow(stepPercent + 0.1, 2);
       var bgFactor = Math.min(1, bgPower);
-
-      // Calculate color pixel related to their positions
-      var bgPointr = r * bgFactor;
-      var bgPointg = g * bgFactor;
-      var bgPointb = b * bgFactor;
+      var bgV = baseV * bgFactor;
 
       // for each bulb displayed
       for (var i = 0; i < algo.bulb.length; i++) {
@@ -146,20 +114,8 @@ var testAlgo;
           for (var rx = algo.bulb[i].xMin; rx <= algo.bulb[i].xMax; rx++) {
             // Draw only if edges are on the map
             if (rx >= 0 && rx < width && ry >= 0 && ry < height) {
-              // Draw the box for debugging.
-              //map[(ry) * width + (rx)] = getColor(40, 40, 40, map[(ry) * width + (rx)]);
-
-              // calculate the offset difference of map location to the float
-              // location of the tree
               var offx = Math.abs((rx - algo.bulb[i].x) / (algo.size / 2));
               var offy = Math.abs((ry - algo.bulb[i].y) / (algo.size / 2));
-
-              // Try at: www.geogebra.org/3d
-              // f(x,y) = 4 sin(π/2 * sqrt(1 - x^2 - y^2)) 
-              //        + 6 cos(π/2 * sqrt(1 - x^2 - y^2)) 
-              //        - sqrt((4 * x)^2 + (4 * y)^2)
-              //        - 3
-              // + relative step
 
               var s = 1 - offx * offx - offy * offy;
               if (s > 0) {
@@ -177,25 +133,32 @@ var testAlgo;
                   factor = 0;
                 }
 
-                // Calculate color pixel related to their positions
-                var pointr = r * factor;
-                var pointg = g * factor;
-                var pointb = b * factor;
-  
-                // add the bulb color to the mapped location
-                map[(ry) * width + (rx)] = getColor(pointr, pointg, pointb, map[(ry) * width + (rx)]);
+                // Additive blend on V channel
+                var idx = (ry * width + rx) * 3;
+                var newV = baseV * Math.max(0, factor);
+                if (newV > 0) {
+                  var existV = map[idx + 2];
+                  if (existV <= 0) {
+                    map[idx] = baseH;
+                    map[idx + 1] = baseS;
+                  }
+                  map[idx + 2] = Math.min(1, existV + newV);
+                }
               }
             }
           }
         }
       }
-      // Apply the backgruond color.
+      // Apply background: take max of background V and existing V
       for (var ry = 0; ry < height; ry++) {
         for (var rx = 0; rx < width; rx++) {
-          r = Math.max(bgPointr, (map[(ry) * width + (rx)] >> 16) & 0x00FF);
-          g = Math.max(bgPointg, (map[(ry) * width + (rx)] >> 8) & 0x00FF);
-          b = Math.max(bgPointb, map[(ry) * width + (rx)] & 0x00FF);
-          map[(ry) * width + (rx)] = getColor(r, g, b, 0);
+          var idx = (ry * width + rx) * 3;
+          var existV = map[idx + 2];
+          if (bgV > existV) {
+            map[idx] = baseH;
+            map[idx + 1] = baseS;
+            map[idx + 2] = bgV;
+          }
         }
       }
 

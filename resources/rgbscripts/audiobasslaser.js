@@ -55,8 +55,9 @@ var testAlgo;
     algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10, 6); };
     algo.getSpeed = function() { return algo.presetSpeed; };
 
-    var beamColor = [255, 255, 255];
-    var trailColor = [32, 128, 255];
+    // Colors stored as HSV
+    var beamColor = { h: 0, s: 0, v: 1.0 };        // white
+    var trailColor = { h: 0.611, s: 0.875, v: 1.0 }; // blue (32, 128, 255)
 
     algo.beams = [];
     var lastWidth = 0;
@@ -65,9 +66,9 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) {
         if (rawColors && rawColors.length >= 1)
-            beamColor = unpackColor(rawColors[0]);
+            beamColor = rawColors[0];
         if (rawColors && rawColors.length >= 2)
-            trailColor = unpackColor(rawColors[1]);
+            trailColor = rawColors[1];
     };
     algo.rgbMapGetColors = function() { return []; };
 
@@ -77,34 +78,44 @@ var testAlgo;
         return Math.max(minValue, Math.min(maxValue, parsed));
     }
 
-    function unpackColor(color) {
-        return [(color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF];
+    // Lerp hue along the shortest arc on the hue circle
+    function lerpHue(h1, h2, t) {
+        var d = h2 - h1;
+        if (d > 0.5) d -= 1.0;
+        else if (d < -0.5) d += 1.0;
+        var h = h1 + d * t;
+        return h < 0 ? h + 1.0 : (h >= 1.0 ? h - 1.0 : h);
     }
 
-    function additive(existing, newColor) {
-        var er = (existing >> 16) & 0xFF;
-        var eg = (existing >> 8) & 0xFF;
-        var eb = existing & 0xFF;
-        var nr = (newColor >> 16) & 0xFF;
-        var ng = (newColor >> 8) & 0xFF;
-        var nb = newColor & 0xFF;
-        return RGBUtil.rgb(Math.min(255, er + nr), Math.min(255, eg + ng), Math.min(255, eb + nb));
-    }
-
+    // Returns {h, s, v} interpolated between beamColor and trailColor,
+    // scaled by brightness.
     function colorAtTrail(t, brightness) {
         var mix = t / Math.max(1, algo.presetTrailLength);
-        var inv = 1.0 - mix;
-        return RGBUtil.rgb(
-            (beamColor[0] * inv + trailColor[0] * mix) * brightness,
-            (beamColor[1] * inv + trailColor[1] * mix) * brightness,
-            (beamColor[2] * inv + trailColor[2] * mix) * brightness);
+        return {
+            h: lerpHue(beamColor.h, trailColor.h, mix),
+            s: beamColor.s * (1.0 - mix) + trailColor.s * mix,
+            v: (beamColor.v * (1.0 - mix) + trailColor.v * mix) * brightness
+        };
     }
 
+    // Additive blend: keep hue of brighter contributor, accumulate brightness
     function addPixel(map, width, height, x, y, color) {
         x = Math.round(x);
         y = Math.round(y);
         if (x < 0 || x >= width || y < 0 || y >= height) return;
-        map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
+        var idx = (y * width + x) * 3;
+        var ev = map[idx + 2];
+        if (ev <= 0) {
+            map[idx] = color.h;
+            map[idx + 1] = color.s;
+            map[idx + 2] = Math.min(1, color.v);
+        } else {
+            if (color.v > ev) {
+                map[idx] = color.h;
+                map[idx + 1] = color.s;
+            }
+            map[idx + 2] = Math.min(1, ev + color.v);
+        }
     }
 
     function chooseDirection() {
@@ -161,18 +172,19 @@ var testAlgo;
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
             var twinkle = ambient * (0.4 + Math.random() * 0.6);
-            var color = RGBUtil.rgb(trailColor[0] * twinkle, trailColor[1] * twinkle, trailColor[2] * twinkle);
-            map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
+            addPixel(map, width, height, x, y, {
+                h: trailColor.h,
+                s: trailColor.s,
+                v: trailColor.v * twinkle
+            });
         }
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        // Beam positions are pixel-absolute; flush them on dimension change
-        // to avoid stranded beams off the new grid.
         if (width !== lastWidth || height !== lastHeight) {
             algo.beams = [];
             lastWidth = width;
@@ -205,7 +217,7 @@ var testAlgo;
                     continue;
 
                 var fall = 1.0 - t / algo.presetTrailLength;
-                fall = Math.sqrt(fall);  // sqrt falloff = fatter brighter trail
+                fall = Math.sqrt(fall);
                 var bri = fall * glowMul * Math.max(0, beam.life / beam.maxLife);
                 var pixel = colorAtTrail(t, bri);
                 var halo = colorAtTrail(t, bri * 0.5);

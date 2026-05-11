@@ -443,6 +443,199 @@ Rectangle
                     onCurrentIndexChanged: rgbMatrixEditor.beatOrientation = currentIndex
                 }
 
+                // Audio Routing — only visible when current algorithm declares usesAudio
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: low")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingLow
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingLow = currentIndex
+                }
+
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: mid")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingMid
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingMid = currentIndex
+                }
+
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: high")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingHigh
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingHigh = currentIndex
+                }
+
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: beat")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingBeat
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingBeat = currentIndex
+                }
+
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: kick")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingKick
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingKick = currentIndex
+                }
+
+                RobotoText
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    label: qsTr("Audio: onset")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomComboBox
+                {
+                    visible: rgbMatrixEditor.algorithmUsesAudio
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    model: [
+                        { mLabel: qsTr("Default") },
+                        { mLabel: qsTr("Zero") },
+                        { mLabel: qsTr("Low") },
+                        { mLabel: qsTr("Mid") },
+                        { mLabel: qsTr("High") },
+                        { mLabel: qsTr("Beat") },
+                        { mLabel: qsTr("Kick") },
+                        { mLabel: qsTr("Onset") },
+                        { mLabel: qsTr("Volume") }
+                    ]
+                    currentIndex: rgbMatrixEditor.audioRoutingOnset
+                    onCurrentIndexChanged: rgbMatrixEditor.audioRoutingOnset = currentIndex
+                }
+
                 // row 6: dynamic color pickers (one per algoColorsCount)
                 RobotoText
                 {

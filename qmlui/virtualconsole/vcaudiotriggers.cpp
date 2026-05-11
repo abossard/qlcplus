@@ -570,8 +570,14 @@ double VCAudioTriggers::melCommonDecay() const { return profileChannelConfig().m
 double VCAudioTriggers::melCommonRise() const { return profileChannelConfig().melPost.commonRise; }
 double VCAudioTriggers::melDiffDecay() const { return profileChannelConfig().melPost.diffDecay; }
 double VCAudioTriggers::melDiffRise() const { return profileChannelConfig().melPost.diffRise; }
-double VCAudioTriggers::freqPowerDecay() const { return profileChannelConfig().freqPowerDecay; }
-double VCAudioTriggers::freqPowerRise() const { return profileChannelConfig().freqPowerRise; }
+double VCAudioTriggers::freqPowerBeatDecay() const { return profileChannelConfig().freqPower.beat.decay; }
+double VCAudioTriggers::freqPowerBeatRise()  const { return profileChannelConfig().freqPower.beat.rise; }
+double VCAudioTriggers::freqPowerBassDecay() const { return profileChannelConfig().freqPower.bass.decay; }
+double VCAudioTriggers::freqPowerBassRise()  const { return profileChannelConfig().freqPower.bass.rise; }
+double VCAudioTriggers::freqPowerMidsDecay() const { return profileChannelConfig().freqPower.mids.decay; }
+double VCAudioTriggers::freqPowerMidsRise()  const { return profileChannelConfig().freqPower.mids.rise; }
+double VCAudioTriggers::freqPowerHighDecay() const { return profileChannelConfig().freqPower.high.decay; }
+double VCAudioTriggers::freqPowerHighRise()  const { return profileChannelConfig().freqPower.high.rise; }
 
 void VCAudioTriggers::setMelPostEnabled(bool enabled)
 {
@@ -636,17 +642,59 @@ void VCAudioTriggers::setMelDiffRise(double value)
     applyChannelConfig(config);
 }
 
-void VCAudioTriggers::setFreqPowerDecay(double value)
+void VCAudioTriggers::setFreqPowerBeatDecay(double value)
 {
     AudioChannelConfig config = profileChannelConfig();
-    config.freqPowerDecay = qBound(0.001, value, 1.0);
+    config.freqPower.beat.decay = qBound(0.001, value, 1.0);
     applyChannelConfig(config);
 }
 
-void VCAudioTriggers::setFreqPowerRise(double value)
+void VCAudioTriggers::setFreqPowerBeatRise(double value)
 {
     AudioChannelConfig config = profileChannelConfig();
-    config.freqPowerRise = qBound(0.001, value, 1.0);
+    config.freqPower.beat.rise = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerBassDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.bass.decay = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerBassRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.bass.rise = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerMidsDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.mids.decay = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerMidsRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.mids.rise = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerHighDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.high.decay = qBound(0.001, value, 1.0);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setFreqPowerHighRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.high.rise = qBound(0.001, value, 1.0);
     applyChannelConfig(config);
 }
 
@@ -691,37 +739,121 @@ void VCAudioTriggers::setMelBankHigh(double minHz, double maxHz, int bands)
     applyChannelConfig(config);
 }
 
+// Per-bank AGC (LedFx melbank.py:375 mel_gain alpha_decay/alpha_rise). Marks
+// the preset as "Custom" so per-bank tuning isn't lost on re-apply.
+namespace
+{
+    void applyAgcEdit(AudioChannelConfig &config, double *field, double value)
+    {
+        *field = qBound(0.001, value, 1.0);
+        config.aubio.melBanks.preset = QStringLiteral("Custom");
+    }
+}
+
+void VCAudioTriggers::setMelLowAgcDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.low.post.agcDecay, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelLowAgcRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.low.post.agcRise, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelMidAgcDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.mid.post.agcDecay, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelMidAgcRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.mid.post.agcRise, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelHighAgcDecay(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.high.post.agcDecay, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setMelHighAgcRise(double value)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    applyAgcEdit(config, &config.aubio.melBanks.high.post.agcRise, value);
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setOnsetMethodIndex(int idx)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    const int clamped = std::clamp(idx, 0, AUBIO_ONSET_METHODS - 1);
+    if (config.aubio.onsetMethodIndex == clamped)
+        return;
+    config.aubio.onsetMethodIndex = clamped;
+    applyChannelConfig(config);
+}
+
 void VCAudioTriggers::applyMelBankPreset(const QString &preset)
 {
     AudioChannelConfig config = profileChannelConfig();
     const QString key = preset.trimmed().toLower();
 
+    // LedFx-tuned default per-bank MelPostConfig: matches melbank.py:374-378
+    // exactly. Presets below override only the fields they want personality
+    // for (e.g. Speech wants snappier smoothing on the high bank for
+    // consonant clarity).
+    auto edmPost = []() {
+        MelPostConfig p; // defaults already match LedFx
+        return p;
+    };
+
     if (key == QLatin1String("edm"))
     {
-        config.aubio.melBanks.low  = { 20.0,    350.0, 24 };
-        config.aubio.melBanks.mid  = { 20.0,   2000.0, 24 };
-        config.aubio.melBanks.high = { 20.0,  15000.0, 24 };
+        config.aubio.melBanks.low  = { 20.0,    350.0, 24, edmPost() };
+        config.aubio.melBanks.mid  = { 20.0,   2000.0, 24, edmPost() };
+        config.aubio.melBanks.high = { 20.0,  15000.0, 24, edmPost() };
         config.aubio.melBanks.preset = QStringLiteral("EDM");
     }
     else if (key == QLatin1String("live"))
     {
-        config.aubio.melBanks.low  = { 20.0,    500.0, 24 };
-        config.aubio.melBanks.mid  = { 80.0,   4000.0, 24 };
-        config.aubio.melBanks.high = { 500.0, 16000.0, 24 };
+        // Live: faster diff (more reactive novelty for sudden hits) on low/mid.
+        MelPostConfig liveLow = edmPost(); liveLow.diffRise = 0.99; liveLow.diffDecay = 0.10;
+        MelPostConfig liveMid = edmPost(); liveMid.smoothDecay = 0.6;
+        MelPostConfig liveHi  = edmPost();
+        config.aubio.melBanks.low  = { 20.0,    500.0, 24, liveLow };
+        config.aubio.melBanks.mid  = { 80.0,   4000.0, 24, liveMid };
+        config.aubio.melBanks.high = { 500.0, 16000.0, 24, liveHi };
         config.aubio.melBanks.preset = QStringLiteral("Live");
     }
     else if (key == QLatin1String("acoustic"))
     {
-        config.aubio.melBanks.low  = { 40.0,    300.0, 16 };
-        config.aubio.melBanks.mid  = { 100.0,  3000.0, 16 };
-        config.aubio.melBanks.high = { 1000.0,12000.0, 16 };
+        // Acoustic: gentler power factor (less peak isolation) for natural envelopes.
+        MelPostConfig acoustic = edmPost();
+        acoustic.powerFactor = 1.5;
+        acoustic.smoothDecay = 0.5;
+        config.aubio.melBanks.low  = { 40.0,    300.0, 16, acoustic };
+        config.aubio.melBanks.mid  = { 100.0,  3000.0, 16, acoustic };
+        config.aubio.melBanks.high = { 1000.0,12000.0, 16, acoustic };
         config.aubio.melBanks.preset = QStringLiteral("Acoustic");
     }
     else if (key == QLatin1String("speech"))
     {
-        config.aubio.melBanks.low  = { 80.0,    500.0, 16 };
-        config.aubio.melBanks.mid  = { 200.0,  4000.0, 16 };
-        config.aubio.melBanks.high = { 2000.0, 8000.0, 16 };
+        // Speech: snappy smoothing on mids/high so consonants pop.
+        MelPostConfig speechLow = edmPost();
+        MelPostConfig speechMid = edmPost(); speechMid.smoothDecay = 0.4;
+        MelPostConfig speechHi  = edmPost(); speechHi.smoothDecay = 0.3; speechHi.diffRise = 0.99;
+        config.aubio.melBanks.low  = { 80.0,    500.0, 16, speechLow };
+        config.aubio.melBanks.mid  = { 200.0,  4000.0, 16, speechMid };
+        config.aubio.melBanks.high = { 2000.0, 8000.0, 16, speechHi };
         config.aubio.melBanks.preset = QStringLiteral("Speech");
     }
     else if (key == QLatin1String("custom"))
@@ -918,6 +1050,15 @@ double VCAudioTriggers::melHighMinHz() const { return profileChannelConfig().aub
 double VCAudioTriggers::melHighMaxHz() const { return profileChannelConfig().aubio.melBanks.high.maxHz; }
 int    VCAudioTriggers::melHighBands() const { return profileChannelConfig().aubio.melBanks.high.bands; }
 
+double VCAudioTriggers::melLowAgcDecay()  const { return profileChannelConfig().aubio.melBanks.low.post.agcDecay; }
+double VCAudioTriggers::melLowAgcRise()   const { return profileChannelConfig().aubio.melBanks.low.post.agcRise; }
+double VCAudioTriggers::melMidAgcDecay()  const { return profileChannelConfig().aubio.melBanks.mid.post.agcDecay; }
+double VCAudioTriggers::melMidAgcRise()   const { return profileChannelConfig().aubio.melBanks.mid.post.agcRise; }
+double VCAudioTriggers::melHighAgcDecay() const { return profileChannelConfig().aubio.melBanks.high.post.agcDecay; }
+double VCAudioTriggers::melHighAgcRise()  const { return profileChannelConfig().aubio.melBanks.high.post.agcRise; }
+
+int VCAudioTriggers::onsetMethodIndex() const { return profileChannelConfig().aubio.onsetMethodIndex; }
+
 QVariantList VCAudioTriggers::timelineFramesSnapshot() const
 {
     QVariantList list;
@@ -995,6 +1136,9 @@ void VCAudioTriggers::setBeatCutoffHz(double hz)
     if (qFuzzyCompare(m_beatCutoffHz + 1.0, next + 1.0))
         return;
     m_beatCutoffHz = next;
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.beat.maxHz = next;
+    applyChannelConfig(config);
     updateAudioProfileSnapshotPowers();
     emit configChanged();
 }
@@ -1008,6 +1152,9 @@ void VCAudioTriggers::setBassCutoffHz(double hz)
     if (qFuzzyCompare(m_bassCutoffHz + 1.0, next + 1.0))
         return;
     m_bassCutoffHz = next;
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.bass.maxHz = next;
+    applyChannelConfig(config);
     updateAudioProfileSnapshotPowers();
     emit configChanged();
 }
@@ -1021,6 +1168,9 @@ void VCAudioTriggers::setMidsCutoffHz(double hz)
     if (qFuzzyCompare(m_midsCutoffHz + 1.0, next + 1.0))
         return;
     m_midsCutoffHz = next;
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.mids.maxHz = next;
+    applyChannelConfig(config);
     updateAudioProfileSnapshotPowers();
     emit configChanged();
 }
@@ -1034,6 +1184,9 @@ void VCAudioTriggers::setHighsCutoffHz(double hz)
     if (qFuzzyCompare(m_highsCutoffHz + 1.0, next + 1.0))
         return;
     m_highsCutoffHz = next;
+    AudioChannelConfig config = profileChannelConfig();
+    config.freqPower.high.maxHz = next;
+    applyChannelConfig(config);
     updateAudioProfileSnapshotPowers();
     emit configChanged();
 }
@@ -2105,10 +2258,17 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
     Q_UNUSED(results)
     Q_UNUSED(power)
 
-    // Rate-limit QML visual updates to ~25Hz (every 3rd hop at ~86Hz).
-    // DMX/function/widget trigger processing still runs at the full hop rate.
-    const bool updateVisuals = (++m_visualFrameCounter >= 3); // ~28 Hz visual updates
-    if (updateVisuals) m_visualFrameCounter = 0;
+    // Time-based throttle for QML visual updates (~30 Hz, every ~33ms).
+    // DMX/function/widget trigger processing still runs at the full hop rate
+    // (~86 Hz at 44100 Hz / 512 hop), but emitting audioSnapshotChanged on
+    // every hop triggers full QML binding re-evaluation across dozens of
+    // visualizers — costing ~49% of CPU. Throttling here keeps the UI smooth
+    // without affecting DMX accuracy (m_cachedSnapshot still updates each hop).
+    if (!m_uiThrottleTimer.isValid())
+        m_uiThrottleTimer.start();
+    const bool updateVisuals = (m_uiThrottleTimer.elapsed() >= kUiUpdateIntervalMs);
+    if (updateVisuals)
+        m_uiThrottleTimer.restart();
 
     // Pull the latest snapshot (built on the capture thread by the analyzer
     // immediately before this signal was emitted). m_cachedSnapshot is always

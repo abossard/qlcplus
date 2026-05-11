@@ -44,7 +44,9 @@ public:
         double commonRise = 0.01;     // LedFx melbank.py:377
         double diffDecay = 0.15;      // LedFx melbank.py:378
         double diffRise = 0.99;       // LedFx melbank.py:378
-        bool enabled = false;         // default bypass for backward compat
+        double agcDecay = 0.01;       // LedFx melbank.py:375 (mel_gain alpha_decay)
+        double agcRise = 0.99;        // LedFx melbank.py:375 (mel_gain alpha_rise)
+        bool enabled = true;          // matches MelPostConfig default; LedFx always processes
     };
 
     MelPostProcessor();

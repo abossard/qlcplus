@@ -170,15 +170,14 @@ void MelPostProcessor::process(const double *rawMel, int count,
     if (currentPeak < kAgcEpsilon)
         currentPeak = kAgcEpsilon;
 
-    // 3. Temporal mel_gain (LedFx ExpFilter: alpha_decay=0.01, alpha_rise=0.99).
+    // 3. Temporal mel_gain (LedFx ExpFilter — alphas now from config).
     // Slow decay holds gain high during quiet passages so soft bands still
     // show detail; fast rise prevents clipping on transients. Each
     // MelPostProcessor instance owns its own m_melGain, giving each bank
     // independent normalization (matches LedFx per-melbank mel_gain).
-    constexpr double kMelGainAlphaRise = 0.99;
-    constexpr double kMelGainAlphaDecay = 0.01;
-    const double melGainAlpha = (currentPeak > m_melGain) ? kMelGainAlphaRise
-                                                          : kMelGainAlphaDecay;
+    const double agcRise = std::clamp(m_config.agcRise, 0.0, 1.0);
+    const double agcDecay = std::clamp(m_config.agcDecay, 0.0, 1.0);
+    const double melGainAlpha = (currentPeak > m_melGain) ? agcRise : agcDecay;
     m_melGain = melGainAlpha * currentPeak + (1.0 - melGainAlpha) * m_melGain;
     if (m_melGain < kAgcEpsilon)
         m_melGain = kAgcEpsilon;

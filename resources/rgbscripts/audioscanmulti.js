@@ -3,7 +3,7 @@
   audioscanmulti.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Scan Multi" effect (MIT License)
+  Ported from LedFx "Scan Multi" effect (MIT License)
 
   Three independent scanners — low / mid / high — each driven by its own
   power band, additively blended on a 1D strip and replicated to 2D.
@@ -23,7 +23,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Scan Multi";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low / mid / high band colors from the gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -79,21 +79,37 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
+    // Additive blend: keep brighter hue, sum values
     function drawScan(strip, n, startPos, scanW, color) {
         var start = Math.floor(startPos);
         for (var s = 0; s < scanW; s++) {
             var idx = start + s;
             if (idx < 0 || idx >= n) continue;
-            strip[idx] = RGBUtil.blendAdd(strip[idx], color);
+            var existing = strip[idx];
+            var newV = Math.min(1, existing.v + color.v);
+            if (existing.v < 0.001) {
+                strip[idx] = {h: color.h, s: color.s, v: newV};
+            } else {
+                var total = existing.v + color.v;
+                var t = color.v / Math.max(0.001, total);
+                var dh = color.h - existing.h;
+                if (dh > 0.5) dh -= 1;
+                else if (dh < -0.5) dh += 1;
+                var h = existing.h + t * dh;
+                h = h - Math.floor(h);
+                strip[idx] = {
+                    h: h,
+                    s: existing.s * (1 - t) + color.s * t,
+                    v: newV
+                };
+            }
         }
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -120,7 +136,7 @@ var testAlgo;
         var bandColors = AudioColors.bands(algo);
 
         var strip = new Array(n);
-        for (var p = 0; p < n; p++) strip[p] = 0;
+        for (var p = 0; p < n; p++) strip[p] = {h: 0, s: 0, v: 0};
 
         var maxStart = n - scanW;
         if (maxStart < 0) maxStart = 0;
@@ -144,21 +160,26 @@ var testAlgo;
                 }
             }
 
-            var color = bandColors[b] | 0;
-            if (colorIntensity)
-                color = RGBUtil.scaleColor(color, Math.min(1, power));
-
-            drawScan(strip, n, scan.pos, scanW, color);
+            var bc = bandColors[b];
+            var cv = colorIntensity ? bc.v * Math.min(1, power) : bc.v;
+            drawScan(strip, n, scan.pos, scanW, {h: bc.h, s: bc.s, v: cv});
         }
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {
                 var c = strip[y];
-                for (var x = 0; x < width; x++) map[(y) * width + (x)] = c;
+                for (var x = 0; x < width; x++) {
+                    var i3 = (y * width + x) * 3;
+                    map[i3] = c.h; map[i3+1] = c.s; map[i3+2] = c.v;
+                }
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
-                for (var x2 = 0; x2 < width; x2++) map[(y2) * width + (x2)] = strip[x2];
+                for (var x2 = 0; x2 < width; x2++) {
+                    var c2 = strip[x2];
+                    var i3 = (y2 * width + x2) * 3;
+                    map[i3] = c2.h; map[i3+1] = c2.s; map[i3+2] = c2.v;
+                }
             }
         }
 

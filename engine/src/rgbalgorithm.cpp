@@ -137,6 +137,7 @@ RGBAlgorithm* RGBAlgorithm::loader(Doc * doc, QXmlStreamReader &root)
     else
     {
         qWarning() << "Unrecognized RGB algorithm type:" << type;
+        root.skipCurrentElement();
     }
 
     return algo;

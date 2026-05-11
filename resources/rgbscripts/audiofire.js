@@ -65,12 +65,14 @@ var testAlgo;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var N = width;
         if (!sparkPixels || sparkPixels.length !== N || sparks.length !== algo.intensity) init(N);
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -133,9 +135,11 @@ var testAlgo;
             var s = 1 - (px - 1) * 2;
             var v = px * 2;
 
-            var packed = RGBUtil.hsvLedFx(h, s, v);
+            var hc = RGBUtil.mod1(h);
+            var sc = RGBUtil.clamp01(s);
+            var vc = RGBUtil.clamp01(v);
             for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+                RGBUtil.setPixel(map, width, x, y, hc, sc, vc);
         }
 
         return map;

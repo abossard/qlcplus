@@ -60,10 +60,12 @@ var testAlgo;
     function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -80,7 +82,6 @@ var testAlgo;
         var chop = algo.chop;
         var stretch = algo.stretch;
 
-        // BPM-scaled free-running time + audio-reactive offset (not accumulated).
         var timeAccum = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
         var timestep = timeAccum + lows * reactivity * speed;
 
@@ -102,9 +103,9 @@ var testAlgo;
             var v = hsvSin(h);
             v = v * v;
 
-            var packed = RGBUtil.hsvLedFx(h, 1, v);
+            h = RGBUtil.mod1(h);
             for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+                RGBUtil.setPixel(map, width, x, y, h, 1, v);
         }
 
         return map;

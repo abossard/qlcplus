@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Vortex";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -57,13 +57,11 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -78,8 +76,7 @@ var testAlgo;
         var maxDist = Math.sqrt(cx * cx + cy * cy);
         var arms = algo.presetArms;
         var tightness = algo.presetTightness;
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
+        var blended = AudioColors.blendByPower(algo, audio);
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
@@ -91,24 +88,17 @@ var testAlgo;
                 var dist = Math.sqrt(dx * dx + dy * dy);
                 var normDist = dist / maxDist;
 
-                // Angle of pixel from center
                 var pixAngle = Math.atan2(dy, dx);
-
-                // Spiral: angle offset increases with distance
                 var spiral = pixAngle + dist * tightness * SPIRAL_FREQ - angle;
-
-                // Create arm pattern
                 var armVal = Math.sin(spiral * arms) * 0.5 + 0.5;
 
-                // Brightness: arms visible, fades toward edge
                 var baseBright = Math.min(1, armVal * power * (1 - normDist * DIST_FADE));
-                var floored = baseBright;
-                var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
+                var bright = Math.min(1, baseBright * fluxPunch) * beatBoost * noveltyBoost;
 
-                map[(y) * width + (x)] = RGBUtil.rgb(
-                    blended[0] * bright,
-                    blended[1] * bright,
-                    blended[2] * bright);
+                var i3 = (y * width + x) * 3;
+                map[i3] = blended.h;
+                map[i3 + 1] = blended.s;
+                map[i3 + 2] = Math.min(1, blended.v * bright);
             }
         }
 

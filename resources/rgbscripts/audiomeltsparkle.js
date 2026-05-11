@@ -159,7 +159,7 @@ var testAlgo;
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -253,20 +253,23 @@ var testAlgo;
                 var tintedHue = RGBUtil.mod1(hue + bandShift);
                 sat *= 1 - RGBUtil.clamp01(overlay) * 0.7;
                 v += overlay;
-                strip[i] = RGBUtil.hsvToRgb(tintedHue, sat, RGBUtil.clamp01(v));
+                strip[i] = {h: tintedHue, s: sat, v: RGBUtil.clamp01(v)};
             } else {
-                strip[i] = RGBUtil.hsvToRgb(hue, sat, RGBUtil.clamp01(v));
+                strip[i] = {h: hue, s: sat, v: RGBUtil.clamp01(v)};
             }
         }
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {
                 var cy = strip[y];
-                for (var x = 0; x < width; x++) map[(y) * width + (x)] = cy;
+                for (var x = 0; x < width; x++) RGBUtil.setPixel(map, width, x, y, cy.h, cy.s, cy.v);
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
-                for (var x2 = 0; x2 < width; x2++) map[(y2) * width + (x2)] = strip[x2];
+                for (var x2 = 0; x2 < width; x2++) {
+                    var px = strip[x2];
+                    RGBUtil.setPixel(map, width, x2, y2, px.h, px.s, px.v);
+                }
             }
         }
 

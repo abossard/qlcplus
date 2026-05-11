@@ -29,7 +29,7 @@ var testAlgo;
     algo.author = "Hans-Jürgen Tappe";
     algo.properties = [];
     algo.acceptColors = 1;
-    algo.presetColor = 0x000000;
+    algo.presetColor = {h: 0, s: 0, v: 0};
     // number of flakes on screen at one time (default)
     algo.presetflakes = 20;
     algo.properties.push("name:presetflakes|type:range|display:Number of Flakes (10-255)|values:10,255|write:setAmount|read:getAmount");
@@ -77,10 +77,8 @@ var testAlgo;
     algo.setWindchill = function(_wind)
     {
       if (_wind === "Yes") {
-        // Random Colored flakes
         algo.windchill = 1;
       } else {
-        // flakes are chosen color
         algo.windchill = 0;
       }
     };
@@ -97,10 +95,8 @@ var testAlgo;
     algo.setReverse = function(_reverse)
     {
       if (_reverse === "Yes") {
-        // Random Colored flakes
         algo.reverse = 1;
       } else {
-        // flakes are chosen color
         algo.reverse = 0;
       }
     };
@@ -119,27 +115,19 @@ var testAlgo;
 
     // random position function for new flake
     function getNewNumberRange(minVal, maxVal) {
-      // Search in the range of min to max + 1
-      // which will be reduced by random() excluding 1
-      // and floor() reducing to lower number.
       return Math.floor(Math.random() * (maxVal + 1 - minVal)) + minVal;
     }
 
-    // set color of flake - if multicolor, choose random color. If not
-    // random, return user chosen color
+    // set color of flake - if multicolor, choose random color
     function getNewColor(isMultiColor, zColor) {
       if (isMultiColor === 1) {
-        // random red level
-        var tr = Math.round(Math.random() * 255);
-        // random green level
-        var tg = Math.round(Math.random() * 255);
-        // random blue level
-        var tb = Math.round(Math.random() * 255);
-        // returned combined color
-        return (tr << 16) + (tg << 8) + tb;
+        return {
+          h: Math.random(),
+          s: 0.7 + Math.random() * 0.3,
+          v: 1
+        };
       }
       else {
-        // If not multicolor, return chosen color
         return zColor;
       }
     }
@@ -191,13 +179,7 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      // Clear map data for a blank map
-      var map = new Uint32Array(width * height);
-      for (var y = 0; y < height; y++) {
-        for (var x = 0; x < width; x++) {
-          map[(y) * width + (x)] = 0;
-        }
-      }
+      var map = RGBUtil.createMap(width, height);
       
       algo.speedX = updateFlakeSpeedx(algo.speedX);
 
@@ -213,7 +195,7 @@ var testAlgo;
             flakes[i].y = height - 1;
           }
           flakes[i].z = getNewNumberRange(0, depth - 1);
-          flakes[i].c = getNewColor(algo.multiColor,rgb);
+          flakes[i].c = getNewColor(algo.multiColor, algo.color);
           flakes[i].s = getFlakeSpeedy(flakes[i].z);
         }
 
@@ -227,36 +209,22 @@ var testAlgo;
           px = Math.floor(px);
           py = Math.floor(py);
 
-          // parse out individual colors of current flake color
-          var r = (flakes[i].c >> 16) & 0x00FF;
-          var g = (flakes[i].c >> 8) & 0x00FF;
-          var b = flakes[i].c & 0x00FF;
+          var fc = flakes[i].c;
 
           // if flake is far away, then it should be darker
           var colorLevel = 1 - (flakes[i].z / depth);
-          
-          // Get the current channel values
-          var pRGB = map[(py) * width + (px)];
-          var pr = (pRGB >> 16) & 0x00FF;
-          var pg = (pRGB >> 8) & 0x00FF;
-          var pb = pRGB & 0x00FF;
-          
+
           // Adjust flake brightness level based on how far away it is
-          // and by chosen flake color
-          r = Math.floor(r * colorLevel);
-          g = Math.floor(g * colorLevel);
-          b = Math.floor(b * colorLevel);
-          
-          // The higher value wins
-          r = Math.max(r, pr);
-          g = Math.max(g, pg);
-          b = Math.max(b, pb);
+          var fv = fc.v * colorLevel;
 
-          // put all the individual rgb colors back together
-          pRGB = (r << 16) + (g << 8) + b;
-
-          // store the flake's combined color in the map
-          map[(py) * width + (px)] = pRGB;
+          // Max-blend: the brighter pixel wins
+          var idx = (py * width + px) * 3;
+          var existV = map[idx + 2];
+          if (fv > existV) {
+            map[idx] = fc.h;
+            map[idx + 1] = fc.s;
+            map[idx + 2] = fv;
+          }
         }
         
         // new position of flake

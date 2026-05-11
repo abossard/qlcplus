@@ -105,32 +105,31 @@ var testAlgo;
   };
 
   var util = new Object;
-  util.colorArray = new Array(algo.acceptColors);
 
   util.getRawColor = function (idx) {
-    var color = 0;
-    if (Array.isArray(util.colorArray) && util.colorArray.length > idx && util.colorArray[idx]) {
-      color = util.colorArray[idx];
+    if (Array.isArray(algo.gradientColors) && algo.gradientColors.length > idx && algo.gradientColors[idx]) {
+      return algo.gradientColors[idx];
     }
-    return color;
+    return {h: 0, s: 0, v: 0};
+  };
+
+  algo.rgbMapSetColors = function(rawColors) {};
+
+  algo.rgbMapGetColors = function() { return []; };
+
+  function writeColor(map, width, x, y, color) {
+    var i = (y * width + x) * 3;
+    map[i] = color.h; map[i + 1] = color.s; map[i + 2] = color.v;
   }
 
-  algo.rgbMapSetColors = function(rawColors)
-  {
-    if (! Array.isArray(rawColors))
-      return;
-    for (var i = 0; i < algo.acceptColors; i++) {
-      if (i < rawColors.length)
-      {
-        util.colorArray[i] = rawColors[i];
-      } else {
-        util.colorArray[i] = 0;
-      }
-    }
+  function copyPixel(map, width, srcX, srcY, dstX, dstY) {
+    var si = (srcY * width + srcX) * 3;
+    var di = (dstY * width + dstX) * 3;
+    map[di] = map[si]; map[di + 1] = map[si + 1]; map[di + 2] = map[si + 2];
   }
 
   algo.rgbMap = function(width, height, rgb, step) {
-    var map = new Uint32Array(width * height);
+    var map = RGBUtil.createMap(width, height);
     var colorSelectOne = (step === 1) ? false : true;
     var rowColorOne = colorSelectOne;
     var realBlockSize = algo.blockSize;
@@ -226,9 +225,9 @@ var testAlgo;
           }
         }
         if (colorSelectOne) {
-          map[(y) * width + (x)] = util.getRawColor(0);
+          writeColor(map, width, x, y, util.getRawColor(0));
         } else {
-          map[(y) * width + (x)] = util.getRawColor(1);
+          writeColor(map, width, x, y, util.getRawColor(1));
         }
       }
     }
@@ -237,21 +236,21 @@ var testAlgo;
       if (algo.orientation === 0) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[(y) * width + (width - x - 1)] = map[(y) * width + (x)];
+            copyPixel(map, width, x, y, width - x - 1, y);
           }
         }
       } else if (algo.orientation === 1) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[(height - y - 1) * width + (x)] = map[(y) * width + (x)];
+            copyPixel(map, width, x, y, x, height - y - 1);
           }
         }
       } else if (algo.orientation === 2) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            map[(height - y - 1) * width + (x)] = map[(y) * width + (x)];
-            map[(y) * width + (width - x - 1)] = map[(y) * width + (x)];
-            map[(height - y - 1) * width + (width - x - 1)] = map[(y) * width + (x)];
+            copyPixel(map, width, x, y, x, height - y - 1);
+            copyPixel(map, width, x, y, width - x - 1, y);
+            copyPixel(map, width, x, y, width - x - 1, height - y - 1);
           }
         }
       }

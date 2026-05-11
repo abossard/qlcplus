@@ -116,7 +116,11 @@ function()
       var tailSteps = Math.round(span * algo.taillength/100);
       if (tailSteps === 0) { tailSteps = 1; }
 
-      var map = new Uint32Array(width * height);
+      var map = RGBUtil.createMap(width, height);
+      var baseH = algo.color.h;
+      var baseS = algo.color.s;
+      var baseV = algo.color.v;
+
       for (var y = 0; y < height; y++)
       {
         for (var x = 0; x < width; x++)
@@ -169,18 +173,16 @@ function()
               break;
           }
           // Determine the fade for this pixel
-          var thisRgb = rgb;
-          if (fill && (algo.tailfade === 1))
+          if (fill)
           {
-            var thisTailStep = Math.round(util.fadeSteps * (step - stepPos) / tailSteps);
-            var r = Math.round(((rgb >> 16) & 0x00FF) * util.fadeObject[thisTailStep]);
-            var g = Math.round(((rgb >> 8) & 0x00FF) * util.fadeObject[thisTailStep]);
-            var b = Math.round((rgb & 0x00FF) * util.fadeObject[thisTailStep]);
-            thisRgb = (r << 16) + (g << 8) + b;
+            var v = baseV;
+            if (algo.tailfade === 1)
+            {
+              var thisTailStep = Math.round(util.fadeSteps * (step - stepPos) / tailSteps);
+              v = baseV * util.fadeObject[thisTailStep];
+            }
+            RGBUtil.setPixel(map, width, x, y, baseH, baseS, v);
           }
-          // Populate the matrix
-          map[(y) * width + (x)] = (fill ? thisRgb : 0);
-          map[(y) * width + (x)] = (fill ? thisRgb : 0);
         }
       }
       return map;

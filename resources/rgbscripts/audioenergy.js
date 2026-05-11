@@ -13,7 +13,6 @@
       http://www.apache.org/licenses/LICENSE-2.0.txt
 */
 
-// Development tool access
 var testAlgo;
 
 (
@@ -22,11 +21,9 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Energy";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
-
-    // --- Configurable Properties ---
 
     algo.presetMultiplier = 1.6;
     algo.properties.push(
@@ -36,21 +33,19 @@ var testAlgo;
     algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
 
-    // --- Internal state ---
-    // Default 3-bank palette (low, mid, high).
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_BAND_COLORS = [
+      {h: 0.958, s: 1.0, v: 1.0},
+      {h: 0.167, s: 1.0, v: 1.0},
+      {h: 0.611, s: 0.75, v: 1.0}
+    ];
     var BEAT_PULSE_AMP = 0.25;
-    var cols = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     var idx = new Array(3);
 
     algo.rgbMapStepCount = function(width, height)
     {
-        // Audio-reactive: always 1 step (real-time driven)
         return 1;
     };
 
-    // Required by apiVersion 3 loader; ignored because we read from the
-    // auto-injected algo.gradientBandColors instead.
     algo.rgbMapSetColors = function(rawColors) { };
 
     algo.rgbMapGetColors = function()
@@ -60,61 +55,42 @@ var testAlgo;
             : DEFAULT_BAND_COLORS.slice();
     };
 
-    /**
-     * Main render function.
-     * @param {object} audio  - Audio frame snapshot from the v4 audio engine.
-     */
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
 
-        // If no audio data, return black
         if (!audio)
             return map;
 
-        // Pull the 3 mel-bank powers and matching gradient colors.
         var bandPowers = audio.power.bands;
         var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
 
-        // Beat-pulse brightness boost
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
-        // Convert each packed 0xRRGGBB to a [r,g,b] array.
-        for (var k = 0; k < 3; k++) {
-            var packed = bandColors[k] | 0;
-            cols[k][0] = (packed >> 16) & 0xFF;
-            cols[k][1] = (packed >> 8) & 0xFF;
-            cols[k][2] = packed & 0xFF;
-        }
-
-        // Calculate how many columns each band fills (from left)
         var multiplier = algo.presetMultiplier;
         for (var k = 0; k < 3; k++)
             idx[k] = Math.min(width, Math.floor(multiplier * width * bandPowers[k]));
 
-        // Build pixel array
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                var r = 0, g = 0, b2 = 0;
-
-                // Use widest-reaching band's color (highest index covering x wins)
+                // Widest-reaching band's color wins (last band covering x)
+                var col = null;
                 for (var k = 0; k < 3; k++) {
-                    if (x < idx[k]) {
-                        r = cols[k][0]; g = cols[k][1]; b2 = cols[k][2];
-                    }
+                    if (x < idx[k]) col = bandColors[k];
                 }
 
-                var brightness = (r > 0 || g > 0 || b2 > 0) ? (1.0) * beatBoost : 0;
-                map[(y) * width + (x)] = RGBUtil.rgb(r * brightness, g * brightness, b2 * brightness);
+                if (col) {
+                    var brightness = Math.min(1.0, beatBoost);
+                    RGBUtil.setPixel(map, width, x, y, col.h, col.s, col.v * brightness);
+                }
             }
         }
 
         return map;
     };
 
-    // For devtool testing
     testAlgo = algo;
     return algo;
   }

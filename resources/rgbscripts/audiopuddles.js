@@ -23,8 +23,18 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0x4000FF, 0x00FFFF, 0x00FF80, 0xFFFF00, 0xFF0040];
-    var DEFAULT_BANDS    = [0xFF4000, 0x00FF64, 0x4080FF];
+    var DEFAULT_GRADIENT = [
+        {h: 0.708, s: 1.0, v: 1.0},
+        {h: 0.500, s: 1.0, v: 1.0},
+        {h: 0.417, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.958, s: 1.0, v: 1.0}
+    ];
+    var DEFAULT_BANDS = [
+        {h: 0.042, s: 1.0, v: 1.0},
+        {h: 0.399, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
 
     algo.presetMaxRipples = 8;
     algo.properties.push(
@@ -89,19 +99,15 @@ var testAlgo;
         var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
             ? algo.gradientBandColors : DEFAULT_BANDS;
         var dom = audio.power.dominant;
-        return bands[dom === "high" ? 2 : (dom === "mid" ? 1 : 0)] | 0;
+        return bands[dom === "high" ? 2 : (dom === "mid" ? 1 : 0)];
     };
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors
-            ? algo.gradientBandColors.slice()
-            : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var trigger = false;
@@ -121,13 +127,13 @@ var testAlgo;
         var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
         if (trigger && canSpawn) {
-            var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-                ? audio.colors.gradient : DEFAULT_GRADIENT;
+            var gradient = (algo.gradientColors && algo.gradientColors.length > 0)
+                ? algo.gradientColors : DEFAULT_GRADIENT;
             var color;
             var minPC = algo.presetMinPitchConfidence / 100.0;
             if (audio.pitch.confidence >= minPC) {
                 var pc = ((Math.round(audio.pitch.midi) % 12) + 12) % 12;
-                color = RGBUtil.gradientColorAt(gradient, pc / 11.0);
+                color = RGBUtil.gradientAt(gradient, pc / 11.0);
             } else {
                 color = algo.dominantColor(audio);
             }
@@ -187,8 +193,11 @@ var testAlgo;
                     var d = Math.sqrt(dx * dx + dy * dy);
                     var edge = 1 - Math.abs(d - rp.radius) / ringW;
                     if (edge > 0) {
-                        var contribution = RGBUtil.scaleColor(rp.color, edge * alpha);
-                        map[(y) * width + (x)] = RGBUtil.blendAdd(map[(y) * width + (x)], contribution);
+                        var contrib_v = rp.color.v * edge * alpha;
+                        var idx = (y * width + x) * 3;
+                        var ev = map[idx + 2];
+                        if (contrib_v > ev) { map[idx] = rp.color.h; map[idx + 1] = rp.color.s; }
+                        map[idx + 2] = Math.min(1, ev + contrib_v);
                     }
                 }
             }

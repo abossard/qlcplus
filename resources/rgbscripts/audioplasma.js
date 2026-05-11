@@ -24,7 +24,16 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
+    var DEFAULT_HSV_STOPS = [
+        { h: 0.000, s: 1.0, v: 1.0 },  // red
+        { h: 0.078, s: 1.0, v: 1.0 },  // orange
+        { h: 0.137, s: 1.0, v: 1.0 },  // yellow
+        { h: 0.333, s: 1.0, v: 1.0 },  // green
+        { h: 0.444, s: 1.0, v: 0.78 },
+        { h: 0.667, s: 1.0, v: 1.0 },  // blue
+        { h: 0.833, s: 1.0, v: 0.50 }, // purple
+        { h: 0.917, s: 1.0, v: 1.0 }   // magenta
+    ];
 
     algo.density = 0.5;
     algo.lower = 0.01;
@@ -57,7 +66,8 @@ var testAlgo;
     var timeState = { position: 0 };
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        return (algo.gradientColors && algo.gradientColors.length > 0)
+            ? algo.gradientColors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
@@ -69,19 +79,13 @@ var testAlgo;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        algo.gradientColors = RGBUtil.buildGradientColors(rawColors);
-    };
-    algo.rgbMapGetColors = function() {
-        return gradientStops().slice();
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        // Phase 3 fast path: return a flat Uint32Array. The C++ engine
-        // detects this via BYTES_PER_ELEMENT and copies the raw ArrayBuffer
-        // instead of walking a nested QVariantList.
-        var map = RGBUtil.createFlatMap(width, height);
+        // HSV-only contract: return a Float32Array of interleaved H,S,V floats.
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -108,11 +112,10 @@ var testAlgo;
         var xStep = (width  > 1) ? xExtent / (width  - 1) : 0;
         var yStep = (height > 1) ? yExtent / (height - 1) : 0;
 
-        var gradient = gradientStops();
+        var hsvStops = gradientStops();
 
         for (var iy = 0; iy < height; iy++) {
             var y = iy * yStep;
-            var rowOffset = iy * width;
             for (var ix = 0; ix < width; ix++) {
                 var x = ix * xStep;
 
@@ -124,7 +127,9 @@ var testAlgo;
                 var t = (v1 + v2 + v3 + 3) / 6.0;
                 if (t < 0) t = 0; else if (t > 1) t = 1;
 
-                map[rowOffset + ix] = RGBUtil.gradientColorAt(gradient, t);
+                var hsv = RGBUtil.gradientAt(hsvStops, t);
+                var i = (iy * width + ix) * 3;
+                map[i] = hsv.h; map[i+1] = hsv.s; map[i+2] = hsv.v;
             }
         }
 

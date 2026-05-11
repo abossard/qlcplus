@@ -54,12 +54,19 @@ var testAlgo;
     algo.setSparkles = function(_v) { algo.presetSparkles = (_v === "On") ? 1 : 0; };
     algo.getSparkles = function() { return algo.presetSparkles ? "On" : "Off"; };
 
-    var DEFAULT_BAND_COLORS = [0xFF2040, 0x20FF80, 0x80C0FF];
+    // Default band palette, pre-expressed in HSV: red-ish, green-ish, blue-ish.
+    var DEFAULT_BAND_HSV = [
+        { h: 0.972, s: 0.875, v: 1.0 }, // ~0xFF2040
+        { h: 0.389, s: 0.875, v: 1.0 }, // ~0x20FF80
+        { h: 0.583, s: 0.498, v: 1.0 }  // ~0x80C0FF
+    ];
     var PITCH_CONF_THRESH = 0.2;
     var FLASH_DECAY = 0.82;
     var SPARKLE_DECAY = 0.70;
     var SPARKLE_DENSITY = 0.10;
     var BASE_OVERALL = 0.35;
+    // White sparkle in HSV: saturation 0 means hue is irrelevant.
+    var SPARKLE_HSV = { h: 0, s: 0, v: 1 };
 
     // BPM-scaled wall clock (one unit per beat). No audio in time scale.
     var timeState = { position: 0 };
@@ -72,29 +79,30 @@ var testAlgo;
     var sparkleBitmap = null;
     var sparkleBitmapLen = 0;
 
-    function unpack(packed) {
-        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-    }
-
+    // Resolve a band color as {h,s,v}. Pitch-hue mode synthesizes hues from
+    // the detected MIDI note; band-color mode reads the user's HSV gradient
+    // (3 stops via acceptColors=3) injected by the engine as gradientBandColorsHsv.
     function colorFor(audio, bandIndex) {
         if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > PITCH_CONF_THRESH) {
             var midi = audio.pitch.midi;
             var hue = RGBUtil.mod1((midi % 12) / 12 + bandIndex / 12);
-            return RGBUtil.hsv2rgb(hue, 0.85, 1.0);
+            return { h: hue, s: 0.85, v: 1.0 };
         }
-        var colors = AudioColors.bands(algo);
-        return unpack(colors[bandIndex] || DEFAULT_BAND_COLORS[bandIndex]);
+        // Engine injects 3 HSV stops in algo.gradientBandColors (low/mid/high).
+        var stops = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
+                    ? algo.gradientBandColors : DEFAULT_BAND_HSV;
+        return stops[bandIndex] || DEFAULT_BAND_HSV[bandIndex];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    // HSV-only contract: scripts no longer return packed RGB defaults.
+    // The engine seeds m_rgbColors from acceptColors and the user picks them.
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -181,7 +189,7 @@ var testAlgo;
 
                 // Sparkle override (single white flicker, no per-pixel state).
                 if (sparkleActive && sparkleBitmap[y * width + x]) {
-                    color = highColor;
+                    color = SPARKLE_HSV;
                     level = Math.max(level, sparkleLevel);
                 }
 
@@ -192,7 +200,12 @@ var testAlgo;
                 }
 
                 var brightness = Math.min(1, level) * overall;
-                map[(y) * width + (x)] = RGBUtil.rgb(color[0] * brightness, color[1] * brightness, color[2] * brightness);
+                // Engine clamps s/v to [0,1]; hue wraps. We multiply v by
+                // brightness; s and h carry the band/pitch identity.
+                var pi = (y * width + x) * 3;
+                map[pi]     = color.h;
+                map[pi + 1] = color.s;
+                map[pi + 2] = color.v * brightness;
             }
         }
 

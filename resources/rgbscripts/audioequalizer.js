@@ -21,7 +21,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Equalizer";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -82,10 +82,13 @@ var testAlgo;
 
     var peakValues = null;
     var peakHolds = null;
-    var DEFAULT_GRADIENT = [0xFF0000, 0xFF8000, 0xFFFF00, 0x00FF80, 0x4080FF];
-    var gradientLut = null;
-    var lutWidth = -1;
-    var lutSig = "";
+    var DEFAULT_GRADIENT = [
+      {h: 0.0,   s: 1.0, v: 1.0},
+      {h: 0.083, s: 1.0, v: 1.0},
+      {h: 0.167, s: 1.0, v: 1.0},
+      {h: 0.398, s: 1.0, v: 1.0},
+      {h: 0.611, s: 0.75, v: 1.0}
+    ];
 
     function init(bandCount)
     {
@@ -96,7 +99,6 @@ var testAlgo;
             peakHolds[i] = 0;
         }
     }
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -113,30 +115,22 @@ var testAlgo;
         if (peakValues === null || peakValues.length !== bandCount)
             init(bandCount);
 
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
 
         if (!audio) return map;
         var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0)
             return map;
 
-        // Get spectrum interpolated to match grid width
         var rawBands = RGBUtil.interpolate(melSrc, bandCount);
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
-        var sig = stops.length + ":" + stops.join(",");
-        if (gradientLut === null || lutWidth !== width || lutSig !== sig) {
-            gradientLut = RGBUtil.gradientLut(stops, width);
-            lutWidth = width;
-            lutSig = sig;
-        }
 
         var bands = rawBands;
         var onset = audio.onset.fired;
 
         for (var x = 0; x < Math.min(bandCount, width); x++)
         {
-            // Gap mode: leave every other column dark
             if (algo.presetGap && (x % 2 === 1)) continue;
 
             var magnitude = Math.max(0, bands[x]);
@@ -160,29 +154,28 @@ var testAlgo;
                 }
             }
 
+            // Gradient color for this band position
+            var t = (bandCount > 1) ? x / (bandCount - 1) : 0;
+            var c = RGBUtil.gradientAt(stops, t);
+            var brightness = magnitude;
+
             if (algo.presetCenter)
             {
-                // Centered: bars grow from middle
                 var halfBar = Math.floor(barHeight / 2);
                 var mid = Math.floor(height / 2);
                 for (var y = mid - halfBar; y <= mid + halfBar; y++)
                 {
                     if (y < 0 || y >= height) continue;
-                    var c = unpackColor(gradientLut[x]);
-                    var brightness = magnitude;
-                    map[(y) * width + (x)] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
                 }
             }
             else
             {
-                // Bottom-up bars
                 for (var dy = 0; dy < barHeight; dy++)
                 {
                     var y = height - 1 - dy;
                     if (y < 0) break;
-                    var c = unpackColor(gradientLut[x]);
-                    var brightness = magnitude;
-                    map[(y) * width + (x)] = RGBUtil.rgb(c[0] * brightness, c[1] * brightness, c[2] * brightness);
+                    RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
                 }
             }
 
@@ -198,7 +191,7 @@ var testAlgo;
                 }
                 if (peakY >= 0 && peakY < height) {
                     var peakBrightness = peakValues[x];
-                    map[(peakY) * width + (x)] = RGBUtil.rgb(255 * peakBrightness, 255 * peakBrightness, 255 * peakBrightness);
+                    RGBUtil.setPixel(map, width, x, peakY, 0, 0, peakBrightness);
                 }
             }
         }

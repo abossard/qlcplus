@@ -27,8 +27,11 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DOMINANT_TINT = 0.4;
-    var DEFAULT_GRADIENT = [0xFF4000, 0xFFFFFF, 0x00C0FF];
+    var DEFAULT_GRADIENT = [
+        { h: 0.042, s: 1.0, v: 1.0 },   // orange-red (0xFF4000)
+        { h: 0, s: 0, v: 1.0 },          // white      (0xFFFFFF)
+        { h: 0.542, s: 1.0, v: 1.0 }     // cyan-blue  (0x00C0FF)
+    ];
 
     algo.presetLineWidth = 2;
     algo.properties.push(
@@ -115,10 +118,26 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-      return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors.slice() : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
+
+    // Additive blend for HSV pixels in the Float32Array: read existing pixel,
+    // keep the hue of the brighter contributor, add brightness values.
+    function blendAddPixel(map, width, px, py, ch, cs, cv) {
+        var idx = (py * width + px) * 3;
+        var ev = map[idx + 2];
+        if (ev <= 0) {
+            map[idx] = ch;
+            map[idx + 1] = cs;
+            map[idx + 2] = Math.min(1, cv);
+        } else {
+            // Keep hue/sat of brighter contributor
+            if (cv > ev) {
+                map[idx] = ch;
+                map[idx + 1] = cs;
+            }
+            map[idx + 2] = Math.min(1, ev + cv);
+        }
+    }
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       var dt = audio.timing.consumerDtMs / 1000.0;
@@ -148,17 +167,14 @@ var testAlgo;
         var t = audio.features.hfc / hfcScale;
         var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
           ? audio.colors.gradient : DEFAULT_GRADIENT;
-        var color = RGBUtil.gradientColorAt(gradient, t);
-        var dominantPacked = AudioColors.dominantColor(algo, audio, color, 0.05);
-        color = AudioColors.blendPacked(color, dominantPacked, DOMINANT_TINT);
+        var color = RGBUtil.gradientAt(gradient, t);
         algo.lines.push({
           position: N - 1,
-          color: color,
+          color: { h: color.h, s: color.s, v: color.v },
           brightness: intensity
         });
         algo.spawnAccumMs = 0;
 
-        // Cap line count: cull oldest excess.
         while (algo.lines.length > algo.presetMaxLines) {
           algo.lines.shift();
         }
@@ -176,21 +192,21 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       var halfW = algo.presetLineWidth / 2;
       for (var li = 0; li < algo.lines.length; li++) {
         var lln = algo.lines[li];
         var x0 = Math.max(0, Math.floor(lln.position - halfW));
         var x1 = Math.min(N - 1, Math.ceil(lln.position + halfW));
-        var bright = lln.brightness;
-        if (bright > 1) bright = 1;
-        if (bright < 0) bright = 0;
-        var stamped = RGBUtil.scaleColor(lln.color, bright);
+        var bright = Math.max(0, Math.min(1, lln.brightness));
+        var sv = lln.color.v * bright;
+        var sh = lln.color.h;
+        var ss = lln.color.s;
         for (var p = x0; p <= x1; p++) {
           if (horizontal) {
-            for (var y = 0; y < height; y++) map[(y) * width + (p)] = RGBUtil.blendAdd(map[(y) * width + (p)], stamped);
+            for (var y = 0; y < height; y++) blendAddPixel(map, width, p, y, sh, ss, sv);
           } else {
-            for (var x = 0; x < width; x++) map[(p) * width + (x)] = RGBUtil.blendAdd(map[(p) * width + (x)], stamped);
+            for (var x = 0; x < width; x++) blendAddPixel(map, width, x, p, sh, ss, sv);
           }
         }
       }

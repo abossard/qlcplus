@@ -3,7 +3,7 @@
   audiosoap.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Soap" effect (MIT License)
+  Ported from LedFx "Soap" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -24,7 +24,16 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
+    var DEFAULT_HSV_STOPS = [
+        { h: 0.000, s: 1.0, v: 1.0 },
+        { h: 0.078, s: 1.0, v: 1.0 },
+        { h: 0.131, s: 1.0, v: 1.0 },
+        { h: 0.333, s: 1.0, v: 1.0 },
+        { h: 0.446, s: 1.0, v: 0.78 },
+        { h: 0.667, s: 1.0, v: 1.0 },
+        { h: 0.833, s: 1.0, v: 0.50 },
+        { h: 0.884, s: 1.0, v: 1.0 }
+    ];
 
     algo.density = 0.5;
     algo.speed = 0.5;
@@ -56,7 +65,8 @@ var testAlgo;
     var needSeed = true;
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        return (algo.gradientColors && algo.gradientColors.length > 0)
+            ? algo.gradientColors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
@@ -75,7 +85,7 @@ var testAlgo;
             prevPixels[y] = new Array(w);
             for (var x = 0; x < w; x++) {
                 noiseField[y][x] = 0.5;
-                prevPixels[y][x] = [0, 0, 0];
+                prevPixels[y][x] = {h: 0, s: 0, v: 0};
             }
         }
         lastW = w; lastH = h;
@@ -101,16 +111,12 @@ var testAlgo;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        algo.gradientColors = RGBUtil.buildGradientColors(rawColors);
-    };
-    algo.rgbMapGetColors = function() {
-        return gradientStops().slice();
-    };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -131,30 +137,23 @@ var testAlgo;
 
         genNoiseField(width, height);
 
-        // Palette from noise: palIdx = ((1 - noise) * 3) % 1
+        // Palette from noise
         var gradient = gradientStops();
-        var paletteR = new Array(height);
-        var paletteG = new Array(height);
-        var paletteB = new Array(height);
+        var palette = new Array(height);
         for (var y = 0; y < height; y++) {
-            paletteR[y] = new Array(width);
-            paletteG[y] = new Array(width);
-            paletteB[y] = new Array(width);
+            palette[y] = new Array(width);
             for (var x = 0; x < width; x++) {
                 var palIdx = ((1 - noiseField[y][x]) * 3) % 1;
                 if (palIdx < 0) palIdx += 1;
-                var packed = RGBUtil.gradientColorAt(gradient, palIdx);
-                paletteR[y][x] = (packed >> 16) & 0xFF;
-                paletteG[y][x] = (packed >> 8) & 0xFF;
-                paletteB[y][x] = packed & 0xFF;
+                palette[y][x] = RGBUtil.gradientAt(gradient, palIdx);
             }
         }
 
-        // Seed prevPixels from palette on first frame or resize
+        // Seed prevPixels on first frame or resize
         if (needSeed) {
             for (var y = 0; y < height; y++)
                 for (var x = 0; x < width; x++)
-                    prevPixels[y][x] = [paletteR[y][x], paletteG[y][x], paletteB[y][x]];
+                    prevPixels[y][x] = {h: palette[y][x].h, s: palette[y][x].s, v: palette[y][x].v};
             needSeed = false;
         }
 
@@ -162,7 +161,6 @@ var testAlgo;
         var ampX = Math.max(1, (width - 8) / 8) * (1 + 7 * algo.density);
         var ampY = Math.max(1, (height - 8) / 8) * (1 + 7 * algo.density);
 
-        // Per-row and per-col shift amounts
         var amtRows = new Array(height);
         for (var y = 0; y < height; y++)
             amtRows[y] = (noiseField[y][0] - 0.5) * ampX;
@@ -170,14 +168,10 @@ var testAlgo;
         for (var x = 0; x < width; x++)
             amtCols[x] = (noiseField[0][x] - 0.5) * ampY;
 
-        // Pass 1: smear rows (horizontal) — prevPixels → afterRows
-        var afterR = new Array(height);
-        var afterG = new Array(height);
-        var afterB = new Array(height);
+        // Pass 1: smear rows (horizontal)
+        var afterRow = new Array(height);
         for (var y = 0; y < height; y++) {
-            afterR[y] = new Array(width);
-            afterG[y] = new Array(width);
-            afterB[y] = new Array(width);
+            afterRow[y] = new Array(width);
             var amt = amtRows[y];
             var sgn = amt > 0 ? 1 : (amt < 0 ? -1 : 0);
             var mag = Math.abs(amt);
@@ -189,26 +183,26 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var zD = x + sgn * di;
                 var zF = zD + sgn;
-                var ar, ag, ab, br, bg, bb;
-                if (zD >= 0 && zD < width) {
-                    var p = prevPixels[y][zD]; ar = p[0]; ag = p[1]; ab = p[2];
-                } else {
-                    var cx = Math.max(0, Math.min(width - 1, zD));
-                    ar = paletteR[y][cx]; ag = paletteG[y][cx]; ab = paletteB[y][cx];
-                }
-                if (zF >= 0 && zF < width) {
-                    var p = prevPixels[y][zF]; br = p[0]; bg = p[1]; bb = p[2];
-                } else {
-                    var cx = Math.max(0, Math.min(width - 1, zF));
-                    br = paletteR[y][cx]; bg = paletteG[y][cx]; bb = paletteB[y][cx];
-                }
-                afterR[y][x] = ar * wA + br * wB;
-                afterG[y][x] = ag * wA + bg * wB;
-                afterB[y][x] = ab * wA + bb * wB;
+                var a, b;
+                if (zD >= 0 && zD < width) a = prevPixels[y][zD];
+                else { var cx = Math.max(0, Math.min(width - 1, zD)); a = palette[y][cx]; }
+                if (zF >= 0 && zF < width) b = prevPixels[y][zF];
+                else { var cx2 = Math.max(0, Math.min(width - 1, zF)); b = palette[y][cx2]; }
+
+                // Shortest-arc hue interpolation
+                var dh = b.h - a.h;
+                if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
+                var rh = a.h + wB * dh;
+                rh = rh - Math.floor(rh);
+                afterRow[y][x] = {
+                    h: rh,
+                    s: a.s * wA + b.s * wB,
+                    v: a.v * wA + b.v * wB
+                };
             }
         }
 
-        // Pass 2: smear cols (vertical) — afterRows → output
+        // Pass 2: smear cols (vertical)
         for (var x = 0; x < width; x++) {
             var amt = amtCols[x];
             var sgn = amt > 0 ? 1 : (amt < 0 ? -1 : 0);
@@ -221,29 +215,24 @@ var testAlgo;
             for (var y = 0; y < height; y++) {
                 var zD = y + sgn * di;
                 var zF = zD + sgn;
-                var ar, ag, ab, br, bg, bb;
-                if (zD >= 0 && zD < height) {
-                    ar = afterR[zD][x]; ag = afterG[zD][x]; ab = afterB[zD][x];
-                } else {
-                    var cy = Math.max(0, Math.min(height - 1, zD));
-                    ar = paletteR[cy][x]; ag = paletteG[cy][x]; ab = paletteB[cy][x];
-                }
-                if (zF >= 0 && zF < height) {
-                    br = afterR[zF][x]; bg = afterG[zF][x]; bb = afterB[zF][x];
-                } else {
-                    var cy = Math.max(0, Math.min(height - 1, zF));
-                    br = paletteR[cy][x]; bg = paletteG[cy][x]; bb = paletteB[cy][x];
-                }
-                var r = ar * wA + br * wB;
-                var g = ag * wA + bg * wB;
-                var b = ab * wA + bb * wB;
+                var a, b;
+                if (zD >= 0 && zD < height) a = afterRow[zD][x];
+                else { var cy = Math.max(0, Math.min(height - 1, zD)); a = palette[cy][x]; }
+                if (zF >= 0 && zF < height) b = afterRow[zF][x];
+                else { var cy2 = Math.max(0, Math.min(height - 1, zF)); b = palette[cy2][x]; }
 
-                prevPixels[y][x] = [r, g, b];
-                map[(y) * width + (x)] = RGBUtil.rgb(
-                    Math.max(0, Math.min(255, r)),
-                    Math.max(0, Math.min(255, g)),
-                    Math.max(0, Math.min(255, b))
-                );
+                var dh = b.h - a.h;
+                if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
+                var rh = a.h + wB * dh;
+                rh = rh - Math.floor(rh);
+                var rs = a.s * wA + b.s * wB;
+                var rv = a.v * wA + b.v * wB;
+
+                prevPixels[y][x] = {h: rh, s: rs, v: rv};
+                var i3 = (y * width + x) * 3;
+                map[i3] = rh;
+                map[i3 + 1] = Math.max(0, Math.min(1, rs));
+                map[i3 + 2] = Math.max(0, Math.min(1, rv));
             }
         }
 

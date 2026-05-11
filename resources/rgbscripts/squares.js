@@ -46,7 +46,7 @@ var testAlgo;
       this.xCenter = x;
       this.yCenter = y;
       this.step = step;
-      this.color = 0;
+      this.color = {h: 0, s: 0, v: 0};
     }
 
     algo.setAmount = function(_amount)
@@ -100,66 +100,39 @@ var testAlgo;
       util.initialized = true;
     };
 
-    util.getStepColor = function(step, rgb)
+    util.getStepColor = function(step, color)
     {
       if (algo.fadeMode === 0)
       {
-        return rgb;
+        return {h: color.h, s: color.s, v: color.v};
       }
       else
       {
-        var r = (rgb >> 16) & 0x00FF;
-        var g = (rgb >> 8) & 0x00FF;
-        var b = rgb & 0x00FF;
-
         var stepCount = Math.floor(util.squaresMaxSize / 2);
         var fadeStep = step;
         if (algo.fadeMode === 2) {
           fadeStep = stepCount - step;
         }
-        var newR = Math.round((r / stepCount) * fadeStep);
-        var newG = Math.round((g / stepCount) * fadeStep);
-        var newB = Math.round((b / stepCount) * fadeStep);
-        var newRGB = (newR << 16) + (newG << 8) + newB;
-        return newRGB;
+        var factor = fadeStep / stepCount;
+        return {h: color.h, s: color.s, v: color.v * factor};
       }
     };
-    
-    util.mergeRgb = function(rgb1, rgb2)
+
+    // Merge HSV: keep brighter pixel (higher V)
+    util.mergeHsv = function(map, idx, h, s, v)
     {
-      if (rgb1 === 0) {
-        return rgb2;
-      } else if (rgb2 === 0) {
-        return rgb1;
+      var existV = map[idx + 2];
+      if (existV <= 0) {
+        map[idx] = h; map[idx + 1] = s; map[idx + 2] = v;
+      } else if (v > existV) {
+        map[idx] = h; map[idx + 1] = s; map[idx + 2] = v;
       }
-      // split rgb into components
-      var r1 = (rgb1 >> 16) & 0x00FF;
-      var g1 = (rgb1 >> 8) & 0x00FF;
-      var b1 = rgb1 & 0x00FF;
+    };
 
-      var r2 = (rgb2 >> 16) & 0x00FF;
-      var g2 = (rgb2 >> 8) & 0x00FF;
-      var b2 = rgb2 & 0x00FF;
-      
-      var r = Math.max(r1, r2);
-      var g = Math.max(g1, g2);
-      var b = Math.max(b1, b2);
-      
-      return ((r << 16) + (g << 8) + b);
-    }
-
-    util.getNextStep = function(width, height, rgb)
+    util.getNextStep = function(width, height)
     {
-      // create an empty, black map
-      var map = new Uint32Array(width * height);
-
-      for (var y = 0; y < height; y++)
-      {
-        for (var x = 0; x < width; x++)
-        {
-          map[(y) * width + (x)] = 0;
-        }
-      }
+      // create an empty map (Float32Array, 3 floats per pixel)
+      var map = RGBUtil.createMap(width, height);
 
       for (var i = 0; i < algo.squaresAmount; i++)
       {
@@ -170,9 +143,9 @@ var testAlgo;
           if (seed > 50) { continue; }
           squares[i].xCenter = Math.floor(Math.random() * width);
           squares[i].yCenter = Math.floor(Math.random() * height);
-          squares[i].color = rgb;
-          map[(squares[i].yCenter) * width + (squares[i].xCenter)] =
-              util.mergeRgb(map[(squares[i].yCenter) * width + (squares[i].xCenter)], squares[i].color);
+          squares[i].color = {h: algo.color.h, s: algo.color.s, v: algo.color.v};
+          var idx = (squares[i].yCenter * width + squares[i].xCenter) * 3;
+          util.mergeHsv(map, idx, squares[i].color.h, squares[i].color.s, squares[i].color.v);
         }
         else
         {
@@ -190,12 +163,14 @@ var testAlgo;
               if (sx < 0 || sx >= width) { continue; }
               if (sy === firstY || sy === firstY + side || algo.fillSquares === 1)
               {
-                map[(sy) * width + (sx)] = util.mergeRgb(map[(sy) * width + (sx)], color);
+                var idx = (sy * width + sx) * 3;
+                util.mergeHsv(map, idx, color.h, color.s, color.v);
               }
               else
               {
                 if (sx === firstX || sx === firstX + side) {
-                  map[(sy) * width + (sx)] = util.mergeRgb(map[(sy) * width + (sx)], color);
+                  var idx = (sy * width + sx) * 3;
+                  util.mergeHsv(map, idx, color.h, color.s, color.v);
                 }
               }
             }
@@ -225,7 +200,7 @@ var testAlgo;
         }
       }
 
-      return util.getNextStep(width, height, rgb);
+      return util.getNextStep(width, height);
     };
 
     algo.rgbMapStepCount = function(width, height)

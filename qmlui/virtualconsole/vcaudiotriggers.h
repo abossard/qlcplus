@@ -28,6 +28,7 @@
 
 #include <QAbstractListModel>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
@@ -110,8 +111,16 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double melCommonRise READ melCommonRise NOTIFY configChanged)
     Q_PROPERTY(double melDiffDecay READ melDiffDecay NOTIFY configChanged)
     Q_PROPERTY(double melDiffRise READ melDiffRise NOTIFY configChanged)
-    Q_PROPERTY(double freqPowerDecay READ freqPowerDecay NOTIFY configChanged)
-    Q_PROPERTY(double freqPowerRise READ freqPowerRise NOTIFY configChanged)
+    // Per-band FreqPower decay/rise alphas — exposes the 4 independent bands
+    // (beat/bass/mids/high) that the engine tracks via FreqPowerBandConfig.
+    Q_PROPERTY(double freqPowerBeatDecay READ freqPowerBeatDecay NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerBeatRise  READ freqPowerBeatRise  NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerBassDecay READ freqPowerBassDecay NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerBassRise  READ freqPowerBassRise  NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerMidsDecay READ freqPowerMidsDecay NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerMidsRise  READ freqPowerMidsRise  NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerHighDecay READ freqPowerHighDecay NOTIFY configChanged)
+    Q_PROPERTY(double freqPowerHighRise  READ freqPowerHighRise  NOTIFY configChanged)
 
     // Legacy 5-band Q_PROPERTYs (bandSub/Bass/LowMid/Mid/HighMaxBin) removed
     // along with the underlying AudioChannelConfig::bandLayout struct.
@@ -245,6 +254,17 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double melHighMinHz READ melHighMinHz NOTIFY configChanged)
     Q_PROPERTY(double melHighMaxHz READ melHighMaxHz NOTIFY configChanged)
     Q_PROPERTY(int    melHighBands READ melHighBands NOTIFY configChanged)
+
+    // Per-bank AGC alpha (LedFx melbank.py:375 mel_gain alpha_decay/alpha_rise).
+    Q_PROPERTY(double melLowAgcDecay  READ melLowAgcDecay  NOTIFY configChanged)
+    Q_PROPERTY(double melLowAgcRise   READ melLowAgcRise   NOTIFY configChanged)
+    Q_PROPERTY(double melMidAgcDecay  READ melMidAgcDecay  NOTIFY configChanged)
+    Q_PROPERTY(double melMidAgcRise   READ melMidAgcRise   NOTIFY configChanged)
+    Q_PROPERTY(double melHighAgcDecay READ melHighAgcDecay NOTIFY configChanged)
+    Q_PROPERTY(double melHighAgcRise  READ melHighAgcRise  NOTIFY configChanged)
+
+    // Primary onset method selector (index into onsetMethodEnabled[]).
+    Q_PROPERTY(int onsetMethodIndex READ onsetMethodIndex NOTIFY configChanged)
 
     Q_PROPERTY(AudioProfileListModel* profileListModel READ profileListModel CONSTANT)
 
@@ -442,8 +462,14 @@ public:
     double melCommonRise() const;
     double melDiffDecay() const;
     double melDiffRise() const;
-    double freqPowerDecay() const;
-    double freqPowerRise() const;
+    double freqPowerBeatDecay() const;
+    double freqPowerBeatRise() const;
+    double freqPowerBassDecay() const;
+    double freqPowerBassRise() const;
+    double freqPowerMidsDecay() const;
+    double freqPowerMidsRise() const;
+    double freqPowerHighDecay() const;
+    double freqPowerHighRise() const;
 
     double noiseGateThreshold() const;
     double noiseGateHold() const;
@@ -521,6 +547,15 @@ public:
     double melHighMaxHz() const;
     int    melHighBands() const;
 
+    double melLowAgcDecay()  const;
+    double melLowAgcRise()   const;
+    double melMidAgcDecay()  const;
+    double melMidAgcRise()   const;
+    double melHighAgcDecay() const;
+    double melHighAgcRise()  const;
+
+    int onsetMethodIndex() const;
+
     double volumeRaw() const;
     double volumeSmoothedValue() const;
     double volumeNormalized() const;
@@ -560,8 +595,14 @@ public:
     Q_INVOKABLE void setMelCommonRise(double value);
     Q_INVOKABLE void setMelDiffDecay(double value);
     Q_INVOKABLE void setMelDiffRise(double value);
-    Q_INVOKABLE void setFreqPowerDecay(double value);
-    Q_INVOKABLE void setFreqPowerRise(double value);
+    Q_INVOKABLE void setFreqPowerBeatDecay(double value);
+    Q_INVOKABLE void setFreqPowerBeatRise(double value);
+    Q_INVOKABLE void setFreqPowerBassDecay(double value);
+    Q_INVOKABLE void setFreqPowerBassRise(double value);
+    Q_INVOKABLE void setFreqPowerMidsDecay(double value);
+    Q_INVOKABLE void setFreqPowerMidsRise(double value);
+    Q_INVOKABLE void setFreqPowerHighDecay(double value);
+    Q_INVOKABLE void setFreqPowerHighRise(double value);
     // applyMelPreset(raw/ledfx/punchy/smooth) DELETED — see plan-clean-engineering.md §0.
 
     /// Multi-resolution mel banks (always enabled): per-bank Hz range and band
@@ -570,6 +611,15 @@ public:
     Q_INVOKABLE void setMelBankLow(double minHz, double maxHz, int bands);
     Q_INVOKABLE void setMelBankMid(double minHz, double maxHz, int bands);
     Q_INVOKABLE void setMelBankHigh(double minHz, double maxHz, int bands);
+    /// Per-bank AGC alpha setters (LedFx melbank.py:375).
+    Q_INVOKABLE void setMelLowAgcDecay(double value);
+    Q_INVOKABLE void setMelLowAgcRise(double value);
+    Q_INVOKABLE void setMelMidAgcDecay(double value);
+    Q_INVOKABLE void setMelMidAgcRise(double value);
+    Q_INVOKABLE void setMelHighAgcDecay(double value);
+    Q_INVOKABLE void setMelHighAgcRise(double value);
+    /// Primary onset method selector (0..AUBIO_ONSET_METHODS-1).
+    Q_INVOKABLE void setOnsetMethodIndex(int idx);
     /// Recognized presets (case-insensitive): "EDM", "Live", "Acoustic",
     /// "Speech", "Custom" (no-op — keeps the current per-bank config).
     Q_INVOKABLE void applyMelBankPreset(const QString &preset);
@@ -723,7 +773,11 @@ private:
     static constexpr int kTimelineCapacity = 2064; // ~24s at 86Hz (44100/512)
     QVector<TimelineFrame> m_timeline;
     int m_timelineWriteIdx = 0;
-    int m_visualFrameCounter = 0;
+    // Time-based throttle for QML audioSnapshotChanged emissions (~30 Hz).
+    // Engine snapshot/DMX still update every aubio hop; only the QML-facing
+    // signal is rate-limited to avoid binding storms.
+    QElapsedTimer m_uiThrottleTimer;
+    static constexpr int kUiUpdateIntervalMs = 33; // ~30 Hz
     int m_onsetHistorySeconds = 10;
 
     /*********************************************************************

@@ -46,13 +46,15 @@ var testAlgo;
 
     algo.particles = [];
     var lastW = 0, lastH = 0;
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_BAND_COLORS = [
+        {h: 0.958, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.setMaxParticles = function(_v) { algo.presetMaxParticles = clampInt(_v, 50, 500, 200); };
     algo.getMaxParticles = function() { return algo.presetMaxParticles; };
@@ -88,21 +90,25 @@ var testAlgo;
     algo.getKickThreshold = function() { return algo.presetKickThreshold; };
     algo.setAmbientMin = function(_v) { algo.presetAmbientMin = clampInt(_v, 1, 30, 10); };
     algo.getAmbientMin = function() { return algo.presetAmbientMin; };
+
     function clampInt(value, minValue, maxValue, defaultValue) {
         var parsed = parseInt(value);
         if (isNaN(parsed)) parsed = defaultValue;
         return Math.max(minValue, Math.min(maxValue, parsed));
     }
 
-    function additive(existing, newColor) {
-        var er = (existing >> 16) & 0xFF, eg = (existing >> 8) & 0xFF, eb = existing & 0xFF;
-        var nr = (newColor >> 16) & 0xFF, ng = (newColor >> 8) & 0xFF, nb = newColor & 0xFF;
-        return RGBUtil.rgb(Math.min(255, er+nr), Math.min(255, eg+ng), Math.min(255, eb+nb));
+    function additiveHsv(map, width, height, x, y, h, s, v) {
+        if (x < 0 || x >= width || y < 0 || y >= height) return;
+        var i = (y * width + x) * 3;
+        var ev = map[i + 2];
+        var nv = Math.min(1, ev + v);
+        if (v > ev) { map[i] = h; map[i + 1] = s; }
+        map[i + 2] = nv;
     }
 
-    function bandColorPacked(bandIndex) {
+    function bandColor(bandIndex) {
         var colors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
-        return colors[Math.max(0, Math.min(2, bandIndex))] & 0xFFFFFF;
+        return colors[Math.max(0, Math.min(2, bandIndex))];
     }
 
     function randomWeightedBand(powers, start, end) {
@@ -170,7 +176,7 @@ var testAlgo;
             var angle = Math.random() * Math.PI * 2;
             var speed = speedRange[0] + Math.random() * (speedRange[1] - speedRange[0]);
             var bandIndex = randomWeightedBand(powers, bandStart, bandEnd);
-            var color = bandColorPacked(bandIndex);
+            var color = bandColor(bandIndex);
             var life = lifeRange[0] + Math.round(Math.random() * (lifeRange[1] - lifeRange[0]));
 
             algo.particles.push({
@@ -189,17 +195,12 @@ var testAlgo;
             var bandIndex = randomWeightedBand(powers, 0, 2);
             var speed = 0.4 + Math.random() * 0.8;
             var life = 6 + Math.round(Math.random() * 6);
-            spawnParticle(width, height, bandColorPacked(bandIndex), speed, life);
+            spawnParticle(width, height, bandColor(bandIndex), speed, life);
         }
     }
 
     function dominantBandType(audio) {
         return audio.power.dominant;
-    }
-
-    function addPixel(map, width, height, x, y, color) {
-        if (x < 0 || x >= width || y < 0 || y >= height) return;
-        map[(y) * width + (x)] = additive(map[(y) * width + (x)], color);
     }
 
     function renderParticle(map, width, height, particle, particleSize) {
@@ -209,25 +210,24 @@ var testAlgo;
 
         var fade = particle.life / particle.maxLife;
         var bri = fade * fade;
-        var pr = (particle.color >> 16) & 0xFF;
-        var pg = (particle.color >> 8) & 0xFF;
-        var pb = particle.color & 0xFF;
-        addPixel(map, width, height, px, py, RGBUtil.rgb(pr * bri, pg * bri, pb * bri));
+        var ph = particle.color.h;
+        var ps = particle.color.s;
+        var pv = particle.color.v;
+
+        additiveHsv(map, width, height, px, py, ph, ps, pv * bri);
 
         if (particleSize >= 2 && bri > 0.3) {
-            var neighborColor = RGBUtil.rgb(pr * bri * 0.5, pg * bri * 0.5, pb * bri * 0.5);
-            addPixel(map, width, height, px - 1, py, neighborColor);
-            addPixel(map, width, height, px + 1, py, neighborColor);
-            addPixel(map, width, height, px, py - 1, neighborColor);
-            addPixel(map, width, height, px, py + 1, neighborColor);
+            additiveHsv(map, width, height, px - 1, py, ph, ps, pv * bri * 0.5);
+            additiveHsv(map, width, height, px + 1, py, ph, ps, pv * bri * 0.5);
+            additiveHsv(map, width, height, px, py - 1, ph, ps, pv * bri * 0.5);
+            additiveHsv(map, width, height, px, py + 1, ph, ps, pv * bri * 0.5);
         }
 
         if (particleSize >= 3 && bri > 0.3) {
-            var diagonalColor = RGBUtil.rgb(pr * bri * 0.25, pg * bri * 0.25, pb * bri * 0.25);
-            addPixel(map, width, height, px - 1, py - 1, diagonalColor);
-            addPixel(map, width, height, px + 1, py - 1, diagonalColor);
-            addPixel(map, width, height, px - 1, py + 1, diagonalColor);
-            addPixel(map, width, height, px + 1, py + 1, diagonalColor);
+            additiveHsv(map, width, height, px - 1, py - 1, ph, ps, pv * bri * 0.25);
+            additiveHsv(map, width, height, px + 1, py - 1, ph, ps, pv * bri * 0.25);
+            additiveHsv(map, width, height, px - 1, py + 1, ph, ps, pv * bri * 0.25);
+            additiveHsv(map, width, height, px + 1, py + 1, ph, ps, pv * bri * 0.25);
         }
     }
 
@@ -238,10 +238,9 @@ var testAlgo;
         for (var i = 0; i < count; i++) {
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
-            var packed = bandColorPacked(randomWeightedBand(powers, 0, 2));
-            var sr = (packed >> 16) & 0xFF, sg = (packed >> 8) & 0xFF, sb = packed & 0xFF;
+            var color = bandColor(randomWeightedBand(powers, 0, 2));
             var sparkle = brightness * (0.5 + Math.random() * 0.5);
-            map[(y) * width + (x)] = additive(map[(y) * width + (x)], RGBUtil.rgb(sr * sparkle, sg * sparkle, sb * sparkle));
+            additiveHsv(map, width, height, x, y, color.h, color.s, color.v * sparkle);
         }
     }
 
@@ -255,7 +254,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         if (width !== lastW || height !== lastH) {
             algo.particles = [];

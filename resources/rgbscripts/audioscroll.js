@@ -70,13 +70,8 @@ var testAlgo;
     function ensurePixels(pixelCount) {
       if (pixels && lastPixelCount === pixelCount) return;
       pixels = new Array(pixelCount);
-      for (var i = 0; i < pixelCount; i++) pixels[i] = [0, 0, 0];
+      for (var i = 0; i < pixelCount; i++) pixels[i] = {h: 0, s: 0, v: 0};
       lastPixelCount = pixelCount;
-    }
-
-    function unpack(c) {
-      c = c & 0xFFFFFF;
-      return [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
     }
 
     function maxInRange(arr, start, end) {
@@ -88,28 +83,37 @@ var testAlgo;
       return m;
     }
 
-    function boxBlur(src, amount) {
+    function boxBlurHsv(src, amount) {
       var radius = Math.round(amount);
       if (radius <= 0 || src.length <= 3) return src;
       var out = new Array(src.length);
       for (var i = 0; i < src.length; i++) {
-        var r = 0, g = 0, b = 0, count = 0;
+        var refH = src[i].h;
+        var sumH = 0, sumS = 0, sumV = 0, count = 0;
         for (var j = i - radius; j <= i + radius; j++) {
           if (j < 0 || j >= src.length) continue;
-          r += src[j][0]; g += src[j][1]; b += src[j][2]; count++;
+          var dh = src[j].h - refH;
+          if (dh > 0.5) dh -= 1;
+          else if (dh < -0.5) dh += 1;
+          sumH += dh;
+          sumS += src[j].s;
+          sumV += src[j].v;
+          count++;
         }
-        out[i] = [r / count, g / count, b / count];
+        var h = refH + sumH / count;
+        h = h - Math.floor(h);
+        out[i] = {h: h, s: sumS / count, v: sumV / count};
       }
       return out;
     }
 
     function renderPixelsForOutput() {
-      return boxBlur(pixels, algo.presetBlur);
+      return boxBlurHsv(pixels, algo.presetBlur);
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapGetColors = function() { return AudioColors.bands(algo).slice(); };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -117,10 +121,7 @@ var testAlgo;
       ensurePixels(pixelCount);
 
       if (audio) {
-        var bands = AudioColors.bands(algo);
-        var lowsColor = unpack(bands[0]);
-        var midsColor = unpack(bands[1]);
-        var highColor = unpack(bands[2]);
+        var bandColors = AudioColors.bands(algo);
 
         var mel = (audio.spectrum && audio.spectrum.full) || [];
         var split1 = Math.floor(0.2 * mel.length);
@@ -139,30 +140,48 @@ var testAlgo;
 
         var speed = Math.min(algo.presetSpeed, pixelCount);
         for (var dst = pixelCount - 1; dst >= speed; dst--) {
-          pixels[dst][0] = pixels[dst - speed][0];
-          pixels[dst][1] = pixels[dst - speed][1];
-          pixels[dst][2] = pixels[dst - speed][2];
+          pixels[dst] = {h: pixels[dst - speed].h, s: pixels[dst - speed].s, v: pixels[dst - speed].v};
         }
 
         var decay = algo.presetDecay / 100.0;
         for (var p = 0; p < pixelCount; p++) {
-          pixels[p][0] *= decay;
-          pixels[p][1] *= decay;
-          pixels[p][2] *= decay;
+          pixels[p].v *= decay;
         }
 
-        var r = lowsColor[0] * intensities[0] + midsColor[0] * intensities[1] + highColor[0] * intensities[2];
-        var g = lowsColor[1] * intensities[0] + midsColor[1] * intensities[1] + highColor[1] * intensities[2];
-        var b = lowsColor[2] * intensities[0] + midsColor[2] * intensities[1] + highColor[2] * intensities[2];
-        for (var n = 0; n < speed; n++) pixels[n] = [r, g, b];
+        // Weighted blend of band colors by intensity
+        var totalI = intensities[0] + intensities[1] + intensities[2];
+        if (totalI > 0.001) {
+          var domIdx = 0;
+          for (var k = 1; k < 3; k++) if (intensities[k] > intensities[domIdx]) domIdx = k;
+          var h = bandColors[domIdx].h;
+          var s = bandColors[domIdx].s;
+          for (var k = 0; k < 3; k++) {
+            if (k === domIdx) continue;
+            var t = intensities[k] / totalI;
+            if (t > 0.01) {
+              var dh = bandColors[k].h - h;
+              if (dh > 0.5) dh -= 1;
+              else if (dh < -0.5) dh += 1;
+              h += t * dh;
+              s = s * (1 - t) + bandColors[k].s * t;
+            }
+          }
+          h = h - Math.floor(h);
+          var v = Math.min(1, totalI);
+          for (var n = 0; n < speed; n++)
+            pixels[n] = {h: h, s: s, v: v};
+        }
       }
 
       var outPixels = renderPixelsForOutput();
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
           var px = outPixels[y * width + x];
-          map[(y) * width + (x)] = RGBUtil.rgb(px[0], px[1], px[2]);
+          var i3 = (y * width + x) * 3;
+          map[i3] = px.h;
+          map[i3 + 1] = px.s;
+          map[i3 + 2] = px.v;
         }
       }
       return map;

@@ -51,7 +51,12 @@ var testAlgo;
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0080, 0xFFFF00, 0xFFFFFF];
+    // 0xFF0080=pink, 0xFFFF00=yellow, 0xFFFFFF=white
+    var DEFAULT_BAND_COLORS = [
+        {h: 0.917, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.0,   s: 0.0, v: 1.0}
+    ];
     // Per-track ratios relative to presetSpeed (preserves old PHASE_SPEED_* proportions).
     var MED_RATIO  = 5.0;
     var T4_RATIO   = 2.0;
@@ -75,15 +80,29 @@ var testAlgo;
 
     function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
 
+    function bandColors() {
+        if (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
+            return algo.gradientBandColors;
+        return DEFAULT_BAND_COLORS;
+    }
+
+    function dominantBandHsv(audio) {
+        var dom = audio.power.dominant;
+        var bc = bandColors();
+        if (dom === "mid")  return bc[1];
+        if (dom === "high") return bc[2];
+        return bc[0];
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
+        return bandColors().slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs;
@@ -106,15 +125,13 @@ var testAlgo;
         var t4 = RGBUtil.beatTime(speed * T4_RATIO,   phaseT4,   bpm, dt + boost) * Math.PI * 2;
         var t5 = RGBUtil.beatTime(speed * T5_RATIO,   phaseT5,   bpm, dt + boost);
         var t6 = RGBUtil.beatTime(speed * FAST_RATIO, phaseFast, bpm, dt + boost);
+
         if (audio.onset.fired || audio.beat.kick) {
-            var flashPacked = AudioColors.dominant(algo, audio);
-            flashColor = [(flashPacked >> 16) & 0xFF, (flashPacked >> 8) & 0xFF, flashPacked & 0xFF];
+            flashColor = dominantBandHsv(audio);
             var hitScale = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onset.intensity);
             flashLevel = hitScale;
         }
-        var dominantPacked = AudioColors.dominant(algo, audio);
-        var dominant = (flashLevel > 0.01 && flashColor) ? flashColor :
-            [(dominantPacked >> 16) & 0xFF, (dominantPacked >> 8) & 0xFF, dominantPacked & 0xFF];
+        var dominant = (flashLevel > 0.01 && flashColor) ? flashColor : dominantBandHsv(audio);
 
         for (var x = 0; x < width; x++) {
             var il = (x - width / 2) / width;
@@ -134,21 +151,20 @@ var testAlgo;
             var sat = 1 - triangle(s1 * s2);
             sat = Math.max(satThreshold, Math.min(1, sat));
 
-            // Map to colors using HSV-like approach
             var hNorm = ((h % 1) + 1) % 1;
-            var c1 = RGBUtil.hsv2rgb(hNorm, sat, 1);
-
-            var t = Math.abs(il * 2);
-            var glitchMix = 0.55 + (1 - t * 0.3) * 0.45;
-            var r = dominant[0] * (COLOR_FLOOR + c1[0] / 255.0 * glitchMix);
-            var g = dominant[1] * (COLOR_FLOOR + c1[1] / 255.0 * glitchMix);
-            var b = dominant[2] * (COLOR_FLOOR + c1[2] / 255.0 * glitchMix);
+            var tAbs = Math.abs(il * 2);
+            var glitchMix = 0.55 + (1 - tAbs * 0.3) * 0.45;
 
             var baseBrightness = Math.max(BRIGHT_FLOOR, flashLevel);
             var brightness = baseBrightness;
-            var packed = RGBUtil.rgb(r * brightness, g * brightness, b * brightness);
+
+            // HSV output: dominant hue shifted by glitch pattern
+            var hOut = RGBUtil.mod1(dominant.h + hNorm * (1 - dominant.s) * 0.4);
+            var sOut = RGBUtil.clamp01(dominant.s + (1 - dominant.s) * sat * 0.5);
+            var vOut = RGBUtil.clamp01((COLOR_FLOOR + glitchMix) * brightness * dominant.v);
+
             for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+                RGBUtil.setPixel(map, width, x, y, hOut, sOut, vOut);
         }
         flashLevel = Math.max(0, flashLevel - FLASH_DECAY);
 

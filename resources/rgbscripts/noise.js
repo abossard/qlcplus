@@ -42,38 +42,18 @@ var testAlgo;
             return algo.noisePercentage;
         };
 
-        // QLC+ rgbMap function where the work is done
         algo.rgbMap = function (width, height, rgb, step)
         {
-            var map = new Uint32Array(width * height);
+            var map = RGBUtil.createMap(width, height);
 
             for (var y = 0; y < height; y++)
             {
-
                 for (var x = 0; x < width; x++)
                 {
-                    var r = (rgb >> 16) & 0x00FF;  // split color of user selected color
-                    var g = (rgb >> 8) & 0x00FF;
-                    var b = rgb & 0x00FF;
+                    // Random brightness factor 0-1, applied to user color's value
+                    var randV = algo.color.v * Math.random();
 
-                    // create random color level from 1 to 255
-                    var colorLevel = Math.floor(Math.random() * 255);
-
-                    // Assign random color value to temp variables
-                    var rr = colorLevel;
-                    var gg = colorLevel;
-                    var bb = colorLevel;
-
-                    // Limit each color element to the maximum for chosen color or make 0 if below 0
-                    if (rr > r) { rr = r; }
-                    if (rr < 0) { rr = 0; }
-                    if (gg > g) { gg = g; }
-                    if (gg < 0) { gg = 0; }
-                    if (bb > b) { bb = b; }
-                    if (bb < 0) { bb = 0; }
-
-                    var cColor = (rr << 16) + (gg << 8) + bb;   // put rgb parts back together
-                    var vDiv = 0;                               // for noise amount use
+                    var vDiv = 0;
 
                     // setup for noise reduction :)
                     switch (algo.noisePercentage)
@@ -89,13 +69,10 @@ var testAlgo;
                         break;
                     }
 
-                    dCounter += 1;              // counter for noise trigger
-                    if (dCounter >= vDiv) {     // compare counter to user noise amount selection value
-                        dCounter = 0;           // clear the counter
-                        map[(y) * width + (x)] = cColor;     // set pixel to color created above
-                    }
-                    else {
-                        map[(y) * width + (x)] = 0;          // otherwise, clear it
+                    dCounter += 1;
+                    if (dCounter >= vDiv) {
+                        dCounter = 0;
+                        RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, randV);
                     }
                 }
             }

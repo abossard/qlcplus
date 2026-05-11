@@ -61,7 +61,11 @@ var testAlgo;
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_BAND_COLORS = [
+        {h: 0.958, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.75, v: 1.0}
+    ];
 
     // Dots: [{pos, row, speed, dir, band}]  band: 0=low, 1=mid, 2=high
     var dots = null;
@@ -81,7 +85,25 @@ var testAlgo;
         }
     }
 
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
+    var TWO_PI = Math.PI * 2;
+
+    // Additive HSV blend: blends hue circularly weighted by brightness, adds V
+    var blendAddHsv = function(map, idx, nh, ns, nv) {
+        var ev = map[idx + 2];
+        if (ev < 0.001) {
+            map[idx] = nh; map[idx + 1] = ns; map[idx + 2] = nv;
+            return;
+        }
+        var eh = map[idx];
+        var totalV = ev + nv;
+        var cx = Math.cos(eh * TWO_PI) * ev + Math.cos(nh * TWO_PI) * nv;
+        var cy = Math.sin(eh * TWO_PI) * ev + Math.sin(nh * TWO_PI) * nv;
+        var bh = Math.atan2(cy, cx) / TWO_PI;
+        if (bh < 0) bh += 1;
+        map[idx] = bh;
+        map[idx + 1] = (map[idx + 1] * ev + ns * nv) / totalV;
+        map[idx + 2] = Math.min(1, totalV);
+    };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
@@ -99,7 +121,7 @@ var testAlgo;
             dotsHeight = height;
         }
 
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs / 1000.0;
@@ -108,9 +130,6 @@ var testAlgo;
         var powers = audio.power.bands;
         var vol = audio.volume.normalized;
         var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
-        var colors = [];
-        for (var ci = 0; ci < 3; ci++)
-            colors.push(unpackColor(colorStops[ci]));
 
         // Speed multiplier from audio
         var speedMult;
@@ -148,7 +167,7 @@ var testAlgo;
             }
 
             // Render dot with trail
-            var color = colors[dot.band];
+            var color = colorStops[dot.band];
             var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
             var brightness = (0.5 + bandPower * 0.5) * beatBoost;
             var headX = Math.floor(dot.pos);
@@ -170,18 +189,11 @@ var testAlgo;
                 for (var dy = -spread; dy <= spread; dy++) {
                     var py = centerY + dy;
                     if (py < 0 || py >= height) continue;
-                    var baseFade = fade * (1 - Math.abs(dy) / (spread + 1));
-                    var yFade = baseFade;
-
-                    var existing = map[(py) * width + (tx)];
-                    var er = (existing >> 16) & 0xFF;
-                    var eg = (existing >> 8) & 0xFF;
-                    var eb = existing & 0xFF;
-                    map[(py) * width + (tx)] = RGBUtil.rgb(
-                        Math.min(255, er + color[0] * yFade),
-                        Math.min(255, eg + color[1] * yFade),
-                        Math.min(255, eb + color[2] * yFade)
-                    );
+                    var yFade = fade * (1 - Math.abs(dy) / (spread + 1));
+                    var pixV = color.v * yFade;
+                    if (pixV > 0.001) {
+                        blendAddHsv(map, (py * width + tx) * 3, color.h, color.s, pixV);
+                    }
                 }
             }
         }

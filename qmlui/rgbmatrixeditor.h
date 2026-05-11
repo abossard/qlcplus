@@ -52,6 +52,14 @@ class RGBMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int beatSelection READ beatSelection WRITE setBeatSelection NOTIFY beatSelectionChanged)
     Q_PROPERTY(int beatOrientation READ beatOrientation WRITE setBeatOrientation NOTIFY beatOrientationChanged)
 
+    Q_PROPERTY(bool algorithmUsesAudio READ algorithmUsesAudio NOTIFY algorithmIndexChanged)
+    Q_PROPERTY(int audioRoutingLow   READ audioRoutingLow   WRITE setAudioRoutingLow   NOTIFY audioRoutingChanged)
+    Q_PROPERTY(int audioRoutingMid   READ audioRoutingMid   WRITE setAudioRoutingMid   NOTIFY audioRoutingChanged)
+    Q_PROPERTY(int audioRoutingHigh  READ audioRoutingHigh  WRITE setAudioRoutingHigh  NOTIFY audioRoutingChanged)
+    Q_PROPERTY(int audioRoutingBeat  READ audioRoutingBeat  WRITE setAudioRoutingBeat  NOTIFY audioRoutingChanged)
+    Q_PROPERTY(int audioRoutingKick  READ audioRoutingKick  WRITE setAudioRoutingKick  NOTIFY audioRoutingChanged)
+    Q_PROPERTY(int audioRoutingOnset READ audioRoutingOnset WRITE setAudioRoutingOnset NOTIFY audioRoutingChanged)
+
     // Text Algorithm specific properties
     Q_PROPERTY(QString algoText READ algoText WRITE setAlgoText NOTIFY algoTextChanged)
     Q_PROPERTY(QFont algoTextFont READ algoTextFont WRITE setAlgoTextFont NOTIFY algoTextFontChanged)
@@ -205,6 +213,28 @@ signals:
     void beatEffectChanged();
     void beatSelectionChanged();
     void beatOrientationChanged();
+
+    /************************************************************************
+     * Audio Routing
+     ************************************************************************/
+public:
+    bool algorithmUsesAudio() const;
+
+    int audioRoutingLow() const;
+    void setAudioRoutingLow(int s);
+    int audioRoutingMid() const;
+    void setAudioRoutingMid(int s);
+    int audioRoutingHigh() const;
+    void setAudioRoutingHigh(int s);
+    int audioRoutingBeat() const;
+    void setAudioRoutingBeat(int s);
+    int audioRoutingKick() const;
+    void setAudioRoutingKick(int s);
+    int audioRoutingOnset() const;
+    void setAudioRoutingOnset(int s);
+
+signals:
+    void audioRoutingChanged();
 
     /************************************************************************
      * Preview

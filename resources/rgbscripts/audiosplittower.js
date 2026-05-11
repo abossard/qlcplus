@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Split Tower";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -45,21 +45,21 @@ var testAlgo;
     algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_BAND_COLORS = [
+        {h: 0.958, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
     var BEAT_PULSE_AMOUNT = 0.25;
-    var TOP_DARKEN = 0.3; // top of bar fades to (1 - TOP_DARKEN) brightness
+    var TOP_DARKEN = 0.3;
 
     algo.peakValues = [];
     algo.peakHolds = [];
     algo.smoothBands = [];
 
-    function unpackColor(packed) { return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF]; }
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     function ensureState() {
         var n = algo.presetBands;
@@ -78,20 +78,16 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         ensureState();
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var numBands = algo.presetBands;
         var sourceBands = audio.power.bands;
         var bands = (numBands === 3) ? sourceBands : RGBUtil.interpolate(sourceBands, numBands);
-        var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
-        var sectionColors = [];
-        for (var ci = 0; ci < 3; ci++)
-            sectionColors.push(unpackColor(colorStops[ci]));
+        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
         var fallStep = algo.presetDecay;
         var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
 
-        // Beat-pulse brightness boost
         var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
 
         for (var section = 0; section < numBands; section++) {
@@ -120,20 +116,22 @@ var testAlgo;
             var sectionEnd = Math.floor((section + 1) * width / numBands);
             sectionStart = Math.max(0, Math.min(width, sectionStart));
             sectionEnd = Math.max(sectionStart, Math.min(width, sectionEnd));
-            var color = sectionColors[section % 3];
+            var color = bandColors[section % 3];
 
             for (var x = sectionStart; x < sectionEnd; x++) {
                 for (var y = 0; y < height; y++) {
                     var fromBottom = height - 1 - y;
+                    var i3 = (y * width + x) * 3;
                     if (fromBottom < barHeight) {
                         var baseBrightness = smoothMagnitude * (1 - y / height * TOP_DARKEN);
-                        var brightness = (baseBrightness) * beatBoost;
-                        map[(y) * width + (x)] = RGBUtil.rgb(
-                            color[0] * brightness,
-                            color[1] * brightness,
-                            color[2] * brightness);
+                        var brightness = baseBrightness * beatBoost;
+                        map[i3] = color.h;
+                        map[i3 + 1] = color.s;
+                        map[i3 + 2] = Math.min(1, color.v * brightness);
                     } else if (fromBottom === peakPosition && peakPosition < height) {
-                        map[(y) * width + (x)] = RGBUtil.rgb(color[0], color[1], color[2]);
+                        map[i3] = color.h;
+                        map[i3 + 1] = color.s;
+                        map[i3 + 2] = color.v;
                     }
                 }
             }

@@ -23,7 +23,13 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0x4000FF, 0x00FFFF, 0x00FF00, 0xFFFF00, 0xFF0000];
+    var DEFAULT_GRADIENT = [
+        {h: 0.708, s: 1.0, v: 1.0},
+        {h: 0.5, s: 1.0, v: 1.0},
+        {h: 0.333, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.0, s: 1.0, v: 1.0}
+    ];
 
     algo.presetGlowWidth = 100;
     algo.properties.push(
@@ -64,7 +70,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var glowDecayPerSec = 1.0 / (algo.presetGlowDecayMs / 1000.0);
         var glowWidth = algo.presetGlowWidth / 100.0;
@@ -109,8 +115,6 @@ var testAlgo;
                 zoneIdx = Math.floor(p * 12 / N);
                 if (zoneIdx > 11) zoneIdx = 11;
             } else {
-                // For N<12: each pixel maps to its weighted-nearest pitch class.
-                // Use highest-amplitude class within its fractional window.
                 var f0 = p * 12 / N;
                 var f1 = (p + 1) * 12 / N;
                 var lo = Math.floor(f0);
@@ -128,13 +132,17 @@ var testAlgo;
                 }
             }
             var t = zoneIdx / 11.0;
-            var base = RGBUtil.gradientColorAt(gradient, t);
+            var base = RGBUtil.gradientAt(gradient, t);
             var bright = algo.zone[zoneIdx];
-            var color = RGBUtil.scaleColor(base, bright);
+            var ch = base.h;
+            var cs = base.s;
+            var cv = base.v * bright;
             if (horizontal) {
-                for (var y = 0; y < height; y++) map[(y) * width + (p)] = color;
+                for (var y = 0; y < height; y++)
+                    RGBUtil.setPixel(map, width, p, y, ch, cs, cv);
             } else {
-                for (var x = 0; x < width; x++) map[(p) * width + (x)] = color;
+                for (var x = 0; x < width; x++)
+                    RGBUtil.setPixel(map, width, x, p, ch, cs, cv);
             }
         }
         return map;

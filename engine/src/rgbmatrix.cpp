@@ -69,6 +69,14 @@
 #define KXMLQLCRGBMatrixBeatSelection       QStringLiteral("BeatSelection")
 #define KXMLQLCRGBMatrixBeatOrientation     QStringLiteral("BeatOrientation")
 
+#define KXMLQLCRGBMatrixAudioRouting        QStringLiteral("AudioRouting")
+#define KXMLQLCRGBMatrixAudioRoutingLow     QStringLiteral("low")
+#define KXMLQLCRGBMatrixAudioRoutingMid     QStringLiteral("mid")
+#define KXMLQLCRGBMatrixAudioRoutingHigh    QStringLiteral("high")
+#define KXMLQLCRGBMatrixAudioRoutingBeat    QStringLiteral("beat")
+#define KXMLQLCRGBMatrixAudioRoutingKick    QStringLiteral("kick")
+#define KXMLQLCRGBMatrixAudioRoutingOnset   QStringLiteral("onset")
+
 static const int RGBMatrixColorMask = 0x00FFFFFF;
 
 /****************************************************************************
@@ -265,6 +273,7 @@ bool RGBMatrix::copyFrom(const Function* function)
     setBeatEffect(mtx->beatEffect());
     setBeatSelection(mtx->beatSelection());
     setBeatOrientation(mtx->beatOrientation());
+    setAudioRouting(mtx->audioRouting());
 
     return Function::copyFrom(function);
 }
@@ -649,6 +658,25 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setBeatOrientation(stringToBeatOrientation(root.readElementText()));
         }
+        else if (root.name() == KXMLQLCRGBMatrixAudioRouting)
+        {
+            AudioRouting r;
+            QXmlStreamAttributes attrs = root.attributes();
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingLow))
+                r.low = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingLow).toString());
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingMid))
+                r.mid = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingMid).toString());
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingHigh))
+                r.high = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingHigh).toString());
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingBeat))
+                r.beat = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingBeat).toString());
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingKick))
+                r.kick = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingKick).toString());
+            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingOnset))
+                r.onset = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingOnset).toString());
+            setAudioRouting(r);
+            root.skipCurrentElement();
+        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown RGB matrix tag:" << root.name();
@@ -736,6 +764,25 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeTextElement(KXMLQLCRGBMatrixBeatEffect, beatEffectToString(m_beatEffect));
         doc->writeTextElement(KXMLQLCRGBMatrixBeatSelection, beatSelectionToString(m_beatSelection));
         doc->writeTextElement(KXMLQLCRGBMatrixBeatOrientation, beatOrientationToString(m_beatOrientation));
+    }
+
+    /* Audio Routing — only persist non-default slots */
+    if (!m_audioRouting.isAllDefault())
+    {
+        doc->writeStartElement(KXMLQLCRGBMatrixAudioRouting);
+        if (m_audioRouting.low != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingLow, audioSourceToString(m_audioRouting.low));
+        if (m_audioRouting.mid != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingMid, audioSourceToString(m_audioRouting.mid));
+        if (m_audioRouting.high != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingHigh, audioSourceToString(m_audioRouting.high));
+        if (m_audioRouting.beat != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingBeat, audioSourceToString(m_audioRouting.beat));
+        if (m_audioRouting.kick != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingKick, audioSourceToString(m_audioRouting.kick));
+        if (m_audioRouting.onset != AudioSrcDefault)
+            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingOnset, audioSourceToString(m_audioRouting.onset));
+        doc->writeEndElement();
     }
 
     /* End the <Function> tag */
@@ -2186,4 +2233,48 @@ bool RGBMatrixStep::checkNextStep(Function::RunOrder order,
     }
 
     return true;
+}
+
+/*************************************************************************
+ * Audio Routing
+ *************************************************************************/
+
+RGBMatrix::AudioRouting RGBMatrix::audioRouting() const
+{
+    return m_audioRouting;
+}
+
+void RGBMatrix::setAudioRouting(const AudioRouting &r)
+{
+    m_audioRouting = r;
+}
+
+QString RGBMatrix::audioSourceToString(AudioSource s)
+{
+    switch (s)
+    {
+        case AudioSrcZero:   return QStringLiteral("zero");
+        case AudioSrcLow:    return QStringLiteral("low");
+        case AudioSrcMid:    return QStringLiteral("mid");
+        case AudioSrcHigh:   return QStringLiteral("high");
+        case AudioSrcBeat:   return QStringLiteral("beat");
+        case AudioSrcKick:   return QStringLiteral("kick");
+        case AudioSrcOnset:  return QStringLiteral("onset");
+        case AudioSrcVolume: return QStringLiteral("volume");
+        case AudioSrcDefault:
+        default:             return QStringLiteral("default");
+    }
+}
+
+RGBMatrix::AudioSource RGBMatrix::stringToAudioSource(const QString &s)
+{
+    if (s == QStringLiteral("zero"))   return AudioSrcZero;
+    if (s == QStringLiteral("low"))    return AudioSrcLow;
+    if (s == QStringLiteral("mid"))    return AudioSrcMid;
+    if (s == QStringLiteral("high"))   return AudioSrcHigh;
+    if (s == QStringLiteral("beat"))   return AudioSrcBeat;
+    if (s == QStringLiteral("kick"))   return AudioSrcKick;
+    if (s == QStringLiteral("onset"))  return AudioSrcOnset;
+    if (s == QStringLiteral("volume")) return AudioSrcVolume;
+    return AudioSrcDefault;
 }

@@ -38,9 +38,15 @@ var testAlgo;
     algo.setGradientRoll = function(_v) { algo.presetGradientRoll = clampFloat(_v, 0, 10, 0); };
     algo.getGradientRoll = function() { return algo.presetGradientRoll; };
 
-    var DEFAULT_GRADIENT = [
-      0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00,
-      0x00C78C, 0x0000FF, 0x800080, 0xFF00B2
+    var DEFAULT_HSV_STOPS = [
+        { h: 0.000, s: 1.0, v: 1.0 },
+        { h: 0.078, s: 1.0, v: 1.0 },
+        { h: 0.131, s: 1.0, v: 1.0 },
+        { h: 0.333, s: 1.0, v: 1.0 },
+        { h: 0.446, s: 1.0, v: 0.78 },
+        { h: 0.667, s: 1.0, v: 1.0 },
+        { h: 0.833, s: 1.0, v: 0.50 },
+        { h: 0.884, s: 1.0, v: 1.0 }
     ];
     var gradientRollCounter = 0;
 
@@ -52,20 +58,29 @@ var testAlgo;
 
     function gradientStops() {
       return (algo.gradientColors && algo.gradientColors.length > 0)
-        ? algo.gradientColors : DEFAULT_GRADIENT;
+        ? algo.gradientColors : DEFAULT_HSV_STOPS;
     }
 
-    function boxBlur(src, amount) {
+    function boxBlurHsv(src, amount) {
       var radius = Math.round(amount);
       if (radius <= 0 || src.length <= 3) return src;
       var out = new Array(src.length);
       for (var i = 0; i < src.length; i++) {
-        var r = 0, g = 0, b = 0, count = 0;
+        var refH = src[i].h;
+        var sumH = 0, sumS = 0, sumV = 0, count = 0;
         for (var j = i - radius; j <= i + radius; j++) {
           if (j < 0 || j >= src.length) continue;
-          r += src[j][0]; g += src[j][1]; b += src[j][2]; count++;
+          var dh = src[j].h - refH;
+          if (dh > 0.5) dh -= 1;
+          else if (dh < -0.5) dh += 1;
+          sumH += dh;
+          sumS += src[j].s;
+          sumV += src[j].v;
+          count++;
         }
-        out[i] = [r / count, g / count, b / count];
+        var h = refH + sumH / count;
+        h = h - Math.floor(h);
+        out[i] = {h: h, s: sumS / count, v: sumV / count};
       }
       return out;
     }
@@ -74,17 +89,17 @@ var testAlgo;
       if (algo.presetGradientRoll !== 0 && pixelCount > 0) {
         t = RGBUtil.mod1(t - gradientRollCounter / pixelCount);
       }
-      return RGBUtil.gradientColorAt(gradientStops(), t);
+      return RGBUtil.gradientAt(gradientStops(), t);
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-
-    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
       var pixelCount = width * height;
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       if (!audio || pixelCount <= 0) return map;
 
       var rValues = RGBUtil.interpolate((audio.spectrum && audio.spectrum.full) || [], pixelCount);
@@ -92,21 +107,20 @@ var testAlgo;
       var denom = Math.max(1, pixelCount - 1);
 
       for (var i = 0; i < pixelCount; i++) {
-        var packed = rolledGradientColor(i / denom, pixelCount);
+        var hsv = rolledGradientColor(i / denom, pixelCount);
         var scale = RGBUtil.clamp01(rValues[i]);
-        pixels[i] = [
-          ((packed >> 16) & 0xFF) * scale,
-          ((packed >> 8) & 0xFF) * scale,
-          (packed & 0xFF) * scale
-        ];
+        pixels[i] = {h: hsv.h, s: hsv.s, v: hsv.v * scale};
       }
 
-      pixels = boxBlur(pixels, algo.presetBlur);
+      pixels = boxBlurHsv(pixels, algo.presetBlur);
 
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
           var px = pixels[y * width + x];
-          map[(y) * width + (x)] = RGBUtil.rgb(px[0], px[1], px[2]);
+          var i3 = (y * width + x) * 3;
+          map[i3] = px.h;
+          map[i3 + 1] = px.s;
+          map[i3 + 2] = px.v;
         }
       }
 

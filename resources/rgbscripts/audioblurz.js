@@ -72,7 +72,11 @@ var testAlgo;
     algo.setAxis = function(v) { algo.presetAxis = String(v); };
     algo.getAxis = function() { return algo.presetAxis; };
 
-    var DEFAULT_BANDS = [0xFF4000, 0x00FF64, 0x4080FF];
+    var DEFAULT_BANDS = [
+        {h: 0.042, s: 1.0, v: 1.0},
+        {h: 0.398, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.75, v: 1.0}
+    ];
 
     algo.fb = null;
     algo.scratch = null;
@@ -83,9 +87,8 @@ var testAlgo;
         if (algo.fbW === w && algo.fbH === h && algo.fb !== null) return;
         algo.fbW = w;
         algo.fbH = h;
-        algo.fb = new Array(w * h);
-        algo.scratch = new Array(w * h);
-        for (var i = 0; i < w * h; i++) { algo.fb[i] = 0; algo.scratch[i] = 0; }
+        algo.fb = new Float32Array(w * h * 3);
+        algo.scratch = new Float32Array(w * h * 3);
     };
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
@@ -94,32 +97,43 @@ var testAlgo;
         return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BANDS.slice();
     };
 
-    var blendAddPacked = function(a, b) {
-        var r = ((a >> 16) & 0xFF) + ((b >> 16) & 0xFF);
-        var g = ((a >> 8) & 0xFF) + ((b >> 8) & 0xFF);
-        var bl = (a & 0xFF) + (b & 0xFF);
-        if (r > 255) r = 255;
-        if (g > 255) g = 255;
-        if (bl > 255) bl = 255;
-        return (r << 16) | (g << 8) | bl;
+    var TWO_PI = Math.PI * 2;
+
+    var blendAddHsv = function(buf, idx, nh, ns, nv) {
+        var ev = buf[idx + 2];
+        if (ev < 0.001) {
+            buf[idx] = nh; buf[idx + 1] = ns; buf[idx + 2] = nv;
+            return;
+        }
+        var eh = buf[idx];
+        var totalV = ev + nv;
+        var cx = Math.cos(eh * TWO_PI) * ev + Math.cos(nh * TWO_PI) * nv;
+        var cy = Math.sin(eh * TWO_PI) * ev + Math.sin(nh * TWO_PI) * nv;
+        var bh = Math.atan2(cy, cx) / TWO_PI;
+        if (bh < 0) bh += 1;
+        buf[idx] = bh;
+        buf[idx + 1] = (buf[idx + 1] * ev + ns * nv) / totalV;
+        buf[idx + 2] = Math.min(1, totalV);
     };
 
     var boxBlurH = function(srcBuf, dstBuf, w, h, radius) {
         var diam = 2 * radius + 1;
         for (var y = 0; y < h; y++) {
-            var row = y * w;
             for (var x = 0; x < w; x++) {
-                var r = 0, g = 0, b = 0;
+                var sumH = 0, sumS = 0, sumV = 0;
                 for (var k = -radius; k <= radius; k++) {
                     var sx = x + k;
                     if (sx < 0) sx = 0;
                     else if (sx > w - 1) sx = w - 1;
-                    var c = srcBuf[row + sx];
-                    r += (c >> 16) & 0xFF;
-                    g += (c >> 8) & 0xFF;
-                    b += c & 0xFF;
+                    var si = (y * w + sx) * 3;
+                    sumH += srcBuf[si];
+                    sumS += srcBuf[si + 1];
+                    sumV += srcBuf[si + 2];
                 }
-                dstBuf[row + x] = ((r / diam) << 16) | ((g / diam) << 8) | (b / diam) | 0;
+                var di = (y * w + x) * 3;
+                dstBuf[di] = sumH / diam;
+                dstBuf[di + 1] = sumS / diam;
+                dstBuf[di + 2] = sumV / diam;
             }
         }
     };
@@ -128,39 +142,57 @@ var testAlgo;
         var diam = 2 * radius + 1;
         for (var x = 0; x < w; x++) {
             for (var y = 0; y < h; y++) {
-                var r = 0, g = 0, b = 0;
+                var sumH = 0, sumS = 0, sumV = 0;
                 for (var k = -radius; k <= radius; k++) {
                     var sy = y + k;
                     if (sy < 0) sy = 0;
                     else if (sy > h - 1) sy = h - 1;
-                    var c = srcBuf[sy * w + x];
-                    r += (c >> 16) & 0xFF;
-                    g += (c >> 8) & 0xFF;
-                    b += c & 0xFF;
+                    var si = (sy * w + x) * 3;
+                    sumH += srcBuf[si];
+                    sumS += srcBuf[si + 1];
+                    sumV += srcBuf[si + 2];
                 }
-                dstBuf[y * w + x] = ((r / diam) << 16) | ((g / diam) << 8) | (b / diam) | 0;
+                var di = (y * w + x) * 3;
+                dstBuf[di] = sumH / diam;
+                dstBuf[di + 1] = sumS / diam;
+                dstBuf[di + 2] = sumV / diam;
             }
         }
     };
 
     algo.bandBlend = function(audio) {
-        return AudioColors.blendByPower(algo, audio);
+        var bandColors = algo.gradientBandColors || DEFAULT_BANDS;
+        var powers = audio.power.bands;
+        var totalP = powers[0] + powers[1] + powers[2];
+        if (totalP < 0.001) return {h: 0, s: 0, v: 0};
+        var cx = 0, cy = 0, ws = 0, wv = 0;
+        for (var i = 0; i < 3; i++) {
+            var p = powers[i];
+            cx += Math.cos(bandColors[i].h * TWO_PI) * p;
+            cy += Math.sin(bandColors[i].h * TWO_PI) * p;
+            ws += bandColors[i].s * p;
+            wv += bandColors[i].v * p;
+        }
+        var h = Math.atan2(cy, cx) / TWO_PI;
+        if (h < 0) h += 1;
+        return {h: h, s: ws / totalP, v: wv / totalP};
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.ensureBuffers(width, height);
 
         var decayPerFrame = Math.exp(-dt / (algo.presetDecayMs / 1000.0));
-        var N = width * height;
-        for (var i = 0; i < N; i++) {
-            var c = algo.fb[i];
-            if (c === 0) continue;
-            var r = Math.floor(((c >> 16) & 0xFF) * decayPerFrame);
-            var g = Math.floor(((c >> 8) & 0xFF) * decayPerFrame);
-            var b = Math.floor((c & 0xFF) * decayPerFrame);
-            algo.fb[i] = (r << 16) | (g << 8) | b;
+        var N = width * height * 3;
+        for (var i = 0; i < N; i += 3) {
+            if (algo.fb[i + 2] < 0.001) continue;
+            algo.fb[i + 2] *= decayPerFrame;
+            if (algo.fb[i + 2] < 0.001) {
+                algo.fb[i] = 0;
+                algo.fb[i + 1] = 0;
+                algo.fb[i + 2] = 0;
+            }
         }
 
         var radius = algo.presetBlurRadius;
@@ -195,28 +227,21 @@ var testAlgo;
             for (var k = 0; k < nBursts; k++) {
                 var off = Math.floor((Math.random() - 0.5) * algo.presetBurstSpread);
                 var pos = peakLong + off;
-                // Clamp render-side burst position to pixel range.
                 if (pos < 0) pos = 0;
                 if (pos > dimLong - 1) pos = dimLong - 1;
                 if (horizontal) {
                     for (var y = 0; y < height; y++) {
-                        var idxH = y * width + pos;
-                        algo.fb[idxH] = blendAddPacked(algo.fb[idxH], color);
+                        blendAddHsv(algo.fb, (y * width + pos) * 3, color.h, color.s, color.v);
                     }
                 } else {
                     for (var xx = 0; xx < width; xx++) {
-                        var idxV = pos * width + xx;
-                        algo.fb[idxV] = blendAddPacked(algo.fb[idxV], color);
+                        blendAddHsv(algo.fb, (pos * width + xx) * 3, color.h, color.s, color.v);
                     }
                 }
             }
         }
 
-        for (var y2 = 0; y2 < height; y2++) {
-            for (var x2 = 0; x2 < width; x2++) {
-                map[(y2) * width + (x2)] = algo.fb[y2 * width + x2];
-            }
-        }
+        map.set(algo.fb);
         return map;
     };
 

@@ -3,7 +3,7 @@
   audiowater.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Water" effect (MIT License)
+  Ported from LedFx "Water" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -93,11 +93,13 @@ var testAlgo;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         if (!buf0 || buf0.length !== width) init(width);
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         if (width < 5) return map;
 
@@ -109,12 +111,10 @@ var testAlgo;
         var midP = Math.min(1, Math.max(0, Math.pow(audio.power.mid, 2)));
         var hiP  = Math.min(1, Math.max(0, Math.pow(audio.power.high, 2)));
 
-        // 3 bass emitters at fixed positions
         createDrop(1, lowP * algo.bass_size, width);
         createDrop(Math.floor(width / 2), lowP * algo.bass_size, width);
         createDrop(width - 2, lowP * algo.bass_size, width);
 
-        // 2 mid emitters (drifting)
         for (var i = 0; i < midsEmitters.length; i++) {
             var pos = 1 + Math.floor(midsEmitters[i][0] * (width - 2));
             createDrop(pos, midP * algo.mids_size, width);
@@ -123,7 +123,6 @@ var testAlgo;
             else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
         }
 
-        // 4 high emitters (drifting)
         for (var i = 0; i < highEmitters.length; i++) {
             var pos = 1 + Math.floor(highEmitters[i][0] * (width - 2));
             createDrop(pos, hiP * algo.high_size, width);
@@ -132,31 +131,25 @@ var testAlgo;
             else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
         }
 
-        // Ripple simulation
         var speedInt = Math.floor(speed);
         for (var s = 0; s < speedInt; s++)
             doRipple(dampFactor, width);
 
-        // Render HSV
+        // Output HSV directly — this effect already computed in HSV
         var current = (curBuf === 0) ? buf0 : buf1;
         for (var x = 0; x < width; x++) {
             var val = current[x];
-
-            // h = triangle(val)
             var h = 1 - 2 * Math.abs(val - 0.5);
-
-            // vScaled = (val + shift) / (1 + shift)
             var vScaled = (val + shift) / (1 + shift);
-
-            // s = clamp(2 - (vScaled + shift), 0, 1)
-            var s = Math.max(0, Math.min(1, 2 - (vScaled + shift)));
-
-            // v = clamp(vScaled, 0, 1)
+            var sv = Math.max(0, Math.min(1, 2 - (vScaled + shift)));
             var v = Math.max(0, Math.min(1, vScaled));
 
-            var packed = RGBUtil.hsvToRgb(h, s, v);
-            for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+            for (var y = 0; y < height; y++) {
+                var i3 = (y * width + x) * 3;
+                map[i3] = h;
+                map[i3 + 1] = sv;
+                map[i3 + 2] = v;
+            }
         }
 
         return map;

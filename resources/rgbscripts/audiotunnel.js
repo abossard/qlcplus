@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Tunnel";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -61,13 +61,11 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -81,8 +79,7 @@ var testAlgo;
         var cy = height / 2;
         var maxDist = Math.sqrt(cx * cx + cy * cy);
         var ringCount = algo.presetRings;
-        var blendedPacked = AudioColors.blendByPower(algo, audio);
-        var blended = [(blendedPacked >> 16) & 0xFF, (blendedPacked >> 8) & 0xFF, blendedPacked & 0xFF];
+        var blended = AudioColors.blendByPower(algo, audio);
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
         var noveltyBoost = AudioColors.noveltyBoost(audio);
         var fluxPunch = AudioColors.fluxPunch(audio);
@@ -93,28 +90,26 @@ var testAlgo;
                 var dy = y - cy + 0.5;
 
                 var dist;
-                if (algo.presetShape === 1)        // Diamond
+                if (algo.presetShape === 1)
                     dist = Math.abs(dx) + Math.abs(dy);
-                else if (algo.presetShape === 2)   // Square
+                else if (algo.presetShape === 2)
                     dist = Math.max(Math.abs(dx), Math.abs(dy));
-                else                               // Circle
+                else
                     dist = Math.sqrt(dx * dx + dy * dy);
 
                 var normDist = dist / maxDist;
                 var ringPhase = (normDist * ringCount - phase) % 1;
-                ringPhase = ((ringPhase % 1) + 1) % 1; // wrap to 0-1
+                ringPhase = ((ringPhase % 1) + 1) % 1;
 
-                // Ring pattern with smooth falloff
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 var baseBright = Math.min(1, ringVal * power);
-                var floored = baseBright;
-                var bright = Math.min(1, floored * fluxPunch) * beatBoost * noveltyBoost;
+                var bright = Math.min(1, baseBright * fluxPunch) * beatBoost * noveltyBoost;
 
-                map[(y) * width + (x)] = RGBUtil.rgb(
-                    blended[0] * bright,
-                    blended[1] * bright,
-                    blended[2] * bright);
+                var i3 = (y * width + x) * 3;
+                map[i3] = blended.h;
+                map[i3 + 1] = blended.s;
+                map[i3 + 2] = Math.min(1, blended.v * bright);
             }
         }
 

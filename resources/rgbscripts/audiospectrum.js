@@ -76,6 +76,23 @@ var testAlgo;
       return out;
     }
 
+    // Local RGB→HSV (the effect inherently creates colors from 3 independent
+    // channels, so we convert the conceptual RGB to HSV for output).
+    function toHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+        var d = mx - mn;
+        var h = 0, s = (mx === 0) ? 0 : d / mx, v = mx;
+        if (d > 0) {
+            if (mx === r) h = ((g - b) / d) % 6;
+            else if (mx === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h /= 6;
+            if (h < 0) h += 1;
+        }
+        return {h: h, s: s, v: v};
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -84,11 +101,9 @@ var testAlgo;
     {
       var pixelCount = width * height;
       ensureState(pixelCount);
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       if (!audio) return map;
 
-      // Use audio.power.bands (dynamically sized frequency array from audio profile)
-      // instead of broken audio.spectrum.full (which comes from non-functional RGBAudio C++ class)
       var y = RGBUtil.interpolate((audio.power && audio.power.bands) || [], pixelCount);
       var filtered = y.slice();
       var filt = updateFilter(y);
@@ -100,9 +115,14 @@ var testAlgo;
         channels[mix[0]] = filtered[i] * 255.0;
         channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 255.0;
         channels[mix[2]] = filt[i] * 255.0;
-        var x = i % width;
+
+        var hsv = toHsv(channels[0], channels[1], channels[2]);
+        var px = i % width;
         var row = Math.floor(i / width);
-        map[(row) * width + (x)] = RGBUtil.rgb(channels[0], channels[1], channels[2]);
+        var i3 = (row * width + px) * 3;
+        map[i3] = hsv.h;
+        map[i3 + 1] = hsv.s;
+        map[i3 + 2] = hsv.v;
       }
 
       prevY = nextPrev;

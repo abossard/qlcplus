@@ -56,38 +56,46 @@ var testAlgo;
     var VERT_WAVE_FREQ = 1.5;
     var auroraState = { phase: 0 };
 
-    // Default 3-bank aurora palette (low, mid, high). Replaced per-frame by
-    // algo.gradientBandColors when the matrix supplies color stops.
-    var DEFAULT_BAND_COLORS = [0x6400FF, 0x00FF64, 0xFF8000];
+    // Default 3-bank aurora palette (low, mid, high) as HSV.
+    var DEFAULT_BAND_COLORS = [
+        { h: 0.731, s: 1.0, v: 1.0 },  // purple  (0x6400FF)
+        { h: 0.398, s: 1.0, v: 1.0 },  // green   (0x00FF64)
+        { h: 0.083, s: 1.0, v: 1.0 }   // orange  (0xFF8000)
+    ];
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
-    // Required by apiVersion 3 loader; ignored — colors come from the
-    // auto-injected algo.gradientBandColors instead.
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors
-            ? algo.gradientBandColors.slice()
-            : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
+
+    // Weighted circular hue average: sums sin/cos of hue angles weighted by
+    // intensity, then recovers the mean hue via atan2.
+    function blendHueWeighted(hues, weights) {
+        var sx = 0, sy = 0, tw = 0;
+        for (var i = 0; i < hues.length; i++) {
+            var w = weights[i];
+            if (w <= 0) continue;
+            var a = hues[i] * Math.PI * 2;
+            sx += Math.cos(a) * w;
+            sy += Math.sin(a) * w;
+            tw += w;
+        }
+        if (tw <= 0) return 0;
+        var angle = Math.atan2(sy, sx);
+        if (angle < 0) angle += Math.PI * 2;
+        return angle / (Math.PI * 2);
+    }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
         var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
-        // 3 mel banks, each driving its own gradient color.
         var bandPowers = audio.power.bands;
         var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
-
-        var cols = new Array(3);
-        for (var k = 0; k < 3; k++) {
-            var packed = bandColors[k] | 0;
-            cols[k] = [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-        }
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
@@ -96,25 +104,28 @@ var testAlgo;
         var waveFreq = algo.presetWaveSize;
         var layers = algo.presetLayers;
 
-        // Beat-pulse brightness boost
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
-        // True 2D: multiple sine wave layers drifting across the grid
+        var layerHues = [];
+        var layerWeights = [];
+
         for (var y = 0; y < height; y++) {
             var yNorm = y / Math.max(1, height - 1);
 
             for (var x = 0; x < width; x++) {
                 var xNorm = x / Math.max(1, width - 1);
-                var r = 0, g = 0, b2 = 0;
+                var totalIntensity = 0;
+                layerHues.length = 0;
+                layerWeights.length = 0;
+                var satAccum = 0;
 
                 for (var l = 0; l < layers; l++) {
                     var layerSpeed = (l + 1) * LAYER_SPEED_STEP;
                     var layerPhase = l * LAYER_PHASE_OFFSET;
                     var bandIdx = l % 3;
                     var power = bandPowers[bandIdx];
-                    var col = cols[bandIdx];
+                    var col = bandColors[bandIdx];
 
-                    // Horizontal drifting wave with vertical offset
                     var wave = Math.sin(
                         xNorm * waveFreq * Math.PI * 2 +
                         yNorm * (l + 1) * VERT_WAVE_FREQ +
@@ -123,7 +134,6 @@ var testAlgo;
                         power * reactivity * 3
                     );
 
-                    // Vertical undulation
                     var vertWave = Math.sin(
                         yNorm * Math.PI * 2 * (l + 1) +
                         theta * layerSpeed * 0.5 -
@@ -131,26 +141,23 @@ var testAlgo;
                     );
 
                     var intensity = (wave * 0.5 + 0.5) * (vertWave * 0.3 + 0.7);
-                    intensity *= power; // band power directly controls visibility
+                    intensity *= power;
+                    var contribution = intensity * col.v / layers;
 
-                    r += col[0] * intensity / layers;
-                    g += col[1] * intensity / layers;
-                    b2 += col[2] * intensity / layers;
+                    layerHues.push(col.h);
+                    layerWeights.push(contribution);
+                    satAccum += col.s * contribution;
+                    totalIntensity += contribution;
                 }
 
-                var maxChannel = Math.max(r, g, b2) / 255.0;
-                if (maxChannel > 0) {
-                    var floored = Math.min(1, maxChannel);
-                    var floorScale = floored / maxChannel * beatBoost;
-                    r *= floorScale;
-                    g *= floorScale;
-                    b2 *= floorScale;
+                var ph = 0, ps = 0, pv = 0;
+                if (totalIntensity > 0) {
+                    ph = blendHueWeighted(layerHues, layerWeights);
+                    ps = satAccum / totalIntensity;
+                    pv = Math.min(1, totalIntensity * beatBoost);
                 }
-                map[(y) * width + (x)] = RGBUtil.rgb(
-                    Math.min(255, r),
-                    Math.min(255, g),
-                    Math.min(255, b2)
-                );
+
+                RGBUtil.setPixel(map, width, x, y, ph, ps, pv);
             }
         }
 

@@ -51,7 +51,7 @@ var testAlgo;
             var isWidthEven = (width % 2 === 0);
             var isHeightEven = (height % 2 === 0);
 
-            var map = new Uint32Array(width * height);
+            var map = RGBUtil.createMap(width, height);
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
@@ -60,21 +60,17 @@ var testAlgo;
                     {
                         if ((x <= widthCenter + step + (isWidthEven ? 1 : 0 ) && x >= widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                                map[(y) * width + (x)] = rgb;
-                        } else {
-                            map[(y) * width + (x)] = 0;
+                                RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
                         }
                     }
                     else
                     {
                         if ((x === widthCenter + step + (isWidthEven ? 1 : 0 ) || x === widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                            map[(y) * width + (x)] = rgb;
+                            RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
                         } else if ((y === heightCenter + step + (isHeightEven ? 1 : 0 ) || y === heightCenter - step) &&
                                    (x <= widthCenter + step + (isWidthEven ? 1 : 0) && x >= widthCenter - step)) {
-                            map[(y) * width + (x)] = rgb;
-                        } else {
-                            map[(y) * width + (x)] = 0;
+                            RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
                         }
                     }
                 }

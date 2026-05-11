@@ -2,10 +2,16 @@
   Q Light Controller Plus
   audio_colors.js — color helpers for audio-reactive RGB scripts.
   All DSP comes from C++; this file only picks/tints colors using the gradient.
+
+  All colors are {h, s, v} objects (hue 0-1, saturation 0-1, value 0-1).
 */
 
 var AudioColors = {
-    DEFAULT_BANDS: [0xFF4000, 0x00FF64, 0x4080FF],
+    DEFAULT_BANDS: [
+        {h: 0.042, s: 1.0, v: 1.0},
+        {h: 0.399, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ],
 
     bands: function(algo) {
         return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
@@ -13,11 +19,8 @@ var AudioColors = {
     },
 
     /**
-     * Pick the dominant band's color, tinted slightly toward the runner-up.
-     * Never averages in RGB (which washes to white). The dominant band's
-     * hue always wins; secondary bands add subtle tint at most.
-     * Hysteresis prevents flickering when bands are close in power.
-     * State stored on algo object (per-script, not shared).
+     * Pick the dominant band's HSV color, tinted slightly toward the runner-up.
+     * Hue interpolated via shortest arc. Returns {h, s, v}.
      */
     blendByPower: function(algo, audio) {
         var colors = AudioColors.bands(algo);
@@ -40,9 +43,9 @@ var AudioColors = {
             ? maxIdx : prevIdx;
         algo._prevDomIdx = domIdx;
 
-        var domColor = colors[domIdx] | 0;
+        var dom = colors[domIdx];
         var domPower = powers[domIdx] || 0;
-        if (domPower < 0.001) return domColor;
+        if (domPower < 0.001) return {h: dom.h, s: dom.s, v: dom.v};
 
         var runIdx = -1, runPower = -1;
         for (var j = 0; j < 3; j++) {
@@ -52,16 +55,28 @@ var AudioColors = {
             }
         }
 
-        if (runIdx < 0) return domColor;
+        if (runIdx < 0) return {h: dom.h, s: dom.s, v: dom.v};
 
-        // Tint: max 30% from runner-up to keep saturation
         var tint = Math.min(0.3, runPower / Math.max(0.001, domPower) * 0.3);
-        var runColor = colors[runIdx] | 0;
+        return AudioColors.blend(dom, colors[runIdx], tint);
+    },
 
-        var r = ((domColor >> 16) & 0xFF) * (1 - tint) + ((runColor >> 16) & 0xFF) * tint;
-        var g = ((domColor >> 8) & 0xFF) * (1 - tint) + ((runColor >> 8) & 0xFF) * tint;
-        var b = (domColor & 0xFF) * (1 - tint) + (runColor & 0xFF) * tint;
-        return RGBUtil.rgb(Math.round(r), Math.round(g), Math.round(b));
+    /**
+     * Blend two {h,s,v} colors. t=0 returns a, t=1 returns b.
+     * Hue interpolated via shortest arc.
+     */
+    blend: function(a, b, t) {
+        var s1 = 1 - t;
+        var dh = b.h - a.h;
+        if (dh > 0.5) dh -= 1;
+        else if (dh < -0.5) dh += 1;
+        var h = a.h + t * dh;
+        h = h - Math.floor(h);
+        return {
+            h: h,
+            s: a.s * s1 + b.s * t,
+            v: a.v * s1 + b.v * t
+        };
     },
 
     dominant: function(algo, audio) {
@@ -90,13 +105,4 @@ AudioColors.dominantColor = function(algo, audio, fallback, threshold) {
     var bands = AudioColors.bands(algo);
     var idx = AudioColors.dominantIndex(audio);
     return bands[idx] !== undefined ? bands[idx] : fallback;
-};
-
-AudioColors.blendPacked = function(a, b, t) {
-    var s = 1 - t;
-    return RGBUtil.rgb(
-        ((a >> 16) & 0xFF) * s + ((b >> 16) & 0xFF) * t,
-        ((a >> 8) & 0xFF) * s + ((b >> 8) & 0xFF) * t,
-        (a & 0xFF) * s + (b & 0xFF) * t
-    );
 };

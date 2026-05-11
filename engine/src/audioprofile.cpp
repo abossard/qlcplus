@@ -180,6 +180,7 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
     {
         qWarning() << Q_FUNC_INFO << "Invalid AudioProfile ID:"
                    << attrs.value(KXMLQLCAudioProfileID).toString();
+        root.skipCurrentElement();
         return false;
     }
     m_id = id;
@@ -190,41 +191,38 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
     if (attrs.hasAttribute(KXMLQLCAudioProfileIsDefault))
         setIsDefault(boolFromString(attrs.value(KXMLQLCAudioProfileIsDefault).toString()));
 
-    constexpr int kSupportedVersion = 1;
+    constexpr int kSupportedVersion = 2;
     int version = 0;
     if (attrs.hasAttribute(KXMLQLCAudioProfileVersion))
     {
         bool versionOk = false;
         const int parsed = attrs.value(KXMLQLCAudioProfileVersion).toString().toInt(&versionOk);
-        if (!versionOk)
+        if (!versionOk || parsed < kSupportedVersion)
         {
             qWarning() << "AudioProfile" << m_name
-                       << "has unparseable Version attribute"
+                       << "has unsupported Version"
                        << attrs.value(KXMLQLCAudioProfileVersion).toString()
-                       << "- treating as legacy (version 0). Defaults will be used for missing settings.";
-            version = 0;
+                       << "- minimum supported is" << kSupportedVersion
+                       << ". Recreate the profile from current defaults.";
+            root.skipCurrentElement();
+            return false;
         }
-        else if (parsed < 0)
+        version = parsed;
+        if (version > kSupportedVersion)
         {
-            qWarning() << "AudioProfile" << m_name << "has negative Version" << parsed
-                       << "- treating as legacy (version 0). Defaults will be used for missing settings.";
-            version = 0;
-        }
-        else
-        {
-            version = parsed;
-            if (version > kSupportedVersion)
-            {
-                qWarning() << "AudioProfile" << m_name << "has version" << version
-                           << "which is newer than supported (" << kSupportedVersion
-                           << "). Some settings may be lost.";
-            }
+            qWarning() << "AudioProfile" << m_name << "has version" << version
+                       << "which is newer than supported (" << kSupportedVersion
+                       << "). Some settings may be lost.";
         }
     }
     else
     {
-        // Missing Version attribute: treat as legacy (version 0).
-        version = 0;
+        // No backward compat: pre-Version-2 profiles are dead.
+        qWarning() << "AudioProfile" << m_name
+                   << "is missing the Version attribute (legacy v1 or older)."
+                   << " Recreate from current defaults.";
+        root.skipCurrentElement();
+        return false;
     }
     Q_UNUSED(version)
 
@@ -309,44 +307,50 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileMelPost)
         {
+            // Master 40-band post-processor (snap.melProcessed[] / flatness).
             config.melPost.enabled = intAttribute(childAttrs,
                                                   KXMLQLCAudioProfileMelPostEnabled,
                                                   config.melPost.enabled ? 1 : 0) != 0;
-            config.melPost.powerFactor = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileMelPostPowerFactor,
-                                                         config.melPost.powerFactor);
-            config.melPost.gaussianSigma = doubleAttribute(childAttrs,
-                                                           KXMLQLCAudioProfileMelPostGaussianSigma,
-                                                           config.melPost.gaussianSigma);
-            config.melPost.smoothDecay = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileMelPostSmoothDecay,
-                                                         config.melPost.smoothDecay);
-            config.melPost.smoothRise = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileMelPostSmoothRise,
-                                                         config.melPost.smoothRise);
-            config.melPost.commonDecay = doubleAttribute(childAttrs,
-                                                          KXMLQLCAudioProfileMelPostCommonDecay,
-                                                          config.melPost.commonDecay);
-            config.melPost.commonRise = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileMelPostCommonRise,
-                                                         config.melPost.commonRise);
-            config.melPost.diffDecay = doubleAttribute(childAttrs,
-                                                        KXMLQLCAudioProfileMelPostDiffDecay,
-                                                        config.melPost.diffDecay);
-            config.melPost.diffRise = doubleAttribute(childAttrs,
-                                                       KXMLQLCAudioProfileMelPostDiffRise,
-                                                       config.melPost.diffRise);
+            config.melPost.powerFactor   = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankPowerFactor,   config.melPost.powerFactor);
+            config.melPost.gaussianSigma = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankGaussianSigma, config.melPost.gaussianSigma);
+            config.melPost.smoothDecay   = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankSmoothDecay,   config.melPost.smoothDecay);
+            config.melPost.smoothRise    = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankSmoothRise,    config.melPost.smoothRise);
+            config.melPost.commonDecay   = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankCommonDecay,   config.melPost.commonDecay);
+            config.melPost.commonRise    = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankCommonRise,    config.melPost.commonRise);
+            config.melPost.diffDecay     = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankDiffDecay,     config.melPost.diffDecay);
+            config.melPost.diffRise      = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankDiffRise,      config.melPost.diffRise);
+            config.melPost.agcDecay      = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankAgcDecay,      config.melPost.agcDecay);
+            config.melPost.agcRise       = doubleAttribute(childAttrs, KXMLQLCAudioProfileMelBankAgcRise,       config.melPost.agcRise);
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileFreqPower)
         {
-            config.freqPowerDecay = doubleAttribute(childAttrs,
-                                                     KXMLQLCAudioProfileFreqPowerDecay,
-                                                     config.freqPowerDecay);
-            config.freqPowerRise = doubleAttribute(childAttrs,
-                                                    KXMLQLCAudioProfileFreqPowerRise,
-                                                    config.freqPowerRise);
-            root.skipCurrentElement();
+            // <FreqPower>
+            //   <Band Name="beat" MaxHz="100" Decay="0.1" Rise="0.99"/>
+            //   ...
+            // </FreqPower>
+            while (root.readNextStartElement())
+            {
+                if (root.name() == KXMLQLCAudioProfileFreqPowerBand)
+                {
+                    const QXmlStreamAttributes bAttrs = root.attributes();
+                    const QString name = stringAttribute(bAttrs,
+                                                         KXMLQLCAudioProfileFreqPowerBandName,
+                                                         QString()).toLower();
+                    FreqPowerBandConfig *band = nullptr;
+                    if      (name == QStringLiteral("beat")) band = &config.freqPower.beat;
+                    else if (name == QStringLiteral("bass")) band = &config.freqPower.bass;
+                    else if (name == QStringLiteral("mids")) band = &config.freqPower.mids;
+                    else if (name == QStringLiteral("high")) band = &config.freqPower.high;
+                    if (band != nullptr)
+                    {
+                        band->maxHz = doubleAttribute(bAttrs, KXMLQLCAudioProfileFreqPowerBandMaxHz, band->maxHz);
+                        band->decay = doubleAttribute(bAttrs, KXMLQLCAudioProfileFreqPowerBandDecay, band->decay);
+                        band->rise  = doubleAttribute(bAttrs, KXMLQLCAudioProfileFreqPowerBandRise,  band->rise);
+                    }
+                }
+                root.skipCurrentElement();
+            }
         }
         else if (root.name() == KXMLQLCAudioProfileVolume)
         {
@@ -384,6 +388,18 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.pitchTolerance = doubleAttribute(childAttrs,
                                                           KXMLQLCAudioProfileAubioPitchTolerance,
                                                           config.aubio.pitchTolerance);
+            config.aubio.filterbankNorm = doubleAttribute(childAttrs,
+                                                          KXMLQLCAudioProfileAubioFilterbankNorm,
+                                                          config.aubio.filterbankNorm);
+            config.aubio.filterbankPower = doubleAttribute(childAttrs,
+                                                           KXMLQLCAudioProfileAubioFilterbankPower,
+                                                           config.aubio.filterbankPower);
+            config.aubio.tempoSilenceDb = doubleAttribute(childAttrs,
+                                                          KXMLQLCAudioProfileAubioTempoSilenceDb,
+                                                          config.aubio.tempoSilenceDb);
+            config.aubio.tempoThreshold = doubleAttribute(childAttrs,
+                                                          KXMLQLCAudioProfileAubioTempoThreshold,
+                                                          config.aubio.tempoThreshold);
             config.aubio.tatumSubdivision = intAttribute(childAttrs,
                                                          KXMLQLCAudioProfileAubioTatumSubdivision,
                                                          config.aubio.tatumSubdivision);
@@ -544,6 +560,18 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
                         if (bank->bands < 1) bank->bands = 1;
                         if (bank->bands > MelBankConfig::kMaxBandsPerBank)
                             bank->bands = MelBankConfig::kMaxBandsPerBank;
+
+                        // Per-bank MelPostConfig (LedFx melbank.py:374-378).
+                        bank->post.powerFactor   = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankPowerFactor,   bank->post.powerFactor);
+                        bank->post.gaussianSigma = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankGaussianSigma, bank->post.gaussianSigma);
+                        bank->post.smoothDecay   = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankSmoothDecay,   bank->post.smoothDecay);
+                        bank->post.smoothRise    = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankSmoothRise,    bank->post.smoothRise);
+                        bank->post.commonDecay   = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankCommonDecay,   bank->post.commonDecay);
+                        bank->post.commonRise    = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankCommonRise,    bank->post.commonRise);
+                        bank->post.diffDecay     = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankDiffDecay,     bank->post.diffDecay);
+                        bank->post.diffRise      = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankDiffRise,      bank->post.diffRise);
+                        bank->post.agcDecay      = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankAgcDecay,      bank->post.agcDecay);
+                        bank->post.agcRise       = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankAgcRise,       bank->post.agcRise);
                     }
                     if (mbAttrs.hasAttribute(KXMLQLCAudioProfileAubioMelBankPreset))
                     {
@@ -578,7 +606,7 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileID, QString::number(id()));
     doc->writeAttribute(KXMLQLCAudioProfileName, name());
     doc->writeAttribute(KXMLQLCAudioProfileIsDefault, isDefault() ? KXMLQLCTrue : KXMLQLCFalse);
-    doc->writeAttribute(KXMLQLCAudioProfileVersion, QStringLiteral("1"));
+    doc->writeAttribute(KXMLQLCAudioProfileVersion, QStringLiteral("2"));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileEnvelope);
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, QString::number(m_config.envelope.attackMs));
@@ -604,18 +632,36 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
 
     doc->writeEmptyElement(KXMLQLCAudioProfileMelPost);
     doc->writeAttribute(KXMLQLCAudioProfileMelPostEnabled, m_config.melPost.enabled ? "1" : "0");
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostPowerFactor, QString::number(m_config.melPost.powerFactor));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostGaussianSigma, QString::number(m_config.melPost.gaussianSigma));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostSmoothDecay, QString::number(m_config.melPost.smoothDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostSmoothRise, QString::number(m_config.melPost.smoothRise));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostCommonDecay, QString::number(m_config.melPost.commonDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostCommonRise, QString::number(m_config.melPost.commonRise));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostDiffDecay, QString::number(m_config.melPost.diffDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelPostDiffRise, QString::number(m_config.melPost.diffRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   QString::number(m_config.melPost.powerFactor));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, QString::number(m_config.melPost.gaussianSigma));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   QString::number(m_config.melPost.smoothDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    QString::number(m_config.melPost.smoothRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   QString::number(m_config.melPost.commonDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    QString::number(m_config.melPost.commonRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     QString::number(m_config.melPost.diffDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      QString::number(m_config.melPost.diffRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(m_config.melPost.agcDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(m_config.melPost.agcRise));
 
-    doc->writeEmptyElement(KXMLQLCAudioProfileFreqPower);
-    doc->writeAttribute(KXMLQLCAudioProfileFreqPowerDecay, QString::number(m_config.freqPowerDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileFreqPowerRise, QString::number(m_config.freqPowerRise));
+    // Per-band freq_power: <FreqPower><Band Name="..." MaxHz=".." Decay=".." Rise=".."/>...</FreqPower>
+    doc->writeStartElement(KXMLQLCAudioProfileFreqPower);
+    {
+        struct { const char *name; const FreqPowerBandConfig *band; } bands[] = {
+            { "beat", &m_config.freqPower.beat },
+            { "bass", &m_config.freqPower.bass },
+            { "mids", &m_config.freqPower.mids },
+            { "high", &m_config.freqPower.high }
+        };
+        for (size_t i = 0; i < sizeof(bands) / sizeof(bands[0]); ++i)
+        {
+            doc->writeEmptyElement(KXMLQLCAudioProfileFreqPowerBand);
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandName,  QString::fromLatin1(bands[i].name));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandMaxHz, QString::number(bands[i].band->maxHz));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandDecay, QString::number(bands[i].band->decay));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandRise,  QString::number(bands[i].band->rise));
+        }
+    }
+    doc->writeEndElement(); // FreqPower
 
     doc->writeEmptyElement(KXMLQLCAudioProfileVolume);
     doc->writeAttribute(KXMLQLCAudioProfileVolumeSmoothing, QString::number(m_config.volumeSmoothingMs));
@@ -626,6 +672,10 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchUnit, m_config.aubio.pitchUnit);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchSilenceDb, QString::number(m_config.aubio.pitchSilenceDb));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchTolerance, QString::number(m_config.aubio.pitchTolerance));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankNorm, QString::number(m_config.aubio.filterbankNorm));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankPower, QString::number(m_config.aubio.filterbankPower));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoSilenceDb, QString::number(m_config.aubio.tempoSilenceDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoThreshold, QString::number(m_config.aubio.tempoThreshold));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTatumSubdivision, QString::number(m_config.aubio.tatumSubdivision));
     doc->writeAttribute(KXMLQLCAudioProfileAubioBeatsPerBar, QString::number(m_config.aubio.beatsPerBar));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPreEmphasisEnabled, m_config.aubio.preEmphasisEnabled ? "1" : "0");
@@ -703,6 +753,17 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
                                 QString::number(banks[i].bank->maxHz));
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankBands,
                                 QString::number(banks[i].bank->bands));
+            const MelPostConfig &p = banks[i].bank->post;
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   QString::number(p.powerFactor));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, QString::number(p.gaussianSigma));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   QString::number(p.smoothDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    QString::number(p.smoothRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   QString::number(p.commonDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    QString::number(p.commonRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     QString::number(p.diffDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      QString::number(p.diffRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(p.agcDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(p.agcRise));
             if (i == 0)
                 doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
         }

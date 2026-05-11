@@ -71,29 +71,29 @@ var testAlgo;
     algo.peakAge    = [0, 0, 0];
     algo.peakFlash  = [0, 0, 0];
 
-    var DEFAULT_BANDS = [0xFF4000, 0x00FF64, 0x4080FF];
+    // 0xFF4000=orange-red, 0x00FF64=green, 0x4080FF=blue
+    var DEFAULT_BANDS = [
+        {h: 0.042, s: 1.0,   v: 1.0},
+        {h: 0.399, s: 1.0,   v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
     var BAND_NAMES = ["low", "mid", "high"];
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BANDS.slice();
+        return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
+            ? algo.gradientBandColors.slice() : DEFAULT_BANDS.slice();
     };
 
     algo.blendToWhite = function(c, t) {
         if (t <= 0) return c;
         if (t > 1) t = 1;
-        var r = (c >> 16) & 0xFF;
-        var g = (c >> 8) & 0xFF;
-        var b = c & 0xFF;
-        r = Math.round(r + (255 - r) * t);
-        g = Math.round(g + (255 - g) * t);
-        b = Math.round(b + (255 - b) * t);
-        return (r << 16) | (g << 8) | b;
+        return {h: c.h, s: c.s * (1 - t), v: c.v + (1 - c.v) * t};
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var nBands = (algo.presetBands === "1") ? 1 : 3;
         var gravity   = algo.presetGravity / 100.0;
@@ -140,7 +140,7 @@ var testAlgo;
         var totalCross = horizontal ? height : width;
 
         for (var b = 0; b < nBands; b++) {
-            var barColor = bandColors[b] | 0;
+            var barColor = bandColors[b];
             var c0 = Math.floor(b * totalCross / nBands);
             var c1 = (b === nBands - 1) ? totalCross - 1 : Math.floor((b + 1) * totalCross / nBands) - 1;
             if (c1 < c0) c1 = c0;
@@ -157,18 +157,21 @@ var testAlgo;
                 if (horizontal) {
                     // bars extend from left
                     for (var x = 0; x < barLen; x++) {
-                        if (c >= 0 && c < height && x >= 0 && x < width) map[(c) * width + (x)] = barColor;
+                        if (c >= 0 && c < height && x >= 0 && x < width)
+                            RGBUtil.setPixel(map, width, x, c, barColor.h, barColor.s, barColor.v);
                     }
                     if (peakIdx >= 0 && peakIdx < width && c >= 0 && c < height)
-                        map[(c) * width + (peakIdx)] = flashColor;
+                        RGBUtil.setPixel(map, width, peakIdx, c, flashColor.h, flashColor.s, flashColor.v);
                 } else {
                     // bars rise from bottom
                     for (var y = 0; y < barLen; y++) {
                         var rowY = height - 1 - y;
-                        if (rowY >= 0 && rowY < height && c >= 0 && c < width) map[(rowY) * width + (c)] = barColor;
+                        if (rowY >= 0 && rowY < height && c >= 0 && c < width)
+                            RGBUtil.setPixel(map, width, c, rowY, barColor.h, barColor.s, barColor.v);
                     }
                     var prow = height - 1 - peakIdx;
-                    if (prow >= 0 && prow < height && c >= 0 && c < width) map[(prow) * width + (c)] = flashColor;
+                    if (prow >= 0 && prow < height && c >= 0 && c < width)
+                        RGBUtil.setPixel(map, width, c, prow, flashColor.h, flashColor.s, flashColor.v);
                 }
             }
         }

@@ -23,7 +23,11 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_BAND_COLORS = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_BAND_COLORS = [
+      {h: 0.958, s: 1.0, v: 1.0},
+      {h: 0.167, s: 1.0, v: 1.0},
+      {h: 0.611, s: 0.75, v: 1.0}
+    ];
 
     algo.presetBlobWidth = 6;
     algo.properties.push(
@@ -49,9 +53,7 @@ var testAlgo;
     algo.pos = null;
     algo.vel = null;
     algo.lastN = -1;
-    algo.accR = null;
-    algo.accG = null;
-    algo.accB = null;
+    algo.accIntensity = null;
     algo.accLen = 0;
 
     function ensureBlobs(N) {
@@ -84,47 +86,58 @@ var testAlgo;
         if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
       }
 
-      var map = RGBUtil.createFlatMap(width, height);
-      var colors = AudioColors.bands(algo);
+      var map = RGBUtil.createMap(width, height);
+      var bandColors = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
+        ? algo.gradientBandColors : DEFAULT_BAND_COLORS;
       var powers = audio.power.bands;
       var sigma = Math.max(1, algo.presetBlobWidth);
       var twoSigSq = 2 * sigma * sigma;
 
-      // Accumulate raw RGB per long-axis position.
+      // Per-band intensity accumulator for each long-axis position
       if (algo.accLen !== N) {
-        algo.accR = new Array(N);
-        algo.accG = new Array(N);
-        algo.accB = new Array(N);
+        algo.accIntensity = new Array(N);
+        for (var a = 0; a < N; a++) algo.accIntensity[a] = [0, 0, 0];
         algo.accLen = N;
       }
-      for (var p = 0; p < N; p++) { algo.accR[p] = 0; algo.accG[p] = 0; algo.accB[p] = 0; }
+      for (var p = 0; p < N; p++) {
+        algo.accIntensity[p][0] = 0;
+        algo.accIntensity[p][1] = 0;
+        algo.accIntensity[p][2] = 0;
+      }
 
+      // Accumulate per-band intensity at each position
       for (var b = 0; b < 3; b++) {
-        var c = colors[b] | 0;
-        var cr = (c >> 16) & 0xFF;
-        var cg = (c >> 8) & 0xFF;
-        var cb = c & 0xFF;
         var cx = algo.pos[b] * (N - 1);
         var amp = powers[b];
         for (var q = 0; q < N; q++) {
           var d = q - cx;
           var falloff = Math.exp(-(d * d) / twoSigSq);
-          var k = amp * falloff;
-          algo.accR[q] += cr * k;
-          algo.accG[q] += cg * k;
-          algo.accB[q] += cb * k;
+          algo.accIntensity[q][b] = amp * falloff;
         }
       }
 
       for (var pos = 0; pos < N; pos++) {
-        var r = algo.accR[pos];
-        var g = algo.accG[pos];
-        var bl = algo.accB[pos];
-        var packed = RGBUtil.rgb(r, g, bl);
+        var i0 = algo.accIntensity[pos][0];
+        var i1 = algo.accIntensity[pos][1];
+        var i2 = algo.accIntensity[pos][2];
+        var totalV = i0 + i1 + i2;
+
+        if (totalV < 0.001) continue;
+
+        // Pick dominant band for hue/sat, use total intensity for value
+        var domBand = 0;
+        if (i1 > i0 && i1 > i2) domBand = 1;
+        else if (i2 > i0) domBand = 2;
+
+        var col = bandColors[domBand];
+        var v = Math.min(1.0, totalV);
+
         if (horizontal) {
-          for (var y = 0; y < height; y++) map[(y) * width + (pos)] = packed;
+          for (var y = 0; y < height; y++)
+            RGBUtil.setPixel(map, width, pos, y, col.h, col.s, v);
         } else {
-          for (var x = 0; x < width; x++) map[(pos) * width + (x)] = packed;
+          for (var x = 0; x < width; x++)
+            RGBUtil.setPixel(map, width, x, pos, col.h, col.s, v);
         }
       }
 

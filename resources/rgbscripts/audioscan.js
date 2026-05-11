@@ -24,7 +24,16 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
+    var DEFAULT_GRADIENT = [
+        {h: 0.0,   s: 1.0, v: 1.0},
+        {h: 0.078, s: 1.0, v: 1.0},
+        {h: 0.131, s: 1.0, v: 1.0},
+        {h: 0.333, s: 1.0, v: 1.0},
+        {h: 0.453, s: 1.0, v: 0.780},
+        {h: 0.667, s: 1.0, v: 1.0},
+        {h: 0.833, s: 1.0, v: 0.502},
+        {h: 0.884, s: 1.0, v: 1.0}
+    ];
 
     algo.blur = 3.0;
     algo.bounce = "Yes";
@@ -74,13 +83,18 @@ var testAlgo;
     var returning = false;
     var lastWidth = 0;
 
-    function colorArray(packed) {
-        packed = packed & 0xFFFFFF;
-        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-    }
-
     function gradientStops() {
         return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+    }
+
+    function bandColors() {
+        if (algo.gradientBandColors && algo.gradientBandColors.length > 0)
+            return algo.gradientBandColors;
+        return [
+            {h: 0.0,   s: 1.0, v: 1.0},
+            {h: 0.333, s: 1.0, v: 1.0},
+            {h: 0.667, s: 1.0, v: 1.0}
+        ];
     }
 
     function powerFor(audio) {
@@ -94,12 +108,12 @@ var testAlgo;
 
     function setStrip(strip, idx, color) {
         if (idx < 0 || idx >= strip.length) return;
-        strip[idx] = [color[0], color[1], color[2]];
+        strip[idx] = {h: color.h, s: color.s, v: color.v};
     }
 
     function clearStrip(strip, idx) {
         if (idx < 0 || idx >= strip.length) return;
-        strip[idx] = [0, 0, 0];
+        strip[idx] = {h: 0, s: 0, v: 0};
     }
 
     function boxBlur(strip, amount) {
@@ -108,23 +122,23 @@ var testAlgo;
         var n = strip.length;
         var out = new Array(n);
         for (var i = 0; i < n; i++) {
-            var r = 0, g = 0, b = 0, c = 0;
+            var bh = 0, bs = 0, bv = 0, c = 0;
             for (var k = -radius; k <= radius; k++) {
                 var idx = i + k;
                 if (idx < 0 || idx >= n) continue;
-                r += strip[idx][0]; g += strip[idx][1]; b += strip[idx][2]; c++;
+                bh += strip[idx].h; bs += strip[idx].s; bv += strip[idx].v; c++;
             }
-            out[i] = [r / c, g / c, b / c];
+            out[i] = {h: bh / c, s: bs / c, v: bv / c};
         }
         return out;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { algo.gradientColors = RGBUtil.buildGradientColors(rawColors); };
-    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return DEFAULT_GRADIENT.slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
         if (lastWidth !== width) {
             scanPos = 0.0;
@@ -153,20 +167,25 @@ var testAlgo;
 
         var strip = new Array(width);
         if (algo.full_grad === "Yes") {
-            for (var gx = 0; gx < width; gx++)
-                strip[gx] = colorArray(RGBUtil.gradientColorAt(gradientStops(), width <= 1 ? 0 : gx / (width - 1)));
+            for (var gx = 0; gx < width; gx++) {
+                var t = width <= 1 ? 0 : gx / (width - 1);
+                strip[gx] = RGBUtil.gradientAt(gradientStops(), t);
+            }
         } else {
-            for (var zx = 0; zx < width; zx++) strip[zx] = [0, 0, 0];
+            for (var zx = 0; zx < width; zx++) strip[zx] = {h: 0, s: 0, v: 0};
         }
 
         var scanColor;
-        if (algo.use_grad === "Yes")
-            scanColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), ((scanPos / width) % 1 + 1) % 1));
-        else
-            scanColor = colorArray(AudioColors.bands(algo)[0]);
+        if (algo.use_grad === "Yes") {
+            var gt = ((scanPos / width) % 1 + 1) % 1;
+            scanColor = RGBUtil.gradientAt(gradientStops(), gt);
+        } else {
+            var bc = bandColors();
+            scanColor = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
+        }
         if (algo.color_intensity === "Yes") {
             var intensity = Math.min(1.0, power);
-            scanColor = [scanColor[0] * intensity, scanColor[1] * intensity, scanColor[2] * intensity];
+            scanColor = {h: scanColor.h, s: scanColor.s, v: scanColor.v * intensity};
         }
 
         for (var bi = 0; bi < count; bi++) {
@@ -197,7 +216,7 @@ var testAlgo;
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
-                map[(y) * width + (x)] = RGBUtil.rgb(strip[x][0], strip[x][1], strip[x][2]);
+                RGBUtil.setPixel(map, width, x, y, strip[x].h, strip[x].s, strip[x].v);
         return map;
     };
 

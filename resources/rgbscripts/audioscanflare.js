@@ -107,23 +107,38 @@ var testAlgo;
     algo.elapsedMs = 0;
     algo.lastN = 0;
 
-    algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    function bandColors() {
+        if (algo.gradientBandColors && algo.gradientBandColors.length > 0)
+            return algo.gradientBandColors;
+        return [
+            {h: 0.0,   s: 1.0, v: 1.0},
+            {h: 0.333, s: 1.0, v: 1.0},
+            {h: 0.667, s: 1.0, v: 1.0}
+        ];
+    }
 
     function drawSegment(strip, n, startPos, w, color) {
         var start = Math.floor(startPos);
         for (var s = 0; s < w; s++) {
             var idx = start + s;
             if (idx < 0 || idx >= n) continue;
-            strip[idx] = RGBUtil.blendAdd(strip[idx], color);
+            var old = strip[idx];
+            strip[idx] = {
+                h: (color.v > old.v) ? color.h : old.h,
+                s: (color.v > old.v) ? color.s : old.s,
+                v: Math.min(1, old.v + color.v)
+            };
         }
     }
 
+    algo.rgbMapStepCount = function(width, height) { return 1; };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() {
+        return bandColors().slice();
+    };
+
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -147,7 +162,6 @@ var testAlgo;
         var multiplier = algo.presetMultiplier / 100.0;
         var bar = power * multiplier;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
-        // Beat-locked velocity: presetSpeed cycles/beat across (n - scanW) px.
         var stepPerSec = Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec;
         var stepSize = dt * stepPerSec * bar;
         var bounce = algo.presetBounce === 1;
@@ -188,12 +202,13 @@ var testAlgo;
         }
 
         var strip = new Array(n);
-        for (var p = 0; p < n; p++) strip[p] = 0;
+        for (var p = 0; p < n; p++) strip[p] = {h: 0, s: 0, v: 0};
 
-        var scanColor = AudioColors.bands(algo)[0] | 0;
+        var bc = bandColors();
+        var scanHsv = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
         if (algo.presetColorIntensity === 1)
-            scanColor = RGBUtil.scaleColor(scanColor, Math.min(1, power));
-        drawSegment(strip, n, algo.scanPos, scanW, scanColor);
+            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: scanHsv.v * Math.min(1, power)};
+        drawSegment(strip, n, algo.scanPos, scanW, scanHsv);
 
         var alive = [];
         for (var i = 0; i < algo.sparkles.length; i++) {
@@ -203,7 +218,7 @@ var testAlgo;
             if (health <= 0) continue;
             sp.pos += sp.speed * dt * health;
             if (sp.pos < -sp.width || sp.pos >= n) continue;
-            var sparkleColor = RGBUtil.scaleColor(0xFFFFFF, health);
+            var sparkleColor = {h: 0, s: 0, v: health};
             drawSegment(strip, n, sp.pos, sp.width, sparkleColor);
             alive.push(sp);
         }
@@ -211,12 +226,14 @@ var testAlgo;
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {
-                var c = strip[y];
-                for (var x = 0; x < width; x++) map[(y) * width + (x)] = c;
+                var pix = strip[y];
+                for (var x = 0; x < width; x++)
+                    RGBUtil.setPixel(map, width, x, y, pix.h, pix.s, pix.v);
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
-                for (var x2 = 0; x2 < width; x2++) map[(y2) * width + (x2)] = strip[x2];
+                for (var x2 = 0; x2 < width; x2++)
+                    RGBUtil.setPixel(map, width, x2, y2, strip[x2].h, strip[x2].s, strip[x2].v);
             }
         }
 

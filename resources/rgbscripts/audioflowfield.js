@@ -23,7 +23,11 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_GRADIENT = [
+        {h: 0.958, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
 
     algo.presetParticleCount = 60;
     algo.properties.push(
@@ -111,15 +115,15 @@ var testAlgo;
 
     function ensureFb(width, height) {
       if (algo.fb && algo.lastW === width && algo.lastH === height) return;
-      algo.fb = new Uint32Array(width * height);
+      algo.fb = new Float32Array(width * height * 3);
       algo.particles = [];
       algo.lastW = width;
       algo.lastH = height;
     }
 
     function spawnParticle(width, height, audio) {
-      var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-        ? audio.colors.gradient : DEFAULT_GRADIENT;
+      var gradient = (algo.gradientColors && algo.gradientColors.length > 0)
+        ? algo.gradientColors : DEFAULT_GRADIENT;
       return {
         x: Math.random() * width,
         y: Math.random() * height,
@@ -129,14 +133,17 @@ var testAlgo;
         vy: 0,
         ageMs: 0,
         lifeMs: algo.presetLifeMs,
-        color: RGBUtil.gradientColorAt(gradient, Math.random())
+        color: RGBUtil.gradientAt(gradient, Math.random())
       };
     }
 
     function stampPixel(width, height, x, y, color) {
       if (x < 0 || x >= width || y < 0 || y >= height) return;
-      var idx = y * width + x;
-      algo.fb[idx] = RGBUtil.blendAdd(algo.fb[idx], color);
+      var i = (y * width + x) * 3;
+      var ev = algo.fb[i + 2];
+      var nv = Math.min(1, ev + color.v);
+      if (color.v > ev) { algo.fb[i] = color.h; algo.fb[i + 1] = color.s; }
+      algo.fb[i + 2] = nv;
     }
 
     function stampLine(width, height, x0, y0, x1, y1, color) {
@@ -158,10 +165,7 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-      return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors.slice() : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       var dt = audio.timing.consumerDtMs / 1000.0;
@@ -173,15 +177,11 @@ var testAlgo;
       algo.fieldRot += dt * audio.power.mid * fieldSpeed01;
       algo.noiseT += dt * morphSpeed01;
 
-      // Decay framebuffer
+      // Decay framebuffer: only decay value, preserve hue/saturation
       var fade = Math.exp(-dt / (algo.presetTrailMs / 1000.0));
-      var fb = algo.fb;
-      for (var i = 0; i < fb.length; i++) {
-        var c = fb[i];
-        var r = Math.floor(((c >> 16) & 0xFF) * fade);
-        var g = Math.floor(((c >> 8) & 0xFF) * fade);
-        var b = Math.floor((c & 0xFF) * fade);
-        fb[i] = (r << 16) | (g << 8) | b;
+      var pixelCount = width * height;
+      for (var di = 0; di < pixelCount; di++) {
+        algo.fb[di * 3 + 2] *= fade;
       }
 
       var maxP = algo.presetMaxParticles;
@@ -211,8 +211,8 @@ var testAlgo;
         part.prevY = part.y;
         var nx = part.x * fieldScale * 0.05 + noiseT;
         var ny = part.y * fieldScale * 0.05 + noiseT;
-        var n = RGBUtil.simplex2d(nx, ny);
-        var angle = n * Math.PI * (1.0 + turbulence) + rotation;
+        var noiseVal = RGBUtil.simplex2d(nx, ny);
+        var angle = noiseVal * Math.PI * (1.0 + turbulence) + rotation;
         part.vx = Math.cos(angle) * baseSpeedNorm * width;
         part.vy = Math.sin(angle) * baseSpeedNorm * height;
         part.x += part.vx * dt;
@@ -250,11 +250,10 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createFlatMap(width, height);
-      for (var y = 0; y < height; y++) {
-        for (var x = 0; x < width; x++) {
-          map[(y) * width + (x)] = fb[y * width + x];
-        }
+      var map = RGBUtil.createMap(width, height);
+      var total = width * height * 3;
+      for (var ci = 0; ci < total; ci++) {
+        map[ci] = algo.fb[ci];
       }
       return map;
     };

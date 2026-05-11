@@ -47,16 +47,14 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = new Uint32Array(width * height);
+      var map = RGBUtil.createMap(width, height);
       for (var y = 0; y < height; y++)
       {
           for (var x = 0; x < width; x++)
           {
             if ((algo.orientation === 0 && x === step) ||
                 (algo.orientation === 1 && y === step)) {
-                  map[(y) * width + (x)] = rgb;
-            } else {
-                map[(y) * width + (x)] = 0;
+                  RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
             }
           }
       }

@@ -71,12 +71,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = new Uint32Array(width * height);
-      for (var y = 0; y < height; y++)
-      {
-          for (var x = 0; x < width; x++)
-            map[(y) * width + (x)] = 0;
-      }
+      var map = RGBUtil.createMap(width, height);
 
       var stepsHeight = algo.orientation === 0 ? height : width;
       var stepsWidth = algo.orientation === 0 ? width : height;
@@ -97,9 +92,9 @@ var testAlgo;
           sinPos--;
 
         if (algo.orientation === 0)
-          map[(sinPos) * width + (cStep)] = rgb;
+          RGBUtil.setPixel(map, width, cStep, sinPos, algo.color.h, algo.color.s, algo.color.v);
         else
-          map[(cStep) * width + (sinPos)] = rgb;
+          RGBUtil.setPixel(map, width, sinPos, cStep, algo.color.h, algo.color.s, algo.color.v);
 
         // fill the previous column/row
         // to create continuous painting
@@ -113,9 +108,9 @@ var testAlgo;
             for (var f = startY; f < stopY; f++)
             {
               if (algo.orientation === 0)
-                map[(f) * width + (col)] = rgb;
+                RGBUtil.setPixel(map, width, col, f, algo.color.h, algo.color.s, algo.color.v);
               else
-                map[(col) * width + (f)] = rgb;
+                RGBUtil.setPixel(map, width, f, col, algo.color.h, algo.color.s, algo.color.v);
             }
           }
         }

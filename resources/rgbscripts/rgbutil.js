@@ -2,9 +2,19 @@
   Q Light Controller Plus
   rgbutil.js
 
-  Generic (non-audio) RGB visual helpers shared across bundled
-  rgbscripts: color packing, HSV conversion, 2D map allocation,
-  array resampling, and 2D simplex noise.
+  Shared helpers for QLC+ RGB scripts. The engine consumes only HSV
+  Float32Array maps; this file therefore exposes no RGB packing helpers.
+
+  Pixel map contract (rgbscriptv4.cpp::extractFlatArrayMap):
+    - rgbMap() must return a Float32Array of length width*height*3
+    - Each pixel is 3 interleaved floats: [h, s, v] in [0,1]
+    - Engine converts HSV -> packed RGB before writing to RGBMap
+
+  Color injection contract (rgbscriptv4.cpp::injectGradientArrays):
+    - algo.color              = {h, s, v}              (primary user color)
+    - algo.gradientColors     = [{h,s,v}, ...]         (user gradient stops, >=1)
+    - algo.gradientBandColors = [{h,s,v}, {h,s,v}, {h,s,v}]
+                                 (3 evenly sampled stops for low/mid/high banks)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -16,96 +26,56 @@
 var RGBUtil = {};
 
 /**
- * Pack RGB values into a single 0xRRGGBB integer for QLC+ RGBMap.
- * Each component is clamped to 0-255 and rounded.
- *
- * @param {number} r - Red 0-255
- * @param {number} g - Green 0-255
- * @param {number} b - Blue 0-255
- * @returns {number} 0xRRGGBB packed colour
- */
-RGBUtil.rgb = function(r, g, b) {
-    r = Math.max(0, Math.min(255, Math.round(r)));
-    g = Math.max(0, Math.min(255, Math.round(g)));
-    b = Math.max(0, Math.min(255, Math.round(b)));
-    return (r << 16) | (g << 8) | b;
-};
-
-/**
- * HSV to RGB conversion.
- * @param {number} h - Hue (0-1, wraps)
- * @param {number} s - Saturation (0-1)
- * @param {number} v - Value (0-1)
- * @returns {Array} [r, g, b] each 0-255
- */
-RGBUtil.hsv2rgb = function(h, s, v) {
-    h = ((h % 1) + 1) % 1; // wrap to 0-1
-    var i = Math.floor(h * 6);
-    var f = h * 6 - i;
-    var p = v * (1 - s);
-    var q = v * (1 - f * s);
-    var t = v * (1 - (1 - f) * s);
-    var r, g, b;
-    switch (i % 6) {
-        case 0: r = v; g = t; b = p; break;
-        case 1: r = q; g = v; b = p; break;
-        case 2: r = p; g = v; b = t; break;
-        case 3: r = p; g = q; b = v; break;
-        case 4: r = t; g = p; b = v; break;
-        case 5: r = v; g = p; b = q; break;
-    }
-    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
-};
-
-/**
- * Create an empty pixel map. Returns a flat Uint32Array of length
- * width*height (row-major: index = y*width + x), per the Phase 3
- * fast-path contract with the C++ engine (engine/src/rgbscriptv4.cpp).
- *
- * Note: this is no longer a 2D nested Array. Code that previously did
- * `map[y][x] = c` must use `map[y * width + x] = c`.
- *
- * @param {number} width
- * @param {number} height
- * @returns {Uint32Array} flat row-major map of zeros, length = width*height
+ * Allocate an HSV pixel map. Returns a Float32Array of length width*height*3
+ * (row-major, 3 floats per pixel: H, S, V).
  */
 RGBUtil.createMap = function(width, height) {
-    return new Uint32Array(width * height);
+    return new Float32Array(width * height * 3);
 };
 
 /**
- * Alias of createMap kept for clarity in scripts that want to make the
- * flat-array contract explicit at the call site.
- *
- * @param {number} width
- * @param {number} height
- * @returns {Uint32Array} flat row-major map of zeros, length = width*height
+ * Set an HSV pixel in a Float32Array map.
+ * Inline `var i=(y*w+x)*3; map[i]=h; map[i+1]=s; map[i+2]=v;` is faster in
+ * tight inner loops; prefer this helper outside hot paths.
  */
-RGBUtil.createFlatMap = function(width, height) {
-    return new Uint32Array(width * height);
+RGBUtil.setPixel = function(map, width, x, y, h, s, v) {
+    var i = (y * width + x) * 3;
+    map[i] = h;
+    map[i + 1] = s;
+    map[i + 2] = v;
 };
 
 /**
- * Set a pixel in a flat Uint32Array map. Helper for readability;
- * prefer inline `map[y * width + x] = color` in hot inner loops.
- *
- * @param {Uint32Array} map
- * @param {number} width  - row stride
- * @param {number} x
- * @param {number} y
- * @param {number} color  - packed 0xAARRGGBB
+ * Linearly interpolate the HSV gradient defined by `stops` (evenly spaced
+ * between 0 and 1) at position t in [0,1]. Hue is interpolated along the
+ * shortest arc so red<->magenta does not drag through green. The C++ engine
+ * mirrors this in injectGradientArrays() when sampling the band palette.
  */
-RGBUtil.setPixel = function(map, width, x, y, color) {
-    map[y * width + x] = color;
+RGBUtil.gradientAt = function(stops, t) {
+    if (!stops || stops.length === 0) return {h: 0, s: 0, v: 0};
+    if (stops.length === 1) return {h: stops[0].h, s: stops[0].s, v: stops[0].v};
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    var pos = t * (stops.length - 1);
+    var idx = Math.floor(pos);
+    if (idx >= stops.length - 1)
+        return {h: stops[stops.length-1].h, s: stops[stops.length-1].s, v: stops[stops.length-1].v};
+    var frac = pos - idx;
+    var a = stops[idx], b = stops[idx + 1];
+    var dh = b.h - a.h;
+    if (dh > 0.5) dh -= 1;
+    else if (dh < -0.5) dh += 1;
+    var h = a.h + frac * dh;
+    h = h - Math.floor(h);
+    return {
+        h: h,
+        s: a.s + frac * (b.s - a.s),
+        v: a.v + frac * (b.v - a.v)
+    };
 };
 
 /**
  * Resample an array to a new size using linear interpolation.
  * Matches numpy.interp behaviour over an evenly spaced grid.
- *
- * @param {Array} arr  - Source array
- * @param {number} size - Target size
- * @returns {Array} Interpolated array of length 'size'
  */
 RGBUtil.interpolate = function(arr, size) {
     if (arr.length === 0) return new Array(size).fill(0);
@@ -124,191 +94,35 @@ RGBUtil.interpolate = function(arr, size) {
     return result;
 };
 
-/**
- * Compact a raw color array (as received by rgbMapSetColors) into the list of
- * active gradient stops. Invalid/reset slots are signalled by the engine as 0
- * (see RGBMatrix::updateColorDelta) and are skipped — they do NOT become black
- * stops. Remaining colors are masked to 0xRRGGBB.
- *
- * @param {Array} rawColors - Array of packed colors (0xAARRGGBB) from engine
- * @returns {Array} compacted array of 0xRRGGBB stops in original order
- */
-RGBUtil.buildGradientColors = function(rawColors) {
-    var out = [];
-    if (!rawColors) return out;
-    for (var i = 0; i < rawColors.length; i++) {
-        var c = rawColors[i];
-        if (c === 0) continue;
-        out.push(c & 0xFFFFFF);
-    }
-    return out;
-};
-
-/**
- * Linearly interpolate the gradient defined by `colors` (evenly spaced stops
- * between 0 and 1) at position `t` in [0, 1].
- *
- * @param {Array} colors - Packed 0xRRGGBB stops, evenly spaced
- * @param {number} t     - Position 0..1 (clamped)
- * @returns {number} interpolated 0xRRGGBB
- */
-RGBUtil.gradientColorAt = function(colors, t) {
-    if (!colors || colors.length === 0) return 0;
-    if (colors.length === 1) return colors[0] & 0xFFFFFF;
-    if (t < 0) t = 0;
-    else if (t > 1) t = 1;
-    var pos = t * (colors.length - 1);
-    var idx = Math.floor(pos);
-    if (idx >= colors.length - 1) return colors[colors.length - 1] & 0xFFFFFF;
-    var frac = pos - idx;
-    var c1 = colors[idx], c2 = colors[idx + 1];
-    var r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
-    var r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
-    var r = Math.round(r1 + frac * (r2 - r1));
-    var g = Math.round(g1 + frac * (g2 - g1));
-    var b = Math.round(b1 + frac * (b2 - b1));
-    return (r << 16) | (g << 8) | b;
-};
-
-/**
- * Pre-sample a gradient into `n` evenly spaced colors (LUT). Useful to avoid
- * per-pixel interpolation cost in inner rgbMap loops.
- *
- * @param {Array} colors - Packed 0xRRGGBB stops
- * @param {number} n     - Output sample count
- * @returns {Array} array of n packed 0xRRGGBB colors
- */
-RGBUtil.gradientLut = function(colors, n) {
-    if (n <= 0) return [];
-    if (n === 1) return [RGBUtil.gradientColorAt(colors, 0.5)];
-    var lut = new Array(n);
-    var denom = n - 1;
-    for (var i = 0; i < n; i++)
-        lut[i] = RGBUtil.gradientColorAt(colors, i / denom);
-    return lut;
-};
-
-/**
- * Clamp x into [0, 1].
- */
+/** Clamp x into [0, 1]. */
 RGBUtil.clamp01 = function(x) {
     return x < 0 ? 0 : (x > 1 ? 1 : x);
 };
 
-/**
- * Wrap x into [0, 1) (positive modulo 1).
- */
+/** Wrap x into [0, 1) (positive modulo 1). */
 RGBUtil.mod1 = function(x) {
     var m = x - Math.floor(x);
     return m < 0 ? m + 1 : m;
 };
 
-/**
- * Triangle wave with period 1 and range [0, 1]. f(0)=0, f(0.5)=1, f(1)=0.
- */
+/** Triangle wave, period 1, range [0, 1]. f(0)=0, f(0.5)=1, f(1)=0. */
 RGBUtil.triangle = function(x) {
     return 1 - Math.abs(2 * RGBUtil.mod1(x) - 1);
 };
 
-/**
- * Sine wave normalized to [0, 1] with period 1.
- */
+/** Sine wave normalized to [0, 1] with period 1. */
 RGBUtil.sin01 = function(x) {
     return 0.5 + 0.5 * Math.sin(2 * Math.PI * x);
 };
 
-/**
- * HSV to RGB conversion returning a packed 0xRRGGBB integer.
- * @param {number} h - Hue (0-1, wraps)
- * @param {number} s - Saturation (0-1)
- * @param {number} v - Value (0-1)
- * @returns {number} packed 0xRRGGBB
- */
-RGBUtil.hsvToRgb = function(h, s, v) {
-    var rgb = RGBUtil.hsv2rgb(h, s, v);
-    return RGBUtil.rgb(rgb[0], rgb[1], rgb[2]);
-};
+
+/***********************************************************************
+ * Time / beat helpers
+ ***********************************************************************/
 
 /**
- * Pre-built 256-entry rainbow gradient LUT as a flat Uint8ClampedArray(768).
- * Layout: [r0, g0, b0, r1, g1, b1, ...]. Access: lut[idx*3], lut[idx*3+1], lut[idx*3+2].
- * Eliminates per-lookup [r,g,b] tuple allocation that triggers QV4 number→string conversion.
- */
-RGBUtil.RAINBOW_LUT = (function() {
-    var lut = new Uint8Array(256 * 3);
-    for (var i = 0; i < 256; i++) {
-        var h = i / 256;
-        var sector = Math.floor(h * 6);
-        var f = h * 6 - sector;
-        var r, g, b;
-        switch (sector % 6) {
-            case 0: r=255; g=f*255; b=0; break;
-            case 1: r=(1-f)*255; g=255; b=0; break;
-            case 2: r=0; g=255; b=f*255; break;
-            case 3: r=0; g=(1-f)*255; b=255; break;
-            case 4: r=f*255; g=0; b=255; break;
-            case 5: r=255; g=0; b=(1-f)*255; break;
-        }
-        var i3 = i * 3;
-        lut[i3]     = Math.round(r);
-        lut[i3 + 1] = Math.round(g);
-        lut[i3 + 2] = Math.round(b);
-    }
-    return lut;
-})();
-
-/**
- * LedFX-style HSV: gradient LUT lookup, then s/v applied in RGB domain.
- * - h wraps to [0,1) and indexes the rainbow LUT.
- * - s desaturates toward the max channel: pixel += (max - pixel) * (1 - s).
- * - v multiplies brightness; final clamp happens at RGBUtil.rgb().
- * s/v are NOT pre-clamped; out-of-range values clip naturally at rgb().
- */
-RGBUtil.hsvLedFx = function(h, s, v) {
-    var idx = Math.floor(((h % 1 + 1) % 1) * 255.999);
-    var i3 = idx * 3;
-    var r = RGBUtil.RAINBOW_LUT[i3], g = RGBUtil.RAINBOW_LUT[i3 + 1], b = RGBUtil.RAINBOW_LUT[i3 + 2];
-    var m = Math.max(r, g, b);
-    var oneMinusS = 1 - s;
-    r = (r + (m - r) * oneMinusS) * v / 255;
-    g = (g + (m - g) * oneMinusS) * v / 255;
-    b = (b + (m - b) * oneMinusS) * v / 255;
-    return RGBUtil.rgb(r * 255, g * 255, b * 255);
-};
-
-/**
- * Additively blend two packed 0xRRGGBB colors with per-channel clamping at 255.
- */
-RGBUtil.blendAdd = function(a, b) {
-    var r = ((a >> 16) & 0xFF) + ((b >> 16) & 0xFF);
-    var g = ((a >> 8) & 0xFF) + ((b >> 8) & 0xFF);
-    var bl = (a & 0xFF) + (b & 0xFF);
-    if (r > 255) r = 255;
-    if (g > 255) g = 255;
-    if (bl > 255) bl = 255;
-    return (r << 16) | (g << 8) | bl;
-};
-
-/**
- * Scale a packed 0xRRGGBB color by a factor in [0, 1] (clamped).
- */
-RGBUtil.scaleColor = function(c, factor) {
-    if (factor <= 0) return 0;
-    if (factor > 1) factor = 1;
-    var r = Math.round(((c >> 16) & 0xFF) * factor);
-    var g = Math.round(((c >> 8) & 0xFF) * factor);
-    var b = Math.round((c & 0xFF) * factor);
-    return (r << 16) | (g << 8) | b;
-};
-
-
-/**
- * LedFX-compatible sawtooth 0→1.
+ * LedFX-compatible sawtooth 0->1.
  * Loops every 65.536/modifier seconds (65536/modifier ms).
- * modifier ≈ cycles per 65.536 seconds; higher = faster.
- * @param {number} modifier - Speed multiplier
- * @param {number} timestepMs - Accumulated time in milliseconds
- * @returns {number} 0.0 to 1.0 sawtooth
  */
 RGBUtil.time01 = function(modifier, timestepMs) {
     if (modifier <= 0 || !isFinite(modifier) || !isFinite(timestepMs)) return 0;
@@ -317,16 +131,11 @@ RGBUtil.time01 = function(modifier, timestepMs) {
 };
 
 /**
- * BPM-locked sawtooth 0→1.
- *   speed = 1.0  → 1 cycle per beat (quarter note)
- *   speed = 2.0  → 2 cycles per beat (8th note)
- *   speed = 0.25 → 1 cycle per bar (whole note)
+ * BPM-locked sawtooth 0->1.
+ *   speed = 1.0  -> 1 cycle per beat (quarter note)
+ *   speed = 2.0  -> 2 cycles per beat (8th note)
+ *   speed = 0.25 -> 1 cycle per bar (whole note)
  * Falls back to 120 BPM when bpm <= 0 (no audio).
- * @param {number} speed  Cycles per beat (>0; 0/NaN→1)
- * @param {Object} state  Persistent accumulator { phase: 0 }, owned by caller
- * @param {number} bpm    Tempo in beats/min (0/NaN→120 fallback)
- * @param {number} dtMs   Frame delta in ms (may be negative for direction flip)
- * @returns {number} sawtooth in [0, 1)
  */
 RGBUtil.beatTime = function(speed, state, bpm, dtMs) {
     if (!state) return 0;
@@ -341,7 +150,7 @@ RGBUtil.beatTime = function(speed, state, bpm, dtMs) {
     return p;
 };
 
-/** Same as beatTime but returns 0→2π for use with Math.sin(). */
+/** Same as beatTime but returns 0->2*PI for use with Math.sin(). */
 RGBUtil.beatAngle = function(speed, state, bpm, dtMs) {
     return RGBUtil.beatTime(speed, state, bpm, dtMs) * 2 * Math.PI;
 };
@@ -349,11 +158,6 @@ RGBUtil.beatAngle = function(speed, state, bpm, dtMs) {
 /**
  * BPM-locked continuous accumulator (no wrap). For noise field offsets
  * and angles where phase wrapping causes visible discontinuities.
- * @param {number} speed  Cycles per beat
- * @param {Object} state  Persistent { position: 0 }, owned by caller
- * @param {number} bpm    Tempo (0→120 fallback)
- * @param {number} dtMs   Frame delta in ms
- * @returns {number} cumulative position (unbounded)
  */
 RGBUtil.beatPosition = function(speed, state, bpm, dtMs) {
     if (!state) return 0;
@@ -366,10 +170,9 @@ RGBUtil.beatPosition = function(speed, state, bpm, dtMs) {
 };
 
 
-/*
- * 2D Simplex noise (public domain, Stefan Gustavson).
- * Returns value in range -1 to 1.
- */
+/***********************************************************************
+ * 2D Simplex noise (public domain, Stefan Gustavson). Range -1 to 1.
+ ***********************************************************************/
 RGBUtil._grad3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
 RGBUtil._perm = (function() {
     var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180];
@@ -421,13 +224,7 @@ RGBUtil.simplex2d = function(xin, yin) {
 
 /**
  * Generate a 2D noise field (height x width), values 0-1.
- *
- * @param {number} width
- * @param {number} height
- * @param {number} freq    - Spatial frequency (cells per axis)
- * @param {number} offsetX - Noise X offset (e.g. animated over time)
- * @param {number} offsetY - Noise Y offset
- * @returns {Array} 2D array indexed as field[y][x] with values in 0-1
+ * Returns a 2D array indexed as field[y][x].
  */
 RGBUtil.noiseField2d = function(width, height, freq, offsetX, offsetY) {
     var field = new Array(height);
@@ -438,7 +235,7 @@ RGBUtil.noiseField2d = function(width, height, freq, offsetX, offsetY) {
                 (x / Math.max(1, width - 1)) * freq + offsetX,
                 (y / Math.max(1, height - 1)) * freq + offsetY
             );
-            field[y][x] = (n + 1) * 0.5; // normalize to 0-1
+            field[y][x] = (n + 1) * 0.5;
         }
     }
     return field;

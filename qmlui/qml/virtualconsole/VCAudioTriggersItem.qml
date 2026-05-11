@@ -49,15 +49,6 @@ VCWidgetItem
     property var onsetMethodModes: [ 0, 0, 0, 0, 0, 0, 0, 0, 0 ]
     property real triggerModeThreshold: 0.45
 
-    // Color the mel bin by zone (Low/Mid/High). Comparisons only — no math.
-    function melBandColor(index)
-    {
-        if (!audioTriggerObj) return perceptualBandColors[0]
-        if (index < audioTriggerObj.melCrossLowMid) return perceptualBandColors[0]
-        if (index < audioTriggerObj.melCrossMid)    return perceptualBandColors[1]
-        return perceptualBandColors[2]
-    }
-
     clip: true
 
     onAudioTriggerObjChanged: setCommonProperties(audioTriggerObj)
@@ -253,49 +244,7 @@ VCWidgetItem
                 spacing: 3
 
                 // Cached lists — one C++ getter call per signal instead of N
-                property var melCache: audioTriggerObj ? audioTriggerObj.melSpectrumProcessed : []
                 property var mfccCache: audioTriggerObj ? audioTriggerObj.mfccCoeffs : []
-
-                // ============================================================
-                // §1 — Master MEL spectrum (40 Rectangle bars)
-                // ============================================================
-                Item
-                {
-                    id: melSection
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 32
-                    Layout.minimumHeight: 0
-
-                    Row
-                    {
-                        id: melBars
-                        anchors.fill: parent
-                        spacing: 1
-
-                        Repeater
-                        {
-                            model: stack.melCache ? stack.melCache.length : 0
-
-                            Rectangle
-                            {
-                                width: Math.max(1, (melBars.width - (melBars.children.length - 1)) /
-                                                Math.max(1, melBars.children.length))
-                                height: melBars.height
-                                color: "transparent"
-
-                                Rectangle
-                                {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    height: parent.height * Math.max(0, Math.min(1,
-                                        +stack.melCache[index] || 0))
-                                    color: melBandColor(index)
-                                }
-                            }
-                        }
-                    }
-                }
 
                 // ============================================================
                 // §2 — Beat / Bass / Lows / Mids / Highs power bars

@@ -75,20 +75,32 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileKickBeatRefractorySec QStringLiteral("BeatRefractorySec")
 #define KXMLQLCAudioProfileKickBeatHistoryLen   QStringLiteral("BeatHistoryLen")
 
+// Per-bank mel post-processing attributes — written flat on each
+// <MelBank/> element. Mirrors LedFx melbank.py:374-378 (every bank owns
+// its own ExpFilter chain).
+#define KXMLQLCAudioProfileMelBankPowerFactor   QStringLiteral("PowerFactor")
+#define KXMLQLCAudioProfileMelBankGaussianSigma QStringLiteral("GaussianSigma")
+#define KXMLQLCAudioProfileMelBankSmoothDecay   QStringLiteral("SmoothDecay")
+#define KXMLQLCAudioProfileMelBankSmoothRise    QStringLiteral("SmoothRise")
+#define KXMLQLCAudioProfileMelBankCommonDecay   QStringLiteral("CommonDecay")
+#define KXMLQLCAudioProfileMelBankCommonRise    QStringLiteral("CommonRise")
+#define KXMLQLCAudioProfileMelBankDiffDecay     QStringLiteral("DiffDecay")
+#define KXMLQLCAudioProfileMelBankDiffRise      QStringLiteral("DiffRise")
+#define KXMLQLCAudioProfileMelBankAgcDecay      QStringLiteral("AgcDecay")
+#define KXMLQLCAudioProfileMelBankAgcRise       QStringLiteral("AgcRise")
+
+// Master 40-band post-processor (snap.melProcessed[] / spectral flatness).
+// Same attribute names as <MelBank/>; lives on its own element so the master
+// pipeline can be tuned independently of the visualization banks.
 #define KXMLQLCAudioProfileMelPost              QStringLiteral("MelPost")
 #define KXMLQLCAudioProfileMelPostEnabled       QStringLiteral("Enabled")
-#define KXMLQLCAudioProfileMelPostPowerFactor   QStringLiteral("PowerFactor")
-#define KXMLQLCAudioProfileMelPostGaussianSigma QStringLiteral("GaussianSigma")
-#define KXMLQLCAudioProfileMelPostSmoothDecay   QStringLiteral("SmoothDecay")
-#define KXMLQLCAudioProfileMelPostSmoothRise    QStringLiteral("SmoothRise")
-#define KXMLQLCAudioProfileMelPostCommonDecay   QStringLiteral("CommonDecay")
-#define KXMLQLCAudioProfileMelPostCommonRise    QStringLiteral("CommonRise")
-#define KXMLQLCAudioProfileMelPostDiffDecay     QStringLiteral("DiffDecay")
-#define KXMLQLCAudioProfileMelPostDiffRise      QStringLiteral("DiffRise")
 
 #define KXMLQLCAudioProfileFreqPower            QStringLiteral("FreqPower")
-#define KXMLQLCAudioProfileFreqPowerDecay       QStringLiteral("Decay")
-#define KXMLQLCAudioProfileFreqPowerRise        QStringLiteral("Rise")
+#define KXMLQLCAudioProfileFreqPowerBand        QStringLiteral("Band")
+#define KXMLQLCAudioProfileFreqPowerBandName    QStringLiteral("Name")
+#define KXMLQLCAudioProfileFreqPowerBandMaxHz   QStringLiteral("MaxHz")
+#define KXMLQLCAudioProfileFreqPowerBandDecay   QStringLiteral("Decay")
+#define KXMLQLCAudioProfileFreqPowerBandRise    QStringLiteral("Rise")
 
 #define KXMLQLCAudioProfileVolume               QStringLiteral("Volume")
 #define KXMLQLCAudioProfileVolumeSmoothing      QStringLiteral("Smoothing")
@@ -100,6 +112,10 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioPitchMethod     QStringLiteral("PitchMethod")
 #define KXMLQLCAudioProfileAubioPitchSilenceDb  QStringLiteral("PitchSilenceDb")
 #define KXMLQLCAudioProfileAubioPitchTolerance  QStringLiteral("PitchTolerance")
+#define KXMLQLCAudioProfileAubioFilterbankNorm  QStringLiteral("FilterbankNorm")
+#define KXMLQLCAudioProfileAubioFilterbankPower QStringLiteral("FilterbankPower")
+#define KXMLQLCAudioProfileAubioTempoSilenceDb  QStringLiteral("TempoSilenceDb")
+#define KXMLQLCAudioProfileAubioTempoThreshold  QStringLiteral("TempoThreshold")
 #define KXMLQLCAudioProfileAubioTempoMinBpm     QStringLiteral("TempoMinBpm")
 #define KXMLQLCAudioProfileAubioTempoMaxBpm     QStringLiteral("TempoMaxBpm")
 #define KXMLQLCAudioProfileAubioTatumSubdivision QStringLiteral("TatumSubdivision")

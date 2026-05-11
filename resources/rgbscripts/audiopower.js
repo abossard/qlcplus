@@ -24,7 +24,18 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0000, 0xFF7800, 0xFFC800, 0x00FF00, 0x00C78C, 0x0000FF, 0x800080, 0xFF00B2];
+    var DEFAULT_GRADIENT = [
+        {h: 0.0,   s: 1.0, v: 1.0},
+        {h: 0.078, s: 1.0, v: 1.0},
+        {h: 0.131, s: 1.0, v: 1.0},
+        {h: 0.333, s: 1.0, v: 1.0},
+        {h: 0.453, s: 1.0, v: 0.780},
+        {h: 0.667, s: 1.0, v: 1.0},
+        {h: 0.833, s: 1.0, v: 0.502},
+        {h: 0.884, s: 1.0, v: 1.0}
+    ];
+
+    var DEFAULT_HIGH_BAND = {h: 0.884, s: 1.0, v: 1.0};
 
     algo.blur = 0.0;
     algo.bass_decay_rate = 0.05;
@@ -41,8 +52,9 @@ var testAlgo;
     algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = clamp(parseFloat(v), 0, 1); };
     algo.getSparksDecayRate = function() { return algo.sparks_decay_rate; };
 
-    var sparksOverlay = [];
-    var bassOverlay = [];
+    var sparksV = null;
+    var bassV = null;
+    var sparkColor = DEFAULT_HIGH_BAND;
     var bassFilter = null;
     var lastWidth = 0;
 
@@ -51,32 +63,20 @@ var testAlgo;
         return Math.max(lo, Math.min(hi, v));
     }
 
-    function colorArray(packed) {
-        packed = packed & 0xFFFFFF;
-        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-    }
-
-
-    function zeroStrip(n) {
-        var out = new Array(n);
-        for (var i = 0; i < n; i++) out[i] = [0, 0, 0];
-        return out;
+    function gradientStops() {
+        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
     }
 
     function ensure(width) {
-        if (lastWidth === width && sparksOverlay.length === width) return;
-        sparksOverlay = zeroStrip(width);
-        bassOverlay = zeroStrip(width);
+        if (lastWidth === width && sparksV !== null && sparksV.length === width) return;
+        sparksV = new Float32Array(width);
+        bassV = new Float32Array(width);
         bassFilter = null;
         lastWidth = width;
     }
 
-    function scaleInPlace(strip, factor) {
-        for (var i = 0; i < strip.length; i++) {
-            strip[i][0] *= factor;
-            strip[i][1] *= factor;
-            strip[i][2] *= factor;
-        }
+    function scaleInPlace(arr, factor) {
+        for (var i = 0; i < arr.length; i++) arr[i] *= factor;
     }
 
     function expFilter(value) {
@@ -89,75 +89,74 @@ var testAlgo;
         return bassFilter;
     }
 
-    function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
-    }
-
-
     function boxBlur(strip, amount) {
         var radius = Math.round(amount);
         if (radius <= 0 || strip.length <= 3) return strip;
         var n = strip.length;
         var out = new Array(n);
         for (var i = 0; i < n; i++) {
-            var r = 0, g = 0, b = 0, c = 0;
+            var bh = 0, bs = 0, bv = 0, c = 0;
             for (var k = -radius; k <= radius; k++) {
                 var idx = i + k;
                 if (idx < 0 || idx >= n) continue;
-                r += strip[idx][0]; g += strip[idx][1]; b += strip[idx][2]; c++;
+                bh += strip[idx].h; bs += strip[idx].s; bv += strip[idx].v; c++;
             }
-            out[i] = [r / c, g / c, b / c];
+            out[i] = {h: bh / c, s: bs / c, v: bv / c};
         }
         return out;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { algo.gradientColors = RGBUtil.buildGradientColors(rawColors); };
-    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return DEFAULT_GRADIENT.slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
-        scaleInPlace(sparksOverlay, 1.0 - clamp(algo.sparks_decay_rate, 0, 1));
-        scaleInPlace(bassOverlay, 1.0 - clamp(algo.bass_decay_rate, 0, 1));
+        scaleInPlace(sparksV, 1.0 - clamp(algo.sparks_decay_rate, 0, 1));
+        scaleInPlace(bassV, 1.0 - clamp(algo.bass_decay_rate, 0, 1));
 
         if (audio.onset.fired) {
-            var sparks = Math.floor(width / 20);
+            var numSparks = Math.floor(width / 20);
             var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-                ? algo.gradientBandColors : AudioColors.DEFAULT_BANDS;
-            var sparkPacked = bands[2] | 0; // high band color for sparks
-            var sc = colorArray(sparkPacked);
-            for (var s = 0; s < sparks; s++) {
+                ? algo.gradientBandColors : null;
+            sparkColor = bands ? bands[2] : DEFAULT_HIGH_BAND;
+            for (var s = 0; s < numSparks; s++) {
                 var sx = Math.floor(Math.random() * width);
-                sparksOverlay[sx] = [sc[0], sc[1], sc[2]];
+                sparksV[sx] = sparkColor.v;
             }
         }
 
         var bass = expFilter(Math.max(0, audio.power.low));
         var bassIdx = Math.floor(bass * width);
-        var bassColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), bass));
+        var bassHsv = RGBUtil.gradientAt(gradientStops(), bass);
         for (var i = 0; i < bassIdx && i < width; i++)
-            bassOverlay[i] = [bassColor[0], bassColor[1], bassColor[2]];
+            bassV[i] = bassHsv.v;
 
         var mel = RGBUtil.interpolate(audio.spectrum.full, width);
         var strip = new Array(width);
         for (var x = 0; x < width; x++) {
             var spatial = width <= 1 ? 0 : x / (width - 1);
-            var gcol = colorArray(RGBUtil.gradientColorAt(gradientStops(), spatial));
-            var m = mel[x];
-            strip[x] = [
-                gcol[0] * m + bassOverlay[x][0] + sparksOverlay[x][0],
-                gcol[1] * m + bassOverlay[x][1] + sparksOverlay[x][1],
-                gcol[2] * m + bassOverlay[x][2] + sparksOverlay[x][2]
-            ];
+            var gradHsv = RGBUtil.gradientAt(gradientStops(), spatial);
+            var baseV = gradHsv.v * mel[x];
+            var bV = bassV[x];
+            var spV = sparksV[x];
+            var totalV = RGBUtil.clamp01(baseV + bV + spV);
+            var ph = gradHsv.h, ps = gradHsv.s;
+            if (spV > baseV && spV > bV) {
+                ph = sparkColor.h; ps = sparkColor.s;
+            } else if (bV > baseV) {
+                ph = bassHsv.h; ps = bassHsv.s;
+            }
+            strip[x] = {h: ph, s: ps, v: totalV};
         }
 
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var px = 0; px < width; px++)
-                map[(y) * width + (px)] = RGBUtil.rgb(strip[px][0], strip[px][1], strip[px][2]);
+                RGBUtil.setPixel(map, width, px, y, strip[px].h, strip[px].s, strip[px].v);
         return map;
     };
 

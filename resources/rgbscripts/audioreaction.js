@@ -28,7 +28,13 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0x000010, 0x004080, 0x00FFC0, 0xFFFFFF];
+    // 0x000010=very dark blue, 0x004080=dark blue, 0x00FFC0=cyan-green, 0xFFFFFF=white
+    var DEFAULT_GRADIENT = [
+        {h: 0.667, s: 1.0, v: 0.063},
+        {h: 0.583, s: 1.0, v: 0.502},
+        {h: 0.458, s: 1.0, v: 1.0},
+        {h: 0.0,   s: 0.0, v: 1.0}
+    ];
 
     // Gray-Scott safe parameter ranges.
     var F_MIN = 0.01, F_MAX = 0.10;
@@ -226,14 +232,14 @@ var testAlgo;
         ? audio.colors.gradient : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       var Vfinal = algo.V;
       for (var ry = 0; ry < H; ry++) {
         for (var rx = 0; rx < W; rx++) {
           var t = Vfinal[ry * W + rx] * gain;
           if (t < 0) t = 0; else if (t > 1) t = 1;
-          var c = RGBUtil.gradientColorAt(gradient, t);
-          map[(ry) * width + (rx)] = c;
+          var c = RGBUtil.gradientAt(gradient, t);
+          RGBUtil.setPixel(map, width, rx, ry, c.h, c.s, c.v);
         }
       }
       return map;

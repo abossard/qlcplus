@@ -23,7 +23,11 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [0xFF0040, 0xFFFF00, 0x4080FF];
+    var DEFAULT_GRADIENT = [
+        {h: 0.958, s: 1.0, v: 1.0},
+        {h: 0.167, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.75, v: 1.0}
+    ];
 
     algo.presetRules = "30,90,110,150";
     algo.properties.push(
@@ -182,14 +186,16 @@ var testAlgo;
       var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
         ? audio.colors.gradient : DEFAULT_GRADIENT;
 
-      var map = RGBUtil.createFlatMap(width, height);
+      var map = RGBUtil.createMap(width, height);
       for (var y = 0; y < H; y++) {
         var src = (algo.row - (H - 1 - y) + H) % H;
         var srcBase2 = src * N;
         var age = (H - 1) > 0 ? (H - 1 - y) / (H - 1) : 0;
-        var rowColor = RGBUtil.gradientColorAt(gradient, age);
+        var rowColor = RGBUtil.gradientAt(gradient, age);
         for (var x = 0; x < N; x++) {
-          map[(y) * width + (x)] = algo.history[srcBase2 + x] ? rowColor : 0;
+          if (algo.history[srcBase2 + x]) {
+            RGBUtil.setPixel(map, width, x, y, rowColor.h, rowColor.s, rowColor.v);
+          }
         }
       }
 

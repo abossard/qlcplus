@@ -85,7 +85,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -119,10 +119,9 @@ var testAlgo;
             v = RGBUtil.mod1(v);
             v *= v;
 
-            var hue = fixHues ? fixHueFast(h) : h;
-            var packed = RGBUtil.hsvToRgb(hue, 1.0, v);
+            var hue = fixHues ? fixHueFast(h) : RGBUtil.mod1(h);
             for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+                RGBUtil.setPixel(map, width, x, y, hue, 1.0, v);
         }
 
         return map;

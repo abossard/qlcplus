@@ -162,17 +162,16 @@ private:
     QJSValue buildAudioDataObject();
 
     /**
-     * Build the gradientColors / gradientBandColors arrays from the owning
+     * Build the gradientColors / gradientBandColors HSV arrays from the owning
      * RGBMatrix and inject them as properties on m_script (the algo object).
-     * Also stashes them on m_currentGradientColors / m_currentBandColors so
-     * buildAudioDataObject() can republish them on the audio object.
+     * Also injects algo.color (primary HSV color) and stashes the arrays on
+     * m_currentGradientColors / m_currentBandColors so buildAudioDataObject()
+     * can republish them on audio.colors.
      *
-     * @param rgb fallback color used when the matrix has no valid color stops.
+     * @param rgb fallback color (packed 0xRRGGBB) used when the matrix has
+     *            no valid color stops; converted to HSV before injection.
      */
     void injectGradientArrays(uint rgb);
-
-    /** Linear interpolation matching RGBUtil.gradientColorAt. Returns 0xRRGGBB. */
-    static uint interpolateGradientColor(const QVector<uint> &colors, double t);
 
 private:
     AudioCapture *m_audioInput;
@@ -184,9 +183,9 @@ private:
     quint32 m_loggedAudioProfileId;
     bool m_audioRegistered;
 
-    // Transient per-frame cache of the gradient arrays injected on m_script.
+    // Transient per-frame cache of the HSV gradient arrays injected on m_script.
     // Set by injectGradientArrays() at the top of rgbMap(), consumed by
-    // buildAudioDataObject() so audio.gradientColors / audio.bandColors mirror
+    // buildAudioDataObject() so audio.colors.gradient / audio.colors.bands mirror
     // algo.gradientColors / algo.gradientBandColors. Both run on s_jsThread,
     // so no synchronization is required.
     QJSValue m_currentGradientColors;

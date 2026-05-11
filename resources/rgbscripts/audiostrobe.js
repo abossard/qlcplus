@@ -25,7 +25,11 @@ var testAlgo;
     algo.properties = new Array();
 
     var DOMINANT_TINT = 0.5;
-    var DANCEFLOOR_GRADIENT = [0xFF0000, 0xFF00B2, 0x0000FF];
+    var DEFAULT_HSV_STOPS = [
+        { h: 0.000, s: 1.0, v: 1.0 },
+        { h: 0.884, s: 1.0, v: 1.0 },
+        { h: 0.667, s: 1.0, v: 1.0 }
+    ];
     var BASS_REFRACTORY_MS = 200;
 
     algo.color_step = 0.0625;
@@ -68,22 +72,18 @@ var testAlgo;
     var lastStrobeMs = 0;
     var lastBassStrobeMs = 0;
     var colorIdx = 0;
-    var bassStrobeColor = [0, 0, 0];
+    var bassStrobeColor = {h: 0, s: 0, v: 0};
     var lastWidth = 0;
-
-    function colorArray(packed) {
-        packed = packed & 0xFFFFFF;
-        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
-    }
 
     function zeroStrip(n) {
         var out = new Array(n);
-        for (var i = 0; i < n; i++) out[i] = [0, 0, 0];
+        for (var i = 0; i < n; i++) out[i] = {h: 0, s: 0, v: 0};
         return out;
     }
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DANCEFLOOR_GRADIENT;
+        return (algo.gradientColors && algo.gradientColors.length > 0)
+            ? algo.gradientColors : DEFAULT_HSV_STOPS;
     }
 
     function ensure(width) {
@@ -92,25 +92,22 @@ var testAlgo;
         bassStrobeOverlay = zeroStrip(width);
         onsetsQueued = 0;
         colorIdx = 0;
-        bassStrobeColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), colorIdx));
+        bassStrobeColor = RGBUtil.gradientAt(gradientStops(), colorIdx);
         lastWidth = width;
     }
 
     function scaleInPlace(strip, factor) {
-        for (var i = 0; i < strip.length; i++) {
-            strip[i][0] *= factor;
-            strip[i][1] *= factor;
-            strip[i][2] *= factor;
-        }
+        for (var i = 0; i < strip.length; i++)
+            strip[i].v *= factor;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) { algo.gradientColors = RGBUtil.buildGradientColors(rawColors); };
-    algo.rgbMapGetColors = function() { return gradientStops().slice(); };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -118,7 +115,7 @@ var testAlgo;
 
         if (elapsedMs - lastColorShiftMs > clamp(parseFloat(algo.color_shift_delay), 0, 1) * 1000.0) {
             colorIdx = (colorIdx + clamp(parseFloat(algo.color_step), 0, 0.25)) % 1.0;
-            bassStrobeColor = colorArray(RGBUtil.gradientColorAt(gradientStops(), colorIdx));
+            bassStrobeColor = RGBUtil.gradientAt(gradientStops(), colorIdx);
             lastColorShiftMs = elapsedMs;
         }
 
@@ -130,7 +127,7 @@ var testAlgo;
         else bassTriggerFired = audio.volume.fired;
         if (bassTriggerFired && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay) {
             for (var b = 0; b < width; b++)
-                bassStrobeOverlay[b] = [bassStrobeColor[0], bassStrobeColor[1], bassStrobeColor[2]];
+                bassStrobeOverlay[b] = {h: bassStrobeColor.h, s: bassStrobeColor.s, v: bassStrobeColor.v};
             lastBassStrobeMs = elapsedMs;
         }
 
@@ -139,35 +136,55 @@ var testAlgo;
             lastStrobeMs = elapsedMs;
         }
 
-        var pixels = new Array(width);
-        for (var i = 0; i < width; i++)
-            pixels[i] = [bassStrobeOverlay[i][0], bassStrobeOverlay[i][1], bassStrobeOverlay[i][2]];
-
         if (onsetsQueued > 0) {
             onsetsQueued--;
             var strobeWidth = Math.min(clamp(parseInt(algo.strobe_width), 0, 1000), width);
             var lengthDiff = width - strobeWidth;
             var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
-            var strobeColorPacked = AudioColors.bands(algo)[0] | 0;
-            var dominantPacked = AudioColors.dominantColor(algo, audio, strobeColorPacked, 0.05);
-            var blended = AudioColors.blendPacked(strobeColorPacked, dominantPacked, DOMINANT_TINT);
-            var scol = colorArray(blended);
+            var bandColor = AudioColors.bands(algo)[0];
+            var domHsv = AudioColors.dominantColor(algo, audio, bandColor, 0.05);
+            var scol = AudioColors.blend(bandColor, domHsv, DOMINANT_TINT);
             for (var s = position; s < position + strobeWidth; s++)
-                strobeOverlay[s] = [scol[0], scol[1], scol[2]];
+                strobeOverlay[s] = {h: scol.h, s: scol.s, v: scol.v};
         }
 
+        // Combine overlays (additive in value)
         for (var x = 0; x < width; x++) {
-            pixels[x][0] += strobeOverlay[x][0];
-            pixels[x][1] += strobeOverlay[x][1];
-            pixels[x][2] += strobeOverlay[x][2];
+            var bv = bassStrobeOverlay[x].v;
+            var sv = strobeOverlay[x].v;
+            var totalV = bv + sv;
+            if (totalV > 0.001) {
+                var h, sat;
+                if (sv > bv) {
+                    h = strobeOverlay[x].h; sat = strobeOverlay[x].s;
+                    var t = bv / totalV;
+                    var dh = bassStrobeOverlay[x].h - h;
+                    if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
+                    h += t * dh;
+                    h = h - Math.floor(h);
+                    sat = sat * (1 - t) + bassStrobeOverlay[x].s * t;
+                } else {
+                    h = bassStrobeOverlay[x].h; sat = bassStrobeOverlay[x].s;
+                    if (sv > 0.001) {
+                        var t = sv / totalV;
+                        var dh = strobeOverlay[x].h - h;
+                        if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
+                        h += t * dh;
+                        h = h - Math.floor(h);
+                        sat = sat * (1 - t) + strobeOverlay[x].s * t;
+                    }
+                }
+                var v = Math.min(1, totalV);
+                for (var y = 0; y < height; y++) {
+                    var i3 = (y * width + x) * 3;
+                    map[i3] = h; map[i3 + 1] = sat; map[i3 + 2] = v;
+                }
+            }
         }
 
         scaleInPlace(strobeOverlay, 1.0 - clamp(parseFloat(algo.strobe_decay_rate), 0, 1));
         scaleInPlace(bassStrobeOverlay, bassDecay);
 
-        for (var y = 0; y < height; y++)
-            for (var px = 0; px < width; px++)
-                map[(y) * width + (px)] = RGBUtil.rgb(pixels[px][0], pixels[px][1], pixels[px][2]);
         return map;
     };
 

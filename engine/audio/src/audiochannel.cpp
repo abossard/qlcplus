@@ -44,55 +44,24 @@ namespace
         return 230.0 * (std::pow(12.0, matt / 3700.0) - 1.0);
     }
 
-    // Convert a frequency in Hz to a bin index in the 40-band master mel.
-    //
-    // Mirrors LedFx audio.py:1162-1182 (Audio.initialise_analysis):
-    //
-    //     for freq in self.freq_max_mels:
-    //         self.freq_mel_indexes.append(
-    //             next(
-    //                 (i for i, f in enumerate(
-    //                     self.melbanks.melbank_processors[2].melbank_frequencies
-    //                  ) if f > freq),
-    //                 len(self.melbanks.melbank_processors[2].melbank_frequencies),
-    //             )
-    //         )
-    //
-    // LedFx walks the bank's actual centre-frequency table; we don't have
-    // that table from aubio so we recompute the index analytically. The
-    // formula MUST match the warp the master filterbank was built with in
-    // AubioProcessor::initialize() — otherwise the freq_power slices read
-    // from bins that don't correspond to the requested cutoffs (Fix 4).
-    inline int hzToMasterMelBin(double hz, double sampleRate, int nBands,
-                                const QString &melScale)
+    // Convert a Hz frequency to a bin index inside one of the 3 multi-mel
+    // banks. Mirrors LedFx audio.py:1162-1182 — "first bank-centre frequency
+    // strictly above the cutoff Hz". Per matt_mel warp the bank places
+    // bands+2 edges evenly in matt_mel space; the interior `bands` points
+    // are centres. Returns a value in [0, bands].
+    inline int hzToBankBin(double hz, const MelBankConfig::Bank &bank)
     {
-        if (sampleRate <= 0.0 || nBands <= 0)
+        const int n = std::clamp(bank.bands, 1, MelBankConfig::kMaxBandsPerBank);
+        if (hz <= bank.minHz)
             return 0;
-        if (melScale.compare(QStringLiteral("matt_mel"), Qt::CaseInsensitive) == 0)
-        {
-            // LedFx audio.py:215-235 — "first band whose center frequency is
-            // strictly above the cutoff Hz." setMattMelBands() places nBands+2
-            // edges evenly in matt_mel space; the interior nBands points are
-            // centers. ceil(frac*(nBands+1))-1 reproduces LedFx's center-table
-            // lookup without building an explicit table.
-            // Produces {2, 6, 25, 37} for {100, 250, 3000, 10000} Hz at
-            // sr=44100, N=40 — exact LedFx parity.
-            const double fmax = std::min(kMattMelMaxHz, sampleRate * 0.5);
-            const double mmin = hzToMattMel(kMattMelMinHz);
-            const double mmax = hzToMattMel(fmax);
-            if (mmax <= mmin)
-                return 0;
-            const double frac = (hzToMattMel(hz) - mmin) / (mmax - mmin);
-            return std::clamp(int(std::ceil(frac * double(nBands + 1))) - 1, 0, nBands);
-        }
-        // Legacy HTK path (also used as best-effort fallback for slaney —
-        // aubio doesn't expose its slaney centre table; HTK gets us close
-        // enough that the slices stay monotonic).
-        const double maxMel = aubio_hztomel(smpl_t(sampleRate * 0.5));
-        if (maxMel <= 0.0)
+        if (hz >= bank.maxHz)
+            return n;
+        const double mmin = hzToMattMel(bank.minHz);
+        const double mmax = hzToMattMel(bank.maxHz);
+        if (mmax <= mmin)
             return 0;
-        const double frac = aubio_hztomel(smpl_t(hz)) / maxMel;
-        return std::clamp(int(std::floor(frac * double(nBands))), 0, nBands);
+        const double frac = (hzToMattMel(hz) - mmin) / (mmax - mmin);
+        return std::clamp(int(std::ceil(frac * double(n + 1))) - 1, 0, n);
     }
 
     int lowMelBeatEndBin(double beatMaxHz, const MelBankConfig::Bank &bank)
@@ -114,18 +83,20 @@ namespace
         return n;
     }
 
-    MelPostProcessor::Config melPostConfigFrom(const AudioChannelConfig &config)
+    MelPostProcessor::Config melPostConfigFrom(const MelPostConfig &cfg)
     {
         MelPostProcessor::Config mp;
-        mp.powerFactor = config.melPost.powerFactor;
-        mp.gaussianSigma = config.melPost.gaussianSigma;
-        mp.smoothDecay = config.melPost.smoothDecay;
-        mp.smoothRise = config.melPost.smoothRise;
-        mp.commonDecay = config.melPost.commonDecay;
-        mp.commonRise = config.melPost.commonRise;
-        mp.diffDecay = config.melPost.diffDecay;
-        mp.diffRise = config.melPost.diffRise;
-        mp.enabled = config.melPost.enabled;
+        mp.powerFactor = cfg.powerFactor;
+        mp.gaussianSigma = cfg.gaussianSigma;
+        mp.smoothDecay = cfg.smoothDecay;
+        mp.smoothRise = cfg.smoothRise;
+        mp.commonDecay = cfg.commonDecay;
+        mp.commonRise = cfg.commonRise;
+        mp.diffDecay = cfg.diffDecay;
+        mp.diffRise = cfg.diffRise;
+        mp.agcDecay = cfg.agcDecay;
+        mp.agcRise = cfg.agcRise;
+        mp.enabled = cfg.enabled;
         return mp;
     }
 }
@@ -134,14 +105,14 @@ AudioChannel::AudioChannel(const AudioChannelConfig &config)
     : m_config(config)
     , m_pendingConfig(config)
 {
-    MelPostProcessor::Config mp = melPostConfigFrom(config);
-    m_melPost.setConfig(mp);
-    // The 3 per-bank post-processors share the same DSP config as the legacy
-    // 40-band one. LedFx uses identical AGC/smooth/novelty knobs across all
-    // three banks — only the filterbank coefficients differ.
-    m_melPostLow.setConfig(mp);
-    m_melPostMid.setConfig(mp);
-    m_melPostHigh.setConfig(mp);
+    // Master 40-band post-processor — drives snap.melProcessed[] and the
+    // spectral-flatness display. The 3 visualization banks each own their
+    // own MelPostConfig (LedFx melbank.py:374-378 — every bank has its own
+    // ExpFilter chain), so AGC/smoothing can be tuned independently.
+    m_melPost.setConfig(melPostConfigFrom(config.melPost));
+    m_melPostLow.setConfig(melPostConfigFrom(config.aubio.melBanks.low.post));
+    m_melPostMid.setConfig(melPostConfigFrom(config.aubio.melBanks.mid.post));
+    m_melPostHigh.setConfig(melPostConfigFrom(config.aubio.melBanks.high.post));
 }
 
 AudioChannel::~AudioChannel()
@@ -157,11 +128,11 @@ void AudioChannel::update(const AudioFrame &frame, double audioDtMs)
             m_config = m_pendingConfig;
             m_hasPendingConfig = false;
 
-            MelPostProcessor::Config mp = melPostConfigFrom(m_config);
+            MelPostProcessor::Config mp = melPostConfigFrom(m_config.melPost);
             m_melPost.setConfig(mp);
-            m_melPostLow.setConfig(mp);
-            m_melPostMid.setConfig(mp);
-            m_melPostHigh.setConfig(mp);
+            m_melPostLow.setConfig(melPostConfigFrom(m_config.aubio.melBanks.low.post));
+            m_melPostMid.setConfig(melPostConfigFrom(m_config.aubio.melBanks.mid.post));
+            m_melPostHigh.setConfig(melPostConfigFrom(m_config.aubio.melBanks.high.post));
         }
     }
 
@@ -239,29 +210,54 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     if (frame.aubio == nullptr)
         return;
 
-    const QString &melScale = m_config.aubio.melScale;
-    const int kBeatCutBin = hzToMasterMelBin(100.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kLowCutBin  = hzToMasterMelBin(250.0,   frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kMidCutBin  = hzToMasterMelBin(3000.0,  frame.sampleRate, AUBIO_MEL_BANDS, melScale);
-    const int kHighEndBin = hzToMasterMelBin(10000.0, frame.sampleRate, AUBIO_MEL_BANDS, melScale);
+    // LedFx audio.py:1107-1331 — freq_power reads the POST-processed bank #2
+    // (`high`), not the legacy 40-band master mel. The high bank already
+    // carries its own AGC + smoothing + power scaling so freq_power inherits
+    // bank-tuned dynamics for free.
+    const MelBankConfig::Bank &highBank = m_config.aubio.melBanks.high;
+    const int n = std::clamp(frame.aubio->melHighCount, 0,
+                             AudioSnapshot::kMelBankBandsMax);
+    if (n <= 0)
+    {
+        // Bank not yet built (sample rate change in flight). Decay outputs
+        // toward zero with the per-band decay alpha so consumers see
+        // continuity instead of a freeze.
+        const FreqPowerBandConfig *bands[4] = {
+            &m_config.freqPower.beat, &m_config.freqPower.bass,
+            &m_config.freqPower.mids, &m_config.freqPower.high
+        };
+        for (int i = 0; i < 4; ++i)
+        {
+            const double a = std::clamp(bands[i]->decay, 0.0, 1.0);
+            m_freqPower[i] = (1.0 - a) * m_freqPower[i];
+        }
+        return;
+    }
 
-    const int beatEnd = std::clamp(kBeatCutBin, 1, AUBIO_MEL_BANDS - 3);
-    const int lowEnd  = std::clamp(std::max(beatEnd + 1, kLowCutBin), beatEnd + 1, AUBIO_MEL_BANDS - 2);
-    const int midEnd  = std::clamp(std::max(lowEnd + 1, kMidCutBin), lowEnd + 1, AUBIO_MEL_BANDS - 1);
-    const int highEnd = std::clamp(std::max(midEnd + 1, kHighEndBin), midEnd + 1, AUBIO_MEL_BANDS);
+    const int beatEnd = std::clamp(hzToBankBin(m_config.freqPower.beat.maxHz, highBank), 1, n - 3);
+    const int bassEnd = std::clamp(std::max(beatEnd + 1, hzToBankBin(m_config.freqPower.bass.maxHz, highBank)),
+                                   beatEnd + 1, n - 2);
+    const int midEnd  = std::clamp(std::max(bassEnd + 1, hzToBankBin(m_config.freqPower.mids.maxHz, highBank)),
+                                   bassEnd + 1, n - 1);
+    const int highEnd = std::clamp(std::max(midEnd + 1, hzToBankBin(m_config.freqPower.high.maxHz, highBank)),
+                                   midEnd + 1, n);
 
     double rawFreqPower[4] = {};
-    rawFreqPower[0] = averageMel(m_melProcessed, 0, beatEnd);
-    rawFreqPower[1] = averageMel(m_melProcessed, beatEnd, lowEnd);
-    rawFreqPower[2] = averageMel(m_melProcessed, lowEnd, midEnd);
-    rawFreqPower[3] = averageMel(m_melProcessed, midEnd, highEnd);
+    rawFreqPower[0] = averageMel(m_melHighProcessed, 0, beatEnd);
+    rawFreqPower[1] = averageMel(m_melHighProcessed, beatEnd, bassEnd);
+    rawFreqPower[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
+    rawFreqPower[3] = averageMel(m_melHighProcessed, midEnd, highEnd);
 
-    const double freqRise = std::clamp(m_config.freqPowerRise, 0.0, 1.0);
-    const double freqDecay = std::clamp(m_config.freqPowerDecay, 0.0, 1.0);
+    const FreqPowerBandConfig *bands[4] = {
+        &m_config.freqPower.beat, &m_config.freqPower.bass,
+        &m_config.freqPower.mids, &m_config.freqPower.high
+    };
     for (int i = 0; i < 4; i++)
     {
         const double raw = std::min(rawFreqPower[i], 1.0);
-        const double a = (raw > m_freqPower[i]) ? freqRise : freqDecay;
+        const double rise = std::clamp(bands[i]->rise, 0.0, 1.0);
+        const double decay = std::clamp(bands[i]->decay, 0.0, 1.0);
+        const double a = (raw > m_freqPower[i]) ? rise : decay;
         m_freqPower[i] = a * raw + (1.0 - a) * m_freqPower[i];
     }
 }

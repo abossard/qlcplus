@@ -88,29 +88,41 @@ var testAlgo;
     algo.setBeat4 = function(_v) { algo.presetBeat4 = (_v === "On") ? 1 : 0; };
     algo.getBeat4 = function() { return algo.presetBeat4 ? "On" : "Off"; };
 
-    var DEFAULT_COLORS = [0xFF3030, 0xFFD020, 0x30FF80, 0x3080FF];
-    var BASE_BRIGHTNESS = 0.5;     // baseline brightness before cosPulse modulation
-    var SWEEP_FLOOR = 0.02;        // minimum sweep edge softness
-    var SWEEP_RANGE = 0.28;        // additional softness at max sweep width
+    // Default colors as HSV
+    var DEFAULT_COLORS = [
+        { h: 0.0, s: 0.81, v: 1.0 },    // red     (0xFF3030)
+        { h: 0.115, s: 0.875, v: 1.0 },  // amber   (0xFFD020)
+        { h: 0.398, s: 0.81, v: 1.0 },   // green   (0x30FF80)
+        { h: 0.603, s: 0.81, v: 1.0 }    // blue    (0x3080FF)
+    ];
+    var BASE_BRIGHTNESS = 0.5;
+    var SWEEP_FLOOR = 0.02;
+    var SWEEP_RANGE = 0.28;
 
     function clamp01(v) {
         return Math.max(0, Math.min(1, v));
     }
 
-    function unpack(packed) {
-        return [(packed >> 16) & 0xFF, (packed >> 8) & 0xFF, packed & 0xFF];
+    // Lerp hue along shortest arc
+    function lerpHue(h1, h2, t) {
+        var d = h2 - h1;
+        if (d > 0.5) d -= 1.0;
+        else if (d < -0.5) d += 1.0;
+        var h = h1 + d * t;
+        return h < 0 ? h + 1.0 : (h >= 1.0 ? h - 1.0 : h);
     }
 
-    function mix(a, b, t) {
+    // Mix two HSV colors with shortest-arc hue interpolation
+    function mixHsv(a, b, t) {
         t = clamp01(t);
-        return [
-            a[0] * (1 - t) + b[0] * t,
-            a[1] * (1 - t) + b[1] * t,
-            a[2] * (1 - t) + b[2] * t
-        ];
+        return {
+            h: lerpHue(a.h, b.h, t),
+            s: a.s * (1 - t) + b.s * t,
+            v: a.v * (1 - t) + b.v * t
+        };
     }
 
-    function packedBeatColors() {
+    function beatColors() {
         var src = (algo.gradientColors && algo.gradientColors.length > 0)
             ? algo.gradientColors : DEFAULT_COLORS;
         var colors = src.slice();
@@ -142,14 +154,12 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 4; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return packedBeatColors();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
-        var packed = packedBeatColors();
+        var map = RGBUtil.createMap(width, height);
+        var colors = beatColors();
         var beat = beatIndexFor(audio, step);
         var beatMask = [algo.presetBeat1, algo.presetBeat2, algo.presetBeat3, algo.presetBeat4];
         if (!beatMask[beat])
@@ -160,8 +170,8 @@ var testAlgo;
             var candidate = (beat - i + 4) % 4;
             if (beatMask[candidate]) { prevBeat = candidate; break; }
         }
-        var currentColor = unpack(packed[beat] | 0);
-        var previousColor = unpack(packed[prevBeat] | 0);
+        var currentColor = colors[beat];
+        var previousColor = colors[prevBeat];
         var phase = (audio && audio.beat.bpm > 0) ? clamp01(audio.beat.phase) : 0;
         var cosPulse = audio ? clamp01(audio.beat.cosPulse) : 0;
         var brightness = BASE_BRIGHTNESS + 0.5 * cosPulse;
@@ -180,21 +190,19 @@ var testAlgo;
                 var color;
 
                 if (algo.presetTransition === 1) {
-                    color = mix(previousColor, currentColor, phase);
+                    color = mixHsv(previousColor, currentColor, phase);
                 } else if (algo.presetTransition === 2) {
-                    color = mix(previousColor, currentColor, beforeEdgeBlend(x01, phase, sweepWidth));
+                    color = mixHsv(previousColor, currentColor, beforeEdgeBlend(x01, phase, sweepWidth));
                 } else if (algo.presetTransition === 3) {
-                    color = mix(previousColor, currentColor, beforeEdgeBlend(y01, phase, sweepWidth));
+                    color = mixHsv(previousColor, currentColor, beforeEdgeBlend(y01, phase, sweepWidth));
                 } else if (algo.presetTransition === 4) {
-                    color = mix(previousColor, currentColor, pulseBlend(x01, y01, phase, sweepWidth));
+                    color = mixHsv(previousColor, currentColor, pulseBlend(x01, y01, phase, sweepWidth));
                 } else {
                     color = currentColor;
                 }
 
-                map[(y) * width + (x)] = RGBUtil.rgb(
-                    color[0] * brightness,
-                    color[1] * brightness,
-                    color[2] * brightness);
+                RGBUtil.setPixel(map, width, x, y,
+                    color.h, color.s, color.v * brightness);
             }
         }
 

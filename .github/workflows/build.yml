@@ -489,6 +489,7 @@ jobs:
       MACOS_NOTARY_KEY_P8: ${{ secrets.MACOS_NOTARY_KEY_P8 }}
       MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
       MACOS_NOTARY_ISSUER: ${{ secrets.MACOS_NOTARY_ISSUER }}
+      QLCPLUS_MAC_APP_DIR: /Users/runner/QLC+.app
 
     steps:
       - name: Checkout

@@ -81,6 +81,55 @@ namespace
         "specdiff", "kl", "mkl", "specflux"
     };
 
+    /** Convert HSV (h,s,v each in [0,1]) to packed 0xAARRGGBB via qRgb(). */
+    static inline uint hsvToRgb(float h, float s, float v)
+    {
+        if (!std::isfinite(h)) h = 0.0f;
+        if (!std::isfinite(s)) s = 0.0f;
+        if (!std::isfinite(v)) v = 0.0f;
+        h = h - floorf(h); if (h < 0) h += 1.0f;
+        s = qBound(0.0f, s, 1.0f);
+        v = qBound(0.0f, v, 1.0f);
+
+        float c = v * s;
+        float x = c * (1.0f - fabsf(fmodf(h * 6.0f, 2.0f) - 1.0f));
+        float m = v - c;
+        float r, g, b;
+        int sector = (int)(h * 6.0f) % 6;
+        switch (sector) {
+            case 0: r=c; g=x; b=0; break;
+            case 1: r=x; g=c; b=0; break;
+            case 2: r=0; g=c; b=x; break;
+            case 3: r=0; g=x; b=c; break;
+            case 4: r=x; g=0; b=c; break;
+            default: r=c; g=0; b=x; break;
+        }
+        int ri = qRound((r+m) * 255.0f);
+        int gi = qRound((g+m) * 255.0f);
+        int bi = qRound((b+m) * 255.0f);
+        return qRgb(ri, gi, bi);
+    }
+
+    /** Convert packed 0xRRGGBB to HSV floats in [0,1]. */
+    struct HsvColor { float h, s, v; };
+    static inline HsvColor rgbToHsv(uint packed)
+    {
+        float r = float((packed >> 16) & 0xFF) / 255.0f;
+        float g = float((packed >> 8) & 0xFF) / 255.0f;
+        float b = float(packed & 0xFF) / 255.0f;
+        float mx = std::max({r, g, b});
+        float mn = std::min({r, g, b});
+        float d = mx - mn;
+        float h = 0.0f;
+        float s = (mx == 0.0f) ? 0.0f : d / mx;
+        if (d != 0.0f) {
+            if (mx == r) h = fmodf((g - b) / d + 6.0f, 6.0f) / 6.0f;
+            else if (mx == g) h = ((b - r) / d + 2.0f) / 6.0f;
+            else h = ((r - g) / d + 4.0f) / 6.0f;
+        }
+        return {h, s, mx};
+    }
+
     QJSValue triggerToJs(QJSEngine *engine, const TriggerState &trigger)
     {
         QJSValue obj = engine->newObject();
@@ -101,13 +150,23 @@ namespace
         return arr;
     }
 
-    QJSValue packedColorArrayToJs(QJSEngine *engine, const QJSValue &source, int fallbackCount)
+    /** Republish a previously-built HSV gradient JS array onto the audio object.
+     *  When no gradient is set yet (script just loaded), return an array of
+     *  `fallbackCount` neutral {h:0,s:0,v:0} stops so audio scripts can index
+     *  blindly without isUndefined() checks. */
+    QJSValue hsvColorArrayToJs(QJSEngine *engine, const QJSValue &source, int fallbackCount)
     {
         if (!source.isUndefined())
             return source;
         QJSValue arr = engine->newArray(quint32(fallbackCount));
         for (int i = 0; i < fallbackCount; i++)
-            arr.setProperty(quint32(i), QJSValue(0));
+        {
+            QJSValue obj = engine->newObject();
+            obj.setProperty(QStringLiteral("h"), QJSValue(0.0));
+            obj.setProperty(QStringLiteral("s"), QJSValue(0.0));
+            obj.setProperty(QStringLiteral("v"), QJSValue(0.0));
+            arr.setProperty(quint32(i), obj);
+        }
         return arr;
     }
 
@@ -193,6 +252,175 @@ namespace
         if (hz <= 0.0)
             return 0.0;
         return kA4Midi + kSemitonesPerOctave * std::log2(hz / kA4Hz);
+    }
+
+    /*********************************************************************
+     * Audio Routing helpers
+     *
+     * Per-RGBMatrix audio slot remapping. The engine mutates the local
+     * AudioSnapshot copy so scripts only ever see routed data.
+     *********************************************************************/
+
+    double getSourceScalar(const AudioSnapshot &orig,
+                           RGBMatrix::AudioSource src,
+                           double native,
+                           int onsetMethodIndex)
+    {
+        switch (src)
+        {
+            case RGBMatrix::AudioSrcZero:    return 0.0;
+            case RGBMatrix::AudioSrcLow:     return orig.lows;
+            case RGBMatrix::AudioSrcMid:     return orig.mids;
+            case RGBMatrix::AudioSrcHigh:    return orig.highs;
+            case RGBMatrix::AudioSrcBeat:    return orig.beatTrigger.value;
+            case RGBMatrix::AudioSrcKick:    return orig.kickTrigger.value;
+            case RGBMatrix::AudioSrcOnset:   return orig.onsets.thresholdedDescriptors[onsetMethodIndex];
+            case RGBMatrix::AudioSrcVolume:  return orig.volume.volumeNorm;
+            case RGBMatrix::AudioSrcDefault:
+            default:                         return native;
+        }
+    }
+
+    TriggerState getSourceTrigger(const AudioSnapshot &orig,
+                                  RGBMatrix::AudioSource src,
+                                  const TriggerState &native,
+                                  int onsetMethodIndex)
+    {
+        switch (src)
+        {
+            case RGBMatrix::AudioSrcZero:   return TriggerState{};
+            case RGBMatrix::AudioSrcLow:    return orig.triggers[0];
+            case RGBMatrix::AudioSrcMid:    return orig.triggers[1];
+            case RGBMatrix::AudioSrcHigh:   return orig.triggers[2];
+            case RGBMatrix::AudioSrcBeat:   return orig.beatTrigger;
+            case RGBMatrix::AudioSrcKick:   return orig.kickTrigger;
+            case RGBMatrix::AudioSrcVolume: return orig.volumeTrigger;
+            case RGBMatrix::AudioSrcOnset:
+            {
+                TriggerState t;
+                t.value = orig.onsets.thresholdedDescriptors[onsetMethodIndex];
+                t.active = onsetFiredAt(orig, onsetMethodIndex);
+                t.firedThisFrame = t.active;
+                return t;
+            }
+            case RGBMatrix::AudioSrcDefault:
+            default:                        return native;
+        }
+    }
+
+    void applyAudioRouting(AudioSnapshot &snap,
+                           const AudioSnapshot &orig,
+                           const RGBMatrix::AudioRouting &routing,
+                           int onsetMethodIndex)
+    {
+        // Low slot: snap.lows, snap.triggers[0], snap.beatPower, snap.bassPower
+        if (routing.low != RGBMatrix::AudioSrcDefault)
+        {
+            snap.lows = getSourceScalar(orig, routing.low, orig.lows, onsetMethodIndex);
+            snap.triggers[0] = getSourceTrigger(orig, routing.low, orig.triggers[0], onsetMethodIndex);
+            if (routing.low == RGBMatrix::AudioSrcZero)
+            {
+                snap.beatPower = 0.0;
+                snap.bassPower = 0.0;
+            }
+            else if (routing.low != RGBMatrix::AudioSrcLow)
+            {
+                // Non-native source: clear sub-band detail so detail.beat/bass
+                // stay consistent with the remapped low.
+                snap.beatPower = 0.0;
+                snap.bassPower = 0.0;
+            }
+        }
+
+        // Mid slot
+        if (routing.mid != RGBMatrix::AudioSrcDefault)
+        {
+            snap.mids = getSourceScalar(orig, routing.mid, orig.mids, onsetMethodIndex);
+            snap.triggers[1] = getSourceTrigger(orig, routing.mid, orig.triggers[1], onsetMethodIndex);
+        }
+
+        // High slot
+        if (routing.high != RGBMatrix::AudioSrcDefault)
+        {
+            snap.highs = getSourceScalar(orig, routing.high, orig.highs, onsetMethodIndex);
+            snap.triggers[2] = getSourceTrigger(orig, routing.high, orig.triggers[2], onsetMethodIndex);
+        }
+
+        // Beat slot: snap.beatTrigger + snap.music (phase / bpm gate cosPulse)
+        if (routing.beat != RGBMatrix::AudioSrcDefault)
+        {
+            snap.beatTrigger = getSourceTrigger(orig, routing.beat, orig.beatTrigger, onsetMethodIndex);
+            if (routing.beat == RGBMatrix::AudioSrcZero)
+            {
+                snap.music.beat = false;
+                snap.music.beatPhase = 0.0;
+                snap.music.barPhase = 0.0;
+                snap.music.bpm = 0.0;
+                snap.music.beatConfidence = 0.0;
+                snap.music.tatum = false;
+                snap.downbeatFired = false;
+            }
+            else if (routing.beat != RGBMatrix::AudioSrcBeat)
+            {
+                // Non-tempo source: clamp source value [0,1] into beatPhase,
+                // disable tempo so cosPulse becomes 0.
+                const double v = getSourceScalar(orig, routing.beat, orig.beatTrigger.value, onsetMethodIndex);
+                snap.music.beatPhase = std::clamp(v, 0.0, 1.0);
+                snap.music.bpm = 0.0;
+                snap.music.beatConfidence = 0.0;
+                snap.music.tatum = false;
+            }
+        }
+
+        // Kick slot
+        if (routing.kick != RGBMatrix::AudioSrcDefault)
+        {
+            snap.kickTrigger = getSourceTrigger(orig, routing.kick, orig.kickTrigger, onsetMethodIndex);
+        }
+
+        // Onset slot: rewrite all method bools + descriptors so any selected
+        // method index reads the same routed value.
+        if (routing.onset != RGBMatrix::AudioSrcDefault)
+        {
+            if (routing.onset == RGBMatrix::AudioSrcZero)
+            {
+                snap.onsets.energy = false;
+                snap.onsets.hfc = false;
+                snap.onsets.complex_ = false;
+                snap.onsets.phase = false;
+                snap.onsets.wphase = false;
+                snap.onsets.specdiff = false;
+                snap.onsets.kl = false;
+                snap.onsets.mkl = false;
+                snap.onsets.specflux = false;
+                for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
+                {
+                    snap.onsets.descriptors[i] = 0.0;
+                    snap.onsets.thresholdedDescriptors[i] = 0.0;
+                }
+            }
+            else if (routing.onset != RGBMatrix::AudioSrcOnset)
+            {
+                const TriggerState srcTrig = getSourceTrigger(orig, routing.onset,
+                                                              TriggerState{}, onsetMethodIndex);
+                const bool fired = srcTrig.firedThisFrame;
+                const double v = srcTrig.value;
+                snap.onsets.energy = fired;
+                snap.onsets.hfc = fired;
+                snap.onsets.complex_ = fired;
+                snap.onsets.phase = fired;
+                snap.onsets.wphase = fired;
+                snap.onsets.specdiff = fired;
+                snap.onsets.kl = fired;
+                snap.onsets.mkl = fired;
+                snap.onsets.specflux = fired;
+                for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
+                {
+                    snap.onsets.descriptors[i] = v;
+                    snap.onsets.thresholdedDescriptors[i] = v;
+                }
+            }
+        }
     }
 }
 
@@ -552,9 +780,10 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_rgbMap.isUndefined() == true)
         return;
 
-    // Inject the matrix's color stops as algo.gradientColors and a
-    // pre-sampled 3-element algo.gradientBandColors LUT for low/mid/high banks.
-    // Done on every frame so live UI / MCP color edits show up next tick.
+    // Inject the matrix's HSV color stops as algo.gradientColors and a
+    // pre-sampled 3-element algo.gradientBandColors LUT for low/mid/high banks,
+    // plus algo.color (primary HSV color). Done on every frame so live UI /
+    // MCP color edits show up next tick.
     injectGradientArrays(rgb);
 
     // If this is an audio-aware script, set up audio capture on first call
@@ -577,14 +806,10 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
         return;
     }
 
-    // Phase 3 single path: scripts MUST return a flat Uint32Array of length
-    // width*height (row-major). The C++ side reads its underlying ArrayBuffer
-    // as a QByteArray and copies uint32_t values directly into RGBMap. This
-    // avoids the per-element FastDtoa number→string conversions QV4 applies
-    // when toVariant().toList() walks a nested Array<Array<number>>.
-    //
-    // TypedArrays don't satisfy QJSValue::isArray(); detect via the
-    // BYTES_PER_ELEMENT property (only present on TypedArray instances).
+    // HSV-only contract: scripts MUST return a Float32Array of length
+    // width*height*3 (interleaved H,S,V floats in [0,1]). The engine converts
+    // to packed RGB here. Returning a Uint32Array (the legacy RGB path) is
+    // no longer supported.
     const int width = size.width();
     const int height = size.height();
     if (width <= 0 || height <= 0)
@@ -594,20 +819,34 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (!bpeProp.isNumber())
     {
         qWarning() << "RGBScript" << m_fileName
-                   << "rgbMap() did not return a TypedArray. Phase 3 requires"
-                   << "a flat Uint32Array of length width*height.";
+                   << "rgbMap() did not return a TypedArray. HSV contract"
+                   << "requires a flat Float32Array of length width*height*3.";
+        return;
+    }
+
+    // Reject Uint32Array (legacy RGB) — only Float32Array is accepted.
+    // Both have BYTES_PER_ELEMENT==4, so check the constructor name.
+    QJSValue ctorName = yarray.property(QStringLiteral("constructor"))
+                              .property(QStringLiteral("name"));
+    if (ctorName.toString() != QStringLiteral("Float32Array"))
+    {
+        qWarning() << "RGBScript" << m_fileName
+                   << "returned" << ctorName.toString()
+                   << "but only Float32Array (HSV) is supported.";
         return;
     }
 
     const int bpe = bpeProp.toInt();
     const int byteLength = yarray.property(QStringLiteral("byteLength")).toInt();
-    const int expectedBytes = width * height * 4;
-    if (bpe != 4 || byteLength != expectedBytes)
+    const int expectedHsvBytes = width * height * 3 * 4;    // Float32Array: 3 floats/pixel
+
+    if (bpe != 4 || byteLength != expectedHsvBytes)
     {
         qWarning() << "RGBScript" << m_fileName
                    << "returned a TypedArray with unexpected geometry: byteLength="
-                   << byteLength << "expected=" << expectedBytes
-                   << "BYTES_PER_ELEMENT=" << bpe;
+                   << byteLength << "BYTES_PER_ELEMENT=" << bpe
+                   << "(expected" << expectedHsvBytes
+                   << "for HSV Float32Array).";
         return;
     }
 
@@ -620,22 +859,26 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     }
 
     QByteArray bytes = bufProp.toVariant().toByteArray();
-    if (bytes.size() != expectedBytes)
+    if (bytes.size() != expectedHsvBytes)
     {
         qWarning() << "RGBScript" << m_fileName
                    << "ArrayBuffer extraction size mismatch: got" << bytes.size()
-                   << "expected" << expectedBytes;
+                   << "expected" << expectedHsvBytes;
         return;
     }
 
-    const uint32_t *src = reinterpret_cast<const uint32_t*>(bytes.constData());
     map.resize(height);
+    // Convert interleaved float H,S,V triples to packed RGB.
+    const float *src = reinterpret_cast<const float*>(bytes.constData());
     for (int y = 0; y < height; ++y)
     {
         map[y].resize(width);
-        const uint32_t *row = src + (y * width);
+        const float *row = src + (y * width * 3);
         for (int x = 0; x < width; ++x)
-            map[y][x] = row[x];
+        {
+            int i = x * 3;
+            map[y][x] = hsvToRgb(row[i], row[i + 1], row[i + 2]);
+        }
     }
 }
 
@@ -784,28 +1027,45 @@ void RGBScript::teardownAudioCapture()
     }
 }
 
-uint RGBScript::interpolateGradientColor(const QVector<uint> &colors, double t)
+namespace
 {
-    if (colors.isEmpty())
-        return 0;
-    if (colors.size() == 1)
-        return colors.at(0) & 0xFFFFFFu;
-    if (t < 0.0) t = 0.0;
-    else if (t > 1.0) t = 1.0;
+    /** Shortest-arc HSV gradient interpolation.
+     *  Mirrors RGBUtil.gradientAt() in rgbutil.js: stops are evenly spaced in
+     *  [0,1]; hue is interpolated along the shorter arc; s,v are linear. */
+    HsvColor interpolateHsv(const QVector<HsvColor> &stops, double t)
+    {
+        if (stops.isEmpty())
+            return {0.0f, 0.0f, 0.0f};
+        if (stops.size() == 1)
+            return stops.at(0);
+        if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+        double pos = t * (stops.size() - 1);
+        int idx = int(pos);
+        if (idx >= stops.size() - 1)
+            return stops.at(stops.size() - 1);
+        double frac = pos - idx;
+        const HsvColor &a = stops.at(idx);
+        const HsvColor &b = stops.at(idx + 1);
+        double dh = double(b.h) - double(a.h);
+        if (dh > 0.5) dh -= 1.0;
+        else if (dh < -0.5) dh += 1.0;
+        double h = double(a.h) + frac * dh;
+        h = h - std::floor(h);
+        return {
+            float(h),
+            float(double(a.s) + frac * (double(b.s) - double(a.s))),
+            float(double(a.v) + frac * (double(b.v) - double(a.v)))
+        };
+    }
 
-    double pos = t * (colors.size() - 1);
-    int idx = int(pos);
-    if (idx >= colors.size() - 1)
-        return colors.at(colors.size() - 1) & 0xFFFFFFu;
-
-    double frac = pos - idx;
-    uint c1 = colors.at(idx), c2 = colors.at(idx + 1);
-    int r1 = (c1 >> 16) & 0xFF, g1 = (c1 >> 8) & 0xFF, b1 = c1 & 0xFF;
-    int r2 = (c2 >> 16) & 0xFF, g2 = (c2 >> 8) & 0xFF, b2 = c2 & 0xFF;
-    int r = int(qRound(r1 + frac * (r2 - r1)));
-    int g = int(qRound(g1 + frac * (g2 - g1)));
-    int b = int(qRound(b1 + frac * (b2 - b1)));
-    return (uint(r) << 16) | (uint(g) << 8) | uint(b);
+    QJSValue hsvToJs(QJSEngine *engine, const HsvColor &hsv)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
+        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
+        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
+        return obj;
+    }
 }
 
 void RGBScript::injectGradientArrays(uint rgb)
@@ -814,8 +1074,10 @@ void RGBScript::injectGradientArrays(uint rgb)
     if (engine == NULL || m_script.isUndefined())
         return;
 
-    // Compact valid stops from the owning matrix into 0xRRGGBB.
-    QVector<uint> stops;
+    // Compact valid stops from the owning matrix into HSV. The matrix still
+    // stores QColor (RGB) under the hood; we convert here so scripts only
+    // ever see HSV.
+    QVector<HsvColor> hsvStops;
     RGBMatrix *matrix = owningMatrix(doc(), this);
     if (matrix != NULL)
     {
@@ -825,41 +1087,37 @@ void RGBScript::injectGradientArrays(uint rgb)
             const QColor &c = cols.at(i);
             if (!c.isValid())
                 continue;
-            stops.append(c.rgb() & 0xFFFFFFu);
+            hsvStops.append(rgbToHsv(c.rgb() & 0xFFFFFFu));
         }
     }
 
-    // gradientColors: empty if no valid stops -> fall back to [rgb] so scripts
-    // that index into it don't crash. Mask rgb to 0xRRGGBB to match stop format.
-    QJSValue gradArr;
-    if (stops.isEmpty())
-    {
-        gradArr = engine->newArray(1);
-        gradArr.setProperty(0, QJSValue(double(rgb & 0xFFFFFFu)));
-    }
-    else
-    {
-        gradArr = engine->newArray(quint32(stops.size()));
-        for (int i = 0; i < stops.size(); ++i)
-            gradArr.setProperty(quint32(i), QJSValue(double(stops.at(i))));
-    }
+    // Always have at least one stop so scripts can index without isUndefined()
+    // checks. Falls back to the primary `rgb` argument converted to HSV.
+    if (hsvStops.isEmpty())
+        hsvStops.append(rgbToHsv(rgb & 0xFFFFFFu));
 
-    // gradientBandColors: 3 evenly sampled colors (one per mel bank: low/mid/high).
-    // If only one valid color, all 3 entries are that color.
-    QVector<uint> sampleStops = stops;
-    if (sampleStops.isEmpty())
-        sampleStops.append(rgb & 0xFFFFFFu);
+    // algo.gradientColors: array of {h,s,v} stops (HSV-only contract).
+    QJSValue gradArr = engine->newArray(quint32(hsvStops.size()));
+    for (int i = 0; i < hsvStops.size(); ++i)
+        gradArr.setProperty(quint32(i), hsvToJs(engine, hsvStops.at(i)));
 
+    // algo.gradientBandColors: 3 evenly-sampled HSV stops for low/mid/high
+    // mel banks. Sampling uses shortest-arc hue interp to match RGBUtil.gradientAt.
     QJSValue bandArr = engine->newArray(3);
     for (int i = 0; i < 3; ++i)
     {
-        double t = (sampleStops.size() <= 1) ? 0.0 : double(i) / 2.0;
-        uint c = interpolateGradientColor(sampleStops, t);
-        bandArr.setProperty(quint32(i), QJSValue(double(c)));
+        double t = (hsvStops.size() <= 1) ? 0.0 : double(i) / 2.0;
+        HsvColor c = interpolateHsv(hsvStops, t);
+        bandArr.setProperty(quint32(i), hsvToJs(engine, c));
     }
+
+    // algo.color: the primary color as {h,s,v}. Replaces the packed `rgb`
+    // argument scripts used to unpack manually.
+    QJSValue colorObj = hsvToJs(engine, rgbToHsv(rgb & 0xFFFFFFu));
 
     m_script.setProperty(QStringLiteral("gradientColors"), gradArr);
     m_script.setProperty(QStringLiteral("gradientBandColors"), bandArr);
+    m_script.setProperty(QStringLiteral("color"), colorObj);
 
     m_currentGradientColors = gradArr;
     m_currentBandColors = bandArr;
@@ -898,6 +1156,17 @@ QJSValue RGBScript::buildAudioDataObject()
     if (channel != NULL)
         snap = channel->snapshot();
 
+    const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
+                                            0, AUBIO_ONSET_METHODS - 1);
+
+    // Per-RGBMatrix audio routing: mutate the snapshot copy BEFORE deriving
+    // any JS audio object fields. Scripts cannot bypass this routing.
+    if (matrix != NULL && !matrix->audioRouting().isAllDefault())
+    {
+        const AudioSnapshot original = snap;
+        applyAudioRouting(snap, original, matrix->audioRouting(), onsetMethodIndex);
+    }
+
     audioObj.setProperty(QStringLiteral("version"), QJSValue(kAudioApiVersion));
 
     const double powerBands[kPowerBandCount] = { snap.lows, snap.mids, snap.highs };
@@ -926,8 +1195,6 @@ QJSValue RGBScript::buildAudioDataObject()
     powerObj.setProperty(QStringLiteral("detail"), detailObj);
     audioObj.setProperty(QStringLiteral("power"), powerObj);
 
-    const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
-                                            0, AUBIO_ONSET_METHODS - 1);
     QJSValue onsetObj = engine->newObject();
     onsetObj.setProperty(QStringLiteral("fired"),
                          QJSValue(onsetFiredAt(snap, onsetMethodIndex)));
@@ -1074,9 +1341,9 @@ QJSValue RGBScript::buildAudioDataObject()
 
     QJSValue colorsObj = engine->newObject();
     colorsObj.setProperty(QStringLiteral("gradient"),
-                          packedColorArrayToJs(engine, m_currentGradientColors, 0));
+                          hsvColorArrayToJs(engine, m_currentGradientColors, 0));
     colorsObj.setProperty(QStringLiteral("bands"),
-                          packedColorArrayToJs(engine, m_currentBandColors, kPowerBandCount));
+                          hsvColorArrayToJs(engine, m_currentBandColors, kPowerBandCount));
     audioObj.setProperty(QStringLiteral("colors"), colorsObj);
 
     return audioObj;

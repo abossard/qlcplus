@@ -457,6 +457,84 @@ Rectangle
 
         SectionBox
         {
+            sectionLabel: qsTr("Per-Bank AGC (Low / Mid / High)")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    // Low bank
+                    RobotoText { height: gridItemsHeight; label: qsTr("Low decay"); tooltipText: qsTr("AGC alpha_decay for the LOW mel bank (LedFx melbank.py:375). Higher = AGC tracks downward faster.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melLowAgcDecay * 100) : 1
+                        onValueModified: if (widgetRef) widgetRef.setMelLowAgcDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Low rise"); tooltipText: qsTr("AGC alpha_rise for the LOW mel bank. Higher = AGC tracks upward faster.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melLowAgcRise * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelLowAgcRise(value / 100)
+                    }
+
+                    // Mid bank
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mid decay"); tooltipText: qsTr("AGC alpha_decay for the MID mel bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melMidAgcDecay * 100) : 1
+                        onValueModified: if (widgetRef) widgetRef.setMelMidAgcDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mid rise"); tooltipText: qsTr("AGC alpha_rise for the MID mel bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melMidAgcRise * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelMidAgcRise(value / 100)
+                    }
+
+                    // High bank
+                    RobotoText { height: gridItemsHeight; label: qsTr("High decay"); tooltipText: qsTr("AGC alpha_decay for the HIGH mel bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melHighAgcDecay * 100) : 1
+                        onValueModified: if (widgetRef) widgetRef.setMelHighAgcDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("High rise"); tooltipText: qsTr("AGC alpha_rise for the HIGH mel bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.melHighAgcRise * 100) : 99
+                        onValueModified: if (widgetRef) widgetRef.setMelHighAgcRise(value / 100)
+                    }
+                }
+        }
+
+
+        SectionBox
+        {
             sectionLabel: qsTr("aubio: Onset Detection")
 
             sectionContents:
@@ -476,6 +554,24 @@ Rectangle
                         // adaptive whitening/compression) were removed: aubio exposes
                         // them only via per-method overrides now. Use the per-method
                         // override editor below to tune each detector individually.
+                    }
+
+                    RobotoText
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        label: qsTr("Primary method")
+                        tooltipText: qsTr("Primary onset method used by aubio for callback-style onset detection. Independent of the per-method enable flags below, which control which descriptors the visualizer plots.")
+                    }
+                    CustomComboBox
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        property var onsetMethods: ["energy","hfc","complex","phase","wphase","specdiff","kl","mkl","specflux"]
+                        model: onsetMethods
+                        enabled: widgetRef !== null
+                        currentIndex: widgetRef ? widgetRef.onsetMethodIndex : 8
+                        onActivated: if (widgetRef) widgetRef.setOnsetMethodIndex(currentIndex)
                     }
 
                     RobotoText
@@ -972,24 +1068,84 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setHighsCutoffHz(value)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Freq decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay. Higher = faster release.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Beat band. Higher = faster release.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerDecay * 100) : 20
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerDecay(value / 100)
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatDecay(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Freq rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise. Higher = faster attack.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Beat band. Higher = faster attack.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerRise * 100) : 97
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerRise(value / 100)
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Bass band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBassDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Bass band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBassRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Mids band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Mids band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("High decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the High band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerHighDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("High rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the High band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerHighRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighRise(value / 100)
                     }
                 }
         }

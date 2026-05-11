@@ -19,7 +19,7 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Shot";
     algo.author = "QLC+ contributors";
-    algo.acceptColors = 3; // low/mid/high mel-bank gradient
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -56,17 +56,15 @@ var testAlgo;
     algo.getMaxShots = function() { return algo.presetMaxShots; };
     var DECAY_DIVISOR = 200.0;
 
-    // Active shots: [{x, y, r, g, b, brightness, size}]
+    // Active shots: [{x, y, h, s, brightness, size}]
     var shots = [];
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return AudioColors.bands(algo).slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     function spawnShot(width, height, audio) {
-        var colorPacked = AudioColors.dominant(algo, audio);
+        var color = AudioColors.dominant(algo, audio);
         var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
 
         var band = AudioColors.dominantIndex(audio);
@@ -81,9 +79,8 @@ var testAlgo;
         shots.push({
             x: Math.floor(Math.random() * width),
             y: y,
-            r: (colorPacked >> 16) & 0xFF,
-            g: (colorPacked >> 8) & 0xFF,
-            b: colorPacked & 0xFF,
+            h: color.h,
+            s: color.s,
             brightness: hitScale,
             size: algo.presetSize
         });
@@ -94,7 +91,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var trigger;
@@ -108,7 +105,8 @@ var testAlgo;
 
         var decayRate = algo.presetDecay / DECAY_DIVISOR;
 
-        // Render and decay shots
+        // Accumulate per-pixel brightness and track dominant shot hue
+        // (simulates additive blending by picking brightest contributor's hue)
         for (var si = shots.length - 1; si >= 0; si--) {
             var shot = shots[si];
             shot.brightness -= decayRate;
@@ -119,7 +117,7 @@ var testAlgo;
             }
 
             var b = shot.brightness;
-            var sz = Math.ceil(shot.size * (0.5 + b * 0.5)); // shrinks as it fades
+            var sz = Math.ceil(shot.size * (0.5 + b * 0.5));
 
             for (var dy = -sz; dy <= sz; dy++) {
                 for (var dx = -sz; dx <= sz; dx++) {
@@ -127,22 +125,28 @@ var testAlgo;
                     var py = shot.y + dy;
                     if (px < 0 || px >= width || py < 0 || py >= height) continue;
 
-                    // Distance falloff
                     var dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist > sz) continue;
                     var falloff = b * (1 - dist / (sz + 0.5));
 
-                    // Additive blend
-                    var existing = map[(py) * width + (px)];
-                    var er = (existing >> 16) & 0xFF;
-                    var eg = (existing >> 8) & 0xFF;
-                    var eb = existing & 0xFF;
-
-                    map[(py) * width + (px)] = RGBUtil.rgb(
-                        Math.min(255, er + shot.r * falloff),
-                        Math.min(255, eg + shot.g * falloff),
-                        Math.min(255, eb + shot.b * falloff)
-                    );
+                    var i3 = (py * width + px) * 3;
+                    var existingV = map[i3 + 2];
+                    var newV = Math.min(1, existingV + falloff);
+                    if (existingV < 0.001) {
+                        map[i3] = shot.h;
+                        map[i3 + 1] = shot.s;
+                        map[i3 + 2] = newV;
+                    } else {
+                        // Blend hue toward brighter contributor
+                        var total = existingV + falloff;
+                        var t = falloff / Math.max(0.001, total);
+                        var dh = shot.h - map[i3];
+                        if (dh > 0.5) dh -= 1;
+                        else if (dh < -0.5) dh += 1;
+                        map[i3] = (map[i3] + t * dh) - Math.floor(map[i3] + t * dh);
+                        map[i3 + 1] = map[i3 + 1] * (1 - t) + shot.s * t;
+                        map[i3 + 2] = newV;
+                    }
                 }
             }
         }

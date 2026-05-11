@@ -718,6 +718,119 @@ void RGBMatrixEditor::setBeatOrientation(int o)
 }
 
 /************************************************************************
+ * Audio Routing
+ ************************************************************************/
+
+bool RGBMatrixEditor::algorithmUsesAudio() const
+{
+    if (m_matrix == nullptr || m_matrix->algorithm() == nullptr)
+        return false;
+    return m_matrix->algorithm()->usesAudio();
+}
+
+int RGBMatrixEditor::audioRoutingLow() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().low);
+}
+
+void RGBMatrixEditor::setAudioRoutingLow(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.low) == s) return;
+    r.low = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+int RGBMatrixEditor::audioRoutingMid() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().mid);
+}
+
+void RGBMatrixEditor::setAudioRoutingMid(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.mid) == s) return;
+    r.mid = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+int RGBMatrixEditor::audioRoutingHigh() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().high);
+}
+
+void RGBMatrixEditor::setAudioRoutingHigh(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.high) == s) return;
+    r.high = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+int RGBMatrixEditor::audioRoutingBeat() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().beat);
+}
+
+void RGBMatrixEditor::setAudioRoutingBeat(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.beat) == s) return;
+    r.beat = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+int RGBMatrixEditor::audioRoutingKick() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().kick);
+}
+
+void RGBMatrixEditor::setAudioRoutingKick(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.kick) == s) return;
+    r.kick = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+int RGBMatrixEditor::audioRoutingOnset() const
+{
+    if (m_matrix == nullptr) return 0;
+    return int(m_matrix->audioRouting().onset);
+}
+
+void RGBMatrixEditor::setAudioRoutingOnset(int s)
+{
+    if (m_matrix == nullptr) return;
+    RGBMatrix::AudioRouting r = m_matrix->audioRouting();
+    if (int(r.onset) == s) return;
+    r.onset = RGBMatrix::AudioSource(s);
+    m_matrix->setAudioRouting(r);
+    initPreviewData();
+    emit audioRoutingChanged();
+}
+
+/************************************************************************
  * Save to Sequence
  ************************************************************************/
 

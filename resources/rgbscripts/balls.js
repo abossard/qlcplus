@@ -52,6 +52,18 @@ var testAlgo;
     var util = new Object;
     util.colorArray = new Array(algo.acceptColors);
 
+    function addPixel(map, idx, h, s, v) {
+      v = Math.max(0, Math.min(1, v));
+      if (v <= 0) return;
+      var existV = map[idx + 2];
+      if (existV <= 0) {
+        map[idx] = h; map[idx + 1] = s; map[idx + 2] = v;
+      } else {
+        if (v > existV) { map[idx] = h; map[idx + 1] = s; }
+        map[idx + 2] = Math.min(1, existV + v);
+      }
+    }
+
     algo.setSize = function (_size) {
       algo.presetSize = _size;
     };
@@ -88,7 +100,13 @@ var testAlgo;
       {
         algo.presetIndex = 0;
         algo.acceptColors = 5;
-        util.colorArray = [ 0x00FF00, 0xFFAA00, 0x0000FF, 0xFFFF00, 0x00AAFF ];
+        util.colorArray = [
+          {h: 0.333, s: 1, v: 1},
+          {h: 0.111, s: 1, v: 1},
+          {h: 0.667, s: 1, v: 1},
+          {h: 0.167, s: 1, v: 1},
+          {h: 0.556, s: 1, v: 1}
+        ];
       }
       else if (_preset === "Random")
       {
@@ -96,13 +114,11 @@ var testAlgo;
         util.colorArray = new Array();
         for (var i = 0; i < algo.presetNumber; i++)
         {
-          do
-          {
-            var ballR = Math.round(Math.random() * 255);  // Chose random
-            var ballG = Math.round(Math.random() * 255);  // colour for
-            var ballB = Math.round(Math.random() * 255);  // each Ball
-          } while ((ballR + ballG + ballB) < 356);  // if it it to dim try again
-          util.colorArray[i] = (ballR << 16) + (ballG << 8) + ballB;
+          util.colorArray[i] = {
+            h: Math.random(),
+            s: 0.7 + Math.random() * 0.3,
+            v: 0.7 + Math.random() * 0.3
+          };
         }
       }
       else { algo.presetIndex = 0; }
@@ -118,23 +134,11 @@ var testAlgo;
   
     algo.rgbMapSetColors = function(rawColors)
     {
-      if (! Array.isArray(rawColors))
-        return;
-      if (algo.acceptColors > 0)
-        util.colorArray = Array();
-      for (var i = 0; i < algo.acceptColors; i++) {
-        var isNumber = (rawColors[i] === rawColors[i]);
-        var color = rawColors[i];
-        if (i < rawColors.length && isNumber)
-        {
-          util.colorArray.push(color);
-        }
-      }
     }
 
     algo.rgbMapGetColors = function()
     {
-      return util.colorArray;
+      return [];
     }
 
     util.initialize = function (width, height) {
@@ -142,10 +146,10 @@ var testAlgo;
       algo.direction = new Array(algo.presetNumber);
 
       for (var i = 0; i < algo.presetNumber; i++) {
-        var x = Math.random() * (width - 1); // set random start
-        var y = Math.random() * (height - 1); // locations for balls
+        var x = Math.random() * (width - 1);
+        var y = Math.random() * (height - 1);
         algo.ball[i] = [y, x];
-        var yDirection = (Math.random() * 2) - 1; // and random directions
+        var yDirection = (Math.random() * 2) - 1;
         var xDirection = (Math.random() * 2) - 1;
         algo.direction[i] = [yDirection, xDirection];
       }
@@ -158,67 +162,44 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = new Uint32Array(width * height); // Clear map data
-      for (var y = 0; y < height; y++) {
+      var map = RGBUtil.createMap(width, height);
 
-        for (var x = 0; x < width; x++) {
-          map[(y) * width + (x)] = 0;
-        }
-      }
-
-      for (var i = 0; i < algo.presetNumber; i++) {  // for each ball displayed
-        rgb = util.getRawColor(i);  // use RGB for ball random colour
-        var r = (rgb >> 16) & 0x00FF;  // split colour in to
-        var g = (rgb >> 8) & 0x00FF;   // separate parts
-        var b = rgb & 0x00FF;
-        var yx = algo.ball[i];  // ball's location, as float
-        var step = algo.direction[i];  // ball's direction / speed, as float
-        var my = Math.floor(yx[0]);  // workout closest map location for ball
+      for (var i = 0; i < algo.presetNumber; i++) {
+        var color = util.getRawColor(i);
+        var yx = algo.ball[i];
+        var step = algo.direction[i];
+        var my = Math.floor(yx[0]);
         var mx = Math.floor(yx[1]);
-        var boxSize = Math.round(algo.presetSize / 2);  // area size to draw ball
+        var boxSize = Math.round(algo.presetSize / 2);
 
-        for (var ry = my - boxSize; ry < my + boxSize + 2; ry++) {  // area for faded edges
+        for (var ry = my - boxSize; ry < my + boxSize + 2; ry++) {
 
-          for (var rx = mx - boxSize; rx < mx + boxSize + 2; rx++) {  // to display ball
+          for (var rx = mx - boxSize; rx < mx + boxSize + 2; rx++) {
 
-            if (rx < width && rx > -1 && ry < height && ry > -1) {  // if edges are off the map dont draw
-              var pointRGB = map[(ry) * width + (rx)];    // get curent colour on the map
-              var pointr = (pointRGB >> 16) & 0x00FF;// so that colours mix and don't over
-              var pointg = (pointRGB >> 8) & 0x00FF; // write.
-              var pointb = pointRGB & 0x00FF;  // splt rgb in to components
-              var ballr = r;
-              var ballg = g;
-              var ballb = b;
-              var offx = rx - yx[1];  // calculate the off set differance of map location
-              var offy = ry - yx[0];  // to the float location of the ball, using the hypotenuse
+            if (rx < width && rx > -1 && ry < height && ry > -1) {
+              var offx = rx - yx[1];
+              var offy = ry - yx[0];
               var hyp = 1 - (Math.sqrt((offx * offx) + (offy * offy)) / ((algo.presetSize / 2) + 1));
 
-              if (hyp < 0) { hyp = 0; } // if the distance multiplyed by ball size is negative = 0
-              pointr += Math.round(ballr * hyp); // dim mapped ball colours by the distance from
-              pointg += Math.round(ballg * hyp); // the ball center ( hyp = 1, full colour / 0, off)
-              pointb += Math.round(ballb * hyp); // add the ball colour to the mapped location
-              if (pointr > 255) { pointr = 255; } // if addind the colours over saturates
-              if (pointg > 255) { pointg = 255; } // reduce it to the maximum
-              if (pointb > 255) { pointb = 255; }
+              if (hyp < 0) { hyp = 0; }
 
-              pointRGB = (pointr << 16) + (pointg << 8) + pointb; // combine colours
-
-              map[(ry) * width + (rx)] = pointRGB; // set mapped point
+              var idx = (ry * width + rx) * 3;
+              var newV = color.v * hyp;
+              addPixel(map, idx, color.h, color.s, newV);
             }
           }
         }
 
-        if (algo.presetCollision === 0) {  // if colision detection is on
-          // Ball collision detection
-          for (var ti = 0; ti < algo.presetNumber; ti++) {  // check all balls
+        if (algo.presetCollision === 0) {
+          for (var ti = 0; ti < algo.presetNumber; ti++) {
 
-            if (ti !== i) {  // but not the current one
-              var disy = (yx[0] + step[0]) - algo.ball[ti][0];  // calculate distance
-              var disx = (yx[1] + step[1]) - algo.ball[ti][1];  // to current ball
+            if (ti !== i) {
+              var disy = (yx[0] + step[0]) - algo.ball[ti][0];
+              var disx = (yx[1] + step[1]) - algo.ball[ti][1];
               var dish = Math.sqrt((disx * disx) + (disy * disy));
-              if (dish < (1.414) * (algo.presetSize / 2)) {  // if to close
-                var stepy = step[0];  // swap speed / direction of current ball
-                var stepx = step[1];  // with ball that is to close
+              if (dish < (1.414) * (algo.presetSize / 2)) {
+                var stepy = step[0];
+                var stepx = step[1];
                 algo.direction[i][0] = algo.direction[ti][0];
                 algo.direction[i][1] = algo.direction[ti][1];
                 algo.direction[ti][0] = stepy;
@@ -228,24 +209,22 @@ var testAlgo;
           }
         }
 
-        // edge collision detection
-        if (yx[0] <= 0 && step[0] < 0) { step[0] *= -1; } // top edge and moving up
-        else if (yx[0] >= height - 1 && step[0] > 0) { step[0] *= -1; } // bottom edge and moving down
+        if (yx[0] <= 0 && step[0] < 0) { step[0] *= -1; }
+        else if (yx[0] >= height - 1 && step[0] > 0) { step[0] *= -1; }
 
-        if (yx[1] <= 0 && step[1] < 0) { step[1] *= -1; } // left edge and moving left
-        else if (yx[1] >= width - 1 && step[1] > 0) { step[1] *= -1; } // right edge and moving right
+        if (yx[1] <= 0 && step[1] < 0) { step[1] *= -1; }
+        else if (yx[1] >= width - 1 && step[1] > 0) { step[1] *= -1; }
 
-        yx[0] += step[0]; // set ball's next location
+        yx[0] += step[0];
         yx[1] += step[1];
 
-        algo.ball[i] = yx; // update location
-        algo.direction[i] = step; // and direction / speed
+        algo.ball[i] = yx;
+        algo.direction[i] = step;
       }
       return map;
     };
 
     algo.rgbMapStepCount = function (width, height) {
-      // This make no difference to the script ;-)
       return 2;
     };
 

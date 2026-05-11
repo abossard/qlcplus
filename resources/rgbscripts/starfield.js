@@ -29,7 +29,7 @@ var testAlgo;
     algo.author = "Doug Puckett+Branson Matheson";
     algo.properties = [];
     algo.acceptColors = 1;
-    algo.presetColor = 0x000000;
+    algo.presetColor = {h: 0, s: 0, v: 0};
     algo.properties.push("name:StarsAmount|type:range|display:Number of Stars (10-255)|values:10,255|write:setAmount|read:getAmount");
     algo.presetStars = 50;          // 50 stars on screen at one time (default)
     algo.properties.push("name:MultiColor|type:list|display:MultiColored Stars?|values:No,Yes|write:setMulti|read:getMulti");
@@ -90,15 +90,15 @@ var testAlgo;
       return Math.floor(Math.random() * (maxVal - minVal + 1)) + minVal;
     }
 
-    //set color of star - if multicolor, choose random color. If not random, return user chosen color
+    //set color of star - if multicolor, choose random color
     function getNewColor(isMultiColor, zColor) {
       if (isMultiColor === 1) {
-        var tr = Math.floor(Math.random() * 255);   // random red level
-        var tg = Math.floor(Math.random() * 255);   // random green level
-        var tb = Math.floor(Math.random() * 255);   // random blue level
-        return (tr << 16) + (tg << 8) + tb;         // returned combined color
+        return {
+          h: Math.random(),
+          s: 0.7 + Math.random() * 0.3,
+          v: 1
+        };
       } else {
-        // If not multicolor, return chosen color
         return zColor;
       }
     }
@@ -124,78 +124,50 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      // Clear map data for a blank map
-      var map = new Uint32Array(width * height);
-
-      for (var y = 0; y < height; y++) {
-        for (var x = 0; x < width; x++) {
-          map[(y) * width + (x)] = 0;
-        }
-      }
+      var map = RGBUtil.createMap(width, height);
 
       // find center of display
       var halfWidth = width / 2;
       var halfHeight = height / 2;
 
-      // start moving the stars by looping through this routine, addressing each star individually (i is the star number)
+      // start moving the stars
       for (var i = 0; i < algo.presetStars - 1; i++) {
 
         // decrease depth on each pass through 
         if (height >= width) { stars[i].z -= height / (height / 4); }
         else { stars[i].z -= width / (width / 4); }
 
-        // if star is off screen (depth is zero or less) then create a new star near the center of the display
+        // if star is off screen, create a new star near center
         if (stars[i].z <= 0) {
           stars[i].x = getNewNumberRange(-10, 10);
           stars[i].y = getNewNumberRange(-10, 10);
           stars[i].z = depth;
-          stars[i].c = getNewColor(algo.multiColor, rgb);
+          stars[i].c = getNewColor(algo.multiColor, algo.color);
         }
 
         // calculate the stars next position
-        var k = 200 / stars[i].z;                           // how far away the star is
-        var px = Math.floor(stars[i].x * k + halfWidth);    // x position of star
-        var py = Math.floor(stars[i].y * k + halfHeight);   // y position of star
+        var k = 200 / stars[i].z;
+        var px = Math.floor(stars[i].x * k + halfWidth);
+        var py = Math.floor(stars[i].y * k + halfHeight);
 
         if (px >= 0 && px < width && py >= 0 && py < height) {
-          // if star is in the center, then it should be darker (farther away)
-          // and lighten as it moves "closer" (out to the edges)
+          // Brightness factor based on depth
+          var factor;
           if (algo.invertColor == 1) {
-            var colorLevel = (stars[i].z * 2);
+            factor = Math.max(0, Math.min(1, stars[i].z * 2 / 255));
           } else {
-            var colorLevel = (255 - (stars[i].z * 2));
+            factor = Math.max(0, Math.min(1, 1 - stars[i].z * 2 / 255));
           }
 
-          // parse out individual colors of current star color
-          var r = (stars[i].c >> 16) & 0x00FF;
-          var g = (stars[i].c >> 8) & 0x00FF;
-          var b = stars[i].c & 0x00FF;
-
-          // Adjust star brightness level based on how far away it is and by chosen star color
-          var rr = r - (255 - colorLevel);
-          var gg = g - (255 - colorLevel);
-          var bb = b - (255 - colorLevel);
-
-          // Limit each color element to the maximum for chosen color or make 0 if below 0
-          if (rr > r) { rr = r; }
-          if (rr < 0) { rr = 0; }
-          if (gg > g) { gg = g; }
-          if (gg < 0) { gg = 0; }
-          if (bb > b) { bb = b; }
-          if (bb < 0) { bb = 0; }
-
-          // put all the individual rgb colors back together
-          var pRGB = (rr << 16) + (gg << 8) + bb;
-          px = Math.floor(px); // get rid of x and y position fractions
+          px = Math.floor(px);
           py = Math.floor(py);
-          map[(py) * width + (px)] = pRGB; // store the star's combined color in the map
-          // console.log("i: " + i + " px: " + px + " py: " + py + " pz: " + stars[i].z + " color: " + r+g+b);
+          RGBUtil.setPixel(map, width, px, py,
+            stars[i].c.h, stars[i].c.s, stars[i].c.v * factor);
         } else {
-          // console.log("i: " + i + " k: " + k + " px: " + px + " width: " + width + " py: " + py + " height: " + height);
-          stars[i].z = 0;     // if here, the star was outside screen for some reason so force a new star
+          stars[i].z = 0;     // force a new star
         }
       }
-      return map; // return the map back to QLC+
+      return map;
 
     };
 

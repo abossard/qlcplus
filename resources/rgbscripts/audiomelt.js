@@ -48,10 +48,12 @@ var testAlgo;
     function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
+    algo.rgbMapSetColors = function(rawColors) { };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createFlatMap(width, height);
+        var map = RGBUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -82,9 +84,10 @@ var testAlgo;
 
             var h = il + t2;
 
-            var packed = RGBUtil.hsvLedFx(h, 1, v);
+            var hc = RGBUtil.mod1(h);
+            var vc = RGBUtil.clamp01(v);
             for (var y = 0; y < height; y++)
-                map[(y) * width + (x)] = packed;
+                RGBUtil.setPixel(map, width, x, y, hc, 1, vc);
         }
 
         return map;

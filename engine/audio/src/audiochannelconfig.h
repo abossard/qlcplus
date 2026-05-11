@@ -61,11 +61,80 @@ struct KickConfig
 };
 
 /**
+ * LedFx-style mel post-processing config (mirrors MelPostProcessor::Config).
+ *
+ * Each of the 3 multi-resolution banks owns its own copy of this struct
+ * (LedFx melbank.py:374-378 — every bank has its own ExpFilter chain).
+ * AGC alphas are now first-class config fields — previously hardcoded.
+ */
+struct MelPostConfig
+{
+    double powerFactor = 2.0;       // LedFx default: tan(0.5*pi*(0.4+1)/2) ≈ 2.0
+    double gaussianSigma = 1.0;     // LedFx: fast_blur_array sigma=1.0 for mel_gain
+    double smoothDecay = 0.7;       // LedFx melbank.py:376
+    double smoothRise = 0.99;       // LedFx melbank.py:376
+    double commonDecay = 0.99;      // LedFx melbank.py:377
+    double commonRise = 0.01;       // LedFx melbank.py:377
+    double diffDecay = 0.15;        // LedFx melbank.py:378
+    double diffRise = 0.99;         // LedFx melbank.py:378
+    double agcDecay = 0.01;         // LedFx melbank.py:375 (mel_gain alpha_decay)
+    double agcRise = 0.99;          // LedFx melbank.py:375 (mel_gain alpha_rise)
+    bool enabled = true;            // on by default (LedFx always processes)
+
+    bool operator==(const MelPostConfig &o) const
+    {
+        return powerFactor == o.powerFactor && gaussianSigma == o.gaussianSigma
+            && smoothDecay == o.smoothDecay && smoothRise == o.smoothRise
+            && commonDecay == o.commonDecay && commonRise == o.commonRise
+            && diffDecay == o.diffDecay && diffRise == o.diffRise
+            && agcDecay == o.agcDecay && agcRise == o.agcRise
+            && enabled == o.enabled;
+    }
+    bool operator!=(const MelPostConfig &o) const { return !(*this == o); }
+};
+
+/**
+ * Per-perceptual-band freq_power configuration (LedFx audio.py:1107-1331).
+ * Each of the 4 bands carries its own Hz upper cutoff plus its own ExpFilter
+ * decay/rise alphas — previously a single shared decay/rise pair governed all
+ * 4 outputs. Lower edge of each band is the upper edge of the previous one
+ * (or 0 Hz for `beat`).
+ */
+struct FreqPowerBandConfig
+{
+    double maxHz = 100.0;
+    double decay = 0.1;     // LedFx audio.py:1160 (alpha_decay default 0.2 for global)
+    double rise = 0.99;     // LedFx audio.py:1160 (alpha_rise default 0.97 for global)
+
+    bool operator==(const FreqPowerBandConfig &o) const
+    {
+        return maxHz == o.maxHz && decay == o.decay && rise == o.rise;
+    }
+    bool operator!=(const FreqPowerBandConfig &o) const { return !(*this == o); }
+};
+
+struct FreqPowerConfig
+{
+    // Defaults match LedFx audio.py:1107 (freq_max_mels = [100, 250, 3000, 10000])
+    // with snappier per-band alphas tuned for live light response.
+    FreqPowerBandConfig beat = { 100.0,   0.2, 0.97 };
+    FreqPowerBandConfig bass = { 250.0,   0.2, 0.97 };
+    FreqPowerBandConfig mids = { 3000.0,  0.2, 0.97 };
+    FreqPowerBandConfig high = { 10000.0, 0.2, 0.97 };
+
+    bool operator==(const FreqPowerConfig &o) const
+    {
+        return beat == o.beat && bass == o.bass && mids == o.mids && high == o.high;
+    }
+    bool operator!=(const FreqPowerConfig &o) const { return !(*this == o); }
+};
+
+/**
  * Multi-resolution mel filterbank configuration. Three nested matt_mel
  * banks share the existing FFT (m_fftGrain) and run after the legacy 40-band
  * filterbank inside AubioProcessor. Each bank has its own independent
  * MelPostProcessor instance in AudioChannel so AGC/smoothing/novelty state is
- * per-bank (matches LedFx semantics).
+ * per-bank (matches LedFx semantics) — and now its own MelPostConfig too.
  *
  * Defaults are EDM-tuned (low=20-350Hz, mid=20-2kHz, high=20-15kHz, 24 bands
  * each). All ranges start at 20 Hz so bass effects can always read from the
@@ -82,17 +151,19 @@ struct MelBankConfig
         double minHz = 20.0;
         double maxHz = 350.0;
         int bands = 24;
+        MelPostConfig post;     // LedFx melbank.py:374-378 — per-bank ExpFilter chain.
 
         bool operator==(const Bank &o) const
         {
-            return minHz == o.minHz && maxHz == o.maxHz && bands == o.bands;
+            return minHz == o.minHz && maxHz == o.maxHz && bands == o.bands
+                && post == o.post;
         }
         bool operator!=(const Bank &o) const { return !(*this == o); }
     };
 
-    Bank low  = { 20.0,   350.0, 24 };
-    Bank mid  = { 20.0,  2000.0, 24 };
-    Bank high = { 20.0, 15000.0, 24 };
+    Bank low  = { 20.0,   350.0, 24, {} };
+    Bank mid  = { 20.0,  2000.0, 24, {} };
+    Bank high = { 20.0, 15000.0, 24, {} };
 
     // Tracks which preset the bank ranges came from for the VC properties UI
     // (round-tripped through XML, not consumed by the DSP). Set to "Custom"
@@ -107,23 +178,6 @@ struct MelBankConfig
         return low == o.low && mid == o.mid && high == o.high;
     }
     bool operator!=(const MelBankConfig &o) const { return !(*this == o); }
-};
-
-/**
- * LedFx-style mel post-processing config (mirrors MelPostProcessor::Config).
- * Defaults to bypass so existing projects/scripts see unchanged mel values.
- */
-struct MelPostConfig
-{
-    double powerFactor = 2.0;       // LedFx default: tan(0.5*pi*(0.4+1)/2) ≈ 2.0
-    double gaussianSigma = 1.0;    // LedFx: fast_blur_array sigma=1.0 for mel_gain
-    double smoothDecay = 0.7;       // LedFx melbank.py:376
-    double smoothRise = 0.99;       // LedFx melbank.py:376
-    double commonDecay = 0.99;      // LedFx melbank.py:377
-    double commonRise = 0.01;       // LedFx melbank.py:377
-    double diffDecay = 0.15;        // LedFx melbank.py:378
-    double diffRise = 0.99;         // LedFx melbank.py:378
-    bool enabled = true;            // on by default (LedFx always processes)
 };
 
 /**
@@ -254,11 +308,10 @@ struct AudioChannelConfig
     TriggerConfig triggers;
     NoiseGateConfig noiseGate;
     KickConfig kick;
-    MelPostConfig melPost;
+    MelPostConfig melPost;          // master 40-band post-processor (snap.melProcessed / flatness)
     double brightnessFloor = 0.0;
     double volumeSmoothingMs = 100.0;
-    double freqPowerDecay = 0.2;     // LedFx audio.py:1160 (alpha_decay)
-    double freqPowerRise = 0.97;     // LedFx audio.py:1160 (alpha_rise)
+    FreqPowerConfig freqPower;      // LedFx audio.py:1107-1331 — per-band Hz cutoff + ExpFilter alphas
     AubioConfig aubio;
 
     static AudioChannelConfig defaults();

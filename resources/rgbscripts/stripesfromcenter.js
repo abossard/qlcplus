@@ -55,7 +55,7 @@ var testAlgo;
             isEven = (width % 2 === 0);
         }
 
-        var map = new Uint32Array(width * height);
+        var map = RGBUtil.createMap(width, height);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -63,9 +63,7 @@ var testAlgo;
                 var cmpAxis = (algo.orientation ? y : x);
 
                 if (cmpAxis === center + step + (isEven ? 1 : 0 ) || cmpAxis === center - step) {
-                    map[(y) * width + (x)] = rgb;
-                } else {
-                    map[(y) * width + (x)] = 0;
+                    RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
                 }
             }
         }
