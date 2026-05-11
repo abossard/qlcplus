@@ -88,6 +88,7 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileMelBankDiffRise      QStringLiteral("DiffRise")
 #define KXMLQLCAudioProfileMelBankAgcDecay      QStringLiteral("AgcDecay")
 #define KXMLQLCAudioProfileMelBankAgcRise       QStringLiteral("AgcRise")
+#define KXMLQLCAudioProfileMelBankEnabled       QStringLiteral("Enabled")
 
 // Master 40-band post-processor (snap.melProcessed[] / spectral flatness).
 // Same attribute names as <MelBank/>; lives on its own element so the master
@@ -116,6 +117,10 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioFilterbankPower QStringLiteral("FilterbankPower")
 #define KXMLQLCAudioProfileAubioTempoSilenceDb  QStringLiteral("TempoSilenceDb")
 #define KXMLQLCAudioProfileAubioTempoThreshold  QStringLiteral("TempoThreshold")
+#define KXMLQLCAudioProfileAubioTempoMethod     QStringLiteral("TempoMethod")
+#define KXMLQLCAudioProfileAubioCoastBeats      QStringLiteral("CoastBeats")
+#define KXMLQLCAudioProfileAubioTempoDecayHalfLifeBeats QStringLiteral("TempoDecayHalfLifeBeats")
+#define KXMLQLCAudioProfileAubioTempoDecayTargetBpm     QStringLiteral("TempoDecayTargetBpm")
 #define KXMLQLCAudioProfileAubioTempoMinBpm     QStringLiteral("TempoMinBpm")
 #define KXMLQLCAudioProfileAubioTempoMaxBpm     QStringLiteral("TempoMaxBpm")
 #define KXMLQLCAudioProfileAubioTatumSubdivision QStringLiteral("TatumSubdivision")

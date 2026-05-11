@@ -792,6 +792,103 @@ void VCAudioTriggers::setMelHighAgcRise(double value)
     applyChannelConfig(config);
 }
 
+namespace
+{
+    // Per-bank post-processor non-AGC edits share the "mark Custom" rule with
+    // applyAgcEdit() so per-bank tuning sticks across preset re-applies.
+    void applyPostEdit(AudioChannelConfig &config, double *field, double value, double lo, double hi)
+    {
+        *field = qBound(lo, value, hi);
+        config.aubio.melBanks.preset = QStringLiteral("Custom");
+    }
+    void applyPostEnabledEdit(AudioChannelConfig &config, bool *field, bool value)
+    {
+        *field = value;
+        config.aubio.melBanks.preset = QStringLiteral("Custom");
+    }
+}
+
+#define VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, Field, field, lo, hi)         \
+    void VCAudioTriggers::setMel##Bank##Field(double value)                 \
+    {                                                                       \
+        AudioChannelConfig config = profileChannelConfig();                 \
+        applyPostEdit(config, &config.aubio.melBanks.bank.post.field,       \
+                      value, lo, hi);                                       \
+        applyChannelConfig(config);                                         \
+    }
+#define VC_DEFINE_MEL_POST_ENABLED(Bank, bank)                              \
+    void VCAudioTriggers::setMel##Bank##Enabled(bool enabled)               \
+    {                                                                       \
+        AudioChannelConfig config = profileChannelConfig();                 \
+        applyPostEnabledEdit(config, &config.aubio.melBanks.bank.post.enabled, enabled); \
+        applyChannelConfig(config);                                         \
+    }
+
+#define VC_DEFINE_MEL_POST_BANK(Bank, bank)                                 \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, PowerFactor,   powerFactor,   0.1, 10.0)   \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, GaussianSigma, gaussianSigma, 0.1, 10.0)   \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, SmoothDecay,   smoothDecay,   0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, SmoothRise,    smoothRise,    0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, CommonDecay,   commonDecay,   0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, CommonRise,    commonRise,    0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, DiffDecay,     diffDecay,     0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_DOUBLE(Bank, bank, DiffRise,      diffRise,      0.0, 1.0)    \
+    VC_DEFINE_MEL_POST_ENABLED(Bank, bank)
+
+VC_DEFINE_MEL_POST_BANK(Low,  low)
+VC_DEFINE_MEL_POST_BANK(Mid,  mid)
+VC_DEFINE_MEL_POST_BANK(High, high)
+
+#undef VC_DEFINE_MEL_POST_BANK
+#undef VC_DEFINE_MEL_POST_ENABLED
+#undef VC_DEFINE_MEL_POST_DOUBLE
+
+void VCAudioTriggers::setTempoMethod(const QString &method)
+{
+    // aubio currently only ships a single tempo method ("default"), but the
+    // string is forwarded straight to aubio_tempo_new — keep this open-ended
+    // so future aubio releases work without code changes. Empty input falls
+    // back to the canonical name.
+    QString sanitized = method.trimmed();
+    if (sanitized.isEmpty())
+        sanitized = QStringLiteral("default");
+    AudioChannelConfig config = profileChannelConfig();
+    if (config.aubio.tempoMethod == sanitized)
+        return;
+    config.aubio.tempoMethod = sanitized;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setCoastBeats(double beats)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    beats = qBound(0.0, beats, 64.0);
+    if (qFuzzyCompare(config.aubio.coastBeats + 1.0, beats + 1.0))
+        return;
+    config.aubio.coastBeats = beats;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setTempoDecayHalfLifeBeats(double beats)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    beats = qBound(0.05, beats, 32.0);
+    if (qFuzzyCompare(config.aubio.tempoDecayHalfLifeBeats + 1.0, beats + 1.0))
+        return;
+    config.aubio.tempoDecayHalfLifeBeats = beats;
+    applyChannelConfig(config);
+}
+
+void VCAudioTriggers::setTempoDecayTargetBpm(double bpm)
+{
+    AudioChannelConfig config = profileChannelConfig();
+    bpm = qBound(1.0, bpm, 300.0);
+    if (qFuzzyCompare(config.aubio.tempoDecayTargetBpm + 1.0, bpm + 1.0))
+        return;
+    config.aubio.tempoDecayTargetBpm = bpm;
+    applyChannelConfig(config);
+}
+
 void VCAudioTriggers::setOnsetMethodIndex(int idx)
 {
     AudioChannelConfig config = profileChannelConfig();
@@ -1056,6 +1153,39 @@ double VCAudioTriggers::melMidAgcDecay()  const { return profileChannelConfig().
 double VCAudioTriggers::melMidAgcRise()   const { return profileChannelConfig().aubio.melBanks.mid.post.agcRise; }
 double VCAudioTriggers::melHighAgcDecay() const { return profileChannelConfig().aubio.melBanks.high.post.agcDecay; }
 double VCAudioTriggers::melHighAgcRise()  const { return profileChannelConfig().aubio.melBanks.high.post.agcRise; }
+
+double VCAudioTriggers::melLowPowerFactor()   const { return profileChannelConfig().aubio.melBanks.low.post.powerFactor; }
+double VCAudioTriggers::melLowGaussianSigma() const { return profileChannelConfig().aubio.melBanks.low.post.gaussianSigma; }
+double VCAudioTriggers::melLowSmoothDecay()   const { return profileChannelConfig().aubio.melBanks.low.post.smoothDecay; }
+double VCAudioTriggers::melLowSmoothRise()    const { return profileChannelConfig().aubio.melBanks.low.post.smoothRise; }
+double VCAudioTriggers::melLowCommonDecay()   const { return profileChannelConfig().aubio.melBanks.low.post.commonDecay; }
+double VCAudioTriggers::melLowCommonRise()    const { return profileChannelConfig().aubio.melBanks.low.post.commonRise; }
+double VCAudioTriggers::melLowDiffDecay()     const { return profileChannelConfig().aubio.melBanks.low.post.diffDecay; }
+double VCAudioTriggers::melLowDiffRise()      const { return profileChannelConfig().aubio.melBanks.low.post.diffRise; }
+bool   VCAudioTriggers::melLowEnabled()       const { return profileChannelConfig().aubio.melBanks.low.post.enabled; }
+double VCAudioTriggers::melMidPowerFactor()   const { return profileChannelConfig().aubio.melBanks.mid.post.powerFactor; }
+double VCAudioTriggers::melMidGaussianSigma() const { return profileChannelConfig().aubio.melBanks.mid.post.gaussianSigma; }
+double VCAudioTriggers::melMidSmoothDecay()   const { return profileChannelConfig().aubio.melBanks.mid.post.smoothDecay; }
+double VCAudioTriggers::melMidSmoothRise()    const { return profileChannelConfig().aubio.melBanks.mid.post.smoothRise; }
+double VCAudioTriggers::melMidCommonDecay()   const { return profileChannelConfig().aubio.melBanks.mid.post.commonDecay; }
+double VCAudioTriggers::melMidCommonRise()    const { return profileChannelConfig().aubio.melBanks.mid.post.commonRise; }
+double VCAudioTriggers::melMidDiffDecay()     const { return profileChannelConfig().aubio.melBanks.mid.post.diffDecay; }
+double VCAudioTriggers::melMidDiffRise()      const { return profileChannelConfig().aubio.melBanks.mid.post.diffRise; }
+bool   VCAudioTriggers::melMidEnabled()       const { return profileChannelConfig().aubio.melBanks.mid.post.enabled; }
+double VCAudioTriggers::melHighPowerFactor()   const { return profileChannelConfig().aubio.melBanks.high.post.powerFactor; }
+double VCAudioTriggers::melHighGaussianSigma() const { return profileChannelConfig().aubio.melBanks.high.post.gaussianSigma; }
+double VCAudioTriggers::melHighSmoothDecay()   const { return profileChannelConfig().aubio.melBanks.high.post.smoothDecay; }
+double VCAudioTriggers::melHighSmoothRise()    const { return profileChannelConfig().aubio.melBanks.high.post.smoothRise; }
+double VCAudioTriggers::melHighCommonDecay()   const { return profileChannelConfig().aubio.melBanks.high.post.commonDecay; }
+double VCAudioTriggers::melHighCommonRise()    const { return profileChannelConfig().aubio.melBanks.high.post.commonRise; }
+double VCAudioTriggers::melHighDiffDecay()     const { return profileChannelConfig().aubio.melBanks.high.post.diffDecay; }
+double VCAudioTriggers::melHighDiffRise()      const { return profileChannelConfig().aubio.melBanks.high.post.diffRise; }
+bool   VCAudioTriggers::melHighEnabled()       const { return profileChannelConfig().aubio.melBanks.high.post.enabled; }
+
+QString VCAudioTriggers::tempoMethod() const { return profileChannelConfig().aubio.tempoMethod; }
+double  VCAudioTriggers::coastBeats() const { return profileChannelConfig().aubio.coastBeats; }
+double  VCAudioTriggers::tempoDecayHalfLifeBeats() const { return profileChannelConfig().aubio.tempoDecayHalfLifeBeats; }
+double  VCAudioTriggers::tempoDecayTargetBpm() const { return profileChannelConfig().aubio.tempoDecayTargetBpm; }
 
 int VCAudioTriggers::onsetMethodIndex() const { return profileChannelConfig().aubio.onsetMethodIndex; }
 

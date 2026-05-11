@@ -400,6 +400,18 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.tempoThreshold = doubleAttribute(childAttrs,
                                                           KXMLQLCAudioProfileAubioTempoThreshold,
                                                           config.aubio.tempoThreshold);
+            config.aubio.tempoMethod = stringAttribute(childAttrs,
+                                                       KXMLQLCAudioProfileAubioTempoMethod,
+                                                       config.aubio.tempoMethod);
+            config.aubio.coastBeats = doubleAttribute(childAttrs,
+                                                      KXMLQLCAudioProfileAubioCoastBeats,
+                                                      config.aubio.coastBeats);
+            config.aubio.tempoDecayHalfLifeBeats = doubleAttribute(childAttrs,
+                                                      KXMLQLCAudioProfileAubioTempoDecayHalfLifeBeats,
+                                                      config.aubio.tempoDecayHalfLifeBeats);
+            config.aubio.tempoDecayTargetBpm = doubleAttribute(childAttrs,
+                                                      KXMLQLCAudioProfileAubioTempoDecayTargetBpm,
+                                                      config.aubio.tempoDecayTargetBpm);
             config.aubio.tatumSubdivision = intAttribute(childAttrs,
                                                          KXMLQLCAudioProfileAubioTatumSubdivision,
                                                          config.aubio.tatumSubdivision);
@@ -572,6 +584,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
                         bank->post.diffRise      = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankDiffRise,      bank->post.diffRise);
                         bank->post.agcDecay      = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankAgcDecay,      bank->post.agcDecay);
                         bank->post.agcRise       = doubleAttribute(mbAttrs, KXMLQLCAudioProfileMelBankAgcRise,       bank->post.agcRise);
+                        bank->post.enabled       = intAttribute(mbAttrs, KXMLQLCAudioProfileMelBankEnabled,
+                                                                bank->post.enabled ? 1 : 0) != 0;
                     }
                     if (mbAttrs.hasAttribute(KXMLQLCAudioProfileAubioMelBankPreset))
                     {
@@ -676,6 +690,10 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankPower, QString::number(m_config.aubio.filterbankPower));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTempoSilenceDb, QString::number(m_config.aubio.tempoSilenceDb));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTempoThreshold, QString::number(m_config.aubio.tempoThreshold));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoMethod, m_config.aubio.tempoMethod);
+    doc->writeAttribute(KXMLQLCAudioProfileAubioCoastBeats, QString::number(m_config.aubio.coastBeats));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayHalfLifeBeats, QString::number(m_config.aubio.tempoDecayHalfLifeBeats));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayTargetBpm, QString::number(m_config.aubio.tempoDecayTargetBpm));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTatumSubdivision, QString::number(m_config.aubio.tatumSubdivision));
     doc->writeAttribute(KXMLQLCAudioProfileAubioBeatsPerBar, QString::number(m_config.aubio.beatsPerBar));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPreEmphasisEnabled, m_config.aubio.preEmphasisEnabled ? "1" : "0");
@@ -764,6 +782,7 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
             doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      QString::number(p.diffRise));
             doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(p.agcDecay));
             doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(p.agcRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankEnabled,       p.enabled ? "1" : "0");
             if (i == 0)
                 doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
         }

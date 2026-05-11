@@ -210,55 +210,47 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     if (frame.aubio == nullptr)
         return;
 
-    // LedFx audio.py:1107-1331 — freq_power reads the POST-processed bank #2
-    // (`high`), not the legacy 40-band master mel. The high bank already
-    // carries its own AGC + smoothing + power scaling so freq_power inherits
-    // bank-tuned dynamics for free.
-    const MelBankConfig::Bank &highBank = m_config.aubio.melBanks.high;
-    const int n = std::clamp(frame.aubio->melHighCount, 0,
-                             AudioSnapshot::kMelBankBandsMax);
-    if (n <= 0)
-    {
-        // Bank not yet built (sample rate change in flight). Decay outputs
-        // toward zero with the per-band decay alpha so consumers see
-        // continuity instead of a freeze.
-        const FreqPowerBandConfig *bands[4] = {
-            &m_config.freqPower.beat, &m_config.freqPower.bass,
-            &m_config.freqPower.mids, &m_config.freqPower.high
-        };
-        for (int i = 0; i < 4; ++i)
-        {
-            const double a = std::clamp(bands[i]->decay, 0.0, 1.0);
-            m_freqPower[i] = (1.0 - a) * m_freqPower[i];
-        }
+    // All power bands read from high bank (20-15kHz), matching LedFx.
+    // The high bank's AGC normalizes across the full spectrum.
+    // Mids from mid bank for independent AGC on mids.
+    const int nMid  = frame.aubio->melMidCount;
+    const int nHigh = frame.aubio->melHighCount;
+
+    if (nHigh <= 0)
         return;
+
+    const auto &fp = m_config.freqPower;
+    const auto &banks = m_config.aubio.melBanks;
+
+    int beatEnd  = hzToBankBin(fp.beat.maxHz, banks.high);
+    int bassEnd  = hzToBankBin(fp.bass.maxHz, banks.high);
+    int midEnd   = hzToBankBin(fp.mids.maxHz, banks.high);
+    int highEnd  = hzToBankBin(fp.high.maxHz, banks.high);
+
+    double raw[4] = {};
+    raw[0] = averageMel(m_melHighProcessed, 0, beatEnd);
+    raw[1] = averageMel(m_melHighProcessed, beatEnd, bassEnd);
+
+    // Mids from mid bank if available, otherwise from high bank
+    if (nMid > 0)
+    {
+        int mStart = hzToBankBin(fp.bass.maxHz, banks.mid);
+        int mEnd   = hzToBankBin(fp.mids.maxHz, banks.mid);
+        raw[2] = averageMel(m_melMidProcessed, mStart, mEnd);
+    }
+    else
+    {
+        raw[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
     }
 
-    const int beatEnd = std::clamp(hzToBankBin(m_config.freqPower.beat.maxHz, highBank), 1, n - 3);
-    const int bassEnd = std::clamp(std::max(beatEnd + 1, hzToBankBin(m_config.freqPower.bass.maxHz, highBank)),
-                                   beatEnd + 1, n - 2);
-    const int midEnd  = std::clamp(std::max(bassEnd + 1, hzToBankBin(m_config.freqPower.mids.maxHz, highBank)),
-                                   bassEnd + 1, n - 1);
-    const int highEnd = std::clamp(std::max(midEnd + 1, hzToBankBin(m_config.freqPower.high.maxHz, highBank)),
-                                   midEnd + 1, n);
+    raw[3] = averageMel(m_melHighProcessed, midEnd, highEnd);
 
-    double rawFreqPower[4] = {};
-    rawFreqPower[0] = averageMel(m_melHighProcessed, 0, beatEnd);
-    rawFreqPower[1] = averageMel(m_melHighProcessed, beatEnd, bassEnd);
-    rawFreqPower[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
-    rawFreqPower[3] = averageMel(m_melHighProcessed, midEnd, highEnd);
-
-    const FreqPowerBandConfig *bands[4] = {
-        &m_config.freqPower.beat, &m_config.freqPower.bass,
-        &m_config.freqPower.mids, &m_config.freqPower.high
-    };
+    // Smooth with per-band ExpFilter
+    const FreqPowerBandConfig *cfg[4] = { &fp.beat, &fp.bass, &fp.mids, &fp.high };
     for (int i = 0; i < 4; i++)
     {
-        const double raw = std::min(rawFreqPower[i], 1.0);
-        const double rise = std::clamp(bands[i]->rise, 0.0, 1.0);
-        const double decay = std::clamp(bands[i]->decay, 0.0, 1.0);
-        const double a = (raw > m_freqPower[i]) ? rise : decay;
-        m_freqPower[i] = a * raw + (1.0 - a) * m_freqPower[i];
+        double a = (raw[i] > m_freqPower[i]) ? cfg[i]->rise : cfg[i]->decay;
+        m_freqPower[i] = a * raw[i] + (1.0 - a) * m_freqPower[i];
     }
 }
 

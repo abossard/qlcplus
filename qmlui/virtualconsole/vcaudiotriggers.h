@@ -263,6 +263,42 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double melHighAgcDecay READ melHighAgcDecay NOTIFY configChanged)
     Q_PROPERTY(double melHighAgcRise  READ melHighAgcRise  NOTIFY configChanged)
 
+    // Per-bank MelPostConfig fields (LedFx melbank.py:374-378). Each bank owns
+    // its own ExpFilter chain — these expose the non-AGC knobs to QML.
+    Q_PROPERTY(double melLowPowerFactor   READ melLowPowerFactor   NOTIFY configChanged)
+    Q_PROPERTY(double melLowGaussianSigma READ melLowGaussianSigma NOTIFY configChanged)
+    Q_PROPERTY(double melLowSmoothDecay   READ melLowSmoothDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melLowSmoothRise    READ melLowSmoothRise    NOTIFY configChanged)
+    Q_PROPERTY(double melLowCommonDecay   READ melLowCommonDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melLowCommonRise    READ melLowCommonRise    NOTIFY configChanged)
+    Q_PROPERTY(double melLowDiffDecay     READ melLowDiffDecay     NOTIFY configChanged)
+    Q_PROPERTY(double melLowDiffRise      READ melLowDiffRise      NOTIFY configChanged)
+    Q_PROPERTY(bool   melLowEnabled       READ melLowEnabled       NOTIFY configChanged)
+    Q_PROPERTY(double melMidPowerFactor   READ melMidPowerFactor   NOTIFY configChanged)
+    Q_PROPERTY(double melMidGaussianSigma READ melMidGaussianSigma NOTIFY configChanged)
+    Q_PROPERTY(double melMidSmoothDecay   READ melMidSmoothDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melMidSmoothRise    READ melMidSmoothRise    NOTIFY configChanged)
+    Q_PROPERTY(double melMidCommonDecay   READ melMidCommonDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melMidCommonRise    READ melMidCommonRise    NOTIFY configChanged)
+    Q_PROPERTY(double melMidDiffDecay     READ melMidDiffDecay     NOTIFY configChanged)
+    Q_PROPERTY(double melMidDiffRise      READ melMidDiffRise      NOTIFY configChanged)
+    Q_PROPERTY(bool   melMidEnabled       READ melMidEnabled       NOTIFY configChanged)
+    Q_PROPERTY(double melHighPowerFactor   READ melHighPowerFactor   NOTIFY configChanged)
+    Q_PROPERTY(double melHighGaussianSigma READ melHighGaussianSigma NOTIFY configChanged)
+    Q_PROPERTY(double melHighSmoothDecay   READ melHighSmoothDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melHighSmoothRise    READ melHighSmoothRise    NOTIFY configChanged)
+    Q_PROPERTY(double melHighCommonDecay   READ melHighCommonDecay   NOTIFY configChanged)
+    Q_PROPERTY(double melHighCommonRise    READ melHighCommonRise    NOTIFY configChanged)
+    Q_PROPERTY(double melHighDiffDecay     READ melHighDiffDecay     NOTIFY configChanged)
+    Q_PROPERTY(double melHighDiffRise      READ melHighDiffRise      NOTIFY configChanged)
+    Q_PROPERTY(bool   melHighEnabled       READ melHighEnabled       NOTIFY configChanged)
+
+    // Tempo decay-on-silence + selectable aubio tempo method.
+    Q_PROPERTY(QString tempoMethod READ tempoMethod NOTIFY configChanged)
+    Q_PROPERTY(double coastBeats READ coastBeats NOTIFY configChanged)
+    Q_PROPERTY(double tempoDecayHalfLifeBeats READ tempoDecayHalfLifeBeats NOTIFY configChanged)
+    Q_PROPERTY(double tempoDecayTargetBpm READ tempoDecayTargetBpm NOTIFY configChanged)
+
     // Primary onset method selector (index into onsetMethodEnabled[]).
     Q_PROPERTY(int onsetMethodIndex READ onsetMethodIndex NOTIFY configChanged)
 
@@ -554,6 +590,39 @@ public:
     double melHighAgcDecay() const;
     double melHighAgcRise()  const;
 
+    double melLowPowerFactor() const;
+    double melLowGaussianSigma() const;
+    double melLowSmoothDecay() const;
+    double melLowSmoothRise() const;
+    double melLowCommonDecay() const;
+    double melLowCommonRise() const;
+    double melLowDiffDecay() const;
+    double melLowDiffRise() const;
+    bool   melLowEnabled() const;
+    double melMidPowerFactor() const;
+    double melMidGaussianSigma() const;
+    double melMidSmoothDecay() const;
+    double melMidSmoothRise() const;
+    double melMidCommonDecay() const;
+    double melMidCommonRise() const;
+    double melMidDiffDecay() const;
+    double melMidDiffRise() const;
+    bool   melMidEnabled() const;
+    double melHighPowerFactor() const;
+    double melHighGaussianSigma() const;
+    double melHighSmoothDecay() const;
+    double melHighSmoothRise() const;
+    double melHighCommonDecay() const;
+    double melHighCommonRise() const;
+    double melHighDiffDecay() const;
+    double melHighDiffRise() const;
+    bool   melHighEnabled() const;
+
+    QString tempoMethod() const;
+    double  coastBeats() const;
+    double  tempoDecayHalfLifeBeats() const;
+    double  tempoDecayTargetBpm() const;
+
     int onsetMethodIndex() const;
 
     double volumeRaw() const;
@@ -618,6 +687,42 @@ public:
     Q_INVOKABLE void setMelMidAgcRise(double value);
     Q_INVOKABLE void setMelHighAgcDecay(double value);
     Q_INVOKABLE void setMelHighAgcRise(double value);
+
+    /// Per-bank MelPostConfig non-AGC setters. Each marks preset = "Custom"
+    /// (matches setMelLowAgcDecay etc.) so per-bank tuning isn't lost on a
+    /// preset re-apply.
+    Q_INVOKABLE void setMelLowPowerFactor(double value);
+    Q_INVOKABLE void setMelLowGaussianSigma(double value);
+    Q_INVOKABLE void setMelLowSmoothDecay(double value);
+    Q_INVOKABLE void setMelLowSmoothRise(double value);
+    Q_INVOKABLE void setMelLowCommonDecay(double value);
+    Q_INVOKABLE void setMelLowCommonRise(double value);
+    Q_INVOKABLE void setMelLowDiffDecay(double value);
+    Q_INVOKABLE void setMelLowDiffRise(double value);
+    Q_INVOKABLE void setMelLowEnabled(bool enabled);
+    Q_INVOKABLE void setMelMidPowerFactor(double value);
+    Q_INVOKABLE void setMelMidGaussianSigma(double value);
+    Q_INVOKABLE void setMelMidSmoothDecay(double value);
+    Q_INVOKABLE void setMelMidSmoothRise(double value);
+    Q_INVOKABLE void setMelMidCommonDecay(double value);
+    Q_INVOKABLE void setMelMidCommonRise(double value);
+    Q_INVOKABLE void setMelMidDiffDecay(double value);
+    Q_INVOKABLE void setMelMidDiffRise(double value);
+    Q_INVOKABLE void setMelMidEnabled(bool enabled);
+    Q_INVOKABLE void setMelHighPowerFactor(double value);
+    Q_INVOKABLE void setMelHighGaussianSigma(double value);
+    Q_INVOKABLE void setMelHighSmoothDecay(double value);
+    Q_INVOKABLE void setMelHighSmoothRise(double value);
+    Q_INVOKABLE void setMelHighCommonDecay(double value);
+    Q_INVOKABLE void setMelHighCommonRise(double value);
+    Q_INVOKABLE void setMelHighDiffDecay(double value);
+    Q_INVOKABLE void setMelHighDiffRise(double value);
+    Q_INVOKABLE void setMelHighEnabled(bool enabled);
+
+    Q_INVOKABLE void setTempoMethod(const QString &method);
+    Q_INVOKABLE void setCoastBeats(double beats);
+    Q_INVOKABLE void setTempoDecayHalfLifeBeats(double beats);
+    Q_INVOKABLE void setTempoDecayTargetBpm(double bpm);
     /// Primary onset method selector (0..AUBIO_ONSET_METHODS-1).
     Q_INVOKABLE void setOnsetMethodIndex(int idx);
     /// Recognized presets (case-insensitive): "EDM", "Live", "Acoustic",
@@ -778,7 +883,7 @@ private:
     // signal is rate-limited to avoid binding storms.
     QElapsedTimer m_uiThrottleTimer;
     static constexpr int kUiUpdateIntervalMs = 33; // ~30 Hz
-    int m_onsetHistorySeconds = 10;
+    int m_onsetHistorySeconds = 5;
 
     /*********************************************************************
      * Spectrum & Volume bars
