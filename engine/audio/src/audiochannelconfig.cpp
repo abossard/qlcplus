@@ -44,8 +44,17 @@ AudioChannelConfig AudioChannelConfig::fromLegacySliders(int /*gain*/, int react
 
     config.brightnessFloor = boundedFloor / 100.0;
 
-    config.triggers.highThreshold = 0.45 - boundedSensitivity * 0.04;
-    config.triggers.lowThreshold = std::max(0.0, config.triggers.highThreshold - 0.20);
+    // Apply the same sensitivity-derived thresholds to all 3 bands so legacy
+    // sliders continue to behave like a single hysteresis pair. Per-band
+    // tuning (defaults differ per band) is reserved for new profiles.
+    const double highT = 0.45 - boundedSensitivity * 0.04;
+    const double lowT  = std::max(0.0, highT - 0.20);
+    config.triggers.low.highThreshold  = highT;
+    config.triggers.low.lowThreshold   = lowT;
+    config.triggers.mid.highThreshold  = highT;
+    config.triggers.mid.lowThreshold   = lowT;
+    config.triggers.high.highThreshold = highT;
+    config.triggers.high.lowThreshold  = lowT;
 
     return config;
 }

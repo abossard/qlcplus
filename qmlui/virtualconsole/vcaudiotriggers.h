@@ -88,10 +88,19 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged FINAL)
     Q_PROPERTY(double envelopeAttack READ envelopeAttack NOTIFY configChanged)
     Q_PROPERTY(double envelopeRelease READ envelopeRelease NOTIFY configChanged)
-    Q_PROPERTY(double triggerHigh READ triggerHigh NOTIFY configChanged)
-    Q_PROPERTY(double triggerLow READ triggerLow NOTIFY configChanged)
-    Q_PROPERTY(double triggerCooldown READ triggerCooldown NOTIFY configChanged)
-    Q_PROPERTY(double triggerHold READ triggerHold NOTIFY configChanged)
+    // Per-band Schmitt trigger config. 12 properties: 3 bands × {High, Low, Hold, Cooldown}.
+    Q_PROPERTY(double triggerLowHigh      READ triggerLowHigh      NOTIFY configChanged)
+    Q_PROPERTY(double triggerLowLow       READ triggerLowLow       NOTIFY configChanged)
+    Q_PROPERTY(double triggerLowHold      READ triggerLowHold      NOTIFY configChanged)
+    Q_PROPERTY(double triggerLowCooldown  READ triggerLowCooldown  NOTIFY configChanged)
+    Q_PROPERTY(double triggerMidHigh      READ triggerMidHigh      NOTIFY configChanged)
+    Q_PROPERTY(double triggerMidLow       READ triggerMidLow       NOTIFY configChanged)
+    Q_PROPERTY(double triggerMidHold      READ triggerMidHold      NOTIFY configChanged)
+    Q_PROPERTY(double triggerMidCooldown  READ triggerMidCooldown  NOTIFY configChanged)
+    Q_PROPERTY(double triggerHighHigh     READ triggerHighHigh     NOTIFY configChanged)
+    Q_PROPERTY(double triggerHighLow      READ triggerHighLow      NOTIFY configChanged)
+    Q_PROPERTY(double triggerHighHold     READ triggerHighHold     NOTIFY configChanged)
+    Q_PROPERTY(double triggerHighCooldown READ triggerHighCooldown NOTIFY configChanged)
 
     // Kick / bass detector config (LedFx volume_beat_now). All durations in ms.
     Q_PROPERTY(double kickBeatMaxHz READ kickBeatMaxHz NOTIFY configChanged)
@@ -477,10 +486,18 @@ public:
 
     double envelopeAttack() const;
     double envelopeRelease() const;
-    double triggerHigh() const;
-    double triggerLow() const;
-    double triggerCooldown() const;
-    double triggerHold() const;
+    double triggerLowHigh() const;
+    double triggerLowLow() const;
+    double triggerLowHold() const;
+    double triggerLowCooldown() const;
+    double triggerMidHigh() const;
+    double triggerMidLow() const;
+    double triggerMidHold() const;
+    double triggerMidCooldown() const;
+    double triggerHighHigh() const;
+    double triggerHighLow() const;
+    double triggerHighHold() const;
+    double triggerHighCooldown() const;
 
     double kickBeatMaxHz() const;
     double kickBeatMinPercentDiff() const;
@@ -643,10 +660,18 @@ public:
 
     Q_INVOKABLE void setEnvelopeAttack(double ms);
     Q_INVOKABLE void setEnvelopeRelease(double ms);
-    Q_INVOKABLE void setTriggerHighThreshold(double value);
-    Q_INVOKABLE void setTriggerLowThreshold(double value);
-    Q_INVOKABLE void setTriggerCooldown(double ms);
-    Q_INVOKABLE void setTriggerHold(double ms);
+    Q_INVOKABLE void setTriggerLowHigh(double value);
+    Q_INVOKABLE void setTriggerLowLow(double value);
+    Q_INVOKABLE void setTriggerLowHold(double ms);
+    Q_INVOKABLE void setTriggerLowCooldown(double ms);
+    Q_INVOKABLE void setTriggerMidHigh(double value);
+    Q_INVOKABLE void setTriggerMidLow(double value);
+    Q_INVOKABLE void setTriggerMidHold(double ms);
+    Q_INVOKABLE void setTriggerMidCooldown(double ms);
+    Q_INVOKABLE void setTriggerHighHigh(double value);
+    Q_INVOKABLE void setTriggerHighLow(double value);
+    Q_INVOKABLE void setTriggerHighHold(double ms);
+    Q_INVOKABLE void setTriggerHighCooldown(double ms);
 
     Q_INVOKABLE void setKickEnabled(bool enabled);
     Q_INVOKABLE void setKickBeatMaxHz(double hz);

@@ -44,56 +44,9 @@ Rectangle
         return Math.round(Math.max(0, Math.min(1, value)) * 100) + "%"
     }
 
-    CustomPopupDialog
-    {
-        id: thresholdsPopup
-        width: mainView.width / 3
-
-        property alias tMin: minThresholdSpin.value
-        property alias tMax: maxThresholdSpin.value
-
-        onOpened: maxThresholdSpin.focus = true
-        onAccepted: widgetRef.setBarThresholds(tMin, tMax)
-
-        contentItem:
-            GridLayout
-            {
-                width: parent.width
-                height: UISettings.iconSizeDefault * rows
-                columns: 2
-                columnSpacing: 5
-
-                // Row 1
-                RobotoText
-                {
-                    label: qsTr("Activation threshold")
-                }
-
-                CustomSpinBox
-                {
-                    id: maxThresholdSpin
-                    Layout.fillWidth: true
-                    suffix: "%"
-                    from: 5
-                    to: 95
-                }
-
-                // Row 2
-                RobotoText
-                {
-                    label: qsTr("Deactivation threshold")
-                }
-
-                CustomSpinBox
-                {
-                    id: minThresholdSpin
-                    Layout.fillWidth: true
-                    suffix: "%"
-                    from: 5
-                    to: 95
-                }
-            }
-    }
+    // The per-mapping Activation/Deactivation thresholds popup was removed:
+    // setBarThresholds() is a no-op since hysteresis is now defined per band
+    // on the AudioProfile (triggerLow/Mid/High High/Low/Hold/Cooldown).
 
     CustomPopupDialog
     {
@@ -229,55 +182,9 @@ Rectangle
                 }
         }
 
-        SectionBox
-        {
-            sectionLabel: qsTr("Envelope & Triggers")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 5
-                    rowSpacing: 3
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Envelope attack"); tooltipText: qsTr("How fast the band envelope rises to new energy (ms). Higher = softer onset.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 1; to: 500; suffix: " ms"
-                        value: widgetRef ? Math.round(widgetRef.envelopeAttack) : 15
-                        onValueModified: if (widgetRef) widgetRef.setEnvelopeAttack(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Envelope release"); tooltipText: qsTr("How fast the band envelope decays after energy drops (ms). Higher = smoother, less twitchy.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 10; to: 2000; suffix: " ms"
-                        value: widgetRef ? Math.round(widgetRef.envelopeRelease) : 150
-                        onValueModified: if (widgetRef) widgetRef.setEnvelopeRelease(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Trigger hold"); tooltipText: qsTr("Minimum time a trigger stays ON after firing (ms). Higher = longer flashes, less stutter.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 10; to: 1000; suffix: " ms"
-                        value: widgetRef ? Math.round(widgetRef.triggerHold) : 80
-                        onValueModified: if (widgetRef) widgetRef.setTriggerHold(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Trigger cooldown"); tooltipText: qsTr("Minimum time between trigger re-fires (ms). Higher = fewer triggers per second.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 10; to: 2000; suffix: " ms"
-                        value: widgetRef ? Math.round(widgetRef.triggerCooldown) : 120
-                        onValueModified: if (widgetRef) widgetRef.setTriggerCooldown(value)
-                    }
-                }
-        }
+        // The duplicate top "Envelope & Triggers" section was removed:
+        // envelope attack/release live in "QLC+: Response — Envelope" and the
+        // per-band Schmitt-trigger grid lives in "QLC+: Triggers" below.
 
         SectionBox
         {
@@ -1798,80 +1705,144 @@ Rectangle
                     GridLayout
                     {
                         Layout.fillWidth: true
-                        columns: 2
+                        columns: 5
                         columnSpacing: 6
                         rowSpacing: 4
 
+                        // Header row
+                        RobotoText { height: gridItemsHeight; label: qsTr("Band"); fontBold: true }
                         RobotoText
                         {
                             height: gridItemsHeight
                             label: qsTr("High")
+                            textHAlign: Text.AlignHCenter
                             tooltipText: qsTr("Upper hysteresis threshold (% of band peak). Band must rise above this to fire a trigger.")
                         }
-
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 100
-                            suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHigh * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHighThreshold(value / 100)
-                        }
-
                         RobotoText
                         {
                             height: gridItemsHeight
                             label: qsTr("Low")
+                            textHAlign: Text.AlignHCenter
                             tooltipText: qsTr("Lower hysteresis threshold (% of band peak). Band must fall below this before another trigger can fire.")
                         }
-
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 100
-                            suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerLow * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerLowThreshold(value / 100)
-                        }
-
                         RobotoText
                         {
                             height: gridItemsHeight
                             label: qsTr("Hold")
+                            textHAlign: Text.AlignHCenter
                             tooltipText: qsTr("Minimum time (ms) the trigger stays active once fired, even if the band drops back below threshold.")
                         }
-
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 1000
-                            suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHold) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHold(value)
-                        }
-
                         RobotoText
                         {
                             height: gridItemsHeight
                             label: qsTr("Cooldown")
+                            textHAlign: Text.AlignHCenter
                             tooltipText: qsTr("Minimum time (ms) between two consecutive triggers from the same band. Use to avoid retriggering on a sustained note.")
                         }
 
+                        // Low band
+                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[0]; labelColor: bankTriggerColors[0] }
                         CustomSpinBox
                         {
                             Layout.fillWidth: true
-                            from: 0
-                            to: 2000
-                            suffix: " ms"
+                            from: 0; to: 100; suffix: "%"
                             enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerCooldown) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerCooldown(value)
+                            value: widgetRef ? Math.round(widgetRef.triggerLowHigh * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerLowHigh(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; suffix: "%"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerLowLow * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerLowLow(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 1000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerLowHold) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerLowHold(value)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 2000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerLowCooldown) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerLowCooldown(value)
+                        }
+
+                        // Mid band
+                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[1]; labelColor: bankTriggerColors[1] }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; suffix: "%"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerMidHigh * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerMidHigh(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; suffix: "%"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerMidLow * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerMidLow(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 1000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerMidHold) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerMidHold(value)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 2000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerMidCooldown) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerMidCooldown(value)
+                        }
+
+                        // High band
+                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[2]; labelColor: bankTriggerColors[2] }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; suffix: "%"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerHighHigh * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerHighHigh(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; suffix: "%"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerHighLow * 100) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerHighLow(value / 100)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 1000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerHighHold) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerHighHold(value)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 2000; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.triggerHighCooldown) : 0
+                            onValueModified: if (widgetRef) widgetRef.setTriggerHighCooldown(value)
                         }
                     }
                 }
@@ -2208,31 +2179,22 @@ Rectangle
 
                                 RobotoText
                                 {
-                                    visible: modelData.type !== VCAudioTriggers.None
+                                    visible: modelData.type !== VCAudioTriggers.None && modelData.type === VCAudioTriggers.DMXBar
                                     width: UISettings.bigItemHeight * 2
                                     height: gridItemsHeight
                                     clip: false
-                                    color: thresholdsMa.containsMouse ? UISettings.bgLight : "transparent"
-                                    label: modelData.type === VCAudioTriggers.DMXBar ?
-                                               modelData.intVal + " " + qsTr("Channels") :
-                                               qsTr("Thresholds:") + " " + modelData.minThreshold + "% - " + modelData.maxThreshold + "%"
+                                    label: modelData.intVal + " " + qsTr("Channels")
+                                }
 
-                                    MouseArea
-                                    {
-                                        id: thresholdsMa
-                                        enabled: modelData.type === VCAudioTriggers.FunctionBar ||
-                                                 modelData.type === VCAudioTriggers.VCWidgetBar
-                                        width: parent.width
-                                        height: gridItemsHeight
-                                        hoverEnabled: true
-                                        onClicked:
-                                        {
-                                            widgetRef.selectedBar = modelData.index
-                                            thresholdsPopup.tMin = Math.round(modelData.minThreshold)
-                                            thresholdsPopup.tMax = Math.round(modelData.maxThreshold)
-                                            thresholdsPopup.open()
-                                        }
-                                    }
+                                Item
+                                {
+                                    // Function/Widget bars: just hosts the IconTextEntry below.
+                                    // Per-mapping thresholds were removed — hysteresis is now
+                                    // configured per band on the AudioProfile.
+                                    visible: modelData.type === VCAudioTriggers.FunctionBar ||
+                                             modelData.type === VCAudioTriggers.VCWidgetBar
+                                    width: UISettings.bigItemHeight * 2
+                                    height: gridItemsHeight
 
                                     IconTextEntry
                                     {

@@ -312,6 +312,17 @@ void AudioChannel::updateTriggers(double dtMs)
     m_triggerValues[3] = m_volumeSmoothed;
     m_triggerValues[4] = m_currentBeat ? 1.0 : 0.0;
 
+    // Per-band Schmitt trigger configs. Bands 0/1/2 = low/mid/high; volume
+    // (idx 3) and beat (idx 4) reuse the mid-band config (sensible default
+    // mid-of-the-range hysteresis; beat is binary so thresholds barely matter).
+    const TriggerConfig *const cfg[kTriggerCount] = {
+        &m_config.triggers.low,
+        &m_config.triggers.mid,
+        &m_config.triggers.high,
+        &m_config.triggers.mid,
+        &m_config.triggers.mid
+    };
+
     for (int i = 0; i < kTriggerCount; i++)
     {
         m_triggerFired[i] = false;
@@ -327,19 +338,19 @@ void AudioChannel::updateTriggers(double dtMs)
         if (state.active)
         {
             state.heldMs += dtMs;
-            if (state.heldMs >= m_config.triggers.holdMs &&
-                m_triggerValues[i] <= m_config.triggers.lowThreshold)
+            if (state.heldMs >= cfg[i]->holdMs &&
+                m_triggerValues[i] <= cfg[i]->lowThreshold)
             {
                 state.active = false;
                 state.heldMs = 0.0;
-                state.cooldownMs = m_config.triggers.cooldownMs;
+                state.cooldownMs = cfg[i]->cooldownMs;
                 m_triggerReleased[i] = true;
             }
             continue;
         }
 
         if (!m_noiseGateClosed && state.cooldownMs <= 0.0 &&
-            m_triggerValues[i] >= m_config.triggers.highThreshold)
+            m_triggerValues[i] >= cfg[i]->highThreshold)
         {
             state.active = true;
             state.heldMs = 0.0;
@@ -357,8 +368,9 @@ void AudioChannel::updateTriggers(double dtMs)
             << "L=" << st(0) << " M=" << st(1) << " H=" << st(2)
             << " | vals: " << m_triggerValues[0] << " " << m_triggerValues[1]
             << " " << m_triggerValues[2]
-            << " | hi=" << m_config.triggers.highThreshold
-            << " lo=" << m_config.triggers.lowThreshold;
+            << " | hi(L/M/H)=" << m_config.triggers.low.highThreshold
+            << "/" << m_config.triggers.mid.highThreshold
+            << "/" << m_config.triggers.high.highThreshold;
     }
 #endif
 }

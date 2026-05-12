@@ -42,6 +42,16 @@ struct TriggerConfig
     double cooldownMs = 120.0;
 };
 
+// Per-band Schmitt trigger configuration. Bass fires easier (lower thresholds,
+// longer hold) so kick / sub-bass content drives lights reliably; highs are
+// harder to trigger to avoid hi-hat / cymbal spam.
+struct BandTriggersConfig
+{
+    TriggerConfig low  = { 0.45, 0.25, 150.0, 200.0 };
+    TriggerConfig mid  = { 0.65, 0.45,  80.0, 120.0 };
+    TriggerConfig high = { 0.70, 0.50,  60.0, 100.0 };
+};
+
 struct NoiseGateConfig
 {
     // In-class defaults are the single source of truth (see EnvelopeConfig).
@@ -305,7 +315,7 @@ struct AubioConfig
 struct AudioChannelConfig
 {
     EnvelopeConfig envelope;
-    TriggerConfig triggers;
+    BandTriggersConfig triggers;
     NoiseGateConfig noiseGate;
     KickConfig kick;
     MelPostConfig melPost;          // master 40-band post-processor (snap.melProcessed / flatness)

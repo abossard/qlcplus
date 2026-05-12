@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.2.2 GIT</Version>
@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="132"/>
+   <BeatGenerator BeatType="Audio" BPM="127"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -584,7 +584,6 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <Property Name="gradient_roll" Value="4"/>
-   <Mirror>3</Mirror>
   </Function>
   <Function ID="6" Type="RGBMatrix" Name="EXP-1-D Audio Power" Path="TESTS">
    <Tempo>Beats</Tempo>
@@ -618,9 +617,14 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>2</AudioProfileID>
-   <Property Name="presetBank" Value="Low"/>
+   <Property Name="presetBank" Value="Mid"/>
    <Property Name="presetColorMode" Value="PowerScaled"/>
-   <Mirror>3</Mirror>
+   <Property Name="presetGain" Value="300"/>
+   <Rotation>2</Rotation>
+   <Mirror>1</Mirror>
+   <BeatEffect>ColorInvert</BeatEffect>
+   <BeatSelection>Walk</BeatSelection>
+   <BeatOrientation>Columns</BeatOrientation>
   </Function>
   <Function ID="8" Type="RGBMatrix" Name="EXP-2-A Audio Beat Colors" Path="TESTS">
    <Tempo>Beats</Tempo>
@@ -651,22 +655,16 @@
    <Speed FadeIn="0" FadeOut="0" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Melt</Algorithm>
+   <Algorithm Type="Script">Audio Blocks</Algorithm>
    <Color Index="0">4284901119</Color>
    <Color Index="1">4294915071</Color>
    <Color Index="2">4282417407</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>4</AudioProfileID>
-   <Property Name="presetColorSpeed" Value="1"/>
-   <Property Name="presetReactivity" Value="0.011"/>
-   <Property Name="presetSpeed" Value="0.001"/>
-   <Property Name="reactivity" Value="0.5"/>
-   <Property Name="speed" Value="0.5"/>
-   <Mirror>3</Mirror>
-   <BeatEffect>Mirror</BeatEffect>
-   <BeatSelection>Random</BeatSelection>
-   <BeatOrientation>Rows</BeatOrientation>
+   <Property Name="fix_hues" Value="No"/>
+   <Property Name="reactivity" Value="1"/>
+   <Property Name="speed" Value="0.005"/>
   </Function>
   <Function ID="10" Type="RGBMatrix" Name="EXP-2-C Audio Strobe" Path="TESTS">
    <Tempo>Beats</Tempo>
@@ -843,7 +841,7 @@
    <FixtureGroup>0</FixtureGroup>
    <Property Name="density" Value="0.5"/>
    <Property Name="density_vertical" Value="0.1"/>
-   <Property Name="frequency_range" Value="Mids"/>
+   <Property Name="frequency_range" Value="Lows (beat+bass)"/>
    <Property Name="lower" Value="6.129"/>
    <Property Name="radius" Value="0.2"/>
    <Property Name="twist" Value="0.07"/>

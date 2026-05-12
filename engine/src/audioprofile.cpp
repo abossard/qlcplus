@@ -250,19 +250,31 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileTriggers)
         {
-            config.triggers.highThreshold = doubleAttribute(childAttrs,
-                                                            KXMLQLCAudioProfileTriggersHigh,
-                                                            config.triggers.highThreshold);
-            config.triggers.lowThreshold = doubleAttribute(childAttrs,
-                                                           KXMLQLCAudioProfileTriggersLow,
-                                                           config.triggers.lowThreshold);
-            config.triggers.holdMs = doubleAttribute(childAttrs,
-                                                     KXMLQLCAudioProfileTriggersHold,
-                                                     config.triggers.holdMs);
-            config.triggers.cooldownMs = doubleAttribute(childAttrs,
-                                                         KXMLQLCAudioProfileTriggersCooldown,
-                                                         config.triggers.cooldownMs);
-            root.skipCurrentElement();
+            // <Triggers>
+            //   <Band Name="low|mid|high" High=".." Low=".." Hold=".." Cooldown=".."/>
+            // </Triggers>
+            while (root.readNextStartElement())
+            {
+                if (root.name() == KXMLQLCAudioProfileTriggersBand)
+                {
+                    const QXmlStreamAttributes bAttrs = root.attributes();
+                    const QString name = stringAttribute(bAttrs,
+                                                         KXMLQLCAudioProfileTriggersBandName,
+                                                         QString());
+                    TriggerConfig *band = nullptr;
+                    if      (name == QStringLiteral("low"))  band = &config.triggers.low;
+                    else if (name == QStringLiteral("mid"))  band = &config.triggers.mid;
+                    else if (name == QStringLiteral("high")) band = &config.triggers.high;
+                    if (band != nullptr)
+                    {
+                        band->highThreshold = doubleAttribute(bAttrs, KXMLQLCAudioProfileTriggersHigh,     band->highThreshold);
+                        band->lowThreshold  = doubleAttribute(bAttrs, KXMLQLCAudioProfileTriggersLow,      band->lowThreshold);
+                        band->holdMs        = doubleAttribute(bAttrs, KXMLQLCAudioProfileTriggersHold,     band->holdMs);
+                        band->cooldownMs    = doubleAttribute(bAttrs, KXMLQLCAudioProfileTriggersCooldown, band->cooldownMs);
+                    }
+                }
+                root.skipCurrentElement();
+            }
         }
         else if (root.name() == KXMLQLCAudioProfileBands)
         {
@@ -626,11 +638,25 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, QString::number(m_config.envelope.attackMs));
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeRelease, QString::number(m_config.envelope.releaseMs));
 
-    doc->writeEmptyElement(KXMLQLCAudioProfileTriggers);
-    doc->writeAttribute(KXMLQLCAudioProfileTriggersHigh, QString::number(m_config.triggers.highThreshold));
-    doc->writeAttribute(KXMLQLCAudioProfileTriggersLow, QString::number(m_config.triggers.lowThreshold));
-    doc->writeAttribute(KXMLQLCAudioProfileTriggersHold, QString::number(m_config.triggers.holdMs));
-    doc->writeAttribute(KXMLQLCAudioProfileTriggersCooldown, QString::number(m_config.triggers.cooldownMs));
+    // Per-band Schmitt triggers: <Triggers><Band Name="..." High=".." Low=".." Hold=".." Cooldown=".."/>...</Triggers>
+    doc->writeStartElement(KXMLQLCAudioProfileTriggers);
+    {
+        struct { const char *name; const TriggerConfig *band; } bands[] = {
+            { "low",  &m_config.triggers.low  },
+            { "mid",  &m_config.triggers.mid  },
+            { "high", &m_config.triggers.high }
+        };
+        for (size_t i = 0; i < sizeof(bands) / sizeof(bands[0]); ++i)
+        {
+            doc->writeEmptyElement(KXMLQLCAudioProfileTriggersBand);
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersBandName, QString::fromLatin1(bands[i].name));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersHigh,     QString::number(bands[i].band->highThreshold));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersLow,      QString::number(bands[i].band->lowThreshold));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersHold,     QString::number(bands[i].band->holdMs));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersCooldown, QString::number(bands[i].band->cooldownMs));
+        }
+    }
+    doc->writeEndElement(); // Triggers
 
     doc->writeEmptyElement(KXMLQLCAudioProfileNoiseGate);
     doc->writeAttribute(KXMLQLCAudioProfileNoiseGateThreshold, QString::number(m_config.noiseGate.thresholdDb));

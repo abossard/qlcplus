@@ -53,6 +53,8 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAgcEnabled           QStringLiteral("Enabled")
 
 #define KXMLQLCAudioProfileTriggers             QStringLiteral("Triggers")
+#define KXMLQLCAudioProfileTriggersBand         QStringLiteral("Band")
+#define KXMLQLCAudioProfileTriggersBandName     QStringLiteral("Name")
 #define KXMLQLCAudioProfileTriggersHigh         QStringLiteral("High")
 #define KXMLQLCAudioProfileTriggersLow          QStringLiteral("Low")
 #define KXMLQLCAudioProfileTriggersHold         QStringLiteral("Hold")

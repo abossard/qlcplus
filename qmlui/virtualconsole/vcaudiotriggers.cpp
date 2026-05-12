@@ -441,25 +441,18 @@ double VCAudioTriggers::envelopeRelease() const
     return profileChannelConfig().envelope.releaseMs;
 }
 
-double VCAudioTriggers::triggerHigh() const
-{
-    return profileChannelConfig().triggers.highThreshold;
-}
-
-double VCAudioTriggers::triggerLow() const
-{
-    return profileChannelConfig().triggers.lowThreshold;
-}
-
-double VCAudioTriggers::triggerCooldown() const
-{
-    return profileChannelConfig().triggers.cooldownMs;
-}
-
-double VCAudioTriggers::triggerHold() const
-{
-    return profileChannelConfig().triggers.holdMs;
-}
+double VCAudioTriggers::triggerLowHigh()      const { return profileChannelConfig().triggers.low.highThreshold; }
+double VCAudioTriggers::triggerLowLow()       const { return profileChannelConfig().triggers.low.lowThreshold;  }
+double VCAudioTriggers::triggerLowHold()      const { return profileChannelConfig().triggers.low.holdMs;        }
+double VCAudioTriggers::triggerLowCooldown()  const { return profileChannelConfig().triggers.low.cooldownMs;    }
+double VCAudioTriggers::triggerMidHigh()      const { return profileChannelConfig().triggers.mid.highThreshold; }
+double VCAudioTriggers::triggerMidLow()       const { return profileChannelConfig().triggers.mid.lowThreshold;  }
+double VCAudioTriggers::triggerMidHold()      const { return profileChannelConfig().triggers.mid.holdMs;        }
+double VCAudioTriggers::triggerMidCooldown()  const { return profileChannelConfig().triggers.mid.cooldownMs;    }
+double VCAudioTriggers::triggerHighHigh()     const { return profileChannelConfig().triggers.high.highThreshold; }
+double VCAudioTriggers::triggerHighLow()      const { return profileChannelConfig().triggers.high.lowThreshold;  }
+double VCAudioTriggers::triggerHighHold()     const { return profileChannelConfig().triggers.high.holdMs;        }
+double VCAudioTriggers::triggerHighCooldown() const { return profileChannelConfig().triggers.high.cooldownMs;    }
 
 void VCAudioTriggers::setEnvelopeAttack(double ms)
 {
@@ -475,33 +468,37 @@ void VCAudioTriggers::setEnvelopeRelease(double ms)
     applyChannelConfig(config);
 }
 
-void VCAudioTriggers::setTriggerHighThreshold(double value)
-{
-    AudioChannelConfig config = profileChannelConfig();
-    config.triggers.highThreshold = qBound(0.0, value, 1.0);
-    applyChannelConfig(config);
-}
+#define DEFINE_BAND_TRIGGER_SETTERS(BandCap, bandMember)                                                  \
+    void VCAudioTriggers::setTrigger##BandCap##High(double value)                                          \
+    {                                                                                                     \
+        AudioChannelConfig config = profileChannelConfig();                                               \
+        config.triggers.bandMember.highThreshold = qBound(0.0, value, 1.0);                               \
+        applyChannelConfig(config);                                                                       \
+    }                                                                                                     \
+    void VCAudioTriggers::setTrigger##BandCap##Low(double value)                                           \
+    {                                                                                                     \
+        AudioChannelConfig config = profileChannelConfig();                                               \
+        config.triggers.bandMember.lowThreshold = qBound(0.0, value, 1.0);                                \
+        applyChannelConfig(config);                                                                       \
+    }                                                                                                     \
+    void VCAudioTriggers::setTrigger##BandCap##Hold(double ms)                                             \
+    {                                                                                                     \
+        AudioChannelConfig config = profileChannelConfig();                                               \
+        config.triggers.bandMember.holdMs = qMax(0.0, ms);                                                \
+        applyChannelConfig(config);                                                                       \
+    }                                                                                                     \
+    void VCAudioTriggers::setTrigger##BandCap##Cooldown(double ms)                                         \
+    {                                                                                                     \
+        AudioChannelConfig config = profileChannelConfig();                                               \
+        config.triggers.bandMember.cooldownMs = qMax(0.0, ms);                                            \
+        applyChannelConfig(config);                                                                       \
+    }
 
-void VCAudioTriggers::setTriggerLowThreshold(double value)
-{
-    AudioChannelConfig config = profileChannelConfig();
-    config.triggers.lowThreshold = qBound(0.0, value, 1.0);
-    applyChannelConfig(config);
-}
+DEFINE_BAND_TRIGGER_SETTERS(Low,  low)
+DEFINE_BAND_TRIGGER_SETTERS(Mid,  mid)
+DEFINE_BAND_TRIGGER_SETTERS(High, high)
 
-void VCAudioTriggers::setTriggerCooldown(double ms)
-{
-    AudioChannelConfig config = profileChannelConfig();
-    config.triggers.cooldownMs = qMax(0.0, ms);
-    applyChannelConfig(config);
-}
-
-void VCAudioTriggers::setTriggerHold(double ms)
-{
-    AudioChannelConfig config = profileChannelConfig();
-    config.triggers.holdMs = qMax(0.0, ms);
-    applyChannelConfig(config);
-}
+#undef DEFINE_BAND_TRIGGER_SETTERS
 
 // ---- Kick detector ---------------------------------------------------------
 
@@ -919,6 +916,11 @@ void VCAudioTriggers::applyMelBankPreset(const QString &preset)
         config.aubio.melBanks.mid  = { 20.0,   2000.0, 24, edmPost() };
         config.aubio.melBanks.high = { 20.0,  15000.0, 24, edmPost() };
         config.aubio.melBanks.preset = QStringLiteral("EDM");
+        // EDM: bass-heavy, fires easy on kick. Mid moderate. High harder
+        // (avoid hi-hat spam) with short hold/cooldown for crisp re-trigger.
+        config.triggers.low  = { 0.45, 0.25, 150.0, 200.0 };
+        config.triggers.mid  = { 0.65, 0.45,  80.0, 120.0 };
+        config.triggers.high = { 0.70, 0.50,  60.0, 100.0 };
     }
     else if (key == QLatin1String("live"))
     {
@@ -930,6 +932,12 @@ void VCAudioTriggers::applyMelBankPreset(const QString &preset)
         config.aubio.melBanks.mid  = { 80.0,   4000.0, 24, liveMid };
         config.aubio.melBanks.high = { 500.0, 16000.0, 24, liveHi };
         config.aubio.melBanks.preset = QStringLiteral("Live");
+        // Live (rock/band): kick/bass strong; snare in mid wants snappier
+        // re-trigger; cymbals in high need stricter thresholds and a touch
+        // more cooldown to avoid wash-out on sustained crashes.
+        config.triggers.low  = { 0.50, 0.30, 120.0, 180.0 };
+        config.triggers.mid  = { 0.60, 0.40,  70.0, 100.0 };
+        config.triggers.high = { 0.75, 0.55,  50.0, 140.0 };
     }
     else if (key == QLatin1String("acoustic"))
     {
@@ -941,6 +949,12 @@ void VCAudioTriggers::applyMelBankPreset(const QString &preset)
         config.aubio.melBanks.mid  = { 100.0,  3000.0, 16, acoustic };
         config.aubio.melBanks.high = { 1000.0,12000.0, 16, acoustic };
         config.aubio.melBanks.preset = QStringLiteral("Acoustic");
+        // Acoustic: smoother envelopes overall — higher thresholds prevent
+        // false fires on ambient noise; longer hold/cooldown for sustained
+        // notes (guitars, vocals) to avoid retrigger flicker.
+        config.triggers.low  = { 0.55, 0.35, 200.0, 250.0 };
+        config.triggers.mid  = { 0.60, 0.40, 180.0, 220.0 };
+        config.triggers.high = { 0.65, 0.45, 150.0, 200.0 };
     }
     else if (key == QLatin1String("speech"))
     {
@@ -952,6 +966,13 @@ void VCAudioTriggers::applyMelBankPreset(const QString &preset)
         config.aubio.melBanks.mid  = { 200.0,  4000.0, 16, speechMid };
         config.aubio.melBanks.high = { 2000.0, 8000.0, 16, speechHi };
         config.aubio.melBanks.preset = QStringLiteral("Speech");
+        // Speech: low band largely irrelevant (no bass) — high threshold so
+        // it rarely fires. Mids carry vowels (moderate). High carries
+        // consonants/sibilants — low threshold + short hold/cooldown for
+        // syllable-rate re-triggering.
+        config.triggers.low  = { 0.80, 0.60, 100.0, 150.0 };
+        config.triggers.mid  = { 0.55, 0.35,  90.0, 110.0 };
+        config.triggers.high = { 0.50, 0.30,  40.0,  60.0 };
     }
     else if (key == QLatin1String("custom"))
     {
@@ -2205,8 +2226,8 @@ void VCAudioTriggers::setBarType(BarType type)
 
 void VCAudioTriggers::setBarThresholds(uchar minThr, uchar maxThr)
 {
-    // No-op: per-mapping thresholds removed. Use global trigger settings
-    // (triggerHigh / triggerLow / triggerHold / triggerCooldown).
+    // No-op: per-mapping thresholds removed. Use per-band trigger settings
+    // (triggerLowHigh/triggerMidHigh/triggerHighHigh, etc.).
     Q_UNUSED(minThr)
     Q_UNUSED(maxThr)
 }
