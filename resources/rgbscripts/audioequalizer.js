@@ -82,6 +82,7 @@ var testAlgo;
 
     var peakValues = null;
     var peakHolds = null;
+    var smoothedBands = null;
     var DEFAULT_GRADIENT = [
       {h: 0.0,   s: 1.0, v: 1.0},
       {h: 0.083, s: 1.0, v: 1.0},
@@ -94,9 +95,11 @@ var testAlgo;
     {
         peakValues = new Array(bandCount);
         peakHolds = new Array(bandCount);
+        smoothedBands = new Array(bandCount);
         for (var i = 0; i < bandCount; i++) {
             peakValues[i] = 0;
             peakHolds[i] = 0;
+            smoothedBands[i] = 0;
         }
     }
 
@@ -126,14 +129,26 @@ var testAlgo;
 
         var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
 
-        var bands = rawBands;
+        // Asymmetric EMA: instant attack, exponential decay.
+        // presetDecay 1..10 → alpha 0.05..0.5
+        var decayAlpha = algo.presetDecay / 20.0;
+        var bands = new Array(bandCount);
+        for (var b = 0; b < bandCount; b++)
+        {
+            var raw = Math.max(0, rawBands[b]);
+            if (raw >= smoothedBands[b])
+                smoothedBands[b] = raw;
+            else
+                smoothedBands[b] += (raw - smoothedBands[b]) * decayAlpha;
+            bands[b] = smoothedBands[b];
+        }
         var onset = audio.onset.fired;
 
         for (var x = 0; x < Math.min(bandCount, width); x++)
         {
             if (algo.presetGap && (x % 2 === 1)) continue;
 
-            var magnitude = Math.max(0, bands[x]);
+            var magnitude = bands[x];
             var barHeight = Math.round(magnitude * height);
 
             // Update peak marker

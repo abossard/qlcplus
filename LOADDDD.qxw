@@ -15,26 +15,26 @@
     <Output Plugin="DMX USB" UID="None" Line="0"/>
    </Universe>
    <Universe Name="Universe 2" ID="1">
-    <Input Plugin="OSC" UID="127.0.0.1" Line="0" Profile="MAGIC MAGIC"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
+    <Input Plugin="OSC" UID="127.0.0.1" Line="1" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="0" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
    <Universe Name="Universe 3" ID="2">
     <Input Plugin="MIDI" UID="None" Line="1" Profile="Akai APC Mini mk2"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="320" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
     <Feedback Plugin="MIDI" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 4" ID="3">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="640" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
     <Feedback Plugin="MIDI" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 5" ID="4">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="0">
+    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpOffset="960" ddpPort="4048" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
@@ -512,15 +512,19 @@
   <Palette ID="39" Type="Dimmer" Name="Dimmer Full" Value="255"/>
   <AudioProfile ID="0" Name="ANDRE" IsDefault="True" Version="2">
    <Envelope Attack="15" Release="150"/>
-   <Triggers High="0.65" Low="0.45" Hold="80" Cooldown="120"/>
+   <Triggers>
+    <Band Name="low" High="0.45" Low="0.25" Hold="150" Cooldown="200"/>
+    <Band Name="mid" High="0.65" Low="0.45" Hold="80" Cooldown="120"/>
+    <Band Name="high" High="0.7" Low="0.5" Hold="60" Cooldown="100"/>
+   </Triggers>
    <NoiseGate Threshold="-60" Hold="120"/>
    <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.1" BeatHistoryLen="10"/>
-   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.15" DiffRise="0.99" AgcDecay="0.01" AgcRise="0.99"/>
+   <MelPost Enabled="1" PowerFactor="2" GaussianSigma="1" SmoothDecay="0.7" SmoothRise="0.99" CommonDecay="0.99" CommonRise="0.01" DiffDecay="0.1" DiffRise="0.99" AgcDecay="0.01" AgcRise="0.99"/>
    <FreqPower>
-    <Band Name="beat" MaxHz="100" Decay="0.2" Rise="0.97"/>
+    <Band Name="beat" MaxHz="100" Decay="0.1" Rise="0.97"/>
     <Band Name="bass" MaxHz="250" Decay="0.1" Rise="0.98"/>
     <Band Name="mids" MaxHz="3000" Decay="0.2" Rise="0.97"/>
-    <Band Name="high" MaxHz="10000" Decay="0.28" Rise="0.93"/>
+    <Band Name="high" MaxHz="10000" Decay="0.3" Rise="0.93"/>
    </FreqPower>
    <Volume Smoothing="100" BrightnessFloor="0"/>
    <Aubio PitchMethod="yinfft" PitchUnit="Hz" PitchSilenceDb="-40" PitchTolerance="0.7" FilterbankNorm="1" FilterbankPower="1" TempoSilenceDb="-90" TempoThreshold="0.3" TempoMethod="default" CoastBeats="4" TempoDecayHalfLifeBeats="0.5" TempoDecayTargetBpm="1" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="011000001" OnsetMethodIndex="8" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
@@ -558,17 +562,23 @@
   </Function>
   <Function ID="4" Type="RGBMatrix" Name="EXP-1-B Audio Equalizer" Path="TESTS">
    <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="250" Duration="63"/>
+   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Bass Laser</Algorithm>
+   <Algorithm Type="Script">Audio Strobe</Algorithm>
    <Color Index="0">4294967295</Color>
-   <Color Index="1">4294928127</Color>
-   <Color Index="2">4288256511</Color>
+   <Color Index="1">4281545727</Color>
+   <Color Index="2">4294967091</Color>
+   <Color Index="3">4284901119</Color>
+   <Color Index="4">4283826262</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>3</AudioProfileID>
-   <Property Name="presetDirection" Value="Both"/>
+   <Property Name="bass_strobe_decay_rate" Value="0.5"/>
+   <Property Name="bass_trigger" Value="Onset"/>
+   <Property Name="color_shift_delay" Value="1"/>
+   <Property Name="color_step" Value="0.0625"/>
+   <Property Name="strobe_decay_rate" Value="0.5"/>
   </Function>
   <Function ID="5" Type="RGBMatrix" Name="EXP-1-C Audio Wavelength" Path="TESTS">
    <Tempo>Beats</Tempo>
@@ -918,9 +928,6 @@
     <Appearance>
      <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
     </Appearance>
-    <Mapping Source="Beat" Type="1" DmxScale="1" DmxFloor="0" BeatHoldMs="80">
-     <DMXChannels>0,5</DMXChannels>
-    </Mapping>
     <Mapping Source="Kick" Type="1" DmxScale="1" DmxFloor="0" BeatHoldMs="80"/>
    </AudioTriggers>
   </Frame>

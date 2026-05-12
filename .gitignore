@@ -67,3 +67,4 @@ compile_commands.json
 qml_properties_list.txt
 docs/widget-mockup.html
 .copilot-research/
+.*

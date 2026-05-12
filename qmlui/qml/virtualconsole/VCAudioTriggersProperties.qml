@@ -182,9 +182,82 @@ Rectangle
                 }
         }
 
-        // The duplicate top "Envelope & Triggers" section was removed:
-        // envelope attack/release live in "QLC+: Response — Envelope" and the
-        // per-band Schmitt-trigger grid lives in "QLC+: Triggers" below.
+        SectionBox
+        {
+            sectionLabel: qsTr("Noise Gate")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Threshold"); tooltipText: qsTr("RMS level (in dBFS) below which the noise gate closes. Raise to ignore room noise; lower to let quieter audio through.") }
+                    RowLayout
+                    {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Slider
+                        {
+                            Layout.fillWidth: true
+                            from: -96; to: 0; stepSize: 1
+                            enabled: widgetRef !== null
+                            value: widgetRef ? widgetRef.noiseGateThreshold : -54
+                            onPressedChanged: if (!pressed && widgetRef) widgetRef.setNoiseGateThreshold(value)
+                        }
+                        CustomSpinBox
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            from: -96; to: 0; suffix: " dB"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.noiseGateThreshold) : -54
+                            onValueModified: if (widgetRef) widgetRef.setNoiseGateThreshold(value)
+                        }
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Hold"); tooltipText: qsTr("How long (ms) the gate stays open after the signal drops below threshold. Prevents chatter on percussive material.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 2000; suffix: " ms"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.noiseGateHold) : 120
+                        onValueModified: if (widgetRef) widgetRef.setNoiseGateHold(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Input RMS"); tooltipText: qsTr("Live RMS reading of the post-gain input, in dBFS. Use this to set Threshold above your noise floor.") }
+                    RowLayout
+                    {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Rectangle
+                        {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 10
+                            radius: 4
+                            color: UISettings.bgStrong
+                            border.width: 1; border.color: UISettings.bgLight
+                            Rectangle
+                            {
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                width: parent.width * Math.max(0, Math.min(1, (96 + (widgetRef ? widgetRef.rmsDb : -96)) / 96))
+                                radius: parent.radius
+                                color: widgetRef && widgetRef.noiseGateOpen ? "#33cc66" : "#cc3333"
+                            }
+                        }
+                        RobotoText
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            height: gridItemsHeight
+                            label: widgetRef ? widgetRef.rmsDb.toFixed(0) + " dB" : "--"
+                        }
+                    }
+                }
+        }
 
         SectionBox
         {
@@ -349,7 +422,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelGaussianSigma(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Smoothing decay"); tooltipText: qsTr("LedFx mel_smoothing alpha_decay. Higher = faster fall.") }
+                    RobotoText { height: gridItemsHeight; label: "smoothDecay"; tooltipText: qsTr("LedFx mel_smoothing alpha_decay. Higher = faster fall.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -359,7 +432,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelSmoothDecay(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Smoothing rise"); tooltipText: qsTr("LedFx mel_smoothing alpha_rise. Higher = faster attack.") }
+                    RobotoText { height: gridItemsHeight; label: "smoothRise"; tooltipText: qsTr("LedFx mel_smoothing alpha_rise. Higher = faster attack.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -369,7 +442,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelSmoothRise(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Common decay"); tooltipText: qsTr("LedFx common_filter alpha_decay.") }
+                    RobotoText { height: gridItemsHeight; label: "commonDecay"; tooltipText: qsTr("LedFx common_filter alpha_decay.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -379,7 +452,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelCommonDecay(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Common rise"); tooltipText: qsTr("LedFx common_filter alpha_rise.") }
+                    RobotoText { height: gridItemsHeight; label: "commonRise"; tooltipText: qsTr("LedFx common_filter alpha_rise.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -389,7 +462,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelCommonRise(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Diff decay"); tooltipText: qsTr("LedFx diff_filter alpha_decay.") }
+                    RobotoText { height: gridItemsHeight; label: "diffDecay"; tooltipText: qsTr("LedFx diff_filter alpha_decay.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -399,7 +472,7 @@ Rectangle
                         onValueModified: if (widgetRef) widgetRef.setMelDiffDecay(value / 100)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Diff rise"); tooltipText: qsTr("LedFx diff_filter alpha_rise.") }
+                    RobotoText { height: gridItemsHeight; label: "diffRise"; tooltipText: qsTr("LedFx diff_filter alpha_rise.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -411,306 +484,6 @@ Rectangle
                 }
         }
 
-
-        SectionBox
-        {
-            sectionLabel: qsTr("Per-Bank AGC (Low / Mid / High)")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    // Low bank
-                    RobotoText { height: gridItemsHeight; label: qsTr("Low decay"); tooltipText: qsTr("AGC alpha_decay for the LOW mel bank (LedFx melbank.py:375). Higher = AGC tracks downward faster.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melLowAgcDecay * 100) : 1
-                        onValueModified: if (widgetRef) widgetRef.setMelLowAgcDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Low rise"); tooltipText: qsTr("AGC alpha_rise for the LOW mel bank. Higher = AGC tracks upward faster.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melLowAgcRise * 100) : 99
-                        onValueModified: if (widgetRef) widgetRef.setMelLowAgcRise(value / 100)
-                    }
-
-                    // Mid bank
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mid decay"); tooltipText: qsTr("AGC alpha_decay for the MID mel bank.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melMidAgcDecay * 100) : 1
-                        onValueModified: if (widgetRef) widgetRef.setMelMidAgcDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mid rise"); tooltipText: qsTr("AGC alpha_rise for the MID mel bank.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melMidAgcRise * 100) : 99
-                        onValueModified: if (widgetRef) widgetRef.setMelMidAgcRise(value / 100)
-                    }
-
-                    // High bank
-                    RobotoText { height: gridItemsHeight; label: qsTr("High decay"); tooltipText: qsTr("AGC alpha_decay for the HIGH mel bank.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melHighAgcDecay * 100) : 1
-                        onValueModified: if (widgetRef) widgetRef.setMelHighAgcDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("High rise"); tooltipText: qsTr("AGC alpha_rise for the HIGH mel bank.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.melHighAgcRise * 100) : 99
-                        onValueModified: if (widgetRef) widgetRef.setMelHighAgcRise(value / 100)
-                    }
-                }
-        }
-
-
-        // -----------------------------------------------------------------
-        // Per-bank MelPostConfig (non-AGC). Three SectionBoxes mirroring the
-        // master "Mel Processing" panel, one per bank. Defaults match
-        // MelPostConfig in audiochannelconfig.h:70-94 (LedFx melbank.py:374).
-        // Component is reused so each bank renders identically.
-        // -----------------------------------------------------------------
-
-        Component
-        {
-            id: melBankPostEditor
-            GridLayout
-            {
-                width: parent.width
-                columns: 2
-                columnSpacing: 6
-                rowSpacing: 4
-
-                // bankLabel/getEnabled/setEnabled etc. wired by the loader below.
-                property string bankLabel: ""
-                property var getEnabled
-                property var setEnabled
-                property var getPower
-                property var setPower
-                property var getSigma
-                property var setSigma
-                property var getSmoothDecay
-                property var setSmoothDecay
-                property var getSmoothRise
-                property var setSmoothRise
-                property var getCommonDecay
-                property var setCommonDecay
-                property var getCommonRise
-                property var setCommonRise
-                property var getDiffDecay
-                property var setDiffDecay
-                property var getDiffRise
-                property var setDiffRise
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Enabled"); tooltipText: qsTr("Master toggle for this bank's post-processor chain.") }
-                CustomCheckBox
-                {
-                    Layout.fillWidth: true
-                    enabled: widgetRef !== null
-                    checked: widgetRef ? getEnabled() : true
-                    onToggled: if (widgetRef) setEnabled(checked)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Power factor"); tooltipText: qsTr("Per-bank exponent on mel magnitudes (LedFx mel_power). 200% = squared.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 50; to: 500; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getPower() * 100) : 200
-                    onValueModified: if (widgetRef) setPower(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Gaussian sigma"); tooltipText: qsTr("Per-bank Gaussian smoothing kernel width (LedFx gaussian_sigma_size).") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 10; to: 1000; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getSigma() * 100) : 100
-                    onValueModified: if (widgetRef) setSigma(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Smoothing decay"); tooltipText: qsTr("LedFx mel_smoothing alpha_decay for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getSmoothDecay() * 100) : 70
-                    onValueModified: if (widgetRef) setSmoothDecay(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Smoothing rise"); tooltipText: qsTr("LedFx mel_smoothing alpha_rise for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getSmoothRise() * 100) : 99
-                    onValueModified: if (widgetRef) setSmoothRise(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Common decay"); tooltipText: qsTr("LedFx common_filter alpha_decay for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getCommonDecay() * 100) : 99
-                    onValueModified: if (widgetRef) setCommonDecay(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Common rise"); tooltipText: qsTr("LedFx common_filter alpha_rise for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getCommonRise() * 100) : 1
-                    onValueModified: if (widgetRef) setCommonRise(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Diff decay"); tooltipText: qsTr("LedFx diff_filter alpha_decay for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getDiffDecay() * 100) : 15
-                    onValueModified: if (widgetRef) setDiffDecay(value / 100)
-                }
-
-                RobotoText { height: gridItemsHeight; label: qsTr("Diff rise"); tooltipText: qsTr("LedFx diff_filter alpha_rise for this bank.") }
-                CustomSpinBox
-                {
-                    Layout.fillWidth: true
-                    from: 0; to: 100; suffix: "%"
-                    enabled: widgetRef !== null
-                    value: widgetRef ? Math.round(getDiffRise() * 100) : 99
-                    onValueModified: if (widgetRef) setDiffRise(value / 100)
-                }
-            }
-        }
-
-        SectionBox
-        {
-            sectionLabel: qsTr("Per-Bank Mel Post — Low")
-            sectionContents: Loader
-            {
-                width: parent.width
-                sourceComponent: melBankPostEditor
-                onLoaded: {
-                    item.bankLabel = "low"
-                    item.getEnabled = function() { return widgetRef.melLowEnabled }
-                    item.setEnabled = function(v) { widgetRef.setMelLowEnabled(v) }
-                    item.getPower = function() { return widgetRef.melLowPowerFactor }
-                    item.setPower = function(v) { widgetRef.setMelLowPowerFactor(v) }
-                    item.getSigma = function() { return widgetRef.melLowGaussianSigma }
-                    item.setSigma = function(v) { widgetRef.setMelLowGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melLowSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelLowSmoothDecay(v) }
-                    item.getSmoothRise = function() { return widgetRef.melLowSmoothRise }
-                    item.setSmoothRise = function(v) { widgetRef.setMelLowSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melLowCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelLowCommonDecay(v) }
-                    item.getCommonRise = function() { return widgetRef.melLowCommonRise }
-                    item.setCommonRise = function(v) { widgetRef.setMelLowCommonRise(v) }
-                    item.getDiffDecay = function() { return widgetRef.melLowDiffDecay }
-                    item.setDiffDecay = function(v) { widgetRef.setMelLowDiffDecay(v) }
-                    item.getDiffRise = function() { return widgetRef.melLowDiffRise }
-                    item.setDiffRise = function(v) { widgetRef.setMelLowDiffRise(v) }
-                }
-            }
-        }
-
-        SectionBox
-        {
-            sectionLabel: qsTr("Per-Bank Mel Post — Mid")
-            sectionContents: Loader
-            {
-                width: parent.width
-                sourceComponent: melBankPostEditor
-                onLoaded: {
-                    item.bankLabel = "mid"
-                    item.getEnabled = function() { return widgetRef.melMidEnabled }
-                    item.setEnabled = function(v) { widgetRef.setMelMidEnabled(v) }
-                    item.getPower = function() { return widgetRef.melMidPowerFactor }
-                    item.setPower = function(v) { widgetRef.setMelMidPowerFactor(v) }
-                    item.getSigma = function() { return widgetRef.melMidGaussianSigma }
-                    item.setSigma = function(v) { widgetRef.setMelMidGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melMidSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelMidSmoothDecay(v) }
-                    item.getSmoothRise = function() { return widgetRef.melMidSmoothRise }
-                    item.setSmoothRise = function(v) { widgetRef.setMelMidSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melMidCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelMidCommonDecay(v) }
-                    item.getCommonRise = function() { return widgetRef.melMidCommonRise }
-                    item.setCommonRise = function(v) { widgetRef.setMelMidCommonRise(v) }
-                    item.getDiffDecay = function() { return widgetRef.melMidDiffDecay }
-                    item.setDiffDecay = function(v) { widgetRef.setMelMidDiffDecay(v) }
-                    item.getDiffRise = function() { return widgetRef.melMidDiffRise }
-                    item.setDiffRise = function(v) { widgetRef.setMelMidDiffRise(v) }
-                }
-            }
-        }
-
-        SectionBox
-        {
-            sectionLabel: qsTr("Per-Bank Mel Post — High")
-            sectionContents: Loader
-            {
-                width: parent.width
-                sourceComponent: melBankPostEditor
-                onLoaded: {
-                    item.bankLabel = "high"
-                    item.getEnabled = function() { return widgetRef.melHighEnabled }
-                    item.setEnabled = function(v) { widgetRef.setMelHighEnabled(v) }
-                    item.getPower = function() { return widgetRef.melHighPowerFactor }
-                    item.setPower = function(v) { widgetRef.setMelHighPowerFactor(v) }
-                    item.getSigma = function() { return widgetRef.melHighGaussianSigma }
-                    item.setSigma = function(v) { widgetRef.setMelHighGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melHighSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelHighSmoothDecay(v) }
-                    item.getSmoothRise = function() { return widgetRef.melHighSmoothRise }
-                    item.setSmoothRise = function(v) { widgetRef.setMelHighSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melHighCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelHighCommonDecay(v) }
-                    item.getCommonRise = function() { return widgetRef.melHighCommonRise }
-                    item.setCommonRise = function(v) { widgetRef.setMelHighCommonRise(v) }
-                    item.getDiffDecay = function() { return widgetRef.melHighDiffDecay }
-                    item.setDiffDecay = function(v) { widgetRef.setMelHighDiffDecay(v) }
-                    item.getDiffRise = function() { return widgetRef.melHighDiffRise }
-                    item.setDiffRise = function(v) { widgetRef.setMelHighDiffRise(v) }
-                }
-            }
-        }
 
         // -----------------------------------------------------------------
         // Mel Bank Ranges. Each bank's setter takes (minHz, maxHz, bands)
@@ -808,6 +581,802 @@ Rectangle
                 }
         }
 
+        // -----------------------------------------------------------------
+        // Per-band editor: groups ALL per-band controls (AGC, mel post,
+        // Schmitt triggers) into a single reusable Component. The 3 loaders
+        // below wire up Low / Mid / High banks.
+        //
+        // Trigger thresholds/hold/cooldown live on the AudioProfile
+        // (config.triggers.{low,mid,high}, see vcaudiotriggers.cpp setters)
+        // — NOT on individual RGB matrices.
+        // -----------------------------------------------------------------
+
+        Component
+        {
+            id: perBandEditor
+            Column
+            {
+                width: parent.width
+                spacing: 6
+
+                property string bankLabel: ""
+                property color  bankColor: "#cccccc"
+                property int    bankIndex: 0
+
+                // wired by Loader.onLoaded ────────────────────────────────
+                // AGC
+                property var getAgcDecay; property var setAgcDecay
+                property var getAgcRise;  property var setAgcRise
+                // Mel Post
+                property var getEnabled;  property var setEnabled
+                property var getPower;    property var setPower
+                property var getSigma;    property var setSigma
+                property var getSmoothDecay; property var setSmoothDecay
+                property var getSmoothRise;  property var setSmoothRise
+                property var getCommonDecay; property var setCommonDecay
+                property var getCommonRise;  property var setCommonRise
+                property var getDiffDecay;   property var setDiffDecay
+                property var getDiffRise;    property var setDiffRise
+                // Triggers
+                property var getTrigHigh;     property var setTrigHigh
+                property var getTrigLow;      property var setTrigLow
+                property var getTrigHold;     property var setTrigHold
+                property var getTrigCooldown; property var setTrigCooldown
+
+                // ── Status lamp + label ──────────────────────────────────
+                RowLayout
+                {
+                    width: parent.width
+                    spacing: 8
+
+                    Rectangle
+                    {
+                        width: 14; height: 14; radius: 7
+                        color: {
+                            var ts = widgetRef ? widgetRef.triggerStates[bankIndex] : null
+                            if (!ts) return "#555555"
+                            if (ts.fired) return "#33ff66"
+                            if (ts.active) return "#33cc66"
+                            if (ts.cooldownMs > 0) return "#cc9933"
+                            return "#555555"
+                        }
+                        border.width: 1; border.color: "#222222"
+                    }
+                    RobotoText
+                    {
+                        Layout.fillWidth: true
+                        height: gridItemsHeight
+                        label: bankLabel + " " + qsTr("bank")
+                        labelColor: bankColor
+                        fontBold: true
+                    }
+                }
+
+                // ── AGC ──────────────────────────────────────────────────
+                RobotoText
+                {
+                    width: parent.width
+                    height: gridItemsHeight
+                    label: qsTr("AGC")
+                    fontSize: UISettings.textSizeSmall
+                    labelColor: UISettings.fgLight
+                }
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: "agcDecay"; tooltipText: qsTr("AGC alpha_decay for this mel bank (LedFx melbank.py:375). Higher = AGC tracks downward faster.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getAgcDecay() * 100) : 1
+                        onValueModified: if (widgetRef) setAgcDecay(value / 100)
+                    }
+                    RobotoText { height: gridItemsHeight; label: "agcRise"; tooltipText: qsTr("AGC alpha_rise for this mel bank. Higher = AGC tracks upward faster.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getAgcRise() * 100) : 99
+                        onValueModified: if (widgetRef) setAgcRise(value / 100)
+                    }
+                }
+
+                // ── Mel Post ─────────────────────────────────────────────
+                RobotoText
+                {
+                    width: parent.width
+                    height: gridItemsHeight
+                    label: qsTr("Mel Post-processing")
+                    fontSize: UISettings.textSizeSmall
+                    labelColor: UISettings.fgLight
+                }
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: "enabled"; tooltipText: qsTr("Master toggle for this bank's post-processor chain.") }
+                    CustomCheckBox
+                    {
+                        Layout.fillWidth: true
+                        enabled: widgetRef !== null
+                        checked: widgetRef ? getEnabled() : true
+                        onToggled: if (widgetRef) setEnabled(checked)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "powerFactor"; tooltipText: qsTr("Per-bank exponent on mel magnitudes (LedFx mel_power). 200% = squared.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 50; to: 500; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getPower() * 100) : 200
+                        onValueModified: if (widgetRef) setPower(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "gaussianSigma"; tooltipText: qsTr("Per-bank Gaussian smoothing kernel width (LedFx gaussian_sigma_size).") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 10; to: 1000; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getSigma() * 100) : 100
+                        onValueModified: if (widgetRef) setSigma(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "smoothDecay"; tooltipText: qsTr("LedFx mel_smoothing alpha_decay for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getSmoothDecay() * 100) : 70
+                        onValueModified: if (widgetRef) setSmoothDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "smoothRise"; tooltipText: qsTr("LedFx mel_smoothing alpha_rise for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getSmoothRise() * 100) : 99
+                        onValueModified: if (widgetRef) setSmoothRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "commonDecay"; tooltipText: qsTr("LedFx common_filter alpha_decay for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getCommonDecay() * 100) : 99
+                        onValueModified: if (widgetRef) setCommonDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "commonRise"; tooltipText: qsTr("LedFx common_filter alpha_rise for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getCommonRise() * 100) : 1
+                        onValueModified: if (widgetRef) setCommonRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "diffDecay"; tooltipText: qsTr("LedFx diff_filter alpha_decay for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getDiffDecay() * 100) : 15
+                        onValueModified: if (widgetRef) setDiffDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: "diffRise"; tooltipText: qsTr("LedFx diff_filter alpha_rise for this bank.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getDiffRise() * 100) : 99
+                        onValueModified: if (widgetRef) setDiffRise(value / 100)
+                    }
+                }
+
+                // ── Schmitt Trigger (AudioProfile-scoped) ────────────────
+                RobotoText
+                {
+                    width: parent.width
+                    height: gridItemsHeight
+                    label: qsTr("Trigger (Schmitt)")
+                    fontSize: UISettings.textSizeSmall
+                    labelColor: UISettings.fgLight
+                    tooltipText: qsTr("Trigger thresholds/hold/cooldown live on the AudioProfile (config.triggers), shared across all RGB matrices using this profile.")
+                }
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: "highThreshold"; tooltipText: qsTr("Upper hysteresis threshold (% of band peak). Band must rise above this to fire a trigger.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getTrigHigh() * 100) : 0
+                        onValueModified: if (widgetRef) setTrigHigh(value / 100)
+                    }
+                    RobotoText { height: gridItemsHeight; label: "lowThreshold"; tooltipText: qsTr("Lower hysteresis threshold (% of band peak). Band must fall below this before another trigger can fire.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getTrigLow() * 100) : 0
+                        onValueModified: if (widgetRef) setTrigLow(value / 100)
+                    }
+                    RobotoText { height: gridItemsHeight; label: "holdMs"; tooltipText: qsTr("Minimum time (ms) the trigger stays active once fired, even if the band drops back below threshold.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 1000; suffix: " ms"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getTrigHold()) : 0
+                        onValueModified: if (widgetRef) setTrigHold(value)
+                    }
+                    RobotoText { height: gridItemsHeight; label: "cooldownMs"; tooltipText: qsTr("Minimum time (ms) between two consecutive triggers from the same band. Use to avoid retriggering on a sustained note.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 2000; suffix: " ms"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(getTrigCooldown()) : 0
+                        onValueModified: if (widgetRef) setTrigCooldown(value)
+                    }
+                }
+            }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Per-Band: Low")
+            sectionContents: Loader
+            {
+                width: parent.width
+                sourceComponent: perBandEditor
+                onLoaded: {
+                    item.bankLabel = bankTriggerNames[0]
+                    item.bankColor = bankTriggerColors[0]
+                    item.bankIndex = 0
+                    item.getAgcDecay  = function() { return widgetRef.melLowAgcDecay }
+                    item.setAgcDecay  = function(v) { widgetRef.setMelLowAgcDecay(v) }
+                    item.getAgcRise   = function() { return widgetRef.melLowAgcRise }
+                    item.setAgcRise   = function(v) { widgetRef.setMelLowAgcRise(v) }
+                    item.getEnabled   = function() { return widgetRef.melLowEnabled }
+                    item.setEnabled   = function(v) { widgetRef.setMelLowEnabled(v) }
+                    item.getPower     = function() { return widgetRef.melLowPowerFactor }
+                    item.setPower     = function(v) { widgetRef.setMelLowPowerFactor(v) }
+                    item.getSigma     = function() { return widgetRef.melLowGaussianSigma }
+                    item.setSigma     = function(v) { widgetRef.setMelLowGaussianSigma(v) }
+                    item.getSmoothDecay = function() { return widgetRef.melLowSmoothDecay }
+                    item.setSmoothDecay = function(v) { widgetRef.setMelLowSmoothDecay(v) }
+                    item.getSmoothRise  = function() { return widgetRef.melLowSmoothRise }
+                    item.setSmoothRise  = function(v) { widgetRef.setMelLowSmoothRise(v) }
+                    item.getCommonDecay = function() { return widgetRef.melLowCommonDecay }
+                    item.setCommonDecay = function(v) { widgetRef.setMelLowCommonDecay(v) }
+                    item.getCommonRise  = function() { return widgetRef.melLowCommonRise }
+                    item.setCommonRise  = function(v) { widgetRef.setMelLowCommonRise(v) }
+                    item.getDiffDecay   = function() { return widgetRef.melLowDiffDecay }
+                    item.setDiffDecay   = function(v) { widgetRef.setMelLowDiffDecay(v) }
+                    item.getDiffRise    = function() { return widgetRef.melLowDiffRise }
+                    item.setDiffRise    = function(v) { widgetRef.setMelLowDiffRise(v) }
+                    item.getTrigHigh     = function() { return widgetRef.triggerLowHigh }
+                    item.setTrigHigh     = function(v) { widgetRef.setTriggerLowHigh(v) }
+                    item.getTrigLow      = function() { return widgetRef.triggerLowLow }
+                    item.setTrigLow      = function(v) { widgetRef.setTriggerLowLow(v) }
+                    item.getTrigHold     = function() { return widgetRef.triggerLowHold }
+                    item.setTrigHold     = function(v) { widgetRef.setTriggerLowHold(v) }
+                    item.getTrigCooldown = function() { return widgetRef.triggerLowCooldown }
+                    item.setTrigCooldown = function(v) { widgetRef.setTriggerLowCooldown(v) }
+                }
+            }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Per-Band: Mid")
+            sectionContents: Loader
+            {
+                width: parent.width
+                sourceComponent: perBandEditor
+                onLoaded: {
+                    item.bankLabel = bankTriggerNames[1]
+                    item.bankColor = bankTriggerColors[1]
+                    item.bankIndex = 1
+                    item.getAgcDecay  = function() { return widgetRef.melMidAgcDecay }
+                    item.setAgcDecay  = function(v) { widgetRef.setMelMidAgcDecay(v) }
+                    item.getAgcRise   = function() { return widgetRef.melMidAgcRise }
+                    item.setAgcRise   = function(v) { widgetRef.setMelMidAgcRise(v) }
+                    item.getEnabled   = function() { return widgetRef.melMidEnabled }
+                    item.setEnabled   = function(v) { widgetRef.setMelMidEnabled(v) }
+                    item.getPower     = function() { return widgetRef.melMidPowerFactor }
+                    item.setPower     = function(v) { widgetRef.setMelMidPowerFactor(v) }
+                    item.getSigma     = function() { return widgetRef.melMidGaussianSigma }
+                    item.setSigma     = function(v) { widgetRef.setMelMidGaussianSigma(v) }
+                    item.getSmoothDecay = function() { return widgetRef.melMidSmoothDecay }
+                    item.setSmoothDecay = function(v) { widgetRef.setMelMidSmoothDecay(v) }
+                    item.getSmoothRise  = function() { return widgetRef.melMidSmoothRise }
+                    item.setSmoothRise  = function(v) { widgetRef.setMelMidSmoothRise(v) }
+                    item.getCommonDecay = function() { return widgetRef.melMidCommonDecay }
+                    item.setCommonDecay = function(v) { widgetRef.setMelMidCommonDecay(v) }
+                    item.getCommonRise  = function() { return widgetRef.melMidCommonRise }
+                    item.setCommonRise  = function(v) { widgetRef.setMelMidCommonRise(v) }
+                    item.getDiffDecay   = function() { return widgetRef.melMidDiffDecay }
+                    item.setDiffDecay   = function(v) { widgetRef.setMelMidDiffDecay(v) }
+                    item.getDiffRise    = function() { return widgetRef.melMidDiffRise }
+                    item.setDiffRise    = function(v) { widgetRef.setMelMidDiffRise(v) }
+                    item.getTrigHigh     = function() { return widgetRef.triggerMidHigh }
+                    item.setTrigHigh     = function(v) { widgetRef.setTriggerMidHigh(v) }
+                    item.getTrigLow      = function() { return widgetRef.triggerMidLow }
+                    item.setTrigLow      = function(v) { widgetRef.setTriggerMidLow(v) }
+                    item.getTrigHold     = function() { return widgetRef.triggerMidHold }
+                    item.setTrigHold     = function(v) { widgetRef.setTriggerMidHold(v) }
+                    item.getTrigCooldown = function() { return widgetRef.triggerMidCooldown }
+                    item.setTrigCooldown = function(v) { widgetRef.setTriggerMidCooldown(v) }
+                }
+            }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Per-Band: High")
+            sectionContents: Loader
+            {
+                width: parent.width
+                sourceComponent: perBandEditor
+                onLoaded: {
+                    item.bankLabel = bankTriggerNames[2]
+                    item.bankColor = bankTriggerColors[2]
+                    item.bankIndex = 2
+                    item.getAgcDecay  = function() { return widgetRef.melHighAgcDecay }
+                    item.setAgcDecay  = function(v) { widgetRef.setMelHighAgcDecay(v) }
+                    item.getAgcRise   = function() { return widgetRef.melHighAgcRise }
+                    item.setAgcRise   = function(v) { widgetRef.setMelHighAgcRise(v) }
+                    item.getEnabled   = function() { return widgetRef.melHighEnabled }
+                    item.setEnabled   = function(v) { widgetRef.setMelHighEnabled(v) }
+                    item.getPower     = function() { return widgetRef.melHighPowerFactor }
+                    item.setPower     = function(v) { widgetRef.setMelHighPowerFactor(v) }
+                    item.getSigma     = function() { return widgetRef.melHighGaussianSigma }
+                    item.setSigma     = function(v) { widgetRef.setMelHighGaussianSigma(v) }
+                    item.getSmoothDecay = function() { return widgetRef.melHighSmoothDecay }
+                    item.setSmoothDecay = function(v) { widgetRef.setMelHighSmoothDecay(v) }
+                    item.getSmoothRise  = function() { return widgetRef.melHighSmoothRise }
+                    item.setSmoothRise  = function(v) { widgetRef.setMelHighSmoothRise(v) }
+                    item.getCommonDecay = function() { return widgetRef.melHighCommonDecay }
+                    item.setCommonDecay = function(v) { widgetRef.setMelHighCommonDecay(v) }
+                    item.getCommonRise  = function() { return widgetRef.melHighCommonRise }
+                    item.setCommonRise  = function(v) { widgetRef.setMelHighCommonRise(v) }
+                    item.getDiffDecay   = function() { return widgetRef.melHighDiffDecay }
+                    item.setDiffDecay   = function(v) { widgetRef.setMelHighDiffDecay(v) }
+                    item.getDiffRise    = function() { return widgetRef.melHighDiffRise }
+                    item.setDiffRise    = function(v) { widgetRef.setMelHighDiffRise(v) }
+                    item.getTrigHigh     = function() { return widgetRef.triggerHighHigh }
+                    item.setTrigHigh     = function(v) { widgetRef.setTriggerHighHigh(v) }
+                    item.getTrigLow      = function() { return widgetRef.triggerHighLow }
+                    item.setTrigLow      = function(v) { widgetRef.setTriggerHighLow(v) }
+                    item.getTrigHold     = function() { return widgetRef.triggerHighHold }
+                    item.setTrigHold     = function(v) { widgetRef.setTriggerHighHold(v) }
+                    item.getTrigCooldown = function() { return widgetRef.triggerHighCooldown }
+                    item.setTrigCooldown = function(v) { widgetRef.setTriggerHighCooldown(v) }
+                }
+            }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Band Crossovers")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat ≤"); tooltipText: qsTr("Upper Hz for the Beat (kick) slice. Diagnostic — canonical lows/mids/highs come from the engine pipeline.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 20; to: 1000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.beatCutoffHz) : 100
+                        onValueModified: if (widgetRef) widgetRef.setBeatCutoffHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass ≤"); tooltipText: qsTr("Upper Hz for the Bass slice (diagnostic, must be > Beat).") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 30; to: 2000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.bassCutoffHz) : 250
+                        onValueModified: if (widgetRef) widgetRef.setBassCutoffHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids ≤"); tooltipText: qsTr("Upper Hz for the Mids slice (diagnostic, must be > Bass).") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 200; to: 8000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.midsCutoffHz) : 3000
+                        onValueModified: if (widgetRef) widgetRef.setMidsCutoffHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Highs ≤"); tooltipText: qsTr("Upper Hz for the Highs slice (diagnostic, must be > Mids).") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 1000; to: 24000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.highsCutoffHz) : 10000
+                        onValueModified: if (widgetRef) widgetRef.setHighsCutoffHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Beat band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Beat band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Bass band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBassDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Bass rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Bass band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerBassRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Mids band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Mids rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Mids band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsRise(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("High decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the High band. Higher = faster release.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerHighDecay * 100) : 20
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighDecay(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("High rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the High band. Higher = faster attack.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 100; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.freqPowerHighRise * 100) : 97
+                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighRise(value / 100)
+                    }
+                }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Envelope")
+
+            sectionContents:
+                Column
+                {
+                    width: parent.width
+                    spacing: 4
+
+                    RowLayout
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        spacing: 6
+
+                        RobotoText
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            height: gridItemsHeight
+                            label: qsTr("Attack")
+                            tooltipText: qsTr("Attack time (ms) of the per-band envelope follower. Lower = snappier reaction; higher = smoother but laggier band-power signals driving widget triggers.")
+                        }
+
+                        Slider
+                        {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 500
+                            stepSize: 1
+                            enabled: widgetRef !== null
+                            value: widgetRef ? widgetRef.envelopeAttack : 0
+                            onMoved: if (widgetRef) widgetRef.setEnvelopeAttack(value)
+                        }
+
+                        CustomSpinBox
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            from: 0
+                            to: 500
+                            suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.envelopeAttack) : 0
+                            onValueModified: if (widgetRef) widgetRef.setEnvelopeAttack(value)
+                        }
+                    }
+
+                    RowLayout
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        spacing: 6
+
+                        RobotoText
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            height: gridItemsHeight
+                            label: qsTr("Release")
+                            tooltipText: qsTr("Release time (ms) of the per-band envelope follower. Higher = bands hang on longer after a hit; lower = bands fall off faster.")
+                        }
+
+                        Slider
+                        {
+                            Layout.fillWidth: true
+                            from: 0
+                            to: 2000
+                            stepSize: 1
+                            enabled: widgetRef !== null
+                            value: widgetRef ? widgetRef.envelopeRelease : 0
+                            onMoved: if (widgetRef) widgetRef.setEnvelopeRelease(value)
+                        }
+
+                        CustomSpinBox
+                        {
+                            Layout.preferredWidth: UISettings.bigItemHeight
+                            from: 0
+                            to: 2000
+                            suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.envelopeRelease) : 0
+                            onValueModified: if (widgetRef) widgetRef.setEnvelopeRelease(value)
+                        }
+                    }
+                }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Volume & Display")
+
+            sectionContents:
+                Column
+                {
+                    width: parent.width
+                    spacing: 6
+
+                    GridLayout
+                    {
+                        width: parent.width
+                        columns: 2
+                        columnSpacing: 6
+                        rowSpacing: 4
+
+                        RobotoText { height: gridItemsHeight; label: qsTr("Smoothing"); tooltipText: qsTr("Time constant (ms) for the smoothed volume readout.") }
+                        CustomSpinBox
+                        {
+                            Layout.fillWidth: true
+                            from: 0; to: 500; suffix: " ms"
+                            enabled: widgetRef !== null
+                            value: widgetRef ? Math.round(widgetRef.volumeSmoothing) : 100
+                            onValueModified: if (widgetRef) widgetRef.setVolumeSmoothing(value)
+                        }
+
+                        RobotoText { height: gridItemsHeight; label: qsTr("Brightness floor"); tooltipText: qsTr("Minimum normalized output level so the display never goes fully dark.") }
+                        RowLayout
+                        {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Slider
+                            {
+                                Layout.fillWidth: true
+                                from: 0; to: 1; stepSize: 0.01
+                                enabled: widgetRef !== null
+                                value: widgetRef ? widgetRef.brightnessFloor : 0
+                                onPressedChanged: if (!pressed && widgetRef) widgetRef.setBrightnessFloor(value)
+                            }
+                            RobotoText
+                            {
+                                Layout.preferredWidth: UISettings.bigItemHeight
+                                height: gridItemsHeight
+                                label: widgetRef ? Math.round(widgetRef.brightnessFloor * 100) + "%" : "--"
+                            }
+                        }
+
+                        RobotoText { height: gridItemsHeight; label: qsTr("Raw"); tooltipText: qsTr("Live unsmoothed volume.") }
+                        RowLayout
+                        {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Rectangle
+                            {
+                                Layout.fillWidth: true; Layout.preferredHeight: 10; radius: 4
+                                color: UISettings.bgStrong; border.width: 1; border.color: UISettings.bgLight
+                                Rectangle
+                                {
+                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                    width: parent.width * Math.max(0, Math.min(1, widgetRef ? widgetRef.volumeRaw : 0))
+                                    radius: parent.radius; color: "#33cc66"
+                                }
+                            }
+                            RobotoText
+                            {
+                                Layout.preferredWidth: UISettings.bigItemHeight
+                                height: gridItemsHeight
+                                label: widgetRef ? Math.round(widgetRef.volumeRaw * 100) + "%" : "--"
+                            }
+                        }
+
+                        RobotoText { height: gridItemsHeight; label: qsTr("Normalized"); tooltipText: qsTr("Smoothed and floored volume used for display brightness.") }
+                        RowLayout
+                        {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            Rectangle
+                            {
+                                Layout.fillWidth: true; Layout.preferredHeight: 10; radius: 4
+                                color: UISettings.bgStrong; border.width: 1; border.color: UISettings.bgLight
+                                Rectangle
+                                {
+                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                                    width: parent.width * Math.max(0, Math.min(1, widgetRef ? widgetRef.volumeNormalized : 0))
+                                    radius: parent.radius; color: UISettings.selection
+                                }
+                            }
+                            RobotoText
+                            {
+                                Layout.preferredWidth: UISettings.bigItemHeight
+                                height: gridItemsHeight
+                                label: widgetRef ? Math.round(widgetRef.volumeNormalized * 100) + "%" : "--"
+                            }
+                        }
+                    }
+                }
+        }
+
+        SectionBox
+        {
+            sectionLabel: qsTr("Kick Detection")
+
+            sectionContents:
+                GridLayout
+                {
+                    width: parent.width
+                    columns: 2
+                    columnSpacing: 6
+                    rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Enabled"); tooltipText: qsTr("Master toggle for the LedFx volume_beat_now kick detector. When off, audio.triggers.kick never fires.") }
+                    CustomCheckBox
+                    {
+                        Layout.fillWidth: true
+                        enabled: widgetRef !== null
+                        checked: widgetRef ? widgetRef.kickEnabled : true
+                        onToggled: if (widgetRef) widgetRef.setKickEnabled(checked)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat max"); tooltipText: qsTr("Upper Hz cutoff for the LedFx volume_beat_now low-mel slice.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 20; to: 1000; suffix: " Hz"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMaxHz) : 100
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMaxHz(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Min diff"); tooltipText: qsTr("Minimum percent difference over history for a kick.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 500; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMinPercentDiff * 100) : 50
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinPercentDiff(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Min amplitude"); tooltipText: qsTr("Minimum LedFx beat power required before a kick can fire.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 1000; suffix: "%"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatMinAmplitude * 100) : 50
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinAmplitude(value / 100)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Refractory"); tooltipText: qsTr("Minimum seconds between LedFx kick detections.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0; to: 2000; suffix: " ms"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.kickBeatRefractorySec * 1000) : 100
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatRefractorySec(value / 1000)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("History"); tooltipText: qsTr("Fixed LedFx history deque capacity used in the percent-diff denominator.") }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 1; to: 500; suffix: qsTr(" frames")
+                        enabled: widgetRef !== null
+                        value: widgetRef ? widgetRef.kickBeatHistoryLen : 10
+                        onValueModified: if (widgetRef) widgetRef.setKickBeatHistoryLen(value)
+                    }
+                }
+        }
 
         SectionBox
         {
@@ -879,6 +1448,180 @@ Rectangle
                             }
                         }
                     }
+
+                    // ── Per-method onset parameter overrides ───────────────
+                    RobotoText
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        label: qsTr("Per-method overrides")
+                        tooltipText: qsTr("Per-method tuning that bypasses aubio's tuned defaults. Each row maps to one entry in AubioConfig::onsetOverrides[]. Use the Reset button to revert that method back to aubio's per-method defaults (sentinel values).")
+                    }
+
+                    Repeater
+                    {
+                        model: ["energy","hfc","complex","phase","wphase","specdiff","kl","mkl","specflux"]
+
+                        delegate: Column
+                        {
+                            id: ovRow
+                            width: parent.width
+                            spacing: 2
+                            property int methodIndex: index
+                            property var ov: widgetRef && widgetRef.onsetMethodOverrides ? widgetRef.onsetMethodOverrides[index] : null
+
+                            RowLayout
+                            {
+                                width: parent.width
+                                spacing: 6
+                                RobotoText
+                                {
+                                    Layout.preferredWidth: UISettings.bigItemHeight
+                                    height: gridItemsHeight
+                                    label: modelData
+                                    fontBold: true
+                                }
+                                Item { Layout.fillWidth: true; height: 1 }
+                                GenericButton
+                                {
+                                    width: UISettings.bigItemHeight
+                                    height: gridItemsHeight
+                                    label: qsTr("Reset")
+                                    onClicked: if (widgetRef) widgetRef.resetOnsetMethodOverride(ovRow.methodIndex)
+                                }
+                            }
+
+                            GridLayout
+                            {
+                                width: parent.width
+                                columns: 4
+                                columnSpacing: 6
+                                rowSpacing: 2
+
+                                RobotoText { height: gridItemsHeight; label: "threshold"; tooltipText: qsTr("aubio_onset_set_threshold(). Negative => use aubio per-method default. Press Reset to clear.") }
+                                CustomDoubleSpinBox
+                                {
+                                    Layout.fillWidth: true
+                                    realFrom: -1.0; realTo: 10.0
+                                    realStep: 0.01
+                                    decimals: 3
+                                    suffix: ""
+                                    realValue: ovRow.ov ? ovRow.ov.threshold : -1.0
+                                    enabled: widgetRef !== null
+                                    onValueModified: {
+                                        var rv = value / Math.pow(10, decimals)
+                                        realValue = rv
+                                        if (widgetRef) widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "threshold", rv)
+                                    }
+                                }
+                                RobotoText { height: gridItemsHeight; label: "silenceDb"; tooltipText: qsTr("aubio_onset_set_silence(). <= -900 => use aubio per-method default. Press Reset to clear.") }
+                                CustomDoubleSpinBox
+                                {
+                                    Layout.fillWidth: true
+                                    realFrom: -999.0; realTo: 0.0
+                                    realStep: 1.0
+                                    decimals: 1
+                                    suffix: " dB"
+                                    realValue: ovRow.ov ? ovRow.ov.silenceDb : -999.0
+                                    enabled: widgetRef !== null
+                                    onValueModified: {
+                                        var rv = value / Math.pow(10, decimals)
+                                        realValue = rv
+                                        if (widgetRef) widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "silenceDb", rv)
+                                    }
+                                }
+
+                                RobotoText { height: gridItemsHeight; label: "minioiMs"; tooltipText: qsTr("aubio_onset_set_minioi_ms(). Negative => use aubio per-method default. Press Reset to clear.") }
+                                CustomDoubleSpinBox
+                                {
+                                    Layout.fillWidth: true
+                                    realFrom: -1.0; realTo: 5000.0
+                                    realStep: 1.0
+                                    decimals: 1
+                                    suffix: " ms"
+                                    realValue: ovRow.ov ? ovRow.ov.minioiMs : -1.0
+                                    enabled: widgetRef !== null
+                                    onValueModified: {
+                                        var rv = value / Math.pow(10, decimals)
+                                        realValue = rv
+                                        if (widgetRef) widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "minioiMs", rv)
+                                    }
+                                }
+                                RobotoText { height: gridItemsHeight; label: "delayMs"; tooltipText: qsTr("aubio_onset_set_delay_ms(). <= -9000 => use aubio per-method default. Press Reset to clear.") }
+                                CustomDoubleSpinBox
+                                {
+                                    Layout.fillWidth: true
+                                    realFrom: -9999.0; realTo: 5000.0
+                                    realStep: 1.0
+                                    decimals: 1
+                                    suffix: " ms"
+                                    realValue: ovRow.ov ? ovRow.ov.delayMs : -9999.0
+                                    enabled: widgetRef !== null
+                                    onValueModified: {
+                                        var rv = value / Math.pow(10, decimals)
+                                        realValue = rv
+                                        if (widgetRef) widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "delayMs", rv)
+                                    }
+                                }
+
+                                RobotoText { height: gridItemsHeight; label: "compression"; tooltipText: qsTr("aubio_onset_set_compression(). Negative => use aubio per-method default (e.g. specflux defaults to 10). Press Reset to clear.") }
+                                CustomDoubleSpinBox
+                                {
+                                    Layout.fillWidth: true
+                                    realFrom: -1.0; realTo: 100.0
+                                    realStep: 0.1
+                                    decimals: 2
+                                    suffix: ""
+                                    realValue: ovRow.ov ? ovRow.ov.compression : -1.0
+                                    enabled: widgetRef !== null
+                                    onValueModified: {
+                                        var rv = value / Math.pow(10, decimals)
+                                        realValue = rv
+                                        if (widgetRef) widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "compression", rv)
+                                    }
+                                }
+                                RobotoText { height: gridItemsHeight; label: "awhitening"; tooltipText: qsTr("aubio_onset_set_awhitening(). -1 => default; 0 = off; 1 = on.") }
+                                CustomComboBox
+                                {
+                                    Layout.fillWidth: true
+                                    height: gridItemsHeight
+                                    model: [ qsTr("default (-1)"), qsTr("off (0)"), qsTr("on (1)") ]
+                                    enabled: widgetRef !== null
+                                    currentIndex: {
+                                        if (!ovRow.ov) return 0
+                                        var v = ovRow.ov.awhitening
+                                        if (v < 0) return 0
+                                        if (v === 0) return 1
+                                        return 2
+                                    }
+                                    onActivated: {
+                                        if (!widgetRef) return
+                                        var v = currentIndex === 0 ? -1 : (currentIndex === 1 ? 0 : 1)
+                                        widgetRef.setOnsetMethodOverrideField(ovRow.methodIndex, "awhitening", v)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Onset history retention (moved from former "History" section).
+                    RobotoText
+                    {
+                        width: parent.width
+                        height: gridItemsHeight
+                        label: qsTr("Onset history window")
+                        tooltipText: qsTr("Duration of onset history to retain for analysis (seconds). Affects onset rate calculations.")
+                    }
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        height: gridItemsHeight
+                        suffix: " s"
+                        from: 1
+                        to: 30
+                        value: widgetRef ? widgetRef.onsetHistorySeconds : 5
+                        onValueModified: if (widgetRef) widgetRef.onsetHistorySeconds = value
+                    }
                 }
         }
 
@@ -894,6 +1637,21 @@ Rectangle
                     columns: 2
                     columnSpacing: 6
                     rowSpacing: 4
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat"); tooltipText: qsTr("Live beat status: green when a beat fires, dark otherwise. Status only — driven by the aubio tempo tracker below.") }
+                    RowLayout
+                    {
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Rectangle
+                        {
+                            width: 14; height: 14; radius: 7
+                            color: widgetRef && widgetRef.beatActive ? "#33cc66" : "#555555"
+                            border.width: 1; border.color: "#222222"
+                            Behavior on color { ColorAnimation { duration: 80 } }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
 
                     RobotoText { height: gridItemsHeight; label: qsTr("Threshold"); tooltipText: qsTr("Peak-picking threshold for the beat tracker. Default 0.3.") }
                     RowLayout
@@ -1332,693 +2090,6 @@ Rectangle
                 } // GridLayout
                 } // Column
         }
-        SectionBox
-        {
-            sectionLabel: qsTr("Band Crossovers")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Beat ≤"); tooltipText: qsTr("Upper Hz for the Beat (kick) slice. Diagnostic — canonical lows/mids/highs come from the engine pipeline.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 20; to: 1000; suffix: " Hz"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.beatCutoffHz) : 100
-                        onValueModified: if (widgetRef) widgetRef.setBeatCutoffHz(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Bass ≤"); tooltipText: qsTr("Upper Hz for the Bass slice (diagnostic, must be > Beat).") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 30; to: 2000; suffix: " Hz"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.bassCutoffHz) : 250
-                        onValueModified: if (widgetRef) widgetRef.setBassCutoffHz(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mids ≤"); tooltipText: qsTr("Upper Hz for the Mids slice (diagnostic, must be > Bass).") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 200; to: 8000; suffix: " Hz"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.midsCutoffHz) : 3000
-                        onValueModified: if (widgetRef) widgetRef.setMidsCutoffHz(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Highs ≤"); tooltipText: qsTr("Upper Hz for the Highs slice (diagnostic, must be > Mids).") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 1000; to: 24000; suffix: " Hz"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.highsCutoffHz) : 10000
-                        onValueModified: if (widgetRef) widgetRef.setHighsCutoffHz(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Beat decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Beat band. Higher = faster release.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatDecay * 100) : 20
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Beat rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Beat band. Higher = faster attack.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerBeatRise * 100) : 97
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBeatRise(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Bass decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Bass band. Higher = faster release.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerBassDecay * 100) : 20
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Bass rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Bass band. Higher = faster attack.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerBassRise * 100) : 97
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerBassRise(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mids decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the Mids band. Higher = faster release.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsDecay * 100) : 20
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Mids rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the Mids band. Higher = faster attack.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerMidsRise * 100) : 97
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerMidsRise(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("High decay"); tooltipText: qsTr("LedFx freq_power_filter alpha_decay for the High band. Higher = faster release.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerHighDecay * 100) : 20
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighDecay(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("High rise"); tooltipText: qsTr("LedFx freq_power_filter alpha_rise for the High band. Higher = faster attack.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 100; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.freqPowerHighRise * 100) : 97
-                        onValueModified: if (widgetRef) widgetRef.setFreqPowerHighRise(value / 100)
-                    }
-                }
-        }
-        SectionBox
-        {
-            sectionLabel: qsTr("QLC+: Response — Envelope")
-
-            sectionContents:
-                Column
-                {
-                    width: parent.width
-                    spacing: 4
-
-                    RowLayout
-                    {
-                        width: parent.width
-                        height: gridItemsHeight
-                        spacing: 6
-
-                        RobotoText
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            height: gridItemsHeight
-                            label: qsTr("Attack")
-                            tooltipText: qsTr("Attack time (ms) of the per-band envelope follower. Lower = snappier reaction; higher = smoother but laggier band-power signals driving widget triggers.")
-                        }
-
-                        Slider
-                        {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 500
-                            stepSize: 1
-                            enabled: widgetRef !== null
-                            value: widgetRef ? widgetRef.envelopeAttack : 0
-                            onMoved: if (widgetRef) widgetRef.setEnvelopeAttack(value)
-                        }
-
-                        CustomSpinBox
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            from: 0
-                            to: 500
-                            suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.envelopeAttack) : 0
-                            onValueModified: if (widgetRef) widgetRef.setEnvelopeAttack(value)
-                        }
-                    }
-
-                    RowLayout
-                    {
-                        width: parent.width
-                        height: gridItemsHeight
-                        spacing: 6
-
-                        RobotoText
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            height: gridItemsHeight
-                            label: qsTr("Release")
-                            tooltipText: qsTr("Release time (ms) of the per-band envelope follower. Higher = bands hang on longer after a hit; lower = bands fall off faster.")
-                        }
-
-                        Slider
-                        {
-                            Layout.fillWidth: true
-                            from: 0
-                            to: 2000
-                            stepSize: 1
-                            enabled: widgetRef !== null
-                            value: widgetRef ? widgetRef.envelopeRelease : 0
-                            onMoved: if (widgetRef) widgetRef.setEnvelopeRelease(value)
-                        }
-
-                        CustomSpinBox
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            from: 0
-                            to: 2000
-                            suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.envelopeRelease) : 0
-                            onValueModified: if (widgetRef) widgetRef.setEnvelopeRelease(value)
-                        }
-                    }
-                }
-        }
-        SectionBox
-        {
-            sectionLabel: qsTr("QLC+: Noise Gate")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Threshold"); tooltipText: qsTr("RMS level (in dBFS) below which the noise gate closes. Raise to ignore room noise; lower to let quieter audio through.") }
-                    RowLayout
-                    {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Slider
-                        {
-                            Layout.fillWidth: true
-                            from: -96; to: 0; stepSize: 1
-                            enabled: widgetRef !== null
-                            value: widgetRef ? widgetRef.noiseGateThreshold : -54
-                            onPressedChanged: if (!pressed && widgetRef) widgetRef.setNoiseGateThreshold(value)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            from: -96; to: 0; suffix: " dB"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.noiseGateThreshold) : -54
-                            onValueModified: if (widgetRef) widgetRef.setNoiseGateThreshold(value)
-                        }
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Hold"); tooltipText: qsTr("How long (ms) the gate stays open after the signal drops below threshold. Prevents chatter on percussive material.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 2000; suffix: " ms"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.noiseGateHold) : 120
-                        onValueModified: if (widgetRef) widgetRef.setNoiseGateHold(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Input RMS"); tooltipText: qsTr("Live RMS reading of the post-gain input, in dBFS. Use this to set Threshold above your noise floor.") }
-                    RowLayout
-                    {
-                        Layout.fillWidth: true
-                        spacing: 6
-                        Rectangle
-                        {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 10
-                            radius: 4
-                            color: UISettings.bgStrong
-                            border.width: 1; border.color: UISettings.bgLight
-                            Rectangle
-                            {
-                                anchors.left: parent.left
-                                anchors.top: parent.top
-                                anchors.bottom: parent.bottom
-                                width: parent.width * Math.max(0, Math.min(1, (96 + (widgetRef ? widgetRef.rmsDb : -96)) / 96))
-                                radius: parent.radius
-                                color: widgetRef && widgetRef.noiseGateOpen ? "#33cc66" : "#cc3333"
-                            }
-                        }
-                        RobotoText
-                        {
-                            Layout.preferredWidth: UISettings.bigItemHeight
-                            height: gridItemsHeight
-                            label: widgetRef ? widgetRef.rmsDb.toFixed(0) + " dB" : "--"
-                        }
-                    }
-                }
-        }
-        SectionBox
-        {
-            sectionLabel: qsTr("QLC+: Triggers")
-
-            sectionContents:
-                RowLayout
-                {
-                    width: parent.width
-                    height: gridItemsHeight * 2
-                    spacing: 8
-
-                    Repeater
-                    {
-                        model: 3
-
-                        Column
-                        {
-                            Layout.fillWidth: true
-                            spacing: 4
-
-                            Rectangle
-                            {
-                                width: 14
-                                height: 14
-                                radius: 7
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                color: {
-                                    var ts = widgetRef ? widgetRef.triggerStates[index] : null
-                                    if (!ts) return "#555555"
-                                    if (ts.fired) return "#33ff66"
-                                    if (ts.active) return "#33cc66"
-                                    if (ts.cooldownMs > 0) return "#cc9933"
-                                    return "#555555"
-                                }
-                                border.width: 1
-                                border.color: "#222222"
-                            }
-
-                            RobotoText
-                            {
-                                width: parent.width
-                                height: gridItemsHeight
-                                label: bankTriggerNames[index]
-                                labelColor: bankTriggerColors[index]
-                                fontSize: UISettings.textSizeSmall
-                                textHAlign: Text.AlignHCenter
-                            }
-                        }
-                    }
-
-                    Column
-                    {
-                        Layout.fillWidth: true
-                        spacing: 4
-
-                        Rectangle
-                        {
-                            width: 14
-                            height: 14
-                            radius: 7
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            color: widgetRef && widgetRef.beatActive ? "#33cc66" : "#555555"
-                            border.width: 1
-                            border.color: "#222222"
-                            Behavior on color { ColorAnimation { duration: 80 } }
-                        }
-
-                        RobotoText
-                        {
-                            width: parent.width
-                            height: gridItemsHeight
-                            label: qsTr("Beat")
-                            textHAlign: Text.AlignHCenter
-                        }
-                    }
-
-                    GridLayout
-                    {
-                        Layout.fillWidth: true
-                        columns: 5
-                        columnSpacing: 6
-                        rowSpacing: 4
-
-                        // Header row
-                        RobotoText { height: gridItemsHeight; label: qsTr("Band"); fontBold: true }
-                        RobotoText
-                        {
-                            height: gridItemsHeight
-                            label: qsTr("High")
-                            textHAlign: Text.AlignHCenter
-                            tooltipText: qsTr("Upper hysteresis threshold (% of band peak). Band must rise above this to fire a trigger.")
-                        }
-                        RobotoText
-                        {
-                            height: gridItemsHeight
-                            label: qsTr("Low")
-                            textHAlign: Text.AlignHCenter
-                            tooltipText: qsTr("Lower hysteresis threshold (% of band peak). Band must fall below this before another trigger can fire.")
-                        }
-                        RobotoText
-                        {
-                            height: gridItemsHeight
-                            label: qsTr("Hold")
-                            textHAlign: Text.AlignHCenter
-                            tooltipText: qsTr("Minimum time (ms) the trigger stays active once fired, even if the band drops back below threshold.")
-                        }
-                        RobotoText
-                        {
-                            height: gridItemsHeight
-                            label: qsTr("Cooldown")
-                            textHAlign: Text.AlignHCenter
-                            tooltipText: qsTr("Minimum time (ms) between two consecutive triggers from the same band. Use to avoid retriggering on a sustained note.")
-                        }
-
-                        // Low band
-                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[0]; labelColor: bankTriggerColors[0] }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerLowHigh * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerLowHigh(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerLowLow * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerLowLow(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 1000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerLowHold) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerLowHold(value)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 2000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerLowCooldown) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerLowCooldown(value)
-                        }
-
-                        // Mid band
-                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[1]; labelColor: bankTriggerColors[1] }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerMidHigh * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerMidHigh(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerMidLow * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerMidLow(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 1000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerMidHold) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerMidHold(value)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 2000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerMidCooldown) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerMidCooldown(value)
-                        }
-
-                        // High band
-                        RobotoText { height: gridItemsHeight; label: bankTriggerNames[2]; labelColor: bankTriggerColors[2] }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHighHigh * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHighHigh(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 100; suffix: "%"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHighLow * 100) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHighLow(value / 100)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 1000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHighHold) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHighHold(value)
-                        }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 2000; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.triggerHighCooldown) : 0
-                            onValueModified: if (widgetRef) widgetRef.setTriggerHighCooldown(value)
-                        }
-                    }
-                }
-        }
-
-        SectionBox
-        {
-            sectionLabel: qsTr("Kick Detection")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Enabled"); tooltipText: qsTr("Master toggle for the LedFx volume_beat_now kick detector. When off, audio.triggers.kick never fires.") }
-                    CustomCheckBox
-                    {
-                        Layout.fillWidth: true
-                        enabled: widgetRef !== null
-                        checked: widgetRef ? widgetRef.kickEnabled : true
-                        onToggled: if (widgetRef) widgetRef.setKickEnabled(checked)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Beat max"); tooltipText: qsTr("Upper Hz cutoff for the LedFx volume_beat_now low-mel slice.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 20; to: 1000; suffix: " Hz"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.kickBeatMaxHz) : 100
-                        onValueModified: if (widgetRef) widgetRef.setKickBeatMaxHz(value)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Min diff"); tooltipText: qsTr("Minimum percent difference over history for a kick.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 500; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.kickBeatMinPercentDiff * 100) : 50
-                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinPercentDiff(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Min amplitude"); tooltipText: qsTr("Minimum LedFx beat power required before a kick can fire.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 1000; suffix: "%"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.kickBeatMinAmplitude * 100) : 50
-                        onValueModified: if (widgetRef) widgetRef.setKickBeatMinAmplitude(value / 100)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("Refractory"); tooltipText: qsTr("Minimum seconds between LedFx kick detections.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 0; to: 2000; suffix: " ms"
-                        enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(widgetRef.kickBeatRefractorySec * 1000) : 100
-                        onValueModified: if (widgetRef) widgetRef.setKickBeatRefractorySec(value / 1000)
-                    }
-
-                    RobotoText { height: gridItemsHeight; label: qsTr("History"); tooltipText: qsTr("Fixed LedFx history deque capacity used in the percent-diff denominator.") }
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        from: 1; to: 500; suffix: qsTr(" frames")
-                        enabled: widgetRef !== null
-                        value: widgetRef ? widgetRef.kickBeatHistoryLen : 10
-                        onValueModified: if (widgetRef) widgetRef.setKickBeatHistoryLen(value)
-                    }
-                }
-        }
-
-        SectionBox
-        {
-            sectionLabel: qsTr("QLC+: Volume & Display")
-
-            sectionContents:
-                Column
-                {
-                    width: parent.width
-                    spacing: 6
-
-                    GridLayout
-                    {
-                        width: parent.width
-                        columns: 2
-                        columnSpacing: 6
-                        rowSpacing: 4
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Smoothing"); tooltipText: qsTr("Time constant (ms) for the smoothed volume readout.") }
-                        CustomSpinBox
-                        {
-                            Layout.fillWidth: true
-                            from: 0; to: 500; suffix: " ms"
-                            enabled: widgetRef !== null
-                            value: widgetRef ? Math.round(widgetRef.volumeSmoothing) : 100
-                            onValueModified: if (widgetRef) widgetRef.setVolumeSmoothing(value)
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Brightness floor"); tooltipText: qsTr("Minimum normalized output level so the display never goes fully dark.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Slider
-                            {
-                                Layout.fillWidth: true
-                                from: 0; to: 1; stepSize: 0.01
-                                enabled: widgetRef !== null
-                                value: widgetRef ? widgetRef.brightnessFloor : 0
-                                onPressedChanged: if (!pressed && widgetRef) widgetRef.setBrightnessFloor(value)
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? Math.round(widgetRef.brightnessFloor * 100) + "%" : "--"
-                            }
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Raw"); tooltipText: qsTr("Live unsmoothed volume.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Rectangle
-                            {
-                                Layout.fillWidth: true; Layout.preferredHeight: 10; radius: 4
-                                color: UISettings.bgStrong; border.width: 1; border.color: UISettings.bgLight
-                                Rectangle
-                                {
-                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
-                                    width: parent.width * Math.max(0, Math.min(1, widgetRef ? widgetRef.volumeRaw : 0))
-                                    radius: parent.radius; color: "#33cc66"
-                                }
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? Math.round(widgetRef.volumeRaw * 100) + "%" : "--"
-                            }
-                        }
-
-                        RobotoText { height: gridItemsHeight; label: qsTr("Normalized"); tooltipText: qsTr("Smoothed and floored volume used for display brightness.") }
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            spacing: 6
-                            Rectangle
-                            {
-                                Layout.fillWidth: true; Layout.preferredHeight: 10; radius: 4
-                                color: UISettings.bgStrong; border.width: 1; border.color: UISettings.bgLight
-                                Rectangle
-                                {
-                                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
-                                    width: parent.width * Math.max(0, Math.min(1, widgetRef ? widgetRef.volumeNormalized : 0))
-                                    radius: parent.radius; color: UISettings.selection
-                                }
-                            }
-                            RobotoText
-                            {
-                                Layout.preferredWidth: UISettings.bigItemHeight
-                                height: gridItemsHeight
-                                label: widgetRef ? Math.round(widgetRef.volumeNormalized * 100) + "%" : "--"
-                            }
-                        }
-                    }
-                }
-        }
 
         SectionBox
         {
@@ -2294,38 +2365,6 @@ Rectangle
                         }
                     } // ListView
                 } // GridLayout
-        } // SectionBox
-
-        SectionBox
-        {
-            sectionLabel: qsTr("History")
-
-            sectionContents:
-                GridLayout
-                {
-                    width: parent.width
-                    columns: 2
-                    columnSpacing: 6
-                    rowSpacing: 4
-
-                    RobotoText
-                    {
-                        height: gridItemsHeight
-                        label: qsTr("Onset history window")
-                        tooltipText: qsTr("Duration of onset history to retain for analysis (seconds). Affects onset rate calculations.")
-                    }
-
-                    CustomSpinBox
-                    {
-                        Layout.fillWidth: true
-                        height: gridItemsHeight
-                        suffix: " s"
-                        from: 1
-                        to: 30
-                        value: widgetRef ? widgetRef.onsetHistorySeconds : 5
-                        onValueModified: if (widgetRef) widgetRef.onsetHistorySeconds = value
-                    }
-                }
         } // SectionBox
 
     } // Column

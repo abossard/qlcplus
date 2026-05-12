@@ -112,6 +112,17 @@ namespace
 
     /** Convert packed 0xRRGGBB to HSV floats in [0,1]. */
     struct HsvColor { float h, s, v; };
+
+    /** Marshal an HsvColor into a QJSValue {h,s,v} object. */
+    static inline QJSValue hsvToJs(QJSEngine *engine, const HsvColor &hsv)
+    {
+        QJSValue obj = engine->newObject();
+        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
+        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
+        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
+        return obj;
+    }
+
     static inline HsvColor rgbToHsv(uint packed)
     {
         float r = float((packed >> 16) & 0xFF) / 255.0f;
@@ -739,11 +750,7 @@ void RGBScript::rgbMapSetColors(const QVector<uint> &colors)
     for (int i = 0; i < rawColorCount && i < accColors; i++)
     {
         HsvColor hsv = rgbToHsv(colors.at(i) & 0xFFFFFFu);
-        QJSValue obj = engine->newObject();
-        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
-        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
-        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
-        jsRawColors.setProperty(i, obj);
+        jsRawColors.setProperty(i, hsvToJs(engine, hsv));
     }
 
     QJSValueList args;
@@ -809,11 +816,7 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     // so the rgbMap(width, height, color, step[, audio]) signature is stable.
     QJSEngine *engine = s_jsThread->engine;
     HsvColor primary = rgbToHsv(rgb & 0xFFFFFFu);
-    QJSValue colorArg = engine->newObject();
-    colorArg.setProperty(QStringLiteral("h"), QJSValue(double(primary.h)));
-    colorArg.setProperty(QStringLiteral("s"), QJSValue(double(primary.s)));
-    colorArg.setProperty(QStringLiteral("v"), QJSValue(double(primary.v)));
-    args << size.width() << size.height() << colorArg << step;
+    args << size.width() << size.height() << hsvToJs(engine, primary) << step;
 
     if (m_usesAudio)
         args << buildAudioDataObject();
@@ -1075,15 +1078,6 @@ namespace
             float(double(a.s) + frac * (double(b.s) - double(a.s))),
             float(double(a.v) + frac * (double(b.v) - double(a.v)))
         };
-    }
-
-    QJSValue hsvToJs(QJSEngine *engine, const HsvColor &hsv)
-    {
-        QJSValue obj = engine->newObject();
-        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
-        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
-        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
-        return obj;
     }
 }
 
