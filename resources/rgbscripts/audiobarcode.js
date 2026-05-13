@@ -165,7 +165,7 @@ var testAlgo;
         var hfcScale = algo.presetHfcScale / 100.0;
         if (hfcScale < 0.001) hfcScale = 0.001;
         var t = audio.features.hfc / hfcScale;
-        var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+        var gradient = (algo.colors && algo.colors.length > 0)
           ? algo.colors : DEFAULT_GRADIENT;
         var color = HSVUtil.gradientAt(gradient, t);
         algo.lines.push({

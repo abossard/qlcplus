@@ -325,7 +325,6 @@ struct AudioChannelConfig
     AubioConfig aubio;
 
     static AudioChannelConfig defaults();
-    static AudioChannelConfig fromLegacySliders(int gain, int reactivity, int floor, int sensitivity);
 };
 
 /**

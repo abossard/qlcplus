@@ -36,7 +36,6 @@
 #else
   #include "rgbscript.h"
 #endif
-#include "audioprofile.h"
 #include "function.h"
 
 class FixtureGroup;
@@ -98,7 +97,6 @@ class RGBMatrix final : public Function
 {
     Q_OBJECT
     Q_DISABLE_COPY(RGBMatrix)
-    Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged)
 
    /*********************************************************************
      * Initialization
@@ -168,19 +166,11 @@ public:
     quint32 fixtureGroup() const;
     void setFixtureGroup(quint32 id);
 
-    /** Get/Set the AudioProfile associated to this RGBMatrix */
-    quint32 audioProfileId() const;
-    void setAudioProfileId(quint32 id);
-
     /** @reimp */
     QList<quint32> components() const override;
 
-signals:
-    void audioProfileIdChanged();
-
 private:
     quint32 m_fixtureGroupID;
-    quint32 m_audioProfileId = AudioProfile::invalidId();
     FixtureGroup *m_group;
 
     /************************************************************************
@@ -533,7 +523,7 @@ public:
 
     enum BeatSelection
     {
-        BeatSelAllBeat4 = 0,
+        BeatSelAllOnDownbeat = 0,
         BeatSelWalk,
         BeatSelRandom
     };
@@ -561,9 +551,9 @@ public:
     static BeatOrientation stringToBeatOrientation(const QString &s);
 
 private:
-    void applyBeatTransform(RGBMap &map, int currentBeat);
+    void applyBeatTransform(RGBMap &map, int currentBeat, int beatsPerBar);
 
-    static void segmentRange(int segment, int total, int &start, int &end);
+    static void segmentRange(int segment, int total, int segmentsCount, int &start, int &end);
 
     BeatEffect m_beatEffect;
     BeatSelection m_beatSelection;
@@ -572,58 +562,6 @@ private:
     int m_lastBeat;
     int m_randomSegment;
 
-    /*************************************************************************
-     * Audio Routing
-     *************************************************************************/
-public:
-    /** Per-RGBMatrix audio slot remapping. The engine mutates the AudioSnapshot
-     *  copy passed to scripts so they cannot bypass the routing. */
-    enum AudioSource
-    {
-        AudioSrcDefault = 0,    ///< slot's native source (passthrough)
-        AudioSrcZero,           ///< always 0 / false
-        AudioSrcLow,
-        AudioSrcMid,
-        AudioSrcHigh,
-        AudioSrcBeat,
-        AudioSrcKick,
-        AudioSrcOnset,
-        AudioSrcVolume
-    };
-    Q_ENUM(AudioSource)
-
-    struct AudioRouting
-    {
-        AudioSource low   = AudioSrcDefault;
-        AudioSource mid   = AudioSrcDefault;
-        AudioSource high  = AudioSrcDefault;
-        AudioSource beat  = AudioSrcDefault;
-        AudioSource kick  = AudioSrcDefault;
-        AudioSource onset = AudioSrcDefault;
-
-        bool isAllDefault() const
-        {
-            return low == AudioSrcDefault && mid == AudioSrcDefault
-                && high == AudioSrcDefault && beat == AudioSrcDefault
-                && kick == AudioSrcDefault && onset == AudioSrcDefault;
-        }
-
-        bool operator==(const AudioRouting &o) const
-        {
-            return low == o.low && mid == o.mid && high == o.high
-                && beat == o.beat && kick == o.kick && onset == o.onset;
-        }
-        bool operator!=(const AudioRouting &o) const { return !(*this == o); }
-    };
-
-    AudioRouting audioRouting() const;
-    void setAudioRouting(const AudioRouting &r);
-
-    static QString audioSourceToString(AudioSource s);
-    static AudioSource stringToAudioSource(const QString &s);
-
-private:
-    AudioRouting m_audioRouting;
 };
 
 /** @} */

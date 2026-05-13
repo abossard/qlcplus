@@ -164,7 +164,7 @@ private:
     void teardownAudioCapture();
 
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
-    QJSValue buildAudioDataObject(RGBMatrix *matrix);
+    QJSValue buildAudioDataObject();
 
     /**
      * Build the gradientColors / gradientBandColors HSV arrays from the owning
@@ -180,12 +180,6 @@ private:
 
 private:
     AudioCapture *m_audioInput;
-    // ID of the last AudioProfile we logged for this script. When the
-    // matrix's audioProfileId changes at runtime (hot-swap), this differs
-    // from the current profile->id() and we re-log once. AudioProfile::invalidId()
-    // means "nothing logged yet". The per-frame re-resolve in buildAudioDataObject()
-    // already handles correctness; this only governs the debug log.
-    quint32 m_loggedAudioProfileId;
     bool m_audioRegistered;
     bool m_hsvContractValidated;    //! Skip Float32Array type checks after first frame
 

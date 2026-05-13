@@ -31,6 +31,7 @@
 #include "rgbscriptscache.h"
 #include "qlcfixturehead.h"
 #include "audiochannel.h"
+#include "audioprofile.h"
 #include "fixturegroup.h"
 #include "genericfader.h"
 #include "fadechannel.h"
@@ -44,7 +45,6 @@
 #define KXMLQLCRGBMatrixColorIndex      QStringLiteral("Index")
 
 #define KXMLQLCRGBMatrixFixtureGroup    QStringLiteral("FixtureGroup")
-#define KXMLQLCRGBMatrixAudioProfileID  QStringLiteral("AudioProfileID")
 #define KXMLQLCRGBMatrixDimmerControl   QStringLiteral("DimmerControl")
 
 #define KXMLQLCRGBMatrixProperty        QStringLiteral("Property")
@@ -68,14 +68,6 @@
 #define KXMLQLCRGBMatrixBeatEffect          QStringLiteral("BeatEffect")
 #define KXMLQLCRGBMatrixBeatSelection       QStringLiteral("BeatSelection")
 #define KXMLQLCRGBMatrixBeatOrientation     QStringLiteral("BeatOrientation")
-
-#define KXMLQLCRGBMatrixAudioRouting        QStringLiteral("AudioRouting")
-#define KXMLQLCRGBMatrixAudioRoutingLow     QStringLiteral("low")
-#define KXMLQLCRGBMatrixAudioRoutingMid     QStringLiteral("mid")
-#define KXMLQLCRGBMatrixAudioRoutingHigh    QStringLiteral("high")
-#define KXMLQLCRGBMatrixAudioRoutingBeat    QStringLiteral("beat")
-#define KXMLQLCRGBMatrixAudioRoutingKick    QStringLiteral("kick")
-#define KXMLQLCRGBMatrixAudioRoutingOnset   QStringLiteral("onset")
 
 static const int RGBMatrixColorMask = 0x00FFFFFF;
 
@@ -103,7 +95,7 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_mirror(0)
     , m_mirrorBlend(MirrorFlip)
     , m_beatEffect(BeatEffectOff)
-    , m_beatSelection(BeatSelAllBeat4)
+    , m_beatSelection(BeatSelAllOnDownbeat)
     , m_beatOrientation(BeatOrientRows)
     , m_currentBeat(0)
     , m_lastBeat(-1)
@@ -255,7 +247,6 @@ bool RGBMatrix::copyFrom(const Function* function)
 
     setDimmerControl(mtx->dimmerControl());
     setFixtureGroup(mtx->fixtureGroup());
-    setAudioProfileId(mtx->audioProfileId());
 
     m_rgbColors.clear();
     foreach (QColor col, mtx->getColors())
@@ -273,7 +264,6 @@ bool RGBMatrix::copyFrom(const Function* function)
     setBeatEffect(mtx->beatEffect());
     setBeatSelection(mtx->beatSelection());
     setBeatOrientation(mtx->beatOrientation());
-    setAudioRouting(mtx->audioRouting());
 
     return Function::copyFrom(function);
 }
@@ -299,20 +289,6 @@ void RGBMatrix::setFixtureGroup(quint32 id)
     // Phase 4: any precomputed map is for the OLD group. Invalidate.
     m_currentGeneration.fetchAndAddRelaxed(1);
     m_precomputedReady.storeRelease(0);
-}
-
-quint32 RGBMatrix::audioProfileId() const
-{
-    return m_audioProfileId;
-}
-
-void RGBMatrix::setAudioProfileId(quint32 id)
-{
-    if (m_audioProfileId == id)
-        return;
-
-    m_audioProfileId = id;
-    emit audioProfileIdChanged();
 }
 
 QList<quint32> RGBMatrix::components() const
@@ -593,10 +569,6 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setFixtureGroup(root.readElementText().toUInt());
         }
-        else if (root.name() == KXMLQLCRGBMatrixAudioProfileID)
-        {
-            setAudioProfileId(root.readElementText().toUInt());
-        }
         else if (root.name() == KXMLQLCFunctionDirection)
         {
             loadXMLDirection(root);
@@ -658,25 +630,6 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setBeatOrientation(stringToBeatOrientation(root.readElementText()));
         }
-        else if (root.name() == KXMLQLCRGBMatrixAudioRouting)
-        {
-            AudioRouting r;
-            QXmlStreamAttributes attrs = root.attributes();
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingLow))
-                r.low = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingLow).toString());
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingMid))
-                r.mid = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingMid).toString());
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingHigh))
-                r.high = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingHigh).toString());
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingBeat))
-                r.beat = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingBeat).toString());
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingKick))
-                r.kick = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingKick).toString());
-            if (attrs.hasAttribute(KXMLQLCRGBMatrixAudioRoutingOnset))
-                r.onset = stringToAudioSource(attrs.value(KXMLQLCRGBMatrixAudioRoutingOnset).toString());
-            setAudioRouting(r);
-            root.skipCurrentElement();
-        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown RGB matrix tag:" << root.name();
@@ -735,10 +688,6 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
     /* Fixture Group */
     doc->writeTextElement(KXMLQLCRGBMatrixFixtureGroup, QString::number(fixtureGroup()));
 
-    /* Audio Profile */
-    if (m_audioProfileId != AudioProfile::invalidId())
-        doc->writeTextElement(KXMLQLCRGBMatrixAudioProfileID, QString::number(m_audioProfileId));
-
     /* Properties */
     QMapIterator<QString, QString> it(m_properties);
     while (it.hasNext())
@@ -764,25 +713,6 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeTextElement(KXMLQLCRGBMatrixBeatEffect, beatEffectToString(m_beatEffect));
         doc->writeTextElement(KXMLQLCRGBMatrixBeatSelection, beatSelectionToString(m_beatSelection));
         doc->writeTextElement(KXMLQLCRGBMatrixBeatOrientation, beatOrientationToString(m_beatOrientation));
-    }
-
-    /* Audio Routing — only persist non-default slots */
-    if (!m_audioRouting.isAllDefault())
-    {
-        doc->writeStartElement(KXMLQLCRGBMatrixAudioRouting);
-        if (m_audioRouting.low != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingLow, audioSourceToString(m_audioRouting.low));
-        if (m_audioRouting.mid != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingMid, audioSourceToString(m_audioRouting.mid));
-        if (m_audioRouting.high != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingHigh, audioSourceToString(m_audioRouting.high));
-        if (m_audioRouting.beat != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingBeat, audioSourceToString(m_audioRouting.beat));
-        if (m_audioRouting.kick != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingKick, audioSourceToString(m_audioRouting.kick));
-        if (m_audioRouting.onset != AudioSrcDefault)
-            doc->writeAttribute(KXMLQLCRGBMatrixAudioRoutingOnset, audioSourceToString(m_audioRouting.onset));
-        doc->writeEndElement();
     }
 
     /* End the <Function> tag */
@@ -924,27 +854,32 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
         }
 
         // --- Beat Transform: update current beat ---
+        int beatsPerBar = 4;
         if (m_beatEffect != BeatEffectOff)
         {
-            AudioProfile *profile = doc()->audioProfileForFunction(id());
+            AudioProfile *profile = doc()->audioProfile(doc()->activeAudioProfileId());
+            if (profile == NULL)
+                profile = doc()->defaultAudioProfile();
             AudioChannel *channel = (profile != NULL) ? profile->channel() : NULL;
+            if (profile != NULL)
+                beatsPerBar = std::clamp(profile->channelConfig().aubio.beatsPerBar, 1, 8);
             if (channel != NULL)
             {
                 AudioSnapshot snap = channel->snapshot();
                 if (snap.music.barPhase > 0)
-                    m_currentBeat = int(snap.music.barPhase) % 4;
+                    m_currentBeat = int(snap.music.barPhase) % beatsPerBar;
                 else if (timer->isBeat())
-                    m_currentBeat = (m_currentBeat + 1) % 4;
+                    m_currentBeat = (m_currentBeat + 1) % beatsPerBar;
             }
             else if (timer->isBeat())
             {
-                m_currentBeat = (m_currentBeat + 1) % 4;
+                m_currentBeat = (m_currentBeat + 1) % beatsPerBar;
             }
 
             // Latch random segment on beat change
             if (m_beatSelection == BeatSelRandom && m_currentBeat != m_lastBeat)
             {
-                m_randomSegment = QRandomGenerator::global()->bounded(4);
+                m_randomSegment = QRandomGenerator::global()->bounded(beatsPerBar);
                 m_lastBeat = m_currentBeat;
             }
         }
@@ -998,7 +933,7 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             }
 
             if (m_beatEffect != BeatEffectOff)
-                applyBeatTransform(m_stepHandler->m_map, m_currentBeat);
+                applyBeatTransform(m_stepHandler->m_map, m_currentBeat, beatsPerBar);
             updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
 
             // --- Phase 4: kick off async pre-computation for the NEXT tick ---
@@ -1607,21 +1542,21 @@ void RGBMatrix::setControlMode(RGBMatrix::ControlMode mode)
 
 RGBMatrix::ControlMode RGBMatrix::stringToControlMode(QString mode)
 {
-    if (mode == KXMLQLCRGBMatrixControlModeRgb)
+    if (mode.compare(KXMLQLCRGBMatrixControlModeRgb, Qt::CaseInsensitive) == 0)
         return ControlModeRgb;
-    else if (mode == KXMLQLCRGBMatrixControlModeAmber)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeAmber, Qt::CaseInsensitive) == 0)
         return ControlModeAmber;
-    else if (mode == KXMLQLCRGBMatrixControlModeWhite)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeWhite, Qt::CaseInsensitive) == 0)
         return ControlModeWhite;
-    else if (mode == KXMLQLCRGBMatrixControlModeUV)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeUV, Qt::CaseInsensitive) == 0)
         return ControlModeUV;
-    else if (mode == KXMLQLCRGBMatrixControlModeDimmer)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeDimmer, Qt::CaseInsensitive) == 0)
         return ControlModeDimmer;
-    else if (mode == KXMLQLCRGBMatrixControlModeShutter)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeShutter, Qt::CaseInsensitive) == 0)
         return ControlModeShutter;
-    else if (mode == KXMLQLCRGBMatrixControlModeRgbw)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeRgbw, Qt::CaseInsensitive) == 0)
         return ControlModeRgbw;
-    else if (mode == KXMLQLCRGBMatrixControlModeRgbwBrighter)
+    else if (mode.compare(KXMLQLCRGBMatrixControlModeRgbwBrighter, Qt::CaseInsensitive) == 0)
         return ControlModeRgbwBrighter;
 
     return ControlModeRgb;
@@ -1732,9 +1667,9 @@ QString RGBMatrix::mirrorBlendToString(MirrorBlend b)
 
 RGBMatrix::MirrorBlend RGBMatrix::stringToMirrorBlend(const QString &s)
 {
-    if (s == QStringLiteral("Max")) return MirrorMax;
-    if (s == QStringLiteral("Average")) return MirrorAverage;
-    if (s == QStringLiteral("Additive")) return MirrorAdditive;
+    if (s.compare(QStringLiteral("Max"), Qt::CaseInsensitive) == 0) return MirrorMax;
+    if (s.compare(QStringLiteral("Average"), Qt::CaseInsensitive) == 0) return MirrorAverage;
+    if (s.compare(QStringLiteral("Additive"), Qt::CaseInsensitive) == 0) return MirrorAdditive;
     return MirrorFlip;
 }
 
@@ -1909,10 +1844,10 @@ QString RGBMatrix::beatEffectToString(BeatEffect e)
 
 RGBMatrix::BeatEffect RGBMatrix::stringToBeatEffect(const QString &s)
 {
-    if (s == QStringLiteral("Mirror"))      return BeatEffectMirror;
-    if (s == QStringLiteral("ColorInvert")) return BeatEffectColorInvert;
-    if (s == QStringLiteral("Blackout"))    return BeatEffectBlackout;
-    if (s == QStringLiteral("Whiteout"))    return BeatEffectWhiteout;
+    if (s.compare(QStringLiteral("Mirror"), Qt::CaseInsensitive) == 0)      return BeatEffectMirror;
+    if (s.compare(QStringLiteral("ColorInvert"), Qt::CaseInsensitive) == 0) return BeatEffectColorInvert;
+    if (s.compare(QStringLiteral("Blackout"), Qt::CaseInsensitive) == 0)    return BeatEffectBlackout;
+    if (s.compare(QStringLiteral("Whiteout"), Qt::CaseInsensitive) == 0)    return BeatEffectWhiteout;
     return BeatEffectOff;
 }
 
@@ -1922,15 +1857,15 @@ QString RGBMatrix::beatSelectionToString(BeatSelection s)
     {
         case BeatSelWalk:    return QStringLiteral("Walk");
         case BeatSelRandom:  return QStringLiteral("Random");
-        default:             return QStringLiteral("AllBeat4");
+        default:             return QStringLiteral("AllOnDownbeat");
     }
 }
 
 RGBMatrix::BeatSelection RGBMatrix::stringToBeatSelection(const QString &s)
 {
-    if (s == QStringLiteral("Walk"))   return BeatSelWalk;
-    if (s == QStringLiteral("Random")) return BeatSelRandom;
-    return BeatSelAllBeat4;
+    if (s.compare(QStringLiteral("Walk"), Qt::CaseInsensitive) == 0)   return BeatSelWalk;
+    if (s.compare(QStringLiteral("Random"), Qt::CaseInsensitive) == 0) return BeatSelRandom;
+    return BeatSelAllOnDownbeat;
 }
 
 QString RGBMatrix::beatOrientationToString(BeatOrientation o)
@@ -1944,19 +1879,20 @@ QString RGBMatrix::beatOrientationToString(BeatOrientation o)
 
 RGBMatrix::BeatOrientation RGBMatrix::stringToBeatOrientation(const QString &s)
 {
-    if (s == QStringLiteral("Columns")) return BeatOrientColumns;
+    if (s.compare(QStringLiteral("Columns"), Qt::CaseInsensitive) == 0) return BeatOrientColumns;
     return BeatOrientRows;
 }
 
-void RGBMatrix::segmentRange(int segment, int total, int &start, int &end)
+void RGBMatrix::segmentRange(int segment, int total, int segmentsCount, int &start, int &end)
 {
-    int base = total / 4;
-    int remainder = total % 4;
+    if (segmentsCount < 1) segmentsCount = 1;
+    int base = total / segmentsCount;
+    int remainder = total % segmentsCount;
     start = segment * base + qMin(segment, remainder);
     end = start + base + (segment < remainder ? 1 : 0);
 }
 
-void RGBMatrix::applyBeatTransform(RGBMap &map, int currentBeat)
+void RGBMatrix::applyBeatTransform(RGBMap &map, int currentBeat, int beatsPerBar)
 {
     if (m_beatEffect == BeatEffectOff)
         return;
@@ -1967,27 +1903,29 @@ void RGBMatrix::applyBeatTransform(RGBMap &map, int currentBeat)
     if (cols == 0) return;
 
     int total = (m_beatOrientation == BeatOrientRows) ? rows : cols;
+    if (beatsPerBar < 1) beatsPerBar = 1;
 
     // Determine affected segments
     QVector<int> affected;
-    if (m_beatSelection == BeatSelAllBeat4)
+    if (m_beatSelection == BeatSelAllOnDownbeat)
     {
-        if (currentBeat != 3) return;
-        affected = {0, 1, 2, 3};
+        if (currentBeat != beatsPerBar - 1) return;
+        affected.reserve(beatsPerBar);
+        for (int i = 0; i < beatsPerBar; i++) affected.append(i);
     }
     else if (m_beatSelection == BeatSelWalk)
     {
-        affected = {currentBeat & 3};
+        affected = {currentBeat % beatsPerBar};
     }
     else // BeatSelRandom
     {
-        affected = {m_randomSegment};
+        affected = {m_randomSegment % beatsPerBar};
     }
 
     for (int seg : affected)
     {
         int start, end;
-        segmentRange(seg, total, start, end);
+        segmentRange(seg, total, beatsPerBar, start, end);
 
         switch (m_beatEffect)
         {
@@ -2239,42 +2177,5 @@ bool RGBMatrixStep::checkNextStep(Function::RunOrder order,
  * Audio Routing
  *************************************************************************/
 
-RGBMatrix::AudioRouting RGBMatrix::audioRouting() const
-{
-    return m_audioRouting;
-}
-
-void RGBMatrix::setAudioRouting(const AudioRouting &r)
-{
-    m_audioRouting = r;
-}
-
-QString RGBMatrix::audioSourceToString(AudioSource s)
-{
-    switch (s)
-    {
-        case AudioSrcZero:   return QStringLiteral("zero");
-        case AudioSrcLow:    return QStringLiteral("low");
-        case AudioSrcMid:    return QStringLiteral("mid");
-        case AudioSrcHigh:   return QStringLiteral("high");
-        case AudioSrcBeat:   return QStringLiteral("beat");
-        case AudioSrcKick:   return QStringLiteral("kick");
-        case AudioSrcOnset:  return QStringLiteral("onset");
-        case AudioSrcVolume: return QStringLiteral("volume");
-        case AudioSrcDefault:
-        default:             return QStringLiteral("default");
-    }
-}
-
-RGBMatrix::AudioSource RGBMatrix::stringToAudioSource(const QString &s)
-{
-    if (s == QStringLiteral("zero"))   return AudioSrcZero;
-    if (s == QStringLiteral("low"))    return AudioSrcLow;
-    if (s == QStringLiteral("mid"))    return AudioSrcMid;
-    if (s == QStringLiteral("high"))   return AudioSrcHigh;
-    if (s == QStringLiteral("beat"))   return AudioSrcBeat;
-    if (s == QStringLiteral("kick"))   return AudioSrcKick;
-    if (s == QStringLiteral("onset"))  return AudioSrcOnset;
-    if (s == QStringLiteral("volume")) return AudioSrcVolume;
-    return AudioSrcDefault;
-}
+// Audio routing was removed: scripts pick the audio feature they listen to
+// directly via script properties. RGB matrices no longer remap audio sources.

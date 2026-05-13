@@ -247,173 +247,10 @@ namespace
     }
 
     /*********************************************************************
-     * Audio Routing helpers
-     *
-     * Per-RGBMatrix audio slot remapping. The engine mutates the local
-     * AudioSnapshot copy so scripts only ever see routed data.
+     * Audio Routing helpers removed: scripts now read raw audio fields and
+     * pick which feature to listen to via their own properties.
      *********************************************************************/
 
-    double getSourceScalar(const AudioSnapshot &orig,
-                           RGBMatrix::AudioSource src,
-                           double native,
-                           int onsetMethodIndex)
-    {
-        switch (src)
-        {
-            case RGBMatrix::AudioSrcZero:    return 0.0;
-            case RGBMatrix::AudioSrcLow:     return orig.lows;
-            case RGBMatrix::AudioSrcMid:     return orig.mids;
-            case RGBMatrix::AudioSrcHigh:    return orig.highs;
-            case RGBMatrix::AudioSrcBeat:    return orig.beatTrigger.value;
-            case RGBMatrix::AudioSrcKick:    return orig.kickTrigger.value;
-            case RGBMatrix::AudioSrcOnset:   return orig.onsets.thresholdedDescriptors[onsetMethodIndex];
-            case RGBMatrix::AudioSrcVolume:  return orig.volume.volumeNorm;
-            case RGBMatrix::AudioSrcDefault:
-            default:                         return native;
-        }
-    }
-
-    TriggerState getSourceTrigger(const AudioSnapshot &orig,
-                                  RGBMatrix::AudioSource src,
-                                  const TriggerState &native,
-                                  int onsetMethodIndex)
-    {
-        switch (src)
-        {
-            case RGBMatrix::AudioSrcZero:   return TriggerState{};
-            case RGBMatrix::AudioSrcLow:    return orig.triggers[0];
-            case RGBMatrix::AudioSrcMid:    return orig.triggers[1];
-            case RGBMatrix::AudioSrcHigh:   return orig.triggers[2];
-            case RGBMatrix::AudioSrcBeat:   return orig.beatTrigger;
-            case RGBMatrix::AudioSrcKick:   return orig.kickTrigger;
-            case RGBMatrix::AudioSrcVolume: return orig.volumeTrigger;
-            case RGBMatrix::AudioSrcOnset:
-            {
-                TriggerState t;
-                t.value = orig.onsets.thresholdedDescriptors[onsetMethodIndex];
-                t.active = onsetFiredAt(orig, onsetMethodIndex);
-                t.firedThisFrame = t.active;
-                return t;
-            }
-            case RGBMatrix::AudioSrcDefault:
-            default:                        return native;
-        }
-    }
-
-    void applyAudioRouting(AudioSnapshot &snap,
-                           const AudioSnapshot &orig,
-                           const RGBMatrix::AudioRouting &routing,
-                           int onsetMethodIndex)
-    {
-        // Low slot: snap.lows, snap.triggers[0], snap.beatPower, snap.bassPower
-        if (routing.low != RGBMatrix::AudioSrcDefault)
-        {
-            snap.lows = getSourceScalar(orig, routing.low, orig.lows, onsetMethodIndex);
-            snap.triggers[0] = getSourceTrigger(orig, routing.low, orig.triggers[0], onsetMethodIndex);
-            if (routing.low == RGBMatrix::AudioSrcZero)
-            {
-                snap.beatPower = 0.0;
-                snap.bassPower = 0.0;
-            }
-            else if (routing.low != RGBMatrix::AudioSrcLow)
-            {
-                // Non-native source: clear sub-band detail so detail.beat/bass
-                // stay consistent with the remapped low.
-                snap.beatPower = 0.0;
-                snap.bassPower = 0.0;
-            }
-        }
-
-        // Mid slot
-        if (routing.mid != RGBMatrix::AudioSrcDefault)
-        {
-            snap.mids = getSourceScalar(orig, routing.mid, orig.mids, onsetMethodIndex);
-            snap.triggers[1] = getSourceTrigger(orig, routing.mid, orig.triggers[1], onsetMethodIndex);
-        }
-
-        // High slot
-        if (routing.high != RGBMatrix::AudioSrcDefault)
-        {
-            snap.highs = getSourceScalar(orig, routing.high, orig.highs, onsetMethodIndex);
-            snap.triggers[2] = getSourceTrigger(orig, routing.high, orig.triggers[2], onsetMethodIndex);
-        }
-
-        // Beat slot: snap.beatTrigger + snap.music (phase / bpm gate cosPulse)
-        if (routing.beat != RGBMatrix::AudioSrcDefault)
-        {
-            snap.beatTrigger = getSourceTrigger(orig, routing.beat, orig.beatTrigger, onsetMethodIndex);
-            if (routing.beat == RGBMatrix::AudioSrcZero)
-            {
-                snap.music.beat = false;
-                snap.music.beatPhase = 0.0;
-                snap.music.barPhase = 0.0;
-                snap.music.bpm = 0.0;
-                snap.music.beatConfidence = 0.0;
-                snap.music.tatum = false;
-                snap.downbeatFired = false;
-            }
-            else if (routing.beat != RGBMatrix::AudioSrcBeat)
-            {
-                // Non-tempo source: clamp source value [0,1] into beatPhase,
-                // disable tempo so cosPulse becomes 0.
-                const double v = getSourceScalar(orig, routing.beat, orig.beatTrigger.value, onsetMethodIndex);
-                snap.music.beatPhase = std::clamp(v, 0.0, 1.0);
-                snap.music.bpm = 0.0;
-                snap.music.beatConfidence = 0.0;
-                snap.music.tatum = false;
-            }
-        }
-
-        // Kick slot
-        if (routing.kick != RGBMatrix::AudioSrcDefault)
-        {
-            snap.kickTrigger = getSourceTrigger(orig, routing.kick, orig.kickTrigger, onsetMethodIndex);
-        }
-
-        // Onset slot: rewrite all method bools + descriptors so any selected
-        // method index reads the same routed value.
-        if (routing.onset != RGBMatrix::AudioSrcDefault)
-        {
-            if (routing.onset == RGBMatrix::AudioSrcZero)
-            {
-                snap.onsets.energy = false;
-                snap.onsets.hfc = false;
-                snap.onsets.complex_ = false;
-                snap.onsets.phase = false;
-                snap.onsets.wphase = false;
-                snap.onsets.specdiff = false;
-                snap.onsets.kl = false;
-                snap.onsets.mkl = false;
-                snap.onsets.specflux = false;
-                for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
-                {
-                    snap.onsets.descriptors[i] = 0.0;
-                    snap.onsets.thresholdedDescriptors[i] = 0.0;
-                }
-            }
-            else if (routing.onset != RGBMatrix::AudioSrcOnset)
-            {
-                const TriggerState srcTrig = getSourceTrigger(orig, routing.onset,
-                                                              TriggerState{}, onsetMethodIndex);
-                const bool fired = srcTrig.firedThisFrame;
-                const double v = srcTrig.value;
-                snap.onsets.energy = fired;
-                snap.onsets.hfc = fired;
-                snap.onsets.complex_ = fired;
-                snap.onsets.phase = fired;
-                snap.onsets.wphase = fired;
-                snap.onsets.specdiff = fired;
-                snap.onsets.kl = fired;
-                snap.onsets.mkl = fired;
-                snap.onsets.specflux = fired;
-                for (int i = 0; i < AUBIO_ONSET_METHODS; i++)
-                {
-                    snap.onsets.descriptors[i] = v;
-                    snap.onsets.thresholdedDescriptors[i] = v;
-                }
-            }
-        }
-    }
 }
 
 /****************************************************************************
@@ -442,7 +279,6 @@ RGBScript::RGBScript(Doc *doc)
     , m_apiVersion(0)
     , m_usesAudio(false)
     , m_audioInput(NULL)
-    , m_loggedAudioProfileId(AudioProfile::invalidId())
     , m_audioRegistered(false)
     , m_hsvContractValidated(false)
 {
@@ -455,7 +291,6 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_apiVersion(0)
     , m_usesAudio(false)
     , m_audioInput(NULL)
-    , m_loggedAudioProfileId(AudioProfile::invalidId())
     , m_audioRegistered(false)
     , m_hsvContractValidated(false)
 {
@@ -838,7 +673,7 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     args << size.width() << size.height() << hsvToJs(engine, primary) << step;
 
     if (m_usesAudio)
-        args << buildAudioDataObject(matrix);
+        args << buildAudioDataObject();
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
@@ -1113,30 +948,24 @@ void RGBScript::injectColors(uint rgb, RGBMatrix *matrix)
     m_script.setProperty(QStringLiteral("colors"), colorsArr);
 }
 
-QJSValue RGBScript::buildAudioDataObject(RGBMatrix *matrix)
+QJSValue RGBScript::buildAudioDataObject()
 {
     QJSEngine *engine = s_jsThread->engine;
     QJSValue audioObj = engine->newObject();
     AudioChannel *channel = NULL;
     AudioChannelConfig config = AudioChannelConfig::defaults();
     Doc *currentDoc = doc();
-    AudioProfile *profile = (currentDoc != NULL && matrix != NULL)
-        ? currentDoc->audioProfileForFunction(matrix->id()) : NULL;
+    AudioProfile *profile = NULL;
+    if (currentDoc != NULL)
+    {
+        profile = currentDoc->audioProfile(currentDoc->activeAudioProfileId());
+        if (profile == NULL)
+            profile = currentDoc->defaultAudioProfile();
+    }
     if (profile != NULL)
     {
         channel = profile->channel();
         config = (channel != NULL) ? channel->config() : profile->channelConfig();
-        if (m_loggedAudioProfileId != profile->id())
-        {
-            qDebug().noquote() << QStringLiteral("RGBScript %1: using audio profile %2 (ID: %3)")
-                .arg(name(), profile->name())
-                .arg(profile->id());
-            m_loggedAudioProfileId = profile->id();
-        }
-    }
-    else
-    {
-        m_loggedAudioProfileId = AudioProfile::invalidId();
     }
 
     // Use a default-constructed snapshot when no profile is assigned, so the
@@ -1147,14 +976,6 @@ QJSValue RGBScript::buildAudioDataObject(RGBMatrix *matrix)
 
     const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
                                             0, AUBIO_ONSET_METHODS - 1);
-
-    // Per-RGBMatrix audio routing: mutate the snapshot copy BEFORE deriving
-    // any JS audio object fields. Scripts cannot bypass this routing.
-    if (matrix != NULL && !matrix->audioRouting().isAllDefault())
-    {
-        const AudioSnapshot original = snap;
-        applyAudioRouting(snap, original, matrix->audioRouting(), onsetMethodIndex);
-    }
 
     audioObj.setProperty(QStringLiteral("version"), QJSValue(kAudioApiVersion));
 

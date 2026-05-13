@@ -506,13 +506,6 @@ public:
     /** Ensure a default audio profile exists and return it */
     AudioProfile* ensureDefaultAudioProfile();
 
-    /** Resolve the AudioProfile that applies to a given Function.
-     *  If the Function is an RGBMatrix with a non-invalid audioProfileId
-     *  that resolves to an existing profile, that profile is returned.
-     *  Otherwise the default audio profile (if any) is returned.
-     *  Returns nullptr if no profiles exist. */
-    AudioProfile* audioProfileForFunction(quint32 functionId) const;
-
     /** Currently active audio profile ID. Drives runtime AubioConfig
      *  forwarded to the AudioCapture/AubioProcessor pipeline. */
     quint32 activeAudioProfileId() const;

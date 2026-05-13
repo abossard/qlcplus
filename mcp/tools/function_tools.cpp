@@ -948,14 +948,14 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 {"direction", {{"type", "string"}, {"enum", {"Forward", "Backward"}}, {"description", "Forward or Backward"}}},
                 {"controlMode", {{"type", "string"}, {"enum", {"RGB", "White", "Amber", "UV", "Dimmer", "Shutter", "RGBW", "RGBWBrighter"}}, {"description", "RGB, White, Amber, UV, Dimmer, Shutter, RGBW (white extraction), or RGBWBrighter (additive white)"}}},
                 {"blendMode", {{"type", "string"}, {"enum", {"Normal", "Additive", "Mask", "Subtractive"}}, {"description", "Normal, Additive, Mask, or Subtractive"}}},
-                {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs (e.g. {\"presetDecay\": \"10\", \"presetMode\": \"Mids\"})"}}},
+                {"properties", {{"type", "object"}, {"description", "Algorithm-specific properties as key-value pairs. Values may be string, integer, double, boolean, or null \u2014 all are coerced to string internally (e.g. {\"presetDecay\": 10, \"presetMode\": \"Mids\", \"enabled\": true})."}}},
                 {"text", {{"type", "string"}, {"description", "Text content (for RGBText algorithm)"}}},
                 {"animationStyle", {{"type", "string"}, {"enum", {"Static", "Letters", "Horizontal", "Vertical", "Animation"}}, {"description", "Static, Letters, Horizontal, Vertical, or Animation (for RGBText/RGBImage algorithms)"}}},
                 {"rotation", {{"type", "integer"}, {"description", "Rotation in degrees: 0, 90, 180, or 270"}}},
                 {"mirror", {{"type", "string"}, {"enum", {"Off", "Horizontal", "Vertical", "Both"}}, {"description", "Mirror mode: Off, Horizontal, Vertical, or Both"}}},
                 {"mirrorBlend", {{"type", "string"}, {"enum", {"Flip", "Max", "Average", "Additive"}}, {"description", "Mirror blend algorithm: Flip (default), Max, Average, or Additive"}}},
                 {"beatEffect", {{"type", "string"}, {"enum", {"Off", "Mirror", "ColorInvert", "Blackout", "Whiteout"}}, {"description", "Beat transform effect applied per-segment on beat"}}},
-                {"beatSelection", {{"type", "string"}, {"enum", {"AllBeat4", "Walk", "Random"}}, {"description", "Segment selection mode: AllBeat4 (all on beat 4), Walk (one per beat), Random"}}},
+                {"beatSelection", {{"type", "string"}, {"enum", {"AllOnDownbeat", "Walk", "Random"}}, {"description", "Segment selection mode: AllOnDownbeat (all segments on the bar's downbeat), Walk (one per beat), Random"}}},
                 {"beatOrientation", {{"type", "string"}, {"enum", {"Rows", "Columns"}}, {"description", "Segment orientation: Rows or Columns"}}}
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
@@ -984,7 +984,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     {"mirror", {{"enum", {"Off", "Horizontal", "Vertical", "Both"}}}},
                     {"mirrorBlend", {{"enum", {"Flip", "Max", "Average", "Additive"}}}},
                     {"beatEffect", {{"enum", {"Off", "Mirror", "ColorInvert", "Blackout", "Whiteout"}}}},
-                    {"beatSelection", {{"enum", {"AllBeat4", "Walk", "Random"}}}},
+                    {"beatSelection", {{"enum", {"AllOnDownbeat", "Walk", "Random"}}}},
                     {"beatOrientation", {{"enum", {"Rows", "Columns"}}}}
                 };
                 err = validateEnums(item, kEnums);
@@ -1098,13 +1098,27 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     matrix->setBlendMode(Universe::stringToBlendMode(bm));
                 }
 
-                // Algorithm-specific properties (for scripts)
+                // Algorithm-specific properties (for scripts).
+                // Values may be string, integer, double, boolean, or null —
+                // all are coerced to string before storing on the matrix.
                 if (item.contains("properties") && item.at("properties").is_object())
                 {
                     for (auto &[key, val] : item.at("properties").items())
                     {
                         QString propName = QString::fromStdString(key);
-                        QString propVal = QString::fromStdString(val.get<std::string>());
+                        QString propVal;
+                        if (val.is_string())
+                            propVal = QString::fromStdString(val.get<std::string>());
+                        else if (val.is_number_integer())
+                            propVal = QString::number(val.get<int64_t>());
+                        else if (val.is_number_float())
+                            propVal = QString::number(val.get<double>());
+                        else if (val.is_boolean())
+                            propVal = val.get<bool>() ? QStringLiteral("1") : QStringLiteral("0");
+                        else if (val.is_null())
+                            propVal = QString();
+                        else
+                            propVal = QString::fromStdString(val.dump());
                         matrix->setProperty(propName, propVal);
 
                         // Also set on the algorithm itself if it's a script

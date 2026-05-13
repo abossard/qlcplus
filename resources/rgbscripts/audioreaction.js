@@ -228,7 +228,7 @@ var testAlgo;
         algo.Unext = U; algo.Vnext = V;
       }
 
-      var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+      var gradient = (algo.colors && algo.colors.length > 0)
         ? algo.colors : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 

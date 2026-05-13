@@ -189,8 +189,6 @@ public:
     bool loadXML(QXmlStreamReader &root);
     bool saveXML(QXmlStreamWriter *doc) const;
 
-    static AudioChannelConfig configFromLegacySliders(int gain, int reactivity, int floor, int sensitivity);
-
 signals:
     void nameChanged();
     void isDefaultChanged();

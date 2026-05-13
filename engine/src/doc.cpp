@@ -60,21 +60,6 @@
 
 #define AUTOSAVE_TIMEOUT    30 // seconds
 
-namespace
-{
-    constexpr int kDefaultLegacyGain = 5;
-    constexpr int kDefaultLegacyReactivity = 5;
-    constexpr int kDefaultLegacyFloor = 0;
-    constexpr int kDefaultLegacySensitivity = 5;
-
-    int legacyAudioProperty(const QString &value, int defaultValue)
-    {
-        bool ok = false;
-        const int parsed = value.toInt(&ok);
-        return ok ? parsed : defaultValue;
-    }
-}
-
 Doc::Doc(QObject* parent, int universes)
     : QObject(parent)
     , m_workspacePath("")
@@ -1139,26 +1124,6 @@ AudioProfile* Doc::ensureDefaultAudioProfile()
     return profile;
 }
 
-AudioProfile* Doc::audioProfileForFunction(quint32 functionId) const
-{
-    Function *f = function(functionId);
-    if (f != NULL && f->type() == Function::RGBMatrixType)
-    {
-        RGBMatrix *matrix = qobject_cast<RGBMatrix*>(f);
-        if (matrix != NULL)
-        {
-            quint32 pid = matrix->audioProfileId();
-            if (pid != AudioProfile::invalidId())
-            {
-                if (AudioProfile *profile = audioProfile(pid))
-                    return profile;
-            }
-        }
-    }
-
-    return defaultAudioProfile();
-}
-
 quint32 Doc::activeAudioProfileId() const
 {
     return m_activeAudioProfileId;
@@ -1623,54 +1588,5 @@ void Doc::postLoad()
         Function* function(functionit.next());
         Q_ASSERT(function != NULL);
         function->postLoad();
-    }
-
-    QListIterator <Function*> migrationIt(functions());
-    while (migrationIt.hasNext() == true)
-    {
-        Function *function = migrationIt.next();
-        if (function == NULL || function->type() != Function::RGBMatrixType)
-            continue;
-
-        RGBMatrix *matrix = qobject_cast<RGBMatrix*>(function);
-        if (matrix == NULL || matrix->audioProfileId() != AudioProfile::invalidId())
-            continue;
-
-        {
-            QMutexLocker algorithmLocker(&matrix->algorithmMutex());
-            RGBAlgorithm *algorithm = matrix->algorithm();
-            if (algorithm == NULL || algorithm->usesAudio() == false)
-                continue;
-        }
-
-        const QString gainValue = matrix->property(QStringLiteral("presetGain"));
-        const QString reactivityValue = matrix->property(QStringLiteral("presetReactivity"));
-        const QString floorValue = matrix->property(QStringLiteral("presetFloor"));
-        const QString sensitivityValue = matrix->property(QStringLiteral("presetSensitivity"));
-        if (gainValue.isEmpty() && reactivityValue.isEmpty() &&
-            floorValue.isEmpty() && sensitivityValue.isEmpty())
-        {
-            continue;
-        }
-
-        quint32 profileId = 0;
-        while (m_audioProfiles.contains(profileId) == true ||
-               profileId == AudioProfile::invalidId())
-        {
-            profileId++;
-        }
-
-        AudioProfile *profile = new AudioProfile(profileId, this);
-        profile->setName(QStringLiteral("Migrated Audio"));
-        profile->setChannelConfig(AudioProfile::configFromLegacySliders(
-            legacyAudioProperty(gainValue, kDefaultLegacyGain),
-            legacyAudioProperty(reactivityValue, kDefaultLegacyReactivity),
-            legacyAudioProperty(floorValue, kDefaultLegacyFloor),
-            legacyAudioProperty(sensitivityValue, kDefaultLegacySensitivity)));
-
-        if (addAudioProfile(profile) == true)
-            matrix->setAudioProfileId(profileId);
-        else
-            delete profile;
     }
 }

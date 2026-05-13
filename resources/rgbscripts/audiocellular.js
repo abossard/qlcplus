@@ -183,7 +183,7 @@ var testAlgo;
         }
       }
 
-      var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+      var gradient = (algo.colors && algo.colors.length > 0)
         ? algo.colors : DEFAULT_GRADIENT;
 
       var map = HSVUtil.createMap(width, height);

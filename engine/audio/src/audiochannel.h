@@ -94,13 +94,24 @@ private:
     double m_melProcessed[AUBIO_MEL_BANDS] = {};
     double m_melNovelty[AUBIO_MEL_BANDS] = {};
 
-    // Visualization-bank post-processors for the 3 multi-resolution mel banks.
+    // Per-bank post-processors for the 3 multi-resolution mel banks.
     // Each owns its own AGC / smoothing / novelty state — matches LedFx's
     // per-bank ExpFilter chain. Sized for AudioSnapshot::kMelBankBandsMax (32).
     //
-    // IMPORTANT: these are NEVER used for Low/Mid/High power slicing on the VC
-    // widget — that uses the single master m_melPost AGC plus the four Hz
-    // cutoffs (beat/bass/mids/highs). See plan-clean-engineering.md §0.
+    // Consumers:
+    //  - `m_melLowProcessed`  → kick detector beat-power loop AND
+    //                           `audio.spectrum.low.{values,mean,max}` JS API
+    //  - `m_melMidProcessed`  → 4-band VC widget `raw[2]` AND
+    //                           `audio.spectrum.mid.{values,mean,max}` JS API
+    //  - `m_melHighProcessed` → 4-band VC widget `raw[0..3]` AND
+    //                           `audio.spectrum.high.{values,mean,max}` JS API
+    //  - `m_mel*Novelty`      → `audio.spectrum.novelty.{mean,max}` JS API
+    //                           (sum/max accumulated across all 3 banks)
+    //
+    // Note: the SINGLE master `m_melPost` (40-band) drives the VC widget's
+    // beat/bass/mids/highs Hz-cutoff slicing. The per-bank processors here
+    // are independent and feed the JS spectrum API plus the kick detector's
+    // own slicing logic.
     MelPostProcessor m_melPostLow;
     MelPostProcessor m_melPostMid;
     MelPostProcessor m_melPostHigh;

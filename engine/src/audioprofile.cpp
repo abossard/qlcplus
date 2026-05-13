@@ -809,17 +809,11 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
             doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(p.agcDecay));
             doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(p.agcRise));
             doc->writeAttribute(KXMLQLCAudioProfileMelBankEnabled,       p.enabled ? "1" : "0");
-            if (i == 0)
-                doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
+            doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
         }
     }
     doc->writeEndElement(); // Aubio
 
     doc->writeEndElement();
     return true;
-}
-
-AudioChannelConfig AudioProfile::configFromLegacySliders(int gain, int reactivity, int floor, int sensitivity)
-{
-    return AudioChannelConfig::fromLegacySliders(gain, reactivity, floor, sensitivity);
 }

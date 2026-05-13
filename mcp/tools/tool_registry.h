@@ -29,6 +29,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <cctype>
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
@@ -57,6 +59,15 @@ inline const Json kAnnotReadOnly    = {{"readOnlyHint", true},  {"destructiveHin
 inline const Json kAnnotIdempotent  = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotDestructive = {{"readOnlyHint", false}, {"destructiveHint", true},  {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotOpenWorld   = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", true}};
+}
+
+// ASCII case-insensitive lowercase. Used for enum/string normalisation in
+// MCP handlers so agents can send e.g. "Loop", "loop", or "LOOP".
+inline std::string toLowerStd(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
 }
 
 // Thread-safe execution helper — runs lambda on Doc's thread
@@ -157,8 +168,14 @@ inline std::string validateEnums(const nlohmann::json &obj,
         const auto &val = obj[field];
         const auto &allowed = subschema["enum"];
         bool found = false;
+        std::string valLower = val.is_string() ? toLowerStd(val.get<std::string>()) : std::string();
         for (const auto &v : allowed)
+        {
             if (v == val) { found = true; break; }
+            if (v.is_string() && val.is_string() &&
+                toLowerStd(v.get<std::string>()) == valLower)
+            { found = true; break; }
+        }
         if (!found)
         {
             std::string msg = "invalid value for '" + field + "': " +

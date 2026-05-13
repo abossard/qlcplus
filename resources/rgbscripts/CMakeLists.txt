@@ -75,7 +75,7 @@ set(SCRIPT_FILES
     randompixelperrowmulticolor.js
     randomrow.js
     randomsingle.js
-    rgbutil.js
+    hsvutil.js
     sinewave.js
     snowbubbles.js
     squares.js

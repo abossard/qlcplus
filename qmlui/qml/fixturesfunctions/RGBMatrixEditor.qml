@@ -35,17 +35,6 @@ Rectangle
 
     property int functionID: -1
     property var algoColors: rgbMatrixEditor ? rgbMatrixEditor.algoColors : null
-    property var audioRoutingModel: [
-        { mLabel: qsTr("Default") },
-        { mLabel: qsTr("Zero") },
-        { mLabel: qsTr("Low") },
-        { mLabel: qsTr("Mid") },
-        { mLabel: qsTr("High") },
-        { mLabel: qsTr("Beat") },
-        { mLabel: qsTr("Kick") },
-        { mLabel: qsTr("Onset") },
-        { mLabel: qsTr("Volume") }
-    ]
 
     signal requestView(int ID, string qmlSrc, bool back)
 
@@ -420,7 +409,7 @@ Rectangle
                     Layout.fillWidth: true
                     height: editorColumn.itemsHeight
                     model: [
-                        { mLabel: qsTr("All on Beat 4") },
+                        { mLabel: qsTr("All on downbeat") },
                         { mLabel: qsTr("Walk") },
                         { mLabel: qsTr("Random") }
                     ]
@@ -771,99 +760,6 @@ Rectangle
                         }
 
                     } // GridLayout
-            }
-
-            SectionBox
-            {
-                id: audioRoutingSection
-                width: editorColumn.colWidth - 5
-                visible: rgbMatrixEditor.algorithmUsesAudio
-                isExpanded: false
-                sectionLabel: qsTr("Audio Routing")
-                sectionContents:
-                    Column
-                    {
-                        width: parent.width
-                        spacing: 2
-
-                        // Audio input categories used by this script
-                        RobotoText
-                        {
-                            visible: rgbMatrixEditor.audioInputCategories.length > 0
-                            width: parent.width
-                            height: UISettings.listItemHeight
-                            label: qsTr("Uses: ") + rgbMatrixEditor.audioInputCategories.join(", ")
-                            fontSize: UISettings.textSizeDefault * 0.9
-                        }
-
-                        GridLayout
-                        {
-                            width: parent.width
-                            columns: 2
-                            columnSpacing: 5
-                            rowSpacing: 4
-
-                            RobotoText { label: qsTr("Low"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingLow
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingLow = currentIndex
-                            }
-
-                            RobotoText { label: qsTr("Mid"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingMid
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingMid = currentIndex
-                            }
-
-                            RobotoText { label: qsTr("High"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingHigh
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingHigh = currentIndex
-                            }
-
-                            RobotoText { label: qsTr("Beat"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingBeat
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingBeat = currentIndex
-                            }
-
-                            RobotoText { label: qsTr("Kick"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingKick
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingKick = currentIndex
-                            }
-
-                            RobotoText { label: qsTr("Onset"); height: UISettings.listItemHeight }
-                            CustomComboBox
-                            {
-                                Layout.fillWidth: true
-                                height: UISettings.listItemHeight
-                                model: audioRoutingModel
-                                currentIndex: rgbMatrixEditor.audioRoutingOnset
-                                onCurrentIndexChanged: rgbMatrixEditor.audioRoutingOnset = currentIndex
-                            }
-                        } // GridLayout
-                    } // Column
             }
         } // Column
         ScrollBar.vertical: CustomScrollBar { id: sbar }
