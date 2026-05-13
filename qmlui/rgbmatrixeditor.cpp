@@ -728,6 +728,13 @@ bool RGBMatrixEditor::algorithmUsesAudio() const
     return m_matrix->algorithm()->usesAudio();
 }
 
+QStringList RGBMatrixEditor::audioInputCategories() const
+{
+    if (m_matrix == nullptr || m_matrix->algorithm() == nullptr)
+        return {};
+    return m_matrix->algorithm()->audioInputCategories();
+}
+
 int RGBMatrixEditor::audioRoutingLow() const
 {
     if (m_matrix == nullptr) return 0;

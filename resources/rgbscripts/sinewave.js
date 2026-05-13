@@ -71,7 +71,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
 
       var stepsHeight = algo.orientation === 0 ? height : width;
       var stepsWidth = algo.orientation === 0 ? width : height;
@@ -92,9 +92,9 @@ var testAlgo;
           sinPos--;
 
         if (algo.orientation === 0)
-          RGBUtil.setPixel(map, width, cStep, sinPos, algo.color.h, algo.color.s, algo.color.v);
+          HSVUtil.setPixel(map, width, cStep, sinPos, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
         else
-          RGBUtil.setPixel(map, width, sinPos, cStep, algo.color.h, algo.color.s, algo.color.v);
+          HSVUtil.setPixel(map, width, sinPos, cStep, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
 
         // fill the previous column/row
         // to create continuous painting
@@ -108,9 +108,9 @@ var testAlgo;
             for (var f = startY; f < stopY; f++)
             {
               if (algo.orientation === 0)
-                RGBUtil.setPixel(map, width, col, f, algo.color.h, algo.color.s, algo.color.v);
+                HSVUtil.setPixel(map, width, col, f, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
               else
-                RGBUtil.setPixel(map, width, f, col, algo.color.h, algo.color.s, algo.color.v);
+                HSVUtil.setPixel(map, width, f, col, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
             }
           }
         }

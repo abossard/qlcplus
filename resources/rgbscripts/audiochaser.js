@@ -109,7 +109,7 @@ var testAlgo;
 
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
+        return algo.colors ? algo.colors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
@@ -121,7 +121,7 @@ var testAlgo;
             dotsHeight = height;
         }
 
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs / 1000.0;
@@ -129,7 +129,7 @@ var testAlgo;
         // Get 3 mel-bank powers and matching gradient colors
         var powers = audio.power.bands;
         var vol = audio.volume.normalized;
-        var colorStops = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var colorStops = algo.colors || DEFAULT_BAND_COLORS;
 
         // Speed multiplier from audio
         var speedMult;

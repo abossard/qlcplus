@@ -116,10 +116,10 @@ function()
       var tailSteps = Math.round(span * algo.taillength/100);
       if (tailSteps === 0) { tailSteps = 1; }
 
-      var map = RGBUtil.createMap(width, height);
-      var baseH = algo.color.h;
-      var baseS = algo.color.s;
-      var baseV = algo.color.v;
+      var map = HSVUtil.createMap(width, height);
+      var baseH = algo.colors[0].h;
+      var baseS = algo.colors[0].s;
+      var baseV = algo.colors[0].v;
 
       for (var y = 0; y < height; y++)
       {
@@ -181,7 +181,7 @@ function()
               var thisTailStep = Math.round(util.fadeSteps * (step - stepPos) / tailSteps);
               v = baseV * util.fadeObject[thisTailStep];
             }
-            RGBUtil.setPixel(map, width, x, y, baseH, baseS, v);
+            HSVUtil.setPixel(map, width, x, y, baseH, baseS, v);
           }
         }
       }

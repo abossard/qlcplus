@@ -82,8 +82,8 @@ var testAlgo;
     }
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0)
-            ? algo.gradientColors : DEFAULT_HSV_STOPS;
+        return (algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function ensure(width) {
@@ -92,7 +92,7 @@ var testAlgo;
         bassStrobeOverlay = zeroStrip(width);
         onsetsQueued = 0;
         colorIdx = 0;
-        bassStrobeColor = RGBUtil.gradientAt(gradientStops(), colorIdx);
+        bassStrobeColor = HSVUtil.gradientAt(gradientStops(), colorIdx);
         lastWidth = width;
     }
 
@@ -107,7 +107,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -115,7 +115,7 @@ var testAlgo;
 
         if (elapsedMs - lastColorShiftMs > clamp(parseFloat(algo.color_shift_delay), 0, 1) * 1000.0) {
             colorIdx = (colorIdx + clamp(parseFloat(algo.color_step), 0, 0.25)) % 1.0;
-            bassStrobeColor = RGBUtil.gradientAt(gradientStops(), colorIdx);
+            bassStrobeColor = HSVUtil.gradientAt(gradientStops(), colorIdx);
             lastColorShiftMs = elapsedMs;
         }
 

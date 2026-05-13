@@ -65,7 +65,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -82,7 +82,7 @@ var testAlgo;
         var chop = algo.chop;
         var stretch = algo.stretch;
 
-        var timeAccum = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var timeAccum = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
         var timestep = timeAccum + lows * reactivity * speed;
 
         var t1 = hsvTime(speed * sway, timestep);
@@ -103,9 +103,9 @@ var testAlgo;
             var v = hsvSin(h);
             v = v * v;
 
-            h = RGBUtil.mod1(h);
+            h = HSVUtil.mod1(h);
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, h, 1, v);
+                HSVUtil.setPixel(map, width, x, y, h, 1, v);
         }
 
         return map;

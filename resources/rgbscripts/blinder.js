@@ -95,11 +95,11 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
 
-      var baseH = algo.color.h;
-      var baseS = algo.color.s;
-      var baseV = algo.color.v;
+      var baseH = algo.colors[0].h;
+      var baseS = algo.colors[0].s;
+      var baseV = algo.colors[0].v;
       
       var stepPercent =  progstep / (algo.rgbMapStepCount(width, height) - 1);
 

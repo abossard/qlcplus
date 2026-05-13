@@ -78,13 +78,13 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         ensureState();
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var numBands = algo.presetBands;
         var sourceBands = audio.power.bands;
-        var bands = (numBands === 3) ? sourceBands : RGBUtil.interpolate(sourceBands, numBands);
-        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var bands = (numBands === 3) ? sourceBands : HSVUtil.interpolate(sourceBands, numBands);
+        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
         var fallStep = algo.presetDecay;
         var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
 

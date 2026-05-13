@@ -127,7 +127,7 @@ function renderFilling(map, width, height, audio, bpm, dtMs, buildCol) {
     var maxEdgeDist = Math.floor(width / 2);
     var activeDepth = algo.fillProgress * maxEdgeDist;
     var monoHue = buildCol.h;
-    var shimmer01 = RGBUtil.beatTime(1.0 / Math.max(1.0, algo.presetCycleBeats),
+    var shimmer01 = HSVUtil.beatTime(1.0 / Math.max(1.0, algo.presetCycleBeats),
                                      algo.fillSparkPhase, bpm, dtMs);
     var beatPulse = audio.beat.cosPulse;
 
@@ -150,19 +150,19 @@ function renderFilling(map, width, height, audio, bpm, dtMs, buildCol) {
             var bri = BUILD_BRI_BASE + activation * BUILD_BRI_ACT + centerHeat * BUILD_BRI_HEAT;
             bri *= (1.0 + 0.15 * beatPulse);
             var sat = lerp(BUILD_SAT_HIGH, BUILD_SAT_LOW, algo.fillProgress);
-            RGBUtil.setPixel(map, width, x, y, hue, sat, bri);
+            HSVUtil.setPixel(map, width, x, y, hue, sat, bri);
         }
     }
 }
 
 function renderDrop(map, width, height, bpm, dtMs, dropCol) {
-    var dropProgress = Math.min(1.0, RGBUtil.beatPosition(1.0 / DROP_BEATS, algo.dropPhase, bpm, dtMs));
+    var dropProgress = Math.min(1.0, HSVUtil.beatPosition(1.0 / DROP_BEATS, algo.dropPhase, bpm, dtMs));
     var intensity = clamp(algo.presetDropIntensity, 0.1, 1.0);
 
     if (dropProgress <= DROP_FLASH_FRAC) {
         for (var fy = 0; fy < height; fy++)
             for (var fx = 0; fx < width; fx++)
-                RGBUtil.setPixel(map, width, fx, fy, 0, 0, intensity);
+                HSVUtil.setPixel(map, width, fx, fy, 0, 0, intensity);
         if (dropProgress >= 1.0) transitionTo(algo.COOLDOWN);
         return;
     }
@@ -176,7 +176,7 @@ function renderDrop(map, width, height, bpm, dtMs, dropCol) {
             var ringBri = Math.max(0, 1 - Math.abs(dist - waveRadius) / DROP_RING_WIDTH);
             var afterglow = Math.max(0, 1 - ringT) * DROP_AFTERGLOW_AMP;
             var bri = (ringBri * (1 - ringT * DROP_RING_DECAY) + afterglow) * intensity;
-            RGBUtil.setPixel(map, width, x, y, dropCol.h, dropCol.s, dropCol.v * bri);
+            HSVUtil.setPixel(map, width, x, y, dropCol.h, dropCol.s, dropCol.v * bri);
         }
     }
 
@@ -184,17 +184,17 @@ function renderDrop(map, width, height, bpm, dtMs, dropCol) {
 }
 
 function renderCooldown(map, width, height, audio, bpm, dtMs, dropCol) {
-    var t = Math.min(1.0, RGBUtil.beatPosition(1.0 / COOLDOWN_BEATS, algo.cooldownPhase, bpm, dtMs));
+    var t = Math.min(1.0, HSVUtil.beatPosition(1.0 / COOLDOWN_BEATS, algo.cooldownPhase, bpm, dtMs));
     var afterglow = Math.max(0, 1 - t);
     var beatPulse = audio.beat.cosPulse;
     var baseHue = dropCol.h;
-    var hueShift01 = RGBUtil.beatTime(1.0 / (COOLDOWN_BEATS * 2), algo.fillSparkPhase, bpm, dtMs);
+    var hueShift01 = HSVUtil.beatTime(1.0 / (COOLDOWN_BEATS * 2), algo.fillSparkPhase, bpm, dtMs);
 
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var pulse = (COOLDOWN_BASE_BRI + beatPulse * COOLDOWN_PULSE_AMP) * afterglow;
             var hueShift = Math.sin(x * 0.25 + hueShift01 * Math.PI * 2) * COOLDOWN_HUE_AMP;
-            RGBUtil.setPixel(map, width, x, y, baseHue + hueShift, COOLDOWN_SAT, pulse);
+            HSVUtil.setPixel(map, width, x, y, baseHue + hueShift, COOLDOWN_SAT, pulse);
         }
     }
 
@@ -203,16 +203,16 @@ function renderCooldown(map, width, height, audio, bpm, dtMs, dropCol) {
 
 algo.rgbMap = function(width, height, rgb, step, audio)
 {
-    var map = RGBUtil.createMap(width, height);
+    var map = HSVUtil.createMap(width, height);
     if (!audio) return map;
 
     var dtMs = (audio.timing && audio.timing.consumerDtMs) || 20;
     var bpm = (audio.beat && audio.beat.bpm) ? audio.beat.bpm : 120;
 
-    var buildCol = (algo.gradientBandColors && algo.gradientBandColors.length >= 1)
-        ? algo.gradientBandColors[0] : algo.buildColor;
-    var dropCol = (algo.gradientBandColors && algo.gradientBandColors.length >= 2)
-        ? algo.gradientBandColors[1] : algo.dropColor;
+    var buildCol = (algo.colors && algo.colors.length >= 1)
+        ? algo.colors[0] : algo.buildColor;
+    var dropCol = (algo.colors && algo.colors.length >= 2)
+        ? algo.colors[1] : algo.dropColor;
 
     // Edge-detect beat fires (avoid double-counting if fired stays true for multiple frames)
     var beatNow = !!(audio.beat && audio.beat.fired);

@@ -88,7 +88,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var bass = audio.power.low;
         var mids = audio.power.mid;
@@ -121,7 +121,7 @@ var testAlgo;
                 var pixelHue = wrapHue(currentHue + wave);
                 var baseBri = clamp(brightness + wave * WAVE_BRI_AMP, minBrightness, 1.0);
                 var pixelBri = baseBri;
-                RGBUtil.setPixel(map, width, x, y, pixelHue, saturation, pixelBri);
+                HSVUtil.setPixel(map, width, x, y, pixelHue, saturation, pixelBri);
             }
         }
 

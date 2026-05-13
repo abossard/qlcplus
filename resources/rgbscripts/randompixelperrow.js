@@ -38,11 +38,11 @@ var testAlgo;
           * @return A two-dimensional array[height][width].
           */
         algo.rgbMap = function (width, height, rgb, step) {
-            var map = RGBUtil.createMap(width, height);
-            var h = algo.color.h, s = algo.color.s, v = algo.color.v;
+            var map = HSVUtil.createMap(width, height);
+            var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
             for (var y = 0; y < height; y++) {
                 var index = Math.floor(Math.random() * (width));
-                RGBUtil.setPixel(map, width, index, y, h, s, v);
+                HSVUtil.setPixel(map, width, index, y, h, s, v);
             }
 
             return map;

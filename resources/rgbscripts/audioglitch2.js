@@ -70,7 +70,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -85,15 +85,15 @@ var testAlgo;
         // accumulator. Convert to ms-equivalent boost (×1000).
         var boostMs = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000;
 
-        var t1 = RGBUtil.beatTime(speed * T1_RATIO, stT1, bpm, dtMs + boostMs);
-        var t2 = RGBUtil.beatTime(speed * T2_RATIO, stT2, bpm, dtMs + boostMs);
-        var t3 = RGBUtil.beatTime(speed * T3_RATIO, stT3, bpm, dtMs + boostMs);
-        var t4 = RGBUtil.beatTime(speed,            stT4, bpm, dtMs + boostMs);
-        var t5 = RGBUtil.beatTime(speed * T5_RATIO, stT5, bpm, dtMs + boostMs);
-        var t6 = RGBUtil.beatTime(speed * T6_RATIO, stT6, bpm, dtMs + boostMs);
+        var t1 = HSVUtil.beatTime(speed * T1_RATIO, stT1, bpm, dtMs + boostMs);
+        var t2 = HSVUtil.beatTime(speed * T2_RATIO, stT2, bpm, dtMs + boostMs);
+        var t3 = HSVUtil.beatTime(speed * T3_RATIO, stT3, bpm, dtMs + boostMs);
+        var t4 = HSVUtil.beatTime(speed,            stT4, bpm, dtMs + boostMs);
+        var t5 = HSVUtil.beatTime(speed * T5_RATIO, stT5, bpm, dtMs + boostMs);
+        var t6 = HSVUtil.beatTime(speed * T6_RATIO, stT6, bpm, dtMs + boostMs);
 
-        var m = STRIPE_MID + RGBUtil.triangle(t2) * STRIPE_AMP;
-        var c = RGBUtil.triangle(t3) * 10 + 4 * Math.sin(2 * Math.PI * t4);
+        var m = STRIPE_MID + HSVUtil.triangle(t2) * STRIPE_AMP;
+        var c = HSVUtil.triangle(t3) * 10 + 4 * Math.sin(2 * Math.PI * t4);
         var sinT1 = Math.sin(2 * Math.PI * t1);
 
         var n = Math.max(2, width);
@@ -103,18 +103,18 @@ var testAlgo;
             var i3 = (x / (n - 1)) - 1;
 
             var band = ((u * c) % m + m) % m;
-            var hue = RGBUtil.mod1(band + sinT1);
+            var hue = HSVUtil.mod1(band + sinT1);
 
-            var s1 = RGBUtil.triangle(RGBUtil.mod1(i2 + t5));
+            var s1 = HSVUtil.triangle(HSVUtil.mod1(i2 + t5));
             s1 = s1 * s1;
-            var s2 = RGBUtil.triangle(RGBUtil.mod1(t6 - i3));
+            var s2 = HSVUtil.triangle(HSVUtil.mod1(t6 - i3));
             s2 = s2 * s2 * s2 * s2;
-            var sat = 1 - RGBUtil.triangle(s1 * s2);
+            var sat = 1 - HSVUtil.triangle(s1 * s2);
             if (sat < satThreshold) sat = satThreshold;
             if (sat > 1) sat = 1;
 
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hue, sat, 1);
+                HSVUtil.setPixel(map, width, x, y, hue, sat, 1);
         }
 
         return map;

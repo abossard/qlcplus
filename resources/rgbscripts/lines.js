@@ -252,7 +252,7 @@ var testAlgo;
     {
       var x, y;
       // create an empty, black pixelMap
-      util.pixelMap = RGBUtil.createMap(width, height);
+      util.pixelMap = HSVUtil.createMap(width, height);
 
       for (var i = 0; i < algo.linesAmount; i++)
       {
@@ -264,7 +264,7 @@ var testAlgo;
             continue;
 
           // apply the current step color
-          lines[i].color = {h: algo.color.h, s: algo.color.s, v: algo.color.v};
+          lines[i].color = {h: algo.colors[0].h, s: algo.colors[0].s, v: algo.colors[0].v};
 
           // if biased .. move the start points to the cardinal ends of the space
           if (algo.linesBias == 1 || algo.linesBias == 5 || algo.linesBias == 6)

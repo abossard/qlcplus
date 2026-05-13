@@ -108,8 +108,8 @@ var testAlgo;
     algo.lastN = 0;
 
     function bandColors() {
-        if (algo.gradientBandColors && algo.gradientBandColors.length > 0)
-            return algo.gradientBandColors;
+        if (algo.colors && algo.colors.length > 0)
+            return algo.colors;
         return [
             {h: 0.0,   s: 1.0, v: 1.0},
             {h: 0.333, s: 1.0, v: 1.0},
@@ -138,7 +138,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -228,12 +228,12 @@ var testAlgo;
             for (var y = 0; y < height; y++) {
                 var pix = strip[y];
                 for (var x = 0; x < width; x++)
-                    RGBUtil.setPixel(map, width, x, y, pix.h, pix.s, pix.v);
+                    HSVUtil.setPixel(map, width, x, y, pix.h, pix.s, pix.v);
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
                 for (var x2 = 0; x2 < width; x2++)
-                    RGBUtil.setPixel(map, width, x2, y2, strip[x2].h, strip[x2].s, strip[x2].v);
+                    HSVUtil.setPixel(map, width, x2, y2, strip[x2].h, strip[x2].s, strip[x2].v);
             }
         }
 

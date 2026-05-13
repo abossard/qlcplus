@@ -85,12 +85,12 @@ var testAlgo;
     function colorFor(audio, bandIndex) {
         if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > PITCH_CONF_THRESH) {
             var midi = audio.pitch.midi;
-            var hue = RGBUtil.mod1((midi % 12) / 12 + bandIndex / 12);
+            var hue = HSVUtil.mod1((midi % 12) / 12 + bandIndex / 12);
             return { h: hue, s: 0.85, v: 1.0 };
         }
-        // Engine injects 3 HSV stops in algo.gradientBandColors (low/mid/high).
-        var stops = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-                    ? algo.gradientBandColors : DEFAULT_BAND_HSV;
+        // Engine injects 3 HSV stops in algo.colors (low/mid/high).
+        var stops = (algo.colors && algo.colors.length >= 3)
+                    ? algo.colors : DEFAULT_BAND_HSV;
         return stops[bandIndex] || DEFAULT_BAND_HSV[bandIndex];
     }
 
@@ -102,13 +102,13 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
         var bpm = (audio.beat) ? audio.beat.bpm : 0;
         // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
-        var time = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var time = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
 
         var sensitivity = algo.presetSensitivity;
         var lowVis = Math.min(1, audio.power.low * sensitivity);

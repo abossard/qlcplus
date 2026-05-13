@@ -47,15 +47,15 @@ var testAlgo;
         */
       algo.rgbMap = function (width, height, rgb, step)
       {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if ((step % algo.frequency) === 0)
         {
-          var h = algo.color.h, s = algo.color.s, v = algo.color.v;
+          var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
           for (var y = 0; y < height; y++)
           {
             for (var x = 0; x < width; x++)
             {
-              RGBUtil.setPixel(map, width, x, y, h, s, v);
+              HSVUtil.setPixel(map, width, x, y, h, s, v);
             }
           }
         }

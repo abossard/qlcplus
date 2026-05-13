@@ -159,7 +159,7 @@ var testAlgo;
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var n = (algo.presetAxis === "Vertical") ? height : width;
@@ -223,9 +223,9 @@ var testAlgo;
         var denom = Math.max(1, n - 1);
 
         // Beat-locked replacements for the LedFx HSVEffect.time() outputs.
-        var t1 = RGBUtil.beatTime(speed01 * T1_RATIO, t1State, bpm, dirDtMs);
-        var hueFast = RGBUtil.beatTime(speed01 * HUE_FAST_RATIO, hueFastState, bpm, dirDtMs);
-        var hueSlow = RGBUtil.beatTime(speed01 * HUE_SLOW_RATIO, hueSlowState, bpm, dirDtMs);
+        var t1 = HSVUtil.beatTime(speed01 * T1_RATIO, t1State, bpm, dirDtMs);
+        var hueFast = HSVUtil.beatTime(speed01 * HUE_FAST_RATIO, hueFastState, bpm, dirDtMs);
+        var hueSlow = HSVUtil.beatTime(speed01 * HUE_SLOW_RATIO, hueSlowState, bpm, dirDtMs);
 
         var bandShift = 0;
         if (lastDominant === 0) bandShift = 0.05;
@@ -234,41 +234,41 @@ var testAlgo;
         for (var i = 0; i < n; i++) {
             var u = 1 - i / denom;
 
-            var h0 = RGBUtil.sin01(u);
-            var h1 = RGBUtil.triangle(h0 + bassFactor + hueFast);
-            var hue = RGBUtil.mod1(RGBUtil.triangle(h1) + hueSlow);
+            var h0 = HSVUtil.sin01(u);
+            var h1 = HSVUtil.triangle(h0 + bassFactor + hueFast);
+            var hue = HSVUtil.mod1(HSVUtil.triangle(h1) + hueSlow);
 
             // LedFx parity: 4-pass value pipeline (render_hsv lines 156-172).
-            var vInit = RGBUtil.sin01(u);
-            var vA = RGBUtil.sin01(vInit);
-            var vB = RGBUtil.sin01(vA + t1);
-            var vC = RGBUtil.triangle(vB + (1.0 - t1));
-            var v = RGBUtil.triangle(vC + bassFactor * algo.direction);
+            var vInit = HSVUtil.sin01(u);
+            var vA = HSVUtil.sin01(vInit);
+            var vB = HSVUtil.sin01(vA + t1);
+            var vC = HSVUtil.triangle(vB + (1.0 - t1));
+            var v = HSVUtil.triangle(vC + bassFactor * algo.direction);
             v = Math.pow(v, lavaPower);
             v *= bgBright01;
 
             var sat = 1.0;
             var overlay = algo.strobeOverlay[i];
             if (overlay > 0) {
-                var tintedHue = RGBUtil.mod1(hue + bandShift);
-                sat *= 1 - RGBUtil.clamp01(overlay) * 0.7;
+                var tintedHue = HSVUtil.mod1(hue + bandShift);
+                sat *= 1 - HSVUtil.clamp01(overlay) * 0.7;
                 v += overlay;
-                strip[i] = {h: tintedHue, s: sat, v: RGBUtil.clamp01(v)};
+                strip[i] = {h: tintedHue, s: sat, v: HSVUtil.clamp01(v)};
             } else {
-                strip[i] = {h: hue, s: sat, v: RGBUtil.clamp01(v)};
+                strip[i] = {h: hue, s: sat, v: HSVUtil.clamp01(v)};
             }
         }
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {
                 var cy = strip[y];
-                for (var x = 0; x < width; x++) RGBUtil.setPixel(map, width, x, y, cy.h, cy.s, cy.v);
+                for (var x = 0; x < width; x++) HSVUtil.setPixel(map, width, x, y, cy.h, cy.s, cy.v);
             }
         } else {
             for (var y2 = 0; y2 < height; y2++) {
                 for (var x2 = 0; x2 < width; x2++) {
                     var px = strip[x2];
-                    RGBUtil.setPixel(map, width, x2, y2, px.h, px.s, px.v);
+                    HSVUtil.setPixel(map, width, x2, y2, px.h, px.s, px.v);
                 }
             }
         }

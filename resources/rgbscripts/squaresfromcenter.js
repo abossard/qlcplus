@@ -51,7 +51,7 @@ var testAlgo;
             var isWidthEven = (width % 2 === 0);
             var isHeightEven = (height % 2 === 0);
 
-            var map = RGBUtil.createMap(width, height);
+            var map = HSVUtil.createMap(width, height);
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
@@ -60,17 +60,17 @@ var testAlgo;
                     {
                         if ((x <= widthCenter + step + (isWidthEven ? 1 : 0 ) && x >= widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                                RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
+                                HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
                         }
                     }
                     else
                     {
                         if ((x === widthCenter + step + (isWidthEven ? 1 : 0 ) || x === widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                            RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
+                            HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
                         } else if ((y === heightCenter + step + (isHeightEven ? 1 : 0 ) || y === heightCenter - step) &&
                                    (x <= widthCenter + step + (isWidthEven ? 1 : 0) && x >= widthCenter - step)) {
-                            RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
+                            HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
                         }
                     }
                 }

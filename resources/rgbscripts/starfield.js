@@ -124,7 +124,7 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
 
       // find center of display
       var halfWidth = width / 2;
@@ -142,7 +142,7 @@ var testAlgo;
           stars[i].x = getNewNumberRange(-10, 10);
           stars[i].y = getNewNumberRange(-10, 10);
           stars[i].z = depth;
-          stars[i].c = getNewColor(algo.multiColor, algo.color);
+          stars[i].c = getNewColor(algo.multiColor, algo.colors[0]);
         }
 
         // calculate the stars next position
@@ -161,7 +161,7 @@ var testAlgo;
 
           px = Math.floor(px);
           py = Math.floor(py);
-          RGBUtil.setPixel(map, width, px, py,
+          HSVUtil.setPixel(map, width, px, py,
             stars[i].c.h, stars[i].c.s, stars[i].c.v * factor);
         } else {
           stars[i].z = 0;     // force a new star

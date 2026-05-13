@@ -162,7 +162,7 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
 
       for (var i = 0; i < algo.presetNumber; i++) {
         var color = util.getRawColor(i);

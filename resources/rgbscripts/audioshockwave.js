@@ -129,7 +129,7 @@ var testAlgo;
             lastH = height;
         }
 
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var cx = width / 2;
         var cy = height / 2;

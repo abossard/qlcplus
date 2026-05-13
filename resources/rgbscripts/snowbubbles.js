@@ -179,7 +179,7 @@ var testAlgo;
         util.initialize(width, height);
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       
       algo.speedX = updateFlakeSpeedx(algo.speedX);
 
@@ -195,7 +195,7 @@ var testAlgo;
             flakes[i].y = height - 1;
           }
           flakes[i].z = getNewNumberRange(0, depth - 1);
-          flakes[i].c = getNewColor(algo.multiColor, algo.color);
+          flakes[i].c = getNewColor(algo.multiColor, algo.colors[0]);
           flakes[i].s = getFlakeSpeedy(flakes[i].z);
         }
 

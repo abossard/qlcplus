@@ -14,8 +14,8 @@ var AudioColors = {
     ],
 
     bands: function(algo) {
-        return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            ? algo.gradientBandColors : AudioColors.DEFAULT_BANDS;
+        return (algo.colors && algo.colors.length >= 3)
+            ? algo.colors : AudioColors.DEFAULT_BANDS;
     },
 
     /**

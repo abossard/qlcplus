@@ -47,7 +47,7 @@ var testAlgo;
         factor = 0;
       }
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var bellAlgo = new Object;
@@ -91,7 +91,7 @@ var testAlgo;
       }
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     };
 
     var candleAlgo = new Object;
@@ -139,7 +139,7 @@ var testAlgo;
       }
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var circleAlgo = new Object;
@@ -153,7 +153,7 @@ var testAlgo;
       var factor = util.blindoutPercent(1 - distPercent, 0.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var diamondAlgo = new Object;
@@ -170,7 +170,7 @@ var testAlgo;
       factor = 1 - Math.max(0, Math.min(1, factor));
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var diskAlgo = new Object;
@@ -197,7 +197,7 @@ var testAlgo;
       factor -= util.blindoutPercent(1 - distPercent, 0.3);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var eyeAlgo = new Object;
@@ -238,7 +238,7 @@ var testAlgo;
       factor += util.blindoutPercent(1 - distPercent, 0.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var flowerAlgo = new Object;
@@ -281,7 +281,7 @@ var testAlgo;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentInner, 3));
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var heartAlgo = new Object;
@@ -326,7 +326,7 @@ var testAlgo;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercent, 2));
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var hexagonAlgo = new Object;
@@ -342,7 +342,7 @@ var testAlgo;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var maskAlgo = new Object;
@@ -382,7 +382,7 @@ var testAlgo;
       factor -= util.blindoutPercent(1 - distPercent, 3);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var pentagonAlgo = new Object;
@@ -398,7 +398,7 @@ var testAlgo;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var ringAlgo = new Object;
@@ -419,7 +419,7 @@ var testAlgo;
       factor -= util.blindoutPercent(1 - distPercent, 0.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var snowflakeAlgo = new Object;
@@ -490,7 +490,7 @@ var testAlgo;
       factor = Math.max(factor, 1 - (a * a) + 1 - (c * c) - 1);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var snowmanAlgo = new Object;
@@ -530,7 +530,7 @@ var testAlgo;
       factor = Math.max(factor, factor3);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var squareAlgo = new Object;
@@ -550,7 +550,7 @@ var testAlgo;
       var factor = util.blindoutPercent(1 - distPercent, 2.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var starAlgo = new Object;
@@ -609,7 +609,7 @@ var testAlgo;
       }
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var steeringwheelAlgo = new Object;
@@ -658,7 +658,7 @@ var testAlgo;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var tornadoAlgo = new Object;
@@ -701,7 +701,7 @@ var testAlgo;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var treeAlgo = new Object;
@@ -748,7 +748,7 @@ var testAlgo;
       }
     
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
     treeAlgo.unused = function(i, rx, ry, h, s, v)
     {
@@ -765,7 +765,7 @@ var testAlgo;
       factor = factor / 3.27;
  
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     };
 
     var triangleAlgo = new Object;
@@ -785,7 +785,7 @@ var testAlgo;
       var factor = util.blindoutPercent(1 - distPercent, 3);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var ufoAlgo = new Object;
@@ -817,7 +817,7 @@ var testAlgo;
       }
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     var ventilatorAlgo = new Object;
@@ -853,7 +853,7 @@ var testAlgo;
       factor = Math.max(factorC, factor * 1.5);
 
       var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, RGBUtil.clamp01(factor) * v);
+      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
     }
 
     // Algorithm registration and methods ------------------------
@@ -1145,7 +1145,7 @@ var testAlgo;
       }
       algo.progstep = progstep;
 
-      algo.map = RGBUtil.createMap(width, height);
+      algo.map = HSVUtil.createMap(width, height);
       algo.mapWidth = width;
       algo.mapHeight = height;
 
@@ -1158,9 +1158,9 @@ var testAlgo;
         var s = algo.obj[i].s;
         var v = algo.obj[i].v;
         if (algo.presetRandom != 0) {
-          h = algo.color.h;
-          s = algo.color.s;
-          v = algo.color.v;
+          h = algo.colors[0].h;
+          s = algo.colors[0].s;
+          v = algo.colors[0].v;
         }
 
         for (var ry = my - algo.boxRadius; ry < my + algo.boxRadius + 2; ry++) {

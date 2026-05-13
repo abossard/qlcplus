@@ -96,8 +96,8 @@ var testAlgo;
     algo.spawnAccumMs = 1e9; // start ready
 
     algo.dominantColor = function(audio) {
-        var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            ? algo.gradientBandColors : DEFAULT_BANDS;
+        var bands = (algo.colors && algo.colors.length >= 3)
+            ? algo.colors : DEFAULT_BANDS;
         var dom = audio.power.dominant;
         return bands[dom === "high" ? 2 : (dom === "mid" ? 1 : 0)];
     };
@@ -107,7 +107,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
 
         var trigger = false;
@@ -127,13 +127,13 @@ var testAlgo;
         var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
         if (trigger && canSpawn) {
-            var gradient = (algo.gradientColors && algo.gradientColors.length > 0)
-                ? algo.gradientColors : DEFAULT_GRADIENT;
+            var gradient = (algo.colors && algo.colors.length > 0)
+                ? algo.colors : DEFAULT_GRADIENT;
             var color;
             var minPC = algo.presetMinPitchConfidence / 100.0;
             if (audio.pitch.confidence >= minPC) {
                 var pc = ((Math.round(audio.pitch.midi) % 12) + 12) % 12;
-                color = RGBUtil.gradientAt(gradient, pc / 11.0);
+                color = HSVUtil.gradientAt(gradient, pc / 11.0);
             } else {
                 color = algo.dominantColor(audio);
             }

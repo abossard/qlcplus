@@ -50,20 +50,20 @@ var testAlgo;
 
     algo.rgbMapGetColors = function()
     {
-        return algo.gradientBandColors
-            ? algo.gradientBandColors.slice()
+        return algo.colors
+            ? algo.colors.slice()
             : DEFAULT_BAND_COLORS.slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
 
         if (!audio)
             return map;
 
         var bandPowers = audio.power.bands;
-        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
 
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
 
@@ -83,7 +83,7 @@ var testAlgo;
 
                 if (col) {
                     var brightness = Math.min(1.0, beatBoost);
-                    RGBUtil.setPixel(map, width, x, y, col.h, col.s, col.v * brightness);
+                    HSVUtil.setPixel(map, width, x, y, col.h, col.s, col.v * brightness);
                 }
             }
         }

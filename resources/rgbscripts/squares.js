@@ -132,7 +132,7 @@ var testAlgo;
     util.getNextStep = function(width, height)
     {
       // create an empty map (Float32Array, 3 floats per pixel)
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
 
       for (var i = 0; i < algo.squaresAmount; i++)
       {
@@ -143,7 +143,7 @@ var testAlgo;
           if (seed > 50) { continue; }
           squares[i].xCenter = Math.floor(Math.random() * width);
           squares[i].yCenter = Math.floor(Math.random() * height);
-          squares[i].color = {h: algo.color.h, s: algo.color.s, v: algo.color.v};
+          squares[i].color = {h: algo.colors[0].h, s: algo.colors[0].s, v: algo.colors[0].v};
           var idx = (squares[i].yCenter * width + squares[i].xCenter) * 3;
           util.mergeHsv(map, idx, squares[i].color.h, squares[i].color.s, squares[i].color.v);
         }

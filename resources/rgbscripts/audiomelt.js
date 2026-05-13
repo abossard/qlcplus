@@ -53,7 +53,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -68,7 +68,7 @@ var testAlgo;
         var reactivity = algo.reactivity;
 
         // BPM-scaled free-running time + audio-reactive offset (not accumulated).
-        var baseTime = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var baseTime = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
         var timestep = baseTime + lows * reactivity / speed;
 
         var t1 = hsvTime(speed * 5, timestep);
@@ -84,10 +84,10 @@ var testAlgo;
 
             var h = il + t2;
 
-            var hc = RGBUtil.mod1(h);
-            var vc = RGBUtil.clamp01(v);
+            var hc = HSVUtil.mod1(h);
+            var vc = HSVUtil.clamp01(v);
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hc, 1, vc);
+                HSVUtil.setPixel(map, width, x, y, hc, 1, vc);
         }
 
         return map;

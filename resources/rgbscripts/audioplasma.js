@@ -66,8 +66,8 @@ var testAlgo;
     var timeState = { position: 0 };
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0)
-            ? algo.gradientColors : DEFAULT_HSV_STOPS;
+        return (algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
@@ -85,7 +85,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         // HSV-only contract: return a Float32Array of interleaved H,S,V floats.
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -94,7 +94,7 @@ var testAlgo;
 
         // BPM-scaled free-running time replaces LedFX's wall-clock self.now.
         // One unit of "time" advances per beat (matches LedFX seconds at 60 BPM).
-        var time = RGBUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var time = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
 
         var power = powerFor(audio);
         var density = algo.density;
@@ -127,7 +127,7 @@ var testAlgo;
                 var t = (v1 + v2 + v3 + 3) / 6.0;
                 if (t < 0) t = 0; else if (t > 1) t = 1;
 
-                var hsv = RGBUtil.gradientAt(hsvStops, t);
+                var hsv = HSVUtil.gradientAt(hsvStops, t);
                 var i = (iy * width + ix) * 3;
                 map[i] = hsv.h; map[i+1] = hsv.s; map[i+2] = hsv.v;
             }

@@ -107,8 +107,8 @@ var testAlgo;
   var util = new Object;
 
   util.getRawColor = function (idx) {
-    if (Array.isArray(algo.gradientColors) && algo.gradientColors.length > idx && algo.gradientColors[idx]) {
-      return algo.gradientColors[idx];
+    if (Array.isArray(algo.colors) && algo.colors.length > idx && algo.colors[idx]) {
+      return algo.colors[idx];
     }
     return {h: 0, s: 0, v: 0};
   };
@@ -129,7 +129,7 @@ var testAlgo;
   }
 
   algo.rgbMap = function(width, height, rgb, step) {
-    var map = RGBUtil.createMap(width, height);
+    var map = HSVUtil.createMap(width, height);
     var colorSelectOne = (step === 1) ? false : true;
     var rowColorOne = colorSelectOne;
     var realBlockSize = algo.blockSize;

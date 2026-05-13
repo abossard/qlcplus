@@ -208,7 +208,7 @@ var testAlgo;
         util.circleRadius = height;
       }
 
-      util.map = RGBUtil.createMap(width, height);
+      util.map = HSVUtil.createMap(width, height);
       
       util.stepFade = algo.rgbMapStepCount(width, height) / algo.segmentsCount;
       util.circleFactor = algo.rgbMapStepCount(width, height) / 3;
@@ -372,7 +372,7 @@ var testAlgo;
     util.step = function(width, height, step)
     {
       // create a fresh map each frame (Float32Array, zeroed)
-      util.map = RGBUtil.createMap(width, height);
+      util.map = HSVUtil.createMap(width, height);
 
       util.progstep = step;
       util.stepPercent = util.progstep / algo.rgbMapStepCount(util.width, util.height);
@@ -397,9 +397,9 @@ var testAlgo;
           var factor = util.getPixelFactor(ry, rx);
           if (factor > 0) {
             var idx = (ry * width + rx) * 3;
-            util.map[idx] = algo.color.h;
-            util.map[idx + 1] = algo.color.s;
-            util.map[idx + 2] = algo.color.v * factor;
+            util.map[idx] = algo.colors[0].h;
+            util.map[idx + 1] = algo.colors[0].s;
+            util.map[idx + 2] = algo.colors[0].v * factor;
           }
         }
       }

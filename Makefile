@@ -2,6 +2,7 @@ BUILD_DIR ?= build
 CMAKE ?= cmake
 JOBS ?= 8
 QMLUI ?= ON
+MCP ?= ON
 
 APP_TARGET ?= qlcplus-qml
 MCP_TARGET ?= qlcplusmcp
@@ -25,7 +26,7 @@ help:
 
 configure:
 	@mkdir -p "$(BUILD_DIR)"
-	@cd "$(BUILD_DIR)" && $(CMAKE) .. -Dqmlui=$(QMLUI)
+	@cd "$(BUILD_DIR)" && $(CMAKE) .. -Dqmlui=$(QMLUI) -Dmcp_server=$(MCP)
 
 reconfigure: configure
 
@@ -89,7 +90,7 @@ dmg:
 	[ -d "$$QTDIR/lib/cmake/Qt5Core" ] && CMAKE_OSX_DEPLOYMENT_TARGET=10.13; \
 	$(CMAKE) -DCMAKE_PREFIX_PATH="$$QTDIR/lib/cmake" \
 		-DCMAKE_OSX_DEPLOYMENT_TARGET=$$CMAKE_OSX_DEPLOYMENT_TARGET \
-		-Dqmlui=on ..; \
+		-Dqmlui=on -Dmcp_server=$(MCP) ..; \
 	NUM_CPUS=$$(sysctl -n hw.ncpu 2>/dev/null || echo $(JOBS)); \
 	make -j$$NUM_CPUS; \
 	make install/fast; \

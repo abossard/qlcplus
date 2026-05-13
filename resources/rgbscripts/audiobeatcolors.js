@@ -123,8 +123,8 @@ var testAlgo;
     }
 
     function beatColors() {
-        var src = (algo.gradientColors && algo.gradientColors.length > 0)
-            ? algo.gradientColors : DEFAULT_COLORS;
+        var src = (algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_COLORS;
         var colors = src.slice();
 
         var originalLength = colors.length;
@@ -158,7 +158,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var colors = beatColors();
         var beat = beatIndexFor(audio, step);
         var beatMask = [algo.presetBeat1, algo.presetBeat2, algo.presetBeat3, algo.presetBeat4];
@@ -201,7 +201,7 @@ var testAlgo;
                     color = currentColor;
                 }
 
-                RGBUtil.setPixel(map, width, x, y,
+                HSVUtil.setPixel(map, width, x, y,
                     color.h, color.s, color.v * brightness);
             }
         }

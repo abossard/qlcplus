@@ -64,13 +64,13 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors
-            ? algo.gradientBandColors.slice()
+        return algo.colors
+            ? algo.colors.slice()
             : DEFAULT_GRADIENT.slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var glowDecayPerSec = 1.0 / (algo.presetGlowDecayMs / 1000.0);
         var glowWidth = algo.presetGlowWidth / 100.0;
@@ -107,8 +107,8 @@ var testAlgo;
 
         var horizontal = (algo.presetAxis === "Horizontal");
         var N = horizontal ? width : height;
-        var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-            ? audio.colors.gradient : DEFAULT_GRADIENT;
+        var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_GRADIENT;
         for (var p = 0; p < N; p++) {
             var zoneIdx;
             if (N >= 12) {
@@ -132,17 +132,17 @@ var testAlgo;
                 }
             }
             var t = zoneIdx / 11.0;
-            var base = RGBUtil.gradientAt(gradient, t);
+            var base = HSVUtil.gradientAt(gradient, t);
             var bright = algo.zone[zoneIdx];
             var ch = base.h;
             var cs = base.s;
             var cv = base.v * bright;
             if (horizontal) {
                 for (var y = 0; y < height; y++)
-                    RGBUtil.setPixel(map, width, p, y, ch, cs, cv);
+                    HSVUtil.setPixel(map, width, p, y, ch, cs, cv);
             } else {
                 for (var x = 0; x < width; x++)
-                    RGBUtil.setPixel(map, width, x, p, ch, cs, cv);
+                    HSVUtil.setPixel(map, width, x, p, ch, cs, cv);
             }
         }
         return map;

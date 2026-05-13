@@ -19,6 +19,7 @@
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QRegularExpression>
 #include <QTextStream>
 #include <QJSEngine>
 #include <QStringList>
@@ -158,26 +159,6 @@ namespace
         QJSValue arr = engine->newArray(quint32(std::max(0, count)));
         for (int i = 0; i < count; i++)
             arr.setProperty(quint32(i), QJSValue(values[i]));
-        return arr;
-    }
-
-    /** Republish a previously-built HSV gradient JS array onto the audio object.
-     *  When no gradient is set yet (script just loaded), return an array of
-     *  `fallbackCount` neutral {h:0,s:0,v:0} stops so audio scripts can index
-     *  blindly without isUndefined() checks. */
-    QJSValue hsvColorArrayToJs(QJSEngine *engine, const QJSValue &source, int fallbackCount)
-    {
-        if (!source.isUndefined())
-            return source;
-        QJSValue arr = engine->newArray(quint32(fallbackCount));
-        for (int i = 0; i < fallbackCount; i++)
-        {
-            QJSValue obj = engine->newObject();
-            obj.setProperty(QStringLiteral("h"), QJSValue(0.0));
-            obj.setProperty(QStringLiteral("s"), QJSValue(0.0));
-            obj.setProperty(QStringLiteral("v"), QJSValue(0.0));
-            arr.setProperty(quint32(i), obj);
-        }
         return arr;
     }
 
@@ -463,6 +444,7 @@ RGBScript::RGBScript(Doc *doc)
     , m_audioInput(NULL)
     , m_loggedAudioProfileId(AudioProfile::invalidId())
     , m_audioRegistered(false)
+    , m_hsvContractValidated(false)
 {
 }
 
@@ -475,6 +457,7 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_audioInput(NULL)
     , m_loggedAudioProfileId(AudioProfile::invalidId())
     , m_audioRegistered(false)
+    , m_hsvContractValidated(false)
 {
     evaluate();
     foreach (RGBScriptProperty cap, s.m_properties)
@@ -567,7 +550,7 @@ void RGBScript::initEngine()
         // Load shared audio script helpers into the engine's global scope.
         QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
         const QStringList shimNames = {
-            QStringLiteral("rgbutil.js"),
+            QStringLiteral("hsvutil.js"),
             QStringLiteral("audio_colors.js")
         };
         for (const QString &shimName : shimNames)
@@ -623,6 +606,7 @@ bool RGBScript::evaluate()
     m_rgbMapSetColors = QJSValue();
     m_apiVersion = 0;
     m_usesAudio = false;
+    m_hsvContractValidated = false;
 
     if (m_fileName.isEmpty() || m_contents.isEmpty())
     {
@@ -659,6 +643,41 @@ bool RGBScript::evaluate()
         // Check if the script requests audio data
         QJSValue usesAudioVal = m_script.property("usesAudio");
         m_usesAudio = (!usesAudioVal.isUndefined() && usesAudioVal.toBool());
+
+        // Extract audio input categories: prefer explicit algo.audioInputs,
+        // fall back to auto-detection from source.
+        m_audioInputCategories.clear();
+        if (m_usesAudio)
+        {
+            QJSValue inputsVal = m_script.property(QStringLiteral("audioInputs"));
+            if (inputsVal.isArray())
+            {
+                const int len = inputsVal.property(QStringLiteral("length")).toInt();
+                for (int i = 0; i < len; ++i)
+                {
+                    QString cat = inputsVal.property(quint32(i)).toString();
+                    if (!cat.isEmpty() && !m_audioInputCategories.contains(cat))
+                        m_audioInputCategories.append(cat);
+                }
+            }
+            else
+            {
+                // Auto-detect from source: extract top-level audio.X references
+                static const QRegularExpression rx(QStringLiteral("\\baudio\\.(\\w+)"));
+                QRegularExpressionMatchIterator it = rx.globalMatch(m_contents);
+                QSet<QString> seen;
+                while (it.hasNext())
+                {
+                    QString cat = it.next().captured(1);
+                    if (cat != QStringLiteral("timing") && !seen.contains(cat))
+                    {
+                        seen.insert(cat);
+                        m_audioInputCategories.append(cat);
+                    }
+                }
+                m_audioInputCategories.sort();
+            }
+        }
 
         if (m_apiVersion >= 3)
         {
@@ -797,11 +816,11 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_rgbMap.isUndefined() == true)
         return;
 
-    // Inject the matrix's HSV color stops as algo.gradientColors and a
-    // pre-sampled 3-element algo.gradientBandColors LUT for low/mid/high banks,
-    // plus algo.color (primary HSV color). Done on every frame so live UI /
-    // MCP color edits show up next tick.
-    injectGradientArrays(rgb);
+    // Resolve owning matrix once per frame — avoids repeated O(N) linear scan.
+    RGBMatrix *matrix = owningMatrix(doc(), this);
+
+    // Inject the user's color palette as algo.colors (array of {h,s,v}).
+    injectColors(rgb, matrix);
 
     // If this is an audio-aware script, set up audio capture on first call
     // and inject audio data as a 5th argument
@@ -819,7 +838,7 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     args << size.width() << size.height() << hsvToJs(engine, primary) << step;
 
     if (m_usesAudio)
-        args << buildAudioDataObject();
+        args << buildAudioDataObject(matrix);
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
@@ -837,38 +856,46 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (width <= 0 || height <= 0)
         return;
 
-    QJSValue bpeProp = yarray.property(QStringLiteral("BYTES_PER_ELEMENT"));
-    if (!bpeProp.isNumber())
-    {
-        qWarning() << "RGBScript" << m_fileName
-                   << "rgbMap() did not return a TypedArray. HSV contract"
-                   << "requires a flat Float32Array of length width*height*3.";
-        return;
-    }
-
-    // Reject Uint32Array (legacy RGB) — only Float32Array is accepted.
-    // Both have BYTES_PER_ELEMENT==4, so check the constructor name.
-    QJSValue ctorName = yarray.property(QStringLiteral("constructor"))
-                              .property(QStringLiteral("name"));
-    if (ctorName.toString() != QStringLiteral("Float32Array"))
-    {
-        qWarning() << "RGBScript" << m_fileName
-                   << "returned" << ctorName.toString()
-                   << "but only Float32Array (HSV) is supported.";
-        return;
-    }
-
-    const int bpe = bpeProp.toInt();
-    const int byteLength = yarray.property(QStringLiteral("byteLength")).toInt();
     const int expectedHsvBytes = width * height * 3 * 4;    // Float32Array: 3 floats/pixel
 
-    if (bpe != 4 || byteLength != expectedHsvBytes)
+    // Full validation on first frame; fast-path on subsequent frames.
+    if (!m_hsvContractValidated)
+    {
+        QJSValue bpeProp = yarray.property(QStringLiteral("BYTES_PER_ELEMENT"));
+        if (!bpeProp.isNumber())
+        {
+            qWarning() << "RGBScript" << m_fileName
+                       << "rgbMap() did not return a TypedArray. HSV contract"
+                       << "requires a flat Float32Array of length width*height*3.";
+            return;
+        }
+
+        QJSValue ctorName = yarray.property(QStringLiteral("constructor"))
+                                  .property(QStringLiteral("name"));
+        if (ctorName.toString() != QStringLiteral("Float32Array"))
+        {
+            qWarning() << "RGBScript" << m_fileName
+                       << "returned" << ctorName.toString()
+                       << "but only Float32Array (HSV) is supported.";
+            return;
+        }
+
+        if (bpeProp.toInt() != 4)
+        {
+            qWarning() << "RGBScript" << m_fileName
+                       << "unexpected BYTES_PER_ELEMENT:" << bpeProp.toInt();
+            return;
+        }
+
+        m_hsvContractValidated = true;
+    }
+
+    const int byteLength = yarray.property(QStringLiteral("byteLength")).toInt();
+    if (byteLength != expectedHsvBytes)
     {
         qWarning() << "RGBScript" << m_fileName
-                   << "returned a TypedArray with unexpected geometry: byteLength="
-                   << byteLength << "BYTES_PER_ELEMENT=" << bpe
-                   << "(expected" << expectedHsvBytes
-                   << "for HSV Float32Array).";
+                   << "TypedArray size mismatch: byteLength=" << byteLength
+                   << "(expected" << expectedHsvBytes << ")";
         return;
     }
 
@@ -989,6 +1016,11 @@ bool RGBScript::usesAudio() const
     return m_usesAudio;
 }
 
+QStringList RGBScript::audioInputCategories() const
+{
+    return m_audioInputCategories;
+}
+
 void RGBScript::setDisplaySize(const QSize &size)
 {
     if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
@@ -1049,101 +1081,45 @@ void RGBScript::teardownAudioCapture()
     }
 }
 
-namespace
-{
-    /** Shortest-arc HSV gradient interpolation.
-     *  Mirrors RGBUtil.gradientAt() in rgbutil.js: stops are evenly spaced in
-     *  [0,1]; hue is interpolated along the shorter arc; s,v are linear. */
-    HsvColor interpolateHsv(const QVector<HsvColor> &stops, double t)
-    {
-        if (stops.isEmpty())
-            return {0.0f, 0.0f, 0.0f};
-        if (stops.size() == 1)
-            return stops.at(0);
-        if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
-        double pos = t * (stops.size() - 1);
-        int idx = int(pos);
-        if (idx >= stops.size() - 1)
-            return stops.at(stops.size() - 1);
-        double frac = pos - idx;
-        const HsvColor &a = stops.at(idx);
-        const HsvColor &b = stops.at(idx + 1);
-        double dh = double(b.h) - double(a.h);
-        if (dh > 0.5) dh -= 1.0;
-        else if (dh < -0.5) dh += 1.0;
-        double h = double(a.h) + frac * dh;
-        h = h - std::floor(h);
-        return {
-            float(h),
-            float(double(a.s) + frac * (double(b.s) - double(a.s))),
-            float(double(a.v) + frac * (double(b.v) - double(a.v)))
-        };
-    }
-}
-
-void RGBScript::injectGradientArrays(uint rgb)
+void RGBScript::injectColors(uint rgb, RGBMatrix *matrix)
 {
     QJSEngine *engine = s_jsThread->engine;
     if (engine == NULL || m_script.isUndefined())
         return;
 
-    // Compact valid stops from the owning matrix into HSV. The matrix still
-    // stores QColor (RGB) under the hood; we convert here so scripts only
-    // ever see HSV.
-    QVector<HsvColor> hsvStops;
-    RGBMatrix *matrix = owningMatrix(doc(), this);
+    int numColors = acceptColors();
+    if (numColors <= 0)
+    {
+        m_script.setProperty(QStringLiteral("colors"), engine->newArray(0));
+        return;
+    }
+
+    // Convert user-picked color stops to HSV. Invalid/missing slots get
+    // the step color fallback so algo.colors always has exactly numColors elements.
+    HsvColor fallback = rgbToHsv(rgb & 0xFFFFFFu);
+    QVector<QColor> cols;
     if (matrix != NULL)
+        cols = matrix->getColors();
+
+    QJSValue colorsArr = engine->newArray(quint32(numColors));
+    for (int i = 0; i < numColors; ++i)
     {
-        QVector<QColor> cols = matrix->getColors();
-        for (int i = 0; i < cols.size(); ++i)
-        {
-            const QColor &c = cols.at(i);
-            if (!c.isValid())
-                continue;
-            hsvStops.append(rgbToHsv(c.rgb() & 0xFFFFFFu));
-        }
+        HsvColor hsv = (i < cols.size() && cols.at(i).isValid())
+            ? rgbToHsv(cols.at(i).rgb() & 0xFFFFFFu)
+            : fallback;
+        colorsArr.setProperty(quint32(i), hsvToJs(engine, hsv));
     }
 
-    // Always have at least one stop so scripts can index without isUndefined()
-    // checks. Falls back to the primary `rgb` argument converted to HSV.
-    if (hsvStops.isEmpty())
-        hsvStops.append(rgbToHsv(rgb & 0xFFFFFFu));
-
-    // algo.gradientColors: array of {h,s,v} stops (HSV-only contract).
-    QJSValue gradArr = engine->newArray(quint32(hsvStops.size()));
-    for (int i = 0; i < hsvStops.size(); ++i)
-        gradArr.setProperty(quint32(i), hsvToJs(engine, hsvStops.at(i)));
-
-    // algo.gradientBandColors: 3 evenly-sampled HSV stops for low/mid/high
-    // mel banks. Sampling uses shortest-arc hue interp to match RGBUtil.gradientAt.
-    QJSValue bandArr = engine->newArray(3);
-    for (int i = 0; i < 3; ++i)
-    {
-        double t = (hsvStops.size() <= 1) ? 0.0 : double(i) / 2.0;
-        HsvColor c = interpolateHsv(hsvStops, t);
-        bandArr.setProperty(quint32(i), hsvToJs(engine, c));
-    }
-
-    // algo.color: the primary color as {h,s,v}. Replaces the packed `rgb`
-    // argument scripts used to unpack manually.
-    QJSValue colorObj = hsvToJs(engine, rgbToHsv(rgb & 0xFFFFFFu));
-
-    m_script.setProperty(QStringLiteral("gradientColors"), gradArr);
-    m_script.setProperty(QStringLiteral("gradientBandColors"), bandArr);
-    m_script.setProperty(QStringLiteral("color"), colorObj);
-
-    m_currentGradientColors = gradArr;
-    m_currentBandColors = bandArr;
+    m_script.setProperty(QStringLiteral("colors"), colorsArr);
 }
 
-QJSValue RGBScript::buildAudioDataObject()
+QJSValue RGBScript::buildAudioDataObject(RGBMatrix *matrix)
 {
     QJSEngine *engine = s_jsThread->engine;
     QJSValue audioObj = engine->newObject();
     AudioChannel *channel = NULL;
     AudioChannelConfig config = AudioChannelConfig::defaults();
     Doc *currentDoc = doc();
-    RGBMatrix *matrix = owningMatrix(currentDoc, this);
     AudioProfile *profile = (currentDoc != NULL && matrix != NULL)
         ? currentDoc->audioProfileForFunction(matrix->id()) : NULL;
     if (profile != NULL)
@@ -1351,13 +1327,6 @@ QJSValue RGBScript::buildAudioDataObject()
     timingObj.setProperty(QStringLiteral("audioDtMs"), QJSValue(snap.audioDtMs));
     timingObj.setProperty(QStringLiteral("consumerDtMs"), QJSValue(double(MasterTimer::tick())));
     audioObj.setProperty(QStringLiteral("timing"), timingObj);
-
-    QJSValue colorsObj = engine->newObject();
-    colorsObj.setProperty(QStringLiteral("gradient"),
-                          hsvColorArrayToJs(engine, m_currentGradientColors, 0));
-    colorsObj.setProperty(QStringLiteral("bands"),
-                          hsvColorArrayToJs(engine, m_currentBandColors, kPowerBandCount));
-    audioObj.setProperty(QStringLiteral("colors"), colorsObj);
 
     return audioObj;
 }

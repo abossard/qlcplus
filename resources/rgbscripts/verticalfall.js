@@ -41,7 +41,7 @@ var testAlgo;
 
         util.initialize = function(width, height)
         {
-            var ch = algo.color.h, cs = algo.color.s, cv = algo.color.v;
+            var ch = algo.colors[0].h, cs = algo.colors[0].s, cv = algo.colors[0].v;
 
             objYPos = new Array(width);
             for (var i = 0; i < width; i++) {
@@ -57,7 +57,7 @@ var testAlgo;
                 fallObject[f] = {h: ch, s: cs, v: cv * factor};
             }
 
-            objmap = RGBUtil.createMap(width, height);
+            objmap = HSVUtil.createMap(width, height);
 
             util.color = {h: ch, s: cs, v: cv};
             util.width = width;
@@ -108,7 +108,7 @@ var testAlgo;
         algo.rgbMap = function(width, height, rgb, step)
         {
             if (util.initialized === false ||
-                    util.color.h !== algo.color.h || util.color.s !== algo.color.s || util.color.v !== algo.color.v ||
+                    util.color.h !== algo.colors[0].h || util.color.s !== algo.colors[0].s || util.color.v !== algo.colors[0].v ||
                     util.width != width || util.height != height) {
                 util.initialize(width, height);
             }

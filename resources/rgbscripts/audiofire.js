@@ -72,7 +72,7 @@ var testAlgo;
     {
         var N = width;
         if (!sparkPixels || sparkPixels.length !== N || sparks.length !== algo.intensity) init(N);
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -135,11 +135,11 @@ var testAlgo;
             var s = 1 - (px - 1) * 2;
             var v = px * 2;
 
-            var hc = RGBUtil.mod1(h);
-            var sc = RGBUtil.clamp01(s);
-            var vc = RGBUtil.clamp01(v);
+            var hc = HSVUtil.mod1(h);
+            var sc = HSVUtil.clamp01(s);
+            var vc = HSVUtil.clamp01(v);
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hc, sc, vc);
+                HSVUtil.setPixel(map, width, x, y, hc, sc, vc);
         }
 
         return map;

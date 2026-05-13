@@ -71,7 +71,7 @@ var testAlgo;
     }
 
     function triangle(x) {
-        return 1 - 2 * Math.abs(RGBUtil.mod1(x) - 0.5);
+        return 1 - 2 * Math.abs(HSVUtil.mod1(x) - 0.5);
     }
 
     function sin01(x) {
@@ -79,13 +79,13 @@ var testAlgo;
     }
 
     function fixHueFast(hue) {
-        hue = RGBUtil.mod1(hue);
+        hue = HSVUtil.mod1(hue);
         return sin01((hue - 0.5) / 2.0);
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
@@ -96,10 +96,10 @@ var testAlgo;
 
         var speed = algo.speed;
         var reactivity = algo.reactivity;
-        var t1 = RGBUtil.beatTime(speed, blocksState1, bpm, dtMs);
+        var t1 = HSVUtil.beatTime(speed, blocksState1, bpm, dtMs);
         var t2 = t1 * (Math.PI * Math.PI) + (0.8 * reactivity * algo.lowsPower);
-        var t3 = RGBUtil.beatTime(speed * T3_RATIO, blocksState3, bpm, dtMs) + (reactivity * algo.lowsPower);
-        var t4 = RGBUtil.beatTime(speed * T4_RATIO, blocksState4, bpm, dtMs) * (Math.PI * Math.PI);
+        var t3 = HSVUtil.beatTime(speed * T3_RATIO, blocksState3, bpm, dtMs) + (reactivity * algo.lowsPower);
+        var t4 = HSVUtil.beatTime(speed * T4_RATIO, blocksState4, bpm, dtMs) * (Math.PI * Math.PI);
 
         var m = 0.3 + triangle(t1) * 0.2;
         var c = triangle(t3) * 10.0 + 4.0 * sin01(t4);
@@ -116,12 +116,12 @@ var testAlgo;
 
             var v = Math.abs(h);
             v += Math.abs(m) + t1;
-            v = RGBUtil.mod1(v);
+            v = HSVUtil.mod1(v);
             v *= v;
 
-            var hue = fixHues ? fixHueFast(h) : RGBUtil.mod1(h);
+            var hue = fixHues ? fixHueFast(h) : HSVUtil.mod1(h);
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hue, 1.0, v);
+                HSVUtil.setPixel(map, width, x, y, hue, 1.0, v);
         }
 
         return map;

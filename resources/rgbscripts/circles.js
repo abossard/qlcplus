@@ -179,13 +179,13 @@ var testAlgo;
       var x = 0;
       var y = 0;
       // create an empty pixelMap (Float32Array, row-major, 3 floats per pixel)
-      util.pixelMap = RGBUtil.createMap(width, height);
+      util.pixelMap = HSVUtil.createMap(width, height);
 
       for (var i = 0; i < algo.circlesAmount; i++)
       {
         if (circles[i].xCenter === -1)
         {
-          circles[i].color = {h: algo.color.h, s: algo.color.s, v: algo.color.v};
+          circles[i].color = {h: algo.colors[0].h, s: algo.colors[0].s, v: algo.colors[0].v};
         }
         var color = util.getStepColor(circles[i].step, circles[i].color);
         //alert("Circle " + i + " xCenter: " + circles[i].xCenter + " color: " + color.toString(16));

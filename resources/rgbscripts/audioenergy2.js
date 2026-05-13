@@ -54,7 +54,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -65,21 +65,21 @@ var testAlgo;
         var reactivity = reactivity01 * REACTIVITY_SCALE;
         var lowPower = audio.power.low;
 
-        algo.phase = RGBUtil.beatTime(speed, energyState, bpm, dtMs);
+        algo.phase = HSVUtil.beatTime(speed, energyState, bpm, dtMs);
 
-        var hue = RGBUtil.mod1(lowPower + algo.phase);
+        var hue = HSVUtil.mod1(lowPower + algo.phase);
         var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;
-        var offset = OFFSET_AMP * RGBUtil.sin01(algo.phase + reactivity01 * lowPower);
+        var offset = OFFSET_AMP * HSVUtil.sin01(algo.phase + reactivity01 * lowPower);
 
         var n = Math.max(2, width);
         for (var x = 0; x < width; x++) {
             var u = x / (n - 1);
-            var v0 = RGBUtil.mod1(u + offset);
-            var tri = RGBUtil.triangle(v0);
+            var v0 = HSVUtil.mod1(u + offset);
+            var tri = HSVUtil.triangle(v0);
             var v = tri * tri;
             var sat = v < satThreshold ? 1 : 0;
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hue, sat, v);
+                HSVUtil.setPixel(map, width, x, y, hue, sat, v);
         }
 
         return map;

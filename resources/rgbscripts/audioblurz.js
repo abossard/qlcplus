@@ -94,7 +94,7 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-        return algo.gradientBandColors ? algo.gradientBandColors.slice() : DEFAULT_BANDS.slice();
+        return algo.colors ? algo.colors.slice() : DEFAULT_BANDS.slice();
     };
 
     var TWO_PI = Math.PI * 2;
@@ -161,7 +161,7 @@ var testAlgo;
     };
 
     algo.bandBlend = function(audio) {
-        var bandColors = algo.gradientBandColors || DEFAULT_BANDS;
+        var bandColors = algo.colors || DEFAULT_BANDS;
         var powers = audio.power.bands;
         var totalP = powers[0] + powers[1] + powers[2];
         if (totalP < 0.001) return {h: 0, s: 0, v: 0};
@@ -179,7 +179,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.ensureBuffers(width, height);
 

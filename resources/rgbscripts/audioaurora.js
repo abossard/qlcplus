@@ -88,18 +88,18 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
         var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
 
         var bandPowers = audio.power.bands;
-        var bandColors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
-        var theta = RGBUtil.beatTime(speed, auroraState, bpm, dtMs) * Math.PI * 2;
+        var theta = HSVUtil.beatTime(speed, auroraState, bpm, dtMs) * Math.PI * 2;
 
         var waveFreq = algo.presetWaveSize;
         var layers = algo.presetLayers;
@@ -157,7 +157,7 @@ var testAlgo;
                     pv = Math.min(1, totalIntensity * beatBoost);
                 }
 
-                RGBUtil.setPixel(map, width, x, y, ph, ps, pv);
+                HSVUtil.setPixel(map, width, x, y, ph, ps, pv);
             }
         }
 

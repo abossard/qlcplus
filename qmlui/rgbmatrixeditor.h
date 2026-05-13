@@ -53,6 +53,7 @@ class RGBMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int beatOrientation READ beatOrientation WRITE setBeatOrientation NOTIFY beatOrientationChanged)
 
     Q_PROPERTY(bool algorithmUsesAudio READ algorithmUsesAudio NOTIFY algorithmIndexChanged)
+    Q_PROPERTY(QStringList audioInputCategories READ audioInputCategories NOTIFY algorithmIndexChanged)
     Q_PROPERTY(int audioRoutingLow   READ audioRoutingLow   WRITE setAudioRoutingLow   NOTIFY audioRoutingChanged)
     Q_PROPERTY(int audioRoutingMid   READ audioRoutingMid   WRITE setAudioRoutingMid   NOTIFY audioRoutingChanged)
     Q_PROPERTY(int audioRoutingHigh  READ audioRoutingHigh  WRITE setAudioRoutingHigh  NOTIFY audioRoutingChanged)
@@ -219,6 +220,7 @@ signals:
      ************************************************************************/
 public:
     bool algorithmUsesAudio() const;
+    QStringList audioInputCategories() const;
 
     int audioRoutingLow() const;
     void setAudioRoutingLow(int s);

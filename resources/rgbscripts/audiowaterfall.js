@@ -90,12 +90,12 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0)
-            ? algo.gradientColors : DEFAULT_HSV_STOPS;
+        return (algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         algo.ensureHistory(width, height);
 
@@ -104,16 +104,16 @@ var testAlgo;
         var denom = Math.max(1, height - 1);
 
         var src = algo.pickSource(audio);
-        var resampled = RGBUtil.interpolate(src, height);
+        var resampled = HSVUtil.interpolate(src, height);
         for (var y = 0; y < height; y++) {
             var renderVal = resampled[y] * gain;
             var mag = renderVal < 0 ? 0 : (renderVal > 1 ? 1 : renderVal);
             var c;
             if (algo.presetColorMode === "PowerScaled") {
-                c = RGBUtil.gradientAt(gradient, y / denom);
+                c = HSVUtil.gradientAt(gradient, y / denom);
                 c = {h: c.h, s: c.s, v: c.v * mag};
             } else {
-                c = RGBUtil.gradientAt(gradient, mag);
+                c = HSVUtil.gradientAt(gradient, mag);
             }
             algo.column[y] = c;
             algo.history[algo.col * height + y] = c;

@@ -165,9 +165,9 @@ var testAlgo;
         var hfcScale = algo.presetHfcScale / 100.0;
         if (hfcScale < 0.001) hfcScale = 0.001;
         var t = audio.features.hfc / hfcScale;
-        var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-          ? audio.colors.gradient : DEFAULT_GRADIENT;
-        var color = RGBUtil.gradientAt(gradient, t);
+        var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+          ? algo.colors : DEFAULT_GRADIENT;
+        var color = HSVUtil.gradientAt(gradient, t);
         algo.lines.push({
           position: N - 1,
           color: { h: color.h, s: color.s, v: color.v },
@@ -192,7 +192,7 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       var halfW = algo.presetLineWidth / 2;
       for (var li = 0; li < algo.lines.length; li++) {
         var lln = algo.lines[li];

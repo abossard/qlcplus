@@ -65,8 +65,8 @@ var testAlgo;
     var needSeed = true;
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0)
-            ? algo.gradientColors : DEFAULT_HSV_STOPS;
+        return (algo.colors && algo.colors.length > 0)
+            ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
@@ -104,7 +104,7 @@ var testAlgo;
             var ny = y0 + iy * stepY;
             for (var ix = 0; ix < w; ix++) {
                 var nx = x0 + ix * stepX;
-                var n = (RGBUtil.simplex2d(nx, ny) + 1) * 0.5;
+                var n = (HSVUtil.simplex2d(nx, ny) + 1) * 0.5;
                 noiseField[iy][ix] = noiseField[iy][ix] * SMOOTH + n * newMix;
             }
         }
@@ -116,7 +116,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
@@ -145,7 +145,7 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var palIdx = ((1 - noiseField[y][x]) * 3) % 1;
                 if (palIdx < 0) palIdx += 1;
-                palette[y][x] = RGBUtil.gradientAt(gradient, palIdx);
+                palette[y][x] = HSVUtil.gradientAt(gradient, palIdx);
             }
         }
 

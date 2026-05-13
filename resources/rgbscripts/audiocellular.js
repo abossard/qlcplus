@@ -116,8 +116,8 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-      return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors.slice() : DEFAULT_GRADIENT.slice();
+      return (algo.colors && algo.colors.length >= 3)
+        ? algo.colors.slice() : DEFAULT_GRADIENT.slice();
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
@@ -183,18 +183,18 @@ var testAlgo;
         }
       }
 
-      var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-        ? audio.colors.gradient : DEFAULT_GRADIENT;
+      var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+        ? algo.colors : DEFAULT_GRADIENT;
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       for (var y = 0; y < H; y++) {
         var src = (algo.row - (H - 1 - y) + H) % H;
         var srcBase2 = src * N;
         var age = (H - 1) > 0 ? (H - 1 - y) / (H - 1) : 0;
-        var rowColor = RGBUtil.gradientAt(gradient, age);
+        var rowColor = HSVUtil.gradientAt(gradient, age);
         for (var x = 0; x < N; x++) {
           if (algo.history[srcBase2 + x]) {
-            RGBUtil.setPixel(map, width, x, y, rowColor.h, rowColor.s, rowColor.v);
+            HSVUtil.setPixel(map, width, x, y, rowColor.h, rowColor.s, rowColor.v);
           }
         }
       }

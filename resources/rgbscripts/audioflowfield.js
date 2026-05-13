@@ -122,8 +122,8 @@ var testAlgo;
     }
 
     function spawnParticle(width, height, audio) {
-      var gradient = (algo.gradientColors && algo.gradientColors.length > 0)
-        ? algo.gradientColors : DEFAULT_GRADIENT;
+      var gradient = (algo.colors && algo.colors.length > 0)
+        ? algo.colors : DEFAULT_GRADIENT;
       return {
         x: Math.random() * width,
         y: Math.random() * height,
@@ -133,7 +133,7 @@ var testAlgo;
         vy: 0,
         ageMs: 0,
         lifeMs: algo.presetLifeMs,
-        color: RGBUtil.gradientAt(gradient, Math.random())
+        color: HSVUtil.gradientAt(gradient, Math.random())
       };
     }
 
@@ -211,7 +211,7 @@ var testAlgo;
         part.prevY = part.y;
         var nx = part.x * fieldScale * 0.05 + noiseT;
         var ny = part.y * fieldScale * 0.05 + noiseT;
-        var noiseVal = RGBUtil.simplex2d(nx, ny);
+        var noiseVal = HSVUtil.simplex2d(nx, ny);
         var angle = noiseVal * Math.PI * (1.0 + turbulence) + rotation;
         part.vx = Math.cos(angle) * baseSpeedNorm * width;
         part.vy = Math.sin(angle) * baseSpeedNorm * height;
@@ -250,7 +250,7 @@ var testAlgo;
         }
       }
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       var total = width * height * 3;
       for (var ci = 0; ci < total; ci++) {
         map[ci] = algo.fb[ci];

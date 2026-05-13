@@ -280,9 +280,9 @@ var testAlgo;
           algo.rockets[i].v = 0.7 + Math.random() * 0.3;
         } while (algo.rockets[i].v < 0.5);
       } else {
-        algo.rockets[i].h = algo.color.h;
-        algo.rockets[i].s = algo.color.s;
-        algo.rockets[i].v = algo.color.v;
+        algo.rockets[i].h = algo.colors[0].h;
+        algo.rockets[i].s = algo.colors[0].s;
+        algo.rockets[i].v = algo.colors[0].v;
       }
       // initialize particles
       algo.rockets[i].particle = new Array();
@@ -312,7 +312,7 @@ var testAlgo;
       }
 
       // Clear map data (Float32Array HSV, row-major)
-      util.map = RGBUtil.createMap(width, height);
+      util.map = HSVUtil.createMap(width, height);
       util.mapWidth = width;
       util.mapHeight = height;
 

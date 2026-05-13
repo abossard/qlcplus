@@ -81,8 +81,8 @@ var testAlgo;
     function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
 
     function bandColors() {
-        if (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            return algo.gradientBandColors;
+        if (algo.colors && algo.colors.length >= 3)
+            return algo.colors;
         return DEFAULT_BAND_COLORS;
     }
 
@@ -102,7 +102,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dt = audio.timing.consumerDtMs;
@@ -118,13 +118,13 @@ var testAlgo;
         var boost = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS;
 
         // t1 and t2 share the slow accumulator (read once, reuse value).
-        var slow01 = RGBUtil.beatTime(speed, phaseSlow, bpm, dt + boost);
+        var slow01 = HSVUtil.beatTime(speed, phaseSlow, bpm, dt + boost);
         var t1 = slow01 * Math.PI * 2;
         var t2 = slow01;
-        var t3 = RGBUtil.beatTime(speed * MED_RATIO,  phaseMed,  bpm, dt + boost);
-        var t4 = RGBUtil.beatTime(speed * T4_RATIO,   phaseT4,   bpm, dt + boost) * Math.PI * 2;
-        var t5 = RGBUtil.beatTime(speed * T5_RATIO,   phaseT5,   bpm, dt + boost);
-        var t6 = RGBUtil.beatTime(speed * FAST_RATIO, phaseFast, bpm, dt + boost);
+        var t3 = HSVUtil.beatTime(speed * MED_RATIO,  phaseMed,  bpm, dt + boost);
+        var t4 = HSVUtil.beatTime(speed * T4_RATIO,   phaseT4,   bpm, dt + boost) * Math.PI * 2;
+        var t5 = HSVUtil.beatTime(speed * T5_RATIO,   phaseT5,   bpm, dt + boost);
+        var t6 = HSVUtil.beatTime(speed * FAST_RATIO, phaseFast, bpm, dt + boost);
 
         if (audio.onset.fired || audio.beat.kick) {
             flashColor = dominantBandHsv(audio);
@@ -159,12 +159,12 @@ var testAlgo;
             var brightness = baseBrightness;
 
             // HSV output: dominant hue shifted by glitch pattern
-            var hOut = RGBUtil.mod1(dominant.h + hNorm * (1 - dominant.s) * 0.4);
-            var sOut = RGBUtil.clamp01(dominant.s + (1 - dominant.s) * sat * 0.5);
-            var vOut = RGBUtil.clamp01((COLOR_FLOOR + glitchMix) * brightness * dominant.v);
+            var hOut = HSVUtil.mod1(dominant.h + hNorm * (1 - dominant.s) * 0.4);
+            var sOut = HSVUtil.clamp01(dominant.s + (1 - dominant.s) * sat * 0.5);
+            var vOut = HSVUtil.clamp01((COLOR_FLOOR + glitchMix) * brightness * dominant.v);
 
             for (var y = 0; y < height; y++)
-                RGBUtil.setPixel(map, width, x, y, hOut, sOut, vOut);
+                HSVUtil.setPixel(map, width, x, y, hOut, sOut, vOut);
         }
         flashLevel = Math.max(0, flashLevel - FLASH_DECAY);
 

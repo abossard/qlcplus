@@ -22,6 +22,7 @@
 #define RGBALGORITHM_H
 
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QColor>
 #include <QSize>
@@ -108,6 +109,10 @@ public:
     /** Return whether this algorithm uses audio input data.
      *  When true, the host should provide audio spectrum data before rendering. */
     virtual bool usesAudio() const { return type() == Audio; }
+
+    /** Return the top-level audio input categories this algorithm reads
+     *  (e.g. "power", "spectrum", "beat"). Empty if not audio-aware. */
+    virtual QStringList audioInputCategories() const { return {}; }
 
     /** Set the physical display size for algorithms rendered through transformed geometry. */
     virtual void setDisplaySize(const QSize &size) { Q_UNUSED(size); }

@@ -38,14 +38,14 @@ var testAlgo;
           * @return A two-dimensional array[height][width].
           */
         algo.rgbMap = function (width, height, rgb, step) {
-            var map = RGBUtil.createMap(width, height);
+            var map = HSVUtil.createMap(width, height);
             for (var y = 0; y < height; y++) {
                 var index = Math.floor(Math.random() * (width));
                 // Random HSV color
                 var h = Math.random();
                 var s = 0.5 + Math.random() * 0.5;
                 var v = 0.5 + Math.random() * 0.5;
-                RGBUtil.setPixel(map, width, index, y, h, s, v);
+                HSVUtil.setPixel(map, width, index, y, h, s, v);
             }
 
             return map;

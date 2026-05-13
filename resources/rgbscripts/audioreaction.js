@@ -164,8 +164,8 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-      return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors.slice() : DEFAULT_GRADIENT.slice();
+      return (algo.colors && algo.colors.length >= 3)
+        ? algo.colors.slice() : DEFAULT_GRADIENT.slice();
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
@@ -228,18 +228,18 @@ var testAlgo;
         algo.Unext = U; algo.Vnext = V;
       }
 
-      var gradient = (audio.colors && audio.colors.gradient && audio.colors.gradient.length > 0)
-        ? audio.colors.gradient : DEFAULT_GRADIENT;
+      var gradient = (audio.colors && algo.colors && algo.colors.length > 0)
+        ? algo.colors : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       var Vfinal = algo.V;
       for (var ry = 0; ry < H; ry++) {
         for (var rx = 0; rx < W; rx++) {
           var t = Vfinal[ry * W + rx] * gain;
           if (t < 0) t = 0; else if (t > 1) t = 1;
-          var c = RGBUtil.gradientAt(gradient, t);
-          RGBUtil.setPixel(map, width, rx, ry, c.h, c.s, c.v);
+          var c = HSVUtil.gradientAt(gradient, t);
+          HSVUtil.setPixel(map, width, rx, ry, c.h, c.s, c.v);
         }
       }
       return map;

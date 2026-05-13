@@ -107,7 +107,7 @@ var testAlgo;
     }
 
     function bandColor(bandIndex) {
-        var colors = algo.gradientBandColors || DEFAULT_BAND_COLORS;
+        var colors = algo.colors || DEFAULT_BAND_COLORS;
         return colors[Math.max(0, Math.min(2, bandIndex))];
     }
 
@@ -254,7 +254,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         if (width !== lastW || height !== lastH) {
             algo.particles = [];

@@ -99,7 +99,7 @@ var testAlgo;
 
   util.initialize = function (width, height) {
     // initialize feature
-    var fc = algo.gradientColors && algo.gradientColors.length > 0 ? algo.gradientColors[0] : algo.color;
+    var fc = algo.colors[0];
     util.featureColor = {h: fc.h, s: fc.s, v: fc.v};
     util.feature = new Array();
     var maxDistance = Math.min(width, height) / 2;
@@ -149,12 +149,12 @@ var testAlgo;
   util.getNextStep = function (width, height) {
     var x = 0;
     var y = 0;
-    var map = RGBUtil.createMap(width, height);
+    var map = HSVUtil.createMap(width, height);
     for (y = 0; y <= height - 1; y++) {
       for (x = 0; x <= width - 1; x++) {
         var c = util.feature[y][x];
         if (c.v > 0) {
-          RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v);
+          HSVUtil.setPixel(map, width, x, y, c.h, c.s, c.v);
         }
       }
     }
@@ -170,13 +170,13 @@ var testAlgo;
     }
 
     // create light map add lights, go around the outside
-    var mc = algo.gradientColors && algo.gradientColors.length > 1 ? algo.gradientColors[1] : algo.color;
+    var mc = algo.colors.length > 1 ? algo.colors[1] : algo.colors[0];
     var p = 0;
     // left
     for (y = 0; y < height; y++) {
       x = 0;
       if (util.lights[p] === 1) {
-        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
+        HSVUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -184,7 +184,7 @@ var testAlgo;
     for (x = 1; x < width; x++) {
       y = height - 1;
       if (util.lights[p] === 1) {
-        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
+        HSVUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -192,7 +192,7 @@ var testAlgo;
     for (y = height - 2; y >= 0; y--) {
       x = width - 1;
       if (util.lights[p] === 1) {
-        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
+        HSVUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -200,7 +200,7 @@ var testAlgo;
     for (x = width - 2; x >= 0; x--) {
       y = 0;
       if (util.lights[p] === 1) {
-        RGBUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
+        HSVUtil.setPixel(map, width, x, y, mc.h, mc.s, mc.v);
       }
       p += 1;
     }
@@ -208,7 +208,7 @@ var testAlgo;
   };
 
   algo.rgbMap = function(width, height, rgb, step) {
-    var fc = algo.gradientColors && algo.gradientColors.length > 0 ? algo.gradientColors[0] : algo.color;
+    var fc = algo.colors[0];
     if (
       util.initialized === false ||
       util.featureColor.h !== fc.h ||

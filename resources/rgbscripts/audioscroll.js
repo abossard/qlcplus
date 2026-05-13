@@ -134,7 +134,7 @@ var testAlgo;
         var threshold = algo.presetThreshold / 100.0;
         var cutoffs = [threshold / 10.0, threshold / 8.0, threshold / 7.0];
         for (var i = 0; i < 3; i++) {
-          intensities[i] = RGBUtil.clamp01(intensities[i]);
+          intensities[i] = HSVUtil.clamp01(intensities[i]);
           if (intensities[i] < cutoffs[i]) intensities[i] = 0;
         }
 
@@ -174,7 +174,7 @@ var testAlgo;
       }
 
       var outPixels = renderPixelsForOutput();
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
           var px = outPixels[y * width + x];

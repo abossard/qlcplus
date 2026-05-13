@@ -61,8 +61,8 @@ var testAlgo;
         }
         var centerStep = center + 1;
 
-        var map = RGBUtil.createMap(width, height);
-        var h = algo.color.h, s = algo.color.s, v = algo.color.v;
+        var map = HSVUtil.createMap(width, height);
+        var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -74,14 +74,14 @@ var testAlgo;
                 if (step < centerStep)
                 {
                     if (cmpAxis <= center + step + (isEven ? 1 : 0 ) && cmpAxis >= center - step) {
-                        RGBUtil.setPixel(map, width, x, y, h, s, v);
+                        HSVUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
                 else
                 {
                     var step2 = step - centerStep;
                     if (!(cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2)) {
-                        RGBUtil.setPixel(map, width, x, y, h, s, v);
+                        HSVUtil.setPixel(map, width, x, y, h, s, v);
                     }
                 }
             }

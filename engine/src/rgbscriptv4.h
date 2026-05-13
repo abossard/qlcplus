@@ -29,6 +29,7 @@
 #include "rgbscriptproperty.h"
 
 class AudioCapture;
+class RGBMatrix;
 class QJSEngine;
 class QDir;
 
@@ -128,6 +129,9 @@ public:
     bool usesAudio() const override;
 
     /** @reimp */
+    QStringList audioInputCategories() const override;
+
+    /** @reimp */
     void setDisplaySize(const QSize &size) override;
 
     /** @reimp */
@@ -147,6 +151,7 @@ private:
     QJSValue m_rgbMapSetColors; //! rgbMapSetColors() function
     QJSValue m_rgbMapGetColors; //! rgbMapSetColors() function
     bool m_usesAudio;           //! Whether the script declared algo.usesAudio = true
+    QStringList m_audioInputCategories; //! Top-level audio.X categories used by the script
 
     /************************************************************************
      * Audio support
@@ -159,7 +164,7 @@ private:
     void teardownAudioCapture();
 
     /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
-    QJSValue buildAudioDataObject();
+    QJSValue buildAudioDataObject(RGBMatrix *matrix);
 
     /**
      * Build the gradientColors / gradientBandColors HSV arrays from the owning
@@ -171,7 +176,7 @@ private:
      * @param rgb fallback color (packed 0xRRGGBB) used when the matrix has
      *            no valid color stops; converted to HSV before injection.
      */
-    void injectGradientArrays(uint rgb);
+    void injectColors(uint rgb, RGBMatrix *matrix);
 
 private:
     AudioCapture *m_audioInput;
@@ -182,14 +187,7 @@ private:
     // already handles correctness; this only governs the debug log.
     quint32 m_loggedAudioProfileId;
     bool m_audioRegistered;
-
-    // Transient per-frame cache of the HSV gradient arrays injected on m_script.
-    // Set by injectGradientArrays() at the top of rgbMap(), consumed by
-    // buildAudioDataObject() so audio.colors.gradient / audio.colors.bands mirror
-    // algo.gradientColors / algo.gradientBandColors. Both run on s_jsThread,
-    // so no synchronization is required.
-    QJSValue m_currentGradientColors;
-    QJSValue m_currentBandColors;
+    bool m_hsvContractValidated;    //! Skip Float32Array type checks after first frame
 
     /************************************************************************
      * Properties

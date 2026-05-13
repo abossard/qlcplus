@@ -293,9 +293,9 @@ var testAlgo;
       else if (algo.presetIndex === 4)
       {
         // User Defined
-        if (algo.gradientColors && algo.gradientColors.length > 0)
+        if (algo.colors && algo.colors.length > 0)
         {
-          return algo.gradientColors;
+          return algo.colors;
         }
         return [
           {h: 0.3333, s: 1, v: 1},
@@ -333,7 +333,7 @@ var testAlgo;
       // keep the patten square
       var square = (width > height) ? width : height;
 
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       for (var y = 0; y < height; y++)
       {
 

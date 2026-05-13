@@ -66,8 +66,8 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-      return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors.slice() : DEFAULT_BAND_COLORS.slice();
+      return (algo.colors && algo.colors.length >= 3)
+        ? algo.colors.slice() : DEFAULT_BAND_COLORS.slice();
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
@@ -86,9 +86,9 @@ var testAlgo;
         if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
       }
 
-      var map = RGBUtil.createMap(width, height);
-      var bandColors = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-        ? algo.gradientBandColors : DEFAULT_BAND_COLORS;
+      var map = HSVUtil.createMap(width, height);
+      var bandColors = (algo.colors && algo.colors.length >= 3)
+        ? algo.colors : DEFAULT_BAND_COLORS;
       var powers = audio.power.bands;
       var sigma = Math.max(1, algo.presetBlobWidth);
       var twoSigSq = 2 * sigma * sigma;
@@ -134,10 +134,10 @@ var testAlgo;
 
         if (horizontal) {
           for (var y = 0; y < height; y++)
-            RGBUtil.setPixel(map, width, pos, y, col.h, col.s, v);
+            HSVUtil.setPixel(map, width, pos, y, col.h, col.s, v);
         } else {
           for (var x = 0; x < width; x++)
-            RGBUtil.setPixel(map, width, x, pos, col.h, col.s, v);
+            HSVUtil.setPixel(map, width, x, pos, col.h, col.s, v);
         }
       }
 

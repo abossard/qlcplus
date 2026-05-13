@@ -109,7 +109,7 @@ var testAlgo;
 
     algo.rgbMapGetColors = function()
     {
-        return algo.gradientColors ? algo.gradientColors.slice() : DEFAULT_GRADIENT.slice();
+        return algo.colors ? algo.colors.slice() : DEFAULT_GRADIENT.slice();
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
@@ -118,16 +118,16 @@ var testAlgo;
         if (peakValues === null || peakValues.length !== bandCount)
             init(bandCount);
 
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
 
         if (!audio) return map;
         var melSrc = audio.spectrum.full;
         if (!melSrc || melSrc.length === 0)
             return map;
 
-        var rawBands = RGBUtil.interpolate(melSrc, bandCount);
+        var rawBands = HSVUtil.interpolate(melSrc, bandCount);
 
-        var stops = (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        var stops = (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
 
         // Asymmetric EMA: instant attack, exponential decay.
         // presetDecay 1..10 → alpha 0.05..0.5
@@ -171,7 +171,7 @@ var testAlgo;
 
             // Gradient color for this band position
             var t = (bandCount > 1) ? x / (bandCount - 1) : 0;
-            var c = RGBUtil.gradientAt(stops, t);
+            var c = HSVUtil.gradientAt(stops, t);
             var brightness = magnitude;
 
             if (algo.presetCenter)
@@ -181,7 +181,7 @@ var testAlgo;
                 for (var y = mid - halfBar; y <= mid + halfBar; y++)
                 {
                     if (y < 0 || y >= height) continue;
-                    RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
+                    HSVUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
                 }
             }
             else
@@ -190,7 +190,7 @@ var testAlgo;
                 {
                     var y = height - 1 - dy;
                     if (y < 0) break;
-                    RGBUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
+                    HSVUtil.setPixel(map, width, x, y, c.h, c.s, c.v * brightness);
                 }
             }
 
@@ -206,7 +206,7 @@ var testAlgo;
                 }
                 if (peakY >= 0 && peakY < height) {
                     var peakBrightness = peakValues[x];
-                    RGBUtil.setPixel(map, width, x, peakY, 0, 0, peakBrightness);
+                    HSVUtil.setPixel(map, width, x, peakY, 0, 0, peakBrightness);
                 }
             }
         }

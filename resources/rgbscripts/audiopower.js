@@ -64,7 +64,7 @@ var testAlgo;
     }
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        return (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
     }
 
     function ensure(width) {
@@ -112,7 +112,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         scaleInPlace(sparksV, 1.0 - clamp(algo.sparks_decay_rate, 0, 1));
@@ -120,8 +120,8 @@ var testAlgo;
 
         if (audio.onset.fired) {
             var numSparks = Math.floor(width / 20);
-            var bands = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-                ? algo.gradientBandColors : null;
+            var bands = (algo.colors && algo.colors.length >= 3)
+                ? algo.colors : null;
             sparkColor = bands ? bands[2] : DEFAULT_HIGH_BAND;
             for (var s = 0; s < numSparks; s++) {
                 var sx = Math.floor(Math.random() * width);
@@ -131,19 +131,19 @@ var testAlgo;
 
         var bass = expFilter(Math.max(0, audio.power.low));
         var bassIdx = Math.floor(bass * width);
-        var bassHsv = RGBUtil.gradientAt(gradientStops(), bass);
+        var bassHsv = HSVUtil.gradientAt(gradientStops(), bass);
         for (var i = 0; i < bassIdx && i < width; i++)
             bassV[i] = bassHsv.v;
 
-        var mel = RGBUtil.interpolate(audio.spectrum.full, width);
+        var mel = HSVUtil.interpolate(audio.spectrum.full, width);
         var strip = new Array(width);
         for (var x = 0; x < width; x++) {
             var spatial = width <= 1 ? 0 : x / (width - 1);
-            var gradHsv = RGBUtil.gradientAt(gradientStops(), spatial);
+            var gradHsv = HSVUtil.gradientAt(gradientStops(), spatial);
             var baseV = gradHsv.v * mel[x];
             var bV = bassV[x];
             var spV = sparksV[x];
-            var totalV = RGBUtil.clamp01(baseV + bV + spV);
+            var totalV = HSVUtil.clamp01(baseV + bV + spV);
             var ph = gradHsv.h, ps = gradHsv.s;
             if (spV > baseV && spV > bV) {
                 ph = sparkColor.h; ps = sparkColor.s;
@@ -156,7 +156,7 @@ var testAlgo;
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var px = 0; px < width; px++)
-                RGBUtil.setPixel(map, width, px, y, strip[px].h, strip[px].s, strip[px].v);
+                HSVUtil.setPixel(map, width, px, y, strip[px].h, strip[px].s, strip[px].v);
         return map;
     };
 

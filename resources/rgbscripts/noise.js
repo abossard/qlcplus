@@ -44,14 +44,14 @@ var testAlgo;
 
         algo.rgbMap = function (width, height, rgb, step)
         {
-            var map = RGBUtil.createMap(width, height);
+            var map = HSVUtil.createMap(width, height);
 
             for (var y = 0; y < height; y++)
             {
                 for (var x = 0; x < width; x++)
                 {
                     // Random brightness factor 0-1, applied to user color's value
-                    var randV = algo.color.v * Math.random();
+                    var randV = algo.colors[0].v * Math.random();
 
                     var vDiv = 0;
 
@@ -72,7 +72,7 @@ var testAlgo;
                     dCounter += 1;
                     if (dCounter >= vDiv) {
                         dCounter = 0;
-                        RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, randV);
+                        HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, randV);
                     }
                 }
             }

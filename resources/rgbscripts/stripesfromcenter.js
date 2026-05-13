@@ -55,7 +55,7 @@ var testAlgo;
             isEven = (width % 2 === 0);
         }
 
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
@@ -63,7 +63,7 @@ var testAlgo;
                 var cmpAxis = (algo.orientation ? y : x);
 
                 if (cmpAxis === center + step + (isEven ? 1 : 0 ) || cmpAxis === center - step) {
-                    RGBUtil.setPixel(map, width, x, y, algo.color.h, algo.color.s, algo.color.v);
+                    HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
                 }
             }
         }

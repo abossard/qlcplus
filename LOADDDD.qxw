@@ -8,7 +8,7 @@
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="127"/>
+   <BeatGenerator BeatType="Audio" BPM="1"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ"/>
@@ -565,7 +565,7 @@
    <Speed FadeIn="0" FadeOut="0" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Strobe</Algorithm>
+   <Algorithm Type="Script">Audio Water</Algorithm>
    <Color Index="0">4294967295</Color>
    <Color Index="1">4281545727</Color>
    <Color Index="2">4294967091</Color>
@@ -574,11 +574,12 @@
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
    <AudioProfileID>3</AudioProfileID>
-   <Property Name="bass_strobe_decay_rate" Value="0.5"/>
-   <Property Name="bass_trigger" Value="Onset"/>
-   <Property Name="color_shift_delay" Value="1"/>
-   <Property Name="color_step" Value="0.0625"/>
-   <Property Name="strobe_decay_rate" Value="0.5"/>
+   <Property Name="bass_size" Value="8"/>
+   <Property Name="high_size" Value="3"/>
+   <Property Name="mids_size" Value="6"/>
+   <Property Name="speed" Value="1"/>
+   <Property Name="vertical_shift" Value="0.12"/>
+   <Property Name="viscosity" Value="6"/>
   </Function>
   <Function ID="5" Type="RGBMatrix" Name="EXP-1-C Audio Wavelength" Path="TESTS">
    <Tempo>Beats</Tempo>

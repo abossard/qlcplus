@@ -82,8 +82,8 @@ var testAlgo;
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() {
-        return (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            ? algo.gradientBandColors.slice() : DEFAULT_BANDS.slice();
+        return (algo.colors && algo.colors.length >= 3)
+            ? algo.colors.slice() : DEFAULT_BANDS.slice();
     };
 
     algo.blendToWhite = function(c, t) {
@@ -93,7 +93,7 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         var dt = audio.timing.consumerDtMs / 1000.0;
         var nBands = (algo.presetBands === "1") ? 1 : 3;
         var gravity   = algo.presetGravity / 100.0;
@@ -132,8 +132,8 @@ var testAlgo;
             algo.peakFlash[i] *= Math.exp(-dt / flashTau);
         }
 
-        var bandColors = (algo.gradientBandColors && algo.gradientBandColors.length >= 3)
-            ? algo.gradientBandColors : DEFAULT_BANDS;
+        var bandColors = (algo.colors && algo.colors.length >= 3)
+            ? algo.colors : DEFAULT_BANDS;
         var horizontal = (algo.presetAxis === "Horizontal");
 
         var totalLong  = horizontal ? width  : height;
@@ -158,20 +158,20 @@ var testAlgo;
                     // bars extend from left
                     for (var x = 0; x < barLen; x++) {
                         if (c >= 0 && c < height && x >= 0 && x < width)
-                            RGBUtil.setPixel(map, width, x, c, barColor.h, barColor.s, barColor.v);
+                            HSVUtil.setPixel(map, width, x, c, barColor.h, barColor.s, barColor.v);
                     }
                     if (peakIdx >= 0 && peakIdx < width && c >= 0 && c < height)
-                        RGBUtil.setPixel(map, width, peakIdx, c, flashColor.h, flashColor.s, flashColor.v);
+                        HSVUtil.setPixel(map, width, peakIdx, c, flashColor.h, flashColor.s, flashColor.v);
                 } else {
                     // bars rise from bottom
                     for (var y = 0; y < barLen; y++) {
                         var rowY = height - 1 - y;
                         if (rowY >= 0 && rowY < height && c >= 0 && c < width)
-                            RGBUtil.setPixel(map, width, c, rowY, barColor.h, barColor.s, barColor.v);
+                            HSVUtil.setPixel(map, width, c, rowY, barColor.h, barColor.s, barColor.v);
                     }
                     var prow = height - 1 - peakIdx;
                     if (prow >= 0 && prow < height && c >= 0 && c < width)
-                        RGBUtil.setPixel(map, width, c, prow, flashColor.h, flashColor.s, flashColor.v);
+                        HSVUtil.setPixel(map, width, c, prow, flashColor.h, flashColor.s, flashColor.v);
                 }
             }
         }

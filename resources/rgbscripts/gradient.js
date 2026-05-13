@@ -138,7 +138,7 @@ var testAlgo;
       }
 
       var gradStep = 0;
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       for (var y = 0; y < height; y++)
       {
 

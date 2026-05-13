@@ -84,12 +84,12 @@ var testAlgo;
     var lastWidth = 0;
 
     function gradientStops() {
-        return (algo.gradientColors && algo.gradientColors.length > 0) ? algo.gradientColors : DEFAULT_GRADIENT;
+        return (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
     }
 
     function bandColors() {
-        if (algo.gradientBandColors && algo.gradientBandColors.length > 0)
-            return algo.gradientBandColors;
+        if (algo.colors && algo.colors.length > 0)
+            return algo.colors;
         return [
             {h: 0.0,   s: 1.0, v: 1.0},
             {h: 0.333, s: 1.0, v: 1.0},
@@ -138,7 +138,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return DEFAULT_GRADIENT.slice(); };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         if (lastWidth !== width) {
             scanPos = 0.0;
@@ -169,7 +169,7 @@ var testAlgo;
         if (algo.full_grad === "Yes") {
             for (var gx = 0; gx < width; gx++) {
                 var t = width <= 1 ? 0 : gx / (width - 1);
-                strip[gx] = RGBUtil.gradientAt(gradientStops(), t);
+                strip[gx] = HSVUtil.gradientAt(gradientStops(), t);
             }
         } else {
             for (var zx = 0; zx < width; zx++) strip[zx] = {h: 0, s: 0, v: 0};
@@ -178,7 +178,7 @@ var testAlgo;
         var scanColor;
         if (algo.use_grad === "Yes") {
             var gt = ((scanPos / width) % 1 + 1) % 1;
-            scanColor = RGBUtil.gradientAt(gradientStops(), gt);
+            scanColor = HSVUtil.gradientAt(gradientStops(), gt);
         } else {
             var bc = bandColors();
             scanColor = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
@@ -216,7 +216,7 @@ var testAlgo;
         strip = boxBlur(strip, algo.blur);
         for (var y = 0; y < height; y++)
             for (var x = 0; x < width; x++)
-                RGBUtil.setPixel(map, width, x, y, strip[x].h, strip[x].s, strip[x].v);
+                HSVUtil.setPixel(map, width, x, y, strip[x].h, strip[x].s, strip[x].v);
         return map;
     };
 

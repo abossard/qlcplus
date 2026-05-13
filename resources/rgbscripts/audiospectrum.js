@@ -101,10 +101,10 @@ var testAlgo;
     {
       var pixelCount = width * height;
       ensureState(pixelCount);
-      var map = RGBUtil.createMap(width, height);
+      var map = HSVUtil.createMap(width, height);
       if (!audio) return map;
 
-      var y = RGBUtil.interpolate((audio.power && audio.power.bands) || [], pixelCount);
+      var y = HSVUtil.interpolate((audio.power && audio.power.bands) || [], pixelCount);
       var filtered = y.slice();
       var filt = updateFilter(y);
       var mix = rgbMixes[algo.presetRgbMix];

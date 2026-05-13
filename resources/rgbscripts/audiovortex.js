@@ -61,7 +61,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var map = RGBUtil.createMap(width, height);
+        var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
         var dtMs = audio.timing.consumerDtMs;
@@ -69,7 +69,7 @@ var testAlgo;
 
         var power = audio.power.low;
         var speed = algo.presetSpeed;
-        var angle = RGBUtil.beatTime(speed * (1 + power * algo.presetReactivity), vortexState, bpm, dtMs) * Math.PI * 2;
+        var angle = HSVUtil.beatTime(speed * (1 + power * algo.presetReactivity), vortexState, bpm, dtMs) * Math.PI * 2;
 
         var cx = width / 2;
         var cy = height / 2;
