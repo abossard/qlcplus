@@ -283,6 +283,30 @@ Rectangle
                     onCurrentIndexChanged: rgbMatrixEditor.controlMode = currentIndex
                 }
 
+                // Brightness
+                RobotoText
+                {
+                    label: qsTr("Brightness")
+                    height: editorColumn.itemsHeight
+                    onWidthChanged:
+                    {
+                        editorColumn.checkLabelWidth(width)
+                        width = Qt.binding(function() { return editorColumn.firstColumnWidth })
+                    }
+                }
+                CustomDoubleSpinBox
+                {
+                    Layout.columnSpan: 2
+                    Layout.fillWidth: true
+                    height: editorColumn.itemsHeight
+                    decimals: 2
+                    realFrom: 0
+                    realTo: 1000
+                    realStep: 0.01
+                    realValue: rgbMatrixEditor.brightness
+                    onRealValueChanged: rgbMatrixEditor.brightness = realValue
+                }
+
                 // Rotation
                 RobotoText
                 {

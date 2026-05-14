@@ -47,6 +47,7 @@ class RGBMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int rotation READ rotation WRITE setRotation NOTIFY rotationChanged)
     Q_PROPERTY(int mirror READ mirror WRITE setMirror NOTIFY mirrorChanged)
     Q_PROPERTY(int mirrorBlend READ mirrorBlend WRITE setMirrorBlend NOTIFY mirrorBlendChanged)
+    Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness NOTIFY brightnessChanged)
 
     Q_PROPERTY(int beatEffect READ beatEffect WRITE setBeatEffect NOTIFY beatEffectChanged)
     Q_PROPERTY(int beatSelection READ beatSelection WRITE setBeatSelection NOTIFY beatSelectionChanged)
@@ -186,10 +187,14 @@ public:
     int mirrorBlend() const;
     void setMirrorBlend(int b);
 
+    qreal brightness() const;
+    void setBrightness(qreal b);
+
 signals:
     void rotationChanged();
     void mirrorChanged();
     void mirrorBlendChanged();
+    void brightnessChanged();
 
     /************************************************************************
      * Beat Transform

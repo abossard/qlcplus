@@ -45,7 +45,7 @@ var testAlgo;
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
     algo.getSaturation = function() { return algo.presetSaturation; };
-    algo.setComplexity = function(_v) { algo.presetComplexity = parseInt(_v); };
+    algo.setComplexity = function(_v) { algo.presetComplexity = parseFloat(_v); };
     algo.getComplexity = function() { return algo.presetComplexity; };
 
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
@@ -81,13 +81,13 @@ var testAlgo;
     function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
 
     function bandColors() {
-        if (algo.colors && algo.colors.length >= 3)
+        if (algo.hasUserColors && algo.colors.length >= 3)
             return algo.colors;
         return DEFAULT_BAND_COLORS;
     }
 
     function dominantBandHsv(audio) {
-        var dom = audio.power.dominant;
+        var dom = (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
         var bc = bandColors();
         if (dom === "mid")  return bc[1];
         if (dom === "high") return bc[2];
@@ -96,39 +96,42 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return bandColors().slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-
-        var lowPower = audio.power.low;
+        var dt = audio.dt;
+        var lowPower = audio.low;
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
         var satThreshold = algo.presetSaturation;
         var complexity = algo.presetComplexity;
 
-        var boost = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS;
+        // Audio-reactive time boost (extra beats per frame)
+        var boostBeats = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS * audio.bpm / 60000;
+        var effectiveDt = audio.dt + boostBeats;
 
         // t1 and t2 share the slow accumulator (read once, reuse value).
-        var slow01 = HSVUtil.beatTime(speed, phaseSlow, bpm, dt + boost);
+        phaseSlow.phase = (phaseSlow.phase + effectiveDt * speed) % 1.0;
+        var slow01 = phaseSlow.phase;
         var t1 = slow01 * Math.PI * 2;
         var t2 = slow01;
-        var t3 = HSVUtil.beatTime(speed * MED_RATIO,  phaseMed,  bpm, dt + boost);
-        var t4 = HSVUtil.beatTime(speed * T4_RATIO,   phaseT4,   bpm, dt + boost) * Math.PI * 2;
-        var t5 = HSVUtil.beatTime(speed * T5_RATIO,   phaseT5,   bpm, dt + boost);
-        var t6 = HSVUtil.beatTime(speed * FAST_RATIO, phaseFast, bpm, dt + boost);
+        phaseMed.phase = (phaseMed.phase + effectiveDt * speed * MED_RATIO) % 1.0;
+        var t3 = phaseMed.phase;
+        phaseT4.phase = (phaseT4.phase + effectiveDt * speed * T4_RATIO) % 1.0;
+        var t4 = phaseT4.phase * Math.PI * 2;
+        phaseT5.phase = (phaseT5.phase + effectiveDt * speed * T5_RATIO) % 1.0;
+        var t5 = phaseT5.phase;
+        phaseFast.phase = (phaseFast.phase + effectiveDt * speed * FAST_RATIO) % 1.0;
+        var t6 = phaseFast.phase;
 
-        if (audio.onset.fired || audio.beat.kick) {
+        if (audio.onset || audio.beatFired) {
             flashColor = dominantBandHsv(audio);
-            var hitScale = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onset.intensity);
+            var hitScale = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onsetIntensity);
             flashLevel = hitScale;
         }
         var dominant = (flashLevel > 0.01 && flashColor) ? flashColor : dominantBandHsv(audio);

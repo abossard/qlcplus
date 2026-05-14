@@ -36,16 +36,15 @@ var testAlgo;
     algo.properties.push("name:chop|type:float|display:Chop|write:setChop|read:getChop");
     algo.properties.push("name:stretch|type:float|display:Stretch|write:setStretch|read:getStretch");
 
-    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
-    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.00001, 1); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.00001, 1); };
+    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
     algo.getReactivity = function() { return algo.reactivity; };
-    algo.setSway = function(v) { algo.sway = clamp(v, 0.00001, 50); };
+    algo.setSway = function(v) { algo.sway = parseFloat(v); };
     algo.getSway = function() { return algo.sway; };
-    algo.setChop = function(v) { algo.chop = clamp(v, 0.00001, 100); };
+    algo.setChop = function(v) { algo.chop = parseFloat(v); };
     algo.getChop = function() { return algo.chop; };
-    algo.setStretch = function(v) { algo.stretch = clamp(v, 0.00001, 10); };
+    algo.setStretch = function(v) { algo.stretch = parseFloat(v); };
     algo.getStretch = function() { return algo.stretch; };
 
     var TWO_PI = 2 * Math.PI;
@@ -68,10 +67,8 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio.beat) ? audio.beat.bpm : 0;
-
-        var rawLows = audio.power.low;
+        var dt = audio.dt;
+        var rawLows = audio.low;
         var alpha = 0.1;
         emaLows = alpha * rawLows + (1 - alpha) * emaLows;
         var lows = emaLows;
@@ -82,7 +79,7 @@ var testAlgo;
         var chop = algo.chop;
         var stretch = algo.stretch;
 
-        var timeAccum = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var timeAccum = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
         var timestep = timeAccum + lows * reactivity * speed;
 
         var t1 = hsvTime(speed * sway, timestep);

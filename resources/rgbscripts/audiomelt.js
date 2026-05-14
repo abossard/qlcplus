@@ -30,10 +30,9 @@ var testAlgo;
     algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
     algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
-    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.001, 1); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.0001, 1); };
+    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
     algo.getReactivity = function() { return algo.reactivity; };
 
     var TWO_PI = 2 * Math.PI;
@@ -56,10 +55,8 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio.beat) ? audio.beat.bpm : 0;
-
-        var rawLows = audio.power.low;
+        var dt = audio.dt;
+        var rawLows = audio.low;
         var alpha = 0.1;
         emaLows = alpha * rawLows + (1 - alpha) * emaLows;
         var lows = emaLows;
@@ -68,7 +65,7 @@ var testAlgo;
         var reactivity = algo.reactivity;
 
         // BPM-scaled free-running time + audio-reactive offset (not accumulated).
-        var baseTime = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var baseTime = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
         var timestep = baseTime + lows * reactivity / speed;
 
         var t1 = hsvTime(speed * 5, timestep);

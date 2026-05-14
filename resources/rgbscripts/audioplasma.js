@@ -49,19 +49,25 @@ var testAlgo;
     algo.properties.push("name:radius|type:float|display:Radius|write:setRadius|read:getRadius");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
-    algo.setDensity = function(v) { algo.density = clamp(parseFloat(v), 0.001, 2.0); };
+    algo.setDensity = function(v) { algo.density = parseFloat(v); };
     algo.getDensity = function() { return algo.density; };
-    algo.setLower = function(v) { algo.lower = clamp(parseFloat(v), 0.01, 1.0); };
+    algo.setLower = function(v) { algo.lower = parseFloat(v); };
     algo.getLower = function() { return algo.lower; };
-    algo.setDensityVertical = function(v) { algo.density_vertical = clamp(parseFloat(v), 0.01, 0.3); };
+    algo.setDensityVertical = function(v) { algo.density_vertical = parseFloat(v); };
     algo.getDensityVertical = function() { return algo.density_vertical; };
-    algo.setTwist = function(v) { algo.twist = clamp(parseFloat(v), 0.01, 0.3); };
+    algo.setTwist = function(v) { algo.twist = parseFloat(v); };
     algo.getTwist = function() { return algo.twist; };
-    algo.setRadius = function(v) { algo.radius = clamp(parseFloat(v), 0.01, 1.0); };
+    algo.setRadius = function(v) { algo.radius = parseFloat(v); };
     algo.getRadius = function() { return algo.radius; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPower = 0;
 
     var timeState = { position: 0 };
 
@@ -71,11 +77,11 @@ var testAlgo;
     }
 
     function powerFor(audio) {
-        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
-        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
-        if (algo.frequency_range === "Mids") return audio.power.mid;
-        if (algo.frequency_range === "High") return audio.power.high;
-        return audio.power.low; // Lows (beat+bass)
+        if (algo.frequency_range === "Beat") return audio.beat;
+        if (algo.frequency_range === "Bass") return audio.bass;
+        if (algo.frequency_range === "Mids") return audio.mid;
+        if (algo.frequency_range === "High") return audio.high;
+        return audio.low; // Lows (beat+bass)
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -89,14 +95,18 @@ var testAlgo;
         if (!audio) return map;
         if (width <= 0 || height <= 0) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio.beat) ? audio.beat.bpm : 0;
-
+        var dt = audio.dt;
         // BPM-scaled free-running time replaces LedFX's wall-clock self.now.
         // One unit of "time" advances per beat (matches LedFX seconds at 60 BPM).
-        var time = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var time = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
 
-        var power = powerFor(audio);
+        var rawPower = powerFor(audio);
+        // Asymmetric EMA smoothing (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothPower += (rawPower > smoothPower ? riseAlpha : decayAlpha) * (rawPower - smoothPower);
+        var power = smoothPower;
         var density = algo.density;
         var lower = algo.lower;
         var density_vertical = algo.density_vertical;

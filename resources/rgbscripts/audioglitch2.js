@@ -73,24 +73,28 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-
+        var dt = audio.dt;
         var speed = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
         var satThreshold = algo.presetSaturation;
-        var lowPower = audio.power.low;
+        var lowPower = audio.low;
 
-        // Old code added `(lowPower*reactivity01)/speed` to a seconds-based
-        // accumulator. Convert to ms-equivalent boost (×1000).
-        var boostMs = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000;
+        // Audio-reactive time boost (extra beats per frame)
+        var boostBeats = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000 * audio.bpm / 60000;
+        var effectiveDt = audio.dt + boostBeats;
 
-        var t1 = HSVUtil.beatTime(speed * T1_RATIO, stT1, bpm, dtMs + boostMs);
-        var t2 = HSVUtil.beatTime(speed * T2_RATIO, stT2, bpm, dtMs + boostMs);
-        var t3 = HSVUtil.beatTime(speed * T3_RATIO, stT3, bpm, dtMs + boostMs);
-        var t4 = HSVUtil.beatTime(speed,            stT4, bpm, dtMs + boostMs);
-        var t5 = HSVUtil.beatTime(speed * T5_RATIO, stT5, bpm, dtMs + boostMs);
-        var t6 = HSVUtil.beatTime(speed * T6_RATIO, stT6, bpm, dtMs + boostMs);
+        stT1.phase = (stT1.phase + effectiveDt * speed * T1_RATIO) % 1.0;
+        var t1 = stT1.phase;
+        stT2.phase = (stT2.phase + effectiveDt * speed * T2_RATIO) % 1.0;
+        var t2 = stT2.phase;
+        stT3.phase = (stT3.phase + effectiveDt * speed * T3_RATIO) % 1.0;
+        var t3 = stT3.phase;
+        stT4.phase = (stT4.phase + effectiveDt * speed) % 1.0;
+        var t4 = stT4.phase;
+        stT5.phase = (stT5.phase + effectiveDt * speed * T5_RATIO) % 1.0;
+        var t5 = stT5.phase;
+        stT6.phase = (stT6.phase + effectiveDt * speed * T6_RATIO) % 1.0;
+        var t6 = stT6.phase;
 
         var m = STRIPE_MID + HSVUtil.triangle(t2) * STRIPE_AMP;
         var c = HSVUtil.triangle(t3) * 10 + 4 * Math.sin(2 * Math.PI * t4);

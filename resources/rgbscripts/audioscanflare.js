@@ -79,24 +79,38 @@ var testAlgo;
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWidth = function(_v) { algo.presetWidth = parseInt(_v); };
+    algo.setWidth = function(_v) { algo.presetWidth = parseFloat(_v); };
     algo.getWidth = function() { return algo.presetWidth; };
-    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
     algo.setMaxSparkles = function(_v) { algo.presetMaxSparkles = parseInt(_v); };
     algo.getMaxSparkles = function() { return algo.presetMaxSparkles; };
-    algo.setSparkleSize = function(_v) { algo.presetSparkleSize = parseInt(_v); };
+    algo.setSparkleSize = function(_v) { algo.presetSparkleSize = parseFloat(_v); };
     algo.getSparkleSize = function() { return algo.presetSparkleSize; };
-    algo.setSparkleTime = function(_v) { algo.presetSparkleTime = parseInt(_v); };
+    algo.setSparkleTime = function(_v) { algo.presetSparkleTime = parseFloat(_v); };
     algo.getSparkleTime = function() { return algo.presetSparkleTime; };
-    algo.setSparkleThreshold = function(_v) { algo.presetSparkleThreshold = parseInt(_v); };
+    algo.setSparkleThreshold = function(_v) { algo.presetSparkleThreshold = parseFloat(_v); };
     algo.getSparkleThreshold = function() { return algo.presetSparkleThreshold; };
     algo.setColorIntensity = function(_v) { algo.presetColorIntensity = (_v === "Yes") ? 1 : 0; };
     algo.getColorIntensity = function() { return algo.presetColorIntensity ? "Yes" : "No"; };
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothLow = 0;
+
+    // Bar-level build-up / release state
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
 
     var SPARKLE_MIN_INTERVAL_MS = 50;
 
@@ -151,14 +165,29 @@ var testAlgo;
             algo.lastN = n;
         }
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
-        algo.elapsedMs += audio.timing.consumerDtMs;
-
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-        var bpmEff = (bpm > 0) ? bpm : 120;
+        var dt = audio.dt * 60.0 / audio.bpm;
+        algo.elapsedMs += (audio.dt * 60000 / audio.bpm);
+        var bpmEff = (audio.bpm > 0) ? audio.bpm : 120;
         var beatsPerSec = bpmEff / 60.0;
 
-        var power = audio.power.low;
+        var rawLow = audio.low;
+        // Asymmetric EMA on low (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothLow += (rawLow > smoothLow ? riseAlpha : decayAlpha) * (rawLow - smoothLow);
+        var power = smoothLow;
+
+        // --- Bar-level build-up ---
+        barEnergy += rawLow * dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
+
         var multiplier = algo.presetMultiplier / 100.0;
         var bar = power * multiplier;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
@@ -208,6 +237,9 @@ var testAlgo;
         var scanHsv = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
         if (algo.presetColorIntensity === 1)
             scanHsv = {h: scanHsv.h, s: scanHsv.s, v: scanHsv.v * Math.min(1, power)};
+        // Release flares the scanner brightness on downbeat
+        if (releaseFlash > 0.01)
+            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: Math.min(1, scanHsv.v + releaseFlash * 0.5)};
         drawSegment(strip, n, algo.scanPos, scanW, scanHsv);
 
         var alive = [];

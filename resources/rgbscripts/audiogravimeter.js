@@ -27,28 +27,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetGravity|type:range|display:Gravity (units/s^2)|" +
       "values:50,800|write:setGravity|read:getGravity");
-    algo.setGravity = function(v) { algo.presetGravity = parseInt(v); };
+    algo.setGravity = function(v) { algo.presetGravity = parseFloat(v); };
     algo.getGravity = function() { return algo.presetGravity; };
 
     algo.presetPeakDecay = 50;
     algo.properties.push(
       "name:presetPeakDecay|type:range|display:Peak Decay (units/s)|" +
       "values:5,300|write:setPeakDecay|read:getPeakDecay");
-    algo.setPeakDecay = function(v) { algo.presetPeakDecay = parseInt(v); };
+    algo.setPeakDecay = function(v) { algo.presetPeakDecay = parseFloat(v); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
     algo.presetPeakHoldMs = 800;
     algo.properties.push(
       "name:presetPeakHoldMs|type:range|display:Peak Hold (ms)|" +
       "values:100,3000|write:setPeakHoldMs|read:getPeakHoldMs");
-    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = parseInt(v); };
+    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = parseFloat(v); };
     algo.getPeakHoldMs = function() { return algo.presetPeakHoldMs; };
 
     algo.presetPeakFlashMs = 150;
     algo.properties.push(
       "name:presetPeakFlashMs|type:range|display:Peak Flash Decay (ms)|" +
       "values:30,1000|write:setPeakFlashMs|read:getPeakFlashMs");
-    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = parseInt(v); };
+    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = parseFloat(v); };
     algo.getPeakFlashMs = function() { return algo.presetPeakFlashMs; };
 
     algo.presetBands = "3";
@@ -94,17 +94,17 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dt = audio.dt * 60.0 / audio.bpm;
         var nBands = (algo.presetBands === "1") ? 1 : 3;
         var gravity   = algo.presetGravity / 100.0;
         var peakDecay = algo.presetPeakDecay / 100.0;
         var peakHoldMs = algo.presetPeakHoldMs;
         var flashTau   = algo.presetPeakFlashMs / 1000.0;
 
-        var bandPowers = audio.power.bands;
+        var bandPowers = [audio.low, audio.mid, audio.high];
 
         for (var i = 0; i < nBands; i++) {
-            var srcVal = (nBands === 1) ? audio.power.low : bandPowers[i];
+            var srcVal = (nBands === 1) ? audio.low : bandPowers[i];
 
             if (srcVal > algo.heights[i]) {
                 algo.heights[i] = srcVal;
@@ -119,15 +119,15 @@ var testAlgo;
                 algo.peaks[i] = algo.heights[i];
                 algo.peakAge[i] = 0;
             } else {
-                algo.peakAge[i] += audio.timing.consumerDtMs;
+                algo.peakAge[i] += (audio.dt * 60000 / audio.bpm);
                 if (algo.peakAge[i] > peakHoldMs) {
                     var np = algo.peaks[i] - peakDecay * dt;
                     algo.peaks[i] = np < 0 ? 0 : np;
                 }
             }
 
-            var fireKick = audio.beat.kick &&
-                (i === 0 || audio.power.dominant === BAND_NAMES[i]);
+            var fireKick = audio.beatFired &&
+                (i === 0 || (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})() === BAND_NAMES[i]);
             if (fireKick) algo.peakFlash[i] = 1.0;
             algo.peakFlash[i] *= Math.exp(-dt / flashTau);
         }

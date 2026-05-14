@@ -40,9 +40,6 @@ var testAlgo;
       "name:presetMinBrightness|type:float|display:MinBrightness|" +
       "write:setMinBrightness|read:getMinBrightness");
 
-    var PITCH_CONF_THRESH = 0.5;
-    var CENTROID_MIN_HZ = 200;
-    var CENTROID_RANGE_HZ = 3800;
     var BEAT_MOD = 0.12;
     var VOL_BRI_SCALE = 0.15;
     var WAVE_FREQ_X = 0.3;
@@ -61,19 +58,20 @@ var testAlgo;
     algo.setMinBrightness = function(_v) { algo.presetMinBrightness = parseFloat(_v); };
     algo.getMinBrightness = function() { return algo.presetMinBrightness; };
 
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothVolume = 0;
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    function clamp(v, min, max) {
-        return Math.max(min, Math.min(max, v));
-    }
 
-    function clampInt(v, min, max) {
-        var parsed = parseInt(v);
-        if (isNaN(parsed)) parsed = min;
-        return clamp(parsed, min, max);
-    }
 
     function wrapHue(hue) {
         return ((hue % 1.0) + 1.0) % 1.0;
@@ -90,28 +88,30 @@ var testAlgo;
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
-        var bass = audio.power.low;
-        var mids = audio.power.mid;
-        var highs = audio.power.high;
+        var bass = audio.low;
+        var mids = audio.mid;
+        var highs = audio.high;
 
-        // Pitch-driven hue: map pitch to hue offset (one octave = full hue cycle)
-        var pitch = audio.pitch.confidence < PITCH_CONF_THRESH ? 0 : audio.pitch.hz;
-        var pitchHueOffset = 0;
-        if (pitch > 0) {
-            pitchHueOffset = ((Math.log2(pitch / 110) % 1) + 1) % 1;
-        }
-
+        // Drive hue from low/mid/high proportions
         var totalPower = bass + mids + highs + 0.001;
         var targetHue = (bass * 0.0 + mids * 0.33 + highs * 0.66) / totalPower;
-        targetHue = wrapHue(targetHue + Math.max(0, Math.min(1, (audio.features.centroidHz - CENTROID_MIN_HZ) / CENTROID_RANGE_HZ)) * 0.33 + pitchHueOffset * 0.4);
+        // High-frequency content shifts hue further
+        var highRatio = highs / totalPower;
+        targetHue = wrapHue(targetHue + highRatio * 0.33);
         var speedRate = algo.presetSpeed;
         currentHue = lerpHue(currentHue, targetHue, speedRate);
 
         var minBrightness = algo.presetMinBrightness;
-        var volume = (bass + mids + highs) / 3.0;
+        var rawVolume = (bass + mids + highs) / 3.0;
+        // Asymmetric EMA smoothing (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothVolume += (rawVolume > smoothVolume ? riseAlpha : decayAlpha) * (rawVolume - smoothVolume);
+        var volume = smoothVolume;
         // Steady brightness with subtle audio + beat pulse modulation
-        var beatMod = audio.beat.cosPulse * BEAT_MOD;
-        var brightness = clamp(minBrightness + volume * VOL_BRI_SCALE + beatMod, minBrightness, 1.0);
+        var beatMod = audio.cosPulse * BEAT_MOD;
+        var brightness = Math.max(minBrightness, Math.min(1.0, minBrightness + volume * VOL_BRI_SCALE + beatMod));
         var waveScale = algo.presetWaveScale;
         var saturation = algo.presetSaturation;
 
@@ -119,7 +119,7 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var wave = Math.sin(x * WAVE_FREQ_X + y * WAVE_FREQ_Y + step * WAVE_TIME_FREQ) * waveScale;
                 var pixelHue = wrapHue(currentHue + wave);
-                var baseBri = clamp(brightness + wave * WAVE_BRI_AMP, minBrightness, 1.0);
+                var baseBri = Math.max(minBrightness, Math.min(1.0, brightness + wave * WAVE_BRI_AMP));
                 var pixelBri = baseBri;
                 HSVUtil.setPixel(map, width, x, y, pixelHue, saturation, pixelBri);
             }

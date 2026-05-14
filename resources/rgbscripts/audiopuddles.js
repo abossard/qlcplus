@@ -47,28 +47,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetExpansionSpeed|type:range|display:Expansion Speed (px/s)|" +
       "values:5,200|write:setExpansionSpeed|read:getExpansionSpeed");
-    algo.setExpansionSpeed = function(v) { algo.presetExpansionSpeed = parseInt(v); };
+    algo.setExpansionSpeed = function(v) { algo.presetExpansionSpeed = parseFloat(v); };
     algo.getExpansionSpeed = function() { return algo.presetExpansionSpeed; };
 
     algo.presetMaxRadius = 30;
     algo.properties.push(
       "name:presetMaxRadius|type:range|display:Max Radius (px)|" +
       "values:4,120|write:setMaxRadius|read:getMaxRadius");
-    algo.setMaxRadius = function(v) { algo.presetMaxRadius = parseInt(v); };
+    algo.setMaxRadius = function(v) { algo.presetMaxRadius = parseFloat(v); };
     algo.getMaxRadius = function() { return algo.presetMaxRadius; };
 
     algo.presetLifeMs = 1500;
     algo.properties.push(
       "name:presetLifeMs|type:range|display:Ripple Lifetime (ms)|" +
       "values:200,5000|write:setLifeMs|read:getLifeMs");
-    algo.setLifeMs = function(v) { algo.presetLifeMs = parseInt(v); };
+    algo.setLifeMs = function(v) { algo.presetLifeMs = parseFloat(v); };
     algo.getLifeMs = function() { return algo.presetLifeMs; };
 
     algo.presetRingWidth = 2;
     algo.properties.push(
       "name:presetRingWidth|type:range|display:Ring Width (px)|" +
       "values:1,8|write:setRingWidth|read:getRingWidth");
-    algo.setRingWidth = function(v) { algo.presetRingWidth = parseInt(v); };
+    algo.setRingWidth = function(v) { algo.presetRingWidth = parseFloat(v); };
     algo.getRingWidth = function() { return algo.presetRingWidth; };
 
     algo.presetTrigger = "Onset";
@@ -82,15 +82,8 @@ var testAlgo;
     algo.properties.push(
       "name:presetMinSpawnMs|type:range|display:Min Spawn Interval (ms)|" +
       "values:0,500|write:setMinSpawnMs|read:getMinSpawnMs");
-    algo.setMinSpawnMs = function(v) { algo.presetMinSpawnMs = parseInt(v); };
+    algo.setMinSpawnMs = function(v) { algo.presetMinSpawnMs = parseFloat(v); };
     algo.getMinSpawnMs = function() { return algo.presetMinSpawnMs; };
-
-    algo.presetMinPitchConfidence = 30;
-    algo.properties.push(
-      "name:presetMinPitchConfidence|type:range|display:Min Pitch Confidence (%)|" +
-      "values:0,100|write:setMinPitchConf|read:getMinPitchConf");
-    algo.setMinPitchConf = function(v) { algo.presetMinPitchConfidence = parseInt(v); };
-    algo.getMinPitchConf = function() { return algo.presetMinPitchConfidence; };
 
     algo.ripples = [];
     algo.spawnAccumMs = 1e9; // start ready
@@ -98,7 +91,7 @@ var testAlgo;
     algo.dominantColor = function(audio) {
         var bands = (algo.colors && algo.colors.length >= 3)
             ? algo.colors : DEFAULT_BANDS;
-        var dom = audio.power.dominant;
+        var dom = (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
         return bands[dom === "high" ? 2 : (dom === "mid" ? 1 : 0)];
     };
 
@@ -108,35 +101,30 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dt = audio.dt * 60.0 / audio.bpm;
 
         var trigger = false;
         var intensity = 1.0;
         if (algo.presetTrigger === "Kick") {
-            trigger = audio.beat.kick;
-            intensity = audio.beat.kickIntensity;
+            trigger = audio.beatFired;
+            intensity = audio.onsetIntensity;
         } else if (algo.presetTrigger === "Beat") {
-            trigger = audio.beat.fired;
+            trigger = audio.beatFired;
             intensity = 1.0;
         } else {
-            trigger = audio.onset.fired;
-            intensity = audio.onset.intensity;
+            trigger = audio.onset;
+            intensity = audio.onsetIntensity;
         }
 
-        algo.spawnAccumMs += audio.timing.consumerDtMs;
+        algo.spawnAccumMs += (audio.dt * 60000 / audio.bpm);
         var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
         if (trigger && canSpawn) {
             var gradient = (algo.colors && algo.colors.length > 0)
                 ? algo.colors : DEFAULT_GRADIENT;
-            var color;
-            var minPC = algo.presetMinPitchConfidence / 100.0;
-            if (audio.pitch.confidence >= minPC) {
-                var pc = ((Math.round(audio.pitch.midi) % 12) + 12) % 12;
-                color = HSVUtil.gradientAt(gradient, pc / 11.0);
-            } else {
-                color = algo.dominantColor(audio);
-            }
+            // Hue cycles by ripple index
+            var rippleIdx = algo.ripples.length;
+            var color = HSVUtil.gradientAt(gradient, (rippleIdx % 12) / 11.0);
             var maxR = algo.presetMaxRadius * (0.5 + 0.5 * intensity);
             var ripple = {
                 cx: Math.floor(Math.random() * width),
@@ -166,7 +154,7 @@ var testAlgo;
         for (var i = algo.ripples.length - 1; i >= 0; i--) {
             var r = algo.ripples[i];
             r.radius += algo.presetExpansionSpeed * dt;
-            r.age += audio.timing.consumerDtMs;
+            r.age += (audio.dt * 60000 / audio.bpm);
             if (r.age >= r.lifeMs || r.radius > r.maxRadius) {
                 algo.ripples.splice(i, 1);
             }

@@ -44,7 +44,7 @@ var testAlgo;
       "name:presetBounce|type:list|display:Bounce|" +
       "values:No,Yes|write:setBounce|read:getBounce");
 
-    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseInt(_v); };
+    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseFloat(_v); };
     algo.getBaseSpeed = function() { return algo.presetBaseSpeed; };
     algo.setDotCount = function(_v) { algo.presetDotCount = parseInt(_v); };
     algo.getDotCount = function() { return algo.presetDotCount; };
@@ -60,6 +60,20 @@ var testAlgo;
     };
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPow = [0, 0, 0];
+
+    // Bar-level build-up / release state
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
 
     var DEFAULT_BAND_COLORS = [
         {h: 0.958, s: 1.0, v: 1.0},
@@ -124,12 +138,32 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dt = audio.dt * 60.0 / audio.bpm;
 
-        // Get 3 mel-bank powers and matching gradient colors
-        var powers = audio.power.bands;
-        var vol = audio.volume.normalized;
+        // Get 3 mel-bank powers; smooth (for brightness) and keep raw (for speed)
+        var rawPows = [audio.low, audio.mid, audio.high];
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        for (var sb = 0; sb < 3; sb++) {
+            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
+            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
+        }
+        var powers = rawPows;        // for speed (responsive)
+        var briPowers = smoothPow;   // for brightness (smoothed)
+        var vol = audio.low;
         var colorStops = algo.colors || DEFAULT_BAND_COLORS;
+
+        // --- Bar-level build-up ---
+        var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
+        barEnergy += rawEnergy * dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
 
         // Speed multiplier from audio
         var speedMult;
@@ -144,8 +178,14 @@ var testAlgo;
         var baseSpeed = algo.presetBaseSpeed * 5;
         var trailLen = algo.presetTrailLength;
 
+        // Bar build-up subtly accelerates dots through the bar; the release
+        // burst on downbeat resets accumulation (peakEnergy=0) so speed dips
+        // to its baseline, producing a natural "swing".
+        var buildupBoost = 1.0 + Math.min(0.4, peakEnergy * 0.25);
+        speedMult *= buildupBoost;
+
         // Kick flash for speed boost
-        var kickFlash = audio.beat.kick ? 1.0 : 0.0;
+        var kickFlash = audio.beatFired ? 1.0 : 0.0;
         speedMult += kickFlash * 0.5;
 
         // Move dots
@@ -168,8 +208,10 @@ var testAlgo;
 
             // Render dot with trail
             var color = colorStops[dot.band];
-            var beatBoost = 1.0 + 0.25 * audio.beat.cosPulse;
-            var brightness = (0.5 + bandPower * 0.5) * beatBoost;
+            var beatBoost = 1.0 + 0.25 * audio.cosPulse;
+            // Release adds a brightness burst on the downbeat
+            var brightness = (0.5 + briPowers[dot.band] * 0.5) * beatBoost + releaseFlash * 0.35;
+            brightness = Math.min(1.5, brightness);
             var headX = Math.floor(dot.pos);
 
             for (var t = 0; t < trailLen + 1; t++) {

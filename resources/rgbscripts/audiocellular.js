@@ -51,7 +51,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSeedThreshold|type:range|display:Seed Threshold (%)|" +
       "values:0,100|write:setSeedThreshold|read:getSeedThreshold");
-    algo.setSeedThreshold = function(_v) { algo.presetSeedThreshold = parseInt(_v); };
+    algo.setSeedThreshold = function(_v) { algo.presetSeedThreshold = parseFloat(_v); };
     algo.getSeedThreshold = function() { return algo.presetSeedThreshold; };
 
     algo.presetScrollHz = 4.0;
@@ -115,35 +115,32 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-      return (algo.colors && algo.colors.length >= 3)
-        ? algo.colors.slice() : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dt = audio.timing.consumerDtMs / 1000.0;
+      var dt = audio.dt * 60.0 / audio.bpm;
       ensureHistory(width, height);
       var N = width;
       var H = height;
       var rulePool = getRulePool();
 
-      if (audio.beat.fired) {
+      if (audio.beatFired) {
         algo.ruleIdx = (algo.ruleIdx + 1) % rulePool.length;
         algo.rule = rulePool[algo.ruleIdx];
       }
 
-      if (audio.bar.downbeatFired) {
+      if (audio.downbeat) {
         for (var i = 0; i < algo.history.length; i++) algo.history[i] = 0;
         algo.row = 0;
         seedRow(N);
       }
 
-      if (audio.power.low > algo.presetSeedThreshold / 100.0) {
+      if (audio.low > algo.presetSeedThreshold / 100.0) {
         var seedX;
         if (algo.presetSeedMode === "Center") {
           seedX = Math.floor(N / 2);
         } else if (algo.presetSeedMode === "Bass") {
-          seedX = Math.min(N - 1, Math.floor(N * audio.power.low));
+          seedX = Math.min(N - 1, Math.floor(N * audio.low));
         } else {
           seedX = Math.floor(Math.random() * N);
         }
@@ -151,7 +148,7 @@ var testAlgo;
         algo.history[algo.row * N + seedX] = 1;
       }
 
-      var bpm = (audio.beat && audio.beat.bpm > 0) ? audio.beat.bpm : 120;
+      var bpm = (audio.bpm > 0) ? audio.bpm : 120;
       var beatsPerSec = bpm / 60.0;
       algo.scrollAccum += dt * algo.presetScrollHz * beatsPerSec;
       var rule = algo.rule;
@@ -183,8 +180,7 @@ var testAlgo;
         }
       }
 
-      var gradient = (algo.colors && algo.colors.length > 0)
-        ? algo.colors : DEFAULT_GRADIENT;
+      var gradient = algo.hasUserColors ? algo.colors : DEFAULT_GRADIENT;
 
       var map = HSVUtil.createMap(width, height);
       for (var y = 0; y < H; y++) {

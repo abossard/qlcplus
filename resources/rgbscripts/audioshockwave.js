@@ -67,33 +67,33 @@ var testAlgo;
     var MIN_RENDER_BRI = 0.005;
     var MIN_WAVE_INTENSITY = 0.01;
 
-    // Wave color default: white {h:0, s:0, v:1}
-    var waveColor = {h: 0, s: 0, v: 1};
-    // Background color default: dark blue
-    var bgColor = {h: 0.611, s: 1.0, v: 0.188};
+    // Wave and background colors: user-picked or defaults
+    var DEFAULT_WAVE = {h: 0, s: 0, v: 1};       // white
+    var DEFAULT_BG   = {h: 0.611, s: 1.0, v: 0.188}; // dark blue
+    var waveColor = DEFAULT_WAVE;
+    var bgColor   = DEFAULT_BG;
     var lastW = 0, lastH = 0;
 
-    function clamp(value, minValue, maxValue) {
-        return Math.max(minValue, Math.min(maxValue, value));
+    function updateColors() {
+        if (algo.hasUserColors) {
+            waveColor = algo.colors[0] || DEFAULT_WAVE;
+            bgColor   = (algo.colors.length > 1) ? algo.colors[1] : DEFAULT_BG;
+        }
     }
 
-    function clampInt(value, minValue, maxValue, defaultValue) {
-        var parsed = parseInt(value);
-        if (isNaN(parsed)) parsed = defaultValue;
-        return Math.max(minValue, Math.min(maxValue, parsed));
-    }
+
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.setMaxWaves = function(_v) { algo.presetMaxWaves = clampInt(_v, 1, 12, 6); };
+    algo.setMaxWaves = function(_v) { algo.presetMaxWaves = parseInt(_v); };
     algo.getMaxWaves = function() { return algo.presetMaxWaves; };
-    algo.setWaveWidth = function(_v) { algo.presetWaveWidth = clampInt(_v, 1, 5, 2); };
+    algo.setWaveWidth = function(_v) { algo.presetWaveWidth = parseFloat(_v); };
     algo.getWaveWidth = function() { return algo.presetWaveWidth; };
-    algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10, 5); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDecay = function(_v) { algo.presetDecay = clampInt(_v, 1, 10, 5); };
+    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     algo.setAmbientSpeed = function(_v) { algo.presetAmbientSpeed = parseFloat(_v); };
@@ -101,16 +101,28 @@ var testAlgo;
     algo.setWaveDecay = function(_v) { algo.presetWaveDecay = parseFloat(_v); };
     algo.getWaveDecay = function() { return algo.presetWaveDecay; };
 
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothLow = 0;
+
     function spawnWave(width, height, intensity, audio) {
         // Tint wave color toward dominant band color
-        var domHsv = AudioColors.dominantColor(algo, audio, waveColor, 0.05);
-        var color = AudioColors.blend(waveColor, domHsv, DOMINANT_TINT);
+        var domIdx = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
+        var domPower = Math.max(audio.low, audio.mid, audio.high);
+        var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3) ? algo.colors[domIdx] : waveColor;
+        var t = DOMINANT_TINT;
+        var color = {h: waveColor.h + (domHsv.h - waveColor.h) * t, s: waveColor.s + (domHsv.s - waveColor.s) * t, v: waveColor.v + (domHsv.v - waveColor.v) * t};
         algo.waves.push({
             cx: width / 2,
             cy: height / 2,
             radius: 0,
             maxRadius: Math.sqrt(width * width + height * height),
-            intensity: clamp(intensity * KICK_INTENSITY_BOOST, 0, MAX_INTENSITY),
+            intensity: Math.max(0, Math.min(MAX_INTENSITY, intensity * KICK_INTENSITY_BOOST)),
             color: color
         });
 
@@ -120,7 +132,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        var dtMs = audio && audio.timing && audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        updateColors();
+        var dtMs = audio ? (audio.dt * 60000 / audio.bpm) : 40;
         var frameScale = dtMs / 40;
         algo.dtAccum += dtMs;
         if (width !== lastW || height !== lastH) {
@@ -150,17 +163,21 @@ var testAlgo;
             }
         }
 
-        var bass = audio.power.low;
+        var bass = audio.low;
+        // Asymmetric EMA: smooth spawn-intensity driver
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothLow += (bass > smoothLow ? riseAlpha : decayAlpha) * (bass - smoothLow);
 
-        if (audio.bands.low.fired || audio.beat.kick || audio.onset.fired)
-            spawnWave(width, height, Math.max(0.5, bass), audio);
+        if (audio.beatFired || audio.onset)
+            spawnWave(width, height, Math.max(0.5, smoothLow), audio);
 
-        if (algo.waves.length < MAX_FILL_WAVES && bass > MIN_BASS_FOR_FILL)
+        if (algo.waves.length < MAX_FILL_WAVES && smoothLow > MIN_BASS_FOR_FILL)
             spawnWave(width, height, FILL_INTENSITY, audio);
 
-        // Render waves: accumulate per-pixel wave brightness and track dominant hue
+        // Render waves: intensity is snapshot at spawn, not re-read each frame
         var waveWidth = algo.presetWaveWidth;
-        var onsetIntensity = audio.onset.intensity;
         for (var wi = 0; wi < algo.waves.length; wi++) {
             var wave = algo.waves[wi];
             var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));
@@ -171,7 +188,7 @@ var testAlgo;
                     var ringDist = Math.abs(dist - wave.radius);
                     if (ringDist < waveWidth) {
                         var ringBri = (1 - ringDist / waveWidth);
-                        ringBri = Math.sqrt(ringBri) * wave.intensity * fade * onsetIntensity;
+                        ringBri = Math.sqrt(ringBri) * wave.intensity * fade;
 
                         if (ringBri > MIN_RENDER_BRI) {
                             var i3 = (y * width + x) * 3;

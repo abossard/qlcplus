@@ -32,12 +32,11 @@ var testAlgo;
     algo.properties.push("name:contrast|type:float|display:Contrast|write:setContrast|read:getContrast");
     algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
-    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.1, 15); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setContrast = function(v) { algo.contrast = clamp(v, 0, 1); };
+    algo.setContrast = function(v) { algo.contrast = parseFloat(v); };
     algo.getContrast = function() { return algo.contrast; };
-    algo.setReactivity = function(v) { algo.reactivity = clamp(v, 0.00001, 0.9); };
+    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
     algo.getReactivity = function() { return algo.reactivity; };
 
     var TWO_PI = 2 * Math.PI;
@@ -60,13 +59,11 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio.beat) ? audio.beat.bpm : 0;
-
+        var dt = audio.dt;
         // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
-        var timeAccum = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var timeAccum = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
 
-        var rawLows = audio.power.low;
+        var rawLows = audio.low;
         var alpha = (rawLows > emaLows) ? algo.reactivity : 0.05;
         emaLows = alpha * rawLows + (1 - alpha) * emaLows;
         var lows = emaLows;

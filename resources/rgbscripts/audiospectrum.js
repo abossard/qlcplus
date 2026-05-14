@@ -28,11 +28,7 @@ var testAlgo;
     algo.properties.push(
       "name:rgb_mix|type:range|display:RGB Mix|" +
       "values:0,5|write:setRgbMix|read:getRgbMix");
-    algo.setRgbMix = function(_v) {
-      _v = parseInt(_v);
-      if (isNaN(_v)) _v = 0;
-      algo.presetRgbMix = Math.max(0, Math.min(5, _v));
-    };
+    algo.setRgbMix = function(_v) { algo.presetRgbMix = parseFloat(_v); };
     algo.getRgbMix = function() { return algo.presetRgbMix; };
 
     var rgbMixes = [
@@ -47,7 +43,7 @@ var testAlgo;
     algo.properties.push(
       "name:decay|type:float|display:Decay|" +
       "write:setDecay|read:getDecay");
-    algo.setDecay = function(_v) { algo.presetDecay = Math.max(0, parseFloat(_v)); };
+    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     var prevY = null;
@@ -104,7 +100,7 @@ var testAlgo;
       var map = HSVUtil.createMap(width, height);
       if (!audio) return map;
 
-      var y = HSVUtil.interpolate((audio.power && audio.power.bands) || [], pixelCount);
+      var y = HSVUtil.interpolate([audio.low, audio.mid, audio.high], pixelCount);
       var filtered = y.slice();
       var filt = updateFilter(y);
       var mix = rgbMixes[algo.presetRgbMix];

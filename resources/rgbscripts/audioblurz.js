@@ -27,21 +27,21 @@ var testAlgo;
     algo.properties.push(
       "name:presetBlurRadius|type:range|display:Blur Radius (px)|" +
       "values:1,5|write:setBlurRadius|read:getBlurRadius");
-    algo.setBlurRadius = function(v) { algo.presetBlurRadius = parseInt(v); };
+    algo.setBlurRadius = function(v) { algo.presetBlurRadius = parseFloat(v); };
     algo.getBlurRadius = function() { return algo.presetBlurRadius; };
 
     algo.presetDecayMs = 800;
     algo.properties.push(
       "name:presetDecayMs|type:range|display:Decay Time (ms)|" +
       "values:100,5000|write:setDecayMs|read:getDecayMs");
-    algo.setDecayMs = function(v) { algo.presetDecayMs = parseInt(v); };
+    algo.setDecayMs = function(v) { algo.presetDecayMs = parseFloat(v); };
     algo.getDecayMs = function() { return algo.presetDecayMs; };
 
     algo.presetFluxThreshold = 25;
     algo.properties.push(
       "name:presetFluxThreshold|type:range|display:Flux Threshold (%)|" +
       "values:0,100|write:setFluxThreshold|read:getFluxThreshold");
-    algo.setFluxThreshold = function(v) { algo.presetFluxThreshold = parseInt(v); };
+    algo.setFluxThreshold = function(v) { algo.presetFluxThreshold = parseFloat(v); };
     algo.getFluxThreshold = function() { return algo.presetFluxThreshold; };
 
     algo.presetBurstDensity = 6;
@@ -162,7 +162,7 @@ var testAlgo;
 
     algo.bandBlend = function(audio) {
         var bandColors = algo.colors || DEFAULT_BANDS;
-        var powers = audio.power.bands;
+        var powers = [audio.low, audio.mid, audio.high];
         var totalP = powers[0] + powers[1] + powers[2];
         if (totalP < 0.001) return {h: 0, s: 0, v: 0};
         var cx = 0, cy = 0, ws = 0, wv = 0;
@@ -180,7 +180,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.timing.consumerDtMs / 1000.0;
+        var dt = audio.dt * 60.0 / audio.bpm;
         algo.ensureBuffers(width, height);
 
         var decayPerFrame = Math.exp(-dt / (algo.presetDecayMs / 1000.0));
@@ -204,7 +204,7 @@ var testAlgo;
         var horizontal = (algo.presetAxis === "Horizontal");
         var dimLong  = horizontal ? width  : height;
 
-        var flux = audio.features.flux;
+        var flux = audio.onsetIntensity;
         var threshold = algo.presetFluxThreshold / 100.0;
         if (flux > threshold) {
             var headroom = 1 - threshold;
@@ -215,14 +215,14 @@ var testAlgo;
 
             var color = algo.bandBlend(audio);
 
-            var full = audio.spectrum.full;
+            // Use 5 bands to determine peak position
+            var bands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
             var peakBin = 0;
             var peakVal = -1;
-            for (var fi = 0; fi < full.length; fi++) {
-                if (full[fi] > peakVal) { peakVal = full[fi]; peakBin = fi; }
+            for (var fi = 0; fi < bands.length; fi++) {
+                if (bands[fi] > peakVal) { peakVal = bands[fi]; peakBin = fi; }
             }
-            var lenF = full.length > 0 ? full.length : 1;
-            var peakLong = Math.floor(peakBin * dimLong / lenF);
+            var peakLong = Math.floor(peakBin * dimLong / bands.length);
 
             for (var k = 0; k < nBursts; k++) {
                 var off = Math.floor((Math.random() - 0.5) * algo.presetBurstSpread);

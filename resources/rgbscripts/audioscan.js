@@ -57,18 +57,17 @@ var testAlgo;
     algo.properties.push("name:full_grad|type:list|display:Full Gradient|values:Yes,No|write:setFullGrad|read:getFullGrad");
     algo.properties.push("name:count|type:range|display:Count|values:1,10|write:setCount|read:getCount");
 
-    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
-    algo.setBlur = function(v) { algo.blur = clamp(parseFloat(v), 0, 10); };
+    algo.setBlur = function(v) { algo.blur = parseFloat(v); };
     algo.getBlur = function() { return algo.blur; };
     algo.setBounce = function(v) { algo.bounce = (v === "No") ? "No" : "Yes"; };
     algo.getBounce = function() { return algo.bounce; };
-    algo.setScanWidth = function(v) { algo.scan_width = clamp(parseInt(v), 1, 100); };
+    algo.setScanWidth = function(v) { algo.scan_width = parseFloat(v); };
     algo.getScanWidth = function() { return algo.scan_width; };
-    algo.setSpeed = function(v) { algo.speed = clamp(parseInt(v), 0, 100); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
-    algo.setMultiplier = function(v) { algo.multiplier = clamp(parseFloat(v), 0, 5); };
+    algo.setMultiplier = function(v) { algo.multiplier = parseFloat(v); };
     algo.getMultiplier = function() { return algo.multiplier; };
     algo.setColorIntensity = function(v) { algo.color_intensity = (v === "No") ? "No" : "Yes"; };
     algo.getColorIntensity = function() { return algo.color_intensity; };
@@ -76,8 +75,20 @@ var testAlgo;
     algo.getUseGrad = function() { return algo.use_grad; };
     algo.setFullGrad = function(v) { algo.full_grad = (v === "Yes") ? "Yes" : "No"; };
     algo.getFullGrad = function() { return algo.full_grad; };
-    algo.setCount = function(v) { algo.count = clamp(parseInt(v), 1, 10); };
+    algo.setCount = function(v) { algo.count = parseInt(v); };
     algo.getCount = function() { return algo.count; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPower = 0;
+
+    // Bar-level build-up / release state
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
 
     var scanPos = 0.0;
     var returning = false;
@@ -98,12 +109,12 @@ var testAlgo;
     }
 
     function powerFor(audio) {
-        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
-        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
-        if (algo.frequency_range === "Mids") return audio.power.mid;
-        if (algo.frequency_range === "High") return audio.power.high;
+        if (algo.frequency_range === "Beat") return audio.beat;
+        if (algo.frequency_range === "Bass") return audio.bass;
+        if (algo.frequency_range === "Mids") return audio.mid;
+        if (algo.frequency_range === "High") return audio.high;
         // Lows (beat+bass)
-        return (audio.power.detail.beat + audio.power.detail.bass) * 0.5;
+        return (audio.beat + audio.bass) * 0.5;
     }
 
     function setStrip(strip, idx, color) {
@@ -146,14 +157,33 @@ var testAlgo;
             lastWidth = width;
         }
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var passed = dtMs / 1000.0;
-        var count = clamp(parseInt(algo.count), 1, 10);
+        var dt = audio.dt;
+        var passed = (audio.dt * 60000 / audio.bpm) / 1000.0;
+        var count = Math.max(1, Math.min(10, algo.count));
         var block = width / count;
-        var stepPerSec = width / 100.0 * clamp(parseInt(algo.speed), 0, 100);
-        var scanWidthPixels = Math.max(1, Math.floor(block / 100.0 * clamp(parseInt(algo.scan_width), 1, 100)));
-        var power = powerFor(audio) * 2.0;
-        var bar = power * clamp(parseFloat(algo.multiplier), 0, 5);
+        var stepPerSec = width / 100.0 * Math.max(0, Math.min(100, algo.speed));
+        var scanWidthPixels = Math.max(1, Math.floor(block / 100.0 * Math.max(1, Math.min(100, algo.scan_width))));
+        var rawPower = powerFor(audio) * 2.0;
+        // Asymmetric EMA on power (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothPower += (rawPower > smoothPower ? riseAlpha : decayAlpha) * (rawPower - smoothPower);
+        var power = smoothPower;
+
+        // --- Bar-level build-up ---
+        barEnergy += rawPower * dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
+
+        // Build-up subtly widens the scan; release flares it
+        var widthBoost = 1.0 + releaseFlash * 0.4;
+        var bar = power * widthBoost * Math.max(0, Math.min(5, parseFloat(algo.multiplier)));
         var stepSize = passed * stepPerSec * bar;
 
         scanPos += returning ? -stepSize : stepSize;
@@ -184,8 +214,12 @@ var testAlgo;
             scanColor = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
         }
         if (algo.color_intensity === "Yes") {
-            var intensity = Math.min(1.0, power);
+            var intensity = Math.min(1.0, power + releaseFlash * 0.6);
             scanColor = {h: scanColor.h, s: scanColor.s, v: scanColor.v * intensity};
+        } else if (releaseFlash > 0.01) {
+            // Even without color-intensity, release adds a brightness flare
+            scanColor = {h: scanColor.h, s: scanColor.s,
+                         v: Math.min(1, scanColor.v + releaseFlash * 0.4)};
         }
 
         for (var bi = 0; bi < count; bi++) {

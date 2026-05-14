@@ -52,16 +52,15 @@ var testAlgo;
     };
     algo.getBassTrigger = function() { return algo.presetBassTrigger; };
 
-    function clamp(v, lo, hi) { if (isNaN(v)) return lo; return Math.max(lo, Math.min(hi, v)); }
-    algo.setColorStep = function(v) { algo.color_step = clamp(parseFloat(v), 0, 0.25); };
+    algo.setColorStep = function(v) { algo.color_step = parseFloat(v); };
     algo.getColorStep = function() { return algo.color_step; };
-    algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = parseFloat(v); };
     algo.getBassStrobeDecayRate = function() { return algo.bass_strobe_decay_rate; };
-    algo.setStrobeWidth = function(v) { algo.strobe_width = clamp(parseInt(v), 0, 1000); };
+    algo.setStrobeWidth = function(v) { algo.strobe_width = parseFloat(v); };
     algo.getStrobeWidth = function() { return algo.strobe_width; };
-    algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = parseFloat(v); };
     algo.getStrobeDecayRate = function() { return algo.strobe_decay_rate; };
-    algo.setColorShiftDelay = function(v) { algo.color_shift_delay = clamp(parseFloat(v), 0, 1); };
+    algo.setColorShiftDelay = function(v) { algo.color_shift_delay = parseFloat(v); };
     algo.getColorShiftDelay = function() { return algo.color_shift_delay; };
 
     var strobeOverlay = [];
@@ -110,40 +109,43 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        elapsedMs += dtMs;
+        var dt = audio.dt;
+        elapsedMs += (audio.dt * 60000 / audio.bpm);
 
-        if (elapsedMs - lastColorShiftMs > clamp(parseFloat(algo.color_shift_delay), 0, 1) * 1000.0) {
-            colorIdx = (colorIdx + clamp(parseFloat(algo.color_step), 0, 0.25)) % 1.0;
+        if (elapsedMs - lastColorShiftMs > Math.max(0, Math.min(1, parseFloat(algo.color_shift_delay))) * 1000.0) {
+            colorIdx = (colorIdx + Math.max(0, Math.min(0.25, parseFloat(algo.color_step)))) % 1.0;
             bassStrobeColor = HSVUtil.gradientAt(gradientStops(), colorIdx);
             lastColorShiftMs = elapsedMs;
         }
 
-        var bassDecay = 1.0 - clamp(parseFloat(algo.bass_strobe_decay_rate), 0, 1);
+        var bassDecay = 1.0 - Math.max(0, Math.min(1, parseFloat(algo.bass_strobe_decay_rate)));
         var bassTriggerFired = false;
-        if (algo.presetBassTrigger === "Tempo Beat") bassTriggerFired = audio.beat.fired;
-        else if (algo.presetBassTrigger === "Onset") bassTriggerFired = audio.onset.fired;
-        else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.beat.kick;
-        else bassTriggerFired = audio.volume.fired;
+        if (algo.presetBassTrigger === "Tempo Beat") bassTriggerFired = audio.beatFired;
+        else if (algo.presetBassTrigger === "Onset") bassTriggerFired = audio.onset;
+        else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.beatFired;
+        else bassTriggerFired = audio.onset;
         if (bassTriggerFired && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay) {
             for (var b = 0; b < width; b++)
                 bassStrobeOverlay[b] = {h: bassStrobeColor.h, s: bassStrobeColor.s, v: bassStrobeColor.v};
             lastBassStrobeMs = elapsedMs;
         }
 
-        if (audio.onset.fired && elapsedMs - lastStrobeMs > 0) {
+        if (audio.onset && elapsedMs - lastStrobeMs > 0) {
             onsetsQueued++;
             lastStrobeMs = elapsedMs;
         }
 
         if (onsetsQueued > 0) {
             onsetsQueued--;
-            var strobeWidth = Math.min(clamp(parseInt(algo.strobe_width), 0, 1000), width);
+            var strobeWidth = Math.min(Math.max(0, Math.min(1000, algo.strobe_width)), width);
             var lengthDiff = width - strobeWidth;
             var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
-            var bandColor = AudioColors.bands(algo)[0];
-            var domHsv = AudioColors.dominantColor(algo, audio, bandColor, 0.05);
-            var scol = AudioColors.blend(bandColor, domHsv, DOMINANT_TINT);
+            var bandColor = (algo.colors && algo.colors.length >= 3) ? algo.colors[0] : {h: 0, s: 0, v: 1};
+            var domIdx = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
+            var domPower = Math.max(audio.low, audio.mid, audio.high);
+            var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3) ? algo.colors[domIdx] : bandColor;
+            var t2 = DOMINANT_TINT;
+            var scol = {h: bandColor.h + (domHsv.h - bandColor.h) * t2, s: bandColor.s + (domHsv.s - bandColor.s) * t2, v: bandColor.v + (domHsv.v - bandColor.v) * t2};
             for (var s = position; s < position + strobeWidth; s++)
                 strobeOverlay[s] = {h: scol.h, s: scol.s, v: scol.v};
         }
@@ -182,7 +184,7 @@ var testAlgo;
             }
         }
 
-        scaleInPlace(strobeOverlay, 1.0 - clamp(parseFloat(algo.strobe_decay_rate), 0, 1));
+        scaleInPlace(strobeOverlay, 1.0 - Math.max(0, Math.min(1, parseFloat(algo.strobe_decay_rate))));
         scaleInPlace(bassStrobeOverlay, bassDecay);
 
         return map;

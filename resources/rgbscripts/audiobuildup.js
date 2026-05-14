@@ -41,11 +41,7 @@ algo.rgbMapStepCount = function(width, height) { return 1; };
 algo.rgbMapSetColors = function(rawColors) { };
 algo.rgbMapGetColors = function() { return []; };
 
-algo.setCycleBeats = function(_v) {
-    var n = parseFloat(_v);
-    if (!isFinite(n) || n < 1) n = 16.0;
-    algo.presetCycleBeats = Math.max(1.0, Math.min(64.0, n));
-};
+algo.setCycleBeats = function(_v) { algo.presetCycleBeats = parseFloat(_v); };
 algo.getCycleBeats = function() { return algo.presetCycleBeats; };
 algo.setDropIntensity = function(_v) { algo.presetDropIntensity = parseFloat(_v); };
 algo.getDropIntensity = function() { return algo.presetDropIntensity; };
@@ -59,7 +55,7 @@ algo.getColorScheme = function() { return ["Cool2Warm", "Rainbow", "Monochrome"]
 // --- Constants (all timing in beats) ---
 var DROP_BEATS = 2.0;
 var COOLDOWN_BEATS = 2.0;
-var DROP_FLASH_FRAC = 0.15;       // fraction of DROP that is the white flash
+var DROP_FLASH_FRAC = 0.15;
 
 var ACTIVATION_WIDTH = 3.0;
 var BUILD_HUE_COOL = 0.62;
@@ -82,12 +78,9 @@ var COOLDOWN_HUE_AMP = 0.03;
 var COOLDOWN_SAT = 0.75;
 
 // --- Helpers ---
-function clamp(value, minValue, maxValue) {
-    return Math.max(minValue, Math.min(maxValue, value));
-}
 
 function lerp(a, b, t) {
-    return a + (b - a) * clamp(t, 0, 1);
+    return a + (b - a) * Math.max(0, Math.min(1, t));
 }
 
 function initState() {
@@ -100,8 +93,8 @@ function initState() {
     algo.fillProgress = 0;
     algo.lastBeatFired = false;
 
-    algo.dropPhase = { position: 0 };
-    algo.cooldownPhase = { position: 0 };
+    algo.dropPhase = { phase: 0 };
+    algo.cooldownPhase = { phase: 0 };
     algo.fillSparkPhase = { phase: 0 };
 }
 
@@ -114,27 +107,27 @@ function transitionTo(newState) {
     }
     if (newState === algo.DROP) {
         algo.fillProgress = 1.0;
-        algo.dropPhase.position = 0;
+        algo.dropPhase.phase = 0;
     }
     if (newState === algo.COOLDOWN) {
-        algo.cooldownPhase.position = 0;
+        algo.cooldownPhase.phase = 0;
     }
 }
 
 // --- Renderers ---
-function renderFilling(map, width, height, audio, bpm, dtMs, buildCol) {
+function renderFilling(map, width, height, audio, buildCol) {
     var centerX = width / 2.0;
     var maxEdgeDist = Math.floor(width / 2);
     var activeDepth = algo.fillProgress * maxEdgeDist;
     var monoHue = buildCol.h;
-    var shimmer01 = HSVUtil.beatTime(1.0 / Math.max(1.0, algo.presetCycleBeats),
-                                     algo.fillSparkPhase, bpm, dtMs);
-    var beatPulse = audio.beat.cosPulse;
+    algo.fillSparkPhase.phase = (algo.fillSparkPhase.phase + audio.dt * (1.0 / Math.max(1.0, algo.presetCycleBeats))) % 1.0;
+    var shimmer01 = algo.fillSparkPhase.phase;
+    var beatPulse = audio.cosPulse;
 
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
             var edgeDist = Math.min(x, width - 1 - x);
-            var activation = clamp(1 - Math.abs(edgeDist - activeDepth) / ACTIVATION_WIDTH, 0, 1);
+            var activation = Math.max(0, Math.min(1, 1 - Math.abs(edgeDist - activeDepth) / ACTIVATION_WIDTH));
             var centerHeat = Math.pow(1 - Math.abs(x - centerX) / Math.max(1, centerX), 1.5) *
                              algo.fillProgress;
             var hue;
@@ -155,9 +148,10 @@ function renderFilling(map, width, height, audio, bpm, dtMs, buildCol) {
     }
 }
 
-function renderDrop(map, width, height, bpm, dtMs, dropCol) {
-    var dropProgress = Math.min(1.0, HSVUtil.beatPosition(1.0 / DROP_BEATS, algo.dropPhase, bpm, dtMs));
-    var intensity = clamp(algo.presetDropIntensity, 0.1, 1.0);
+function renderDrop(map, width, height, audio, dropCol) {
+    algo.dropPhase.phase = (algo.dropPhase.phase + audio.dt * (1.0 / DROP_BEATS)) % 1.0;
+    var dropProgress = Math.min(1.0, algo.dropPhase.phase);
+    var intensity = Math.max(0.1, Math.min(1.0, algo.presetDropIntensity));
 
     if (dropProgress <= DROP_FLASH_FRAC) {
         for (var fy = 0; fy < height; fy++)
@@ -183,12 +177,14 @@ function renderDrop(map, width, height, bpm, dtMs, dropCol) {
     if (dropProgress >= 1.0) transitionTo(algo.COOLDOWN);
 }
 
-function renderCooldown(map, width, height, audio, bpm, dtMs, dropCol) {
-    var t = Math.min(1.0, HSVUtil.beatPosition(1.0 / COOLDOWN_BEATS, algo.cooldownPhase, bpm, dtMs));
+function renderCooldown(map, width, height, audio, dropCol) {
+    algo.cooldownPhase.phase = (algo.cooldownPhase.phase + audio.dt * (1.0 / COOLDOWN_BEATS)) % 1.0;
+    var t = Math.min(1.0, algo.cooldownPhase.phase);
     var afterglow = Math.max(0, 1 - t);
-    var beatPulse = audio.beat.cosPulse;
+    var beatPulse = audio.cosPulse;
     var baseHue = dropCol.h;
-    var hueShift01 = HSVUtil.beatTime(1.0 / (COOLDOWN_BEATS * 2), algo.fillSparkPhase, bpm, dtMs);
+    algo.fillSparkPhase.phase = (algo.fillSparkPhase.phase + audio.dt * (1.0 / (COOLDOWN_BEATS * 2))) % 1.0;
+    var hueShift01 = algo.fillSparkPhase.phase;
 
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
@@ -206,16 +202,13 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var map = HSVUtil.createMap(width, height);
     if (!audio) return map;
 
-    var dtMs = (audio.timing && audio.timing.consumerDtMs) || 20;
-    var bpm = (audio.beat && audio.beat.bpm) ? audio.beat.bpm : 120;
-
     var buildCol = (algo.colors && algo.colors.length >= 1)
         ? algo.colors[0] : algo.buildColor;
     var dropCol = (algo.colors && algo.colors.length >= 2)
         ? algo.colors[1] : algo.dropColor;
 
-    // Edge-detect beat fires (avoid double-counting if fired stays true for multiple frames)
-    var beatNow = !!(audio.beat && audio.beat.fired);
+    // Edge-detect beat fires
+    var beatNow = !!audio.beatFired;
     var beatEdge = beatNow && !algo.lastBeatFired;
     algo.lastBeatFired = beatNow;
 
@@ -230,11 +223,11 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     }
 
     if (algo.state === algo.FILLING)
-        renderFilling(map, width, height, audio, bpm, dtMs, buildCol);
+        renderFilling(map, width, height, audio, buildCol);
     else if (algo.state === algo.DROP)
-        renderDrop(map, width, height, bpm, dtMs, dropCol);
+        renderDrop(map, width, height, audio, dropCol);
     else
-        renderCooldown(map, width, height, audio, bpm, dtMs, dropCol);
+        renderCooldown(map, width, height, audio, dropCol);
 
     return map;
 };

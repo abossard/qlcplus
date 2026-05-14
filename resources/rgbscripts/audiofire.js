@@ -34,14 +34,13 @@ var testAlgo;
     algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
     algo.properties.push("name:fade_chance|type:float|display:Fade Chance|write:setFadeChance|read:getFadeChance");
 
-    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
-    algo.setSpeed = function(v) { algo.speed = clamp(v, 0.00001, 0.5); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setColorShift = function(v) { algo.color_shift = clamp(v, 0, 1); };
+    algo.setColorShift = function(v) { algo.color_shift = parseFloat(v); };
     algo.getColorShift = function() { return algo.color_shift; };
-    algo.setIntensity = function(v) { algo.intensity = Math.max(1, Math.min(30, Math.round(parseFloat(v) || 8))); };
+    algo.setIntensity = function(v) { algo.intensity = parseFloat(v); };
     algo.getIntensity = function() { return algo.intensity; };
-    algo.setFadeChance = function(v) { algo.fade_chance = clamp(v, 0.05, 1); };
+    algo.setFadeChance = function(v) { algo.fade_chance = parseFloat(v); };
     algo.getFadeChance = function() { return algo.fade_chance; };
 
     var sparkPixels = null;
@@ -75,10 +74,10 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var dt = audio.dt;
 
         // EMA filter on lows (decay=0.05, rise=0.99)
-        var rawLows = audio.power.low;
+        var rawLows = audio.low;
         var alphaL = (rawLows > emaLows) ? 0.99 : 0.05;
         emaLows = alphaL * rawLows + (1 - alphaL) * emaLows;
 
@@ -87,7 +86,7 @@ var testAlgo;
         curSpeed = algo.speed + emaLows * 0.01;
         curFadeChance = algo.fade_chance / 10;
 
-        var deltaScaled = dtMs * curSpeed;
+        var deltaScaled = (audio.dt * 60000 / audio.bpm) * curSpeed;
 
         // Cool all pixels
         for (var i = 0; i < N; i++)

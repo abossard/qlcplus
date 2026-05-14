@@ -99,9 +99,6 @@ var testAlgo;
     var SWEEP_FLOOR = 0.02;
     var SWEEP_RANGE = 0.28;
 
-    function clamp01(v) {
-        return Math.max(0, Math.min(1, v));
-    }
 
     // Lerp hue along shortest arc
     function lerpHue(h1, h2, t) {
@@ -114,7 +111,7 @@ var testAlgo;
 
     // Mix two HSV colors with shortest-arc hue interpolation
     function mixHsv(a, b, t) {
-        t = clamp01(t);
+        t = Math.max(0, Math.min(1, t));
         return {
             h: lerpHue(a.h, b.h, t),
             s: a.s * (1 - t) + b.s * t,
@@ -135,14 +132,14 @@ var testAlgo;
     }
 
     function beatIndexFor(audio, step) {
-        if (audio && audio.beat.bpm > 0)
-            return ((Math.floor(audio.bar.beat) % 4) + 4) % 4;
+        if (audio && audio.bpm > 0)
+            return ((Math.floor(Math.floor(audio.barPhase * 4)) % 4) + 4) % 4;
         return ((step % 4) + 4) % 4;
     }
 
     function beforeEdgeBlend(value, phase, width) {
         var edge = phase * (1 + width) - width * 0.5;
-        return clamp01((edge - value + width * 0.5) / width);
+        return Math.max(0, Math.min(1, (edge - value + width * 0.5)) / width);
     }
 
     function pulseBlend(x01, y01, phase, width) {
@@ -172,14 +169,14 @@ var testAlgo;
         }
         var currentColor = colors[beat];
         var previousColor = colors[prevBeat];
-        var phase = (audio && audio.beat.bpm > 0) ? clamp01(audio.beat.phase) : 0;
-        var cosPulse = audio ? clamp01(audio.beat.cosPulse) : 0;
+        var phase = (audio && audio.bpm > 0) ? Math.max(0, Math.min(1, audio.phase)) : 0;
+        var cosPulse = audio ? Math.max(0, Math.min(1, audio.cosPulse)) : 0;
         var brightness = BASE_BRIGHTNESS + 0.5 * cosPulse;
 
         brightness += cosPulse * algo.presetPulse;
-        if (audio && audio.bar.downbeat)
+        if (audio && audio.downbeat)
             brightness += algo.presetDownbeatBoost;
-        brightness = clamp01(brightness);
+        brightness = Math.max(0, Math.min(1, brightness));
 
         var sweepWidth = SWEEP_FLOOR + SWEEP_RANGE * algo.presetSweepWidth;
 

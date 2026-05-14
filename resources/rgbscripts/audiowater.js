@@ -107,9 +107,9 @@ var testAlgo;
         var dampFactor = Math.pow(2, algo.viscosity);
         var shift = algo.vertical_shift;
 
-        var lowP = Math.min(1, Math.max(0, Math.pow(audio.power.low, 2)));
-        var midP = Math.min(1, Math.max(0, Math.pow(audio.power.mid, 2)));
-        var hiP  = Math.min(1, Math.max(0, Math.pow(audio.power.high, 2)));
+        var lowP = Math.pow(audio.low, 2);
+        var midP = Math.pow(audio.mid, 2);
+        var hiP  = Math.pow(audio.high, 2);
 
         createDrop(1, lowP * algo.bass_size, width);
         createDrop(Math.floor(width / 2), lowP * algo.bass_size, width);
@@ -131,8 +131,8 @@ var testAlgo;
             else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
         }
 
-        var speedInt = Math.floor(speed);
-        for (var s = 0; s < speedInt; s++)
+        var speedSteps = Math.round(speed);
+        for (var s = 0; s < speedSteps; s++)
             doRipple(dampFactor, width);
 
         // Output HSV directly — this effect already computed in HSV

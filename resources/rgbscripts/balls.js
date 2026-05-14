@@ -65,14 +65,14 @@ var testAlgo;
     }
 
     algo.setSize = function (_size) {
-      algo.presetSize = _size;
+      algo.presetSize = parseInt(_size);
     };
     algo.getSize = function () {
       return algo.presetSize;
     };
 
     algo.setNumber = function (_step) {
-      algo.presetNumber = _step;
+      algo.presetNumber = parseInt(_step);
       algo.initialized = false;
     };
     algo.getNumber = function () {

@@ -40,9 +40,9 @@ var testAlgo;
       "name:presetSpeed|type:range|display:Speed|" +
       "values:1,10|write:setSpeed|read:getSpeed");
 
-    algo.setTrailLength = function(_v) { algo.presetTrailLength = clampInt(_v, 2, 20, 8); };
+    algo.setTrailLength = function(_v) { algo.presetTrailLength = parseInt(_v); };
     algo.getTrailLength = function() { return algo.presetTrailLength; };
-    algo.setMaxBeams = function(_v) { algo.presetMaxBeams = clampInt(_v, 1, 16, 6); };
+    algo.setMaxBeams = function(_v) { algo.presetMaxBeams = parseInt(_v); };
     algo.getMaxBeams = function() { return algo.presetMaxBeams; };
     algo.setDirection = function(_v) {
         if (_v === "Vertical" || parseInt(_v) === 1) algo.presetDirection = 1;
@@ -52,8 +52,18 @@ var testAlgo;
     algo.getDirection = function() {
         return ["Horizontal", "Vertical", "Both"][algo.presetDirection];
     };
-    algo.setSpeed = function(_v) { algo.presetSpeed = clampInt(_v, 1, 10, 6); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothHigh = 0;
+    var smoothOnset = 0;
 
     // Colors stored as HSV
     var beamColor = { h: 0, s: 0, v: 1.0 };        // white
@@ -72,11 +82,6 @@ var testAlgo;
     };
     algo.rgbMapGetColors = function() { return []; };
 
-    function clampInt(value, minValue, maxValue, defaultValue) {
-        var parsed = parseInt(value);
-        if (isNaN(parsed)) parsed = defaultValue;
-        return Math.max(minValue, Math.min(maxValue, parsed));
-    }
 
     // Lerp hue along the shortest arc on the hue circle
     function lerpHue(h1, h2, t) {
@@ -191,12 +196,20 @@ var testAlgo;
             lastHeight = height;
         }
 
-        var bass = audio.power.low;
-        var highs = audio.power.high;
-        var onsetIntensity = Math.max(0.4, audio.onset.intensity);
+        var bass = audio.low;
+        var rawHighs = audio.high;
+        var rawOnset = Math.max(0.4, audio.onsetIntensity);
+        // Asymmetric EMA: fast attack, slow decay envelope for the glow path
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothHigh += (rawHighs > smoothHigh ? riseAlpha : decayAlpha) * (rawHighs - smoothHigh);
+        smoothOnset += (rawOnset > smoothOnset ? riseAlpha : decayAlpha) * (rawOnset - smoothOnset);
+        var highs = smoothHigh;
+        var onsetIntensity = smoothOnset;
         var glowMul = (0.8 + highs * 0.4) * onsetIntensity;
 
-        if (audio.bands.low.fired || audio.beat.kick || (algo.beams.length < 3 && bass > 0.15))
+        if (audio.beatFired || audio.beatFired || (algo.beams.length < 3 && bass > 0.15))
             spawnBeam(width, height, Math.max(0.3, bass));
 
         for (var bi = algo.beams.length - 1; bi >= 0; bi--) {

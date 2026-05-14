@@ -29,6 +29,7 @@
 #include "contextmanager.h"
 #include "qlcinputchannel.h"
 #include "vcaudiotriggers.h"
+#include "audiosparklineitem.h"
 #include "vcanimation.h"
 #include "vcspeeddial.h"
 #include "inputpatch.h"
@@ -107,6 +108,7 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
     qmlRegisterType<VCSlider>("org.qlcplus.classes", 1, 0, "VCSlider");
     qmlRegisterType<VCAnimation>("org.qlcplus.classes", 1, 0, "VCAnimation");
     qmlRegisterType<VCAudioTriggers>("org.qlcplus.classes", 1, 0, "VCAudioTriggers");
+    qmlRegisterType<AudioSparklineItem>("org.qlcplus.classes", 1, 0, "AudioSparkline");
     qmlRegisterType<VCXYPad>("org.qlcplus.classes", 1, 0, "VCXYPad");
     qmlRegisterType<VCSpeedDial>("org.qlcplus.classes", 1, 0, "VCSpeedDial");
     qmlRegisterType<VCClock>("org.qlcplus.classes", 1, 0, "VCClock");

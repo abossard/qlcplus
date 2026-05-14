@@ -59,9 +59,9 @@ var testAlgo;
 
     algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWidth = function(_v) { algo.presetWidth = parseInt(_v); };
+    algo.setWidth = function(_v) { algo.presetWidth = parseFloat(_v); };
     algo.getWidth = function() { return algo.presetWidth; };
-    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseInt(_v); };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
@@ -69,6 +69,20 @@ var testAlgo;
     algo.getColorIntensity = function() { return algo.presetColorIntensity ? "Yes" : "No"; };
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPow = [0, 0, 0];
+
+    // Bar-level build-up / release state (shared across all 3 scanners)
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
 
     algo.scans = [
         { pos: 0, returning: false },
@@ -123,9 +137,8 @@ var testAlgo;
             algo.lastN = n;
         }
 
-        var dt = audio.timing.consumerDtMs / 1000.0;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-        var bpmEff = (bpm > 0) ? bpm : 120;
+        var dt = audio.dt * 60.0 / audio.bpm;
+        var bpmEff = (audio.bpm > 0) ? audio.bpm : 120;
         var beatsPerSec = bpmEff / 60.0;
 
         var multiplier = algo.presetMultiplier / 100.0;
@@ -133,7 +146,11 @@ var testAlgo;
         var stepPerSec = Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec;
         var bounce = algo.presetBounce === 1;
         var colorIntensity = algo.presetColorIntensity === 1;
-        var bandColors = AudioColors.bands(algo);
+        var bandColors = (algo.colors && algo.colors.length >= 3) ? algo.colors : [
+            {h: 0.0,   s: 1.0, v: 1.0},
+            {h: 0.333, s: 1.0, v: 1.0},
+            {h: 0.667, s: 1.0, v: 1.0}
+        ];
 
         var strip = new Array(n);
         for (var p = 0; p < n; p++) strip[p] = {h: 0, s: 0, v: 0};
@@ -141,9 +158,31 @@ var testAlgo;
         var maxStart = n - scanW;
         if (maxStart < 0) maxStart = 0;
 
+        // Asymmetric EMA on per-band power (brightness path)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        var rawPows = [audio.low, audio.mid, audio.high];
+        for (var sb = 0; sb < 3; sb++) {
+            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
+            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
+        }
+
+        // --- Bar-level build-up (shared across all bands) ---
+        var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
+        barEnergy += rawEnergy * dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
+
         for (var b = 0; b < 3; b++) {
             var scan = algo.scans[b];
-            var power = audio.power.bands[b];
+            var power = rawPows[b];          // responsive speed
+            var briPower = smoothPow[b];     // smoothed brightness
             var bar = power * multiplier;
             var stepSize = dt * stepPerSec * bar;
 
@@ -161,7 +200,9 @@ var testAlgo;
             }
 
             var bc = bandColors[b];
-            var cv = colorIntensity ? bc.v * Math.min(1, power) : bc.v;
+            // Release adds a synced brightness flare across all 3 scanners
+            var briBoost = colorIntensity ? Math.min(1, briPower) : 1.0;
+            var cv = bc.v * Math.min(1, briBoost + releaseFlash * 0.5);
             drawScan(strip, n, scan.pos, scanW, {h: bc.h, s: bc.s, v: cv});
         }
 

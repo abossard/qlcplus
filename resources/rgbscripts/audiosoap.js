@@ -45,12 +45,11 @@ var testAlgo;
     algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    function clamp(v, lo, hi) { var n = parseFloat(v); return isNaN(n) ? lo : Math.max(lo, Math.min(hi, n)); }
-    algo.setDensity = function(v) { algo.density = clamp(v, 0, 1); };
+    algo.setDensity = function(v) { algo.density = parseFloat(v); };
     algo.getDensity = function() { return algo.density; };
-    algo.setSpeed = function(v) { algo.speed = clamp(v, 0, 1); };
+    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setIntensity = function(v) { algo.intensity = clamp(v, 0, 2); };
+    algo.setIntensity = function(v) { algo.intensity = parseFloat(v); };
     algo.getIntensity = function() { return algo.intensity; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
@@ -65,16 +64,15 @@ var testAlgo;
     var needSeed = true;
 
     function gradientStops() {
-        return (algo.colors && algo.colors.length > 0)
-            ? algo.colors : DEFAULT_HSV_STOPS;
+        return algo.hasUserColors ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
-        if (algo.frequency_range === "Beat") return audio.power.detail.beat;
-        if (algo.frequency_range === "Bass") return audio.power.detail.bass;
-        if (algo.frequency_range === "Mids") return audio.power.mid;
-        if (algo.frequency_range === "High") return audio.power.high;
-        return audio.power.low;
+        if (algo.frequency_range === "Beat") return audio.beat;
+        if (algo.frequency_range === "Bass") return audio.bass;
+        if (algo.frequency_range === "Mids") return audio.mid;
+        if (algo.frequency_range === "High") return audio.high;
+        return audio.low;
     }
 
     function initBuffers(w, h) {
@@ -122,7 +120,8 @@ var testAlgo;
 
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
+        var dt = audio.dt;
+        var dtMs = audio.dt * 60000 / audio.bpm;
         var dtSec = dtMs / 1000;
 
         var power = powerFor(audio);

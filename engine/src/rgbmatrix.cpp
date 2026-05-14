@@ -64,6 +64,7 @@
 #define KXMLQLCRGBMatrixRotation            QStringLiteral("Rotation")
 #define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
 #define KXMLQLCRGBMatrixMirrorBlend         QStringLiteral("MirrorBlend")
+#define KXMLQLCRGBMatrixBrightness          QStringLiteral("Brightness")
 
 #define KXMLQLCRGBMatrixBeatEffect          QStringLiteral("BeatEffect")
 #define KXMLQLCRGBMatrixBeatSelection       QStringLiteral("BeatSelection")
@@ -94,6 +95,7 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_rotation(0)
     , m_mirror(0)
     , m_mirrorBlend(MirrorFlip)
+    , m_brightness(1.0)
     , m_beatEffect(BeatEffectOff)
     , m_beatSelection(BeatSelAllOnDownbeat)
     , m_beatOrientation(BeatOrientRows)
@@ -116,7 +118,8 @@ RGBMatrix::RGBMatrix(Doc *doc)
     setDuration(500);
 
     m_rgbColors.fill(QColor(), RGBAlgorithmColorDisplayCount);
-    setColor(0, Qt::red);
+    // Don't pre-set slot 0 to red — leave all slots invalid so scripts
+    // can detect "no user colors" via algo.hasUserColors.
 
     setAlgorithm(RGBAlgorithm::algorithm(doc, "Stripes"));
 
@@ -261,6 +264,7 @@ bool RGBMatrix::copyFrom(const Function* function)
     setRotation(mtx->rotation());
     setMirror(mtx->mirror());
     setMirrorBlend(mtx->mirrorBlend());
+    setBrightness(mtx->brightness());
     setBeatEffect(mtx->beatEffect());
     setBeatSelection(mtx->beatSelection());
     setBeatOrientation(mtx->beatOrientation());
@@ -338,9 +342,8 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
                 }
             }
 
-            QVector<uint> colors = script->rgbMapGetColors();
-            for (int i = 0; i < colors.count(); i++)
-                m_rgbColors.replace(i, QColor::fromRgb(colors.at(i)));
+            // Colors are injected via injectColors() at render time;
+            // no need to seed m_rgbColors from the script here.
         }
     }
     // Phase 4: deferred delete of the previous algorithm. For Script-typed
@@ -505,10 +508,6 @@ void RGBMatrix::setProperty(QString propName, QString value)
     {
         RGBScript *script = static_cast<RGBScript*> (m_algorithm);
         script->setProperty(propName, value);
-
-        QVector<uint> colors = script->rgbMapGetColors();
-        for (int i = 0; i < colors.count(); i++)
-            setColor(i, QColor::fromRgb(colors.at(i)));
     }
     m_stepsCount = algorithmStepsCount();
 }
@@ -618,6 +617,10 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setMirrorBlend(stringToMirrorBlend(root.readElementText()));
         }
+        else if (root.name() == KXMLQLCRGBMatrixBrightness)
+        {
+            setBrightness(root.readElementText().toDouble());
+        }
         else if (root.name() == KXMLQLCRGBMatrixBeatEffect)
         {
             setBeatEffect(stringToBeatEffect(root.readElementText()));
@@ -706,6 +709,8 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeTextElement(KXMLQLCRGBMatrixMirror, QString::number(m_mirror));
     if (m_mirrorBlend != MirrorFlip)
         doc->writeTextElement(KXMLQLCRGBMatrixMirrorBlend, mirrorBlendToString(m_mirrorBlend));
+    if (m_brightness != 1.0)
+        doc->writeTextElement(KXMLQLCRGBMatrixBrightness, QString::number(m_brightness));
 
     /* Beat Transform */
     if (m_beatEffect != BeatEffectOff)
@@ -1355,6 +1360,18 @@ void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QL
                 w = qMin(r, qMin(g, b));
                 grey = rgbToGrey(col);
                 cmyCol = QColor::fromRgb(col);
+
+                if (m_brightness != 1.0)
+                {
+                    r = uchar(qBound(0, int(r * m_brightness), 255));
+                    g = uchar(qBound(0, int(g * m_brightness), 255));
+                    b = uchar(qBound(0, int(b * m_brightness), 255));
+                    w = uchar(qBound(0, int(w * m_brightness), 255));
+                    grey = uchar(qBound(0, int(grey * m_brightness), 255));
+                    cmyCol = QColor::fromRgb(qBound(0, int(qRed(cmyCol.rgb()) * m_brightness), 255),
+                                             qBound(0, int(qGreen(cmyCol.rgb()) * m_brightness), 255),
+                                             qBound(0, int(qBlue(cmyCol.rgb()) * m_brightness), 255));
+                }
             }
         }
 
@@ -1636,6 +1653,17 @@ void RGBMatrix::setMirrorBlend(MirrorBlend b)
     m_mirrorBlend = b;
     m_currentGeneration.fetchAndAddRelaxed(1);
     m_precomputedReady.storeRelease(0);
+    emit changed(id());
+}
+
+qreal RGBMatrix::brightness() const
+{
+    return m_brightness;
+}
+
+void RGBMatrix::setBrightness(qreal b)
+{
+    m_brightness = qMax(0.0, b);
     emit changed(id());
 }
 

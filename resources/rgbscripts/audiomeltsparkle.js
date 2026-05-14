@@ -100,10 +100,19 @@ var testAlgo;
     algo.getStrobeWidth = function() { return algo.presetStrobeWidth; };
     algo.setStrobeDecay = function(_v) { algo.presetStrobeDecay = parseFloat(_v); };
     algo.getStrobeDecay = function() { return algo.presetStrobeDecay; };
-    algo.setStrobeBlur = function(_v) { algo.presetStrobeBlur = parseInt(_v); };
+    algo.setStrobeBlur = function(_v) { algo.presetStrobeBlur = parseFloat(_v); };
     algo.getStrobeBlur = function() { return algo.presetStrobeBlur; };
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothLow = 0;
 
     var DIRECTION_FLIP_CHANCE = 5.0;   // expected flips per second when bass > strobe cutoff
     var MIN_STROBE_COOLDOWN_MS = 100;  // floor for strobe cooldown regardless of rate
@@ -167,16 +176,21 @@ var testAlgo;
 
         if (algo.lastSize !== n) resetState(n);
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var dt = dtMs / 1000.0;
-        var bpm = audio.beat ? audio.beat.bpm : 0;
+        var dt = audio.dt;
+        var dtMs = audio.dt * 60000 / audio.bpm;
+        var dtSec = dtMs / 1000.0;
         algo.elapsedMs += dtMs;
 
-        var lowPower = audio.power.low;
-        var midPower = audio.power.mid;
-        var highMax = audio.spectrum.high.max;
-        var onsetFired = audio.onset.fired;
-        var lastDominant = AudioColors.dominantIndex(audio);
+        var lowPower = audio.low;
+        var midPower = audio.mid;
+        var highMax = audio.high;
+        // Asymmetric EMA smoothing of low band for brightness path
+        var smoothing_ = algo.presetSmoothing / 10.0;
+        var riseAlpha_ = 0.5 * (1 - smoothing_) + 0.05;
+        var decayAlpha_ = 0.02 + 0.03 * (1 - smoothing_);
+        smoothLow += (lowPower > smoothLow ? riseAlpha_ : decayAlpha_) * (lowPower - smoothLow);
+        var onsetFired = audio.onset;
+        var lastDominant = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
 
         var speed01 = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
@@ -197,7 +211,7 @@ var testAlgo;
             if (Math.random() < flipProb) algo.direction = -algo.direction;
         }
 
-        var bassFactor = lowPower * reactivity01 * 0.5;
+        var bassFactor = smoothLow * reactivity01 * 0.5;
         var widthFactor = (1 - lavaWidth01) * (1 - lavaWidth01);
         var lavaPower = LAVA_POWER_BASE * widthFactor - midPower * widthFactor;
         if (lavaPower < 1) lavaPower = 1;
@@ -223,9 +237,12 @@ var testAlgo;
         var denom = Math.max(1, n - 1);
 
         // Beat-locked replacements for the LedFx HSVEffect.time() outputs.
-        var t1 = HSVUtil.beatTime(speed01 * T1_RATIO, t1State, bpm, dirDtMs);
-        var hueFast = HSVUtil.beatTime(speed01 * HUE_FAST_RATIO, hueFastState, bpm, dirDtMs);
-        var hueSlow = HSVUtil.beatTime(speed01 * HUE_SLOW_RATIO, hueSlowState, bpm, dirDtMs);
+        t1State.phase = (t1State.phase + audio.dt * speed01 * T1_RATIO) % 1.0;
+        var t1 = t1State.phase;
+        hueFastState.phase = (hueFastState.phase + audio.dt * speed01 * HUE_FAST_RATIO) % 1.0;
+        var hueFast = hueFastState.phase;
+        hueSlowState.phase = (hueSlowState.phase + audio.dt * speed01 * HUE_SLOW_RATIO) % 1.0;
+        var hueSlow = hueSlowState.phase;
 
         var bandShift = 0;
         if (lastDominant === 0) bandShift = 0.05;

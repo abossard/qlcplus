@@ -50,6 +50,15 @@ var testAlgo;
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPow = [0, 0, 0];
+
     var BEAT_PULSE_AMP = 0.25;
     var LAYER_SPEED_STEP = 0.7;
     var LAYER_PHASE_OFFSET = 2.1;
@@ -91,20 +100,29 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
+        var dt = audio.dt;
 
-        var bandPowers = audio.power.bands;
+        // Asymmetric EMA smoothing of band powers (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        var rawPows = [audio.low, audio.mid, audio.high];
+        for (var sb = 0; sb < 3; sb++) {
+            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
+            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
+        }
+        var bandPowers = smoothPow;
         var bandColors = algo.colors || DEFAULT_BAND_COLORS;
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
-        var theta = HSVUtil.beatTime(speed, auroraState, bpm, dtMs) * Math.PI * 2;
+        auroraState.phase = (auroraState.phase + audio.dt * speed) % 1.0;
+        var theta = auroraState.phase * Math.PI * 2;
 
         var waveFreq = algo.presetWaveSize;
         var layers = algo.presetLayers;
 
-        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.cosPulse;
 
         var layerHues = [];
         var layerWeights = [];

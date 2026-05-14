@@ -54,6 +54,20 @@ var testAlgo;
     algo.setSparkles = function(_v) { algo.presetSparkles = (_v === "On") ? 1 : 0; };
     algo.getSparkles = function() { return algo.presetSparkles ? "On" : "Off"; };
 
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPow = [0, 0, 0];
+
+    // Bar-level build-up / release state
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
+
     // Default band palette, pre-expressed in HSV: red-ish, green-ish, blue-ish.
     var DEFAULT_BAND_HSV = [
         { h: 0.972, s: 0.875, v: 1.0 }, // ~0xFF2040
@@ -79,17 +93,16 @@ var testAlgo;
     var sparkleBitmap = null;
     var sparkleBitmapLen = 0;
 
-    // Resolve a band color as {h,s,v}. Pitch-hue mode synthesizes hues from
-    // the detected MIDI note; band-color mode reads the user's HSV gradient
-    // (3 stops via acceptColors=3) injected by the engine as gradientBandColorsHsv.
+    // Resolve a band color as {h,s,v}. Uses power-band proportions for palette selection.
     function colorFor(audio, bandIndex) {
-        if (algo.presetPalette && audio.pitch.hz > 0 && audio.pitch.confidence > PITCH_CONF_THRESH) {
-            var midi = audio.pitch.midi;
-            var hue = HSVUtil.mod1((midi % 12) / 12 + bandIndex / 12);
+        if (algo.presetPalette) {
+            // Use band proportions for hue generation
+            var powers = [audio.low, audio.mid, audio.high];
+            var total = powers[0] + powers[1] + powers[2] + 0.001;
+            var hue = HSVUtil.mod1(powers[bandIndex] / total + bandIndex / 3.0);
             return { h: hue, s: 0.85, v: 1.0 };
         }
-        // Engine injects 3 HSV stops in algo.colors (low/mid/high).
-        var stops = (algo.colors && algo.colors.length >= 3)
+        var stops = (algo.hasUserColors && algo.colors.length >= 3)
                     ? algo.colors : DEFAULT_BAND_HSV;
         return stops[bandIndex] || DEFAULT_BAND_HSV[bandIndex];
     }
@@ -105,17 +118,36 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio.beat) ? audio.beat.bpm : 0;
+        var dt = audio.dt;
         // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
-        var time = HSVUtil.beatPosition(1.0, timeState, bpm, dtMs);
+        var time = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
 
         var sensitivity = algo.presetSensitivity;
-        var lowVis = Math.min(1, audio.power.low * sensitivity);
-        var midVis = Math.min(1, audio.power.mid * sensitivity);
-        var highVis = Math.min(1, audio.power.high * sensitivity);
+        // Asymmetric EMA per band (brightness path)
+        var rawPows = [audio.low, audio.mid, audio.high];
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        for (var sb = 0; sb < 3; sb++) {
+            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
+            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
+        }
+        var lowVis = Math.min(1, smoothPow[0] * sensitivity);
+        var midVis = Math.min(1, smoothPow[1] * sensitivity);
+        var highVis = Math.min(1, smoothPow[2] * sensitivity);
 
-        var dominant = audio.power.dominant;
+        // --- Bar-level build-up ---
+        var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
+        barEnergy += rawEnergy * audio.dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
+
+        var dominant = (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
         var dominantIndex = dominant === "high" ? 2 : (dominant === "mid" ? 1 : 0);
         var dominantValue = [lowVis, midVis, highVis][dominantIndex];
         var lowColor = colorFor(audio, 0);
@@ -124,14 +156,14 @@ var testAlgo;
         var dominantColor = [lowColor, midColor, highColor][dominantIndex];
 
         // Onset → flash overlay (single trigger source, no double-dipping).
-        if (audio.onset.fired)
-            flash = Math.max(flash, audio.onset.intensity * algo.presetFlash);
+        if (audio.onset)
+            flash = Math.max(flash, audio.onsetIntensity * algo.presetFlash);
         flash *= FLASH_DECAY;
 
         // Beat → sparkle intensity envelope (single behavior).
         sparkleLevel *= SPARKLE_DECAY;
         if (algo.presetSparkles)
-            sparkleLevel = Math.max(sparkleLevel, audio.beat.cosPulse * highVis);
+            sparkleLevel = Math.max(sparkleLevel, audio.cosPulse * highVis);
 
         // Distribute sparkle pixels for this frame in the upper half.
         var sparkleActive = false;
@@ -154,8 +186,9 @@ var testAlgo;
             }
         }
 
-        var barPhase = audio.bar.phase01;
-        var overall = BASE_OVERALL + dominantValue;
+        var barPhase = audio.barPhase;
+        // Build-up swells overall brightness, downbeat release adds a burst
+        var overall = BASE_OVERALL + dominantValue + peakEnergy * 0.08 + releaseFlash * 0.35;
         var flashActive = flash > 0.01;
         var flashAmount = Math.min(1, flash);
 

@@ -40,9 +40,9 @@ var testAlgo;
       "name:fix_hues|type:list|display:Fix Hues|" +
       "values:No,Yes|write:setFixHues|read:getFixHues");
 
-    algo.setSpeed = function(_v) { algo.speed = clampFloat(_v, 0.00001, 50.0); };
+    algo.setSpeed = function(_v) { algo.speed = parseFloat(_v); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(_v) { algo.reactivity = clampFloat(_v, 0.00001, 1.0); };
+    algo.setReactivity = function(_v) { algo.reactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.reactivity; };
     algo.setFixHues = function(_v) { algo.fix_hues = (_v === "No") ? "No" : "Yes"; };
     algo.getFixHues = function() { return algo.fix_hues; };
@@ -60,11 +60,6 @@ var testAlgo;
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    function clampFloat(v, min, max) {
-        var parsed = parseFloat(v);
-        if (isNaN(parsed)) parsed = min;
-        return Math.max(min, Math.min(max, parsed));
-    }
 
     function mod(x, m) {
         return ((x % m) + m) % m;
@@ -88,18 +83,18 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs > 0 ? audio.timing.consumerDtMs : 40;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-
-        var rawLows = audio.power.low;
+        var dt = audio.dt;
+        var rawLows = audio.low;
         algo.lowsPower = rawLows * 0.05 + algo.lowsPower * 0.95;
 
         var speed = algo.speed;
         var reactivity = algo.reactivity;
-        var t1 = HSVUtil.beatTime(speed, blocksState1, bpm, dtMs);
+        blocksState1.phase = (blocksState1.phase + audio.dt * speed) % 1.0;
+        var t1 = blocksState1.phase;
         var t2 = t1 * (Math.PI * Math.PI) + (0.8 * reactivity * algo.lowsPower);
-        var t3 = HSVUtil.beatTime(speed * T3_RATIO, blocksState3, bpm, dtMs) + (reactivity * algo.lowsPower);
-        var t4 = HSVUtil.beatTime(speed * T4_RATIO, blocksState4, bpm, dtMs) * (Math.PI * Math.PI);
+        var t3 = (blocksState3.phase = (blocksState3.phase + audio.dt * speed * T3_RATIO) % 1.0) + (reactivity * algo.lowsPower);
+        blocksState4.phase = (blocksState4.phase + audio.dt * speed * T4_RATIO) % 1.0;
+        var t4 = blocksState4.phase * (Math.PI * Math.PI);
 
         var m = 0.3 + triangle(t1) * 0.2;
         var c = triangle(t3) * 10.0 + 4.0 * sin01(t4);

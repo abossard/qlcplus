@@ -509,6 +509,17 @@ private:
     MirrorBlend m_mirrorBlend;
 
     /*************************************************************************
+     * Brightness multiplier
+     *************************************************************************/
+public:
+    /** Get/Set the post-render brightness multiplier (>= 0.0, 1.0 = unity) */
+    qreal brightness() const;
+    void setBrightness(qreal b);
+
+private:
+    qreal m_brightness;
+
+    /*************************************************************************
      * Beat Transform
      *************************************************************************/
 public:

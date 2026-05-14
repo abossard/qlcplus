@@ -44,21 +44,21 @@ var testAlgo;
     algo.properties.push(
       "name:presetScrollSpeed|type:range|display:Scroll Speed (px/s)|" +
       "values:1,100|write:setScrollSpeed|read:getScrollSpeed");
-    algo.setScrollSpeed = function(_v) { algo.presetScrollSpeed = parseInt(_v); };
+    algo.setScrollSpeed = function(_v) { algo.presetScrollSpeed = parseFloat(_v); };
     algo.getScrollSpeed = function() { return algo.presetScrollSpeed; };
 
     algo.presetDecayMs = 1500;
     algo.properties.push(
       "name:presetDecayMs|type:range|display:Brightness Decay (ms)|" +
       "values:100,8000|write:setDecayMs|read:getDecayMs");
-    algo.setDecayMs = function(_v) { algo.presetDecayMs = parseInt(_v); };
+    algo.setDecayMs = function(_v) { algo.presetDecayMs = parseFloat(_v); };
     algo.getDecayMs = function() { return algo.presetDecayMs; };
 
     algo.presetMinIntensity = 15;
     algo.properties.push(
       "name:presetMinIntensity|type:range|display:Min Intensity (%)|" +
       "values:0,100|write:setMinIntensity|read:getMinIntensity");
-    algo.setMinIntensity = function(_v) { algo.presetMinIntensity = parseInt(_v); };
+    algo.setMinIntensity = function(_v) { algo.presetMinIntensity = parseFloat(_v); };
     algo.getMinIntensity = function() { return algo.presetMinIntensity; };
 
     algo.presetTrigger = "Onset";
@@ -72,14 +72,14 @@ var testAlgo;
     algo.properties.push(
       "name:presetFluxThreshold|type:range|display:Flux Threshold (%)|" +
       "values:0,100|write:setFluxThreshold|read:getFluxThreshold");
-    algo.setFluxThreshold = function(_v) { algo.presetFluxThreshold = parseInt(_v); };
+    algo.setFluxThreshold = function(_v) { algo.presetFluxThreshold = parseFloat(_v); };
     algo.getFluxThreshold = function() { return algo.presetFluxThreshold; };
 
     algo.presetHfcScale = 100;
     algo.properties.push(
       "name:presetHfcScale|type:range|display:HFC Scale (%=1.0)|" +
       "values:10,400|write:setHfcScale|read:getHfcScale");
-    algo.setHfcScale = function(_v) { algo.presetHfcScale = parseInt(_v); };
+    algo.setHfcScale = function(_v) { algo.presetHfcScale = parseFloat(_v); };
     algo.getHfcScale = function() { return algo.presetHfcScale; };
 
     algo.presetMaxLines = 40;
@@ -93,7 +93,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetMinSpawnMs|type:range|display:Min Spawn Interval (ms)|" +
       "values:0,500|write:setMinSpawnMs|read:getMinSpawnMs");
-    algo.setMinSpawnMs = function(_v) { algo.presetMinSpawnMs = parseInt(_v); };
+    algo.setMinSpawnMs = function(_v) { algo.presetMinSpawnMs = parseFloat(_v); };
     algo.getMinSpawnMs = function() { return algo.presetMinSpawnMs; };
 
     algo.presetAxis = "Horizontal";
@@ -140,8 +140,7 @@ var testAlgo;
     }
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dt = audio.timing.consumerDtMs / 1000.0;
-      var dtMs = audio.timing.consumerDtMs;
+      var dt = audio.dt * 60.0 / audio.bpm;
       ensureState(width, height);
 
       var horizontal = (algo.presetAxis === "Horizontal");
@@ -150,21 +149,21 @@ var testAlgo;
       var triggered;
       var intensity;
       if (algo.presetTrigger === "Onset") {
-        triggered = audio.onset.fired;
-        intensity = audio.onset.intensity;
+        triggered = audio.onset;
+        intensity = audio.onsetIntensity;
       } else {
-        triggered = (audio.features.flux > algo.presetFluxThreshold / 100.0);
-        intensity = audio.features.flux;
+        triggered = (audio.onsetIntensity > algo.presetFluxThreshold / 100.0);
+        intensity = audio.onsetIntensity;
       }
       var threshold = algo.presetMinIntensity / 100.0;
 
-      algo.spawnAccumMs += dtMs;
+      algo.spawnAccumMs += (audio.dt * 60000 / audio.bpm);
       var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
       if (triggered && intensity >= threshold && canSpawn) {
         var hfcScale = algo.presetHfcScale / 100.0;
         if (hfcScale < 0.001) hfcScale = 0.001;
-        var t = audio.features.hfc / hfcScale;
+        var t = audio.high / hfcScale;
         var gradient = (algo.colors && algo.colors.length > 0)
           ? algo.colors : DEFAULT_GRADIENT;
         var color = HSVUtil.gradientAt(gradient, t);

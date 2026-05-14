@@ -94,7 +94,7 @@ var testAlgo;
 
     algo.setSize = function(_size)
     {
-      algo.presetSize = _size;
+      algo.presetSize = parseFloat(_size);
       util.initialized = false;
     };
 
@@ -105,7 +105,7 @@ var testAlgo;
 
     algo.setRamp = function(_ramp)
     {
-      algo.ramp = _ramp;
+      algo.ramp = parseFloat(_ramp);
       util.initialized = false;
     };
 
@@ -116,7 +116,7 @@ var testAlgo;
 
     algo.setStep = function(_step)
     {
-      algo.stepsize = _step;
+      algo.stepsize = parseFloat(_step);
       util.initialized = false;
     };
 

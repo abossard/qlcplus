@@ -42,45 +42,40 @@ var testAlgo;
     var DU_MIN = 0.10, DU_MAX = 0.30;
     var DV_MIN = 0.05, DV_MAX = 0.15;
 
-    function clampRange(v, lo, hi) {
-      if (v < lo) return lo;
-      if (v > hi) return hi;
-      return v;
-    }
 
     algo.presetFeedBase = 30;
     algo.properties.push(
       "name:presetFeedBase|type:range|display:Feed Base (x1e-3)|" +
       "values:10,80|write:setFeedBase|read:getFeedBase");
-    algo.setFeedBase = function(_v) { algo.presetFeedBase = parseInt(_v); };
+    algo.setFeedBase = function(_v) { algo.presetFeedBase = parseFloat(_v); };
     algo.getFeedBase = function() { return algo.presetFeedBase; };
 
     algo.presetKillBase = 55;
     algo.properties.push(
       "name:presetKillBase|type:range|display:Kill Base (x1e-3)|" +
       "values:40,70|write:setKillBase|read:getKillBase");
-    algo.setKillBase = function(_v) { algo.presetKillBase = parseInt(_v); };
+    algo.setKillBase = function(_v) { algo.presetKillBase = parseFloat(_v); };
     algo.getKillBase = function() { return algo.presetKillBase; };
 
     algo.presetDu = 16;
     algo.properties.push(
       "name:presetDu|type:range|display:Diffusion U (x1e-2)|" +
       "values:10,30|write:setDu|read:getDu");
-    algo.setDu = function(_v) { algo.presetDu = parseInt(_v); };
+    algo.setDu = function(_v) { algo.presetDu = parseFloat(_v); };
     algo.getDu = function() { return algo.presetDu; };
 
     algo.presetDv = 8;
     algo.properties.push(
       "name:presetDv|type:range|display:Diffusion V (x1e-2)|" +
       "values:5,15|write:setDv|read:getDv");
-    algo.setDv = function(_v) { algo.presetDv = parseInt(_v); };
+    algo.setDv = function(_v) { algo.presetDv = parseFloat(_v); };
     algo.getDv = function() { return algo.presetDv; };
 
     algo.presetSimDt = 90;
     algo.properties.push(
       "name:presetSimDt|type:range|display:Sim dt (x1e-2)|" +
       "values:10,100|write:setSimDt|read:getSimDt");
-    algo.setSimDt = function(_v) { algo.presetSimDt = parseInt(_v); };
+    algo.setSimDt = function(_v) { algo.presetSimDt = parseFloat(_v); };
     algo.getSimDt = function() { return algo.presetSimDt; };
 
     algo.presetStepsPerFrame = 4;
@@ -94,35 +89,35 @@ var testAlgo;
     algo.properties.push(
       "name:presetSeedSize|type:range|display:Kick Seed Size (px)|" +
       "values:1,6|write:setSeedSize|read:getSeedSize");
-    algo.setSeedSize = function(_v) { algo.presetSeedSize = parseInt(_v); };
+    algo.setSeedSize = function(_v) { algo.presetSeedSize = parseFloat(_v); };
     algo.getSeedSize = function() { return algo.presetSeedSize; };
 
     algo.presetFlatnessModulation = 40;
     algo.properties.push(
       "name:presetFlatnessModulation|type:range|display:Flatness->F Mod (x1e-3)|" +
       "values:0,90|write:setFlatnessMod|read:getFlatnessMod");
-    algo.setFlatnessMod = function(_v) { algo.presetFlatnessModulation = parseInt(_v); };
+    algo.setFlatnessMod = function(_v) { algo.presetFlatnessModulation = parseFloat(_v); };
     algo.getFlatnessMod = function() { return algo.presetFlatnessModulation; };
 
     algo.presetMidModulation = 20;
     algo.properties.push(
       "name:presetMidModulation|type:range|display:Mid->k Mod (x1e-3)|" +
       "values:0,30|write:setMidMod|read:getMidMod");
-    algo.setMidMod = function(_v) { algo.presetMidModulation = parseInt(_v); };
+    algo.setMidMod = function(_v) { algo.presetMidModulation = parseFloat(_v); };
     algo.getMidMod = function() { return algo.presetMidModulation; };
 
     algo.presetHighModulation = 50;
     algo.properties.push(
       "name:presetHighModulation|type:range|display:High->Dv Mod (%)|" +
       "values:0,200|write:setHighMod|read:getHighMod");
-    algo.setHighMod = function(_v) { algo.presetHighModulation = parseInt(_v); };
+    algo.setHighMod = function(_v) { algo.presetHighModulation = parseFloat(_v); };
     algo.getHighMod = function() { return algo.presetHighModulation; };
 
     algo.presetGain = 200;
     algo.properties.push(
       "name:presetGain|type:range|display:Render Gain (%)|" +
       "values:50,800|write:setGain|read:getGain");
-    algo.setGain = function(_v) { algo.presetGain = parseInt(_v); };
+    algo.setGain = function(_v) { algo.presetGain = parseFloat(_v); };
     algo.getGain = function() { return algo.presetGain; };
 
     algo.U = null;
@@ -172,25 +167,21 @@ var testAlgo;
       ensureGrids(width, height);
 
       // Audio-driven parameters, hard-clamped to Gray-Scott safe regimes.
-      var F = clampRange(
-        algo.presetFeedBase / 1000.0
-          + audio.features.flatness * (algo.presetFlatnessModulation / 1000.0),
-        F_MIN, F_MAX);
-      var k = clampRange(
-        algo.presetKillBase / 1000.0
-          + audio.power.mid * (algo.presetMidModulation / 1000.0),
-        K_MIN, K_MAX);
-      var Du = clampRange(algo.presetDu / 100.0, DU_MIN, DU_MAX);
+      var F = Math.max(F_MIN, Math.min(F_MAX, algo.presetFeedBase / 1000.0
+          + (audio.high / (audio.low + 0.001)) * (algo.presetFlatnessModulation / 1000.0)));
+      var k = Math.max(K_MIN, Math.min(K_MAX, algo.presetKillBase / 1000.0
+          + audio.mid * (algo.presetMidModulation / 1000.0)));
+      var Du = Math.max(DU_MIN, Math.min(DU_MAX, algo.presetDu / 100.0));
       var DvBase = algo.presetDv / 100.0;
-      var DvMod = audio.power.high * (algo.presetHighModulation / 100.0);
-      var Dv = clampRange(DvBase * (1.0 + DvMod), DV_MIN, DV_MAX);
+      var DvMod = audio.high * (algo.presetHighModulation / 100.0);
+      var Dv = Math.max(DV_MIN, Math.min(DV_MAX, DvBase * (1.0 + DvMod)));
 
       // Canonical timing: derive simulation budget from engine dt.
-      var dt = audio.timing.consumerDtMs / 1000.0;
+      var dt = audio.dt * 60.0 / audio.bpm;
       var simDt = algo.presetSimDt / 100.0;
       var steps = Math.max(1, Math.round(algo.presetStepsPerFrame * dt * 25));
 
-      if (audio.beat.kick) {
+      if (audio.beatFired) {
         var sx = Math.floor(Math.random() * width);
         var sy = Math.floor(Math.random() * height);
         seedCluster(width, height, sx, sy, Math.max(1, algo.presetSeedSize));

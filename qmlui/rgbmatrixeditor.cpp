@@ -665,6 +665,21 @@ void RGBMatrixEditor::setMirrorBlend(int b)
     emit mirrorBlendChanged();
 }
 
+qreal RGBMatrixEditor::brightness() const
+{
+    if (m_matrix == nullptr)
+        return 1.0;
+    return m_matrix->brightness();
+}
+
+void RGBMatrixEditor::setBrightness(qreal b)
+{
+    if (m_matrix == nullptr || qFuzzyCompare(b, m_matrix->brightness()))
+        return;
+    m_matrix->setBrightness(b);
+    emit brightnessChanged();
+}
+
 /************************************************************************
  * Beat Transform
  ************************************************************************/

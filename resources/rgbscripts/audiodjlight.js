@@ -33,7 +33,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetBlobWidth|type:range|display:Blob Width (sigma px)|" +
       "values:1,40|write:setBlobWidth|read:getBlobWidth");
-    algo.setBlobWidth = function(_v) { algo.presetBlobWidth = parseInt(_v); };
+    algo.setBlobWidth = function(_v) { algo.presetBlobWidth = parseFloat(_v); };
     algo.getBlobWidth = function() { return algo.presetBlobWidth; };
 
     algo.presetSpeed = 0.25;
@@ -49,6 +49,15 @@ var testAlgo;
       "values:Horizontal,Vertical|write:setAxis|read:getAxis");
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothPow = [0, 0, 0];
 
     algo.pos = null;
     algo.vel = null;
@@ -71,10 +80,8 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dtMs = audio.timing.consumerDtMs;
-      var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-      var bpmEff = (bpm > 0) ? bpm : 120;
-      var dtBeats = dtMs * bpmEff / 60000.0;
+      var dt = audio.dt;
+      var dtBeats = audio.dt;
       var horizontal = (algo.presetAxis === "Horizontal");
       var N = horizontal ? width : height;
       ensureBlobs(N);
@@ -89,7 +96,17 @@ var testAlgo;
       var map = HSVUtil.createMap(width, height);
       var bandColors = (algo.colors && algo.colors.length >= 3)
         ? algo.colors : DEFAULT_BAND_COLORS;
-      var powers = audio.power.bands;
+
+      // Asymmetric EMA smoothing of band powers (fast attack, slow decay)
+      var smoothing = algo.presetSmoothing / 10.0;
+      var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+      var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+      var rawPows = [audio.low, audio.mid, audio.high];
+      for (var sb = 0; sb < 3; sb++) {
+        var a = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
+        smoothPow[sb] += a * (rawPows[sb] - smoothPow[sb]);
+      }
+      var powers = smoothPow;
       var sigma = Math.max(1, algo.presetBlobWidth);
       var twoSigSq = 2 * sigma * sigma;
 

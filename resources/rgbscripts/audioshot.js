@@ -39,9 +39,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetMaxShots|type:range|display:Max Shots|" +
       "values:1,20|write:setMaxShots|read:getMaxShots");
-    algo.setDecay = function(_v) { algo.presetDecay = parseInt(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
-    algo.setSize = function(_v) { algo.presetSize = parseInt(_v); };
+    algo.setSize = function(_v) { algo.presetSize = parseFloat(_v); };
     algo.getSize = function() { return algo.presetSize; };
     algo.setTrigger = function(_v) {
         if (_v === "Bass") algo.presetTrigger = 1;
@@ -64,10 +64,9 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     function spawnShot(width, height, audio) {
-        var color = AudioColors.dominant(algo, audio);
-        var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onset.intensity);
-
-        var band = AudioColors.dominantIndex(audio);
+        var band = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
+        var color = (algo.colors && algo.colors.length >= 3) ? algo.colors[band] : {h: 0, s: 0, v: 1};
+        var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onsetIntensity);
         var y;
         if (band === 0)
             y = Math.floor(height * 0.5 + Math.random() * height * 0.5);
@@ -95,11 +94,11 @@ var testAlgo;
         if (!audio) return map;
 
         var trigger;
-        if (algo.presetTrigger === 0) trigger = audio.beat.fired;
-        else if (algo.presetTrigger === 1) trigger = audio.bands.low.fired || audio.beat.kick;
-        else if (algo.presetTrigger === 2) trigger = audio.bands.mid.fired;
-        else trigger = audio.bands.high.fired;
-        trigger = trigger || audio.onset.fired;
+        if (algo.presetTrigger === 0) trigger = audio.beatFired;
+        else if (algo.presetTrigger === 1) trigger = audio.beatFired || audio.beatFired;
+        else if (algo.presetTrigger === 2) trigger = audio.onset;
+        else trigger = audio.onset;
+        trigger = trigger || audio.onset;
 
         if (trigger) spawnShot(width, height, audio);
 

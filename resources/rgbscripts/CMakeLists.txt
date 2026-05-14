@@ -10,9 +10,7 @@ set(SCRIPT_FILES
     audioblocks.js
     audioblurz.js
     audiocellular.js
-    audio_colors.js
     audiochaser.js
-    audiochromatic.js
     audiocrawler.js
     audiodjlight.js
     audioenergy.js
@@ -36,7 +34,6 @@ set(SCRIPT_FILES
     audioscan.js
     audioscanflare.js
     audioscanmulti.js
-    audioscroll.js
     audioshockwave.js
     audioshot.js
     audiosoap.js
@@ -46,8 +43,6 @@ set(SCRIPT_FILES
     audiotunnel.js
     audiovortex.js
     audiowater.js
-    audiowaterfall.js
-    audiowavelength.js
     balls.js
     blinder.js
     circles.js

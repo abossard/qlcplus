@@ -56,9 +56,9 @@ var testAlgo;
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = clampInt(_v, 50, 500, 200); };
+    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = parseInt(_v); };
     algo.getMaxParticles = function() { return algo.presetMaxParticles; };
-    algo.setGravity = function(_v) { algo.presetGravity = clampInt(_v, 0, 10, 3); };
+    algo.setGravity = function(_v) { algo.presetGravity = parseFloat(_v); };
     algo.getGravity = function() { return algo.presetGravity; };
     algo.setOrigin = function(_v) {
         if (_v === "Bottom" || parseInt(_v) === 1) algo.presetOrigin = 1;
@@ -66,7 +66,7 @@ var testAlgo;
         else algo.presetOrigin = 0;
     };
     algo.getOrigin = function() { return ["Center", "Bottom", "Random"][algo.presetOrigin]; };
-    algo.setParticleSize = function(_v) { algo.presetParticleSize = clampInt(_v, 1, 3, 1); };
+    algo.setParticleSize = function(_v) { algo.presetParticleSize = parseInt(_v); };
     algo.getParticleSize = function() { return algo.presetParticleSize; };
     algo.setTriggerMode = function(_v) {
         if (_v === "Onset") algo.presetTriggerMode = 1;
@@ -86,16 +86,11 @@ var testAlgo;
       "name:presetAmbientMin|type:range|display:Ambient Min|" +
       "values:1,30|write:setAmbientMin|read:getAmbientMin");
 
-    algo.setKickThreshold = function(_v) { algo.presetKickThreshold = clampInt(_v, 1, 10, 6); };
+    algo.setKickThreshold = function(_v) { algo.presetKickThreshold = parseFloat(_v); };
     algo.getKickThreshold = function() { return algo.presetKickThreshold; };
-    algo.setAmbientMin = function(_v) { algo.presetAmbientMin = clampInt(_v, 1, 30, 10); };
+    algo.setAmbientMin = function(_v) { algo.presetAmbientMin = parseFloat(_v); };
     algo.getAmbientMin = function() { return algo.presetAmbientMin; };
 
-    function clampInt(value, minValue, maxValue, defaultValue) {
-        var parsed = parseInt(value);
-        if (isNaN(parsed)) parsed = defaultValue;
-        return Math.max(minValue, Math.min(maxValue, parsed));
-    }
 
     function additiveHsv(map, width, height, x, y, h, s, v) {
         if (x < 0 || x >= width || y < 0 || y >= height) return;
@@ -200,7 +195,7 @@ var testAlgo;
     }
 
     function dominantBandType(audio) {
-        return audio.power.dominant;
+        return (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
     }
 
     function renderParticle(map, width, height, particle, particleSize) {
@@ -261,15 +256,15 @@ var testAlgo;
             lastW = width;
             lastH = height;
         }
-        var powers = audio.power.bands;
-        var totalPower = audio.power.total;
-        var onsetIntensity = audio.onset.intensity;
+        var powers = [audio.low, audio.mid, audio.high];
+        var totalPower = (audio.low + audio.mid + audio.high);
+        var onsetIntensity = audio.onsetIntensity;
 
         if (SPAWN_TRIGGERS[algo.presetTriggerMode](audio))
             spawnBurst(width, height, dominantBandType(audio), powers);
 
         // Extra burst on strong kicks
-        if (audio.beat.kick && onsetIntensity > algo.presetKickThreshold / 10
+        if (audio.beatFired && onsetIntensity > algo.presetKickThreshold / 10
             && algo.particles.length < algo.presetMaxParticles * KICK_PARTICLE_BUDGET_RATIO)
             spawnBurst(width, height, "low", powers);
 

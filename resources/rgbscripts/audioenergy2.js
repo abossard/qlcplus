@@ -40,6 +40,15 @@ var testAlgo;
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
+    algo.presetSmoothing = 5;
+    algo.properties.push(
+      "name:presetSmoothing|type:range|display:Smoothing|" +
+      "values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothLow = 0;
+
     var REACTIVITY_SCALE = 5.0;
     var SAT_BASE = 0.9;
     var SAT_REACT_ADD = 0.3;
@@ -57,15 +66,19 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dtMs = audio.timing.consumerDtMs;
-        var bpm = (audio && audio.beat) ? audio.beat.bpm : 0;
-
+        var dt = audio.dt;
         var speed = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
         var reactivity = reactivity01 * REACTIVITY_SCALE;
-        var lowPower = audio.power.low;
+        var rawLow = audio.low;
+        // Asymmetric EMA smoothing (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        smoothLow += (rawLow > smoothLow ? riseAlpha : decayAlpha) * (rawLow - smoothLow);
+        var lowPower = smoothLow;
 
-        algo.phase = HSVUtil.beatTime(speed, energyState, bpm, dtMs);
+        algo.phase = (energyState.phase = (energyState.phase + audio.dt * speed) % 1.0);
 
         var hue = HSVUtil.mod1(lowPower + algo.phase);
         var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;

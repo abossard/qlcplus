@@ -38,7 +38,7 @@ var testAlgo;
       "name:presetDecay|type:float|display:Decay|" +
       "write:setDecay|read:getDecay");
 
-    algo.setBands = function(_v) { algo.presetBands = Math.max(2, Math.min(5, parseInt(_v))); };
+    algo.setBands = function(_v) { algo.presetBands = parseInt(_v); };
     algo.getBands = function() { return algo.presetBands; };
     algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
@@ -82,13 +82,13 @@ var testAlgo;
         if (!audio) return map;
 
         var numBands = algo.presetBands;
-        var sourceBands = audio.power.bands;
+        var sourceBands = [audio.low, audio.mid, audio.high];
         var bands = (numBands === 3) ? sourceBands : HSVUtil.interpolate(sourceBands, numBands);
         var bandColors = algo.colors || DEFAULT_BAND_COLORS;
         var fallStep = algo.presetDecay;
         var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
 
-        var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.beat.cosPulse;
+        var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.cosPulse;
 
         for (var section = 0; section < numBands; section++) {
             var magnitude = Math.max(0, bands[section]);

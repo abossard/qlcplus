@@ -1,9 +1,8 @@
 /*
   Q Light Controller Plus
-  audiopower.js
+  audiopower.js — 5-segment power meter (Audio API v2)
 
   Copyright (c) QLC+ contributors
-  Ported from LedFx "Power" effect (MIT License)
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -19,8 +18,8 @@ var testAlgo;
     var algo = new Object;
     algo.apiVersion = 3;
     algo.name = "Audio Power";
-    algo.author = "Ported from LedFx";
-    algo.acceptColors = 3;
+    algo.author = "QLC+ contributors";
+    algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
 
@@ -29,13 +28,8 @@ var testAlgo;
         {h: 0.078, s: 1.0, v: 1.0},
         {h: 0.131, s: 1.0, v: 1.0},
         {h: 0.333, s: 1.0, v: 1.0},
-        {h: 0.453, s: 1.0, v: 0.780},
-        {h: 0.667, s: 1.0, v: 1.0},
-        {h: 0.833, s: 1.0, v: 0.502},
-        {h: 0.884, s: 1.0, v: 1.0}
+        {h: 0.611, s: 0.75, v: 1.0}
     ];
-
-    var DEFAULT_HIGH_BAND = {h: 0.884, s: 1.0, v: 1.0};
 
     algo.blur = 0.0;
     algo.bass_decay_rate = 0.05;
@@ -45,58 +39,55 @@ var testAlgo;
     algo.properties.push("name:bass_decay_rate|type:float|display:Bass Decay Rate|write:setBassDecayRate|read:getBassDecayRate");
     algo.properties.push("name:sparks_decay_rate|type:float|display:Sparks Decay Rate|write:setSparksDecayRate|read:getSparksDecayRate");
 
-    algo.setBlur = function(v) { algo.blur = clamp(parseFloat(v), 0, 10); };
+    algo.setBlur = function(v) { algo.blur = parseFloat(v); };
     algo.getBlur = function() { return algo.blur; };
-    algo.setBassDecayRate = function(v) { algo.bass_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.setBassDecayRate = function(v) { algo.bass_decay_rate = parseFloat(v); };
     algo.getBassDecayRate = function() { return algo.bass_decay_rate; };
-    algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = clamp(parseFloat(v), 0, 1); };
+    algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = parseFloat(v); };
     algo.getSparksDecayRate = function() { return algo.sparks_decay_rate; };
+
+    algo.presetSmoothing = 5;
+    algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
+    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.getSmoothing = function() { return algo.presetSmoothing; };
+
+    var smoothBands = [0, 0, 0, 0, 0];
+
+    // Bar-level build-up / release state
+    var barEnergy = 0;
+    var peakEnergy = 0;
+    var releaseFlash = 0;
 
     var sparksV = null;
     var bassV = null;
-    var sparkColor = DEFAULT_HIGH_BAND;
-    var bassFilter = null;
-    var lastWidth = 0;
+    var sparkColor = {h: 0.884, s: 1.0, v: 1.0};
+    var lastW = 0;
 
-    function clamp(v, lo, hi) {
-        if (isNaN(v)) return lo;
-        return Math.max(lo, Math.min(hi, v));
-    }
-
-    function gradientStops() {
-        return (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
-    }
 
     function ensure(width) {
-        if (lastWidth === width && sparksV !== null && sparksV.length === width) return;
-        sparksV = new Float32Array(width);
-        bassV = new Float32Array(width);
-        bassFilter = null;
-        lastWidth = width;
+        if (lastW === width && sparksV) return;
+        lastW = width;
+        sparksV = new Array(width);
+        bassV = new Array(width);
+        for (var i = 0; i < width; i++) { sparksV[i] = 0; bassV[i] = 0; }
     }
 
     function scaleInPlace(arr, factor) {
         for (var i = 0; i < arr.length; i++) arr[i] *= factor;
     }
 
-    function expFilter(value) {
-        if (bassFilter === null) {
-            bassFilter = value;
-            return bassFilter;
-        }
-        var alpha = value > bassFilter ? 0.8 : 0.1;
-        bassFilter = alpha * value + (1.0 - alpha) * bassFilter;
-        return bassFilter;
+    function gradientStops() {
+        return (algo.colors && algo.colors.length >= 3) ? algo.colors : DEFAULT_GRADIENT;
     }
 
-    function boxBlur(strip, amount) {
-        var radius = Math.round(amount);
-        if (radius <= 0 || strip.length <= 3) return strip;
+    function boxBlur(strip, radius) {
+        if (radius < 0.5) return strip;
         var n = strip.length;
+        var r = Math.max(1, Math.round(radius));
         var out = new Array(n);
         for (var i = 0; i < n; i++) {
             var bh = 0, bs = 0, bv = 0, c = 0;
-            for (var k = -radius; k <= radius; k++) {
+            for (var k = -r; k <= r; k++) {
                 var idx = i + k;
                 if (idx < 0 || idx >= n) continue;
                 bh += strip[idx].h; bs += strip[idx].s; bv += strip[idx].v; c++;
@@ -108,42 +99,73 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() { return DEFAULT_GRADIENT.slice(); };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         ensure(width);
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        scaleInPlace(sparksV, 1.0 - clamp(algo.sparks_decay_rate, 0, 1));
-        scaleInPlace(bassV, 1.0 - clamp(algo.bass_decay_rate, 0, 1));
+        scaleInPlace(sparksV, 1.0 - Math.max(0, Math.min(1, algo.sparks_decay_rate)));
+        scaleInPlace(bassV, 1.0 - Math.max(0, Math.min(1, algo.bass_decay_rate)));
 
-        if (audio.onset.fired) {
+        // Sparks on onset
+        if (audio.onset) {
             var numSparks = Math.floor(width / 20);
-            var bands = (algo.colors && algo.colors.length >= 3)
-                ? algo.colors : null;
-            sparkColor = bands ? bands[2] : DEFAULT_HIGH_BAND;
+            var stops = gradientStops();
+            sparkColor = stops[stops.length - 1];
             for (var s = 0; s < numSparks; s++) {
                 var sx = Math.floor(Math.random() * width);
                 sparksV[sx] = sparkColor.v;
             }
         }
 
-        var bass = expFilter(Math.max(0, audio.power.low));
+        // Bass fill from left
+        var bass = Math.max(0, Math.min(1, audio.low));
         var bassIdx = Math.floor(bass * width);
         var bassHsv = HSVUtil.gradientAt(gradientStops(), bass);
         for (var i = 0; i < bassIdx && i < width; i++)
             bassV[i] = bassHsv.v;
 
-        var mel = HSVUtil.interpolate(audio.spectrum.full, width);
+        // Build 5-band interpolated power strip
+        var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
+        // Asymmetric EMA per bin (fast attack, slow decay)
+        var smoothing = algo.presetSmoothing / 10.0;
+        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
+        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
+        for (var sb = 0; sb < 5; sb++) {
+            var sa = rawBands[sb] > smoothBands[sb] ? riseAlpha : decayAlpha;
+            smoothBands[sb] += sa * (rawBands[sb] - smoothBands[sb]);
+        }
+        var bands = smoothBands;
+
+        // --- Bar-level build-up ---
+        var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
+        barEnergy += rawEnergy * audio.dt;
+        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
+        if (audio.downbeat) {
+            releaseFlash = Math.min(1, peakEnergy * 0.5);
+            barEnergy = 0;
+            peakEnergy = 0;
+        }
+        releaseFlash *= 0.85;
+
         var strip = new Array(width);
         for (var x = 0; x < width; x++) {
             var spatial = width <= 1 ? 0 : x / (width - 1);
+            // Interpolate band power at this position
+            var bandPos = spatial * (bands.length - 1);
+            var lo = Math.floor(bandPos);
+            var hi = Math.min(bands.length - 1, lo + 1);
+            var frac = bandPos - lo;
+            var melVal = bands[lo] * (1 - frac) + bands[hi] * frac;
+
             var gradHsv = HSVUtil.gradientAt(gradientStops(), spatial);
-            var baseV = gradHsv.v * mel[x];
+            // Release briefly expands all bars toward peak
+            var baseV = gradHsv.v * Math.min(1, melVal + releaseFlash * 0.3);
             var bV = bassV[x];
             var spV = sparksV[x];
-            var totalV = HSVUtil.clamp01(baseV + bV + spV);
+            var totalV = Math.max(0, Math.min(1, baseV + bV + spV));
             var ph = gradHsv.h, ps = gradHsv.s;
             if (spV > baseV && spV > bV) {
                 ph = sparkColor.h; ps = sparkColor.s;
