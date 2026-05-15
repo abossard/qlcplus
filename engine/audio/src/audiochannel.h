@@ -30,6 +30,16 @@ public:
     void updateConfig(const AudioChannelConfig &config);
     AudioChannelConfig config() const;
 
+    /**
+     * Inject a pre-built snapshot from an external source (e.g., Synesthesia
+     * OSC). Thread-safe: uses the same m_mutex as snapshot(). When an external
+     * source is active, update() becomes a no-op so the mic pipeline does not
+     * overwrite injected data.
+     */
+    void injectSnapshot(const AudioSnapshot &snap);
+    bool hasExternalSource() const;
+    void setExternalSource(bool external);
+
 private:
     AudioChannelConfig m_config;
     AudioChannelConfig m_pendingConfig;
@@ -76,6 +86,7 @@ private:
     // with the threshold expressed in LedFx-portable units.
     static constexpr double kLedFxMinVolume = 0.2;
     bool m_currentBeat = false;
+    bool m_externalSource = false;
 
     // Kick detector state
     double m_kickSpike = 0.0;       // LedFx beatPower/history ratio

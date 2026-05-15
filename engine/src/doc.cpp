@@ -37,6 +37,8 @@
 #include "monitorproperties.h"
 #include "audioplugincache.h"
 #include "audioanalyzer.h"
+#include "oscaudiosource.h"
+#include "audiochannel.h"
 #include "rgbscriptscache.h"
 #include "channelsgroup.h"
 #include "scriptwrapper.h"
@@ -103,6 +105,9 @@ Doc::~Doc()
     clearContents();
     delete m_audioAnalyzer;
     m_audioAnalyzer = nullptr;
+
+    delete m_oscAudioSource;
+    m_oscAudioSource = nullptr;
 
     if (isKiosk() == false)
     {
@@ -330,6 +335,52 @@ void Doc::destroyAudioCapture()
         qDebug() << "Destroying audio capture";
         m_inputCapture->setAnalyzer(nullptr);
         m_inputCapture.clear();
+    }
+}
+
+OscAudioSource *Doc::oscAudioSource() const
+{
+    if (m_oscAudioSource == nullptr)
+        const_cast<Doc*>(this)->m_oscAudioSource = new OscAudioSource(const_cast<Doc*>(this));
+    return m_oscAudioSource;
+}
+
+void Doc::updateOscAudioSourceForProfile(AudioProfile *profile)
+{
+    if (profile == nullptr)
+        return;
+
+    AudioChannel *ch = profile->channel();
+    if (ch == nullptr)
+        return;
+
+    OscAudioSource *osc = oscAudioSource();
+
+    if (profile->audioSource() == AudioProfile::OscSynesthesia)
+    {
+        osc->setPort(profile->oscPort());
+        osc->setTargetChannel(ch);
+        ch->setExternalSource(true);
+        if (!osc->isRunning())
+            osc->start();
+        qDebug() << "OSC audio source connected to profile" << profile->name()
+                 << "on port" << profile->oscPort();
+    }
+    else
+    {
+        ch->setExternalSource(false);
+        // Only stop if no other profile is using OSC
+        bool anyOsc = false;
+        for (auto *p : std::as_const(m_audioProfiles))
+        {
+            if (p != profile && p->audioSource() == AudioProfile::OscSynesthesia)
+            {
+                anyOsc = true;
+                break;
+            }
+        }
+        if (!anyOsc && osc->isRunning())
+            osc->stop();
     }
 }
 
@@ -1058,6 +1109,15 @@ bool Doc::addAudioProfile(AudioProfile *profile)
     profile->setParent(this);
     profile->bindAnalyzer(audioAnalyzer());
     m_audioProfiles[id] = profile;
+
+    // Wire audio source changes so OSC can be connected/disconnected dynamically
+    connect(profile, &AudioProfile::audioSourceChanged,
+            this, [this, profile](int) { updateOscAudioSourceForProfile(profile); });
+
+    // If profile was loaded with OSC source, activate it now
+    if (profile->audioSource() == AudioProfile::OscSynesthesia)
+        updateOscAudioSourceForProfile(profile);
+
     setModified();
 
     return true;

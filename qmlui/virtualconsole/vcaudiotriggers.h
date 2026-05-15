@@ -86,6 +86,8 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(QVariantList audioLevels READ audioLevels NOTIFY audioLevelsChanged)
     Q_PROPERTY(QVariantList barsInfo READ barsInfo NOTIFY barsInfoChanged)
     Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged FINAL)
+    Q_PROPERTY(int audioSource READ audioSource WRITE setAudioSource NOTIFY audioSourceChanged)
+    Q_PROPERTY(quint16 oscPort READ oscPort WRITE setOscPort NOTIFY oscPortChanged)
     Q_PROPERTY(double envelopeAttack READ envelopeAttack NOTIFY configChanged)
     Q_PROPERTY(double envelopeRelease READ envelopeRelease NOTIFY configChanged)
     // Per-band Schmitt trigger config. 12 properties: 3 bands × {High, Low, Hold, Cooldown}.
@@ -436,6 +438,11 @@ public:
 
     quint32 audioProfileId() const;
     void setAudioProfileId(quint32 id);
+
+    int audioSource() const;
+    void setAudioSource(int source);
+    quint16 oscPort() const;
+    void setOscPort(quint16 port);
 
     double lowsPower() const;
     double midsPower() const;
@@ -813,10 +820,13 @@ signals:
     void audioProfileIdChanged();
     void configChanged();
     void audioSnapshotChanged();
+    void audioSourceChanged();
+    void oscPortChanged();
 
 private slots:
     void slotBeatDetected();
     void slotBeatTimeout();
+    void slotOscSnapshotInjected();
 
 protected:
     /** @reimp */

@@ -126,6 +126,40 @@ void AudioProfile::setIsDefault(bool def)
     emit isDefaultChanged();
 }
 
+int AudioProfile::audioSource() const
+{
+    return int(m_audioSource);
+}
+
+void AudioProfile::setAudioSource(int source)
+{
+    AudioSourceType s = static_cast<AudioSourceType>(source);
+    if (m_audioSource == s)
+        return;
+
+    m_audioSource = s;
+
+    // Gate the mic pipeline: when using OSC, the channel should not be
+    // updated by AudioAnalyzer::processFrame().
+    if (m_channel)
+        m_channel->setExternalSource(s == OscSynesthesia);
+
+    emit audioSourceChanged(source);
+}
+
+quint16 AudioProfile::oscPort() const
+{
+    return m_oscPort;
+}
+
+void AudioProfile::setOscPort(quint16 port)
+{
+    if (m_oscPort == port)
+        return;
+    m_oscPort = port;
+    emit oscPortChanged();
+}
+
 AudioChannelConfig AudioProfile::channelConfig() const
 {
     return m_config;
@@ -147,7 +181,12 @@ void AudioProfile::bindAnalyzer(AudioAnalyzer *analyzer)
     releaseAnalyzer();
     m_analyzer = analyzer;
     if (m_analyzer != nullptr)
+    {
         m_channel = m_analyzer->createChannel(m_config);
+        // If this profile uses an external OSC source, gate the mic pipeline
+        if (m_audioSource == OscSynesthesia)
+            m_channel->setExternalSource(true);
+    }
 }
 
 void AudioProfile::releaseAnalyzer()
@@ -190,6 +229,21 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
 
     if (attrs.hasAttribute(KXMLQLCAudioProfileIsDefault))
         setIsDefault(boolFromString(attrs.value(KXMLQLCAudioProfileIsDefault).toString()));
+
+    if (attrs.hasAttribute(KXMLQLCAudioProfileAudioSource))
+    {
+        bool srcOk = false;
+        int src = attrs.value(KXMLQLCAudioProfileAudioSource).toString().toInt(&srcOk);
+        if (srcOk)
+            m_audioSource = static_cast<AudioSourceType>(src);
+    }
+    if (attrs.hasAttribute(KXMLQLCAudioProfileOscPort))
+    {
+        bool portOk = false;
+        quint16 port = attrs.value(KXMLQLCAudioProfileOscPort).toString().toUShort(&portOk);
+        if (portOk)
+            m_oscPort = port;
+    }
 
     constexpr int kSupportedVersion = 2;
     int version = 0;
@@ -633,6 +687,12 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileName, name());
     doc->writeAttribute(KXMLQLCAudioProfileIsDefault, isDefault() ? KXMLQLCTrue : KXMLQLCFalse);
     doc->writeAttribute(KXMLQLCAudioProfileVersion, QStringLiteral("2"));
+
+    // Audio source type and OSC port
+    if (m_audioSource != Microphone)
+        doc->writeAttribute(KXMLQLCAudioProfileAudioSource, QString::number(int(m_audioSource)));
+    if (m_oscPort != 9999)
+        doc->writeAttribute(KXMLQLCAudioProfileOscPort, QString::number(m_oscPort));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileEnvelope);
     doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, QString::number(m_config.envelope.attackMs));

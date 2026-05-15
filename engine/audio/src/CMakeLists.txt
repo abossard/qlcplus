@@ -16,6 +16,7 @@ add_library(${module_name}
     aubioprocessor.cpp aubioprocessor.h
     aubioresults.h
     melpostprocessor.cpp melpostprocessor.h
+    oscaudiosource.cpp oscaudiosource.h
 )
 set_property(TARGET ${module_name} PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${module_name} PUBLIC
@@ -27,6 +28,7 @@ target_link_libraries(${module_name} PUBLIC
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Multimedia
+    Qt${QT_MAJOR_VERSION}::Network
     qlcplusaubio
 )
 

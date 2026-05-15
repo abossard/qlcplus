@@ -44,6 +44,7 @@
 #include "vcslider.h"
 #include "app.h"
 #include "doc.h"
+#include "oscaudiosource.h"
 #include "tardis.h"
 
 #define INPUT_ENABLE_CAPTURE    0
@@ -372,6 +373,68 @@ void VCAudioTriggers::setAudioProfileId(quint32 id)
     emit audioProfileIdChanged();
     emit configChanged();
     emit audioLevelsChanged();
+}
+
+int VCAudioTriggers::audioSource() const
+{
+    if (AudioProfile *p = resolvedAudioProfile())
+        return p->audioSource();
+    return AudioProfile::Microphone;
+}
+
+void VCAudioTriggers::setAudioSource(int source)
+{
+    AudioProfile *p = resolvedAudioProfile();
+    if (!p)
+        return;
+
+    p->setAudioSource(source);
+    m_doc->updateOscAudioSourceForProfile(p);
+
+    // When switching to OSC, connect the snapshot signal for driving updates
+    OscAudioSource *osc = m_doc->oscAudioSource();
+    if (source == AudioProfile::OscSynesthesia)
+    {
+        connect(osc, &OscAudioSource::snapshotInjected,
+                this, &VCAudioTriggers::slotOscSnapshotInjected,
+                Qt::UniqueConnection);
+    }
+    else
+    {
+        disconnect(osc, &OscAudioSource::snapshotInjected,
+                   this, &VCAudioTriggers::slotOscSnapshotInjected);
+    }
+
+    emit audioSourceChanged();
+}
+
+quint16 VCAudioTriggers::oscPort() const
+{
+    if (AudioProfile *p = resolvedAudioProfile())
+        return p->oscPort();
+    return 9999;
+}
+
+void VCAudioTriggers::setOscPort(quint16 port)
+{
+    AudioProfile *p = resolvedAudioProfile();
+    if (!p)
+        return;
+
+    p->setOscPort(port);
+
+    // Re-wire if currently using OSC
+    if (p->audioSource() == AudioProfile::OscSynesthesia)
+        m_doc->updateOscAudioSourceForProfile(p);
+
+    emit oscPortChanged();
+}
+
+void VCAudioTriggers::slotOscSnapshotInjected()
+{
+    // Drive the same update logic that slotAubioDataReady uses,
+    // but source the snapshot from the OSC-injected channel
+    updateAudioProfileSnapshotPowers(true);
 }
 
 // Canonical lows/mids/highs come from AudioChannel::buildSnapshot() via the

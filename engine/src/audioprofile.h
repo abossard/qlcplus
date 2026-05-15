@@ -158,14 +158,26 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioMelBankBands    QStringLiteral("Bands")
 #define KXMLQLCAudioProfileAubioMelBankPreset   QStringLiteral("Preset")
 
+#define KXMLQLCAudioProfileAudioSource          QStringLiteral("AudioSource")
+#define KXMLQLCAudioProfileOscPort              QStringLiteral("OscPort")
+
 class AudioProfile : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(quint32 id READ id CONSTANT)
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
     Q_PROPERTY(bool isDefault READ isDefault WRITE setIsDefault NOTIFY isDefaultChanged)
+    Q_PROPERTY(int audioSource READ audioSource WRITE setAudioSource NOTIFY audioSourceChanged)
+    Q_PROPERTY(quint16 oscPort READ oscPort WRITE setOscPort NOTIFY oscPortChanged)
 
 public:
+    enum AudioSourceType
+    {
+        Microphone = 0,
+        OscSynesthesia = 1
+    };
+    Q_ENUM(AudioSourceType)
+
     static quint32 invalidId() { return UINT_MAX; }
 
     AudioProfile(quint32 id, QObject *parent = nullptr);
@@ -178,6 +190,12 @@ public:
 
     bool isDefault() const;
     void setIsDefault(bool def);
+
+    int audioSource() const;
+    void setAudioSource(int source);
+
+    quint16 oscPort() const;
+    void setOscPort(quint16 port);
 
     AudioChannelConfig channelConfig() const;
     void setChannelConfig(const AudioChannelConfig &config);
@@ -193,6 +211,10 @@ signals:
     void nameChanged();
     void isDefaultChanged();
     void configChanged();
+    void audioSourceChanged(int source);
+    void oscPortChanged();
+    /** Emitted when a new snapshot is available (from any source). */
+    void snapshotUpdated();
 
 private:
     quint32 m_id;
@@ -201,6 +223,8 @@ private:
     AudioChannelConfig m_config;
     AudioAnalyzer *m_analyzer = nullptr;
     AudioChannel *m_channel = nullptr;
+    AudioSourceType m_audioSource = Microphone;
+    quint16 m_oscPort = 9999;
 };
 
 /** @} */

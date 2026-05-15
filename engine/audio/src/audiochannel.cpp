@@ -121,6 +121,11 @@ AudioChannel::~AudioChannel()
 
 void AudioChannel::update(const AudioFrame &frame, double audioDtMs)
 {
+    // When an external source (e.g. OSC) is active, skip the mic-driven
+    // pipeline entirely so injectSnapshot() values are not overwritten.
+    if (m_externalSource)
+        return;
+
     {
         QMutexLocker locker(&m_mutex);
         if (m_hasPendingConfig)
@@ -156,6 +161,22 @@ AudioSnapshot AudioChannel::snapshot() const
 {
     QMutexLocker locker(&m_mutex);
     return m_snapshot;
+}
+
+void AudioChannel::injectSnapshot(const AudioSnapshot &snap)
+{
+    QMutexLocker locker(&m_mutex);
+    m_snapshot = snap;
+}
+
+bool AudioChannel::hasExternalSource() const
+{
+    return m_externalSource;
+}
+
+void AudioChannel::setExternalSource(bool external)
+{
+    m_externalSource = external;
 }
 
 void AudioChannel::updateConfig(const AudioChannelConfig &config)

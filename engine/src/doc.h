@@ -42,6 +42,7 @@
 
 class AudioCapture;
 class AudioAnalyzer;
+class OscAudioSource;
 class RGBScriptsCache;
 class AudioPluginCache;
 class MonitorProperties;
@@ -155,8 +156,14 @@ public:
     /** Get the audio analyzer used by audio input profiles */
     AudioAnalyzer *audioAnalyzer() const;
 
+    /** Get or create the OSC audio source for Synesthesia integration */
+    OscAudioSource *oscAudioSource() const;
+
     /** Destroy a previously created audio capture instance */
     void destroyAudioCapture();
+
+    /** Connect/disconnect the OSC audio source for a profile based on its audioSource setting */
+    void updateOscAudioSourceForProfile(AudioProfile *profile);
 
 private:
     QLCFixtureDefCache *m_fixtureDefCache;
@@ -168,6 +175,7 @@ private:
     InputOutputMap *m_ioMap;
     mutable QSharedPointer<AudioCapture> m_inputCapture;
     AudioAnalyzer *m_audioAnalyzer = nullptr;
+    mutable OscAudioSource *m_oscAudioSource = nullptr;
     MonitorProperties *m_monitorProps;
 
     /*********************************************************************
