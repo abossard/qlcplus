@@ -456,6 +456,26 @@ Rectangle
                         fontSize: UISettings.textSizeDefault - 2
                         labelColor: "#9be"
                     }
+
+                    // Opt-in switch for VDJ-driven auto-create. Off by default
+                    // so users with existing Show Manager workflows see no
+                    // behaviour change until they ask for it.
+                    CustomCheckBox
+                    {
+                        id: autoCreateToggle
+                        Layout.preferredWidth: 18
+                        Layout.preferredHeight: 18
+                        Layout.alignment: Qt.AlignVCenter
+                        checked: showManager.autoCreateSongs
+                        onClicked: showManager.autoCreateSongs = checked
+                    }
+                    RobotoText
+                    {
+                        label: qsTr("Auto-create")
+                        fontSize: UISettings.textSizeDefault - 2
+                        labelColor: showManager.autoCreateSongs ? "#fc6" : "#888"
+                        tooltipText: qsTr("When on, every VDJ song event looks up or creates a Show with the track's name and BPM.")
+                    }
                 }
             }
 

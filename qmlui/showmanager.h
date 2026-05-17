@@ -55,6 +55,10 @@ class ShowManager final : public PreviewContext
     Q_PROPERTY(bool isPaused READ isPaused NOTIFY isPausedChanged)
     Q_PROPERTY(int showDuration READ showDuration NOTIFY showDurationChanged)
 
+    /** Master switch for the VDJ-driven auto-create-show pipeline.
+     *  Off by default so existing workflows are unaffected. */
+    Q_PROPERTY(bool autoCreateSongs READ autoCreateSongs WRITE setAutoCreateSongs NOTIFY autoCreateSongsChanged)
+
     Q_PROPERTY(Show::TimeDivision timeDivision READ timeDivision WRITE setTimeDivision NOTIFY timeDivisionChanged)
     Q_PROPERTY(int beatsDivision READ beatsDivision NOTIFY beatsDivisionChanged)
     Q_PROPERTY(float timeScale READ timeScale WRITE setTimeScale NOTIFY timeScaleChanged)
@@ -127,6 +131,22 @@ public:
     /** Flag that indicates if the Show playback is currently paused */
     bool isPaused() const;
 
+    /** Master switch for the VDJ song-driven auto-create pipeline. */
+    bool autoCreateSongs() const { return m_autoCreateSongs; }
+    void setAutoCreateSongs(bool enable);
+
+    /** Look up or create a Show for the given VDJ song event payload.
+     *  The map must follow the VdjBridge schema (name, artist, bpm, path,
+     *  duration, ...). The Show becomes the current Show in the manager.
+     *  Returns the resolved Show's function id, or Function::invalidId()
+     *  on failure. Safe to call from any signal handler. */
+    Q_INVOKABLE int ensureShowForVdjSong(QVariantMap song);
+
+public slots:
+    /** Connected to VdjBridge::songChanged from App. Gated by
+     *  autoCreateSongs so existing workflows are unaffected when off. */
+    void slotVdjSongChanged();
+
 signals:
     void currentShowIDChanged(int currentShowID);
     void isEditingChanged();
@@ -137,6 +157,12 @@ signals:
     void isPlayingChanged(bool playing);
     void isPausedChanged(bool paused);
     void showDurationChanged(int showDuration);
+    void autoCreateSongsChanged();
+
+    /** Emitted whenever a VDJ song event resulted in a Show being
+     *  resolved (created or reused). Carries the Function id of the
+     *  Show so listeners (e.g. tests, MCP, future Songs panel) can react. */
+    void vdjSongShowResolved(int showId, bool created);
 
 private:
     void setPlaybackState(bool playing, bool paused);
@@ -150,6 +176,17 @@ private:
 
     /** A reference to the Show Function being edited */
     Show *m_currentShow;
+
+    /** Master switch for the VDJ-driven auto-create pipeline (gated off
+     *  by default). When false, slotVdjSongChanged is a no-op. */
+    bool m_autoCreateSongs = false;
+
+    /** Last song name we acted on, used to suppress duplicate auto-create
+     *  invocations when VdjBridge re-emits songChanged for the same track
+     *  (which shouldn't happen given the elapsed-only fast path, but we
+     *  guard here defensively because creating shows on every beat would
+     *  be a bad surprise). */
+    QString m_lastAutoCreatedSongKey;
 
     /** Flag that indicates if a Function should be stretched
      *  when the corresponding Show Item duration changes */
