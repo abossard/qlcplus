@@ -47,6 +47,7 @@ class VideoProvider;
 class FixtureEditor;
 class FlowConsole;
 class Tardis;
+class VdjBridge;
 class QMouseEvent;
 
 #define SETTINGS_LANGUAGE "ui/language"
@@ -246,6 +247,7 @@ private:
     UiManager *m_uiManager;
     Tardis *m_tardis;
     FlowConsole *m_flowConsole;
+    VdjBridge *m_vdjBridge;
 
     /*********************************************************************
      * Doc
