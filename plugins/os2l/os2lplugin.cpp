@@ -455,9 +455,15 @@ void OS2LPlugin::slotProcessTCPPackets()
         else if (event == "beat")
         {
            // "beat" event — BPM synchronization.
-           qDebug() << "[OS2L] Beat message received";
-           diagLog("message", "beat");
+           // OS2L spec optional fields: bpm, pos, change.
+           double bpm    = jsonObj.value("bpm").toDouble();
+           double pos    = jsonObj.value("pos").toDouble();
+           bool   change = jsonObj.value("change").toBool();
+           qDebug() << "[OS2L] Beat bpm=" << bpm << "pos=" << pos << "change=" << change;
+           diagLog("message", QString("beat: bpm=%1 pos=%2 change=%3")
+                                  .arg(bpm).arg(pos).arg(change ? "true" : "false"));
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
+           emit beatInfoReceived(bpm, pos, change);
         }
         else if (event == "song")
         {
@@ -474,6 +480,11 @@ void OS2LPlugin::slotProcessTCPPackets()
             double  duration = jsonObj.value("duration").toDouble();
             QString remix    = jsonObj.value("remix").toString();
             int     deck     = jsonObj.value("deck").toInt();
+            // Extension field used by the Song Manager: absolute path to the
+            // audio file on disk. Not in the OS2L spec; VDJ-side scripts or
+            // a custom bridge populate it. Empty when absent — Song Manager
+            // then skips the Audio function / waveform pieces.
+            QString path     = jsonObj.value("path").toString();
 
             qDebug() << "[OS2L] ==================== SONG METADATA ====================";
             if (!songName.isEmpty()) qDebug() << "[OS2L] Song Name:" << songName;
@@ -488,6 +499,7 @@ void OS2LPlugin::slotProcessTCPPackets()
             if (elapsed > 0)         qDebug() << "[OS2L] Elapsed:" << elapsed << "seconds";
             if (duration > 0)        qDebug() << "[OS2L] Duration:" << duration << "seconds";
             if (deck > 0)            qDebug() << "[OS2L] Deck:" << deck;
+            if (!path.isEmpty())     qDebug() << "[OS2L] Path:" << path;
             qDebug() << "[OS2L] ======================================================";
 
             // Build a rich diagnostic string for the ring buffer
@@ -507,6 +519,22 @@ void OS2LPlugin::slotProcessTCPPackets()
                 QString songId = QString("%1 - %2").arg(artist, songName);
                 emit valueChanged(m_inputUniverse, 0, getHash(songId), 255, songId);
             }
+
+            QVariantMap songMap;
+            songMap.insert("name",     songName);
+            songMap.insert("artist",   artist);
+            songMap.insert("album",    album);
+            songMap.insert("genre",    genre);
+            songMap.insert("year",     year);
+            songMap.insert("remix",    remix);
+            songMap.insert("status",   status);
+            songMap.insert("bpm",      bpm);
+            songMap.insert("key",      key);
+            songMap.insert("elapsed",  elapsed);
+            songMap.insert("duration", duration);
+            songMap.insert("deck",     deck);
+            songMap.insert("path",     path);
+            emit songReceived(songMap);
         }
         else
         {

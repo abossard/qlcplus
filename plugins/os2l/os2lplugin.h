@@ -25,6 +25,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QMutex>
+#include <QVariantMap>
 
 #include "qlcioplugin.h"
 
@@ -93,6 +94,21 @@ public:
 
     quint32 universe() const;
     bool bonjourEnabled() const;
+
+signals:
+    /** Emitted when a structured OS2L "song" event is received.
+     *  Carries every parsed metadata field (see README "Song Metadata Fields")
+     *  plus an optional "path" field for the audio file on disk (used by the
+     *  Song Manager to render a waveform and an Audio function).
+     *  Field keys: name, artist, album, genre, year, remix, status,
+     *              bpm, key, elapsed, duration, deck, path. */
+    void songReceived(QVariantMap song);
+
+    /** Emitted on every OS2L "beat" event with the optional fields parsed.
+     *  bpm: current beats-per-minute (0 if not provided);
+     *  pos: position in beats since track start (0 if not provided);
+     *  change: true on the first beat of a new track/loop (false otherwise). */
+    void beatInfoReceived(double bpm, double pos, bool change);
 
 protected:
     bool enableTCPServer(bool enable);
