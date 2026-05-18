@@ -26,6 +26,23 @@
 #include <QTimer>
 #include <QSet>
 
+/**
+ * Per-deck state machine tracking required metadata before auto-show creation.
+ * Resets when a new filepath arrives; fires once all fields are present.
+ */
+struct DeckLoadState
+{
+    bool hasFilepath = false;
+    bool hasTitle = false;
+    bool hasArtist = false;
+    bool hasBpm = false;
+    bool isLoaded = false;
+    bool showCreated = false;
+
+    void reset() { hasFilepath = hasTitle = hasArtist = hasBpm = isLoaded = showCreated = false; }
+    bool isComplete() const { return hasFilepath && hasTitle && hasArtist && hasBpm && isLoaded && !showCreated; }
+};
+
 class Doc;
 class QLCIOPlugin;
 class VdjDeckModel;
@@ -126,6 +143,7 @@ private:
     // Doc (for auto-show creation)
     Doc *m_doc = nullptr;
     QSet<QString> m_createdShows;  // filepaths for which we already created a Show
+    DeckLoadState m_deckLoadState[4];
 
     // OS2L
     QPointer<QLCIOPlugin> m_plugin;

@@ -293,38 +293,84 @@ void VdjBridge::onTelemetryClientDisconnected()
 
 void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value)
 {
-    // Metadata (on-load)
-    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); onDeckSongLoaded(deck); return; }
-    if (trigger == "get_title")          { deck->setTitle(value.toString()); return; }
-    if (trigger == "get_artist")         { deck->setArtist(value.toString()); return; }
-    if (trigger == "get_title_artist")   { deck->setTitleArtist(value.toString()); return; }
-    if (trigger == "get_album")          { deck->setAlbum(value.toString()); return; }
-    if (trigger == "get_genre")          { deck->setGenre(value.toString()); return; }
-    if (trigger == "get_key")            { deck->setKey(value.toString()); return; }
-    if (trigger == "get_bpm")            { deck->setBpm(value.toDouble()); return; }
-    if (trigger == "get_firstbeat")      { deck->setFirstBeat(value.toDouble()); return; }
-    if (trigger == "get_time total")     { deck->setTimeTotal(value.toDouble()); return; }
-    if (trigger == "loaded")             { deck->setLoaded(value.toBool()); return; }
-    if (trigger == "play")               { deck->setPlaying(value.toBool()); return; }
-    if (trigger == "volume")             { deck->setVolume(value.toDouble()); return; }
+    static const QString kPlaceholderTitle = QStringLiteral("Drag a song on this deck to load it");
+
+    const int idx = deck->deckNumber() - 1;  // deck numbers are 1-based
+    DeckLoadState &state = m_deckLoadState[idx];
+
+    // --- Metadata (on-load) ---
+    if (trigger == "get_filepath")
+    {
+        QString path = value.toString();
+        // New filepath = new track loading → reset state machine
+        if (!path.isEmpty() && path != deck->filepath())
+        {
+            state.reset();
+            state.hasFilepath = true;
+        }
+        deck->setFilepath(path);
+    }
+    else if (trigger == "get_title")
+    {
+        QString title = value.toString();
+        deck->setTitle(title);
+        if (!title.isEmpty() && title != kPlaceholderTitle)
+            state.hasTitle = true;
+    }
+    else if (trigger == "get_artist")
+    {
+        QString artist = value.toString();
+        deck->setArtist(artist);
+        if (!artist.isEmpty())
+            state.hasArtist = true;
+    }
+    else if (trigger == "get_title_artist") { deck->setTitleArtist(value.toString()); return; }
+    else if (trigger == "get_album")        { deck->setAlbum(value.toString()); return; }
+    else if (trigger == "get_genre")        { deck->setGenre(value.toString()); return; }
+    else if (trigger == "get_key")          { deck->setKey(value.toString()); return; }
+    else if (trigger == "get_bpm")
+    {
+        double bpm = value.toDouble();
+        deck->setBpm(bpm);
+        if (bpm > 0.0)
+            state.hasBpm = true;
+    }
+    else if (trigger == "get_firstbeat")    { deck->setFirstBeat(value.toDouble()); return; }
+    else if (trigger == "get_time total")   { deck->setTimeTotal(value.toDouble()); return; }
+    else if (trigger == "loaded")
+    {
+        bool loaded = (value.toString() == "on");
+        deck->setLoaded(loaded);
+        state.isLoaded = loaded;
+    }
+    else if (trigger == "play")             { deck->setPlaying(value.toString() == "on"); return; }
+    else if (trigger == "volume")           { deck->setVolume(value.toDouble()); return; }
 
     // Continuous
-    if (trigger == "get_position")              { deck->setPosition(value.toDouble()); return; }
-    if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); return; }
-    if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); return; }
-    if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); return; }
-    if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); return; }
-    if (trigger == "level")                     { deck->setLevel(value.toDouble()); return; }
+    else if (trigger == "get_position")              { deck->setPosition(value.toDouble()); return; }
+    else if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); return; }
+    else if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); return; }
+    else if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); return; }
+    else if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); return; }
+    else if (trigger == "level")                     { deck->setLevel(value.toDouble()); return; }
 
     // EQ
-    if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); return; }
-    if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); return; }
-    if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); return; }
-    if (trigger == "gain")    { deck->setGain(value.toDouble()); return; }
+    else if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); return; }
+    else if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); return; }
+    else if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); return; }
+    else if (trigger == "gain")    { deck->setGain(value.toDouble()); return; }
 
     // Loop
-    if (trigger == "loop")     { deck->setLooping(value.toBool()); return; }
-    if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); return; }
+    else if (trigger == "loop")     { deck->setLooping(value.toBool()); return; }
+    else if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); return; }
+    else { return; }
+
+    // Check if all required metadata has arrived
+    if (state.isComplete())
+    {
+        state.showCreated = true;
+        onDeckSongLoaded(deck);
+    }
 }
 
 // ---------- Auto-Show creation ----------
