@@ -373,6 +373,70 @@ Rectangle
                 Layout.fillWidth: true
             }
 
+            // VDJ telemetry strip — populated by VdjBridge from the OS2L plugin.
+            // Visible at all times so the user can see "not connected"; lights up
+            // and shows current song / BPM / beat when VDJ is streaming.
+            Rectangle
+            {
+                id: vdjStrip
+                Layout.preferredHeight: parent.height - 8
+                Layout.preferredWidth: vdjRow.implicitWidth + 16
+                Layout.alignment: Qt.AlignVCenter
+                color: "#1a1a1a"
+                border.color: vdjBridge.connected ? "#2ecc71" : "#444"
+                border.width: 1
+                radius: 4
+
+                // Pulses on each beat — provides a quick visual sanity check
+                // that beat events are actually arriving from VDJ.
+                Rectangle
+                {
+                    id: beatPulse
+                    anchors.left: parent.left
+                    anchors.leftMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 10
+                    height: 10
+                    radius: 5
+                    color: vdjBridge.connected ? "#2ecc71" : "#555"
+                    opacity: 0.4
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                }
+
+                Connections
+                {
+                    target: vdjBridge
+                    function onBeatReceived()
+                    {
+                        beatPulse.opacity = 1.0
+                        beatPulseFade.restart()
+                    }
+                }
+
+                Timer
+                {
+                    id: beatPulseFade
+                    interval: 90
+                    onTriggered: beatPulse.opacity = 0.4
+                }
+
+                RowLayout
+                {
+                    id: vdjRow
+                    anchors.fill: parent
+                    anchors.leftMargin: 22
+                    anchors.rightMargin: 6
+                    spacing: 10
+
+                    RobotoText
+                    {
+                        label: vdjBridge.connected ? qsTr("VDJ") : qsTr("VDJ —")
+                        fontSize: UISettings.textSizeDefault - 2
+                        labelColor: vdjBridge.connected ? "#2ecc71" : "#888"
+                    }
+                }
+            }
+
             RobotoText
             {
                 label: qsTr("Markers")

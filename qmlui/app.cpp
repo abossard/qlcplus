@@ -60,9 +60,12 @@
 #include "tardis.h"
 #include "networkmanager.h"
 #include "flowconsole.h"
+#include "vdjbridge.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
+#include "ioplugincache.h"
+#include "qlcioplugin.h"
 #include "rgbscriptscache.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
@@ -90,6 +93,7 @@ App::App()
     , m_networkManager(nullptr)
     , m_uiManager(nullptr)
     , m_flowConsole(nullptr)
+    , m_vdjBridge(nullptr)
     , m_doc(nullptr)
     , m_docLoaded(false)
     , m_printItem(nullptr)
@@ -199,6 +203,11 @@ void App::startup()
 
     m_flowConsole = new FlowConsole(this, m_doc);
 
+    // VDJ telemetry bridge. Plugins are not yet loaded here (initDoc runs
+    // later from startup()); the actual OS2L plugin lookup happens there.
+    m_vdjBridge = new VdjBridge(this);
+    rootContext()->setContextProperty("vdjBridge", m_vdjBridge);
+
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);
     m_contextManager->registerContext(m_simpleDesk);
@@ -210,6 +219,7 @@ void App::startup()
     qmlRegisterUncreatableType<ShowManager>("org.qlcplus.classes", 1, 0, "ShowManager", "Can't create a ShowManager!");
     qmlRegisterUncreatableType<NetworkManager>("org.qlcplus.classes", 1, 0, "NetworkManager", "Can't create a NetworkManager!");
     qmlRegisterUncreatableType<SimpleDesk>("org.qlcplus.classes", 1, 0, "SimpleDesk", "Can't create a SimpleDesk!");
+    qmlRegisterUncreatableType<VdjBridge>("org.qlcplus.classes", 1, 0, "VdjBridge", "Use the vdjBridge context property");
 
     // Start up in non-modified state
     m_doc->resetModified();
@@ -579,6 +589,18 @@ void App::initDoc()
 #else
     m_doc->ioPluginCache()->load(IOPluginCache::systemPluginDirectory());
 #endif
+
+    // Attach the VDJ telemetry bridge to the OS2L plugin if it loaded.
+    // Plugin may be absent (build without OS2L, or load failure) — bridge
+    // simply stays in disconnected state in that case.
+    if (m_vdjBridge != nullptr)
+    {
+        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
+        if (os2l != nullptr)
+            m_vdjBridge->attachOS2LPlugin(os2l);
+        else
+            qDebug() << "[VdjBridge] OS2L plugin not available";
+    }
 
     /* Load audio decoder plugins
      * This doesn't use a AudioPluginCache::systemPluginDirectory() cause

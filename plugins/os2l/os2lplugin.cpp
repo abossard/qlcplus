@@ -454,10 +454,13 @@ void OS2LPlugin::slotProcessTCPPackets()
         }
         else if (event == "beat")
         {
-           // "beat" event — BPM synchronization.
+           // "beat" event — BPM synchronization. Stock VDJ sends a bare
+           // `{"evt":"beat"}`; the spec allows bpm/pos/change but VDJ
+           // does not include them, so we do not parse them.
            qDebug() << "[OS2L] Beat message received";
            diagLog("message", "beat");
            emit valueChanged(m_inputUniverse, 0, 8341, 255, "beat");
+           emit beatReceived();
         }
         else if (event == "song")
         {

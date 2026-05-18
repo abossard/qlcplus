@@ -94,6 +94,14 @@ public:
     quint32 universe() const;
     bool bonjourEnabled() const;
 
+signals:
+    /** Emitted on every OS2L "beat" event. Carries no payload because
+     *  stock VirtualDJ broadcasts a bare `{"evt":"beat"}` — the optional
+     *  bpm/pos/change fields in the OS2L spec are permitted but VDJ
+     *  does not include them. Consumers that need BPM must derive it
+     *  from inter-arrival times themselves. */
+    void beatReceived();
+
 protected:
     bool enableTCPServer(bool enable);
     quint16 getHash(QString channel);
