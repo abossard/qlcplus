@@ -50,7 +50,7 @@ QString VdjBridgePlugin::pluginInfo() const
     str += QString("<H3>%1</H3>").arg(name());
     str += tr("This plugin exposes VirtualDJ DMXDesktop telemetry "
               "(TCP, default port 8050, Bonjour service "
-              "<tt>_dmxdesktop._tcp</tt>) as a QLC+ input. "
+              "<tt>_os2l._tcp</tt>) as a QLC+ input. "
               "It emits beat events and per-deck metadata that the "
               "qmlui VdjBridge facade consumes to drive the Song Manager.");
     str += QString("</BODY></HTML>");
@@ -154,7 +154,7 @@ QString VdjBridgePlugin::inputInfo(quint32 input)
     str += QString("<P><B>%1:</B> %2</P>")
             .arg(tr("Bonjour service"))
             .arg(m_bonjourEnabled
-                 ? QStringLiteral("_dmxdesktop._tcp (%1)").arg(m_serviceName)
+                 ? QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName)
                  : tr("disabled"));
     return str;
 }

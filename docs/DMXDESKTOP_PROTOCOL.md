@@ -13,7 +13,7 @@ implements a compatible TCP server so VDJ can connect to it directly.
 | Protocol    | Newline-delimited JSON (NDJSON) over TCP |
 | Default port| 8050                                 |
 | Role        | QLC+ is the **TCP server**; VDJ connects as **client** |
-| Discovery   | Bonjour/mDNS service `_dmxdesktop._tcp` on the same port |
+| Discovery   | Bonjour/mDNS service `_os2l._tcp` on the same port |
 | Encoding    | UTF-8                                |
 | Line ending | `\n` (0x0A)                          |
 
@@ -46,7 +46,7 @@ Immediately after accepting a connection, the server sends a single JSON line:
 | `trigger`   | array  | List of trigger strings to subscribe to         |
 
 The trigger array contains all per-deck and global triggers the server
-wants to receive (typically 112 entries for 4 decks).
+wants to receive (typically 108 entries for 4 decks).
 
 ## Inbound Frames (VDJ → QLC+)
 
@@ -151,7 +151,7 @@ VDJ sends all values as JSON primitives but types are not always consistent:
 
 VDJ discovers DMXDesktop-compatible servers via Bonjour/DNS-SD:
 
-- **Service type**: `_dmxdesktop._tcp`
+- **Service type**: `_os2l._tcp`
 - **Domain**: `local.`
 - **Port**: Must match the TCP server port (default 8050)
 - **Instance name**: Arbitrary (e.g. "QLC+")

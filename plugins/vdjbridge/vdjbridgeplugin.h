@@ -34,7 +34,7 @@ class VdjBonjour;
 /**
  * QLC+ I/O plugin that exposes the VirtualDJ DMXDesktop telemetry
  * protocol (TCP, default port 8050, Bonjour service
- * "_dmxdesktop._tcp") as a QLC+ input.
+ * "_os2l._tcp") as a QLC+ input.
  *
  * Emits the standard QLCIOPlugin::beatReceived() and
  * valueChanged(...) for engine beat-source integration, plus custom

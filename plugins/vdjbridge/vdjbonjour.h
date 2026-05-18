@@ -30,7 +30,7 @@ class QSocketNotifier;
 /**
  * Bonjour/DNS-SD service registration for the DMXDesktop telemetry protocol.
  *
- * Registers QLC+ as a "_dmxdesktop._tcp" service so that VirtualDJ can
+ * Registers QLC+ as a "_os2l._tcp" service so that VirtualDJ can
  * discover it automatically. Same pattern as OS2LBonjour but for the
  * telemetry port (default 8050).
  *
