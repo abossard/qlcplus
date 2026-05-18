@@ -152,10 +152,17 @@ SongManager::SongManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
 
     view->rootContext()->setContextProperty("songManager", this);
 
+    qDebug() << "[SongManager] Created. factory=" << m_factory << "doc=" << m_doc << "bridge=" << m_bridge;
+
     if (m_factory)
     {
         connect(m_factory, &ShowFactory::showCreatedForSong,
                 this, &SongManager::onShowCreatedForSong);
+        qDebug() << "[SongManager] Connected to ShowFactory::showCreatedForSong";
+    }
+    else
+    {
+        qWarning() << "[SongManager] WARNING: ShowFactory is NULL — songs won't appear!";
     }
 
     if (m_doc)
@@ -171,6 +178,7 @@ QAbstractListModel *SongManager::songListModel() const
 
 void SongManager::onShowCreatedForSong(const QString &filepath, quint32 showId)
 {
+    qDebug() << "[SongManager] onShowCreatedForSong:" << filepath << "showId:" << showId;
     m_model->addSong(filepath, showId);
 }
 
