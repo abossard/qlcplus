@@ -54,6 +54,17 @@ Rectangle
         return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
     }
 
+    function fmtTime(ms)
+    {
+        var totalSec = Math.floor(ms / 1000)
+        var min = Math.floor(totalSec / 60)
+        var sec = totalSec % 60
+        return min + ":" + (sec < 10 ? "0" : "") + sec
+    }
+
+    property var masterDeck: vdjBridge && vdjBridge.decks.length > vdjBridge.masterDeck
+                             ? vdjBridge.decks[vdjBridge.masterDeck] : null
+
     ColumnLayout
     {
         anchors.fill: parent
@@ -107,7 +118,6 @@ Rectangle
                 // Per-deck states (loaded/playing)
                 Row
                 {
-                    Layout.fillWidth: true
                     spacing: 10
 
                     Repeater
@@ -136,6 +146,43 @@ Rectangle
                         }
                     }
                 }
+
+                Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: UISettings.bgMedium }
+
+                // Master deck artist — title
+                RobotoText
+                {
+                    visible: masterDeck !== null && masterDeck.title !== ""
+                    label: masterDeck
+                           ? (masterDeck.artist !== ""
+                              ? masterDeck.artist + " — " + masterDeck.title
+                              : masterDeck.title)
+                           : ""
+                    fontSize: UISettings.textSizeDefault
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 300
+                }
+
+                // Live BPM
+                RobotoText
+                {
+                    visible: masterDeck !== null && masterDeck.bpm > 0
+                    label: masterDeck ? masterDeck.bpm.toFixed(1) + " BPM" : ""
+                    fontSize: UISettings.textSizeDefault
+                    labelColor: "#f39c12"
+                }
+
+                // Play position mm:ss / mm:ss
+                RobotoText
+                {
+                    visible: masterDeck !== null && masterDeck.loaded
+                    label: masterDeck
+                           ? fmtTime(masterDeck.timeElapsed) + " / " + fmtTime(masterDeck.timeTotal)
+                           : ""
+                    fontSize: UISettings.textSizeDefault
+                    labelColor: "#aaa"
+                }
             }
         }
 
@@ -143,7 +190,7 @@ Rectangle
         Rectangle
         {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.preferredHeight: parent.height * 0.4
             color: UISettings.bgMedium
 
             // Header
@@ -182,7 +229,20 @@ Rectangle
                 {
                     width: songList.width
                     height: UISettings.listItemHeight
-                    color: (index % 2 === 0) ? UISettings.bgMedium : UISettings.bgLight
+                    color: ListView.isCurrentItem
+                           ? UISettings.highlight
+                           : ((index % 2 === 0) ? UISettings.bgMedium : UISettings.bgLight)
+
+                    MouseArea
+                    {
+                        anchors.fill: parent
+                        onClicked:
+                        {
+                            songList.currentIndex = index
+                            if (!showManager.isPlaying)
+                                showManager.currentShowID = showId
+                        }
+                    }
 
                     RowLayout
                     {
@@ -221,6 +281,14 @@ Rectangle
                     fontSize: UISettings.textSizeDefault
                 }
             }
+        }
+
+        // ---------- Embedded Show Manager timeline ----------
+        Loader
+        {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            source: songManager && songManager.songListModel.count > 0 ? "qrc:/ShowManager.qml" : ""
         }
     }
 }
