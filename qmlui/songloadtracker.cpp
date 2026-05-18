@@ -35,55 +35,38 @@ void SongLoadTracker::onTrigger(int deck, const QString &trigger, const QVariant
 
         if (path.isEmpty())
         {
-            // Unload — go to Empty regardless of current state
             resetSlot(s);
             return;
         }
 
-        // New filepath (different from current) — (re)start collection
+        // New filepath (different from current) — reset and start fresh
         if (path != s.info.filepath)
         {
             resetSlot(s);
-            s.state = DeckState::Collecting;
             s.info.filepath = path;
             s.info.deck = deck;
-            s.gotMask = F_Filepath;
-            tryEmit(deck, s);
+            s.gotMask |= F_Filepath;
         }
-        // Same filepath while already Collecting/Ready — no-op
+        // Transition to Collecting if not already there/Ready
+        if (s.state == DeckState::Empty)
+            s.state = DeckState::Collecting;
+        tryEmit(deck, s);
         return;
     }
 
-    // All other triggers require Collecting state (or Ready for optional updates)
-    if (s.state == DeckState::Empty)
-        return;
-
-    // In Ready state, allow optional info updates but never re-emit
-    if (s.state == DeckState::Ready)
-    {
-        // Update optional fields silently
-        if (trigger == QLatin1String("get_album"))
-            s.info.album = value.toString();
-        else if (trigger == QLatin1String("get_genre"))
-            s.info.genre = value.toString();
-        else if (trigger == QLatin1String("get_key"))
-            s.info.key = value.toString();
-        return;
-    }
-
-    // --- Collecting state: accumulate fields ---
-    // Guard: only accept metadata that arrives AFTER F_Filepath is set
-    if (!(s.gotMask & F_Filepath))
-        return;
+    // --- Accept ALL metadata unconditionally regardless of state ---
+    // Fields accumulate even in Empty state (before filepath arrives).
+    // tryEmit only fires when all REQUIRED bits are set.
 
     if (trigger == QLatin1String("get_title"))
     {
         QString title = value.toString();
-        if (!title.isEmpty())
+        if (!title.isEmpty() && !isPlaceholderTitle(title))
         {
             s.info.title = title;
             s.gotMask |= F_Title;
-            tryEmit(deck, s);
+            if (s.state == DeckState::Collecting)
+                tryEmit(deck, s);
         }
     }
     else if (trigger == QLatin1String("get_artist"))
@@ -93,7 +76,8 @@ void SongLoadTracker::onTrigger(int deck, const QString &trigger, const QVariant
         {
             s.info.artist = artist;
             s.gotMask |= F_Artist;
-            tryEmit(deck, s);
+            if (s.state == DeckState::Collecting)
+                tryEmit(deck, s);
         }
     }
     else if (trigger == QLatin1String("get_bpm"))
@@ -104,7 +88,8 @@ void SongLoadTracker::onTrigger(int deck, const QString &trigger, const QVariant
         {
             s.info.bpm = bpm;
             s.gotMask |= F_Bpm;
-            tryEmit(deck, s);
+            if (s.state == DeckState::Collecting)
+                tryEmit(deck, s);
         }
     }
     else if (trigger == QLatin1String("loaded"))
@@ -114,7 +99,12 @@ void SongLoadTracker::onTrigger(int deck, const QString &trigger, const QVariant
         if (loaded)
         {
             s.gotMask |= F_Loaded;
-            tryEmit(deck, s);
+            // If we were in Empty with accumulated metadata and filepath
+            // arrived earlier, we may now be complete
+            if (s.state == DeckState::Empty && (s.gotMask & F_Filepath))
+                s.state = DeckState::Collecting;
+            if (s.state == DeckState::Collecting)
+                tryEmit(deck, s);
         }
         else
         {
@@ -129,13 +119,9 @@ void SongLoadTracker::onTrigger(int deck, const QString &trigger, const QVariant
             s.info.key = key;
     }
     else if (trigger == QLatin1String("get_album"))
-    {
         s.info.album = value.toString();
-    }
     else if (trigger == QLatin1String("get_genre"))
-    {
         s.info.genre = value.toString();
-    }
     else if (trigger == QLatin1String("get_firstbeat"))
     {
         bool ok = false;
@@ -182,6 +168,12 @@ void SongLoadTracker::resetSlot(DeckSlot &s)
     s.info = SongInfo{};
     s.loaded = false;
     s.gotMask = 0;
+}
+
+bool SongLoadTracker::isPlaceholderTitle(const QString &title) const
+{
+    // VDJ shows this on empty decks (English locale; other locales may differ)
+    return title == QLatin1String("Drag a song on this deck to load it");
 }
 
 void SongLoadTracker::tryEmit(int deck, DeckSlot &s)

@@ -91,6 +91,7 @@ private:
 
     DeckSlot &slot(int deck);
     void resetSlot(DeckSlot &s);
+    bool isPlaceholderTitle(const QString &title) const;
     void tryEmit(int deck, DeckSlot &s);
 
     QHash<int, DeckSlot> m_slots;
