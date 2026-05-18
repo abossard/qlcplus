@@ -22,7 +22,6 @@ import QtQuick.Layouts
 import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
-import "../"
 
 Rectangle
 {
@@ -236,12 +235,7 @@ Rectangle
                     MouseArea
                     {
                         anchors.fill: parent
-                        onClicked:
-                        {
-                            songList.currentIndex = index
-                            if (!showManager.isPlaying)
-                                showManager.currentShowID = showId
-                        }
+                        onClicked: songList.currentIndex = index
                     }
 
                     RowLayout
@@ -281,14 +275,6 @@ Rectangle
                     fontSize: UISettings.textSizeDefault
                 }
             }
-        }
-
-        // ---------- Embedded Show Manager timeline ----------
-        Loader
-        {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            source: songManager && songManager.songListModel.count > 0 ? "qrc:/ShowManager.qml" : ""
         }
     }
 }

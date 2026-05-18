@@ -83,20 +83,11 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
     // server on port 8050). Two simultaneous _os2l._tcp services from the same
     // process crashes VirtualDJ.
     //
-    // We suppress twice: immediately (before openInput) AND deferred (after
-    // workspace loading restores bonjourEnabled=true from saved parameters).
+    // Suppress OS2L Bonjour immediately. Workspace loading may re-enable it,
+    // but our VdjBonjour registers first so VDJ connects to us.
+    // The deferred suppression was causing crashes — disabled.
     m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
                            QStringLiteral("bonjourEnabled"), QVariant(false));
-
-    // Deferred suppression: workspace loading (main.cpp loadWorkspace/loadDefaults)
-    // restores the parameter from XML after this call returns. A 2s singleShot
-    // ensures we re-suppress after that sequence completes.
-    QPointer<QLCIOPlugin> pluginGuard = m_plugin.data();
-    QTimer::singleShot(2000, this, [pluginGuard]() {
-        if (!pluginGuard.isNull())
-            pluginGuard->setParameter(0, 0, QLCIOPlugin::Input,
-                                      QStringLiteral("bonjourEnabled"), QVariant(false));
-    });
 
     refreshConnectionStatus();
 }
