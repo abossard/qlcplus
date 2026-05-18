@@ -435,46 +435,12 @@ Rectangle
                         labelColor: vdjBridge.connected ? "#2ecc71" : "#888"
                     }
 
-                    Text
-                    {
-                        visible: vdjBridge.currentSongName !== ""
-                        text: vdjBridge.currentArtist !== ""
-                            ? vdjBridge.currentArtist + " — " + vdjBridge.currentSongName
-                            : vdjBridge.currentSongName
-                        font.family: UISettings.robotoFontName
-                        font.pixelSize: UISettings.textSizeDefault - 2
-                        color: "#ddd"
-                        elide: Text.ElideRight
-                        Layout.maximumWidth: 280
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-
                     RobotoText
                     {
                         visible: vdjBridge.bpm > 0
                         label: vdjBridge.bpm.toFixed(1) + " BPM"
                         fontSize: UISettings.textSizeDefault - 2
                         labelColor: "#9be"
-                    }
-
-                    // Opt-in switch for VDJ-driven auto-create. Off by default
-                    // so users with existing Show Manager workflows see no
-                    // behaviour change until they ask for it.
-                    CustomCheckBox
-                    {
-                        id: autoCreateToggle
-                        Layout.preferredWidth: 18
-                        Layout.preferredHeight: 18
-                        Layout.alignment: Qt.AlignVCenter
-                        checked: showManager.autoCreateSongs
-                        onClicked: showManager.autoCreateSongs = checked
-                    }
-                    RobotoText
-                    {
-                        label: qsTr("Auto-create")
-                        fontSize: UISettings.textSizeDefault - 2
-                        labelColor: showManager.autoCreateSongs ? "#fc6" : "#888"
-                        tooltipText: qsTr("When on, every VDJ song event looks up or creates a Show with the track's name and BPM.")
                     }
                 }
             }

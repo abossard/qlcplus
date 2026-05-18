@@ -207,11 +207,6 @@ void App::startup()
     // later from startup()); the actual OS2L plugin lookup happens there.
     m_vdjBridge = new VdjBridge(this);
     rootContext()->setContextProperty("vdjBridge", m_vdjBridge);
-    // Auto-create pipeline is gated by ShowManager::autoCreateSongs (off by
-    // default); the connection is always present so toggling it on at runtime
-    // takes effect on the next song event without re-wiring.
-    connect(m_vdjBridge, &VdjBridge::songChanged,
-            m_showManager, &ShowManager::slotVdjSongChanged);
 
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);

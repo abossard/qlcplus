@@ -16,9 +16,6 @@ private slots:
     void initialState();
     void beatUpdatesBpmAndConnected();
     void beatChangeResetsCounter();
-    void songChangeEmitsSongChanged();
-    void sameSongElapsedEmitsElapsedOnly();
-    void songWithoutBpmDoesNotZeroBpm();
 };
 
 #endif

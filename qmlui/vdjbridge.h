@@ -22,25 +22,28 @@
 
 #include <QObject>
 #include <QPointer>
-#include <QVariantMap>
 
 class QLCIOPlugin;
 
 /**
- * Qt-facing facade for the OS2L plugin's structured event stream.
+ * Qt-facing facade for the OS2L plugin's beat event stream.
  *
  * The OS2L plugin (a shared library loaded via IOPluginCache) emits
- * songReceived(QVariantMap) and beatInfoReceived(double,double,bool) signals.
- * VdjBridge is the qmlui-side QObject that consumes those signals and exposes
- * the live VDJ state (current song, BPM, beat position, connection status)
- * as Q_PROPERTYs that QML can bind to and that the Song Manager can react to.
+ * beatInfoReceived(double,double,bool) for every received OS2L beat
+ * event. VdjBridge is the qmlui-side QObject that consumes those signals
+ * and exposes the live VDJ beat / BPM / connection state as Q_PROPERTYs
+ * that QML can bind to.
+ *
+ * The bridge currently covers ONLY what stock VirtualDJ broadcasts over
+ * OS2L without any user-side scripting: continuous `evt:beat` messages
+ * with optional bpm/pos/change fields. Song-event handling and any
+ * file-path / waveform features are deliberately out of scope until a
+ * second backend (e.g. a reverse-engineered DMXDesktop protocol) can
+ * actually supply that data — see
+ * docs/VDJ_DMXDESKTOP_REVERSE_ENGINEERING_PROMPT.md.
  *
  * Connections from the plugin are made by App using Qt's string-based
  * signal/slot syntax so qmlui does not need to link against the plugin .so.
- *
- * The bridge is intentionally agnostic about which VDJ-side bridge produced
- * the events: a second backend (e.g. a future reverse-engineered DMXDesktop
- * protocol) can feed the same slots without any change to consumers.
  */
 class VdjBridge final : public QObject
 {
@@ -50,14 +53,6 @@ class VdjBridge final : public QObject
     Q_PROPERTY(double bpm READ bpm NOTIFY beatChanged)
     Q_PROPERTY(double beatPos READ beatPos NOTIFY beatChanged)
     Q_PROPERTY(int beatCount READ beatCount NOTIFY beatChanged)
-    Q_PROPERTY(QVariantMap currentSong READ currentSong NOTIFY songChanged)
-    Q_PROPERTY(QString currentSongName READ currentSongName NOTIFY songChanged)
-    Q_PROPERTY(QString currentArtist READ currentArtist NOTIFY songChanged)
-    Q_PROPERTY(QString currentSongPath READ currentSongPath NOTIFY songChanged)
-    Q_PROPERTY(double currentBpm READ currentBpm NOTIFY songChanged)
-    Q_PROPERTY(double currentDuration READ currentDuration NOTIFY songChanged)
-    Q_PROPERTY(double currentElapsed READ currentElapsed NOTIFY songElapsedChanged)
-    Q_PROPERTY(QString currentStatus READ currentStatus NOTIFY songChanged)
 
 public:
     explicit VdjBridge(QObject *parent = nullptr);
@@ -73,19 +68,8 @@ public:
     double bpm() const { return m_bpm; }
     double beatPos() const { return m_beatPos; }
     int beatCount() const { return m_beatCount; }
-    QVariantMap currentSong() const { return m_currentSong; }
-    QString currentSongName() const { return m_currentSong.value("name").toString(); }
-    QString currentArtist() const { return m_currentSong.value("artist").toString(); }
-    QString currentSongPath() const { return m_currentSong.value("path").toString(); }
-    double currentBpm() const { return m_currentSong.value("bpm").toDouble(); }
-    double currentDuration() const { return m_currentSong.value("duration").toDouble(); }
-    double currentElapsed() const { return m_currentSong.value("elapsed").toDouble(); }
-    QString currentStatus() const { return m_currentSong.value("status").toString(); }
 
 public slots:
-    /** Connected to OS2LPlugin::songReceived (string-based). */
-    void onSongReceived(QVariantMap song);
-
     /** Connected to OS2LPlugin::beatInfoReceived (string-based). */
     void onBeatInfo(double bpm, double pos, bool change);
 
@@ -97,16 +81,6 @@ signals:
     void connectedChanged();
     void beatChanged();
 
-    /**
-     * Emitted on every received song event. The Song Manager listens to this
-     * to look up or create a Show for the track.
-     */
-    void songChanged();
-
-    /** Separate from songChanged because elapsed often advances without a full
-     *  song-event re-broadcast — avoids re-running show creation logic. */
-    void songElapsedChanged();
-
 private:
     /** Held as a base-class pointer so qmlui does not need to link the
      *  OS2L plugin's shared library. Becomes null if the plugin is unloaded. */
@@ -116,7 +90,6 @@ private:
     double m_bpm = 0.0;
     double m_beatPos = 0.0;
     int m_beatCount = 0;
-    QVariantMap m_currentSong;
 };
 
 #endif // VDJBRIDGE_H

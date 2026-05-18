@@ -48,8 +48,6 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
 
     // String-based connections so qmlui does not need to link the plugin
     // shared library. Signatures must match exactly what the plugin emits.
-    connect(m_plugin.data(), SIGNAL(songReceived(QVariantMap)),
-            this, SLOT(onSongReceived(QVariantMap)));
     connect(m_plugin.data(), SIGNAL(beatInfoReceived(double,double,bool)),
             this, SLOT(onBeatInfo(double,double,bool)));
     connect(m_plugin.data(), SIGNAL(connectionStatusChanged(quint32,quint32)),
@@ -93,38 +91,4 @@ void VdjBridge::onBeatInfo(double bpm, double pos, bool change)
     }
 
     emit beatChanged();
-}
-
-void VdjBridge::onSongReceived(QVariantMap song)
-{
-    // Detect whether this is a real song change (vs. just an elapsed-time
-    // update for the same track) so the Song Manager doesn't re-run its
-    // create/lookup pipeline on every status-only event.
-    const QString oldName = currentSongName();
-    const QString oldPath = currentSongPath();
-    const QString newName = song.value("name").toString();
-    const QString newPath = song.value("path").toString();
-
-    const bool sameTrack = (!oldName.isEmpty() && oldName == newName) ||
-                           (!oldPath.isEmpty() && oldPath == newPath);
-
-    m_currentSong = song;
-
-    if (sameTrack)
-    {
-        emit songElapsedChanged();
-    }
-    else
-    {
-        if (song.value("bpm").toDouble() > 0.0)
-            m_bpm = song.value("bpm").toDouble();
-        emit songChanged();
-        emit beatChanged();
-    }
-
-    if (!m_connected)
-    {
-        m_connected = true;
-        emit connectedChanged();
-    }
 }

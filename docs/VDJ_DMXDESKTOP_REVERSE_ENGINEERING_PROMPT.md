@@ -28,27 +28,28 @@ VirtualDJ ──OS2L (JSON over TCP, port 9996)──► plugins/os2l/os2lplugin
                                             ShowManager.qml telemetry strip
 ```
 
-When `autoCreateSongs` is on, every song event looks up or creates a Show
-named `"Artist - Title"`, with `BPM_4_4` time division and the BPM from VDJ.
-The Show Manager timeline then draws the beat grid automatically.
+The QML telemetry strip shows: connection status, current BPM, and a
+beat-pulse indicator. That's all that is wired today.
 
 ## The gap
 
-The OS2L standard is **deliberately minimal** — it carries:
+Stock VirtualDJ + OS2L only broadcasts `evt:"beat"` (with optional
+`bpm`, `pos`, `change`). `evt:"btn"` and `evt:"cmd"` exist in the spec
+but fire only when the user has written a corresponding VDJ script
+calling `os2l_button` / `os2l_cmd`. `evt:"song"` is documented by some
+sources but **VirtualDJ does not actually broadcast it** — confirmed
+by the project owner. The OS2L plugin's `song`-parsing code path
+therefore never runs in practice and we have removed any qmlui-side
+consumers that depended on it.
 
-- `evt:"beat"` with optional `bpm`, `pos`, `change`
-- `evt:"btn"`, `evt:"cmd"`
-- `evt:"song"` with metadata: `name`, `artist`, `album`, `genre`, `year`,
-  `remix`, `status`, `bpm`, `key`, `elapsed`, `duration`, `deck`
+This means OS2L gives us beats and nothing more. It **does not** give
+us:
 
-It **does not** carry:
-
-- The absolute **file path** of the playing audio (needed so QLC+ can render
-  a real waveform on the Show timeline via the existing
-  `WaveformImageProvider`, and so a Song Manager can deep-link to the file).
-- The full **beat grid** (an array of beat times) — only individual `beat`
-  events arrive as they happen, which is fine for live sync but not for
-  pre-planning cues on a timeline ahead of playback.
+- Anything that identifies the current track (title, artist, file path,
+  database id).
+- The full **beat grid** (an array of beat times) — only individual
+  `beat` events arrive as they happen, which is fine for live sync but
+  not for pre-planning cues on a timeline ahead of playback.
 - Loops, hot cues, deck-internal markers.
 
 **Plan from the user:** DMXDesktop (the lighting app from VDJ's own ecosystem)
@@ -77,16 +78,18 @@ second backend that feeds the same `VdjBridge` facade — so consumers
 > Read `docs/VDJ_DMXDESKTOP_REVERSE_ENGINEERING_PROMPT.md` for full background.
 > The existing OS2L-based pipeline lives in:
 >
-> - `plugins/os2l/os2lplugin.{h,cpp}` — emits `songReceived(QVariantMap)`
->   and `beatInfoReceived(double,double,bool)`. The QVariantMap already has
->   a forward-compatible `path` key that's currently always empty when fed
->   by OS2L.
+> - `plugins/os2l/os2lplugin.{h,cpp}` — emits
+>   `beatInfoReceived(double,double,bool)`. Do NOT extend this plugin
+>   with non-OS2L data; OS2L stays strictly conformant.
 > - `qmlui/vdjbridge.{h,cpp}` — the Qt facade. Add a second backend here,
->   not in the OS2L plugin.
-> - `qmlui/showmanager.cpp` (`ensureShowForVdjSong`) — already creates an
->   `Audio` function and attaches it to a Show track when `path` is a
->   readable file. So as soon as a backend populates `path`, the waveform
->   appears for free on the timeline.
+>   not in the OS2L plugin. The facade currently exposes only beat /
+>   BPM / connection state; you will add song / path / beatgrid
+>   properties as the new backend provides them.
+> - `qmlui/showmanager.cpp` — does NOT yet contain any auto-create logic.
+>   That work was removed because it depended on VDJ-broadcasted song
+>   events that don't actually exist. Once a new backend supplies song
+>   metadata + file path, the auto-create-show / attach-Audio-function
+>   logic needs to be (re-)added here.
 >
 > ### Step 1 — Capture
 >
@@ -165,10 +168,6 @@ second backend that feeds the same `VdjBridge` facade — so consumers
 
 - If DMXDesktop turns out to use proprietary obfuscation that isn't worth
   reverse-engineering, the fallback is to install a **VirtualDJ custom
-  plugin** (VDJ exposes a C++ SDK) that publishes the missing fields as an
-  OS2L-compatible side-channel. That's a lot more work than a backend
+  plugin** (VDJ exposes a C++ SDK) that publishes the missing fields over
+  a side channel of our own design. That's a lot more work than a backend
   decoder but is a known-good escape hatch.
-- The forward-compatible `path` key in the OS2L plugin's `songReceived`
-  map (`plugins/os2l/os2lplugin.cpp`) is already in place. A custom VDJ
-  script that injects a non-standard `"path"` field into its OS2L
-  messages will Just Work today — no QLC+ changes needed.
