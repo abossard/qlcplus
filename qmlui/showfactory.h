@@ -21,6 +21,7 @@
 #define SHOWFACTORY_H
 
 #include <QObject>
+#include <QHash>
 #include <QSet>
 #include <QString>
 
@@ -49,6 +50,13 @@ public:
     /** Returns the set of filepaths for which shows were created this session. */
     const QSet<QString> &createdShows() const { return m_createdShows; }
 
+    /** Lookup the showID created for a given filepath, or Function::invalidId() if absent. */
+    quint32 showIdForFilepath(const QString &filepath) const;
+
+signals:
+    /** Emitted after a Show is successfully added to the Doc for a song. */
+    void showCreatedForSong(const QString &filepath, quint32 showId);
+
 public slots:
     /** Create Audio + Show + Track for the given song info. Deduplicates by filepath. */
     void createShowForSong(const SongLoadTracker::SongInfo &info);
@@ -58,6 +66,7 @@ private:
 
     Doc *m_doc;
     QSet<QString> m_createdShows;
+    QHash<QString, quint32> m_filepathToShowId;
 };
 
 #endif // SHOWFACTORY_H

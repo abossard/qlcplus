@@ -21,6 +21,7 @@
 
 #include "doc.h"
 #include "audio.h"
+#include "function.h"
 #include "show.h"
 #include "track.h"
 
@@ -80,7 +81,9 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
         if (f->name() == showName)
         {
             m_createdShows.insert(filepath);
+            m_filepathToShowId.insert(filepath, f->id());
             qDebug() << "[ShowFactory] Show already exists:" << showName;
+            emit showCreatedForSong(filepath, f->id());
             return;
         }
     }
@@ -112,8 +115,16 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     sf->setColor(ShowFunction::defaultColor(Function::AudioType));
 
     m_createdShows.insert(filepath);
+    m_filepathToShowId.insert(filepath, show->id());
     qDebug() << "[ShowFactory] Auto-created Show:" << showName
              << "audio ID:" << audio->id()
              << "show ID:" << show->id()
              << "duration:" << audio->totalDuration() << "ms";
+
+    emit showCreatedForSong(filepath, show->id());
+}
+
+quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
+{
+    return m_filepathToShowId.value(filepath, Function::invalidId());
 }

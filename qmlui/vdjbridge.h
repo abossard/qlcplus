@@ -85,6 +85,9 @@ public:
     /** Stop the telemetry server and Bonjour registration. */
     void stopTelemetry();
 
+    /** Access the ShowFactory for UI components that observe show creation. */
+    ShowFactory *showFactory() const { return m_showFactory; }
+
     // --- Legacy getters ---
     bool connected() const { return m_connected; }
     int beatCount() const { return m_beatCount; }

@@ -61,6 +61,7 @@
 #include "networkmanager.h"
 #include "flowconsole.h"
 #include "vdjbridge.h"
+#include "songmanager.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
@@ -223,11 +224,17 @@ void App::startup()
     if (m_os2lPlugin != nullptr && m_vdjBridge != nullptr)
         m_vdjBridge->attachOS2LPlugin(m_os2lPlugin);
 
+    // Song Manager — standalone view for VDJ status + auto-created Shows.
+    m_songManager = new SongManager(this, m_doc, m_vdjBridge,
+                                    m_vdjBridge ? m_vdjBridge->showFactory() : nullptr, this);
+
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);
     m_contextManager->registerContext(m_simpleDesk);
     m_contextManager->registerContext(m_showManager);
     m_contextManager->registerContext(m_ioManager);
+    if (m_songManager != nullptr)
+        m_contextManager->registerContext(m_songManager);
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");

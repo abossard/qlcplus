@@ -68,6 +68,7 @@ set(SRC_FILES
     vdjtelemetryclient.cpp vdjtelemetryclient.h
     songloadtracker.cpp songloadtracker.h
     showfactory.cpp showfactory.h
+    songmanager.cpp songmanager.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h
