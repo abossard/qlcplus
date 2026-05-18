@@ -23,6 +23,8 @@
 #include "vdjbonjour.h"
 #include "songloadtracker.h"
 #include "showfactory.h"
+
+#include <QTimer>
 #include "qlcioplugin.h"
 
 #include "doc.h"
@@ -79,13 +81,22 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
     // Suppress the OS2L plugin's own Bonjour ad: VdjBridge is the canonical
     // _os2l._tcp advertiser for this process (it points VDJ at the telemetry
     // server on port 8050). Two simultaneous _os2l._tcp services from the same
-    // process crashes VirtualDJ. The plugin honors this parameter both before
-    // openInput() (gate at OS2LPlugin::openInput) and at runtime if input is
-    // already active (OS2LPlugin::setParameter handler). The base
-    // QLCIOPlugin::setParameter early-returns when the universe is not mapped,
-    // so this in-memory flag does NOT get persisted to user settings.
+    // process crashes VirtualDJ.
+    //
+    // We suppress twice: immediately (before openInput) AND deferred (after
+    // workspace loading restores bonjourEnabled=true from saved parameters).
     m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
                            QStringLiteral("bonjourEnabled"), QVariant(false));
+
+    // Deferred suppression: workspace loading (main.cpp loadWorkspace/loadDefaults)
+    // restores the parameter from XML after this call returns. A 2s singleShot
+    // ensures we re-suppress after that sequence completes.
+    QPointer<QLCIOPlugin> pluginGuard = m_plugin.data();
+    QTimer::singleShot(2000, this, [pluginGuard]() {
+        if (!pluginGuard.isNull())
+            pluginGuard->setParameter(0, 0, QLCIOPlugin::Input,
+                                      QStringLiteral("bonjourEnabled"), QVariant(false));
+    });
 
     refreshConnectionStatus();
 }
