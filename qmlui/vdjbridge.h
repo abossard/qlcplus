@@ -23,7 +23,6 @@
 #include <QObject>
 #include <QPointer>
 #include <QList>
-#include <QTimer>
 #include <QSet>
 
 class Doc;
@@ -138,11 +137,7 @@ private:
     // Telemetry
     VdjTelemetryClient *m_telemetry = nullptr;
     VdjBonjour *m_bonjour = nullptr;
-    QTimer *m_discoveryTimer = nullptr;
     quint16 m_telemetryPort = 0;
-
-    void registerBonjour();
-    void cycleBonjour();
     VdjDeckModel *m_deckModels[4] = {};
     int m_masterDeck = 0;
     qreal m_masterVolume = 0.0;

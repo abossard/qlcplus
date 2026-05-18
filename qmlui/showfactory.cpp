@@ -23,6 +23,8 @@
 #include "audio.h"
 #include "show.h"
 #include "track.h"
+
+#include <QTimer>
 #include "showfunction.h"
 
 #include <QDebug>
@@ -46,6 +48,21 @@ void ShowFactory::createShowForSong(const SongLoadTracker::SongInfo &info)
     // Session-level dedup
     if (m_createdShows.contains(filepath))
         return;
+    m_createdShows.insert(filepath);
+
+    // Defer to next event loop tick so the telemetry burst completes first.
+    // Doc::addFunction triggers QML model updates that can crash if fired
+    // during the initial connection burst.
+    SongLoadTracker::SongInfo copy = info;
+    QTimer::singleShot(0, this, [this, copy]() { createShowDeferred(copy); });
+}
+
+void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
+{
+    if (!m_doc)
+        return;
+
+    const QString &filepath = info.filepath;
 
     // Derive a human-readable name from metadata or filename
     QString showName;

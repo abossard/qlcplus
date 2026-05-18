@@ -76,6 +76,17 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
     connect(m_plugin.data(), SIGNAL(connectionStatusChanged(quint32,quint32)),
             this, SLOT(refreshConnectionStatus()));
 
+    // Suppress the OS2L plugin's own Bonjour ad: VdjBridge is the canonical
+    // _os2l._tcp advertiser for this process (it points VDJ at the telemetry
+    // server on port 8050). Two simultaneous _os2l._tcp services from the same
+    // process crashes VirtualDJ. The plugin honors this parameter both before
+    // openInput() (gate at OS2LPlugin::openInput) and at runtime if input is
+    // already active (OS2LPlugin::setParameter handler). The base
+    // QLCIOPlugin::setParameter early-returns when the universe is not mapped,
+    // so this in-memory flag does NOT get persisted to user settings.
+    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
+                           QStringLiteral("bonjourEnabled"), QVariant(false));
+
     refreshConnectionStatus();
 }
 
@@ -137,55 +148,23 @@ void VdjBridge::startTelemetry(quint16 port)
     m_telemetry->start(port);
     m_telemetryPort = port;
 
-    // Bonjour registration for VDJ auto-discovery.
+    // Advertise the telemetry server as the single _os2l._tcp instance for
+    // this process. The OS2L plugin's own Bonjour ad is suppressed in
+    // attachOS2LPlugin(); registering "QLC+" here gives VirtualDJ exactly one
+    // service to discover and connect to, avoiding the dual-registration
+    // crash. Name "QLC+" matches what VDJ users have historically expected.
     if (!m_bonjour)
         m_bonjour = new VdjBonjour(this);
-    registerBonjour();
-
-    // VDJ caches Bonjour services and doesn't re-discover after QLC+ restarts.
-    // Cycle the registration every 10s while no client is connected to force
-    // mDNS announcements that trigger VDJ's service browser.
-    if (!m_discoveryTimer)
-    {
-        m_discoveryTimer = new QTimer(this);
-        m_discoveryTimer->setInterval(10000);
-        connect(m_discoveryTimer, &QTimer::timeout, this, &VdjBridge::cycleBonjour);
-    }
-    m_discoveryTimer->start();
+    if (!m_bonjour->isRegistered())
+        m_bonjour->registerService(QStringLiteral("QLC+"), port);
 }
 
 void VdjBridge::stopTelemetry()
 {
-    if (m_discoveryTimer)
-        m_discoveryTimer->stop();
     if (m_bonjour)
         m_bonjour->unregisterService();
     if (m_telemetry)
         m_telemetry->stop();
-}
-
-void VdjBridge::registerBonjour()
-{
-    if (m_bonjour && m_telemetryPort > 0)
-        m_bonjour->registerService("QLC+ Telemetry", m_telemetryPort);
-}
-
-void VdjBridge::cycleBonjour()
-{
-    // Stop cycling once a client is connected
-    if (m_telemetry && m_telemetry->status() == VdjTelemetryClient::ClientConnected)
-    {
-        m_discoveryTimer->stop();
-        return;
-    }
-
-    // Unregister and re-register to force mDNS announcement
-    if (m_bonjour)
-    {
-        m_bonjour->unregisterService();
-        // Short delay then re-register (use single-shot timer)
-        QTimer::singleShot(500, this, &VdjBridge::registerBonjour);
-    }
 }
 
 QString VdjBridge::telemetryStatus() const
@@ -274,17 +253,11 @@ void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
 void VdjBridge::onTelemetryClientConnected()
 {
     qDebug() << "[VdjBridge] Telemetry client connected — telemetry beats active, OS2L beats suppressed";
-    // Stop Bonjour cycling — we have a client
-    if (m_discoveryTimer)
-        m_discoveryTimer->stop();
 }
 
 void VdjBridge::onTelemetryClientDisconnected()
 {
     qDebug() << "[VdjBridge] Telemetry client disconnected — OS2L beats resumed";
-    // Restart Bonjour cycling to attract VDJ again
-    if (m_discoveryTimer)
-        m_discoveryTimer->start();
     // Reset deck models
     for (int i = 0; i < 4; ++i)
         m_deckModels[i]->reset();

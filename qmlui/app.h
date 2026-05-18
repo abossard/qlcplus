@@ -48,6 +48,7 @@ class FixtureEditor;
 class FlowConsole;
 class Tardis;
 class VdjBridge;
+class QLCIOPlugin;
 class QMouseEvent;
 
 #define SETTINGS_LANGUAGE "ui/language"
@@ -248,6 +249,7 @@ private:
     Tardis *m_tardis;
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
+    QLCIOPlugin *m_os2lPlugin = nullptr;
 
     /*********************************************************************
      * Doc

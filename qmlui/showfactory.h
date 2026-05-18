@@ -54,6 +54,8 @@ public slots:
     void createShowForSong(const SongLoadTracker::SongInfo &info);
 
 private:
+    void createShowDeferred(const SongLoadTracker::SongInfo &info);
+
     Doc *m_doc;
     QSet<QString> m_createdShows;
 };

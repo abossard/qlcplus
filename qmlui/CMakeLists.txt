@@ -251,6 +251,10 @@ target_sources(${module_name} PUBLIC
     ${qlcplusqmlui_resource_files}
 )
 
+if(APPLE)
+    target_link_libraries(${module_name} PRIVATE "-framework CoreServices")
+endif()
+
 if(mcp_server)
     target_link_libraries(${module_name} PRIVATE qlcplusmcp)
     target_compile_definitions(${module_name} PRIVATE HAS_MCP_SERVER)
