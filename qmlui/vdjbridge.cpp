@@ -23,13 +23,25 @@
 #include "vdjbonjour.h"
 #include "qlcioplugin.h"
 
+#include "doc.h"
+#include "audio.h"
+#include "show.h"
+#include "track.h"
+#include "showfunction.h"
+
 #include <QDebug>
+#include <QFileInfo>
 
 VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
 {
     for (int i = 0; i < 4; ++i)
         m_deckModels[i] = new VdjDeckModel(i + 1, this);
+}
+
+void VdjBridge::setDoc(Doc *doc)
+{
+    m_doc = doc;
 }
 
 // ---------- OS2L attachment (unchanged) ----------
@@ -282,7 +294,7 @@ void VdjBridge::onTelemetryClientDisconnected()
 void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value)
 {
     // Metadata (on-load)
-    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); return; }
+    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); onDeckSongLoaded(deck); return; }
     if (trigger == "get_title")          { deck->setTitle(value.toString()); return; }
     if (trigger == "get_artist")         { deck->setArtist(value.toString()); return; }
     if (trigger == "get_title_artist")   { deck->setTitleArtist(value.toString()); return; }
@@ -313,4 +325,75 @@ void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, con
     // Loop
     if (trigger == "loop")     { deck->setLooping(value.toBool()); return; }
     if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); return; }
+}
+
+// ---------- Auto-Show creation ----------
+
+void VdjBridge::onDeckSongLoaded(VdjDeckModel *deck)
+{
+    if (!m_doc)
+        return;
+
+    const QString filepath = deck->filepath();
+    if (filepath.isEmpty())
+        return;
+
+    // Already created a show for this file in this session
+    if (m_createdShows.contains(filepath))
+        return;
+
+    // Derive a human-readable name from metadata or filename
+    QString showName = deck->titleArtist();
+    if (showName.isEmpty())
+    {
+        showName = deck->title();
+        if (!deck->artist().isEmpty())
+            showName = deck->artist() + " - " + showName;
+    }
+    if (showName.isEmpty())
+        showName = QFileInfo(filepath).completeBaseName();
+
+    // Check if a Show with this name already exists
+    const auto shows = m_doc->functionsByType(Function::ShowType);
+    for (Function *f : shows)
+    {
+        if (f->name() == showName)
+        {
+            m_createdShows.insert(filepath);
+            qDebug() << "[VdjBridge] Show already exists:" << showName;
+            return;
+        }
+    }
+
+    // Create Audio function
+    Audio *audio = new Audio(m_doc);
+    audio->setName(showName);
+    if (!audio->setSourceFileName(filepath))
+    {
+        qWarning() << "[VdjBridge] Failed to set audio source:" << filepath;
+        delete audio;
+        return;
+    }
+    m_doc->addFunction(audio);
+
+    // Create Show function
+    Show *show = new Show(m_doc);
+    show->setName(showName);
+    m_doc->addFunction(show);
+
+    // Add a Track with the Audio as a timeline item
+    Track *track = new Track(Function::invalidId(), show);
+    track->setName("Audio");
+    show->addTrack(track);
+
+    ShowFunction *sf = track->createShowFunction(audio->id());
+    sf->setStartTime(0);
+    sf->setDuration(audio->totalDuration());
+    sf->setColor(ShowFunction::defaultColor(Function::AudioType));
+
+    m_createdShows.insert(filepath);
+    qDebug() << "[VdjBridge] Auto-created Show:" << showName
+             << "audio ID:" << audio->id()
+             << "show ID:" << show->id()
+             << "duration:" << audio->totalDuration() << "ms";
 }

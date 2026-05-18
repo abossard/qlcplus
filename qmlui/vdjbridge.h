@@ -24,7 +24,9 @@
 #include <QPointer>
 #include <QList>
 #include <QTimer>
+#include <QSet>
 
+class Doc;
 class QLCIOPlugin;
 class VdjDeckModel;
 class VdjTelemetryClient;
@@ -64,6 +66,9 @@ class VdjBridge final : public QObject
 
 public:
     explicit VdjBridge(QObject *parent = nullptr);
+
+    /** Set the Doc pointer for auto-show creation. */
+    void setDoc(Doc *doc);
 
     /**
      * Bind to an OS2L plugin instance and start consuming its events.
@@ -116,6 +121,11 @@ private slots:
 
 private:
     void applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value);
+    void onDeckSongLoaded(VdjDeckModel *deck);
+
+    // Doc (for auto-show creation)
+    Doc *m_doc = nullptr;
+    QSet<QString> m_createdShows;  // filepaths for which we already created a Show
 
     // OS2L
     QPointer<QLCIOPlugin> m_plugin;

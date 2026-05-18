@@ -206,6 +206,7 @@ void App::startup()
     // VDJ telemetry bridge. Plugins are not yet loaded here (initDoc runs
     // later from startup()); the actual OS2L plugin lookup happens there.
     m_vdjBridge = new VdjBridge(this);
+    m_vdjBridge->setDoc(m_doc);
     rootContext()->setContextProperty("vdjBridge", m_vdjBridge);
 
     // Start the DMXDesktop-compatible TCP server now (doesn't need plugins).
