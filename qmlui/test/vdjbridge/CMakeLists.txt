@@ -6,6 +6,8 @@ add_executable(${module_name} WIN32
     ../../vdjdeckmodel.cpp ../../vdjdeckmodel.h
     ../../vdjtelemetryclient.cpp ../../vdjtelemetryclient.h
     ../../vdjbonjour.cpp ../../vdjbonjour.h
+    ../../songloadtracker.cpp ../../songloadtracker.h
+    ../../showfactory.cpp ../../showfactory.h
 )
 
 target_include_directories(${module_name} PRIVATE

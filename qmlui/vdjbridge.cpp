@@ -21,19 +21,19 @@
 #include "vdjdeckmodel.h"
 #include "vdjtelemetryclient.h"
 #include "vdjbonjour.h"
+#include "songloadtracker.h"
+#include "showfactory.h"
 #include "qlcioplugin.h"
 
 #include "doc.h"
-#include "audio.h"
-#include "show.h"
-#include "track.h"
-#include "showfunction.h"
 
 #include <QDebug>
 #include <QFileInfo>
 
 VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
+    , m_tracker(new SongLoadTracker(this))
+    , m_showFactory(nullptr)
 {
     for (int i = 0; i < 4; ++i)
         m_deckModels[i] = new VdjDeckModel(i + 1, this);
@@ -42,6 +42,12 @@ VdjBridge::VdjBridge(QObject *parent)
 void VdjBridge::setDoc(Doc *doc)
 {
     m_doc = doc;
+    if (m_doc && !m_showFactory)
+    {
+        m_showFactory = new ShowFactory(m_doc, this);
+        connect(m_tracker, &SongLoadTracker::songReady,
+                m_showFactory, &ShowFactory::createShowForSong);
+    }
 }
 
 // ---------- OS2L attachment (unchanged) ----------
@@ -223,7 +229,7 @@ void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVari
 {
     if (deckIndex < 0 || deckIndex >= 4)
         return;
-    applyDeckTrigger(m_deckModels[deckIndex], trigger, value);
+    applyDeckTrigger(m_deckModels[deckIndex], deckIndex, trigger, value);
 }
 
 void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
@@ -256,6 +262,7 @@ void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
         if (v >= 0 && v < 4 && v != m_masterDeck)
         {
             m_masterDeck = v;
+            m_tracker->onMasterDeck(value.toInt()); // tracker uses 1-based
             emit masterDeckChanged();
         }
     }
@@ -281,6 +288,8 @@ void VdjBridge::onTelemetryClientDisconnected()
     // Reset deck models
     for (int i = 0; i < 4; ++i)
         m_deckModels[i]->reset();
+    // Reset FSM tracker
+    m_tracker->onDisconnected();
     // Reset global state
     m_masterDeck = 0;
     m_masterVolume = 0.0;
@@ -291,155 +300,42 @@ void VdjBridge::onTelemetryClientDisconnected()
     emit globalMixerChanged();
 }
 
-void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value)
+void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, int deckIndex,
+                                 const QString &trigger, const QVariant &value)
 {
-    static const QString kPlaceholderTitle = QStringLiteral("Drag a song on this deck to load it");
+    // --- Route to FSM tracker (1-based deck) ---
+    m_tracker->onTrigger(deckIndex + 1, trigger, value);
 
-    const int idx = deck->deckNumber() - 1;  // deck numbers are 1-based
-    DeckLoadState &state = m_deckLoadState[idx];
-
-    // --- Metadata (on-load) ---
-    if (trigger == "get_filepath")
-    {
-        QString path = value.toString();
-        // New filepath = new track loading → reset state machine
-        if (!path.isEmpty() && path != deck->filepath())
-        {
-            state.reset();
-            state.hasFilepath = true;
-        }
-        deck->setFilepath(path);
-    }
-    else if (trigger == "get_title")
-    {
-        QString title = value.toString();
-        deck->setTitle(title);
-        if (!title.isEmpty() && title != kPlaceholderTitle)
-            state.hasTitle = true;
-    }
-    else if (trigger == "get_artist")
-    {
-        QString artist = value.toString();
-        deck->setArtist(artist);
-        if (!artist.isEmpty())
-            state.hasArtist = true;
-    }
-    else if (trigger == "get_title_artist") { deck->setTitleArtist(value.toString()); return; }
-    else if (trigger == "get_album")        { deck->setAlbum(value.toString()); return; }
-    else if (trigger == "get_genre")        { deck->setGenre(value.toString()); return; }
-    else if (trigger == "get_key")          { deck->setKey(value.toString()); return; }
-    else if (trigger == "get_bpm")
-    {
-        double bpm = value.toDouble();
-        deck->setBpm(bpm);
-        if (bpm > 0.0)
-            state.hasBpm = true;
-    }
-    else if (trigger == "get_firstbeat")    { deck->setFirstBeat(value.toDouble()); return; }
-    else if (trigger == "get_time total")   { deck->setTimeTotal(value.toDouble()); return; }
-    else if (trigger == "loaded")
-    {
-        bool loaded = (value.toString() == "on");
-        deck->setLoaded(loaded);
-        state.isLoaded = loaded;
-    }
-    else if (trigger == "play")             { deck->setPlaying(value.toString() == "on"); return; }
-    else if (trigger == "volume")           { deck->setVolume(value.toDouble()); return; }
+    // --- Route to deck model for UI state ---
+    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); }
+    else if (trigger == "get_title")     { deck->setTitle(value.toString()); }
+    else if (trigger == "get_artist")         { deck->setArtist(value.toString()); }
+    else if (trigger == "get_title_artist")   { deck->setTitleArtist(value.toString()); }
+    else if (trigger == "get_album")          { deck->setAlbum(value.toString()); }
+    else if (trigger == "get_genre")          { deck->setGenre(value.toString()); }
+    else if (trigger == "get_key")            { deck->setKey(value.toString()); }
+    else if (trigger == "get_bpm")            { deck->setBpm(value.toDouble()); }
+    else if (trigger == "get_firstbeat")      { deck->setFirstBeat(value.toDouble()); }
+    else if (trigger == "get_time total")     { deck->setTimeTotal(value.toDouble()); }
+    else if (trigger == "loaded")             { deck->setLoaded(value.toString() == "on"); }
+    else if (trigger == "play")               { deck->setPlaying(value.toString() == "on"); }
+    else if (trigger == "volume")             { deck->setVolume(value.toDouble()); }
 
     // Continuous
-    else if (trigger == "get_position")              { deck->setPosition(value.toDouble()); return; }
-    else if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); return; }
-    else if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); return; }
-    else if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); return; }
-    else if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); return; }
-    else if (trigger == "level")                     { deck->setLevel(value.toDouble()); return; }
+    else if (trigger == "get_position")              { deck->setPosition(value.toDouble()); }
+    else if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); }
+    else if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); }
+    else if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); }
+    else if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); }
+    else if (trigger == "level")                     { deck->setLevel(value.toDouble()); }
 
     // EQ
-    else if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); return; }
-    else if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); return; }
-    else if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); return; }
-    else if (trigger == "gain")    { deck->setGain(value.toDouble()); return; }
+    else if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); }
+    else if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); }
+    else if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); }
+    else if (trigger == "gain")    { deck->setGain(value.toDouble()); }
 
     // Loop
-    else if (trigger == "loop")     { deck->setLooping(value.toBool()); return; }
-    else if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); return; }
-    else { return; }
-
-    // Check if all required metadata has arrived
-    if (state.isComplete())
-    {
-        state.showCreated = true;
-        onDeckSongLoaded(deck);
-    }
-}
-
-// ---------- Auto-Show creation ----------
-
-void VdjBridge::onDeckSongLoaded(VdjDeckModel *deck)
-{
-    if (!m_doc)
-        return;
-
-    const QString filepath = deck->filepath();
-    if (filepath.isEmpty())
-        return;
-
-    // Already created a show for this file in this session
-    if (m_createdShows.contains(filepath))
-        return;
-
-    // Derive a human-readable name from metadata or filename
-    QString showName = deck->titleArtist();
-    if (showName.isEmpty())
-    {
-        showName = deck->title();
-        if (!deck->artist().isEmpty())
-            showName = deck->artist() + " - " + showName;
-    }
-    if (showName.isEmpty())
-        showName = QFileInfo(filepath).completeBaseName();
-
-    // Check if a Show with this name already exists
-    const auto shows = m_doc->functionsByType(Function::ShowType);
-    for (Function *f : shows)
-    {
-        if (f->name() == showName)
-        {
-            m_createdShows.insert(filepath);
-            qDebug() << "[VdjBridge] Show already exists:" << showName;
-            return;
-        }
-    }
-
-    // Create Audio function
-    Audio *audio = new Audio(m_doc);
-    audio->setName(showName);
-    if (!audio->setSourceFileName(filepath))
-    {
-        qWarning() << "[VdjBridge] Failed to set audio source:" << filepath;
-        delete audio;
-        return;
-    }
-    m_doc->addFunction(audio);
-
-    // Create Show function
-    Show *show = new Show(m_doc);
-    show->setName(showName);
-    m_doc->addFunction(show);
-
-    // Add a Track with the Audio as a timeline item
-    Track *track = new Track(Function::invalidId(), show);
-    track->setName("Audio");
-    show->addTrack(track);
-
-    ShowFunction *sf = track->createShowFunction(audio->id());
-    sf->setStartTime(0);
-    sf->setDuration(audio->totalDuration());
-    sf->setColor(ShowFunction::defaultColor(Function::AudioType));
-
-    m_createdShows.insert(filepath);
-    qDebug() << "[VdjBridge] Auto-created Show:" << showName
-             << "audio ID:" << audio->id()
-             << "show ID:" << show->id()
-             << "duration:" << audio->totalDuration() << "ms";
+    else if (trigger == "loop")     { deck->setLooping(value.toBool()); }
+    else if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); }
 }

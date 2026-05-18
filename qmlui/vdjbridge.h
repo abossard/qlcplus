@@ -26,28 +26,13 @@
 #include <QTimer>
 #include <QSet>
 
-/**
- * Per-deck state machine tracking required metadata before auto-show creation.
- * Resets when a new filepath arrives; fires once all fields are present.
- */
-struct DeckLoadState
-{
-    bool hasFilepath = false;
-    bool hasTitle = false;
-    bool hasArtist = false;
-    bool hasBpm = false;
-    bool isLoaded = false;
-    bool showCreated = false;
-
-    void reset() { hasFilepath = hasTitle = hasArtist = hasBpm = isLoaded = showCreated = false; }
-    bool isComplete() const { return hasFilepath && hasTitle && hasArtist && hasBpm && isLoaded && !showCreated; }
-};
-
 class Doc;
 class QLCIOPlugin;
 class VdjDeckModel;
 class VdjTelemetryClient;
 class VdjBonjour;
+class SongLoadTracker;
+class ShowFactory;
 
 /**
  * Facade for VirtualDJ integration.
@@ -137,13 +122,13 @@ private slots:
     void onTelemetryClientDisconnected();
 
 private:
-    void applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value);
-    void onDeckSongLoaded(VdjDeckModel *deck);
+    void applyDeckTrigger(VdjDeckModel *deck, int deckIndex,
+                          const QString &trigger, const QVariant &value);
 
-    // Doc (for auto-show creation)
+    // Doc (for auto-show creation via ShowFactory)
     Doc *m_doc = nullptr;
-    QSet<QString> m_createdShows;  // filepaths for which we already created a Show
-    DeckLoadState m_deckLoadState[4];
+    SongLoadTracker *m_tracker = nullptr;
+    ShowFactory *m_showFactory = nullptr;
 
     // OS2L
     QPointer<QLCIOPlugin> m_plugin;

@@ -66,6 +66,8 @@ set(SRC_FILES
     vdjbridge.cpp vdjbridge.h
     vdjdeckmodel.cpp vdjdeckmodel.h
     vdjtelemetryclient.cpp vdjtelemetryclient.h
+    songloadtracker.cpp songloadtracker.h
+    showfactory.cpp showfactory.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h
