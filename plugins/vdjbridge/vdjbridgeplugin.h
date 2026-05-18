@@ -89,7 +89,7 @@ signals:
 private:
     quint16  m_hostPort       = VDJ_DEFAULT_PORT;
     bool     m_bonjourEnabled = true;
-    QString  m_serviceName    = QStringLiteral("QLC+");
+    QString  m_serviceName    = QStringLiteral("QLC+ VDJ");
     quint32  m_inputUniverse  = QLCIOPlugin::invalidLine();
     bool     m_open           = false;
 

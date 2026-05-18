@@ -58,7 +58,7 @@ bool VdjBonjour::registerService(const QString &serviceName, quint16 port)
         0,
         kDNSServiceInterfaceIndexAny,
         serviceName.toUtf8().constData(),
-        "_dmxdesktop._tcp",
+        "_os2l._tcp",
         "",
         NULL,
         htons(port),
@@ -84,7 +84,7 @@ bool VdjBonjour::registerService(const QString &serviceName, quint16 port)
     }
 
     qDebug() << kLogTag << "Registering service" << serviceName
-             << "(_dmxdesktop._tcp) on port" << port << "...";
+             << "(_os2l._tcp) on port" << port << "...";
     return true;
 }
 
