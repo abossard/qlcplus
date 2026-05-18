@@ -84,12 +84,12 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     connect(m_telemetry, &VdjTelemetryClient::clientConnected,
             this, [this, input, universe]() {
         emit clientConnected();
-        emit connectionStatusChanged(input, universe);
+        emit connectionStatusChanged(universe, input);
     });
     connect(m_telemetry, &VdjTelemetryClient::clientDisconnected,
             this, [this, input, universe]() {
         emit clientDisconnected();
-        emit connectionStatusChanged(input, universe);
+        emit connectionStatusChanged(universe, input);
     });
 
     if (!m_telemetry->start(m_hostPort))
@@ -109,7 +109,7 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     addToMap(universe, input, Input);
 
     m_open = true;
-    emit connectionStatusChanged(input, universe);
+    emit connectionStatusChanged(universe, input);
     return true;
 }
 
@@ -136,7 +136,7 @@ void VdjBridgePlugin::closeInput(quint32 input, quint32 universe)
 
     m_open = false;
     m_inputUniverse = QLCIOPlugin::invalidLine();
-    emit connectionStatusChanged(input, universe);
+    emit connectionStatusChanged(universe, input);
 }
 
 QStringList VdjBridgePlugin::inputs()
