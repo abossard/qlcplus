@@ -14,8 +14,7 @@ class VdjBridge_Test : public QObject
 
 private slots:
     void initialState();
-    void beatUpdatesBpmAndConnected();
-    void beatChangeResetsCounter();
+    void beatTicksCounterAndConnected();
 };
 
 #endif

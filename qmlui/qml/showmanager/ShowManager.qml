@@ -406,7 +406,7 @@ Rectangle
                 Connections
                 {
                     target: vdjBridge
-                    function onBeatChanged()
+                    function onBeatReceived()
                     {
                         beatPulse.opacity = 1.0
                         beatPulseFade.restart()
@@ -433,14 +433,6 @@ Rectangle
                         label: vdjBridge.connected ? qsTr("VDJ") : qsTr("VDJ —")
                         fontSize: UISettings.textSizeDefault - 2
                         labelColor: vdjBridge.connected ? "#2ecc71" : "#888"
-                    }
-
-                    RobotoText
-                    {
-                        visible: vdjBridge.bpm > 0
-                        label: vdjBridge.bpm.toFixed(1) + " BPM"
-                        fontSize: UISettings.textSizeDefault - 2
-                        labelColor: "#9be"
                     }
                 }
             }

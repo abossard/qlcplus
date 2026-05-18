@@ -48,8 +48,8 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
 
     // String-based connections so qmlui does not need to link the plugin
     // shared library. Signatures must match exactly what the plugin emits.
-    connect(m_plugin.data(), SIGNAL(beatInfoReceived(double,double,bool)),
-            this, SLOT(onBeatInfo(double,double,bool)));
+    connect(m_plugin.data(), SIGNAL(beatReceived()),
+            this, SLOT(onBeat()));
     connect(m_plugin.data(), SIGNAL(connectionStatusChanged(quint32,quint32)),
             this, SLOT(refreshConnectionStatus()));
 
@@ -69,16 +69,8 @@ void VdjBridge::refreshConnectionStatus()
     }
 }
 
-void VdjBridge::onBeatInfo(double bpm, double pos, bool change)
+void VdjBridge::onBeat()
 {
-    if (bpm > 0.0)
-        m_bpm = bpm;
-    m_beatPos = pos;
-    // OS2L "change=true" marks the first beat of a new track/loop; reset the
-    // running counter so the UI can display "beat N of 4" against the current
-    // segment without drifting.
-    if (change)
-        m_beatCount = 0;
     ++m_beatCount;
 
     // The first beat we receive is the most reliable evidence VDJ is actually
@@ -90,5 +82,5 @@ void VdjBridge::onBeatInfo(double bpm, double pos, bool change)
         emit connectedChanged();
     }
 
-    emit beatChanged();
+    emit beatReceived();
 }

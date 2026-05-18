@@ -95,14 +95,12 @@ public:
     bool bonjourEnabled() const;
 
 signals:
-    /** Emitted on every OS2L "beat" event with the optional fields parsed.
-     *  bpm: current beats-per-minute (0 if not provided);
-     *  pos: position in beats since track start (0 if not provided);
-     *  change: true on the first beat of a new track/loop (false otherwise).
-     *
-     *  Stock VirtualDJ broadcasts beat events automatically when OS2L is
-     *  enabled — no user-side scripting required. */
-    void beatInfoReceived(double bpm, double pos, bool change);
+    /** Emitted on every OS2L "beat" event. Carries no payload because
+     *  stock VirtualDJ broadcasts a bare `{"evt":"beat"}` — the optional
+     *  bpm/pos/change fields in the OS2L spec are permitted but VDJ
+     *  does not include them. Consumers that need BPM must derive it
+     *  from inter-arrival times themselves. */
+    void beatReceived();
 
 protected:
     bool enableTCPServer(bool enable);
