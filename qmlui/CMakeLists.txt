@@ -62,10 +62,8 @@ set(SRC_FILES
     treemodel.cpp treemodel.h
     treemodelitem.cpp treemodelitem.h
     uimanager.cpp uimanager.h
-    vdjbonjour.cpp vdjbonjour.h
     vdjbridge.cpp vdjbridge.h
     vdjdeckmodel.cpp vdjdeckmodel.h
-    vdjtelemetryclient.cpp vdjtelemetryclient.h
     songloadtracker.cpp songloadtracker.h
     showfactory.cpp showfactory.h
     songmanager.cpp songmanager.h

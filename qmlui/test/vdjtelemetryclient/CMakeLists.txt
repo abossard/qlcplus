@@ -4,8 +4,10 @@ add_executable(${module_name} WIN32
     ${module_name}.cpp ${module_name}.h
     ../../vdjbridge.cpp ../../vdjbridge.h
     ../../vdjdeckmodel.cpp ../../vdjdeckmodel.h
-    ../../vdjtelemetryclient.cpp ../../vdjtelemetryclient.h
-    ../../vdjbonjour.cpp ../../vdjbonjour.h
+    ../../../plugins/vdjbridge/vdjtelemetryclient.cpp ../../../plugins/vdjbridge/vdjtelemetryclient.h
+    ../../../plugins/vdjbridge/vdjbonjour.cpp ../../../plugins/vdjbridge/vdjbonjour.h
+    ../../../plugins/vdjbridge/vdjbridgeplugin.cpp ../../../plugins/vdjbridge/vdjbridgeplugin.h
+    ../../../plugins/interfaces/qlcioplugin.cpp ../../../plugins/interfaces/qlcioplugin.h
     ../../songloadtracker.cpp ../../songloadtracker.h
     ../../showfactory.cpp ../../showfactory.h
 )
@@ -13,6 +15,7 @@ add_executable(${module_name} WIN32
 target_include_directories(${module_name} PRIVATE
     ../../../engine/src
     ../../../plugins/interfaces
+    ../../../plugins/vdjbridge
     ../..
 )
 

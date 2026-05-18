@@ -204,25 +204,35 @@ void App::startup()
 
     m_flowConsole = new FlowConsole(this, m_doc);
 
-    // VDJ telemetry bridge. Plugins are not yet loaded here (initDoc runs
-    // later from startup()); the actual OS2L plugin lookup happens there.
+    // VDJ telemetry bridge. Plugins have been loaded by initDoc() at this
+    // point — look up "VDJ Bridge" and "OS2L", attach both, and open the
+    // VDJ input so the TCP server + Bonjour come up at startup without
+    // requiring the user to patch a universe.
     m_vdjBridge = new VdjBridge(this);
     m_vdjBridge->setDoc(m_doc);
     rootContext()->setContextProperty("vdjBridge", m_vdjBridge);
 
-    // Start the DMXDesktop-compatible TCP server now (doesn't need plugins).
-    // OS2L attachment happens later in startup() when plugins are loaded.
     {
-        QSettings settings;
-        quint16 telemetryPort = static_cast<quint16>(
-            settings.value("vdj/telemetryPort", 8050).toUInt());
-        if (telemetryPort > 0)
-            m_vdjBridge->startTelemetry(telemetryPort);
-    }
+        QLCIOPlugin *vdj = m_doc->ioPluginCache()->plugin("VDJ Bridge");
+        if (vdj != nullptr)
+        {
+            QSettings settings;
+            quint16 telemetryPort = static_cast<quint16>(
+                settings.value("vdj/telemetryPort", 8050).toUInt());
+            if (telemetryPort > 0 && telemetryPort != 8050)
+            {
+                vdj->setParameter(0, 0, QLCIOPlugin::Input,
+                                  QStringLiteral("hostPort"), telemetryPort);
+            }
+            m_vdjBridge->attachVdjPlugin(vdj);
+            if (telemetryPort > 0)
+                vdj->openInput(0, 0);
+        }
 
-    // Now attach OS2L plugin to bridge (for beat events) and register our Bonjour
-    if (m_os2lPlugin != nullptr && m_vdjBridge != nullptr)
-        m_vdjBridge->attachOS2LPlugin(m_os2lPlugin);
+        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
+        if (os2l != nullptr)
+            m_vdjBridge->attachOS2LPlugin(os2l);
+    }
 
     // Song Manager — standalone view for VDJ status + auto-created Shows.
     m_songManager = new SongManager(this, m_doc, m_vdjBridge,
@@ -611,24 +621,6 @@ void App::initDoc()
 #else
     m_doc->ioPluginCache()->load(IOPluginCache::systemPluginDirectory());
 #endif
-
-    // Suppress OS2L plugin's Bonjour registration so our telemetry server
-    // is the sole _os2l._tcp service (prevents dual-service VDJ crash).
-    // Must run BEFORE loadDefaults() which triggers openInput() → Bonjour.
-    {
-        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
-        if (os2l != nullptr)
-        {
-            os2l->setParameter(0, 0, QLCIOPlugin::Input,
-                               QStringLiteral("bonjourEnabled"), false);
-            // Store for later attachment to VdjBridge (created after initDoc())
-            m_os2lPlugin = os2l;
-        }
-        else
-        {
-            qDebug() << "[VdjBridge] OS2L plugin not available";
-        }
-    }
 
     /* Load audio decoder plugins
      * This doesn't use a AudioPluginCache::systemPluginDirectory() cause

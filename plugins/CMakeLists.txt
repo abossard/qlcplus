@@ -15,9 +15,10 @@ add_subdirectory(E1.31)
 add_subdirectory(loopback)
 add_subdirectory(osc)
 add_subdirectory(os2l)
+add_subdirectory(vdjbridge)
 
 # Collect targets that are always built
-set(_plugin_targets artnet ddp e131 loopback osc os2l)
+set(_plugin_targets artnet ddp e131 loopback osc os2l vdjbridge)
 
 if(NOT ANDROID AND NOT IOS)
     pkg_check_modules(LIBOLA IMPORTED_TARGET libola)

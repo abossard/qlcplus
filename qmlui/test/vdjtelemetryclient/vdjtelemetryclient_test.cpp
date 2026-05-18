@@ -11,6 +11,7 @@
 #include "vdjtelemetryclient.h"
 #include "vdjdeckmodel.h"
 #include "vdjbridge.h"
+#include "vdjbridgeplugin.h"
 
 // ========================================================================
 // VdjDeckModel tests
@@ -370,18 +371,30 @@ void VdjTelemetryClient_Test::bridgeTelemetryStatusProperty()
     QCOMPARE(bridge.telemetryStatus(), QString("Idle"));
     QCOMPARE(bridge.telemetryConnected(), false);
 
-    bridge.startTelemetry(18053);
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18053);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
     QCOMPARE(bridge.telemetryStatus(), QString("Listening"));
     QCOMPARE(bridge.telemetryConnected(), false);
 
-    bridge.stopTelemetry();
+    plugin.closeInput(0, 0);
     QCOMPARE(bridge.telemetryStatus(), QString("Idle"));
 }
 
 void VdjTelemetryClient_Test::bridgeDeckTriggerRouting()
 {
     VdjBridge bridge;
-    bridge.startTelemetry(18054);
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18054);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
 
     QTcpSocket fakeClient;
     fakeClient.connectToHost("127.0.0.1", 18054);
@@ -406,13 +419,19 @@ void VdjTelemetryClient_Test::bridgeDeckTriggerRouting()
     QTRY_VERIFY_WITH_TIMEOUT(qFuzzyCompare(deck1->bpm(), 130.0), 1000);
 
     fakeClient.disconnectFromHost();
-    bridge.stopTelemetry();
+    plugin.closeInput(0, 0);
 }
 
 void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
 {
     VdjBridge bridge;
-    bridge.startTelemetry(18055);
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18055);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
 
     QSignalSpy mixerSpy(&bridge, &VdjBridge::globalMixerChanged);
     QSignalSpy masterDeckSpy(&bridge, &VdjBridge::masterDeckChanged);
@@ -434,13 +453,19 @@ void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
     QCOMPARE(bridge.masterDeck(), 1); // VDJ sends 1-based "2", we store 0-based 1
 
     fakeClient.disconnectFromHost();
-    bridge.stopTelemetry();
+    plugin.closeInput(0, 0);
 }
 
 void VdjTelemetryClient_Test::bridgeBeatSuppressesOS2L()
 {
     VdjBridge bridge;
-    bridge.startTelemetry(18056);
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18056);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
 
     QSignalSpy beatSpy(&bridge, &VdjBridge::beatReceived);
 
@@ -460,13 +485,19 @@ void VdjTelemetryClient_Test::bridgeBeatSuppressesOS2L()
     QTRY_COMPARE_WITH_TIMEOUT(beatSpy.count(), 1, 2000);
 
     fakeClient.disconnectFromHost();
-    bridge.stopTelemetry();
+    plugin.closeInput(0, 0);
 }
 
 void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckModels()
 {
     VdjBridge bridge;
-    bridge.startTelemetry(18057);
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18057);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
 
     QTcpSocket fakeClient;
     fakeClient.connectToHost("127.0.0.1", 18057);
@@ -485,7 +516,7 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckModels()
     fakeClient.disconnectFromHost();
     QTRY_COMPARE_WITH_TIMEOUT(deck1->title(), QString(), 2000);
 
-    bridge.stopTelemetry();
+    plugin.closeInput(0, 0);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)

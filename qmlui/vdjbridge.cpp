@@ -19,8 +19,6 @@
 
 #include "vdjbridge.h"
 #include "vdjdeckmodel.h"
-#include "vdjtelemetryclient.h"
-#include "vdjbonjour.h"
 #include "songloadtracker.h"
 #include "showfactory.h"
 
@@ -78,17 +76,6 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
     connect(m_plugin.data(), SIGNAL(connectionStatusChanged(quint32,quint32)),
             this, SLOT(refreshConnectionStatus()));
 
-    // Suppress the OS2L plugin's own Bonjour ad: VdjBridge is the canonical
-    // _os2l._tcp advertiser for this process (it points VDJ at the telemetry
-    // server on port 8050). Two simultaneous _os2l._tcp services from the same
-    // process crashes VirtualDJ.
-    //
-    // Suppress OS2L Bonjour immediately. Workspace loading may re-enable it,
-    // but our VdjBonjour registers first so VDJ connects to us.
-    // The deferred suppression was causing crashes — disabled.
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral("bonjourEnabled"), QVariant(false));
-
     refreshConnectionStatus();
 }
 
@@ -107,8 +94,9 @@ void VdjBridge::refreshConnectionStatus()
 
 void VdjBridge::onBeat()
 {
-    // When telemetry client is connected, suppress OS2L beats to avoid double-count
-    if (m_telemetry && m_telemetry->status() == VdjTelemetryClient::ClientConnected)
+    // When the telemetry plugin client is connected, suppress OS2L beats
+    // to avoid double-counting (the plugin emits its own beatReceived).
+    if (telemetryConnected())
         return;
 
     ++m_beatCount;
@@ -122,72 +110,64 @@ void VdjBridge::onBeat()
     emit beatReceived();
 }
 
-// ---------- Telemetry ----------
+// ---------- VDJ Bridge plugin attachment ----------
 
-void VdjBridge::startTelemetry(quint16 port)
+void VdjBridge::attachVdjPlugin(QLCIOPlugin *plugin)
 {
-    if (port == 0)
+    if (m_vdjPlugin == plugin)
         return;
 
-    if (!m_telemetry)
-    {
-        m_telemetry = new VdjTelemetryClient(this);
+    if (!m_vdjPlugin.isNull())
+        m_vdjPlugin->disconnect(this);
 
-        connect(m_telemetry, &VdjTelemetryClient::statusChanged,
-                this, &VdjBridge::telemetryStatusChanged);
-        connect(m_telemetry, &VdjTelemetryClient::beatReceived,
-                this, &VdjBridge::onTelemetryBeat);
-        connect(m_telemetry, &VdjTelemetryClient::deckTriggerReceived,
-                this, &VdjBridge::onDeckTrigger);
-        connect(m_telemetry, &VdjTelemetryClient::globalTriggerReceived,
-                this, &VdjBridge::onGlobalTrigger);
-        connect(m_telemetry, &VdjTelemetryClient::clientConnected,
-                this, &VdjBridge::onTelemetryClientConnected);
-        connect(m_telemetry, &VdjTelemetryClient::clientDisconnected,
-                this, &VdjBridge::onTelemetryClientDisconnected);
-    }
+    m_vdjPlugin = plugin;
+    if (m_vdjPlugin.isNull())
+        return;
 
-    m_telemetry->start(port);
-    m_telemetryPort = port;
+    // String-based connect: VdjBridge only knows the plugin via
+    // QLCIOPlugin*; the custom telemetry signals live on the concrete
+    // VdjBridgePlugin and are resolved through QMetaObject.
+    connect(m_vdjPlugin.data(),
+            SIGNAL(telemetryBeatReceived(int,qreal,qreal,bool)),
+            this, SLOT(onTelemetryBeat(int,qreal,qreal,bool)));
+    connect(m_vdjPlugin.data(),
+            SIGNAL(deckTriggerReceived(int,QString,QVariant)),
+            this, SLOT(onDeckTrigger(int,QString,QVariant)));
+    connect(m_vdjPlugin.data(),
+            SIGNAL(globalTriggerReceived(QString,QVariant)),
+            this, SLOT(onGlobalTrigger(QString,QVariant)));
+    connect(m_vdjPlugin.data(),
+            SIGNAL(clientConnected()),
+            this, SLOT(onTelemetryClientConnected()));
+    connect(m_vdjPlugin.data(),
+            SIGNAL(clientDisconnected()),
+            this, SLOT(onTelemetryClientDisconnected()));
 
-    // Advertise the telemetry server as the single _os2l._tcp instance for
-    // this process. The OS2L plugin's own Bonjour ad is suppressed in
-    // attachOS2LPlugin(); registering "QLC+" here gives VirtualDJ exactly one
-    // service to discover and connect to, avoiding the dual-registration
-    // crash. Name "QLC+" matches what VDJ users have historically expected.
-    if (!m_bonjour)
-        m_bonjour = new VdjBonjour(this);
-    if (!m_bonjour->isRegistered())
-        m_bonjour->registerService(QStringLiteral("QLC+"), port);
-}
-
-void VdjBridge::stopTelemetry()
-{
-    if (m_bonjour)
-        m_bonjour->unregisterService();
-    if (m_telemetry)
-        m_telemetry->stop();
+    // Status changes (Idle/Advertising/Connected) drive the QML
+    // telemetryStatus property.
+    connect(m_vdjPlugin.data(),
+            SIGNAL(connectionStatusChanged(quint32,quint32)),
+            this, SIGNAL(telemetryStatusChanged()));
 }
 
 QString VdjBridge::telemetryStatus() const
 {
-    if (!m_telemetry)
+    if (m_vdjPlugin.isNull())
         return QStringLiteral("Idle");
 
-    switch (m_telemetry->status())
+    switch (m_vdjPlugin->connectionStatus(0))
     {
-        case VdjTelemetryClient::Idle:            return QStringLiteral("Idle");
-        case VdjTelemetryClient::Listening:       return QStringLiteral("Listening");
-        case VdjTelemetryClient::PortInUse:       return QStringLiteral("PortInUse");
-        case VdjTelemetryClient::ClientConnected: return QStringLiteral("Connected");
+        case QLCIOPlugin::Connected:   return QStringLiteral("Connected");
+        case QLCIOPlugin::Advertising: return QStringLiteral("Listening");
+        case QLCIOPlugin::Idle:        return QStringLiteral("Idle");
     }
     return QStringLiteral("Unknown");
 }
 
 bool VdjBridge::telemetryConnected() const
 {
-    return m_telemetry &&
-           m_telemetry->status() == VdjTelemetryClient::ClientConnected;
+    return !m_vdjPlugin.isNull()
+        && m_vdjPlugin->connectionStatus(0) == QLCIOPlugin::Connected;
 }
 
 QList<QObject*> VdjBridge::decks() const

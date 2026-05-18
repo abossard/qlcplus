@@ -28,8 +28,6 @@
 class Doc;
 class QLCIOPlugin;
 class VdjDeckModel;
-class VdjTelemetryClient;
-class VdjBonjour;
 class SongLoadTracker;
 class ShowFactory;
 
@@ -77,13 +75,11 @@ public:
     void attachOS2LPlugin(QLCIOPlugin *plugin);
 
     /**
-     * Start the DMXDesktop telemetry TCP server.
-     * @param port TCP port (default 8050, 0 = disabled).
+     * Bind to the VDJ Bridge plugin instance. The facade only knows the
+     * plugin via QLCIOPlugin*; the plugin's custom telemetry signals are
+     * reached through string-based SIGNAL/SLOT via QMetaObject.
      */
-    void startTelemetry(quint16 port = 8050);
-
-    /** Stop the telemetry server and Bonjour registration. */
-    void stopTelemetry();
+    void attachVdjPlugin(QLCIOPlugin *plugin);
 
     /** Access the ShowFactory for UI components that observe show creation. */
     ShowFactory *showFactory() const { return m_showFactory; }
@@ -137,10 +133,8 @@ private:
     bool m_connected = false;
     int m_beatCount = 0;
 
-    // Telemetry
-    VdjTelemetryClient *m_telemetry = nullptr;
-    VdjBonjour *m_bonjour = nullptr;
-    quint16 m_telemetryPort = 0;
+    // Telemetry (now sourced from the VDJ Bridge plugin)
+    QPointer<QLCIOPlugin> m_vdjPlugin;
     VdjDeckModel *m_deckModels[4] = {};
     int m_masterDeck = 0;
     qreal m_masterVolume = 0.0;

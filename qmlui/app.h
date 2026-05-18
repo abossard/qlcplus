@@ -251,7 +251,6 @@ private:
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
     SongManager *m_songManager = nullptr;
-    QLCIOPlugin *m_os2lPlugin = nullptr;
 
     /*********************************************************************
      * Doc
