@@ -600,6 +600,14 @@ void App::initDoc()
             m_vdjBridge->attachOS2LPlugin(os2l);
         else
             qDebug() << "[VdjBridge] OS2L plugin not available";
+
+        // Start DMXDesktop telemetry TCP server for rich VDJ integration.
+        // Port 0 disables; default 8050.
+        QSettings settings;
+        quint16 telemetryPort = static_cast<quint16>(
+            settings.value("vdj/telemetryPort", 8050).toUInt());
+        if (telemetryPort > 0)
+            m_vdjBridge->startTelemetry(telemetryPort);
     }
 
     /* Load audio decoder plugins

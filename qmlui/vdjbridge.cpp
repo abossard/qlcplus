@@ -18,6 +18,9 @@
 */
 
 #include "vdjbridge.h"
+#include "vdjdeckmodel.h"
+#include "vdjtelemetryclient.h"
+#include "vdjbonjour.h"
 #include "qlcioplugin.h"
 
 #include <QDebug>
@@ -25,7 +28,11 @@
 VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
 {
+    for (int i = 0; i < 4; ++i)
+        m_deckModels[i] = new VdjDeckModel(i + 1, this);
 }
+
+// ---------- OS2L attachment (unchanged) ----------
 
 void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
 {
@@ -46,8 +53,6 @@ void VdjBridge::attachOS2LPlugin(QLCIOPlugin *plugin)
         return;
     }
 
-    // String-based connections so qmlui does not need to link the plugin
-    // shared library. Signatures must match exactly what the plugin emits.
     connect(m_plugin.data(), SIGNAL(beatReceived()),
             this, SLOT(onBeat()));
     connect(m_plugin.data(), SIGNAL(connectionStatusChanged(quint32,quint32)),
@@ -71,11 +76,12 @@ void VdjBridge::refreshConnectionStatus()
 
 void VdjBridge::onBeat()
 {
+    // When telemetry client is connected, suppress OS2L beats to avoid double-count
+    if (m_telemetry && m_telemetry->status() == VdjTelemetryClient::ClientConnected)
+        return;
+
     ++m_beatCount;
 
-    // The first beat we receive is the most reliable evidence VDJ is actually
-    // streaming to us. connectionStatusChanged covers the TCP handshake but
-    // not every transport (e.g. dropped + re-routed Bonjour entries).
     if (!m_connected)
     {
         m_connected = true;
@@ -83,4 +89,184 @@ void VdjBridge::onBeat()
     }
 
     emit beatReceived();
+}
+
+// ---------- Telemetry ----------
+
+void VdjBridge::startTelemetry(quint16 port)
+{
+    if (port == 0)
+        return;
+
+    if (!m_telemetry)
+    {
+        m_telemetry = new VdjTelemetryClient(this);
+
+        connect(m_telemetry, &VdjTelemetryClient::statusChanged,
+                this, &VdjBridge::telemetryStatusChanged);
+        connect(m_telemetry, &VdjTelemetryClient::beatReceived,
+                this, &VdjBridge::onTelemetryBeat);
+        connect(m_telemetry, &VdjTelemetryClient::deckTriggerReceived,
+                this, &VdjBridge::onDeckTrigger);
+        connect(m_telemetry, &VdjTelemetryClient::globalTriggerReceived,
+                this, &VdjBridge::onGlobalTrigger);
+        connect(m_telemetry, &VdjTelemetryClient::clientConnected,
+                this, &VdjBridge::onTelemetryClientConnected);
+        connect(m_telemetry, &VdjTelemetryClient::clientDisconnected,
+                this, &VdjBridge::onTelemetryClientDisconnected);
+    }
+
+    m_telemetry->start(port);
+
+    // Bonjour registration for VDJ auto-discovery
+    if (!m_bonjour)
+        m_bonjour = new VdjBonjour(this);
+    m_bonjour->registerService("QLC+", port);
+}
+
+void VdjBridge::stopTelemetry()
+{
+    if (m_bonjour)
+        m_bonjour->unregisterService();
+    if (m_telemetry)
+        m_telemetry->stop();
+}
+
+QString VdjBridge::telemetryStatus() const
+{
+    if (!m_telemetry)
+        return QStringLiteral("Idle");
+
+    switch (m_telemetry->status())
+    {
+        case VdjTelemetryClient::Idle:            return QStringLiteral("Idle");
+        case VdjTelemetryClient::Listening:       return QStringLiteral("Listening");
+        case VdjTelemetryClient::PortInUse:       return QStringLiteral("PortInUse");
+        case VdjTelemetryClient::ClientConnected: return QStringLiteral("Connected");
+    }
+    return QStringLiteral("Unknown");
+}
+
+bool VdjBridge::telemetryConnected() const
+{
+    return m_telemetry &&
+           m_telemetry->status() == VdjTelemetryClient::ClientConnected;
+}
+
+QList<QObject*> VdjBridge::decks() const
+{
+    QList<QObject*> list;
+    for (int i = 0; i < 4; ++i)
+        list.append(m_deckModels[i]);
+    return list;
+}
+
+// ---------- Telemetry signal handlers ----------
+
+void VdjBridge::onTelemetryBeat(int /*pos*/, qreal /*bpm*/, qreal /*strength*/, bool /*change*/)
+{
+    ++m_beatCount;
+    emit beatReceived();
+}
+
+void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value)
+{
+    if (deckIndex < 0 || deckIndex >= 4)
+        return;
+    applyDeckTrigger(m_deckModels[deckIndex], trigger, value);
+}
+
+void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
+{
+    bool changed = false;
+
+    if (trigger == "master_volume")
+    {
+        qreal v = value.toDouble();
+        if (!qFuzzyCompare(m_masterVolume, v)) { m_masterVolume = v; changed = true; }
+    }
+    else if (trigger == "crossfader")
+    {
+        qreal v = value.toDouble();
+        if (!qFuzzyCompare(m_crossfader, v)) { m_crossfader = v; changed = true; }
+    }
+    else if (trigger == "headphone_volume")
+    {
+        qreal v = value.toDouble();
+        if (!qFuzzyCompare(m_headphoneVolume, v)) { m_headphoneVolume = v; changed = true; }
+    }
+    else if (trigger == "get_vu_meter")
+    {
+        qreal v = value.toDouble();
+        if (!qFuzzyCompare(m_masterVu, v)) { m_masterVu = v; changed = true; }
+    }
+    else if (trigger == "masterdeck")
+    {
+        int v = value.toInt() - 1; // VDJ is 1-based, we store 0-based
+        if (v >= 0 && v < 4 && v != m_masterDeck)
+        {
+            m_masterDeck = v;
+            emit masterDeckChanged();
+        }
+    }
+
+    if (changed)
+        emit globalMixerChanged();
+}
+
+void VdjBridge::onTelemetryClientConnected()
+{
+    qDebug() << "[VdjBridge] Telemetry client connected — telemetry beats active, OS2L beats suppressed";
+}
+
+void VdjBridge::onTelemetryClientDisconnected()
+{
+    qDebug() << "[VdjBridge] Telemetry client disconnected — OS2L beats resumed";
+    // Reset deck models
+    for (int i = 0; i < 4; ++i)
+        m_deckModels[i]->reset();
+    // Reset global state
+    m_masterDeck = 0;
+    m_masterVolume = 0.0;
+    m_crossfader = 0.0;
+    m_headphoneVolume = 0.0;
+    m_masterVu = 0.0;
+    emit masterDeckChanged();
+    emit globalMixerChanged();
+}
+
+void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value)
+{
+    // Metadata (on-load)
+    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); return; }
+    if (trigger == "get_title")          { deck->setTitle(value.toString()); return; }
+    if (trigger == "get_artist")         { deck->setArtist(value.toString()); return; }
+    if (trigger == "get_title_artist")   { deck->setTitleArtist(value.toString()); return; }
+    if (trigger == "get_album")          { deck->setAlbum(value.toString()); return; }
+    if (trigger == "get_genre")          { deck->setGenre(value.toString()); return; }
+    if (trigger == "get_key")            { deck->setKey(value.toString()); return; }
+    if (trigger == "get_bpm")            { deck->setBpm(value.toDouble()); return; }
+    if (trigger == "get_firstbeat")      { deck->setFirstBeat(value.toDouble()); return; }
+    if (trigger == "get_time total")     { deck->setTimeTotal(value.toDouble()); return; }
+    if (trigger == "loaded")             { deck->setLoaded(value.toBool()); return; }
+    if (trigger == "play")               { deck->setPlaying(value.toBool()); return; }
+    if (trigger == "volume")             { deck->setVolume(value.toDouble()); return; }
+
+    // Continuous
+    if (trigger == "get_position")              { deck->setPosition(value.toDouble()); return; }
+    if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); return; }
+    if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); return; }
+    if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); return; }
+    if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); return; }
+    if (trigger == "level")                     { deck->setLevel(value.toDouble()); return; }
+
+    // EQ
+    if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); return; }
+    if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); return; }
+    if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); return; }
+    if (trigger == "gain")    { deck->setGain(value.toDouble()); return; }
+
+    // Loop
+    if (trigger == "loop")     { deck->setLooping(value.toBool()); return; }
+    if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); return; }
 }

@@ -373,9 +373,8 @@ Rectangle
                 Layout.fillWidth: true
             }
 
-            // VDJ telemetry strip — populated by VdjBridge from the OS2L plugin.
-            // Visible at all times so the user can see "not connected"; lights up
-            // and shows current song / BPM / beat when VDJ is streaming.
+            // VDJ telemetry strip — populated by VdjBridge.
+            // Shows connection status, master deck metadata, BPM, key, position.
             Rectangle
             {
                 id: vdjStrip
@@ -383,12 +382,16 @@ Rectangle
                 Layout.preferredWidth: vdjRow.implicitWidth + 16
                 Layout.alignment: Qt.AlignVCenter
                 color: "#1a1a1a"
-                border.color: vdjBridge.connected ? "#2ecc71" : "#444"
+                border.color: vdjBridge.telemetryConnected ? "#2ecc71"
+                              : vdjBridge.connected ? "#2ecc71" : "#444"
                 border.width: 1
                 radius: 4
 
-                // Pulses on each beat — provides a quick visual sanity check
-                // that beat events are actually arriving from VDJ.
+                // Convenience alias for the current master deck model
+                property var masterDeckModel: vdjBridge.decks.length > vdjBridge.masterDeck
+                                              ? vdjBridge.decks[vdjBridge.masterDeck] : null
+
+                // Pulses on each beat
                 Rectangle
                 {
                     id: beatPulse
@@ -398,7 +401,7 @@ Rectangle
                     width: 10
                     height: 10
                     radius: 5
-                    color: vdjBridge.connected ? "#2ecc71" : "#555"
+                    color: (vdjBridge.telemetryConnected || vdjBridge.connected) ? "#2ecc71" : "#555"
                     opacity: 0.4
                     Behavior on opacity { NumberAnimation { duration: 120 } }
                 }
@@ -430,9 +433,74 @@ Rectangle
 
                     RobotoText
                     {
-                        label: vdjBridge.connected ? qsTr("VDJ") : qsTr("VDJ —")
+                        label: {
+                            if (vdjBridge.telemetryConnected)
+                                return "VDJ"
+                            if (vdjBridge.connected)
+                                return "VDJ"
+                            return qsTr("VDJ") + " — " + vdjBridge.telemetryStatus
+                        }
                         fontSize: UISettings.textSizeDefault - 2
-                        labelColor: vdjBridge.connected ? "#2ecc71" : "#888"
+                        labelColor: (vdjBridge.telemetryConnected || vdjBridge.connected)
+                                    ? "#2ecc71" : "#888"
+                    }
+
+                    // Master deck title + artist (only when telemetry connected)
+                    RobotoText
+                    {
+                        visible: vdjBridge.telemetryConnected && vdjStrip.masterDeckModel !== null
+                                 && vdjStrip.masterDeckModel.title !== ""
+                        label: vdjStrip.masterDeckModel
+                               ? (vdjStrip.masterDeckModel.artist !== ""
+                                  ? vdjStrip.masterDeckModel.artist + " — " + vdjStrip.masterDeckModel.title
+                                  : vdjStrip.masterDeckModel.title)
+                               : ""
+                        fontSize: UISettings.textSizeDefault - 2
+                        labelColor: "#ddd"
+                    }
+
+                    // BPM
+                    RobotoText
+                    {
+                        visible: vdjBridge.telemetryConnected && vdjStrip.masterDeckModel !== null
+                                 && vdjStrip.masterDeckModel.bpm > 0
+                        label: vdjStrip.masterDeckModel
+                               ? vdjStrip.masterDeckModel.bpm.toFixed(1) + " BPM"
+                               : ""
+                        fontSize: UISettings.textSizeDefault - 2
+                        labelColor: "#f39c12"
+                    }
+
+                    // Key
+                    RobotoText
+                    {
+                        visible: vdjBridge.telemetryConnected && vdjStrip.masterDeckModel !== null
+                                 && vdjStrip.masterDeckModel.key !== ""
+                        label: vdjStrip.masterDeckModel ? vdjStrip.masterDeckModel.key : ""
+                        fontSize: UISettings.textSizeDefault - 2
+                        labelColor: "#3498db"
+                    }
+
+                    // Position bar
+                    Rectangle
+                    {
+                        visible: vdjBridge.telemetryConnected && vdjStrip.masterDeckModel !== null
+                                 && vdjStrip.masterDeckModel.loaded
+                        Layout.preferredWidth: 60
+                        Layout.preferredHeight: 6
+                        Layout.alignment: Qt.AlignVCenter
+                        color: "#333"
+                        radius: 3
+
+                        Rectangle
+                        {
+                            width: parent.width * (vdjStrip.masterDeckModel
+                                   ? Math.min(1.0, Math.max(0.0, vdjStrip.masterDeckModel.position))
+                                   : 0)
+                            height: parent.height
+                            color: "#2ecc71"
+                            radius: 3
+                        }
                     }
                 }
             }

@@ -1,4 +1,4 @@
-set(module_name "vdjbridge_test")
+set(module_name "vdjtelemetryclient_test")
 
 add_executable(${module_name} WIN32
     ${module_name}.cpp ${module_name}.h

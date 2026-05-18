@@ -22,63 +22,114 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QList>
 
 class QLCIOPlugin;
+class VdjDeckModel;
+class VdjTelemetryClient;
+class VdjBonjour;
 
 /**
- * Qt-facing facade for the OS2L plugin's beat tick stream.
+ * Facade for VirtualDJ integration.
  *
- * Exposes ONLY what stock VirtualDJ verifiably broadcasts via OS2L:
- *  - A bare `evt:"beat"` message at the beat rate (no payload).
- *  - TCP connection state from the OS2L plugin.
+ * Fans in two independent data sources:
+ *  1. **OS2L plugin** — bare beat events via the OS2L UDP/TCP protocol.
+ *  2. **Telemetry client** — rich per-deck metadata + beat events via the
+ *     DMXDesktop TCP protocol (port 8050).
  *
- * The bridge does NOT expose BPM, beat position, song info, or any
- * other field, because VDJ does not send them. Computing BPM from
- * inter-arrival times is possible but is a measurement task that
- * belongs elsewhere — not in this passive facade.
+ * When the telemetry client is connected, beats from OS2L are suppressed
+ * to avoid double-counting (telemetry also delivers beat events with BPM).
  *
- * Connections from the plugin are made by App using Qt's string-based
- * signal/slot syntax so qmlui does not need to link against the plugin .so.
+ * Exposes 4 VdjDeckModel instances (one per VDJ deck) plus global mixer
+ * state to QML.
  */
 class VdjBridge final : public QObject
 {
     Q_OBJECT
 
+    // --- Legacy OS2L properties (kept for backwards compat) ---
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(int beatCount READ beatCount NOTIFY beatReceived)
+
+    // --- Telemetry properties ---
+    Q_PROPERTY(QString telemetryStatus READ telemetryStatus NOTIFY telemetryStatusChanged)
+    Q_PROPERTY(bool telemetryConnected READ telemetryConnected NOTIFY telemetryStatusChanged)
+    Q_PROPERTY(QList<QObject*> decks READ decks CONSTANT)
+    Q_PROPERTY(int masterDeck READ masterDeck NOTIFY masterDeckChanged)
+    Q_PROPERTY(qreal masterVolume READ masterVolume NOTIFY globalMixerChanged)
+    Q_PROPERTY(qreal crossfader READ crossfader NOTIFY globalMixerChanged)
+    Q_PROPERTY(qreal headphoneVolume READ headphoneVolume NOTIFY globalMixerChanged)
+    Q_PROPERTY(qreal masterVu READ masterVu NOTIFY globalMixerChanged)
 
 public:
     explicit VdjBridge(QObject *parent = nullptr);
 
     /**
      * Bind to an OS2L plugin instance and start consuming its events.
-     * The plugin pointer may be null (no OS2L plugin available); the bridge
-     * stays in a disconnected state. Subsequent calls replace any prior binding.
      */
     void attachOS2LPlugin(QLCIOPlugin *plugin);
 
+    /**
+     * Start the DMXDesktop telemetry TCP server.
+     * @param port TCP port (default 8050, 0 = disabled).
+     */
+    void startTelemetry(quint16 port = 8050);
+
+    /** Stop the telemetry server and Bonjour registration. */
+    void stopTelemetry();
+
+    // --- Legacy getters ---
     bool connected() const { return m_connected; }
     int beatCount() const { return m_beatCount; }
+
+    // --- Telemetry getters ---
+    QString telemetryStatus() const;
+    bool telemetryConnected() const;
+    QList<QObject*> decks() const;
+    int masterDeck() const { return m_masterDeck; }
+    qreal masterVolume() const { return m_masterVolume; }
+    qreal crossfader() const { return m_crossfader; }
+    qreal headphoneVolume() const { return m_headphoneVolume; }
+    qreal masterVu() const { return m_masterVu; }
 
 public slots:
     /** Connected to OS2LPlugin::beatReceived (string-based). */
     void onBeat();
 
-    /** Connected to QLCIOPlugin::connectionStatusChanged.
-     *  Re-queries the plugin and updates the connected property. */
+    /** Connected to QLCIOPlugin::connectionStatusChanged. */
     void refreshConnectionStatus();
 
 signals:
     void connectedChanged();
     void beatReceived();
+    void telemetryStatusChanged();
+    void masterDeckChanged();
+    void globalMixerChanged();
+
+private slots:
+    void onTelemetryBeat(int pos, qreal bpm, qreal strength, bool change);
+    void onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value);
+    void onGlobalTrigger(const QString &trigger, const QVariant &value);
+    void onTelemetryClientConnected();
+    void onTelemetryClientDisconnected();
 
 private:
-    /** Held as a base-class pointer so qmlui does not need to link the
-     *  OS2L plugin's shared library. Becomes null if the plugin is unloaded. */
-    QPointer<QLCIOPlugin> m_plugin;
+    void applyDeckTrigger(VdjDeckModel *deck, const QString &trigger, const QVariant &value);
 
+    // OS2L
+    QPointer<QLCIOPlugin> m_plugin;
     bool m_connected = false;
     int m_beatCount = 0;
+
+    // Telemetry
+    VdjTelemetryClient *m_telemetry = nullptr;
+    VdjBonjour *m_bonjour = nullptr;
+    VdjDeckModel *m_deckModels[4] = {};
+    int m_masterDeck = 0;
+    qreal m_masterVolume = 0.0;
+    qreal m_crossfader = 0.0;
+    qreal m_headphoneVolume = 0.0;
+    qreal m_masterVu = 0.0;
 };
 
 #endif // VDJBRIDGE_H
