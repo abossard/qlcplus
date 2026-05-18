@@ -130,8 +130,35 @@
            <string>Suppress sending when data hasn't changed. Saves bandwidth on Wi-Fi but may cause inter-universe sync drift on multi-universe setups.</string>
           </property>
          </widget>
+        </item>        <item>
+         <widget class="QLabel" name="m_keepAliveLabel">
+          <property name="text">
+           <string>Keep-alive (ms)</string>
+          </property>
+          <property name="buddy">
+           <cstring>m_keepAliveSpin</cstring>
+          </property>
+         </widget>
         </item>
-       </layout>
+        <item>
+         <widget class="QSpinBox" name="m_keepAliveSpin">
+          <property name="toolTip">
+           <string>Partial mode: force a full snapshot at least this often (ms), so the receiver stays in realtime mode and any dropped diff packet self-heals within one interval. Must be safely under the receiver's realtime timeout (WLED: ~2.5s).</string>
+          </property>
+          <property name="minimum">
+           <number>100</number>
+          </property>
+          <property name="maximum">
+           <number>2400</number>
+          </property>
+          <property name="singleStep">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>1000</number>
+          </property>
+         </widget>
+        </item>       </layout>
       </item>
      </layout>
    </item>

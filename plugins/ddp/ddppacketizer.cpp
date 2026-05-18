@@ -41,6 +41,30 @@ QByteArray DDPPacketizer::buildPacket(const QByteArray &data, quint32 dataOffset
     return packet;
 }
 
+void DDPPacketizer::writePacketInPlace(char *buf,
+                                       const char *srcData, int srcLen,
+                                       int chunkStart, int chunkLen,
+                                       quint32 dataOffset, quint8 sequence,
+                                       bool push, quint8 dataType, quint8 destId)
+{
+    // Header (10 bytes)
+    buf[0] = static_cast<char>(DDP_FLAGS_VER1 | (push ? DDP_FLAGS_PUSH : 0));
+    buf[1] = static_cast<char>(sequence);
+    buf[2] = static_cast<char>(dataType);
+    buf[3] = static_cast<char>(destId);
+
+    qToBigEndian<quint32>(dataOffset, buf + 4);
+    qToBigEndian<quint16>(static_cast<quint16>(chunkLen), buf + 8);
+
+    // Payload: copy available data, zero-pad remainder
+    char *payload = buf + DDP_HEADER_LEN;
+    const int availableFromSrc = qMax(0, qMin(chunkLen, srcLen - chunkStart));
+    if (availableFromSrc > 0)
+        memcpy(payload, srcData + chunkStart, availableFromSrc);
+    if (availableFromSrc < chunkLen)
+        memset(payload + availableFromSrc, 0, chunkLen - availableFromSrc);
+}
+
 int DDPPacketizer::packetsRequired(int dataLength)
 {
     if (dataLength <= 0)

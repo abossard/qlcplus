@@ -27,3 +27,7 @@ install(TARGETS ${module_name}
     LIBRARY DESTINATION ${INSTALLROOT}/${PLUGINDIR}
     RUNTIME DESTINATION ${INSTALLROOT}/${PLUGINDIR}
 )
+
+if(NOT ANDROID AND NOT IOS)
+    add_subdirectory(test)
+endif()

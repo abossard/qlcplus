@@ -56,16 +56,23 @@ ConfigureDDP::ConfigureDDP(DDPPlugin* plugin, QWidget* parent)
     setupUi(this);
     fillMappingTree();
 
+    m_maxFpsSpin->setMinimum(0);
     m_maxFpsSpin->setMaximum(DDPController::maxFpsLimit());
+    m_maxFpsSpin->setSpecialValueText(tr("No limit"));
     m_maxFpsSpin->setValue(DDPController::defaultFps());
+
+    m_keepAliveSpin->setMinimum(int(DDPController::kMinKeepAliveMs));
+    m_keepAliveSpin->setMaximum(int(DDPController::kMaxKeepAliveMs));
+    m_keepAliveSpin->setValue(int(DDPController::kKeepAliveMs));
 
     const QList<DDPIO> IOmap = m_plugin->getIOMapping();
     for (const DDPIO &io : IOmap)
     {
         if (!io.controller.isNull())
         {
-            m_maxFpsSpin->setValue(qBound(1, io.controller->maxFps(), DDPController::maxFpsLimit()));
+            m_maxFpsSpin->setValue(qBound(0, io.controller->maxFps(), DDPController::maxFpsLimit()));
             m_skipUnchangedCheck->setChecked(io.controller->skipUnchanged());
+            m_keepAliveSpin->setValue(int(io.controller->keepAliveIntervalMs()));
             break;
         }
     }
@@ -235,6 +242,7 @@ void ConfigureDDP::accept()
 
     const int maxFps = m_maxFpsSpin->value();
     const bool skipUnchanged = m_skipUnchangedCheck->isChecked();
+    const int keepAliveMs = m_keepAliveSpin->value();
     const QList<DDPIO> IOmap = m_plugin->getIOMapping();
     for (const DDPIO &io : IOmap)
     {
@@ -247,6 +255,8 @@ void ConfigureDDP::accept()
                     DDP_MAXFPS, maxFps);
                 m_plugin->setParameter(universe, io.controller->line(), QLCIOPlugin::Output,
                     DDP_SKIPUNCHANGED, skipUnchanged);
+                m_plugin->setParameter(universe, io.controller->line(), QLCIOPlugin::Output,
+                    DDP_KEEPALIVEMS, keepAliveMs);
             }
         }
     }

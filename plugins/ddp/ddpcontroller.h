@@ -38,10 +38,29 @@ struct DDPUniverseInfo
     quint16 destPort;
     quint8 destId;
     quint32 ddpOffset;        // byte offset into the device's pixel buffer
-    int transmissionMode;     // Stored for XML compat but currently unused in packet output
+    int transmissionMode;     // 0 = Full, 1 = Partial (dirty-range sends + keep-alive)
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
     qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
     qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
+    quint64 frameCount = 0;          // per-universe sequence counter (T7)
+
+    // ----- Partial-mode baseline state -----
+    // Snapshot of bytes last successfully transmitted (length == lastCoverageLen).
+    // Diff scans compare new src against this buffer to find dirty runs.
+    QByteArray lastSentData;
+    // Monotonic ms timestamp of the last full-snapshot send (keep-alive anchor).
+    qint64 lastFullFrameElapsed = 0;
+    // True only when lastSentData is a faithful copy of what the receiver currently shows
+    // for the identity captured below. Cleared on any identity/config change or send failure.
+    bool baselineValid = false;
+    // Identity snapshot at the moment the baseline was captured. A change to any of these
+    // forces the next Partial send to be a full snapshot (mustFull).
+    QHostAddress lastDestAddress;
+    quint16      lastDestPort = 0;
+    quint8       lastDestId = 0;
+    quint32      lastDdpOffset = 0;
+    int          lastCoverageLen = 0; // bytes of payload covered by the baseline
+    int          lastBpp = 0;         // 3 or 4
 };
 
 class DDPController final : public QObject
@@ -109,8 +128,41 @@ public:
     void setSkipUnchanged(bool skip);
     bool skipUnchanged() const;
 
-    /** Keep-alive interval: re-send unchanged data at least every kKeepAliveMs. */
+    /** Keep-alive interval: re-send unchanged data at least every kKeepAliveMs.
+     *  Default chosen well under WLED's ~2500 ms realtime timeout
+     *  (wled00/udp.cpp `realtimeTimeoutMs`); the receiver leaves DDP mode if
+     *  no packet arrives within that window. */
     static constexpr qint64 kKeepAliveMs = 1000;
+    static constexpr qint64 kMinKeepAliveMs = 100;
+    static constexpr qint64 kMaxKeepAliveMs = 2400;  // safely under WLED's ~2.5s realtime timeout
+
+    /** Partial-mode keep-alive interval (ms). Clamped to [kMinKeepAliveMs, kMaxKeepAliveMs].
+     *  In Partial mode, a full snapshot is forced at least this often regardless of
+     *  whether the payload changed, so the receiver stays in realtime mode and
+     *  any dropped diff packet self-heals within one interval. */
+    void setKeepAliveIntervalMs(qint64 ms);
+    qint64 keepAliveIntervalMs() const;
+
+    // ---- Test hooks ----------------------------------------------------
+    /** Override the Partial-mode keep-alive interval, bypassing the [min, max]
+     *  clamp. Test-only: lets unit tests use sub-100ms intervals. */
+    void setKeepAliveIntervalMsForTest(qint64 ms);
+    /** Bypass the FPS throttle entirely. Test-only. */
+    void setMaxFpsBypassForTest(bool bypass);
+
+private:
+    // Helpers (definitions in ddpcontroller.cpp)
+    void invalidateBaseline(quint32 universe);     // single universe
+    void invalidateAllBaselines();                 // all universes (e.g. pixelCount change)
+    // Wire-level senders. Return true if every datagram was accepted by the kernel.
+    bool sendFullSnapshot(DDPUniverseInfo &info, const char *srcData, int totalLen,
+                          int bpp, quint8 dataType, qint64 now);
+    bool sendPartialDiff(DDPUniverseInfo &info, const char *srcData, int totalLen,
+                         int bpp, quint8 dataType, qint64 now);
+    bool writeChunk(const DDPUniverseInfo &info,
+                    const char *srcData, int srcLen,
+                    int chunkStart, int chunkLen,
+                    quint32 dataOffset, quint8 seq, bool push, quint8 dataType);
 
 private:
     QHostAddress m_ipAddr;
@@ -121,15 +173,13 @@ private:
     mutable QMutex m_dataMutex;
 
     std::atomic<quint64> m_packetSent{0};
-    std::atomic<quint64> m_frameCount{0};
 
-    // Default 20 FPS: DDP over Wi-Fi (e.g. WLED) doesn't benefit from more
-    // than ~20–30 FPS. Users can raise this in the plugin config dialog.
-    // The throttle is enforced per-universe inside DDPController::sendDmx via
-    // DDPUniverseInfo::lastSendElapsed; the universe thread, MasterTimer, and
-    // other output plugins are unaffected.
+    // Default 0 (no limit): forward every frame the engine produces.
+    // MasterTimer caps at ~50 Hz, so 0 simply means "never drop frames".
+    // Users can set 1–50 in the config dialog for bandwidth-limited links
+    // (e.g. Wi-Fi WLED). The throttle is per-universe inside sendDmx().
     static constexpr int kMaxFpsLimit = 50;
-    static constexpr int kDefaultFps = 20;
+    static constexpr int kDefaultFps = 0;
 public:
     static constexpr int maxFpsLimit() { return kMaxFpsLimit; }
     static constexpr int defaultFps() { return kDefaultFps; }
@@ -137,9 +187,23 @@ private:
     int m_maxFps = kDefaultFps;
     bool m_skipUnchanged = false;
     QElapsedTimer m_sendTimer;
+    bool m_socketTuned = false;  // one-shot SO_SNDBUF + IP_TOS setup
 
     // Explicit pixel framing — 0 means "auto/legacy" (send what the engine produced)
     int m_pixelCount = 0;
+
+    // ---- Partial-mode tuning -------------------------------------------
+    // Keep-alive: in Partial mode, force a full snapshot at least this often
+    // (independent of payload changes) to (a) stay well under WLED's ~2.5s
+    // realtime timeout and (b) bound the visible damage of any dropped diff
+    // packet to one keep-alive interval. Configurable for tests.
+    qint64 m_keepAliveMs = kKeepAliveMs;
+    // Coalesce two dirty runs separated by ≤ this many clean bytes into one
+    // packet. 48 ≈ DDP header (10) + IPv4/UDP overhead (28) per extra packet,
+    // and is a multiple of lcm(3,4)=12 so the boundary stays bpp-aligned.
+    static constexpr int kPartialMinGapBytes = 48;
+    // Test hook: bypass FPS throttle entirely.
+    bool m_maxFpsBypassForTest = false;
 };
 
 #endif // DDPCONTROLLER_H

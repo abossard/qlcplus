@@ -349,6 +349,8 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
             controller->setPixelCount(value.toInt());
         else if (name == DDP_SKIPUNCHANGED)
             controller->setSkipUnchanged(value.toBool());
+        else if (name == DDP_KEEPALIVEMS)
+            controller->setKeepAliveIntervalMs(value.toLongLong());
         else
             qWarning() << Q_FUNC_INFO << name << "is not a valid DDP output parameter";
     }
