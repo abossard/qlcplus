@@ -151,7 +151,11 @@ void VdjTelemetryClient::onReadyRead()
 
     m_lineBuffer.append(m_client->readAll());
 
-    // Process complete lines (NDJSON: each JSON object ends with \n)
+    // VDJ sends JSON objects concatenated without separators: {...}{...}{...}
+    // Also sometimes newline-delimited. Split on both patterns.
+    // Strategy: replace }{ with }\n{ then split on \n.
+    m_lineBuffer.replace("}{", "}\n{");
+
     int newlinePos;
     while ((newlinePos = m_lineBuffer.indexOf('\n')) >= 0)
     {
@@ -161,6 +165,9 @@ void VdjTelemetryClient::onReadyRead()
         if (!line.isEmpty())
             parseLine(line);
     }
+
+    // Whatever remains in the buffer is a partial JSON object — keep it
+    // for the next readyRead call.
 }
 
 void VdjTelemetryClient::onClientDisconnected()
@@ -259,6 +266,11 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
             {
                 // Extract the trigger name after "deck N "
                 QString deckTrigger = trigger.mid(7);
+                // Log song metadata triggers (infrequent, useful for debugging)
+                if (deckTrigger.startsWith("get_title") || deckTrigger.startsWith("get_artist") ||
+                    deckTrigger.startsWith("get_filepath") || deckTrigger == "get_bpm" ||
+                    deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play")
+                    qDebug() << kLogTag << "Deck" << deckNum << deckTrigger << "=" << value;
                 emit deckTriggerReceived(deckNum - 1, deckTrigger, value);
                 return;
             }
