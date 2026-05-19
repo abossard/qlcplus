@@ -51,11 +51,11 @@ void ShowFactory::createShowForSong(const SongLoadTracker::SongInfo &info)
         return;
     m_createdShows.insert(filepath);
 
-    // Defer to next event loop tick so the telemetry burst completes first.
-    // Doc::addFunction triggers QML model updates that can crash if fired
-    // during the initial connection burst.
+    // Defer show creation to let the telemetry burst and QML initialization
+    // complete fully. Creating Audio+Show triggers Doc::functionAdded which
+    // updates QML models — doing this too early crashes the QML engine.
     SongLoadTracker::SongInfo copy = info;
-    QTimer::singleShot(0, this, [this, copy]() { createShowDeferred(copy); });
+    QTimer::singleShot(3000, this, [this, copy]() { createShowDeferred(copy); });
 }
 
 void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
