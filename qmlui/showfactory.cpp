@@ -91,6 +91,7 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     // Create Audio function
     Audio *audio = new Audio(m_doc);
     audio->setName(showName);
+    audio->setPath(kSongFolderPath);
     if (!audio->setSourceFileName(filepath))
     {
         qWarning() << "[ShowFactory] Failed to set audio source:" << filepath;
@@ -102,6 +103,7 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     // Create Show function
     Show *show = new Show(m_doc);
     show->setName(showName);
+    show->setPath(kSongFolderPath);
     m_doc->addFunction(show);
 
     // Add a Track with the Audio as a timeline item

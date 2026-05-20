@@ -323,6 +323,30 @@ bool Function::isVisible() const
 }
 
 /*********************************************************************
+ * Timestamps
+ *********************************************************************/
+
+QDateTime Function::lastPlayed() const
+{
+    return m_lastPlayed;
+}
+
+void Function::setLastPlayed(const QDateTime &dt)
+{
+    m_lastPlayed = dt;
+}
+
+QDateTime Function::lastEdited() const
+{
+    return m_lastEdited;
+}
+
+void Function::setLastEdited(const QDateTime &dt)
+{
+    m_lastEdited = dt;
+}
+
+/*********************************************************************
  * Common
  *********************************************************************/
 
@@ -339,6 +363,10 @@ bool Function::saveXMLCommon(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLQLCFunctionPath, path(true));
     if (blendMode() != Universe::NormalBlend)
         doc->writeAttribute(KXMLQLCFunctionBlendMode, Universe::blendModeToString(blendMode()));
+    if (m_lastPlayed.isValid())
+        doc->writeAttribute(KXMLQLCFunctionLastPlayed, m_lastPlayed.toString(Qt::ISODate));
+    if (m_lastEdited.isValid())
+        doc->writeAttribute(KXMLQLCFunctionLastEdited, m_lastEdited.toString(Qt::ISODate));
 
     return true;
 }
@@ -1062,6 +1090,12 @@ bool Function::loader(QXmlStreamReader &root, Doc* doc)
     if (attrs.hasAttribute(KXMLQLCFunctionBlendMode))
         blendMode = Universe::stringToBlendMode(attrs.value(KXMLQLCFunctionBlendMode).toString());
 
+    QDateTime lastPlayed, lastEdited;
+    if (attrs.hasAttribute(KXMLQLCFunctionLastPlayed))
+        lastPlayed = QDateTime::fromString(attrs.value(KXMLQLCFunctionLastPlayed).toString(), Qt::ISODate);
+    if (attrs.hasAttribute(KXMLQLCFunctionLastEdited))
+        lastEdited = QDateTime::fromString(attrs.value(KXMLQLCFunctionLastEdited).toString(), Qt::ISODate);
+
     /* Check for ID validity before creating the function */
     if (id == Function::invalidId())
     {
@@ -1098,6 +1132,8 @@ bool Function::loader(QXmlStreamReader &root, Doc* doc)
     function->setPath(path);
     function->setVisible(visible);
     function->setBlendMode(blendMode);
+    function->setLastPlayed(lastPlayed);
+    function->setLastEdited(lastEdited);
     if (function->loadXML(root) == true)
     {
         if (doc->addFunction(function, id) == true)

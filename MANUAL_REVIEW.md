@@ -2,7 +2,7 @@
 
 This checklist contains ONLY items that require human judgment (visual inspection, UX assessment, timing perception, 3D rendering). Anything that can be asserted automatically lives elsewhere:
 
-- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test`
+- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./qmlui/test/songmanager/songmanager_test`
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
 - **E2E tests:** `cd webaccess/vc-next && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
@@ -398,7 +398,54 @@ Navigate to Virtual Console with VC editing access:
 
 ---
 
-## 11. Known Issues / Limitations
+## 11. Song Manager — VDJ Integration
+
+> Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/songmanager/songmanager_test` (15 tests). The items below require VDJ connected or visual verification.
+
+### 11.1 Song list population
+
+- **Do:** Open Song Manager (toolbar icon). Load a workspace with Shows in the `Songs/` folder.
+- **Verify:** All Songs-folder Shows appear in the list with title and duration.
+- ☐ Pre-existing Songs-folder shows appear on workspace load
+- ☐ Songs created mid-session by VDJ song-load appear incrementally
+
+### 11.2 Currently playing indicator
+
+- **Prerequisite:** VDJ Bridge plugin connected (status bar shows "Connected ●" in green).
+- **Do:** Play a song in VDJ that has a corresponding Show in the Songs folder.
+- **Verify:**
+- ☐ The playing song shows a green `▶` indicator and highlighted row
+- ☐ When the song stops, the indicator clears
+- ☐ Playing indicator tracks across deck changes
+
+### 11.3 Search / filter
+
+- **Do:** Type a partial song title in the search bar.
+- **Verify:**
+- ☐ List filters in real-time as you type
+- ☐ Case-insensitive matching works
+- ☐ Clear button (✕) resets the filter
+- ☐ Empty-state message changes to "No songs match …" when filter has no results
+
+### 11.4 Sort modes
+
+| Action | Expected | Check |
+|--------|----------|-------|
+| Select "Alphabetical" + ▲ | Songs A→Z | ☐ |
+| Toggle to ▼ | Songs Z→A | ☐ |
+| Select "Recently Played" | Most recently played first, never-played at bottom | ☐ |
+| Select "Recently Edited" | Most recently edited first | ☐ |
+
+### 11.5 Timestamp persistence
+
+- **Do:** Play a song, note it in the list. Save workspace (`Ctrl+S`). Close and reopen QLC+. Load the workspace.
+- **Verify:**
+- ☐ "Recently Played" sort still shows the previously-played song with its timestamp
+- ☐ "Recently Edited" sort reflects edits made before save
+
+---
+
+## 13. Known Issues / Limitations
 
 - **WebSocket reconnect:** If QLC+ is restarted while `/vc/` is open, the page may take up to ~5 s to reconnect. A manual page refresh always recovers.
 - **Cross-tab sync race:** Rapid simultaneous edits on the *same* control from two tabs can briefly show a flicker as the last-write-wins value propagates. Steady-state is always consistent.
@@ -411,10 +458,13 @@ Navigate to Virtual Console with VC editing access:
 - **macOS Tahoe (26.x) signing:** Dev builds are ad-hoc signed *without* `--options runtime`. If you re-sign with hardened runtime, the app will crash on launch with a dyld Team ID mismatch.
 - **Playwright E2E suite:** 35+ tests live under `webaccess/vc-next/e2e/`. A handful are timing-sensitive on slow machines; rerun once before declaring a flake.
 - **Keyboard shortcuts — popupCount guard:** If a popup is destroyed without properly closing (crash/error), the popupCount may get stuck and block all shortcuts. Restart QLC+ to recover. (Underflow is guarded via `Math.max(0, ...)`)
+- **Song Manager — timestamps are session-relative:** `lastPlayed` and `lastEdited` timestamps are persisted to the workspace XML, but only updated during the current session. They reflect the last time the workspace was used, not absolute calendar history.
+- **Song Manager — artist/BPM/key metadata:** Artist, BPM, and key fields in the song list are placeholders. The Show name embeds "Artist - Title" but structured extraction is not yet implemented.
+- **Song Manager — folder path:** Songs are identified by Shows in the `Songs/` function folder. Manually placing non-song Shows in that folder will cause them to appear in the Song Manager.
 
 ---
 
-## 12. Sign-off
+## 14. Sign-off
 
 | Area                          | Tester | Date | Pass / Fail | Notes |
 |-------------------------------|--------|------|-------------|-------|
@@ -431,6 +481,7 @@ Navigate to Virtual Console with VC editing access:
 | Keyboard shortcuts & tooltips |        |      |             |       |
 | Speed Dial multiply mode      |        |      |             |       |
 | Beat subdivision (FineFractions) |     |      |             |       |
+| Song Manager — VDJ integration  |        |      |             |       |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 

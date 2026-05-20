@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual Review Runner — QLC+</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <!-- Start screen (shown when no active run) -->
+  <div id="start-screen" style="display:none">
+    <div class="start-content">
+      <h1>📋 Manual Review Runner</h1>
+      <p>Start a new manual review session. Progress and screenshots will be saved to <code>test-reports/</code> in the repository.</p>
+      <button id="btn-start" class="btn-primary">🚀 Start Review</button>
+    </div>
+  </div>
+
+  <!-- Review UI (shown during active run) -->
+  <div id="review-ui" style="display:none">
+    <!-- Progress bar -->
+    <div id="progress-container">
+      <div id="progress-bar" class="progress-fill"></div>
+      <span id="progress-text">Loading…</span>
+    </div>
+
+    <!-- Main layout -->
+    <div id="layout">
+      <nav id="sidebar"></nav>
+      <main id="content"></main>
+    </div>
+
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <button id="btn-export" title="Export Report (Ctrl+E)">📄 Export Report</button>
+      <button id="btn-conclude" title="Conclude Review">✅ Conclude Review</button>
+      <button id="btn-reset" title="Reset (Ctrl+R)">🔄 Reset</button>
+      <button id="btn-help" title="Help (?)">❓ Help</button>
+    </div>
+
+    <!-- Help overlay -->
+    <div id="help-overlay" style="display:none">
+      <div class="help-content">
+        <h2>Keyboard Shortcuts</h2>
+        <table>
+          <tr><td><kbd>j</kbd> / <kbd>↓</kbd></td><td>Next check item</td></tr>
+          <tr><td><kbd>k</kbd> / <kbd>↑</kbd></td><td>Previous check item</td></tr>
+          <tr><td><kbd>p</kbd></td><td>Mark as <strong>Pass</strong></td></tr>
+          <tr><td><kbd>f</kbd></td><td>Mark as <strong>Fail</strong></td></tr>
+          <tr><td><kbd>s</kbd></td><td>Mark as <strong>Skip</strong></td></tr>
+          <tr><td><kbd>n</kbd></td><td>Focus note field</td></tr>
+          <tr><td><kbd>Ctrl+E</kbd></td><td>Export report</td></tr>
+          <tr><td><kbd>Ctrl+R</kbd></td><td>Reset session</td></tr>
+          <tr><td><kbd>Ctrl+V</kbd></td><td>Paste screenshot from clipboard</td></tr>
+          <tr><td><kbd>?</kbd></td><td>Toggle this help</td></tr>
+        </table>
+        <p>Click anywhere to close</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/app.ts"></script>
+</body>
+</html>

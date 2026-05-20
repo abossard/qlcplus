@@ -23,23 +23,21 @@
 #include "previewcontext.h"
 
 #include <QAbstractListModel>
+#include <QDateTime>
 #include <QList>
+#include <QSet>
+#include <QSortFilterProxyModel>
 #include <QString>
 
 class Doc;
 class VdjBridge;
 class ShowFactory;
+class VdjDeckModel;
 
-/**
- * Per-session model of auto-created song Shows.
- *
- * One row per Show created by ShowFactory in response to a VDJ
- * song-load event. Rows accumulate during the session and are
- * cleared when the workspace is reset.
- *
- * QAbstractListModel (not QVariantList) so that ListView can apply
- * incremental updates as songs are added.
- */
+// ────────────────────────────────────────────────────────────────
+//  SongListModel — flat model of all song Shows in the VDJ Songs folder
+// ────────────────────────────────────────────────────────────────
+
 class SongListModel final : public QAbstractListModel
 {
     Q_OBJECT
@@ -55,6 +53,9 @@ public:
         KeyRole,
         DurationRole,
         FilepathRole,
+        IsPlayingRole,
+        LastPlayedRole,
+        LastEditedRole,
     };
 
     explicit SongListModel(Doc *doc, QObject *parent = nullptr);
@@ -63,53 +64,127 @@ public:
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    /** Add a row for a Show created from filepath. No-op if filepath already known. */
+    /** Rebuild the model from all Shows in the VDJ Songs folder. */
+    void rebuildFromDoc();
+
+    /** Add a row for a Show. No-op if showId already present. */
     void addSong(const QString &filepath, quint32 showId);
 
     /** Remove all rows. */
     void clear();
 
-private:
+    /** Mark a song as currently playing (matched by filepath). */
+    void setPlaying(const QString &filepath, bool playing);
+
+    /** Record a "last played" timestamp for a filepath. */
+    void markPlayed(const QString &filepath);
+
+    /** Record a "last edited" timestamp for a show ID. */
+    void markEdited(quint32 showId);
+
+    /** Clear all playing flags. */
+    void clearPlayingState();
+
     struct Row
     {
         QString filepath;
         quint32 showId = 0;
+        bool isPlaying = false;
     };
+
+private:
+    int rowForFilepath(const QString &fp) const;
+    int rowForShowId(quint32 id) const;
 
     Doc *m_doc;
     QList<Row> m_rows;
 };
 
-/**
- * Song Manager context.
- *
- * Standalone view (not embedded in ShowManager) showing:
- *  - VDJ telemetry connection status (derived from VdjBridge)
- *  - Per-deck states + master deck info
- *  - Scrollable list of auto-created song Shows
- *
- * Status bar properties are derived in QML from vdjBridge to avoid
- * duplicating state in C++.
- */
+// ────────────────────────────────────────────────────────────────
+//  SongSortFilterProxyModel — sort/filter proxy for SongListModel
+// ────────────────────────────────────────────────────────────────
+
+class SongSortFilterProxyModel final : public QSortFilterProxyModel
+{
+    Q_OBJECT
+
+public:
+    enum SortMode { Alphabetical = 0, RecentlyPlayed, RecentlyEdited };
+    Q_ENUM(SortMode)
+
+    explicit SongSortFilterProxyModel(QObject *parent = nullptr);
+
+    void setSortMode(SortMode mode);
+    SortMode sortMode() const { return m_sortMode; }
+
+    void setSortAscending(bool asc);
+    bool sortAscending() const { return m_ascending; }
+
+    void setSearchFilter(const QString &text);
+    QString searchFilter() const { return m_searchText; }
+
+protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
+    bool lessThan(const QModelIndex &left, const QModelIndex &right) const override;
+
+private:
+    SortMode m_sortMode = Alphabetical;
+    bool m_ascending = true;
+    QString m_searchText;
+};
+
+// ────────────────────────────────────────────────────────────────
+//  SongManager — controller connecting VDJ, Doc, and the models
+// ────────────────────────────────────────────────────────────────
+
 class SongManager final : public PreviewContext
 {
     Q_OBJECT
-    Q_PROPERTY(QAbstractListModel *songListModel READ songListModel CONSTANT)
+    Q_PROPERTY(QAbstractItemModel *songListModel READ songListModel CONSTANT)
+    Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY sortModeChanged)
+    Q_PROPERTY(bool sortAscending READ sortAscending WRITE setSortAscending NOTIFY sortAscendingChanged)
+    Q_PROPERTY(QString searchFilter READ searchFilter WRITE setSearchFilter NOTIFY searchFilterChanged)
+    Q_PROPERTY(int songCount READ songCount NOTIFY songCountChanged)
 
 public:
     SongManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
                 ShowFactory *factory, QObject *parent = nullptr);
 
-    QAbstractListModel *songListModel() const;
+    QAbstractItemModel *songListModel() const;
+
+    int sortMode() const;
+    void setSortMode(int mode);
+
+    bool sortAscending() const;
+    void setSortAscending(bool asc);
+
+    QString searchFilter() const;
+    void setSearchFilter(const QString &text);
+
+    int songCount() const;
+
+signals:
+    void sortModeChanged();
+    void sortAscendingChanged();
+    void searchFilterChanged();
+    void songCountChanged();
 
 private slots:
     void onShowCreatedForSong(const QString &filepath, quint32 showId);
     void onDocCleared();
+    void onFunctionAdded(quint32 fid);
+    void onFunctionRemoved(quint32 fid);
+    void onFunctionChanged(quint32 fid);
+    void refreshDeckPlayingState();
 
 private:
+    void connectDeckSignals();
+
     VdjBridge *m_bridge;
     ShowFactory *m_factory;
     SongListModel *m_model;
+    SongSortFilterProxyModel *m_proxy;
+    QSet<QString> m_lastPlayingPaths;
 };
 
 #endif // SONGMANAGER_H

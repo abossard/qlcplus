@@ -29,6 +29,9 @@
 
 class Doc;
 
+/** Folder path used to group auto-created VDJ song Shows. */
+inline const QString kSongFolderPath = QStringLiteral("Songs");
+
 /**
  * Creates Audio + Show + Track functions in Doc when a song is ready.
  *

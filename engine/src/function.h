@@ -22,6 +22,7 @@
 #define FUNCTION_H
 
 #include <QWaitCondition>
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 #include <QMutex>
@@ -55,6 +56,8 @@ class FunctionUiState;
 #define KXMLQLCFunctionPath      QStringLiteral("Path")
 #define KXMLQLCFunctionHidden    QStringLiteral("Hidden")
 #define KXMLQLCFunctionBlendMode QStringLiteral("BlendMode")
+#define KXMLQLCFunctionLastPlayed QStringLiteral("LastPlayed")
+#define KXMLQLCFunctionLastEdited QStringLiteral("LastEdited")
 
 #define KXMLQLCFunctionValue     QStringLiteral("Value")
 #define KXMLQLCFunctionValueType QStringLiteral("Type")
@@ -295,6 +298,22 @@ public:
 
 private:
     bool m_visible;
+
+    /*********************************************************************
+     * Timestamps (last-played / last-edited)
+     *********************************************************************/
+public:
+    /** Get/set the timestamp when this function was last played. */
+    QDateTime lastPlayed() const;
+    void setLastPlayed(const QDateTime &dt);
+
+    /** Get/set the timestamp when this function was last edited. */
+    QDateTime lastEdited() const;
+    void setLastEdited(const QDateTime &dt);
+
+private:
+    QDateTime m_lastPlayed;
+    QDateTime m_lastEdited;
 
     /*********************************************************************
      * Common XML
