@@ -807,7 +807,7 @@ cmake --build . --target mcp_vc_validation_test -j8 && ./mcp/test/mcp_vc_validat
 ### E2E tests (Web DMX Control Panel)
 
 ```bash
-cd webaccess/vc-next && npx playwright test
+cd webaccess/web-dmx && npx playwright test
 ```
 
 35+ Playwright tests covering fixture panels, cross-tab sync, presets, and REST API.

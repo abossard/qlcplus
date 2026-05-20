@@ -477,10 +477,10 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
         resp->end(json);
         return;
     }
-    // Modern VC web app (vc-next): serve built files from webaccess/vc-next/dist/
+    // Modern VC web app (web-dmx): serve built files from webaccess/web-dmx/dist/
     else if (reqUrl == "/vc" || reqUrl == "/vc/")
     {
-        if (serveVCNextFile(resp, "/index.html"))
+        if (serveWebDmxFile(resp, "/index.html"))
             return;
         sendNotFound(resp);
         return;
@@ -488,10 +488,10 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
     else if (reqUrl.startsWith("/vc/"))
     {
         QString filePath = reqUrl.mid(3); // strip "/vc" prefix, keep leading "/"
-        if (serveVCNextFile(resp, filePath))
+        if (serveWebDmxFile(resp, filePath))
             return;
         // SPA fallback: serve index.html for unmatched routes
-        if (serveVCNextFile(resp, "/index.html"))
+        if (serveWebDmxFile(resp, "/index.html"))
             return;
         sendNotFound(resp);
         return;
@@ -1293,32 +1293,32 @@ QString WebAccessQml::webFilePath(const QString &relativePath) const
     return candidates.last();
 }
 
-bool WebAccessQml::serveVCNextFile(QHttpResponse *resp, const QString &relativePath) const
+bool WebAccessQml::serveWebDmxFile(QHttpResponse *resp, const QString &relativePath) const
 {
     // Security: reject path traversal attempts
     if (relativePath.contains("..") || relativePath.contains('\\'))
         return false;
 
-    // Resolve the vc-next directory from multiple candidate locations
+    // Resolve the web-dmx directory from multiple candidate locations
     QStringList distRoots;
 
     // Dev: source tree relative to cwd
-    distRoots << QDir::cleanPath(QString("%1/webaccess/vc-next/dist")
+    distRoots << QDir::cleanPath(QString("%1/webaccess/web-dmx/dist")
                                   .arg(QDir::currentPath()));
 
     // Dev: walk up from executable (handles build/ subdirectory)
     QDir probeDir(QCoreApplication::applicationDirPath());
     for (int i = 0; i < 6; i++)
     {
-        distRoots << QDir::cleanPath(QString("%1/webaccess/vc-next/dist")
+        distRoots << QDir::cleanPath(QString("%1/webaccess/web-dmx/dist")
                                       .arg(probeDir.absolutePath()));
         if (probeDir.cdUp() == false)
             break;
     }
 
-    // Installed: system directory (e.g. Contents/Resources/Web/vc-next on macOS)
+    // Installed: system directory (e.g. Contents/Resources/Web/web-dmx on macOS)
     distRoots << QDir::cleanPath(
-        QLCFile::systemDirectory(WEBFILESDIR).path() + "/vc-next");
+        QLCFile::systemDirectory(WEBFILESDIR).path() + "/web-dmx");
 
     for (const QString &root : distRoots)
     {

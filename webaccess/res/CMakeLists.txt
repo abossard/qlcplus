@@ -40,10 +40,10 @@ set(WEBFILES_PATH "${INSTALLROOT}/${WEBFILESDIR}")
 # Install the webfiles target to the specified path
 install(FILES ${WEBFILES} DESTINATION ${WEBFILES_PATH})
 
-# Install vc-next built web app (Vite+React SPA)
-# dist/ is produced by 'npm run build' in webaccess/vc-next/
-set(VCNEXT_DIST_DIR "${CMAKE_SOURCE_DIR}/webaccess/vc-next/dist")
+# Install web-dmx built web app (Vite+React SPA)
+# dist/ is produced by 'npm run build' in webaccess/web-dmx/
+set(VCNEXT_DIST_DIR "${CMAKE_SOURCE_DIR}/webaccess/web-dmx/dist")
 if(qmlui AND EXISTS "${VCNEXT_DIST_DIR}/index.html")
     install(DIRECTORY "${VCNEXT_DIST_DIR}/"
-            DESTINATION "${WEBFILES_PATH}/vc-next")
+            DESTINATION "${WEBFILES_PATH}/web-dmx")
 endif()

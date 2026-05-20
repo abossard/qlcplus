@@ -112,7 +112,7 @@ protected slots:
 
 protected:
     QString webFilePath(const QString &relativePath) const override;
-    bool serveVCNextFile(QHttpResponse *resp, const QString &relativePath) const;
+    bool serveWebDmxFile(QHttpResponse *resp, const QString &relativePath) const;
     void sendMatrixState(const VCAnimation *animation) const;
     void handleAutostartProject(const QString &path) override;
     void handleProjectLoad(const QByteArray &projectXml) override;

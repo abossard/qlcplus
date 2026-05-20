@@ -4,7 +4,7 @@ This checklist contains ONLY items that require human judgment (visual inspectio
 
 - **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./qmlui/test/songmanager/songmanager_test`
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
-- **E2E tests:** `cd webaccess/vc-next && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
+- **E2E tests:** `cd webaccess/web-dmx && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
 > Run all automated tests FIRST. Only proceed with manual review once they pass — this document is for the things a machine cannot judge.
 
@@ -60,7 +60,7 @@ In QLC+:
 
 Open http://localhost:9999/vc/ in a fresh browser tab.
 
-> Structural DOM checks (panel rendering, filter chips, search box, universe grouping, raw-channel disclosure, read-only typed channels, reset, preset save/recall, compact-mode toggle) are covered by Playwright tests in `webaccess/vc-next/e2e/`. The items below are about how the surface **feels** — only a human can judge that.
+> Structural DOM checks (panel rendering, filter chips, search box, universe grouping, raw-channel disclosure, read-only typed channels, reset, preset save/recall, compact-mode toggle) are covered by Playwright tests in `webaccess/web-dmx/e2e/`. The items below are about how the surface **feels** — only a human can judge that.
 
 ### 3.1 Status indicator transitions
 
@@ -456,7 +456,7 @@ Navigate to Virtual Console with VC editing access:
 - **Script fader cleanup:** When a script is force-stopped (not completed naturally), the `ScriptRunner::stop()` now zeros all channels in the universe buffer. Previously values persisted until app restart.
 - **DJ Expression layer separation:** All color scenes (including old Colors/, Beam Ball/, Ball/ folders) have been stripped of ch5 (master dimmer). Only DJX Dimmer scenes may set ch5.
 - **macOS Tahoe (26.x) signing:** Dev builds are ad-hoc signed *without* `--options runtime`. If you re-sign with hardened runtime, the app will crash on launch with a dyld Team ID mismatch.
-- **Playwright E2E suite:** 35+ tests live under `webaccess/vc-next/e2e/`. A handful are timing-sensitive on slow machines; rerun once before declaring a flake.
+- **Playwright E2E suite:** 35+ tests live under `webaccess/web-dmx/e2e/`. A handful are timing-sensitive on slow machines; rerun once before declaring a flake.
 - **Keyboard shortcuts — popupCount guard:** If a popup is destroyed without properly closing (crash/error), the popupCount may get stuck and block all shortcuts. Restart QLC+ to recover. (Underflow is guarded via `Math.max(0, ...)`)
 - **Song Manager — timestamps are session-relative:** `lastPlayed` and `lastEdited` timestamps are persisted to the workspace XML, but only updated during the current session. They reflect the last time the workspace was used, not absolute calendar history.
 - **Song Manager — artist/BPM/key metadata:** Artist, BPM, and key fields in the song list are placeholders. The Show name embeds "Artist - Title" but structured extraction is not yet implemented.
@@ -487,4 +487,4 @@ Navigate to Virtual Console with VC editing access:
 
 ---
 
-*Last updated: split from the full test plan — automated checks now live in `scripts/smoke-test.sh`, the `engine/test/beatquantize` + `mcp/test/*` unit tests, and `webaccess/vc-next/e2e/` Playwright suites. This document covers only items that require human judgement.*
+*Last updated: split from the full test plan — automated checks now live in `scripts/smoke-test.sh`, the `engine/test/beatquantize` + `mcp/test/*` unit tests, and `webaccess/web-dmx/e2e/` Playwright suites. This document covers only items that require human judgement.*

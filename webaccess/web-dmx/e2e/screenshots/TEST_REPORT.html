@@ -1,0 +1,3139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DMX Web Control — Test Report</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:960px;margin:2em auto;padding:0 1em;color:#e7e9ef;background:#0f1419;line-height:1.6}
+img{max-width:100%;border:1px solid #333;border-radius:6px;margin:0.5em 0}
+table{border-collapse:collapse;width:100%;margin:1em 0}
+th,td{border:1px solid #333;padding:8px 12px;text-align:left}
+th{background:#1a1a2e;color:#53b8e0;font-weight:600}
+tr:nth-child(even){background:#16213e}
+h1,h2,h3{color:#53b8e0}
+code{background:#1a1a2e;padding:2px 6px;border-radius:3px;font-size:0.9em}
+blockquote{border-left:3px solid #53b8e0;margin:0;padding:0.5em 1em;color:#9aa0b4}
+hr{border:none;border-top:1px solid #333;margin:1.5em 0}
+figure{margin:0.5em 0}
+figcaption{font-size:0.85em;color:#6b7080;margin-top:4px}
+li{margin:2px 0}
+details{margin:0.5em 0;padding:0.5em;background:#1a1a2e;border-radius:4px}
+summary{cursor:pointer;color:#53b8e0}
+a{color:#7dd3fc}</style>
+</head>
+<body>
+<h1>🎛️ DMX Web Control — Test Report</h1><br>
+<br>
+&gt; Generated: <strong>2026-05-20 20:26:32</strong>  <br>
+&gt; Duration: <strong>74.7s</strong> | Status: <strong>failed</strong>  <br>
+&gt; Tests: <strong>0</strong> passed, <strong>123</strong> failed, <strong>27</strong> skipped — <strong>150</strong> total<br>
+<br>
+<h2>Summary</h2><br>
+<br>
+| Status | Test | Duration |<br>
+|--------|------|----------|<br>
+| ❌ | T1: no tab bar — DMX view loads directly 📸×1 | 238ms |<br>
+| ❌ | T1+T3: DMX Control loads directly — no VC tab 📸×1 | 239ms |<br>
+| ⏭️ | T5: Fixtures sorted by DMX address | 0ms |<br>
+| ⏭️ | T9: Model-based filter badges | 0ms |<br>
+| ⏭️ | T6: Collapsible universe groups | 0ms |<br>
+| ⏭️ | T4: Controls sorted by channel index | 0ms |<br>
+| ⏭️ | T7: Auto-open raw + star for raw-only fixtures | 0ms |<br>
+| ⏭️ | T8: Raw channels = ALL channels with read-only monitors | 0ms |<br>
+| ⏭️ | Cross-tab sync: color picker change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: position pad change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: fader change propagates | 0ms |<br>
+| ❌ | fader change in Tab A is reflected in Tab B 📸×2 | 313ms |<br>
+| ❌ | T1+T3: DMX Control loads directly — no VC tab 📸×1 | 221ms |<br>
+| ⏭️ | T5: Fixtures sorted by DMX address | 0ms |<br>
+| ⏭️ | T9: Model-based filter badges | 0ms |<br>
+| ⏭️ | T6: Collapsible universe groups | 0ms |<br>
+| ⏭️ | T4: Controls sorted by channel index | 0ms |<br>
+| ⏭️ | T7: Auto-open raw + star for raw-only fixtures | 0ms |<br>
+| ⏭️ | T8: Raw channels = ALL channels with read-only monitors | 0ms |<br>
+| ⏭️ | Cross-tab sync: color picker change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: position pad change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: fader change propagates | 0ms |<br>
+| ❌ | T1: no tab bar — DMX view loads directly 📸×1 | 220ms |<br>
+| ❌ | fader change in Tab A is reflected in Tab B 📸×2 | 277ms |<br>
+| ❌ | T1+T3: DMX Control loads directly — no VC tab 📸×1 | 225ms |<br>
+| ⏭️ | T5: Fixtures sorted by DMX address | 0ms |<br>
+| ⏭️ | T9: Model-based filter badges | 0ms |<br>
+| ⏭️ | T6: Collapsible universe groups | 0ms |<br>
+| ⏭️ | T4: Controls sorted by channel index | 0ms |<br>
+| ⏭️ | T7: Auto-open raw + star for raw-only fixtures | 0ms |<br>
+| ⏭️ | T8: Raw channels = ALL channels with read-only monitors | 0ms |<br>
+| ⏭️ | Cross-tab sync: color picker change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: position pad change propagates | 0ms |<br>
+| ⏭️ | Cross-tab sync: fader change propagates | 0ms |<br>
+| ❌ | T1: no tab bar — DMX view loads directly 📸×1 | 268ms |<br>
+| ❌ | fader change in Tab A is reflected in Tab B 📸×2 | 326ms |<br>
+| ❌ | shows connection status indicator 📸×1 | 194ms |<br>
+| ❌ | fader change in Tab B is reflected in Tab A 📸×2 | 256ms |<br>
+| ❌ | shows connection status indicator 📸×1 | 171ms |<br>
+| ❌ | fader change in Tab B is reflected in Tab A 📸×2 | 214ms |<br>
+| ❌ | shows connection status indicator 📸×1 | 195ms |<br>
+| ❌ | fader change in Tab B is reflected in Tab A 📸×2 | 216ms |<br>
+| ❌ | topbar and grand master are visible 📸×1 | 185ms |<br>
+| ❌ | rapid fader changes sync without diverging 📸×2 | 224ms |<br>
+| ❌ | topbar and grand master are visible 📸×1 | 196ms |<br>
+| ❌ | rapid fader changes sync without diverging 📸×2 | 244ms |<br>
+| ❌ | topbar and grand master are visible 📸×1 | 164ms |<br>
+| ❌ | rapid fader changes sync without diverging 📸×2 | 212ms |<br>
+| ❌ | loads and displays fixture panels from GARAGE workspace 📸×1 | 178ms |<br>
+| ❌ | color picker change in one tab syncs RGB to another 📸×2 | 253ms |<br>
+| ❌ | loads and displays fixture panels from GARAGE workspace 📸×1 | 194ms |<br>
+| ❌ | color picker change in one tab syncs RGB to another 📸×2 | 270ms |<br>
+| ❌ | loads and displays fixture panels from GARAGE workspace 📸×1 | 162ms |<br>
+| ❌ | color picker change in one tab syncs RGB to another 📸×2 | 240ms |<br>
+| ❌ | fixture panels show name and metadata 📸×1 | 246ms |<br>
+| ❌ | reset in one tab is observable in the other tab 📸×2 | 322ms |<br>
+| ❌ | reset in one tab is observable in the other tab 📸×2 | 366ms |<br>
+| ❌ | fixture panels show name and metadata 📸×1 | 301ms |<br>
+| ❌ | fixture panels show name and metadata 📸×1 | 184ms |<br>
+| ❌ | reset in one tab is observable in the other tab 📸×2 | 240ms |<br>
+| ❌ | fixture panels have a reset button 📸×1 | 164ms |<br>
+| ❌ | fixture panels have a reset button 📸×1 | 145ms |<br>
+| ❌ | fixture panels have a reset button 📸×1 | 142ms |<br>
+| ❌ | fixture count is displayed in toolbar 📸×1 | 159ms |<br>
+| ❌ | fixture count is displayed in toolbar 📸×1 | 165ms |<br>
+| ❌ | fixture count is displayed in toolbar 📸×1 | 145ms |<br>
+| ❌ | T5: fixtures sorted by universe·address 📸×1 | 151ms |<br>
+| ❌ | T5: fixtures sorted by universe·address 📸×1 | 148ms |<br>
+| ❌ | T5: fixtures sorted by universe·address 📸×1 | 141ms |<br>
+| ❌ | T4: controls are sorted by channel within a fixture 📸×1 | 157ms |<br>
+| ❌ | T4: controls are sorted by channel within a fixture 📸×1 | 148ms |<br>
+| ❌ | T4: controls are sorted by channel within a fixture 📸×1 | 149ms |<br>
+| ❌ | search input filters fixtures by name 📸×1 | 148ms |<br>
+| ❌ | search input filters fixtures by name 📸×1 | 145ms |<br>
+| ❌ | search input filters fixtures by name 📸×1 | 166ms |<br>
+| ❌ | clearing search restores all fixtures 📸×1 | 150ms |<br>
+| ❌ | clearing search restores all fixtures 📸×1 | 150ms |<br>
+| ❌ | clearing search restores all fixtures 📸×1 | 146ms |<br>
+| ❌ | T9: badges show model names (not types) 📸×1 | 146ms |<br>
+| ❌ | T9: badges show model names (not types) 📸×1 | 177ms |<br>
+| ❌ | T9: badges show model names (not types) 📸×1 | 145ms |<br>
+| ❌ | T9: clicking a model badge filters to that model 📸×1 | 135ms |<br>
+| ❌ | T9: clicking a model badge filters to that model 📸×1 | 153ms |<br>
+| ❌ | T9: clicking a model badge filters to that model 📸×1 | 134ms |<br>
+| ❌ | T6: universe headers collapse and expand 📸×1 | 138ms |<br>
+| ❌ | T6: universe headers collapse and expand 📸×1 | 148ms |<br>
+| ❌ | T6: universe headers collapse and expand 📸×1 | 144ms |<br>
+| ❌ | channel faders are rendered for fixtures 📸×1 | 156ms |<br>
+| ❌ | channel faders are rendered for fixtures 📸×1 | 143ms |<br>
+| ❌ | channel faders are rendered for fixtures 📸×1 | 148ms |<br>
+| ❌ | fader shows value readout and name label 📸×1 | 148ms |<br>
+| ❌ | fader shows value readout and name label 📸×1 | 151ms |<br>
+| ❌ | fader shows value readout and name label 📸×1 | 176ms |<br>
+| ❌ | fader track has ARIA slider role 📸×1 | 170ms |<br>
+| ❌ | fader track has ARIA slider role 📸×1 | 153ms |<br>
+| ❌ | fader track has ARIA slider role 📸×1 | 143ms |<br>
+| ❌ | clicking a fader track updates the value 📸×1 | 164ms |<br>
+| ❌ | clicking a fader track updates the value 📸×1 | 184ms |<br>
+| ❌ | clicking a fader track updates the value 📸×1 | 144ms |<br>
+| ❌ | color picker is rendered for RGB fixtures 📸×1 | 165ms |<br>
+| ❌ | color picker is rendered for RGB fixtures 📸×1 | 139ms |<br>
+| ❌ | color picker is rendered for RGB fixtures 📸×1 | 136ms |<br>
+| ❌ | color picker square responds to pointer interaction 📸×1 | 152ms |<br>
+| ❌ | color picker square responds to pointer interaction 📸×1 | 146ms |<br>
+| ❌ | color picker square responds to pointer interaction 📸×1 | 146ms |<br>
+| ❌ | position control is rendered for moving heads 📸×1 | 138ms |<br>
+| ❌ | position control is rendered for moving heads 📸×1 | 138ms |<br>
+| ❌ | position control is rendered for moving heads 📸×1 | 137ms |<br>
+| ❌ | position XY pad responds to click 📸×1 | 187ms |<br>
+| ❌ | position XY pad responds to click 📸×1 | 177ms |<br>
+| ❌ | position XY pad responds to click 📸×1 | 159ms |<br>
+| ❌ | T7: HZ (raw-only fixture) auto-opens raw channels 📸×1 | 156ms |<br>
+| ❌ | T7: HZ (raw-only fixture) auto-opens raw channels 📸×1 | 151ms |<br>
+| ❌ | T7: HZ (raw-only fixture) auto-opens raw channels 📸×1 | 178ms |<br>
+| ❌ | T7: HERO (has primary controls) starts with raw closed 📸×1 | 151ms |<br>
+| ❌ | T7: HERO (has primary controls) starts with raw closed 📸×1 | 140ms |<br>
+| ❌ | T7: HERO (has primary controls) starts with raw closed 📸×1 | 148ms |<br>
+| ❌ | T7: star indicator appears on fixtures with uncovered channels 📸×1 | 155ms |<br>
+| ❌ | T7: star indicator appears on fixtures with uncovered channels 📸×1 | 143ms |<br>
+| ❌ | T7: star indicator appears on fixtures with uncovered channels 📸×1 | 163ms |<br>
+| ❌ | T8: HERO raw lists all 23 channels 📸×1 | 170ms |<br>
+| ❌ | T8: HERO raw lists all 23 channels 📸×1 | 140ms |<br>
+| ❌ | T8: HERO raw lists all 23 channels 📸×1 | 167ms |<br>
+| ❌ | T8: HERO raw has some read-only channels (covered by primary controls) 📸×1 | 142ms |<br>
+| ❌ | T8: HERO raw has some read-only channels (covered by primary controls) 📸×1 | 148ms |<br>
+| ❌ | T8: HERO raw has some read-only channels (covered by primary controls) 📸×1 | 182ms |<br>
+| ❌ | T8: read-only fader does not respond to clicks 📸×1 | 148ms |<br>
+| ❌ | T8: read-only fader does not respond to clicks 📸×1 | 152ms |<br>
+| ❌ | T8: read-only fader does not respond to clicks 📸×1 | 143ms |<br>
+| ❌ | preset save button is visible on fixture panels 📸×1 | 150ms |<br>
+| ❌ | preset save button is visible on fixture panels 📸×1 | 156ms |<br>
+| ❌ | preset save button is visible on fixture panels 📸×1 | 146ms |<br>
+| ❌ | raw channels section is collapsible 📸×1 | 151ms |<br>
+| ❌ | raw channels section is collapsible 📸×1 | 182ms |<br>
+| ❌ | raw channels section is collapsible 📸×1 | 165ms |<br>
+| ❌ | GET /api/fixtures returns GARAGE fixtures | 63ms |<br>
+| ❌ | GET /api/fixtures returns GARAGE fixtures | 51ms |<br>
+| ❌ | GET /api/fixtures returns GARAGE fixtures | 66ms |<br>
+| ❌ | GET /api/channels returns channel details | 51ms |<br>
+| ❌ | GET /api/channels returns channel details | 51ms |<br>
+| ❌ | GET /api/channels returns channel details | 56ms |<br>
+| ❌ | GET /vc/ serves the SPA index.html | 53ms |<br>
+| ❌ | GET /vc/ serves the SPA index.html | 64ms |<br>
+| ❌ | GET /vc/ serves the SPA index.html | 50ms |<br>
+| ❌ | dragging a fader changes its value continuously 📸×1 | 151ms |<br>
+| ❌ | dragging a fader changes its value continuously 📸×1 | 148ms |<br>
+| ❌ | dragging a fader changes its value continuously 📸×1 | 148ms |<br>
+| ❌ | reset button is clickable and sends reset command 📸×1 | 168ms |<br>
+| ❌ | reset button is clickable and sends reset command 📸×1 | 150ms |<br>
+| ❌ | reset button is clickable and sends reset command 📸×1 | 133ms |<br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › App Shell</h2><br>
+<br>
+<h3>❌ T1: no tab bar — DMX view loads directly</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:76</code><br>
+- <strong>Duration:</strong> 238ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-T1-n-21d2f-r-—-DMX-view-loads-directly-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T1: no tab bar — DMX view loads directly</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:76</code><br>
+- <strong>Duration:</strong> 220ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-T1-n-21d2f-r-—-DMX-view-loads-directly-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T1: no tab bar — DMX view loads directly</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:76</code><br>
+- <strong>Duration:</strong> 268ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-T1-n-21d2f-r-—-DMX-view-loads-directly-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ shows connection status indicator</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:87</code><br>
+- <strong>Duration:</strong> 194ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-shows-connection-status-indicator-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ shows connection status indicator</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:87</code><br>
+- <strong>Duration:</strong> 171ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-shows-connection-status-indicator-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ shows connection status indicator</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:87</code><br>
+- <strong>Duration:</strong> 195ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-shows-connection-status-indicator-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ topbar and grand master are visible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:92</code><br>
+- <strong>Duration:</strong> 185ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-topbar-and-grand-master-are-visible-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ topbar and grand master are visible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:92</code><br>
+- <strong>Duration:</strong> 196ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-topbar-and-grand-master-are-visible-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ topbar and grand master are visible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:92</code><br>
+- <strong>Duration:</strong> 164ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-App-Shell-topbar-and-grand-master-are-visible-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › screenshot-docs.spec.ts › Feature Screenshots</h2><br>
+<br>
+<h3>❌ T1+T3: DMX Control loads directly — no VC tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:43</code><br>
+- <strong>Duration:</strong> 239ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/screenshot-docs-Feature-Sc-b8502--loads-directly-—-no-VC-tab-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T5: Fixtures sorted by DMX address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:49</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T9: Model-based filter badges</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:54</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T6: Collapsible universe groups</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:66</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T4: Controls sorted by channel index</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:80</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T7: Auto-open raw + star for raw-only fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:88</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T8: Raw channels = ALL channels with read-only monitors</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:96</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: color picker change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:113</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: position pad change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:152</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: fader change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:184</code><br>
+- <strong>Duration:</strong> 0ms<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T1+T3: DMX Control loads directly — no VC tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:43</code><br>
+- <strong>Duration:</strong> 221ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/screenshot-docs-Feature-Sc-b8502--loads-directly-—-no-VC-tab-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T5: Fixtures sorted by DMX address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:49</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T9: Model-based filter badges</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:54</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T6: Collapsible universe groups</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:66</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T4: Controls sorted by channel index</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:80</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T7: Auto-open raw + star for raw-only fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:88</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T8: Raw channels = ALL channels with read-only monitors</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:96</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: color picker change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:113</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: position pad change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:152</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: fader change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:184</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T1+T3: DMX Control loads directly — no VC tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:43</code><br>
+- <strong>Duration:</strong> 225ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/screenshot-docs-Feature-Sc-b8502--loads-directly-—-no-VC-tab-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T5: Fixtures sorted by DMX address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:49</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T9: Model-based filter badges</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:54</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T6: Collapsible universe groups</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:66</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T4: Controls sorted by channel index</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:80</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T7: Auto-open raw + star for raw-only fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:88</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ T8: Raw channels = ALL channels with read-only monitors</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:96</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: color picker change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:113</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: position pad change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:152</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h3>⏭️ Cross-tab sync: fader change propagates</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/screenshot-docs.spec.ts:184</code><br>
+- <strong>Duration:</strong> 0ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › cross-tab-sync.spec.ts › Cross-Tab DMX Sync</h2><br>
+<br>
+<h3>❌ fader change in Tab A is reflected in Tab B</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:89</code><br>
+- <strong>Duration:</strong> 313ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader change in Tab A is reflected in Tab B</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:89</code><br>
+- <strong>Duration:</strong> 277ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium-retry1/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader change in Tab A is reflected in Tab B</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:89</code><br>
+- <strong>Duration:</strong> 326ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium-retry2/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-281a6-Tab-A-is-reflected-in-Tab-B-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader change in Tab B is reflected in Tab A</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:101</code><br>
+- <strong>Duration:</strong> 256ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader change in Tab B is reflected in Tab A</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:101</code><br>
+- <strong>Duration:</strong> 214ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium-retry1/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader change in Tab B is reflected in Tab A</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:101</code><br>
+- <strong>Duration:</strong> 216ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0ff6d-Tab-B-is-reflected-in-Tab-A-chromium-retry2/test-failed-2.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ rapid fader changes sync without diverging</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:114</code><br>
+- <strong>Duration:</strong> 224ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium/test-failed-2.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ rapid fader changes sync without diverging</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:114</code><br>
+- <strong>Duration:</strong> 244ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium-retry1/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ rapid fader changes sync without diverging</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:114</code><br>
+- <strong>Duration:</strong> 212ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-ee132-nges-sync-without-diverging-chromium-retry2/test-failed-2.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker change in one tab syncs RGB to another</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:151</code><br>
+- <strong>Duration:</strong> 253ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker change in one tab syncs RGB to another</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:151</code><br>
+- <strong>Duration:</strong> 270ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium-retry1/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker change in one tab syncs RGB to another</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:151</code><br>
+- <strong>Duration:</strong> 240ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-0a32e-ne-tab-syncs-RGB-to-another-chromium-retry2/test-failed-2.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ reset in one tab is observable in the other tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:206</code><br>
+- <strong>Duration:</strong> 322ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium/test-failed-2.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ reset in one tab is observable in the other tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:206</code><br>
+- <strong>Duration:</strong> 366ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium-retry1/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ reset in one tab is observable in the other tab</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/cross-tab-sync.spec.ts:206</code><br>
+- <strong>Duration:</strong> 240ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium-retry2/test-failed-2.png" alt="screenshot"><br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/cross-tab-sync-Cross-Tab-D-cad42-observable-in-the-other-tab-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Fixtures</h2><br>
+<br>
+<h3>❌ loads and displays fixture panels from GARAGE workspace</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:107</code><br>
+- <strong>Duration:</strong> 178ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-a3fd2-anels-from-GARAGE-workspace-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ loads and displays fixture panels from GARAGE workspace</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:107</code><br>
+- <strong>Duration:</strong> 194ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-a3fd2-anels-from-GARAGE-workspace-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ loads and displays fixture panels from GARAGE workspace</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:107</code><br>
+- <strong>Duration:</strong> 162ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-a3fd2-anels-from-GARAGE-workspace-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels show name and metadata</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:113</code><br>
+- <strong>Duration:</strong> 246ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-c2cba-nels-show-name-and-metadata-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels show name and metadata</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:113</code><br>
+- <strong>Duration:</strong> 301ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-c2cba-nels-show-name-and-metadata-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels show name and metadata</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:113</code><br>
+- <strong>Duration:</strong> 184ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-c2cba-nels-show-name-and-metadata-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels have a reset button</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:124</code><br>
+- <strong>Duration:</strong> 164ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-5e492--panels-have-a-reset-button-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels have a reset button</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:124</code><br>
+- <strong>Duration:</strong> 145ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-5e492--panels-have-a-reset-button-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture panels have a reset button</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:124</code><br>
+- <strong>Duration:</strong> 142ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-5e492--panels-have-a-reset-button-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture count is displayed in toolbar</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:130</code><br>
+- <strong>Duration:</strong> 159ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-fd2dc-unt-is-displayed-in-toolbar-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture count is displayed in toolbar</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:130</code><br>
+- <strong>Duration:</strong> 165ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-fd2dc-unt-is-displayed-in-toolbar-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fixture count is displayed in toolbar</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:130</code><br>
+- <strong>Duration:</strong> 145ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-fd2dc-unt-is-displayed-in-toolbar-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T5: fixtures sorted by universe·address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:135</code><br>
+- <strong>Duration:</strong> 151ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-1cea3--sorted-by-universe·address-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T5: fixtures sorted by universe·address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:135</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-1cea3--sorted-by-universe·address-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T5: fixtures sorted by universe·address</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:135</code><br>
+- <strong>Duration:</strong> 141ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-1cea3--sorted-by-universe·address-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T4: controls are sorted by channel within a fixture</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:152</code><br>
+- <strong>Duration:</strong> 157ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-72a8e-by-channel-within-a-fixture-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T4: controls are sorted by channel within a fixture</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:152</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-72a8e-by-channel-within-a-fixture-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T4: controls are sorted by channel within a fixture</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:152</code><br>
+- <strong>Duration:</strong> 149ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fi-72a8e-by-channel-within-a-fixture-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Search &amp; Filter</h2><br>
+<br>
+<h3>❌ search input filters fixtures by name</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:186</code><br>
+- <strong>Duration:</strong> 148ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-6a6fa-ut-filters-fixtures-by-name-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ search input filters fixtures by name</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:186</code><br>
+- <strong>Duration:</strong> 145ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-6a6fa-ut-filters-fixtures-by-name-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ search input filters fixtures by name</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:186</code><br>
+- <strong>Duration:</strong> 166ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-6a6fa-ut-filters-fixtures-by-name-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clearing search restores all fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:197</code><br>
+- <strong>Duration:</strong> 150ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-c68ed-earch-restores-all-fixtures-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clearing search restores all fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:197</code><br>
+- <strong>Duration:</strong> 150ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-c68ed-earch-restores-all-fixtures-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clearing search restores all fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:197</code><br>
+- <strong>Duration:</strong> 146ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-c68ed-earch-restores-all-fixtures-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: badges show model names (not types)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:206</code><br>
+- <strong>Duration:</strong> 146ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-9c894-show-model-names-not-types--chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: badges show model names (not types)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:206</code><br>
+- <strong>Duration:</strong> 177ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-9c894-show-model-names-not-types--chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: badges show model names (not types)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:206</code><br>
+- <strong>Duration:</strong> 145ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-9c894-show-model-names-not-types--chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: clicking a model badge filters to that model</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:231</code><br>
+- <strong>Duration:</strong> 135ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-2ce6f-badge-filters-to-that-model-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: clicking a model badge filters to that model</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:231</code><br>
+- <strong>Duration:</strong> 153ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-2ce6f-badge-filters-to-that-model-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T9: clicking a model badge filters to that model</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:231</code><br>
+- <strong>Duration:</strong> 134ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Se-2ce6f-badge-filters-to-that-model-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Universe Grouping</h2><br>
+<br>
+<h3>❌ T6: universe headers collapse and expand</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:262</code><br>
+- <strong>Duration:</strong> 138ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Un-d6c15-headers-collapse-and-expand-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T6: universe headers collapse and expand</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:262</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Un-d6c15-headers-collapse-and-expand-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T6: universe headers collapse and expand</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:262</code><br>
+- <strong>Duration:</strong> 144ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Un-d6c15-headers-collapse-and-expand-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Controls</h2><br>
+<br>
+<h3>❌ channel faders are rendered for fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:304</code><br>
+- <strong>Duration:</strong> 156ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-400f8-s-are-rendered-for-fixtures-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ channel faders are rendered for fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:304</code><br>
+- <strong>Duration:</strong> 143ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-400f8-s-are-rendered-for-fixtures-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ channel faders are rendered for fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:304</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-400f8-s-are-rendered-for-fixtures-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader shows value readout and name label</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:310</code><br>
+- <strong>Duration:</strong> 148ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-92f39-alue-readout-and-name-label-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader shows value readout and name label</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:310</code><br>
+- <strong>Duration:</strong> 151ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-92f39-alue-readout-and-name-label-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader shows value readout and name label</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:310</code><br>
+- <strong>Duration:</strong> 176ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-92f39-alue-readout-and-name-label-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader track has ARIA slider role</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:317</code><br>
+- <strong>Duration:</strong> 170ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-45b23--track-has-ARIA-slider-role-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader track has ARIA slider role</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:317</code><br>
+- <strong>Duration:</strong> 153ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-45b23--track-has-ARIA-slider-role-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ fader track has ARIA slider role</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:317</code><br>
+- <strong>Duration:</strong> 143ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-45b23--track-has-ARIA-slider-role-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clicking a fader track updates the value</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:323</code><br>
+- <strong>Duration:</strong> 164ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b73bd-der-track-updates-the-value-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clicking a fader track updates the value</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:323</code><br>
+- <strong>Duration:</strong> 184ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b73bd-der-track-updates-the-value-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ clicking a fader track updates the value</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:323</code><br>
+- <strong>Duration:</strong> 144ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b73bd-der-track-updates-the-value-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker is rendered for RGB fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:341</code><br>
+- <strong>Duration:</strong> 165ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-0ddee-s-rendered-for-RGB-fixtures-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker is rendered for RGB fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:341</code><br>
+- <strong>Duration:</strong> 139ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-0ddee-s-rendered-for-RGB-fixtures-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker is rendered for RGB fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:341</code><br>
+- <strong>Duration:</strong> 136ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-0ddee-s-rendered-for-RGB-fixtures-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker square responds to pointer interaction</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:349</code><br>
+- <strong>Duration:</strong> 152ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-03297-onds-to-pointer-interaction-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker square responds to pointer interaction</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:349</code><br>
+- <strong>Duration:</strong> 146ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-03297-onds-to-pointer-interaction-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ color picker square responds to pointer interaction</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:349</code><br>
+- <strong>Duration:</strong> 146ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-03297-onds-to-pointer-interaction-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position control is rendered for moving heads</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:370</code><br>
+- <strong>Duration:</strong> 138ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b33c7-s-rendered-for-moving-heads-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position control is rendered for moving heads</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:370</code><br>
+- <strong>Duration:</strong> 138ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b33c7-s-rendered-for-moving-heads-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position control is rendered for moving heads</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:370</code><br>
+- <strong>Duration:</strong> 137ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-b33c7-s-rendered-for-moving-heads-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position XY pad responds to click</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:377</code><br>
+- <strong>Duration:</strong> 187ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-07130-on-XY-pad-responds-to-click-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position XY pad responds to click</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:377</code><br>
+- <strong>Duration:</strong> 177ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-07130-on-XY-pad-responds-to-click-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ position XY pad responds to click</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:377</code><br>
+- <strong>Duration:</strong> 159ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Co-07130-on-XY-pad-responds-to-click-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Raw Auto-Open &amp; Star</h2><br>
+<br>
+<h3>❌ T7: HZ (raw-only fixture) auto-opens raw channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:401</code><br>
+- <strong>Duration:</strong> 156ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-bf694-ure-auto-opens-raw-channels-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: HZ (raw-only fixture) auto-opens raw channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:401</code><br>
+- <strong>Duration:</strong> 151ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-bf694-ure-auto-opens-raw-channels-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: HZ (raw-only fixture) auto-opens raw channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:401</code><br>
+- <strong>Duration:</strong> 178ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-bf694-ure-auto-opens-raw-channels-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: HERO (has primary controls) starts with raw closed</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:412</code><br>
+- <strong>Duration:</strong> 151ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-a3069-rols-starts-with-raw-closed-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: HERO (has primary controls) starts with raw closed</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:412</code><br>
+- <strong>Duration:</strong> 140ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-a3069-rols-starts-with-raw-closed-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: HERO (has primary controls) starts with raw closed</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:412</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-a3069-rols-starts-with-raw-closed-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: star indicator appears on fixtures with uncovered channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:422</code><br>
+- <strong>Duration:</strong> 155ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-b7a8c-res-with-uncovered-channels-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: star indicator appears on fixtures with uncovered channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:422</code><br>
+- <strong>Duration:</strong> 143ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-b7a8c-res-with-uncovered-channels-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T7: star indicator appears on fixtures with uncovered channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:422</code><br>
+- <strong>Duration:</strong> 163ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-b7a8c-res-with-uncovered-channels-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Raw All-Channels &amp; Read-Only</h2><br>
+<br>
+<h3>❌ T8: HERO raw lists all 23 channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:443</code><br>
+- <strong>Duration:</strong> 170ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-0493b-O-raw-lists-all-23-channels-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: HERO raw lists all 23 channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:443</code><br>
+- <strong>Duration:</strong> 140ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-0493b-O-raw-lists-all-23-channels-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: HERO raw lists all 23 channels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:443</code><br>
+- <strong>Duration:</strong> 167ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-0493b-O-raw-lists-all-23-channels-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: HERO raw has some read-only channels (covered by primary controls)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:459</code><br>
+- <strong>Duration:</strong> 142ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-fd7aa-overed-by-primary-controls--chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: HERO raw has some read-only channels (covered by primary controls)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:459</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-fd7aa-overed-by-primary-controls--chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: HERO raw has some read-only channels (covered by primary controls)</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:459</code><br>
+- <strong>Duration:</strong> 182ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-fd7aa-overed-by-primary-controls--chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: read-only fader does not respond to clicks</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:479</code><br>
+- <strong>Duration:</strong> 148ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-ece52--does-not-respond-to-clicks-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: read-only fader does not respond to clicks</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:479</code><br>
+- <strong>Duration:</strong> 152ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-ece52--does-not-respond-to-clicks-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ T8: read-only fader does not respond to clicks</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:479</code><br>
+- <strong>Duration:</strong> 143ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-ece52--does-not-respond-to-clicks-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Presets</h2><br>
+<br>
+<h3>❌ preset save button is visible on fixture panels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:508</code><br>
+- <strong>Duration:</strong> 150ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Pr-6aed2-s-visible-on-fixture-panels-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ preset save button is visible on fixture panels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:508</code><br>
+- <strong>Duration:</strong> 156ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Pr-6aed2-s-visible-on-fixture-panels-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ preset save button is visible on fixture panels</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:508</code><br>
+- <strong>Duration:</strong> 146ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Pr-6aed2-s-visible-on-fixture-panels-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Raw Channels</h2><br>
+<br>
+<h3>❌ raw channels section is collapsible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:520</code><br>
+- <strong>Duration:</strong> 151ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-d2de6-nels-section-is-collapsible-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ raw channels section is collapsible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:520</code><br>
+- <strong>Duration:</strong> 182ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-d2de6-nels-section-is-collapsible-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ raw channels section is collapsible</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:520</code><br>
+- <strong>Duration:</strong> 165ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Ra-d2de6-nels-section-is-collapsible-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › REST API</h2><br>
+<br>
+<h3>❌ GET /api/fixtures returns GARAGE fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:545</code><br>
+- <strong>Duration:</strong> 63ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/fixtures[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /api/fixtures returns GARAGE fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:545</code><br>
+- <strong>Duration:</strong> 51ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/fixtures[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /api/fixtures returns GARAGE fixtures</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:545</code><br>
+- <strong>Duration:</strong> 66ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/fixtures[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /api/channels returns channel details</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:559</code><br>
+- <strong>Duration:</strong> 51ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/channels[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /api/channels returns channel details</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:559</code><br>
+- <strong>Duration:</strong> 51ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/channels[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /api/channels returns channel details</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:559</code><br>
+- <strong>Duration:</strong> 56ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/api/channels[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /vc/ serves the SPA index.html</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:572</code><br>
+- <strong>Duration:</strong> 53ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/vc/[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /vc/ serves the SPA index.html</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:572</code><br>
+- <strong>Duration:</strong> 64ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/vc/[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h3>❌ GET /vc/ serves the SPA index.html</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:572</code><br>
+- <strong>Duration:</strong> 50ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: apiRequestContext.get: connect ECONNREFUSED 127.0.0.1:9999<br>
+Call log:<br>
+[2m  - → GET http://127.0.0.1:9999/vc/[22m<br>
+[2m    - user-agent: Playwright/1.59.1 (arm64; macOS 15.7) node/26.0[22m<br>
+[2m    - accept: */*[22m<br>
+[2m    - accept-encoding: gzip,deflate,br[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Fader Drag</h2><br>
+<br>
+<h3>❌ dragging a fader changes its value continuously</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:584</code><br>
+- <strong>Duration:</strong> 151ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fa-52302-nges-its-value-continuously-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ dragging a fader changes its value continuously</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:584</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fa-52302-nges-its-value-continuously-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ dragging a fader changes its value continuously</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:584</code><br>
+- <strong>Duration:</strong> 148ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Fa-52302-nges-its-value-continuously-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h2>chromium › web-control.spec.ts › DMX Panel — Reset</h2><br>
+<br>
+<h3>❌ reset button is clickable and sends reset command</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:606</code><br>
+- <strong>Duration:</strong> 168ms<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Re-adb28-ble-and-sends-reset-command-chromium/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ reset button is clickable and sends reset command</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:606</code><br>
+- <strong>Duration:</strong> 150ms<br>
+- <strong>Retries:</strong> 1<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Re-adb28-ble-and-sends-reset-command-chromium-retry1/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+<br>
+<h3>❌ reset button is clickable and sends reset command</h3><br>
+<br>
+- <strong>File:</strong> <code>e2e/web-control.spec.ts:606</code><br>
+- <strong>Duration:</strong> 133ms<br>
+- <strong>Retries:</strong> 2<br>
+<br>
+&lt;details&gt;&lt;summary&gt;Error&lt;/summary&gt;<br>
+<br>
+<code>`</code><br>
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:9999/vc/<br>
+Call log:<br>
+[2m  - navigating to "http://127.0.0.1:9999/vc/", waiting until "load"[22m<br>
+<br>
+<code>`</code><br>
+&lt;/details&gt;<br>
+<br>
+<strong>screenshot</strong><br>
+<br>
+<img src="../../test-results/web-control-DMX-Panel-—-Re-adb28-ble-and-sends-reset-command-chromium-retry2/test-failed-1.png" alt="screenshot"><br>
+<br>
+<hr><br>
+
+</body>
+</html>

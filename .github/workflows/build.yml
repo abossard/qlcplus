@@ -392,12 +392,12 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: webaccess/vc-next/package-lock.json
+          cache-dependency-path: webaccess/web-dmx/package-lock.json
 
-      - name: Build vc-next web app (Windows)
+      - name: Build web-dmx web app (Windows)
         if: ${{ matrix.task != 'build-v4' }}
         run: npm ci && npm run build
-        working-directory: webaccess/vc-next
+        working-directory: webaccess/web-dmx
 
       - name: Configure v4 build for Windows
         shell: msys2 {0}
@@ -552,11 +552,11 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: webaccess/vc-next/package-lock.json
+          cache-dependency-path: webaccess/web-dmx/package-lock.json
 
-      - name: Build vc-next web app
+      - name: Build web-dmx web app
         run: npm ci && npm run build
-        working-directory: webaccess/vc-next
+        working-directory: webaccess/web-dmx
 
       - name: Configure v4 build
         shell: bash
