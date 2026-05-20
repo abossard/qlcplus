@@ -93,6 +93,19 @@ void VCPage::adjustPageHeight()
         setGeometry(QRectF(current.x(), current.y(), current.width(), neededHeight));
 }
 
+bool VCPage::isEffectivelyVisible(const VCWidget *widget) const
+{
+    const VCWidget *current = widget;
+    while (current != nullptr)
+    {
+        if (current->isVisible() == false)
+            return false;
+        current = qobject_cast<const VCWidget *>(current->parent());
+    }
+
+    return true;
+}
+
 /*********************************************************************
  * External input
  *********************************************************************/
@@ -144,14 +157,15 @@ void VCPage::unMapInputSource(quint32 id, quint32 universe, quint32 channel,
 
     for (QPair<QSharedPointer<QLCInputSource>, VCWidget *> match : m_inputSourcesMap.values(key)) // C++11
     {
-        if (match.first->id() == id && match.first->page() == page)
+        if (match.second == widget &&
+            match.first->id() == id &&
+            match.first->page() == page)
         {
             m_inputSourcesMap.remove(key, match);
-
-            //qDebug() << "Multihash keys after deletion:" << m_inputSourcesMap.count(key);
-            return;
         }
     }
+
+    //qDebug() << "Multihash keys after deletion:" << m_inputSourcesMap.count(key);
 }
 
 void VCPage::mapChildrenInputSources()
@@ -196,11 +210,14 @@ void VCPage::inputValueChanged(quint32 inputSourceKey, uchar value)
      */
     for (QPair<QSharedPointer<QLCInputSource>, VCWidget *> match : m_inputSourcesMap.values(inputSourceKey)) // C++11
     {
+        bool passVisibility = isEffectivelyVisible(match.second);
+
         // make sure input signals always pass to frame widgets
         bool passDisable = (match.second->type() == VCWidget::FrameWidget) ||
                            (match.second->type() == VCWidget::SoloFrameWidget) ? true : !match.second->isDisabled();
 
-        if (passDisable == true &&
+        if (passVisibility == true &&
+            passDisable == true &&
             match.second->isEditing() == false &&
             match.first->page() == match.second->page())
         {
@@ -335,11 +352,14 @@ void VCPage::handleKeyEvent(QKeySequence &seq, bool pressed)
 {
     for (QPair<quint32, VCWidget *> match : m_keySequencesMap.values(seq)) // C++11
     {
+        bool passVisibility = isEffectivelyVisible(match.second);
+
         // make sure input signals always pass to frame widgets
         bool passDisable = (match.second->type() == VCWidget::FrameWidget) ||
                            (match.second->type() == VCWidget::SoloFrameWidget) ? true : !match.second->isDisabled();
 
-        if (passDisable == true &&
+        if (passVisibility == true &&
+            passDisable == true &&
             match.second->isEditing() == false)
         {
             // TODO: match frame page??

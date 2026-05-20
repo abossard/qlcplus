@@ -24,6 +24,7 @@
 #include "scenevalue.h"
 #include "listmodel.h"
 #include "tardis.h"
+#include "functionmanager.h"
 #include "scene.h"
 #include "doc.h"
 #include "app.h"
@@ -339,6 +340,12 @@ void SceneEditor::addComponent(int type, quint32 id)
 
 void SceneEditor::pasteToAllFixtureSameType()
 {
+    FunctionManager *functionManager = qobject_cast<FunctionManager*>(
+                m_view->rootContext()->contextProperty("functionManager").value<QObject*>());
+    bool editSequenceStep = (functionManager != nullptr &&
+                             functionManager->currentEditor() != nullptr &&
+                             functionManager->currentEditor()->functionType() == Function::SequenceType);
+
     for (SceneValue &scv : m_selectedChannels)
     {
         Fixture *sourceFixture = m_doc->fixture(scv.fxi);
@@ -357,8 +364,15 @@ void SceneEditor::pasteToAllFixtureSameType()
                 sourceFixture->fixtureMode() == destFixture->fixtureMode())
             {
                 SceneValue dstScv(dstFxId, scv.channel, currentValue);
-                m_scene->setValue(dstScv);
-                slotSceneValueChanged(dstScv);
+                if (editSequenceStep)
+                {
+                    functionManager->setChannelValue(dstScv.fxi, dstScv.channel, dstScv.value);
+                }
+                else
+                {
+                    m_scene->setValue(dstScv);
+                    slotSceneValueChanged(dstScv);
+                }
             }
         }
     }
@@ -577,4 +591,3 @@ void SceneEditor::cacheChannelValues()
     for (SceneValue &scv : m_scene->values())
         setCacheChannelValue(scv);
 }
-

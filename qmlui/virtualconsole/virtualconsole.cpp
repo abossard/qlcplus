@@ -145,6 +145,8 @@ void VirtualConsole::resetContents()
     foreach (VCPage *page, m_pages)
     {
         page->deleteChildren();
+        page->deleteAllInputSources();
+        page->deleteAllKeySequences();
         page->resetInputSourcesMap();
         page->resetProperties(pageIndex++);
     }
@@ -1415,6 +1417,13 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
         /** The widget reference must be not NULL, otherwise
          *  it means something went nuts */
         Q_ASSERT(m_autoDetectionWidget != nullptr);
+
+        const quint32 sourceId = m_autoDetectionSource->id();
+        const quint32 oldUniverse = m_autoDetectionSource->universe();
+        const quint32 oldChannel = m_autoDetectionSource->channel();
+
+        for (VCPage *page : m_pages) // C++11
+            page->unMapInputSource(sourceId, oldUniverse, oldChannel, m_autoDetectionWidget, true);
 
         m_autoDetectionWidget->updateInputSource(m_autoDetectionSource, universe, channel);
 

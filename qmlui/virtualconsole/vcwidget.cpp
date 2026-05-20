@@ -891,6 +891,9 @@ bool VCWidget::updateInputSource(QSharedPointer<QLCInputSource> const& source, q
     source->setChannel(channel);
     source->setPage(page());
 
+    // TODO: tardis
+    setDocModified();
+
     emit inputSourcesListChanged();
 
     return true;
@@ -919,7 +922,7 @@ bool VCWidget::updateInputSourceFeedbackValues(quint32 universe, quint32 channel
     source->setFeedbackValue(QLCInputFeedback::MonitorValue, monitor);
 
     // TODO: tardis
-    m_doc->setModified();
+    setDocModified();
 
     updateFeedback();
 
@@ -937,7 +940,7 @@ bool VCWidget::updateInputSourceExtraParams(quint32 universe, quint32 channel, i
     source->setFeedbackExtraParams(QLCInputFeedback::MonitorValue, monitor - 1);
 
     // TODO: tardis
-    m_doc->setModified();
+    setDocModified();
 
     updateFeedback();
 
@@ -955,10 +958,20 @@ void VCWidget::deleteInputSurce(quint32 id, quint32 universe, quint32 channel)
             m_inputSources.takeAt(i);
             source.clear();
 
+            // TODO: tardis
+            setDocModified();
+
             emit inputSourcesListChanged();
             break;
         }
     }
+}
+
+void VCWidget::deleteAllInputSources()
+{
+    m_inputSources.clear();
+
+    emit inputSourcesListChanged();
 }
 
 QList<QSharedPointer<QLCInputSource> > VCWidget::inputSources() const
@@ -1111,6 +1124,14 @@ void VCWidget::addKeySequence(const QKeySequence &keySequence, const quint32 &id
 void VCWidget::deleteKeySequence(const QKeySequence &keySequence)
 {
     m_keySequenceMap.remove(keySequence);
+    setDocModified();
+
+    emit inputSourcesListChanged();
+}
+
+void VCWidget::deleteAllKeySequences()
+{
+    m_keySequenceMap.clear();
     setDocModified();
 
     emit inputSourcesListChanged();

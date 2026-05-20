@@ -170,6 +170,8 @@ VCCueList::VCCueList(QWidget *parent, Doc *doc) : VCWidget(parent, doc)
             this, SLOT(slotItemActivated(QTreeWidgetItem*)));
     connect(m_tree, SIGNAL(itemChanged(QTreeWidgetItem*,int)),
             this, SLOT(slotItemChanged(QTreeWidgetItem*,int)));
+    connect(m_tree, SIGNAL(itemDoubleClicked(QTreeWidgetItem *, int)),
+            this, SLOT(slotItemDoubleClicked(QTreeWidgetItem *, int)));
     vbox->addWidget(m_tree);
 
     m_progress = new QProgressBar(this);
@@ -895,6 +897,16 @@ void VCCueList::slotStepNoteChanged(int idx, QString note)
     ch->replaceStep(step, idx);
 }
 
+void VCCueList::slotItemDoubleClicked(QTreeWidgetItem *item, int column)
+{
+    Q_UNUSED(column)
+
+    if (mode() != Doc::Operate)
+        return;
+
+    playCueAtIndex(m_tree->indexOfTopLevelItem(item));
+}
+
 void VCCueList::slotFunctionRunning(quint32 fid)
 {
     if (fid != m_chaserID)
@@ -914,6 +926,7 @@ void VCCueList::slotFunctionStopped(quint32 fid)
     if (fid != m_chaserID)
         return;
 
+    resetIntensityOverrideAttribute();
     m_playbackButton->setIcon(QIcon(":/player_play.png"));
     m_topStepLabel->setText("");
     m_topStepLabel->setStyleSheet(cfLabelNoStyle);

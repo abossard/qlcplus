@@ -197,8 +197,13 @@ Column
                         item.isCheckable = model.isCheckable
                         item.isChecked = Qt.binding(function() { return model.isChecked })
                         item.dragItem = dragItem
-                        if (model.hasOwnProperty("type") && item.hasOwnProperty("itemType"))
-                            item.itemType = type
+                        if (item.hasOwnProperty("itemType"))
+                        {
+                            if (typeof type !== "undefined")
+                                item.itemType = type
+                            else if (model && model.type !== undefined)
+                                item.itemType = model.type
+                        }
 
                         if (item.hasOwnProperty('itemIcon'))
                             item.itemIcon = nodeContainer.itemIcon
@@ -226,7 +231,7 @@ Column
                         {
                             item.nodePath = Qt.binding(function() { return nodePath + '`' + path })
                             item.isExpanded = Qt.binding(function() { return isExpanded })
-                            item.nodeChildren = childrenModel
+                            item.nodeChildren = Qt.binding(function() { return childrenModel })
                             if (item.hasOwnProperty('dropKeys'))
                                 item.dropKeys = Qt.binding(function() { return nodeContainer.dropKeys })
                             if (item.hasOwnProperty('childrenDelegate'))
