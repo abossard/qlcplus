@@ -103,6 +103,14 @@ Key files:
 - **Tool annotations**: Use `mcp::kAnnotReadOnly`, `mcp::kAnnotIdempotent`, `mcp::kAnnotDestructive`.
 - **MCP tool schemas**: Must be valid JSON Schema. Do NOT use `oneOf`, `anyOf`, or `allOf` — they are not supported by MCP clients. Use `"type": "string"` with a description explaining accepted formats instead.
 
+## Code Intelligence (CodeGraph)
+
+A codegraph MCP server is configured in `.mcp.json` and indexes the entire codebase (~1,530 files, 24,650 symbols). **Prefer codegraph tools over grep/glob** for symbol lookups, call graph traversal, architecture questions, and impact analysis.
+
+**Canonical reference:** `AGENTS.md` (tool catalog, anti-patterns, examples).
+
+Quick preference order: `codegraph_context` (start here) → `codegraph_files` (replaces glob) → `codegraph_explore` (multi-symbol source) → individual tools → `grep`/`glob` (fallback for literal text).
+
 ### Widget Types
 
 Known types (case-sensitive strings used in MCP): `button`, `slider`, `xypad`, `frame`, `soloframe`, `speedDial`, `cuelist`, `label`, `audioTrigger`, `matrix`, `clock`.

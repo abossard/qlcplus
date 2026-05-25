@@ -117,6 +117,14 @@ Key files:
 - **MCP JSON Schema**: Do NOT use `oneOf`, `anyOf`, `allOf` — MCP clients don't support them. Use `"type": "string"` with descriptive text instead.
 - **Widget types** (case-sensitive): `button`, `slider`, `xypad`, `frame`, `soloframe`, `speedDial`, `cuelist`, `label`, `audioTrigger`, `matrix`, `clock`.
 
+## Code Intelligence (CodeGraph)
+
+A codegraph MCP server is configured in `.mcp.json` and indexes the entire codebase (~1,530 files, 24,650 symbols). **Prefer codegraph tools over grep/glob** for symbol lookups, call graph traversal, architecture questions, and impact analysis.
+
+**Canonical reference:** `AGENTS.md` (tool catalog, anti-patterns, examples). Additional rules are auto-injected via `.claude/CLAUDE.md`.
+
+Quick preference order: `codegraph_context` (start here) → `codegraph_files` (replaces glob) → `codegraph_explore` (multi-symbol source) → individual tools → `grep`/`glob` (fallback for literal text).
+
 ## Build Flags
 
 - `-Dqmlui=ON` — Build v5 QML UI (produces `qlcplus-qml`)
