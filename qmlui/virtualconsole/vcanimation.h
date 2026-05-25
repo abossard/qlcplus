@@ -22,6 +22,7 @@
 
 #include "vcwidget.h"
 #include "rgbalgorithm.h"
+#include "rgbscriptproperty.h"
 #include <QVariantList>
 
 #define KXMLQLCVCAnimation             QStringLiteral("Matrix")
@@ -210,6 +211,16 @@ public:
 public slots:
     /** @reimp */
     void slotInputValueChanged(quint8 id, uchar value) override;
+
+private:
+    /** Re-register external control slots for the current algorithm's properties */
+    void refreshParameterControls();
+
+    /** Cached script properties for the current algorithm */
+    QList<RGBScriptProperty> m_currentProperties;
+
+    /** Map from external control ID to property name */
+    QMap<quint8, QString> m_paramIdToName;
 
     /*********************************************************************
      * Load & Save

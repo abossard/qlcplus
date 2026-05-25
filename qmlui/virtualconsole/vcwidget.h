@@ -97,8 +97,8 @@ class VCWidget : public QObject
     Q_PROPERTY(bool supportsPresets READ supportsPresets CONSTANT)
     Q_PROPERTY(QString presetsResource READ presetsResource CONSTANT)
 
-    Q_PROPERTY(int externalControlsCount READ externalControlsCount CONSTANT)
-    Q_PROPERTY(QVariant externalControlsList READ externalControlsList CONSTANT)
+    Q_PROPERTY(int externalControlsCount READ externalControlsCount NOTIFY externalControlsChanged)
+    Q_PROPERTY(QVariant externalControlsList READ externalControlsList NOTIFY externalControlsChanged)
     Q_PROPERTY(QVariantList inputSourcesList READ inputSourcesList NOTIFY inputSourcesListChanged)
 
     /*********************************************************************
@@ -190,7 +190,8 @@ public:
         LabelWidget,
         AudioTriggersWidget,
         AnimationWidget,
-        ClockWidget
+        ClockWidget,
+        RecordPanelWidget
     };
     Q_ENUM(WidgetType)
 
@@ -610,6 +611,7 @@ public slots:
     void slotInputSourceValueChanged(quint32 universe, quint32 channel, uchar value);
 
 signals:
+    void externalControlsChanged();
     void inputSourcesListChanged();
 
 protected:

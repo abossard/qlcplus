@@ -23,10 +23,13 @@
 
 #include "doc.h"
 #include "rgbmatrix.h"
+#include "rgbscriptv4.h"
 #include "vcanimation.h"
 #include "tardis.h"
 
-#define INPUT_FADER_ID 0
+#define INPUT_FADER_ID      0
+#define INPUT_ALGORITHM_ID  1
+#define INPUT_PARAM_BASE_ID 10
 
 VCAnimation::VCAnimation(Doc *doc, QObject *parent)
     : VCWidget(doc, parent)
@@ -39,6 +42,7 @@ VCAnimation::VCAnimation(Doc *doc, QObject *parent)
     setType(VCWidget::AnimationWidget);
 
     registerExternalControl(INPUT_FADER_ID, tr("Intensity"), true);
+    registerExternalControl(INPUT_ALGORITHM_ID, tr("Algorithm"), false);
 
     m_visibilityMask = defaultVisibilityMask();
 
@@ -200,6 +204,8 @@ void VCAnimation::setFunctionID(quint32 newFunctionID)
     emit color5Changed();
     emit colorsChanged();
     emit algorithmIndexChanged();
+
+    refreshParameterControls();
 }
 
 int VCAnimation::faderLevel() const
@@ -470,6 +476,8 @@ void VCAnimation::setAlgorithmIndex(int index)
     }
 
     emit algorithmIndexChanged();
+
+    refreshParameterControls();
 }
 
 void VCAnimation::updateFeedback()
@@ -477,10 +485,105 @@ void VCAnimation::updateFeedback()
 
 }
 
+void VCAnimation::refreshParameterControls()
+{
+    // Unregister all existing parameter controls
+    for (auto it = m_paramIdToName.constBegin(); it != m_paramIdToName.constEnd(); ++it)
+        unregisterExternalControl(it.key());
+
+    m_currentProperties.clear();
+    m_paramIdToName.clear();
+
+    if (m_functionID == Function::invalidId())
+        return;
+
+    // Use m_localAlgorithmIndex to look up properties, not the live matrix.
+    // The matrix's algorithm lags behind due to attribute overrides applied
+    // on the next MasterTimer round.
+    QStringList algoList = algorithms();
+    if (m_localAlgorithmIndex < 0 || m_localAlgorithmIndex >= algoList.count())
+        return;
+
+    RGBAlgorithm *algo = RGBAlgorithm::algorithm(m_doc, algoList.at(m_localAlgorithmIndex));
+    if (algo == nullptr || algo->type() != RGBAlgorithm::Script)
+    {
+        delete algo;
+        return;
+    }
+
+    RGBScript *script = static_cast<RGBScript *>(algo);
+    QList<RGBScriptProperty> props = script->properties();
+    delete algo;
+
+    quint8 paramIndex = 0;
+    for (const RGBScriptProperty &prop : props)
+    {
+        if (prop.m_type != RGBScriptProperty::Range && prop.m_type != RGBScriptProperty::List)
+            continue;
+
+        quint8 controlId = INPUT_PARAM_BASE_ID + paramIndex;
+        QString label = prop.m_displayName.isEmpty() ? prop.m_name : prop.m_displayName;
+        registerExternalControl(controlId, label, false);
+        m_paramIdToName.insert(controlId, prop.m_name);
+        m_currentProperties.append(prop);
+        paramIndex++;
+    }
+}
+
 void VCAnimation::slotInputValueChanged(quint8 id, uchar value)
 {
     if (id == INPUT_FADER_ID)
+    {
         setFaderLevel(value);
+        return;
+    }
+
+    if (id == INPUT_ALGORITHM_ID)
+    {
+        QStringList algoList = algorithms();
+        if (algoList.isEmpty())
+            return;
+        int index = value * (algoList.count() - 1) / 255;
+        setAlgorithmIndex(index);
+        return;
+    }
+
+    if (id >= INPUT_PARAM_BASE_ID)
+    {
+        QString propName = m_paramIdToName.value(id);
+        if (propName.isEmpty())
+            return;
+
+        RGBMatrix *matrix = currentMatrix();
+        if (matrix == nullptr)
+            return;
+
+        // Find the matching property for type info
+        for (const RGBScriptProperty &prop : m_currentProperties)
+        {
+            if (prop.m_name != propName)
+                continue;
+
+            QString mappedValue;
+            if (prop.m_type == RGBScriptProperty::Range)
+            {
+                int mapped = prop.m_rangeMinValue +
+                    value * (prop.m_rangeMaxValue - prop.m_rangeMinValue) / 255;
+                mappedValue = QString::number(mapped);
+            }
+            else if (prop.m_type == RGBScriptProperty::List)
+            {
+                int count = prop.m_listValues.count();
+                if (count == 0)
+                    return;
+                int index = value * (count - 1) / 255;
+                mappedValue = prop.m_listValues.at(index);
+            }
+
+            matrix->setProperty(propName, mappedValue);
+            return;
+        }
+    }
 }
 
 RGBMatrix *VCAnimation::currentMatrix() const
@@ -636,8 +739,11 @@ bool VCAnimation::saveXML(QXmlStreamWriter *doc) const
     if (m_visibilityMask != defaultVisibilityMask())
         doc->writeTextElement(KXMLQLCVCAnimationVisibilityMask, QString::number(m_visibilityMask));
 
-    /* External control */
+    /* External controls */
     saveXMLInputControl(doc, INPUT_FADER_ID, false);
+    saveXMLInputControl(doc, INPUT_ALGORITHM_ID, false);
+    for (auto it = m_paramIdToName.constBegin(); it != m_paramIdToName.constEnd(); ++it)
+        saveXMLInputControl(doc, it.key(), false);
 
     /* Write the <end> tag */
     doc->writeEndElement();

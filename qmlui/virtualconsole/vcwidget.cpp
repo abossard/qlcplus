@@ -235,6 +235,7 @@ QString VCWidget::typeToString(int type)
         case AudioTriggersWidget: return QString(tr("Audio Triggers"));
         case AnimationWidget: return QString(tr("Animation"));
         case ClockWidget: return QString(tr("Clock"));
+        case RecordPanelWidget: return QString(tr("Record Panel"));
         case UnknownWidget:
         default:
             return QString(tr("Unknown"));
@@ -257,6 +258,7 @@ QString VCWidget::typeToIcon(int type)
         case AudioTriggersWidget: return QString("qrc:/audioinput.svg");
         case AnimationWidget: return QString("qrc:/rgbmatrix.svg");
         case ClockWidget: return QString("qrc:/clock.svg");
+        case RecordPanelWidget: return QString("qrc:/recordpanel.svg");
         case UnknownWidget:
         default:
              return QString("qrc:/virtualconsole.svg");
@@ -278,6 +280,7 @@ VCWidget::WidgetType VCWidget::stringToType(QString str)
     else if (str == "Audio Triggers") return AudioTriggersWidget;
     else if (str == "Animation") return AnimationWidget;
     else if (str == "Clock") return ClockWidget;
+    else if (str == "Record Panel") return RecordPanelWidget;
 
     return UnknownWidget;
 }
@@ -666,12 +669,18 @@ void VCWidget::registerExternalControl(quint8 id, QString name, bool allowKeyboa
     info.allowKeyboard = allowKeyboard;
 
     m_externalControlList.insert(id, info);
+    emit externalControlsChanged();
+    emit inputSourcesListChanged();
 }
 
 bool VCWidget::unregisterExternalControl(quint8 id)
 {
     if (m_externalControlList.remove(id))
+    {
+        emit externalControlsChanged();
+        emit inputSourcesListChanged();
         return true;
+    }
 
     return false;
 }
