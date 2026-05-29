@@ -144,7 +144,27 @@ void VCSlider::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCSlider::render(QQuickView *view, QQuickItem *parent)
 {
-    initRenderItem(view, parent, "qrc:/VCSliderItem.qml", "sliderObj");
+    if (view == nullptr || parent == nullptr)
+        return;
+
+    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCSliderItem.qml"));
+
+    if (component->isError())
+    {
+        qDebug() << component->errors();
+        delete component;
+        return;
+    }
+
+    m_item = qobject_cast<QQuickItem*>(component->create());
+    if (m_item == nullptr)
+        qWarning() << Q_FUNC_INFO << "Unable to create slider component" << component->errors();
+    delete component;
+    if (m_item == nullptr)
+        return;
+
+    m_item->setParentItem(parent);
+    m_item->setProperty("sliderObj", QVariant::fromValue(this));
 }
 
 QString VCSlider::propertiesResource() const

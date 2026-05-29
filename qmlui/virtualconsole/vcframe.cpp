@@ -92,8 +92,27 @@ void VCFrame::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCFrame::render(QQuickView *view, QQuickItem *parent)
 {
-    if (!initRenderItem(view, parent, "qrc:/VCFrameItem.qml", "frameObj"))
+    if (view == nullptr || parent == nullptr)
         return;
+
+    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCFrameItem.qml"));
+
+    if (component->isError())
+    {
+        qDebug() << component->errors();
+        delete component;
+        return;
+    }
+
+    m_item = qobject_cast<QQuickItem*>(component->create());
+    if (m_item == nullptr)
+        qWarning() << Q_FUNC_INFO << "Unable to create frame component" << component->errors();
+    delete component;
+    if (m_item == nullptr)
+        return;
+
+    m_item->setParentItem(parent);
+    m_item->setProperty("frameObj", QVariant::fromValue(this));
 
     if (m_pagesMap.count() > 0)
     {

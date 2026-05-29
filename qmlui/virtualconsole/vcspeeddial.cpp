@@ -101,7 +101,27 @@ void VCSpeedDial::setupLookAndFeel(qreal pixelDensity, int page)
 
 void VCSpeedDial::render(QQuickView *view, QQuickItem *parent)
 {
-    initRenderItem(view, parent, "qrc:/VCSpeedDialItem.qml", "speedObj");
+    if (view == nullptr || parent == nullptr)
+        return;
+
+    QQmlComponent *component = new QQmlComponent(view->engine(), QUrl("qrc:/VCSpeedDialItem.qml"));
+
+    if (component->isError())
+    {
+        qDebug() << component->errors();
+        delete component;
+        return;
+    }
+
+    m_item = qobject_cast<QQuickItem*>(component->create());
+    if (m_item == nullptr)
+        qWarning() << Q_FUNC_INFO << "Unable to create speed dial component" << component->errors();
+    delete component;
+    if (m_item == nullptr)
+        return;
+
+    m_item->setParentItem(parent);
+    m_item->setProperty("speedObj", QVariant::fromValue(this));
 }
 
 QString VCSpeedDial::propertiesResource() const

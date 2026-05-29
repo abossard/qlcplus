@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(qlcplus VERSION 4.14.2 LANGUAGES C CXX)
+project(qlcplus VERSION 4.14.4 LANGUAGES C CXX)
 
 option(qmlui "Build for QLC+ 5 QML UI" OFF)
 option(mcp_server "Build MCP server for AI agent integration" OFF)
