@@ -351,7 +351,7 @@ Rectangle
                     drag.threshold: 10
                     drag.target: parent
 
-                    onReleased:
+                    onReleased: (mouse) =>
                     {
                         if (drag.active)
                         {

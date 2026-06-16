@@ -40,6 +40,7 @@ class FunctionManager;
 class FunctionWizardManager;
 class QXmlStreamReader;
 class FixtureGroupEditor;
+class FixtureRemapManager;
 class InputOutputManager;
 class ImportManager;
 class NetworkManager;
@@ -231,6 +232,7 @@ private:
     bool m_is3dSupported;
 
     QTranslator *m_translator;
+    QTranslator *m_translator_base;
 
     FixtureBrowser *m_fixtureBrowser;
     FixtureManager *m_fixtureManager;
@@ -411,6 +413,7 @@ public:
 
 private:
     ImportManager *m_importManager;
+    FixtureRemapManager *m_fixtureRemapManager;
 
     /*********************************************************************
      * Fixture editor

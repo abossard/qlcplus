@@ -160,7 +160,7 @@ Rectangle
                 "layers": sceneEntity.selectionLayer,
             });
 
-            var texChainTargets = [texChainTarget0, texChainTarget1, texChainTarget2, texChainTarget3, texChainTarget4]         
+            var texChainTargets = [texChainTarget0, texChainTarget1, texChainTarget2, texChainTarget3, texChainTarget4]
             var texChainTextures = [texChainTexture0, texChainTexture1, texChainTexture2, texChainTexture3, texChainTexture4]
 
             var TEX_CHAIN_LEN = texChainTargets.length
@@ -324,7 +324,7 @@ Rectangle
             {
                 "inTexture": hdr0ColorTexture,
                 "outRenderTarget": hdr1RenderTarget,
-                "screenQuadFXAALayer": screenQuadFXAAEntity.quadLayer       
+                "screenQuadFXAALayer": screenQuadFXAAEntity.quadLayer
             });
 
             component = Qt.createComponent("BlitFilter.qml");
@@ -536,7 +536,7 @@ Rectangle
                 quadLayer: Layer { }
                 quadEffect: FXAAEffect { }
             }
-    
+
             GenericScreenQuadEntity
             {
                 id: screenQuadBlitEntity
@@ -765,7 +765,7 @@ Rectangle
                         texture: texChainTexture4
                     }
                 ] // attachments
-            }   
+            }
 
             property Texture2D hdr0ColorTexture:
                 Texture2D

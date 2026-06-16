@@ -109,6 +109,9 @@ public:
     /** Friendly name of the assigned input line */
     QString inputName() const;
 
+    /** Stable UID of the assigned input line, used for project XML persistence */
+    QString inputUID() const;
+
     /** Assigned input profile instance */
     QLCInputProfile* profile() const;
 

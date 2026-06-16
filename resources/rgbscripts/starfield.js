@@ -133,7 +133,7 @@ var testAlgo;
       // start moving the stars
       for (var i = 0; i < algo.presetStars - 1; i++) {
 
-        // decrease depth on each pass through 
+        // decrease depth on each pass through
         if (height >= width) { stars[i].z -= height / (height / 4); }
         else { stars[i].z -= width / (width / 4); }
 

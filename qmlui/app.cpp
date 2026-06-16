@@ -26,6 +26,7 @@
 #include <QOpenGLContext>
 #include <QPrintDialog>
 #include <QApplication>
+#include <QLibraryInfo>
 #include <QTranslator>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -51,6 +52,7 @@
 #include "virtualconsole.h"
 #include "fixturebrowser.h"
 #include "fixturemanager.h"
+#include "fixtureremapmanager.h"
 #include "palettemanager.h"
 #include "functionmanager.h"
 #include "functionwizardmanager.h"
@@ -84,6 +86,7 @@ App::App()
     , m_accessMask(defaultMask())
     , m_is3dSupported(true)
     , m_translator(nullptr)
+    , m_translator_base(nullptr)
     , m_fixtureBrowser(nullptr)
     , m_fixtureManager(nullptr)
     , m_contextManager(nullptr)
@@ -100,6 +103,7 @@ App::App()
     , m_printItem(nullptr)
     , m_fileName(QString())
     , m_importManager(nullptr)
+    , m_fixtureRemapManager(nullptr)
     , m_fixtureEditor(nullptr)
 {
     QSettings settings;
@@ -179,6 +183,7 @@ void App::startup()
     m_fixtureBrowser = new FixtureBrowser(this, m_doc);
     m_fixtureManager = new FixtureManager(this, m_doc);
     m_fixtureGroupEditor = new FixtureGroupEditor(this, m_doc, m_fixtureManager);
+    m_fixtureRemapManager = new FixtureRemapManager(this, m_doc);
     m_functionManager = new FunctionManager(this, m_doc);
     m_simpleDesk = new SimpleDesk(this, m_doc, m_functionManager);
     m_contextManager = new ContextManager(this, m_doc, m_fixtureManager, m_functionManager);
@@ -320,16 +325,28 @@ void App::setLanguage(QString locale)
         QCoreApplication::removeTranslator(m_translator);
         delete m_translator;
     }
+    if (m_translator_base != nullptr)
+    {
+        QCoreApplication::removeTranslator(m_translator_base);
+        delete m_translator_base;
+    }
 
     QString translationPath = QLCFile::systemDirectory(TRANSLATIONDIR).absolutePath();
 
     if (locale.isEmpty() == true)
         locale = QLocale::system().name();
 
-    QString file(QString("%1_%2").arg("qlcplus").arg(locale));
     m_translator = new QTranslator(QCoreApplication::instance());
-    if (m_translator->load(file, translationPath) == true)
+    if (m_translator->load("qlcplus_" + locale, translationPath) == true)
         QCoreApplication::installTranslator(m_translator);
+
+    m_translator_base = new QTranslator(QCoreApplication::instance());
+#if defined(Q_OS_MACOS)
+    if (m_translator_base->load("qtbase_" + locale, translationPath))
+#else
+    if (m_translator_base->load("qt_" + locale, QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+#endif
+        QCoreApplication::installTranslator(m_translator_base);
 
     QSettings settings;
     settings.setValue(SETTINGS_LANGUAGE, locale);

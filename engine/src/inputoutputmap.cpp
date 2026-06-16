@@ -18,7 +18,7 @@
 */
 
 #if defined(WIN32) || defined(Q_OS_WIN)
-#	include <Windows.h>
+#   include <Windows.h>
 #else
 #   include <unistd.h>
 #endif
@@ -151,11 +151,9 @@ bool InputOutputMap::addUniverse(quint32 id)
         }
         else if (id > universesCount())
         {
-#ifdef AUDIO_DEBUG
             qDebug() << Q_FUNC_INFO
                 << "Gap between universe" << (universesCount() - 1)
                 << "and universe" << id << ", filling the gap...";
-#endif
             while (id > universesCount())
             {
                 uni = new Universe(universesCount(), m_grandMaster);
@@ -397,8 +395,8 @@ void InputOutputMap::flushInputs()
 }
 
 bool InputOutputMap::setInputPatch(quint32 universe, const QString &pluginName,
-                                   const QString &inputUID, quint32 input,
-                                   const QString &profileName)
+                                   const QString &inputUID, const QString &inputName,
+                                   quint32 input, const QString &profileName)
 {
     /* Check that the universe that we're doing mapping for is valid */
     if (universe >= universesCount())
@@ -424,23 +422,24 @@ bool InputOutputMap::setInputPatch(quint32 universe, const QString &pluginName,
     InputPatch *ip = NULL;
     QLCIOPlugin *plugin = m_doc->ioPluginCache()->plugin(pluginName);
 
-    if (!inputUID.isEmpty() && plugin != NULL)
+    if (plugin != NULL)
     {
-        QStringList inputs = plugin->inputs();
-        int lIdx = inputs.indexOf(inputUID);
+        int lIdx = -1;
+        // 1. Match by stable UID
+        if (!inputUID.isEmpty())
+            lIdx = plugin->inputsUID().indexOf(inputUID);
+        // 2. Match by display name
+        if (lIdx == -1 && !inputName.isEmpty())
+            lIdx = plugin->inputs().indexOf(inputName);
+        // 3. Fall back to saved line number
         if (lIdx != -1)
         {
-#ifdef AUDIO_DEBUG
-            qDebug() << "[IOMAP] Found match on input by name on universe" << universe << "-" << input << "vs" << lIdx;
-#endif
+            qDebug() << "[IOMAP] Found match on input on universe" << universe << "line" << lIdx;
             input = lIdx;
         }
         else
         {
-#ifdef AUDIO_DEBUG
-            qDebug() << "[IOMAP] !!No match found!! for input on universe" << universe << "-" << input << inputUID;
-            qDebug() << plugin->inputs();
-#endif
+            qDebug() << "[IOMAP] !!No match found!! for input on universe" << universe << "uid:" << inputUID << "name:" << inputName;
         }
     }
 
@@ -489,8 +488,8 @@ bool InputOutputMap::setInputProfile(quint32 universe, const QString &profileNam
 }
 
 bool InputOutputMap::setOutputPatch(quint32 universe, const QString &pluginName,
-                                    const QString &outputUID, quint32 output,
-                                    bool isFeedback, int index)
+                                    const QString &outputUID, const QString &outputName,
+                                    quint32 output, bool isFeedback, int index)
 {
     /* Check that the universe that we're doing mapping for is valid */
     if (universe >= universesCount())
@@ -502,23 +501,24 @@ bool InputOutputMap::setOutputPatch(quint32 universe, const QString &pluginName,
     QMutexLocker locker(&m_universeMutex);
     QLCIOPlugin *plugin = m_doc->ioPluginCache()->plugin(pluginName);
 
-    if (!outputUID.isEmpty() && plugin != NULL)
+    if (plugin != NULL)
     {
-        QStringList inputs = plugin->outputs();
-        int lIdx = inputs.indexOf(outputUID);
+        int lIdx = -1;
+        // 1. Match by stable UID
+        if (!outputUID.isEmpty())
+            lIdx = plugin->outputsUID().indexOf(outputUID);
+        // 2. Match by display name
+        if (lIdx == -1 && !outputName.isEmpty())
+            lIdx = plugin->outputs().indexOf(outputName);
+        // 3. Fall back to saved line number
         if (lIdx != -1)
         {
-#ifdef AUDIO_DEBUG
-            qDebug() << "[IOMAP] Found match on output by name on universe" << universe << "-" << output << "vs" << lIdx;
-#endif
+            qDebug() << "[IOMAP] Found match on output on universe" << universe << "line" << lIdx;
             output = lIdx;
         }
         else
         {
-#ifdef AUDIO_DEBUG
-            qDebug() << "[IOMAP] !!No match found!! for output on universe" << universe << "-" << output << outputUID;
-            qDebug() << plugin->outputs();
-#endif
+            qDebug() << "[IOMAP] !!No match found!! for output on universe" << universe << "uid:" << outputUID << "name:" << outputName;
         }
     }
 
@@ -879,9 +879,7 @@ QLCInputProfile* InputOutputMap::profile(const QString& name)
 
         m_localProfilesLoaded = true;
 
-#ifdef AUDIO_DEBUG
         qDebug() << "Input profile" << name << "not found. Attempt to load it from" << m_doc->workspacePath();
-#endif
         QDir localDir(m_doc->workspacePath());
         localDir.setFilter(QDir::Files);
         localDir.setNameFilters(QStringList() << QString("*%1").arg(KExtInputProfile));
@@ -1032,14 +1030,11 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
     if (m_beatGeneratorType == Audio)
     {
         m_inputCapture->unregisterBandsNumber(4);
-        disconnect(m_inputCapture, SIGNAL(aubioDataReady(AubioResults,quint32)),
-                   this, SLOT(slotProcessAubioData(AubioResults,quint32)));
+        disconnect(m_inputCapture, SIGNAL(beatDetected()), this, SLOT(slotProcessBeat()));
     }
 
     m_beatGeneratorType = type;
-#ifdef AUDIO_DEBUG
     qDebug() << "[InputOutputMap] setting beat type:" << m_beatGeneratorType;
-#endif
 
     switch (m_beatGeneratorType)
     {
@@ -1065,9 +1060,7 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
             m_beatTime->restart();
             QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
             m_inputCapture = capture.data();
-            connect(m_inputCapture, SIGNAL(aubioDataReady(AubioResults,quint32)),
-                    this, SLOT(slotProcessAubioData(AubioResults,quint32)),
-                    Qt::QueuedConnection);
+            connect(m_inputCapture, SIGNAL(beatDetected()), this, SLOT(slotProcessBeat()));
             m_inputCapture->registerBandsNumber(4);
         }
         break;
@@ -1114,6 +1107,7 @@ void InputOutputMap::setBpmNumber(int bpm)
     if (m_beatGeneratorType == Disabled || bpm == m_currentBPM)
         return;
 
+    //qDebug() << "[InputOutputMap] set BPM to" << bpm;
     m_currentBPM = bpm;
 
     if (bpm != 0)
@@ -1158,30 +1152,15 @@ void InputOutputMap::slotMasterTimerBeat()
     emit beat();
 }
 
-void InputOutputMap::slotProcessAubioData(const AubioResults &results, quint32 power)
-{
-    Q_UNUSED(power)
-    if (m_beatGeneratorType != Audio)
-        return;
-
-    if (results.bpm > 0)
-        setBpmNumber(qRound(results.bpm));
-
-    if (results.beat)
-    {
-        m_doc->masterTimer()->requestBeat();
-        emit beat();
-    }
-}
-
 void InputOutputMap::slotPluginBeat(quint32 universe, quint32 channel, uchar value, const QString &key)
 {
     Q_UNUSED(universe)
-    Q_UNUSED(channel)
 
     // not interested in synthetic release or non-beat event
     if (m_beatGeneratorType != Plugin || value == 0 || key != "beat")
         return;
+
+    qDebug() << "Plugin beat:" << channel << m_beatTime->elapsed();
 
     slotProcessBeat();
 }
@@ -1280,7 +1259,7 @@ void InputOutputMap::loadDefaults()
 
         /* Do the mapping */
         if (plugin != KInputNone && input != KInputNone)
-            setInputPatch(i, plugin, "", input.toUInt(), profileName);
+            setInputPatch(i, plugin, "", "", input.toUInt(), profileName);
     }
 
     /* ************************ OUTPUT *********************************** */
@@ -1307,10 +1286,10 @@ void InputOutputMap::loadDefaults()
         feedback = settings.value(key).toString();
 
         if (plugin != KOutputNone && output != KOutputNone)
-            setOutputPatch(i, plugin, "", output.toUInt());
+            setOutputPatch(i, plugin, "", "", output.toUInt());
 
         if (fb_plugin != KOutputNone && feedback != KOutputNone)
-            setOutputPatch(i, fb_plugin, "", feedback.toUInt(), true);
+            setOutputPatch(i, fb_plugin, "", "", feedback.toUInt(), true);
     }
 }
 

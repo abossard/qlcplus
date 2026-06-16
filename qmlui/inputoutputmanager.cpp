@@ -479,19 +479,22 @@ QVariant InputOutputManager::universeOutputSources(int universe)
 
 void InputOutputManager::setOutputPatch(int universe, QString plugin, QString line, int index)
 {
-    m_ioMap->setOutputPatch(universe, plugin, "", line.toUInt(), false, index);
+    m_ioMap->setOutputPatch(universe, plugin, "", "", line.toUInt(), false, index);
+    m_doc->setModified();
     emit outputCanConfigureChanged();
 }
 
 void InputOutputManager::removeOutputPatch(int universe, int index)
 {
-    m_ioMap->setOutputPatch(universe, KOutputNone, "", QLCIOPlugin::invalidLine(), false, index);
+    m_ioMap->setOutputPatch(universe, KOutputNone, "", "", QLCIOPlugin::invalidLine(), false, index);
+    m_doc->setModified();
     emit outputCanConfigureChanged();
 }
 
 void InputOutputManager::addInputPatch(int universe, QString plugin, QString line)
 {
-    m_ioMap->setInputPatch(universe, plugin, "", line.toUInt());
+    m_ioMap->setInputPatch(universe, plugin, "", "", line.toUInt());
+    m_doc->setModified();
     emit inputCanConfigureChanged();
 }
 
@@ -504,27 +507,45 @@ bool InputOutputManager::setFeedbackPatch(int universe, bool enable)
 
     if (enable)
     {
-        // Use the same line number as the input — this ensures feedback
-        // goes to the correct physical port (e.g., Launchpad Mini MK3 port 2)
-        m_ioMap->setOutputPatch(universe, patch->pluginName(), "", patch->input(), true);
-        return true;
+        // find a matching output line
+        QString inputName = patch->inputName();
+        int i = 0;
+        bool found = false;
+
+        for (QString &pLine : m_ioMap->pluginOutputs(patch->pluginName()))
+        {
+            if (pLine == inputName)
+            {
+                m_ioMap->setOutputPatch(universe, patch->pluginName(), "", "", i, true);
+                m_doc->setModified();
+                found = true;
+                break;
+            }
+            i++;
+        }
+        return found;
     }
     else
     {
-        m_ioMap->setOutputPatch(universe, KInputNone, "", QLCIOPlugin::invalidLine(), true);
+        m_ioMap->setOutputPatch(universe, KInputNone, "", "", QLCIOPlugin::invalidLine(), true);
+        m_doc->setModified();
     }
     return true;
 }
 
 void InputOutputManager::removeInputPatch(int universe)
 {
-    m_ioMap->setInputPatch(universe, KInputNone, "", QLCIOPlugin::invalidLine());
+    m_ioMap->setInputPatch(universe, KInputNone, "", "", QLCIOPlugin::invalidLine());
+    if (m_ioMap->feedbackPatch(universe) != nullptr)
+        m_ioMap->setOutputPatch(universe, KOutputNone, "", "", QLCIOPlugin::invalidLine(), true);
+    m_doc->setModified();
     emit inputCanConfigureChanged();
 }
 
 void InputOutputManager::setInputProfile(int universe, QString profileName)
 {
     m_ioMap->setInputProfile(universe, profileName);
+    m_doc->setModified();
 }
 
 void InputOutputManager::configurePlugin(bool input)

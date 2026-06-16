@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
     QGuiApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
 #endif
 
-    // Since Qt6, the default rendering backend is Rhi. 
+    // Since Qt6, the default rendering backend is Rhi.
     // QLC+ doesn't support it yet so OpenGL have to be forced.
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGLRhi);
     qputenv("QT3D_RENDERER", "opengl");

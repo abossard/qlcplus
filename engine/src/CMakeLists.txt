@@ -25,6 +25,7 @@ add_library(${module_name} SHARED
     fadechannel.cpp fadechannel.h
     fixture.cpp fixture.h
     fixturegroup.cpp fixturegroup.h
+    fixtureremapper.cpp fixtureremapper.h
     function.cpp function.h
     genericdmxsource.cpp genericdmxsource.h
     genericfader.cpp genericfader.h
