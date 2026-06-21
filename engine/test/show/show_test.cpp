@@ -330,5 +330,27 @@ void Show_Test::save()
     QVERIFY(xmlReader.attributes().value("isMute").toString() == "1");
 }
 
+void Show_Test::syncSource()
+{
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+
+    // Default sync source is Autonomous (0)
+    QCOMPARE(show->syncSource(), 0);
+
+    // Set to External (1)
+    show->setSyncSource(1);
+    QCOMPARE(show->syncSource(), 1);
+
+    // setExternalElapsedTime should not crash when runner is not active
+    show->setExternalElapsedTime(5000);
+
+    // Set back to Autonomous
+    show->setSyncSource(0);
+    QCOMPARE(show->syncSource(), 0);
+
+    m_doc->deleteFunction(show->id());
+}
+
 
 QTEST_APPLESS_MAIN(Show_Test)

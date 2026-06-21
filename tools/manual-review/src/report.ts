@@ -62,11 +62,13 @@ export function generateReport(plan: TestPlan, session: ReviewSession): string {
   lines.push('');
 
   for (const section of plan.sections) {
-    lines.push(`## ${section.number}. ${section.title}`);
+    const sectionTags = section.tags.length > 0 ? ` ${section.tags.map(t => `[${t}]`).join(' ')}` : '';
+    lines.push(`## ${section.number}. ${section.title}${sectionTags}`);
     lines.push('');
 
     for (const tc of section.cases) {
-      lines.push(`### ${tc.number} ${tc.title}`);
+      const caseTags = tc.tags.length > 0 ? ` ${tc.tags.map(t => `[${t}]`).join(' ')}` : '';
+      lines.push(`### ${tc.number} ${tc.title}${caseTags}`);
       lines.push('');
 
       const allChecks = [

@@ -28,6 +28,7 @@
 #include "virtualconsole.h"
 #include "contextmanager.h"
 #include "qlcinputchannel.h"
+#include "vcrecordpanel.h"
 #include "vcaudiotriggers.h"
 #include "audiosparklineitem.h"
 #include "vcanimation.h"
@@ -114,6 +115,7 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
     qmlRegisterType<VCClock>("org.qlcplus.classes", 1, 0, "VCClock");
     qmlRegisterType<VCClockSchedule>("org.qlcplus.classes", 1, 0, "VCClockSchedule");
     qmlRegisterType<VCCueList>("org.qlcplus.classes", 1, 0, "VCCueList");
+    qmlRegisterType<VCRecordPanel>("org.qlcplus.classes", 1, 0, "VCRecordPanel");
 
     connect(m_doc->inputOutputMap(), SIGNAL(inputValueChanged(quint32,quint32,uchar,QString)),
             this, SLOT(slotInputValueChanged(quint32,quint32,uchar)));
@@ -1401,14 +1403,21 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
         }
 
         /** otherwise forward it to the currently selected page */
-        for (int pageIndex = 0; pageIndex < m_pages.count(); pageIndex++)
-        {
-            VCPage *page = m_pages.at(pageIndex);
+        VCPage *activePage = m_pages.at(selectedPage());
+        activePage->inputValueChanged(inputSourceKey, value);
 
-            if (pageIndex == selectedPage())
+        // Inherit mode: if the active page doesn't have a mapping for this key,
+        // also dispatch to all Normal pages (global pool fallback)
+        if (activePage->externalInputMode() == VCPage::Inherit &&
+            !activePage->hasInputSourceForKey(inputSourceKey))
+        {
+            for (int i = 0; i < m_pages.count(); i++)
             {
-                page->inputValueChanged(inputSourceKey, value);
-                break;
+                if (i != selectedPage() &&
+                    m_pages.at(i)->externalInputMode() == VCPage::Normal)
+                {
+                    m_pages.at(i)->inputValueChangedGlobal(inputSourceKey, value);
+                }
             }
         }
     }
@@ -1534,12 +1543,22 @@ void VirtualConsole::handleKeyEvent(QKeyEvent *e, bool pressed)
         }
 
         /** otherwise forward it to the currently selected page */
-        for (int pageIndex = 0; pageIndex < m_pages.count(); pageIndex++)
-        {
-            VCPage *page = m_pages.at(pageIndex);
+        VCPage *activePage = m_pages.at(selectedPage());
+        activePage->handleKeyEvent(seq, pressed);
 
-            if (pageIndex == selectedPage())
-                page->handleKeyEvent(seq, pressed);
+        // Inherit mode: if the active page doesn't have this key sequence,
+        // also dispatch to all Normal pages
+        if (activePage->externalInputMode() == VCPage::Inherit &&
+            !activePage->hasKeySequence(seq))
+        {
+            for (int i = 0; i < m_pages.count(); i++)
+            {
+                if (i != selectedPage() &&
+                    m_pages.at(i)->externalInputMode() == VCPage::Normal)
+                {
+                    m_pages.at(i)->handleKeyEventGlobal(seq, pressed);
+                }
+            }
         }
     }
     else

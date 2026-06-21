@@ -64,6 +64,12 @@ public:
 
     void configure() override;
     bool canConfigure() const override;
+
+    // Accessors for the configuration dialog
+    quint16  hostPort() const { return m_hostPort; }
+    bool     bonjourEnabled() const { return m_bonjourEnabled; }
+    QString  serviceName() const { return m_serviceName; }
+    QString  clientAddress() const;
     void setParameter(quint32 universe, quint32 line, Capability type,
                       QString name, QVariant value) override;
 

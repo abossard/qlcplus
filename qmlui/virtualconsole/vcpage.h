@@ -22,11 +22,24 @@
 
 #include "vcframe.h"
 
+#define KXMLQLCVCPageInputMode QStringLiteral("ExternalInputMode")
+
 class PreviewContext;
 
 class VCPage : public VCFrame
 {
     Q_OBJECT
+
+    Q_PROPERTY(ExternalInputMode externalInputMode READ externalInputMode WRITE setExternalInputMode NOTIFY externalInputModeChanged)
+
+public:
+    enum ExternalInputMode
+    {
+        Normal = 0,   // Default: current behavior; mappings available for Inherit pages
+        Override,      // When active: only this page's mappings; global suppressed
+        Inherit        // When active: own mappings + Normal pages' mappings (own wins on conflict)
+    };
+    Q_ENUM(ExternalInputMode)
 
     /*********************************************************************
      * Initialization
@@ -50,10 +63,33 @@ public:
 private:
     bool isEffectivelyVisible(const VCWidget *widget) const;
 
+    /** Like isEffectivelyVisible but stops walking parents at the VCPage boundary.
+     *  Used for global dispatch to non-active pages where the page itself may not
+     *  be visible, but widgets within collapsed frames should still be filtered. */
+    bool isVisibleWithinPage(const VCWidget *widget) const;
+
     /** Reference to a PreviewContext, registered to the Context Manager */
     PreviewContext *m_pageContext;
 
     qreal m_pageScale;
+
+    /*********************************************************************
+     * External input mode
+     *********************************************************************/
+public:
+    /** Get/Set the external input mode for this page */
+    ExternalInputMode externalInputMode() const;
+    void setExternalInputMode(ExternalInputMode mode);
+
+    /** Convert between string and enum for XML serialization */
+    static QString externalInputModeToString(ExternalInputMode mode);
+    static ExternalInputMode stringToExternalInputMode(const QString &str);
+
+signals:
+    void externalInputModeChanged(ExternalInputMode mode);
+
+private:
+    ExternalInputMode m_externalInputMode;
 
     /*********************************************************************
      * External controllers input
@@ -78,6 +114,13 @@ public:
     /** Method invoked by the Virtual Console when an input signal is received.
      *  This is in charge of delivering the event to the children widgets expecting it. */
     void inputValueChanged(quint32 inputSourceKey, uchar value);
+
+    /** Like inputValueChanged but for global dispatch to non-active pages.
+     *  Uses isVisibleWithinPage instead of isEffectivelyVisible. */
+    void inputValueChangedGlobal(quint32 inputSourceKey, uchar value);
+
+    /** Returns true if this page has any input source mapped for the given key */
+    bool hasInputSourceForKey(quint32 inputSourceKey) const;
 
 private:
     /** This variable represents the map of all the external controllers
@@ -115,6 +158,20 @@ public:
     /** Method invoked by the Virtual Console when an key press/release signal is received.
      *  This is in charge of delivering the event to the children widgets expecting it. */
     void handleKeyEvent(QKeySequence &seq, bool pressed);
+
+    /** Like handleKeyEvent but for global dispatch to non-active pages.
+     *  Uses isVisibleWithinPage instead of isEffectivelyVisible. */
+    void handleKeyEventGlobal(QKeySequence &seq, bool pressed);
+
+    /** Returns true if this page has any key sequence mapped for the given sequence */
+    bool hasKeySequence(const QKeySequence &seq) const;
+
+    /*********************************************************************
+     * Load & Save
+     *********************************************************************/
+protected:
+    bool loadExtraXML(QXmlStreamReader &root) override;
+    void saveExtraXML(QXmlStreamWriter *doc) const override;
 
 private:
     /** This variable represents the map of all the key bindings for every

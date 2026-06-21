@@ -38,6 +38,12 @@ private slots:
     void intensity();
     void stopRunner();
 
+    // External sync tests (C1-C4)
+    void externalSyncDoesNotAutoIncrement();
+    void externalSyncStartsFunctions();
+    void externalSyncForwardJump();
+    void externalSyncBackwardSeek();
+
 private:
     Doc *m_doc;
     Show *m_show;

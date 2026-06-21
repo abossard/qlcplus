@@ -49,7 +49,8 @@ namespace VCType
         Label            = 8,
         AudioTriggers    = 9,
         Animation        = 10, // VCMatrix
-        Clock            = 11
+        Clock            = 11,
+        RecordPanel      = 12
     };
 
     /** Map JSON type name → enum. Used by vc_create_widgets. */
@@ -66,7 +67,8 @@ namespace VCType
             {"label",        Label},
             {"audioTrigger", AudioTriggers},
             {"matrix",       Animation},
-            {"clock",        Clock}
+            {"clock",        Clock},
+            {"recordPanel",  RecordPanel}
         };
         auto it = map.find(name);
         return (it != map.end()) ? it.value() : Unknown;
@@ -86,7 +88,8 @@ namespace VCType
             {"Label",           Label},
             {"Audio Triggers",  AudioTriggers},
             {"Animation",       Animation},
-            {"Clock",           Clock}
+            {"Clock",           Clock},
+            {"Record Panel",    RecordPanel}
         };
         auto it = map.find(name);
         return (it != map.end()) ? it.value() : Unknown;
@@ -106,7 +109,8 @@ namespace VCType
             {Label,         "label"},
             {AudioTriggers, "audioTrigger"},
             {Animation,     "matrix"},
-            {Clock,         "clock"}
+            {Clock,         "clock"},
+            {RecordPanel,   "recordPanel"}
         };
         auto it = map.find(type);
         return (it != map.end()) ? it.value() : "unknown";
@@ -191,6 +195,10 @@ namespace VCFields
                 "clockType",
                 "countdownHours", "countdownMinutes", "countdownSeconds",
                 "schedules"
+            }},
+            {RecordPanel, {
+                "targetFolder", "scenePrefix", "chaserPrefix",
+                "defaultFadeIn", "defaultHold", "defaultFadeOut"
             }}
         };
         static const std::vector<std::string> empty;
@@ -252,6 +260,10 @@ namespace VCFields
                 "clockType",
                 "countdownHours", "countdownMinutes", "countdownSeconds",
                 "schedules"
+            }},
+            {RecordPanel, {
+                "targetFolder", "scenePrefix", "chaserPrefix",
+                "defaultFadeIn", "defaultHold", "defaultFadeOut"
             }}
         };
         static const std::vector<std::string> empty;
@@ -382,7 +394,7 @@ namespace VCValidate
             if (VCType::fromString(t) == VCType::Unknown)
                 return mkErr("type", "invalid widget type '" + t +
                     "'. Must be one of: button, slider, frame, soloframe, xypad, "
-                    "cuelist, label, speedDial, audioTrigger, matrix, clock");
+                    "cuelist, label, speedDial, audioTrigger, matrix, clock, recordPanel");
         }
 
         // action (button)

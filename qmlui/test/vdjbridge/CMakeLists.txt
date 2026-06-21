@@ -12,6 +12,7 @@ add_executable(${module_name} WIN32
 
 target_include_directories(${module_name} PRIVATE
     ../../../engine/src
+    ../../../engine/audio/src
     ../../../plugins/interfaces
     ../../../plugins/vdjbridge
     ../..

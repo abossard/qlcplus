@@ -79,9 +79,13 @@ inline const std::set<std::string> kValidProperties = {
     "displayMode", "fixtures", "position", "presets",
     // Audio Triggers specific
     "captureEnabled", "volumeLevel", "barsNumber", "bars",
+    // RecordPanel specific
+    "targetFolder", "scenePrefix", "chaserPrefix",
+    "defaultFadeIn", "defaultHold", "defaultFadeOut", "isRecordingChaser",
     // Compound groups
     "buttonConfig", "cueListConfig", "clockConfig",
     "speedDialConfig", "matrixConfig", "xyPadConfig",
+    "recordPanelConfig",
 };
 
 // ── Compound group expansion ─────────────────────────────────────────────────
@@ -130,6 +134,14 @@ inline std::set<std::string> expandCompoundGroups(const std::set<std::string> &p
     {
         expanded.erase("xyPadConfig");
         for (auto &p : {"displayMode", "fixtures", "position", "presets"})
+            expanded.insert(p);
+    }
+    if (expanded.count("recordPanelConfig"))
+    {
+        expanded.erase("recordPanelConfig");
+        for (auto &p : {"targetFolder", "scenePrefix", "chaserPrefix",
+                        "defaultFadeIn", "defaultHold", "defaultFadeOut",
+                        "isRecordingChaser"})
             expanded.insert(p);
     }
 
@@ -708,6 +720,22 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         }
         w["bars"] = barsArr;
     }
+
+    // RecordPanel extended
+    if (has("targetFolder") && !d.rpTargetFolder.isEmpty())
+        w["targetFolder"] = d.rpTargetFolder.toStdString();
+    if (has("scenePrefix") && !d.rpScenePrefix.isEmpty())
+        w["scenePrefix"] = d.rpScenePrefix.toStdString();
+    if (has("chaserPrefix") && !d.rpChaserPrefix.isEmpty())
+        w["chaserPrefix"] = d.rpChaserPrefix.toStdString();
+    if (has("defaultFadeIn"))
+        w["defaultFadeIn"] = (int)d.rpDefaultFadeIn;
+    if (has("defaultHold"))
+        w["defaultHold"] = (int)d.rpDefaultHold;
+    if (has("defaultFadeOut"))
+        w["defaultFadeOut"] = (int)d.rpDefaultFadeOut;
+    if (has("isRecordingChaser"))
+        w["isRecordingChaser"] = d.rpIsRecordingChaser;
 
     return w;
 }

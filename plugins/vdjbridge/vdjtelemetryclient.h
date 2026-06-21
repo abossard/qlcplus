@@ -65,6 +65,9 @@ public:
 
     Status status() const { return m_status; }
 
+    /** Return the connected client's address:port string, or empty. */
+    QString clientAddress() const;
+
     /** Build the 112-trigger subscription JSON payload. */
     static QByteArray buildSubscriptionMessage(int frequency = kDefaultFrequency);
 

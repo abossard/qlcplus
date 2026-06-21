@@ -2,11 +2,13 @@
 
 This checklist contains ONLY items that require human judgment (visual inspection, UX assessment, timing perception, 3D rendering). Anything that can be asserted automatically lives elsewhere:
 
-- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./qmlui/test/songmanager/songmanager_test`
+- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./qmlui/test/songmanager/songmanager_test && ./qmlui/test/songloadtracker/songloadtracker_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test`
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
 - **E2E tests:** `cd webaccess/web-dmx && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
 > Run all automated tests FIRST. Only proceed with manual review once they pass — this document is for the things a machine cannot judge.
+
+**Hardware requirement tags** — test cases are tagged with `[MIDI]`, `[DMX]`, or `[VDJ]` to indicate required equipment. Items without tags can be tested with just QLC+ running on a laptop. The [review webserver](tools/manual-review/) supports filtering by these tags.
 
 ---
 
@@ -49,7 +51,7 @@ In QLC+:
 - **Do:** Call with a small spec (one frame, a couple of buttons bound to existing functions).
 - **Verify in QML:** A new VC page is created with widgets laid out sensibly, captions readable, no overlap.
 
-### 2.2 `configure_launchpad`
+### 2.2 `configure_launchpad` [MIDI]
 
 - **Do:** With a Novation Launchpad connected (or a virtual MIDI device emulating one), call the tool.
 - **Verify:** MIDI mappings appear under Inputs/Outputs; LED feedback lights up the expected pads when bound widgets are active.
@@ -67,23 +69,23 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 - **Do:** Kill the QLC+ process, wait, then restart.
 - **Verify:** Status pill flips Live → Disconnected → Live within a few seconds of each transition. The colour change should be obvious at a glance, not subtle.
 
-### 3.2 Color picker — feel
+### 3.2 Color picker — feel [DMX]
 
 - **Do:** Drag the HERO color picker crosshair around the saturation/value square; drag the hue bar; nudge individual R/G/B sliders.
 - **Verify:** Swatch, hue marker, crosshair, and RGB sliders all stay in sync **with no perceptible lag**. The selected colour on a real fixture matches what the swatch shows.
 - **Why manual:** "Feels responsive" and "colour matches reality" are perceptual.
 
-### 3.3 Position XY pad — cursor tracking
+### 3.3 Position XY pad — cursor tracking [DMX]
 
 - **Do:** Drag the cursor across the HERO position pad, including fast flicks and into the corners.
 - **Verify:** Cursor tracks the pointer smoothly (no stutter), pan/tilt degrees update live, the physical fixture moves without visible step-quantisation.
 
-### 3.4 Dimmer fader smoothness
+### 3.4 Dimmer fader smoothness [DMX]
 
 - **Do:** Drag the HERO dimmer fader slowly from 0 → 100 → 0.
 - **Verify:** No flicker or jumps in the actual fixture output; the percentage display tracks the fader without lag.
 
-### 3.5 WLED 320-channel stress test
+### 3.5 WLED 320-channel stress test [DMX]
 
 - **Do:** Expand the **Raw Channels (320)** section on a WLED row. Scroll through it, drag a fader near the bottom.
 - **Verify:** Scrolling is smooth (no jank). Dragging a fader feels responsive even with hundreds of sibling rows.
@@ -171,6 +173,102 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 
 ---
 
+## 4B. Page-Dependent External Input Mappings
+
+> **Automated coverage:** `mcp_vcpage_input_mode_test` covers string conversion round-trips, XML save/load contract, backward compatibility (missing tag defaults to Normal), and PageInfo struct field. The items below require a running app with MIDI hardware (or virtual MIDI) and multiple VC pages.
+
+### 4B.1 Normal mode (default) — existing behaviour preserved [MIDI]
+
+- **Precondition:** Two VC pages, both in **Normal** mode (default). Page 1 has a button mapped to MIDI CC 1. Page 2 has a slider mapped to MIDI CC 2.
+- **Do:** Switch to Page 1, send MIDI CC 1.
+- **Verify:**
+  - ☐ Page 1's button activates
+  - ☐ Page 2's slider does NOT respond (only active page receives input)
+- **Why manual:** Confirms baseline behaviour unchanged by this feature.
+
+### 4B.2 Override mode — isolation [MIDI]
+
+- **Precondition:** Page 1 set to **Normal**, Page 2 set to **Override**. Both have widgets mapped to the same MIDI CC.
+- **Do:** Switch to Page 2 (Override active), send the shared MIDI CC.
+- **Verify:**
+  - ☐ Only Page 2's widget responds
+  - ☐ Page 1's widget does NOT respond
+- **Do:** Switch to Page 1, send the same MIDI CC.
+- **Verify:**
+  - ☐ Only Page 1's widget responds (Override only applies when the Override page is active)
+- **Why manual:** Perceptual check that isolation works correctly with real MIDI events.
+
+### 4B.3 Inherit mode — fallback to Normal pages [MIDI]
+
+- **Precondition:** Page 1 (Normal) has a button on MIDI CC 10 and a slider on MIDI CC 20. Page 2 (Inherit) has a slider on MIDI CC 20 (same as Page 1) but nothing on MIDI CC 10.
+- **Do:** Switch to Page 2 (Inherit active).
+- **Do:** Send MIDI CC 10.
+- **Verify:**
+  - ☐ Page 1's button activates (fallback — Page 2 has no mapping for CC 10, so Normal pages contribute)
+- **Do:** Send MIDI CC 20.
+- **Verify:**
+  - ☐ Only Page 2's slider responds (Page 2 owns this mapping, no fallback)
+  - ☐ Page 1's slider does NOT respond (Inherit page claims the key)
+- **Why manual:** Conflict resolution at key-level granularity is subtle and best verified with real MIDI.
+
+### 4B.4 Inherit + relative controller (encoder) [MIDI]
+
+- **Precondition:** Page 1 (Normal) has a slider set to **relative** input mode on MIDI CC 30. Page 2 (Inherit) has no mapping for CC 30.
+- **Do:** Switch to Page 2 (Inherit active), turn the MIDI encoder sending CC 30.
+- **Verify:**
+  - ☐ Page 1's slider moves incrementally (relative mode preserved through global dispatch)
+  - ☐ No jumps or resets — smooth incremental movement
+- **Why manual:** Relative/encoder behaviour is perceptual and hardware-dependent.
+
+### 4B.5 Keyboard shortcut dispatch mirrors MIDI
+
+- **Precondition:** Page 1 (Normal) has a button bound to keyboard shortcut **F5**. Page 2 (Inherit) has no keyboard binding for F5.
+- **Do:** Switch to Page 2, press F5.
+- **Verify:**
+  - ☐ Page 1's button activates (keyboard fallback works same as MIDI)
+- **Why manual:** Keyboard dispatch follows the same mode logic; verifying with physical key presses.
+
+### 4B.6 Page-activation bindings are mode-independent [MIDI]
+
+- **Precondition:** A MIDI note or keyboard shortcut is bound to activate Page 2 (via the VC page-switching mechanism). Page 2 is set to Override mode.
+- **Do:** Send the page-activation MIDI note from any page.
+- **Verify:**
+  - ☐ Page 2 activates regardless of its ExternalInputMode
+  - ☐ Page-activation bindings are never suppressed by Override mode
+- **Why manual:** Ensures page-switching always works — getting locked out of a page would be a showstopper in live performance.
+
+### 4B.7 XML persistence round-trip
+
+- **Do:** Set Page 1 to Normal, Page 2 to Override, Page 3 to Inherit.
+- **Do:** Save workspace (File → Save As).
+- **Do:** Close and reopen the workspace.
+- **Verify:**
+  - ☐ Page 1 is Normal (no `ExternalInputMode` tag in XML — backward compat)
+  - ☐ Page 2 is Override
+  - ☐ Page 3 is Inherit
+- **Do:** Open the `.qxw` file in a text editor and confirm the `<ExternalInputMode>` tag appears only for Override/Inherit pages.
+- **Why manual:** Validates full persistence through the Qt XML stack, not just the unit-tested contract.
+
+### 4B.8 MCP query exposes mode
+
+- **Do:** With pages set to different modes, call `vc_query_pages` via MCP.
+- **Verify:**
+  - ☐ Each page object in the JSON response includes `"externalInputMode"` with the correct value (`"Normal"`, `"Override"`, or `"Inherit"`)
+- **Why manual:** Confirms the MCP bridge correctly reads the live property from the running app.
+
+### 4B.9 QML combo box for input mode selection
+
+- **Precondition:** Virtual Console is in design/edit mode.
+- **Do:** Right-click a VC page header → Properties (or open page properties panel).
+- **Verify:**
+  - ☐ An "External Input Mode" combo box appears with options: Normal, Override, Inherit
+  - ☐ Default selection is "Normal" for new pages
+  - ☐ Changing the combo box to "Override" immediately updates the page's mode (verify via MCP query or save/reload)
+  - ☐ The combo box reflects the correct mode when switching between page property panels
+- **Why manual:** Visual/interactive QML — cannot be unit tested.
+
+---
+
 ## 5. Fixture — Stairville Beam Ball 100 Quad LED
 
 > Existence of the fixture XML and channel count are verifiable by file inspection / `query_available_fixtures`. The items below need a human eye on the QML browser and the 3D viewport.
@@ -214,7 +312,7 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
   - **FX / MOMENTS** section with STROBE buttons + WHITE HIT + RESET.
   - **MASTER** section with Intensity slider, Strobe slider, BLACKOUT button.
 
-### 7.2 Layer separation — color vs dimmer
+### 7.2 Layer separation — color vs dimmer [DMX]
 
 - **Do:**
   1. Press a MOOD color button (e.g. JG Deep Green).
@@ -223,12 +321,12 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
   4. Adjust the Intensity slider → dimmer changes independently from the color.
 - **Why manual:** Validates HTP layer separation works correctly in practice.
 
-### 7.3 Phase transitions
+### 7.3 Phase transitions [DMX]
 
 - **Do:** Press CHILL → verify low dimmer + slow movement. Press DROP → verify full dimmer + fast movement.
 - **Verify:** SoloFrame stops the previous phase when a new one is pressed. No leftover functions from the previous phase.
 
-### 7.4 Strobe via ch6 (fixture-native)
+### 7.4 Strobe via ch6 (fixture-native) [DMX]
 
 - **Do:**
   1. Set Intensity slider above 0.
@@ -241,18 +339,18 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 
 ## 8. Performance & Diagnostics
 
-### 6.1 RGB matrix step-transition latency
+### 6.1 RGB matrix step-transition latency [DMX]
 
 - **Do:** Build an RGB matrix function with a fast step rate (e.g. 50 ms steps). Run it.
 - **Verify:** Step transitions feel snappy. With a logic analyser or scope on the DMX line, latency should be ≈ **3 ms** (was 22 ms before the fix).
 - **Why manual:** Perceptual snappiness; precise measurement requires hardware.
 
-### 6.2 OS2L diagnostics dashboard
+### 6.2 OS2L diagnostics dashboard [VDJ]
 
 - **Do:** Tools / Settings → **OS2L Diagnostics**.
 - **Verify:** Dashboard renders, shows OS2L connection state, recent BPM, beat events ticking in real time.
 
-### 6.3 Multi-plugin diagnostics — runtime toggle
+### 6.3 Multi-plugin diagnostics — runtime toggle [DMX]
 
 - **Do:** Open the diagnostics dashboard, locate per-plugin status. Disable a plugin (DMX USB / ArtNet / sACN / MIDI / OSC) while functions are running. Re-enable.
 - **Verify:** Plugin stops without crashing the app, status updates, re-enable restores function. No hang or zombie state.
@@ -402,14 +500,9 @@ Navigate to Virtual Console with VC editing access:
 
 > Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/songmanager/songmanager_test` (15 tests). The items below require VDJ connected or visual verification.
 
-### 11.1 Song list population
+### 11.1 Currently playing indicator [VDJ] [HIGH RISK]
 
-- **Do:** Open Song Manager (toolbar icon). Load a workspace with Shows in the `Songs/` folder.
-- **Verify:** All Songs-folder Shows appear in the list with title and duration.
-- ☐ Pre-existing Songs-folder shows appear on workspace load
-- ☐ Songs created mid-session by VDJ song-load appear incrementally
-
-### 11.2 Currently playing indicator
+> HIGH RISK: Depends on live VDJ connection timing, TCP telemetry latency, and deck-state transitions. Hard to reproduce consistently without exact VDJ version + network conditions.
 
 - **Prerequisite:** VDJ Bridge plugin connected (status bar shows "Connected ●" in green).
 - **Do:** Play a song in VDJ that has a corresponding Show in the Songs folder.
@@ -418,7 +511,27 @@ Navigate to Virtual Console with VC editing access:
 - ☐ When the song stops, the indicator clears
 - ☐ Playing indicator tracks across deck changes
 
-### 11.3 Search / filter
+### 11.2 Timestamp persistence [MEDIUM RISK]
+
+> MEDIUM RISK: Requires specific sequence of play + save + reload. State serialization bugs are subtle and may depend on workspace XML format version.
+
+- **Do:** Play a song, note it in the list. Save workspace (`Ctrl+S`). Close and reopen QLC+. Load the workspace.
+- **Verify:**
+- ☐ "Recently Played" sort still shows the previously-played song with its timestamp
+- ☐ "Recently Edited" sort reflects edits made before save
+
+### 11.3 Song list population [VDJ] [MEDIUM RISK]
+
+> MEDIUM RISK: Requires VDJ connected and ShowFactory deferred timer (3s). Depends on correct folder path matching.
+
+- **Do:** Open Song Manager (toolbar icon). Load a workspace with Shows in the `Songs/` folder.
+- **Verify:** All Songs-folder Shows appear in the list with title and duration.
+- ☐ Pre-existing Songs-folder shows appear on workspace load
+- ☐ Songs created mid-session by VDJ song-load appear incrementally
+
+### 11.4 Search / filter [LOW RISK]
+
+> LOW RISK: Deterministic UI verification — no external hardware or timing dependencies.
 
 - **Do:** Type a partial song title in the search bar.
 - **Verify:**
@@ -427,7 +540,9 @@ Navigate to Virtual Console with VC editing access:
 - ☐ Clear button (✕) resets the filter
 - ☐ Empty-state message changes to "No songs match …" when filter has no results
 
-### 11.4 Sort modes
+### 11.5 Sort modes [LOW RISK]
+
+> LOW RISK: Deterministic UI verification — sort logic is covered by unit tests; this confirms QML binding only.
 
 | Action | Expected | Check |
 |--------|----------|-------|
@@ -435,13 +550,6 @@ Navigate to Virtual Console with VC editing access:
 | Toggle to ▼ | Songs Z→A | ☐ |
 | Select "Recently Played" | Most recently played first, never-played at bottom | ☐ |
 | Select "Recently Edited" | Most recently edited first | ☐ |
-
-### 11.5 Timestamp persistence
-
-- **Do:** Play a song, note it in the list. Save workspace (`Ctrl+S`). Close and reopen QLC+. Load the workspace.
-- **Verify:**
-- ☐ "Recently Played" sort still shows the previously-played song with its timestamp
-- ☐ "Recently Edited" sort reflects edits made before save
 
 ---
 
@@ -461,6 +569,135 @@ Navigate to Virtual Console with VC editing access:
 - **Song Manager — timestamps are session-relative:** `lastPlayed` and `lastEdited` timestamps are persisted to the workspace XML, but only updated during the current session. They reflect the last time the workspace was used, not absolute calendar history.
 - **Song Manager — artist/BPM/key metadata:** Artist, BPM, and key fields in the song list are placeholders. The Show name embeds "Artist - Title" but structured extraction is not yet implemented.
 - **Song Manager — folder path:** Songs are identified by Shows in the `Songs/` function folder. Manually placing non-song Shows in that folder will cause them to appear in the Song Manager.
+- **Page input modes — multiple Normal pages:** If multiple Normal pages define mappings for the same MIDI channel/key, all matching Normal pages will fire when Inherit-mode fallback triggers. This is by design (they all contribute to the "global pool"), but can cause double-triggers if the same widget binding exists on two Normal pages.
+
+---
+
+## 12. VDJ Beat-Synced Show Playback [VDJ]
+
+> **Automated coverage:** `showrunner_test` (9 tests) and `show_test` (10 tests) cover the external sync engine: mode switching, position-driven function start/stop, forward jumps, backward seeks, and Show API delegation. `songloadtracker_test` (13 tests) covers the FSM in isolation. `showfactory_test` (9 tests) covers Audio+Show+Track creation and dedup. `vdjbridge_test` (8 tests) covers auto-start, auto-pause, and auto-resume integration. The items below require a live VDJ connection.
+
+### 12.1 VDJ disconnect [HIGH RISK]
+
+> HIGH RISK: Depends on TCP connection teardown timing, thread-safety of ShowRunner atomic state, and graceful degradation. Hard to reproduce — race conditions may only surface under load.
+
+- **Do:** While a Show is playing, disconnect VDJ (close the app or kill the TCP connection).
+- **Verify:**
+  - ☐ The Show freezes at the last known position (no runaway)
+  - ☐ No crash
+  - ☐ Reconnecting VDJ and playing the same song resumes or restarts the Show
+
+### 12.2 Seek / loop handling [HIGH RISK]
+
+> HIGH RISK: Depends on VDJ position reporting rate, backward-seek detection threshold, and function lifecycle management. Functions stopped mid-execution may leak state.
+
+- **Do:** While a Show with functions on the timeline is playing, seek backward in VDJ (scratch or jump).
+- **Verify:**
+  - ☐ Debug output shows `[ShowRunner] Backward seek detected: <old> -> <new>`
+  - ☐ Functions that were running are stopped and re-evaluated at the new position
+  - ☐ No crash or stuck functions
+
+### 12.3 Tempo scaling [MEDIUM RISK]
+
+> MEDIUM RISK: Requires VDJ tempo slider adjustment and visual confirmation of proportional timeline movement. Timing precision depends on VDJ telemetry update interval.
+
+- **Do:** With a song playing, change VDJ tempo (e.g. +10% from original BPM).
+- **Verify:**
+  - ☐ Show timeline progresses faster/slower proportionally (visual: cursor moves faster on speedup)
+  - ☐ If the Show has lighting functions placed on the timeline, they fire at the tempo-shifted times
+
+### 12.4 Auto-creation and sync mode [MEDIUM RISK]
+
+> MEDIUM RISK: Requires VDJ connected and depends on ShowFactory deferred creation timer (3s). Verifies the full telemetry→FSM→factory pipeline end-to-end.
+
+- **Prereq:** VDJ running and connected to QLC+ (telemetry strip shows "Connected")
+- **Do:** Load a song on VDJ deck 1 (the master deck).
+- **Verify:**
+  - ☐ Song Manager shows the song after ~3 seconds (ShowFactory deferred creation)
+  - ☐ In Show Manager, select the auto-created Show → it should exist under the `Songs/` folder
+  - ☐ The Show's sync source should be `External` (check debug output for `[ShowRunner] Sync source set to External` when playing)
+
+### 12.5 Auto-start / auto-pause [LOW RISK]
+
+> LOW RISK: Core logic is well-covered by unit tests. Manual verification confirms QML UI updates track the bridge state correctly.
+
+- **Do:** Press Play on VDJ deck 1.
+- **Verify:**
+  - ☐ Debug output shows `[VdjBridge] Auto-starting show: <song name>`
+  - ☐ Show Manager timeline cursor begins advancing in sync with VDJ playback position
+- **Do:** Press Pause on VDJ deck 1.
+- **Verify:**
+  - ☐ Debug output shows `[VdjBridge] Auto-pausing show: <song name>`
+  - ☐ Show Manager timeline cursor stops
+
+---
+
+## 13b. VCAnimation — On-Widget Algorithm Parameter Controls
+
+**Prerequisite:** Load a workspace with an RGBMatrix function assigned to a VCAnimation widget. The RGBMatrix must use a **Script** algorithm that has Range and/or List properties (e.g., "Plasma", "Diamonds", or any custom script with `// Properties` block).
+
+### 13b.1 Parameter display on algorithm change
+
+- ☐ Switch the algorithm in the VCAnimation combo box to a Script with parameters → mini-sliders (Range) and/or dropdowns (List) appear below the algorithm combo
+- ☐ Switch to a non-Script algorithm (e.g., "Full Columns") → parameter controls disappear
+- ☐ Switch back to a Script with different parameters → controls update to match the new algorithm's properties
+
+### 13b.2 Range parameter interaction
+
+- ☐ Adjust a Range parameter SpinBox on the widget face → DMX output changes (verify via Simple Desk or universe monitor)
+- ☐ SpinBox respects min/max bounds from the script property definition
+
+### 13b.3 List parameter interaction
+
+- ☐ Change a List parameter dropdown on the widget face → effect changes visually (verify lighting output)
+- ☐ Dropdown shows all values defined in the script's List property
+
+### 13b.4 MIDI → widget face sync [MIDI]
+
+- ☐ Assign a MIDI controller to a parameter external control in the VCAnimation **properties panel** (External Controls section)
+- ☐ Move the MIDI knob → the corresponding on-widget SpinBox/dropdown updates in real time
+- ☐ MIDI assignment is ONLY available in the properties panel External Controls, NOT on the widget face controls
+
+### 13b.5 Visibility toggle
+
+- ☐ Open VCAnimation properties → "Visible elements" section → uncheck "Parameters" → parameter controls hide on widget face
+- ☐ Re-check "Parameters" → controls reappear
+- ☐ Save/load workspace → visibility setting persists
+
+### 13b.6 No regression
+
+- ☐ Fader, caption label, color buttons, and algorithm combo all still work correctly
+- ☐ Existing MIDI mappings for Intensity and Algorithm are unaffected
+
+---
+
+## 15. Upstream 5.3.0 merge regressions
+
+**Context:** Pulled 7 upstream commits (palette overhaul, 3D position tools, sequence editor preview, Tardis live actions). These touch areas the fork extends, so verify no fork regressions after the merge.
+
+### 15.1 Palette regression [HIGH RISK]
+
+Upstream `26661f9` reworked palettes (new 3D-position and shutter palette types, changed serialization, palette-manager filters).
+
+- ☐ MCP `query_palettes` returns all existing palettes without error, including any new 3D-position / shutter types
+- ☐ MCP palette create/update tools still succeed against a workspace saved by the merged build
+- ☐ PaletteManager UI: filters work, and the fanning box is hidden while editing a palette
+- ☐ Load a pre-merge `.qxw` with palettes → all palettes load and apply correctly (no silent drops)
+
+### 15.2 3D view smoke [MEDIUM RISK]
+
+Upstream `71bc12e`/`e4115da` added the 3D position marker and a lock flag preventing fixture drag in 2D/3D previews.
+
+- ☐ Fixtures still load and render in the 3D view
+- ☐ New lock flag toggles correctly; locked fixtures cannot be dragged in 2D or 3D preview
+- ☐ Position3D marker renders and is selectable
+
+### 15.3 Sequence editor [LOW RISK]
+
+Upstream `db8151f` added a channels-preview toggle and auto-selects newly added steps.
+
+- ☐ Adding a step auto-selects it; entered values land in the new step
+- ☐ Channels-preview toggle works without breaking fork show/sequence editing
 
 ---
 
@@ -479,9 +716,14 @@ Navigate to Virtual Console with VC editing access:
 | Performance / diagnostics     |        |      |             |       |
 | Beat timing UI                |        |      |             |       |
 | Keyboard shortcuts & tooltips |        |      |             |       |
+| Page-dependent input mappings |        |      |             |       |
 | Speed Dial multiply mode      |        |      |             |       |
 | Beat subdivision (FineFractions) |     |      |             |       |
 | Song Manager — VDJ integration  |        |      |             |       |
+| VDJ beat-synced show playback |        |      |             | Requires live VDJ connection |
+| VCAnimation param controls    |        |      |             | Requires Script algo with Range/List props |
+| Upstream 5.3.0 palette merge  |        |      |             | Verify MCP palette tools + new palette types |
+| Upstream 5.3.0 3D view / sequence |    |      |             | 3D marker, lock flag, sequence step auto-select |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 

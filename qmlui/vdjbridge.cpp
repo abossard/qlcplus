@@ -26,6 +26,9 @@
 #include "qlcioplugin.h"
 
 #include "doc.h"
+#include "show.h"
+#include "function.h"
+#include "mastertimer.h"
 
 #include <QDebug>
 #include <QFileInfo>
@@ -273,13 +276,65 @@ void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, int deckIndex,
     else if (trigger == "get_firstbeat")      { deck->setFirstBeat(value.toDouble()); }
     else if (trigger == "get_time total")     { deck->setTimeTotal(value.toDouble()); }
     else if (trigger == "loaded")             { deck->setLoaded(value.toString() == "on"); }
-    else if (trigger == "play")               { deck->setPlaying(value.toString() == "on"); }
+    else if (trigger == "play")
+    {
+        bool playing = (value.toString() == "on");
+        deck->setPlaying(playing);
+
+        // Auto-start/stop: when the master deck starts/stops playing,
+        // start or stop the corresponding Show (if one exists).
+        if (deckIndex == m_masterDeck && m_doc && m_showFactory)
+        {
+            quint32 showId = m_showFactory->showIdForFilepath(deck->filepath());
+            if (showId != Function::invalidId())
+            {
+                Show *show = qobject_cast<Show*>(m_doc->function(showId));
+                if (show)
+                {
+                    if (playing && !show->isRunning())
+                    {
+                        qDebug() << "[VdjBridge] Auto-starting show:" << show->name();
+                        show->start(m_doc->masterTimer(), FunctionParent::master());
+                    }
+                    else if (playing && show->isRunning() && show->isPaused())
+                    {
+                        qDebug() << "[VdjBridge] Auto-resuming show:" << show->name();
+                        show->setPause(false);
+                    }
+                    else if (!playing && show->isRunning())
+                    {
+                        qDebug() << "[VdjBridge] Auto-pausing show:" << show->name();
+                        show->setPause(true);
+                    }
+                }
+            }
+        }
+    }
     else if (trigger == "volume")             { deck->setVolume(value.toDouble()); }
 
     // Continuous
     else if (trigger == "get_position")              { deck->setPosition(value.toDouble()); }
     else if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); }
-    else if (trigger == "get_time elapsed absolute") { deck->setTimeElapsed(value.toDouble()); }
+    else if (trigger == "get_time elapsed absolute")
+    {
+        qreal seconds = value.toDouble();
+        deck->setTimeElapsed(seconds);
+
+        // Push-based sync: if this is the master deck, feed position
+        // directly to running Shows with External sync.
+        // All on the main thread — the atomic in ShowRunner bridges
+        // to the MasterTimer thread safely.
+        if (deckIndex == m_masterDeck && m_doc && seconds >= 0.0)
+        {
+            quint32 ms = static_cast<quint32>(seconds * 1000.0);
+            for (Function *f : m_doc->functionsByType(Function::ShowType))
+            {
+                Show *show = qobject_cast<Show*>(f);
+                if (show && show->isRunning() && show->syncSource() == 1)
+                    show->setExternalElapsedTime(ms);
+            }
+        }
+    }
     else if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); }
     else if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); }
     else if (trigger == "level")                     { deck->setLevel(value.toDouble()); }

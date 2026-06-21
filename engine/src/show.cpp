@@ -40,6 +40,7 @@
 Show::Show(Doc* doc) : Function(doc, Function::ShowType)
     , m_timeDivisionType(Time)
     , m_timeDivisionBPM(120)
+    , m_syncSource(0) // ShowRunner::Autonomous
     , m_latestTrackId(0)
     , m_latestShowFunctionID(0)
     , m_runner(NULL)
@@ -212,6 +213,23 @@ Show::TimeDivision Show::stringToTempo(const QString& tempo)
         return BPM_2_4;
     else
         return Invalid;
+}
+
+/*****************************************************************************
+ * External sync
+ *****************************************************************************/
+
+void Show::setSyncSource(int source)
+{
+    m_syncSource = source;
+    if (m_runner != NULL)
+        m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
+}
+
+void Show::setExternalElapsedTime(quint32 ms)
+{
+    if (m_runner != NULL)
+        m_runner->setExternalElapsedTime(ms);
 }
 
 /*****************************************************************************
@@ -475,6 +493,7 @@ void Show::preRun(MasterTimer* timer)
     }
 
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
+    m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
     int i = 0;
     foreach (Track *track, m_tracks)
         m_runner->adjustIntensity(getAttributeValue(i++), track);

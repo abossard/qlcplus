@@ -36,6 +36,7 @@
 #include "vcspeeddial.h"
 #include "virtualconsole.h"
 #include "vcaudiotriggers.h"
+#include "vcrecordpanel.h"
 
 static const quint64 encKey = 0x5131632B5067334B; // this is "Q1c+Pg3K"
 
@@ -391,6 +392,19 @@ VCWidget *VCFrame::addWidget(QQuickItem *parent, QString wType, QPoint pos)
             setupWidget(cuelist, currentPage());
             cuelist->render(m_vc->view(), parent);
             return cuelist;
+        }
+        break;
+        case RecordPanelWidget:
+        {
+            VCRecordPanel *recordPanel = new VCRecordPanel(m_doc, this);
+            QQmlEngine::setObjectOwnership(recordPanel, QQmlEngine::CppOwnership);
+            m_vc->addWidgetToMap(recordPanel);
+            Tardis::instance()->enqueueAction(Tardis::VCWidgetCreate, this->id(), QVariant(),
+                                              Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, recordPanel->id()));
+            recordPanel->setGeometry(QRect(pos.x(), pos.y(), m_vc->pixelDensity() * 60, m_vc->pixelDensity() * 30));
+            setupWidget(recordPanel, currentPage());
+            recordPanel->render(m_vc->view(), parent);
+            return recordPanel;
         }
         break;
         default:
@@ -1327,6 +1341,20 @@ bool VCFrame::loadWidgetXML(QXmlStreamReader &root, bool render)
                 cuelist->render(m_vc->view(), m_item);
         }
     }
+    else if (root.name() == KXMLQLCVCRecordPanel)
+    {
+        VCRecordPanel *recordPanel = new VCRecordPanel(m_doc, this);
+        if (recordPanel->loadXML(root) == false)
+            delete recordPanel;
+        else
+        {
+            QQmlEngine::setObjectOwnership(recordPanel, QQmlEngine::CppOwnership);
+            setupWidget(recordPanel, recordPanel->page());
+            m_vc->addWidgetToMap(recordPanel);
+            if (render && m_item)
+                recordPanel->render(m_vc->view(), m_item);
+        }
+    }
     else
     {
         return false;
@@ -1490,7 +1518,7 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
         }
         else
         {
-            if (loadWidgetXML(root) == false)
+            if (loadExtraXML(root) == false && loadWidgetXML(root) == false)
             {
                 qWarning() << Q_FUNC_INFO << "Unknown frame tag:" << root.name().toString();
                 root.skipCurrentElement();
@@ -1601,8 +1629,22 @@ bool VCFrame::saveXML(QXmlStreamWriter *doc) const
     foreach (const VCWidget *child, children(false))
         child->saveXML(doc);
 
+    /* Allow subclasses to save additional tags */
+    saveExtraXML(doc);
+
     /* End the <Frame> tag */
     doc->writeEndElement();
 
     return true;
+}
+
+bool VCFrame::loadExtraXML(QXmlStreamReader &root)
+{
+    Q_UNUSED(root)
+    return false;
+}
+
+void VCFrame::saveExtraXML(QXmlStreamWriter *doc) const
+{
+    Q_UNUSED(doc)
 }

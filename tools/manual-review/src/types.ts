@@ -20,6 +20,8 @@ export interface TestCase {
   id: string;
   number: string;
   title: string;
+  /** Hardware requirement tags (e.g. 'MIDI', 'DMX', 'VDJ'). Includes inherited section tags. */
+  tags: string[];
   steps: TestStep[];
   /** Table-based checks (from markdown tables with ☐). */
   tableChecks: CheckItem[];
@@ -30,6 +32,8 @@ export interface TestSection {
   id: string;
   number: string;
   title: string;
+  /** Hardware requirement tags (e.g. 'MIDI', 'DMX', 'VDJ'). */
+  tags: string[];
   /** Context note from blockquotes. */
   contextNote: string;
   cases: TestCase[];

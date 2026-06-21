@@ -102,6 +102,8 @@ public:
     int addClock(int parentID, const QRect &geometry,
                  const QString &clockType) override;
 
+    int addRecordPanel(int parentID, const QRect &geometry) override;
+
     int findPageByName(const QString &name) const override;
     int findWidgetByCaption(int parentID, const QString &widgetType,
                             const QString &caption) const override;
@@ -141,6 +143,7 @@ public:
     bool configureCueList(int widgetID, const CueListConfig &config) override;
     bool configureClock(int widgetID, const ClockConfig &config) override;
     bool configureSpeedDial(int widgetID, const SpeedDialConfig &config) override;
+    bool configureRecordPanel(int widgetID, const RecordPanelConfig &config) override;
 
     // XY Pad presets
     bool setXYPadPresets(int widgetID, const QList<XYPadPresetInfo> &presets) override;

@@ -258,6 +258,8 @@
     <file alias="VCClockProperties.qml">qml/virtualconsole/VCClockProperties.qml</file>
     <file alias="VCCueListItem.qml">qml/virtualconsole/VCCueListItem.qml</file>
     <file alias="VCCueListProperties.qml">qml/virtualconsole/VCCueListProperties.qml</file>
+    <file alias="VCRecordPanelItem.qml">qml/virtualconsole/VCRecordPanelItem.qml</file>
+    <file alias="VCRecordPanelProperties.qml">qml/virtualconsole/VCRecordPanelProperties.qml</file>
 
     <!-- Flow Console -->
     <file alias="FlowConsole.qml">qml/flowconsole/FlowConsole.qml</file>

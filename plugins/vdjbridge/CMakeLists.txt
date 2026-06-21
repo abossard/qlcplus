@@ -7,6 +7,7 @@ target_sources(${module_name} PRIVATE
     vdjbridgeplugin.cpp vdjbridgeplugin.h
     vdjtelemetryclient.cpp vdjtelemetryclient.h
     vdjbonjour.cpp vdjbonjour.h
+    configurevdjbridge.cpp configurevdjbridge.h
 )
 
 target_include_directories(${module_name} PRIVATE

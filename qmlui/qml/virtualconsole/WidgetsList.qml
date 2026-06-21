@@ -45,6 +45,7 @@ Rectangle
         ListElement { name: qsTr("Label"); type: "Label"; icon: "label" }
         ListElement { name: qsTr("Audio Triggers"); type: "Audio Triggers"; icon: "audiotriggers" }
         ListElement { name: qsTr("Clock"); type: "Clock"; icon: "clock" }
+        ListElement { name: qsTr("Record Panel"); type: "Record Panel"; icon: "recordpanel" }
     }
 
     ListView

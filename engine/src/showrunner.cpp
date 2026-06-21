@@ -37,6 +37,7 @@ static bool compareShowFunctions(const ShowFunction *sf1, const ShowFunction *sf
 ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     : QObject(NULL)
     , m_doc(doc)
+    , m_syncSource(Autonomous)
     , m_currentTimeFunctionIndex(0)
     , m_elapsedTime(startTime)
     , m_currentBeatFunctionIndex(0)
@@ -144,6 +145,21 @@ FunctionParent ShowRunner::functionParent() const
 void ShowRunner::write(MasterTimer *timer)
 {
     //qDebug() << Q_FUNC_INFO << "elapsed:" << m_elapsedTime << ", total:" << m_totalRunTime;
+
+    // --- External sync: update elapsed time from external source ---
+    if (m_syncSource == External)
+    {
+        quint32 newTime = m_externalElapsedTime.load(std::memory_order_relaxed);
+
+        // Backward seek detection: if external time moved backward,
+        // stop all running functions and reset scan indices
+        if (newTime < m_elapsedTime && m_elapsedTime > 0)
+        {
+            seekBackward(newTime);
+        }
+
+        m_elapsedTime = newTime;
+    }
 
     // Phase 1. Check all the Functions that need to be started
     // m_timeFunctions is ordered by startup time, so when we found an entry
@@ -287,8 +303,56 @@ void ShowRunner::write(MasterTimer *timer)
         return;
     }
 
-    m_elapsedTime += MasterTimer::tick();
+    // Only auto-increment in Autonomous mode
+    if (m_syncSource == Autonomous)
+        m_elapsedTime += MasterTimer::tick();
+
     emit timeChanged(m_elapsedTime);
+}
+
+/************************************************************************
+ * Sync source
+ ************************************************************************/
+
+void ShowRunner::setSyncSource(SyncSource source)
+{
+    m_syncSource = source;
+    if (source == External)
+        qDebug() << "[ShowRunner] Sync source set to External";
+    else
+        qDebug() << "[ShowRunner] Sync source set to Autonomous";
+}
+
+void ShowRunner::setExternalElapsedTime(quint32 ms)
+{
+    m_externalElapsedTime.store(ms, std::memory_order_relaxed);
+}
+
+void ShowRunner::seekBackward(quint32 newTime)
+{
+    qDebug() << "[ShowRunner] Backward seek detected:" << m_elapsedTime << "->" << newTime;
+
+    // Stop all currently running functions
+    for (int i = 0; i < m_runningQueue.count(); i++)
+    {
+        Function *f = m_runningQueue.at(i).first;
+        f->stop(functionParent());
+    }
+    m_runningQueue.clear();
+
+    // Reset the scan index so functions can be re-evaluated from the new position
+    m_currentTimeFunctionIndex = 0;
+    m_currentBeatFunctionIndex = 0;
+
+    // Skip time-based functions that have already ended before newTime
+    while (m_currentTimeFunctionIndex < m_timeFunctions.count())
+    {
+        ShowFunction *sf = m_timeFunctions.at(m_currentTimeFunctionIndex);
+        if (sf->startTime() + sf->duration(m_doc) <= newTime)
+            m_currentTimeFunctionIndex++;
+        else
+            break;
+    }
 }
 
 /************************************************************************

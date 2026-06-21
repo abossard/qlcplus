@@ -90,6 +90,13 @@ void VdjTelemetryClient::stop()
     setStatus(Idle);
 }
 
+QString VdjTelemetryClient::clientAddress() const
+{
+    if (m_client && m_client->state() == QAbstractSocket::ConnectedState)
+        return QString("%1:%2").arg(m_client->peerAddress().toString()).arg(m_client->peerPort());
+    return QString();
+}
+
 void VdjTelemetryClient::setStatus(Status s)
 {
     if (m_status != s)

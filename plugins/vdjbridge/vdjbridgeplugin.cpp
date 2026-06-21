@@ -18,6 +18,7 @@
 */
 
 #include "vdjbridgeplugin.h"
+#include "configurevdjbridge.h"
 #include "vdjtelemetryclient.h"
 #include "vdjbonjour.h"
 
@@ -171,11 +172,20 @@ int VdjBridgePlugin::connectionStatus(quint32 input)
 
 void VdjBridgePlugin::configure()
 {
+    ConfigureVdjBridge dialog(this);
+    dialog.exec();
 }
 
 bool VdjBridgePlugin::canConfigure() const
 {
-    return false;
+    return true;
+}
+
+QString VdjBridgePlugin::clientAddress() const
+{
+    if (m_telemetry && m_telemetry->clientAddress().isEmpty() == false)
+        return m_telemetry->clientAddress();
+    return QString();
 }
 
 void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability type,

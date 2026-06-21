@@ -93,6 +93,25 @@ Rectangle
         RobotoText
         {
             height: gridItemsHeight
+            label: qsTr("External Input Mode")
+        }
+        CustomComboBox
+        {
+            Layout.fillWidth: true
+            textRole: ""
+            model: [qsTr("Normal"), qsTr("Override"), qsTr("Inherit")]
+            currentIndex: widgetRef ? widgetRef.externalInputMode : 0
+            onActivated: (index) =>
+            {
+                if (widgetRef)
+                    widgetRef.externalInputMode = index
+            }
+        }
+
+        // row 4
+        RobotoText
+        {
+            height: gridItemsHeight
             label: qsTr("Security")
         }
 
@@ -122,7 +141,7 @@ Rectangle
             }
         }
 
-        // row 4
+        // row 5
         RowLayout
         {
             Layout.columnSpan: 2
@@ -147,7 +166,7 @@ Rectangle
             }
         }
 
-        // row 5
+        // row 6
         GenericButton
         {
             Layout.columnSpan: 2

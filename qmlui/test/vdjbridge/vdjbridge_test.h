@@ -15,6 +15,10 @@ class VdjBridge_Test : public QObject
 private slots:
     void initialState();
     void beatTicksCounterAndConnected();
+    void autoStartShowOnPlay();
+    void autoPauseShowOnPlayOff();
+    void autoResumeShowOnPlayOn();
+    void autoStartPauseResumeCycle();
 };
 
 #endif

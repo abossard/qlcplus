@@ -312,6 +312,31 @@ Rectangle
                     Layout.fillWidth: true
                     label: qsTr("Preset List")
                 }
+
+                // row 4
+                CustomCheckBox
+                {
+                    implicitWidth: UISettings.iconSizeMedium
+                    implicitHeight: implicitWidth
+                    checked: widgetRef ? widgetRef.visibilityMask & VCAnimation.Params : false
+                    onClicked:
+                    {
+                        if (!widgetRef)
+                            return
+
+                        if (checked)
+                            widgetRef.visibilityMask |= VCAnimation.Params
+                        else
+                            widgetRef.visibilityMask &= ~VCAnimation.Params
+                    }
+                }
+
+                RobotoText
+                {
+                    height: UISettings.listItemHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Parameters")
+                }
               } // GridLayout
         } // SectionBox
     } // Column

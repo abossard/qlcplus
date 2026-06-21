@@ -94,6 +94,22 @@ private:
     int m_timeDivisionBPM;
 
     /*********************************************************************
+     * External sync
+     *********************************************************************/
+public:
+    /** Set the sync source for this show's runner. */
+    void setSyncSource(int source);
+
+    /** Get the current sync source. */
+    int syncSource() const { return m_syncSource; }
+
+    /** Provide external elapsed time in ms. Forwarded to runner if running. */
+    void setExternalElapsedTime(quint32 ms);
+
+private:
+    int m_syncSource;  // stored as int to avoid header dependency on ShowRunner enum
+
+    /*********************************************************************
      * Tracks
      *********************************************************************/
 public:

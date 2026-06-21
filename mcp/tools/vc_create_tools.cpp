@@ -195,7 +195,13 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"color4", {{"type", "string"}, {"description", "Matrix: color 4 hex"}}},
                 {"color5", {{"type", "string"}, {"description", "Matrix: color 5 hex"}}},
                 {"colors", {{"type", "array"}, {"items", {{"type", "string"}}}, {"maxItems", 5}, {"description", "Matrix: colors array (overrides individual colorN fields)"}}},
-                {"animation", {{"type", "string"}, {"description", "Matrix: animation algorithm name"}}}
+                {"animation", {{"type", "string"}, {"description", "Matrix: animation algorithm name"}}},
+                {"targetFolder", {{"type", "string"}, {"description", "RecordPanel: function folder path for created scenes/chasers"}}},
+                {"scenePrefix", {{"type", "string"}, {"description", "RecordPanel: name prefix for created scenes"}}},
+                {"chaserPrefix", {{"type", "string"}, {"description", "RecordPanel: name prefix for created chasers"}}},
+                {"defaultFadeIn", {{"type", "integer"}, {"description", "RecordPanel: default fade-in time in ms"}}},
+                {"defaultHold", {{"type", "integer"}, {"description", "RecordPanel: default hold time in ms"}}},
+                {"defaultFadeOut", {{"type", "integer"}, {"description", "RecordPanel: default fade-out time in ms"}}}
             }}, {"required", {"type"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -811,6 +817,52 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     break;
                 }
 
+                case VCType::RecordPanel:
+                {
+                    int parentID = item.at("parentID").get<int>();
+                    QString caption = QString::fromStdString(item.value("caption", ""));
+                    if (!caption.isEmpty())
+                    {
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "Record Panel", caption);
+                        if (existingId >= 0)
+                        {
+                            results.push_back({{"widgetID", existingId}, {"status", "existing"}});
+                            continue;
+                        }
+                    }
+
+                    int w = item.value("width", 200);
+                    int h = item.value("height", 120);
+                    QRect geo;
+                    if (item.contains("x") && item.contains("y"))
+                        geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
+                    else
+                        geo = vcBridge->nextWidgetPosition(parentID, w, h);
+                    int id = vcBridge->addRecordPanel(parentID, geo);
+                    results.push_back({{"widgetID", id}, {"status", id >= 0 ? "created" : "failed"}});
+                    if (id >= 0)
+                    {
+                        if (item.contains("caption"))
+                            vcBridge->setWidgetCaption(id, QString::fromStdString(item.at("caption").get<std::string>()));
+                        if (item.contains("bgColor") || item.contains("fgColor"))
+                        {
+                            QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
+                            QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
+                            vcBridge->setWidgetColors(id, bg, fg);
+                        }
+                        VCBridge::RecordPanelConfig rpCfg;
+                        bool hasRpCfg = false;
+                        if (item.contains("targetFolder")) { rpCfg.targetFolder = QString::fromStdString(item["targetFolder"].get<std::string>()); hasRpCfg = true; }
+                        if (item.contains("scenePrefix")) { rpCfg.scenePrefix = QString::fromStdString(item["scenePrefix"].get<std::string>()); hasRpCfg = true; }
+                        if (item.contains("chaserPrefix")) { rpCfg.chaserPrefix = QString::fromStdString(item["chaserPrefix"].get<std::string>()); hasRpCfg = true; }
+                        if (item.contains("defaultFadeIn")) { rpCfg.defaultFadeIn = item["defaultFadeIn"].get<int>(); hasRpCfg = true; }
+                        if (item.contains("defaultHold")) { rpCfg.defaultHold = item["defaultHold"].get<int>(); hasRpCfg = true; }
+                        if (item.contains("defaultFadeOut")) { rpCfg.defaultFadeOut = item["defaultFadeOut"].get<int>(); hasRpCfg = true; }
+                        if (hasRpCfg) vcBridge->configureRecordPanel(id, rpCfg);
+                    }
+                    break;
+                }
+
                 default:
                     results.push_back({{"error", "unsupported widget type: " + typeStr}});
                     break;
@@ -821,7 +873,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         },
         std::nullopt,
         std::string("Create Virtual Console widgets. Use 'type' to specify widget kind: "
-                     "frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock. "
+                     "frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock, recordPanel. "
                      "Upserts: existing widget with same caption is returned. Batch. "
                      "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt

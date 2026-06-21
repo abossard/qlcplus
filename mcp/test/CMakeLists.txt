@@ -264,3 +264,47 @@ target_link_libraries(mcp_dispatch_smoke_test PRIVATE
     qlcplusmcp
     nlohmann_json::nlohmann_json
 )
+
+# VCPage ExternalInputMode tests — exercises string conversion, XML round-trip, PageInfo struct
+add_executable(mcp_vcpage_input_mode_test WIN32
+    vcpage_input_mode_test.cpp vcpage_input_mode_test.h
+)
+
+target_include_directories(mcp_vcpage_input_mode_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+)
+
+target_link_libraries(mcp_vcpage_input_mode_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+)
+
+# VCRecordPanel tests — DmxCapture, scene/chaser creation, XML round-trip, widget type registration
+add_executable(mcp_vcrecordpanel_test WIN32
+    vcrecordpanel_test.cpp vcrecordpanel_test.h
+)
+
+target_include_directories(mcp_vcrecordpanel_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+)
+
+target_link_libraries(mcp_vcrecordpanel_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine
+)

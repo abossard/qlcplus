@@ -1,15 +1,29 @@
 import type { TestPlan, TestSection, TestCase, TestStep, CheckItem } from './types';
 
 /**
+ * Extract `[TAG]` suffixes from a title string.
+ * Returns { cleanTitle, tags } where tags are uppercase bracketed words.
+ */
+function extractTags(raw: string): { cleanTitle: string; tags: string[] } {
+  const tags: string[] = [];
+  const cleanTitle = raw.replace(/\s*\[([A-Z][A-Z0-9]*)\]/g, (_, tag) => {
+    tags.push(tag);
+    return '';
+  }).trim();
+  return { cleanTitle, tags };
+}
+
+/**
  * Parse a MANUAL_REVIEW.md file into a structured TestPlan.
  *
  * Recognises:
- *  - ## N. Title         → sections
+ *  - ## N. Title         → sections (N can be alphanumeric, e.g. 4B, 13b)
  *  - ### N.M Title       → test cases
  *  - > blockquote        → context notes
  *  - - **Do:** / **Verify:** / **Prerequisite:** / **Expected:** / **Why manual:** → steps
  *  - - ☐ text            → check items
  *  - | col | ... | ☐ ... | → table check items
+ *  - [TAG] suffix        → hardware requirement tags (e.g. [MIDI], [DMX], [VDJ])
  */
 export function parseManualReview(markdown: string): TestPlan {
   const lines = markdown.split('\n');
@@ -41,24 +55,27 @@ export function parseManualReview(markdown: string): TestPlan {
       continue;
     }
 
-    // ## N. Title (section)
-    const h2 = line.match(/^## (\d+)\.\s+(.+)/);
+    // ## N. Title (section) — N can be alphanumeric (e.g. 4B, 13b)
+    const h2 = line.match(/^## (\w+)\.\s+(.+)/);
     if (h2) {
       inPreamble = false;
       flushCase(currentCase, currentStep, currentSection);
       currentCase = null;
       currentStep = null;
-      currentSection = makeSection(h2[1], h2[2]);
+      const { cleanTitle, tags } = extractTags(h2[2]);
+      currentSection = makeSection(h2[1], cleanTitle, tags);
       plan.sections.push(currentSection);
       continue;
     }
 
-    // ### N.M Title (test case)
-    const h3 = line.match(/^### (\d+\.\d+)\s+(.+)/);
+    // ### N.M Title (test case) — N.M can be alphanumeric (e.g. 4B.1, 13b.2)
+    const h3 = line.match(/^### (\w+\.\w+)\s+(.+)/);
     if (h3 && currentSection) {
       flushCase(currentCase, currentStep, currentSection);
       currentStep = null;
-      currentCase = makeCase(currentSection.number, h3[1], h3[2]);
+      const { cleanTitle, tags } = extractTags(h3[2]);
+      const mergedTags = [...new Set([...currentSection.tags, ...tags])];
+      currentCase = makeCase(currentSection.number, h3[1], cleanTitle, mergedTags);
       caseCheckCounter = 0;
       continue;
     }
@@ -144,21 +161,23 @@ export function parseManualReview(markdown: string): TestPlan {
   return plan;
 }
 
-function makeSection(number: string, title: string): TestSection {
+function makeSection(number: string, title: string, tags: string[]): TestSection {
   return {
     id: `section-${number}`,
     number,
     title: title.trim(),
+    tags,
     contextNote: '',
     cases: [],
   };
 }
 
-function makeCase(sectionNumber: string, number: string, title: string): TestCase {
+function makeCase(sectionNumber: string, number: string, title: string, tags: string[]): TestCase {
   return {
     id: `s${sectionNumber}-case-${number.replace('.', '-')}`,
     number,
     title: title.trim(),
+    tags,
     steps: [],
     tableChecks: [],
   };
@@ -219,4 +238,36 @@ export function allCheckItems(plan: TestPlan): CheckItem[] {
     }
   }
   return items;
+}
+
+/** Collect all unique tags from the plan. */
+export function allTags(plan: TestPlan): string[] {
+  const tags = new Set<string>();
+  for (const section of plan.sections) {
+    for (const tag of section.tags) tags.add(tag);
+    for (const tc of section.cases) {
+      for (const tag of tc.tags) tags.add(tag);
+    }
+  }
+  return [...tags].sort();
+}
+
+/**
+ * Filter a plan by available equipment tags.
+ * Cases with no tags (app-only) are always included.
+ * Cases whose tags are ALL present in `availableTags` are included.
+ * Cases with any tag NOT in `availableTags` are excluded.
+ * Sections with no remaining cases are excluded.
+ */
+export function filterPlan(plan: TestPlan, availableTags: Set<string>): TestPlan {
+  const sections: TestSection[] = [];
+  for (const section of plan.sections) {
+    const filteredCases = section.cases.filter(tc =>
+      tc.tags.length === 0 || tc.tags.every(t => availableTags.has(t))
+    );
+    if (filteredCases.length > 0) {
+      sections.push({ ...section, cases: filteredCases });
+    }
+  }
+  return { ...plan, sections };
 }

@@ -588,6 +588,23 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     }
                 }
 
+                if (widgetType == VCType::RecordPanel)
+                {
+                    VCBridge::RecordPanelConfig rpCfg;
+                    bool hasRpCfg = false;
+                    if (item.contains("targetFolder")) { rpCfg.targetFolder = QString::fromStdString(item["targetFolder"].get<std::string>()); hasRpCfg = true; }
+                    if (item.contains("scenePrefix")) { rpCfg.scenePrefix = QString::fromStdString(item["scenePrefix"].get<std::string>()); hasRpCfg = true; }
+                    if (item.contains("chaserPrefix")) { rpCfg.chaserPrefix = QString::fromStdString(item["chaserPrefix"].get<std::string>()); hasRpCfg = true; }
+                    if (item.contains("defaultFadeIn")) { rpCfg.defaultFadeIn = item["defaultFadeIn"].get<int>(); hasRpCfg = true; }
+                    if (item.contains("defaultHold")) { rpCfg.defaultHold = item["defaultHold"].get<int>(); hasRpCfg = true; }
+                    if (item.contains("defaultFadeOut")) { rpCfg.defaultFadeOut = item["defaultFadeOut"].get<int>(); hasRpCfg = true; }
+                    if (hasRpCfg)
+                    {
+                        bool ok = vcBridge->configureRecordPanel(wid, rpCfg);
+                        changes.push_back({{"property", "recordPanelConfig"}, {"status", ok ? "ok" : "failed"}});
+                    }
+                }
+
                 results.push_back({{"widgetID", wid}, {"changes", changes}});
             }
             return results.dump();
@@ -596,7 +613,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         std::nullopt,
         std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed. "
                      "Validates fields against widget type. Supports type-specific configuration for buttons, "
-                     "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, and audio triggers. Batch. "
+                     "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, audio triggers, and record panels. Batch. "
                      "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
         std::nullopt
     )

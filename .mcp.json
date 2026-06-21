@@ -3,6 +3,14 @@
     "qlcplus": {
       "type": "http",
       "url": "http://localhost:9696/mcp"
+    },
+    "codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
     }
   }
 }

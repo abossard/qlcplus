@@ -333,6 +333,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     Json pageJson;
                     pageJson["index"] = page.index;
                     pageJson["name"] = page.name.toStdString();
+                    pageJson["externalInputMode"] = page.externalInputMode.toStdString();
                     pageJson["widgets"] = widgets;
                     results.push_back(pageJson);
                 }

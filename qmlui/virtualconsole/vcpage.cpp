@@ -19,11 +19,15 @@
 
 #include "vcpage.h"
 
+#include <QXmlStreamReader>
+#include <QXmlStreamWriter>
+
 #include "previewcontext.h"
 
 VCPage::VCPage(QQuickView *view, Doc *doc, VirtualConsole *vc, int pageIndex, QObject *parent)
     : VCFrame(doc, vc, parent)
     , m_pageScale(1.0)
+    , m_externalInputMode(Normal)
 {
     setAllowResize(false);
     setShowHeader(false);
@@ -104,6 +108,60 @@ bool VCPage::isEffectivelyVisible(const VCWidget *widget) const
     }
 
     return true;
+}
+
+bool VCPage::isVisibleWithinPage(const VCWidget *widget) const
+{
+    const VCWidget *current = widget;
+    while (current != nullptr)
+    {
+        // Stop at the VCPage boundary — don't check page visibility itself
+        if (qobject_cast<const VCPage *>(current) != nullptr)
+            return true;
+
+        if (current->isVisible() == false)
+            return false;
+        current = qobject_cast<const VCWidget *>(current->parent());
+    }
+
+    return true;
+}
+
+/*********************************************************************
+ * External input mode
+ *********************************************************************/
+
+VCPage::ExternalInputMode VCPage::externalInputMode() const
+{
+    return m_externalInputMode;
+}
+
+void VCPage::setExternalInputMode(ExternalInputMode mode)
+{
+    if (m_externalInputMode == mode)
+        return;
+
+    m_externalInputMode = mode;
+    emit externalInputModeChanged(mode);
+}
+
+QString VCPage::externalInputModeToString(ExternalInputMode mode)
+{
+    switch (mode)
+    {
+        case Override: return QStringLiteral("Override");
+        case Inherit:  return QStringLiteral("Inherit");
+        default:       return QStringLiteral("Normal");
+    }
+}
+
+VCPage::ExternalInputMode VCPage::stringToExternalInputMode(const QString &str)
+{
+    if (str == QStringLiteral("Override"))
+        return Override;
+    if (str == QStringLiteral("Inherit"))
+        return Inherit;
+    return Normal;
 }
 
 /*********************************************************************
@@ -231,6 +289,35 @@ void VCPage::inputValueChanged(quint32 inputSourceKey, uchar value)
                 match.second->slotInputValueChanged(match.first->id(), value);
         }
     }
+}
+
+void VCPage::inputValueChangedGlobal(quint32 inputSourceKey, uchar value)
+{
+    for (QPair<QSharedPointer<QLCInputSource>, VCWidget *> match : m_inputSourcesMap.values(inputSourceKey))
+    {
+        // Use isVisibleWithinPage: skip VCPage visibility (page may not be active)
+        // but still filter collapsed/hidden frames within the page
+        bool passVisibility = isVisibleWithinPage(match.second);
+
+        bool passDisable = (match.second->type() == VCWidget::FrameWidget) ||
+                           (match.second->type() == VCWidget::SoloFrameWidget) ? true : !match.second->isDisabled();
+
+        if (passVisibility == true &&
+            passDisable == true &&
+            match.second->isEditing() == false &&
+            match.first->page() == match.second->page())
+        {
+            if (match.first->needsUpdate())
+                match.first->updateInputValue(value);
+            else
+                match.second->slotInputValueChanged(match.first->id(), value);
+        }
+    }
+}
+
+bool VCPage::hasInputSourceForKey(quint32 inputSourceKey) const
+{
+    return m_inputSourcesMap.contains(inputSourceKey);
 }
 
 /*********************************************************************
@@ -366,4 +453,47 @@ void VCPage::handleKeyEvent(QKeySequence &seq, bool pressed)
             match.second->slotInputValueChanged(match.first, pressed ? 255 : 0);
         }
     }
+}
+
+void VCPage::handleKeyEventGlobal(QKeySequence &seq, bool pressed)
+{
+    for (QPair<quint32, VCWidget *> match : m_keySequencesMap.values(seq))
+    {
+        bool passVisibility = isVisibleWithinPage(match.second);
+
+        bool passDisable = (match.second->type() == VCWidget::FrameWidget) ||
+                           (match.second->type() == VCWidget::SoloFrameWidget) ? true : !match.second->isDisabled();
+
+        if (passVisibility == true &&
+            passDisable == true &&
+            match.second->isEditing() == false)
+        {
+            match.second->slotInputValueChanged(match.first, pressed ? 255 : 0);
+        }
+    }
+}
+
+bool VCPage::hasKeySequence(const QKeySequence &seq) const
+{
+    return m_keySequencesMap.contains(seq);
+}
+
+/*********************************************************************
+ * Load & Save
+ *********************************************************************/
+
+bool VCPage::loadExtraXML(QXmlStreamReader &root)
+{
+    if (root.name() == KXMLQLCVCPageInputMode)
+    {
+        setExternalInputMode(stringToExternalInputMode(root.readElementText()));
+        return true;
+    }
+    return false;
+}
+
+void VCPage::saveExtraXML(QXmlStreamWriter *doc) const
+{
+    if (m_externalInputMode != Normal)
+        doc->writeTextElement(KXMLQLCVCPageInputMode, externalInputModeToString(m_externalInputMode));
 }

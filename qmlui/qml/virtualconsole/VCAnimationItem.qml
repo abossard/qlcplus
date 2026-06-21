@@ -88,7 +88,7 @@ VCWidgetItem
         {
             id: levelFader
             Layout.fillHeight: true
-            Layout.rowSpan: 3
+            Layout.rowSpan: 4
             from: 0
             to: 255
             visible: animationObj ? animationObj.visibilityMask & VCAnimation.Fader : true
@@ -181,6 +181,80 @@ VCWidgetItem
                     animationObj.algorithmIndex = index
             }
         }
+
+        // Algorithm parameter controls (Range → SpinBox, List → ComboBox)
+        GridLayout
+        {
+            Layout.fillWidth: true
+            columns: 2
+            columnSpacing: 3
+            rowSpacing: 2
+            visible: animationObj ? (animationObj.visibilityMask & VCAnimation.Params) && paramsRepeater.count > 0 : false
+
+            Repeater
+            {
+                id: paramsRepeater
+                model: animationObj ? animationObj.algorithmParameters : []
+
+                delegate: RobotoText
+                {
+                    required property var modelData
+                    required property int index
+                    Layout.row: index
+                    Layout.column: 0
+                    height: UISettings.listItemHeight
+                    fontSize: UISettings.textSizeDefault * 0.9
+                    label: modelData.displayName
+                }
+            }
+
+            Repeater
+            {
+                model: animationObj ? animationObj.algorithmParameters : []
+
+                delegate: Loader
+                {
+                    required property var modelData
+                    required property int index
+                    Layout.row: index
+                    Layout.column: 1
+                    Layout.fillWidth: true
+                    height: UISettings.listItemHeight
+
+                    sourceComponent: modelData.type === "range" ? rangeComponent : listComponent
+
+                    onLoaded:
+                    {
+                        if (modelData.type === "range")
+                        {
+                            item.propName = modelData.name
+                            item.from = modelData.min
+                            item.to = modelData.max
+                            item.value = modelData.value
+                        }
+                        else
+                        {
+                            item.propName = modelData.name
+                            item.setupModel(modelData.listValues, modelData.value)
+                        }
+                    }
+
+                    Connections
+                    {
+                        target: animationObj
+                        function onParameterValueChanged(name, value)
+                        {
+                            if (name !== modelData.name)
+                                return
+                            if (modelData.type === "range")
+                                item.value = parseInt(value)
+                            else
+                                item.updateCurrentValue(value)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     DropArea
@@ -208,5 +282,64 @@ VCWidgetItem
                 }
             }
         ]
+    }
+
+    Component
+    {
+        id: rangeComponent
+
+        CustomSpinBox
+        {
+            property string propName: ""
+
+            onValueModified:
+            {
+                if (animationObj && propName !== "")
+                    animationObj.setScriptProperty(propName, value)
+            }
+        }
+    }
+
+    Component
+    {
+        id: listComponent
+
+        CustomComboBox
+        {
+            property string propName: ""
+
+            function setupModel(listValues, currentValue)
+            {
+                model = listValues
+                for (var i = 0; i < listValues.length; i++)
+                {
+                    if (listValues[i] === currentValue)
+                    {
+                        currentIndex = i
+                        return
+                    }
+                }
+                currentIndex = 0
+            }
+
+            function updateCurrentValue(newValue)
+            {
+                for (var i = 0; i < model.length; i++)
+                {
+                    if (model[i] === newValue.toString())
+                    {
+                        currentIndex = i
+                        return
+                    }
+                }
+            }
+
+            textRole: ""
+            onActivated: (index) =>
+            {
+                if (animationObj && propName !== "" && model)
+                    animationObj.setScriptProperty(propName, model[index])
+            }
+        }
     }
 }

@@ -371,6 +371,14 @@ public:
 protected:
     /** Can be overridden by subclasses */
     virtual QString xmlTagName() const;
+
+    /** Extension point for subclasses to load additional XML tags.
+     *  Called for unknown tags during loadXML. Return true if handled. */
+    virtual bool loadExtraXML(QXmlStreamReader &root);
+
+    /** Extension point for subclasses to save additional XML tags.
+     *  Called before closing element in saveXML. */
+    virtual void saveExtraXML(QXmlStreamWriter *doc) const;
 };
 
 #endif

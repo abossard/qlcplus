@@ -60,6 +60,7 @@ class VCAnimation : public VCWidget
 
     Q_PROPERTY(QStringList algorithms READ algorithms CONSTANT)
     Q_PROPERTY(int algorithmIndex READ algorithmIndex WRITE setAlgorithmIndex NOTIFY algorithmIndexChanged FINAL)
+    Q_PROPERTY(QVariantList algorithmParameters READ algorithmParameters NOTIFY algorithmParametersChanged)
 
     /*********************************************************************
      * Initialization
@@ -94,6 +95,7 @@ public:
         Color3          = 1 << 5,
         Color4          = 1 << 6,
         Color5          = 1 << 7,
+        Params          = 1 << 8,
     };
     Q_ENUM(Visibility)
 
@@ -191,6 +193,12 @@ public:
     int algorithmIndex() const;
     void setAlgorithmIndex(int index);
 
+    /** Get the current algorithm's parameters as a QML-friendly model */
+    QVariantList algorithmParameters() const;
+
+    /** Set a script property from QML (widget-face controls) */
+    Q_INVOKABLE void setScriptProperty(const QString &name, const QVariant &value);
+
 signals:
     void color1Changed();
     void color2Changed();
@@ -199,6 +207,8 @@ signals:
     void color5Changed();
     void colorsChanged();
     void algorithmIndexChanged();
+    void algorithmParametersChanged();
+    void parameterValueChanged(const QString &name, const QVariant &value);
 
     /*********************************************************************
      * External input
@@ -221,6 +231,9 @@ private:
 
     /** Map from external control ID to property name */
     QMap<quint8, QString> m_paramIdToName;
+
+    /** Cached property values to avoid mutex contention with MasterTimer */
+    QMap<QString, QString> m_currentPropertyValues;
 
     /*********************************************************************
      * Load & Save

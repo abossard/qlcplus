@@ -32,6 +32,7 @@
 #include "vcspeeddialpreset.h"
 #include "vcaudiotriggers.h"
 #include "vcclock.h"
+#include "vcrecordpanel.h"
 #include "vcanimation.h"
 #include "vcwidget.h"
 #include "vclayoutadapter.h"
@@ -213,6 +214,7 @@ QList<VCBridge::PageInfo> VCBridgeV5::pages() const
         pi.index = i;
         pi.name = page->caption().isEmpty()
             ? QString("Page %1").arg(i + 1) : page->caption();
+        pi.externalInputMode = VCPage::externalInputModeToString(page->externalInputMode());
 
         // Populate widgets from the page's children
         for (VCWidget *w : page->children(true))
@@ -719,6 +721,23 @@ int VCBridgeV5::addClock(int parentID, const QRect &geometry,
     return widget->id();
 }
 
+int VCBridgeV5::addRecordPanel(int parentID, const QRect &geometry)
+{
+    VCWidget *parent = m_vc->widget(parentID);
+    VCFrame *frame = qobject_cast<VCFrame *>(parent);
+    if (!frame) return -1;
+
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Record Panel",
+                                        QPoint(geometry.x(), geometry.y()));
+    if (!widget) return -1;
+
+    VCRecordPanel *rp = qobject_cast<VCRecordPanel *>(widget);
+    if (rp)
+        rp->setGeometry(snapRect(geometry));
+
+    return widget->id();
+}
+
 int VCBridgeV5::findPageByName(const QString &name) const
 {
     for (int i = 0; i < m_vc->pagesCount(); i++)
@@ -748,6 +767,7 @@ int VCBridgeV5::findWidgetByCaption(int parentID, const QString &widgetType,
     else if (widgetType == "Label") targetType = VCWidget::LabelWidget;
     else if (widgetType == "Audio Triggers") targetType = VCWidget::AudioTriggersWidget;
     else if (widgetType == "Clock") targetType = VCWidget::ClockWidget;
+    else if (widgetType == "Record Panel") targetType = VCWidget::RecordPanelWidget;
 
     for (VCWidget *w : frame->children())
     {
@@ -1160,6 +1180,19 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
         d.absoluteValueMax = speedDial->timeMaximumValue();
         d.speedDialVisibilityMask = speedDial->visibilityMask();
         d.resetFactorOnDialChange = speedDial->resetOnDialChange();
+    }
+
+    // RecordPanel-specific
+    VCRecordPanel *recordPanel = qobject_cast<VCRecordPanel*>(widget);
+    if (recordPanel)
+    {
+        d.rpTargetFolder = recordPanel->targetFolder();
+        d.rpScenePrefix = recordPanel->scenePrefix();
+        d.rpChaserPrefix = recordPanel->chaserPrefix();
+        d.rpDefaultFadeIn = recordPanel->defaultFadeIn();
+        d.rpDefaultHold = recordPanel->defaultHold();
+        d.rpDefaultFadeOut = recordPanel->defaultFadeOut();
+        d.rpIsRecordingChaser = recordPanel->isRecordingChaser();
     }
 
     // Base widget extended properties
@@ -1912,4 +1945,27 @@ VCBridge::FrameGridLayout VCBridgeV5::getFrameGridLayout(int frameID) const
     out.rowHeight = frame->gridRowHeight();
     out.compact = frame->gridCompact();
     return out;
+}
+
+// --- RecordPanel extended config ---
+
+bool VCBridgeV5::configureRecordPanel(int widgetID, const RecordPanelConfig &config)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    VCRecordPanel *rp = qobject_cast<VCRecordPanel *>(widget);
+    if (!rp) return false;
+
+    if (config.targetFolder.has_value())
+        rp->setTargetFolder(config.targetFolder.value());
+    if (config.scenePrefix.has_value())
+        rp->setScenePrefix(config.scenePrefix.value());
+    if (config.chaserPrefix.has_value())
+        rp->setChaserPrefix(config.chaserPrefix.value());
+    if (config.defaultFadeIn.has_value())
+        rp->setDefaultFadeIn(config.defaultFadeIn.value());
+    if (config.defaultHold.has_value())
+        rp->setDefaultHold(config.defaultHold.value());
+    if (config.defaultFadeOut.has_value())
+        rp->setDefaultFadeOut(config.defaultFadeOut.value());
+    return true;
 }

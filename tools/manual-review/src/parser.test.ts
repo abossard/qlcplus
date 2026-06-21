@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseManualReview } from './parser';
+import { parseManualReview, filterPlan, allTags } from './parser';
 
 const SAMPLE_MD = `# QLC+ Fork — Manual Review Checklist
 
@@ -42,7 +42,7 @@ In QLC+:
 - ☐ Page is created
 - ☐ No widget overlap
 
-### 2.2 configure_launchpad
+### 2.2 configure_launchpad [MIDI]
 
 - **Prerequisite:** Novation Launchpad connected.
 - **Do:** Call the tool.
@@ -81,6 +81,34 @@ Test from ANY context:
 
 ---
 
+## 4B. Page Input [MIDI]
+
+### 4B.1 Normal mode [DMX]
+
+- **Do:** Test input mapping.
+- ☐ Input works
+
+### 4B.2 Override mode
+
+- **Do:** Test override.
+- ☐ Override works
+
+---
+
+## 12. VDJ Playback [VDJ]
+
+### 12.1 Auto-start
+
+- **Do:** Play a track.
+- ☐ Show starts
+
+### 12.2 Seek handling
+
+- **Do:** Seek in VDJ.
+- ☐ Show follows
+
+---
+
 ## 5. Sign-off
 
 | Area | Tester | Date | Pass / Fail | Notes |
@@ -109,8 +137,19 @@ describe('parseManualReview', () => {
       { number: '2', title: 'MCP Server — Composite Tools' },
       { number: '3', title: 'Keyboard Shortcuts' },
       { number: '4', title: 'Known Issues / Limitations' },
+      { number: '4B', title: 'Page Input' },
+      { number: '12', title: 'VDJ Playback' },
       { number: '5', title: 'Sign-off' },
     ]);
+  });
+
+  it('parses alphanumeric section numbers (4B)', () => {
+    const section4B = plan.sections.find(s => s.number === '4B');
+    expect(section4B).toBeTruthy();
+    expect(section4B!.title).toBe('Page Input');
+    expect(section4B!.cases).toHaveLength(2);
+    expect(section4B!.cases[0].number).toBe('4B.1');
+    expect(section4B!.cases[1].number).toBe('4B.2');
   });
 
   it('extracts context notes from blockquotes', () => {
@@ -188,7 +227,98 @@ describe('parseManualReview', () => {
         total += tc.tableChecks.length;
       }
     }
-    // 2 (build_show_page) + 1 (configure_launchpad) + 3 (global shortcuts table) + 2 (sort table) = 8
-    expect(total).toBe(8);
+    // 2 (build_show_page) + 1 (configure_launchpad) + 3 (global shortcuts table)
+    // + 2 (sort table) + 1 (4B.1) + 1 (4B.2) + 1 (12.1) + 1 (12.2) = 12
+    expect(total).toBe(12);
+  });
+});
+
+describe('tag parsing', () => {
+  const plan = parseManualReview(SAMPLE_MD);
+
+  it('extracts single tag from case header', () => {
+    const launchpad = plan.sections[1].cases[1]; // 2.2 configure_launchpad [MIDI]
+    expect(launchpad.tags).toEqual(['MIDI']);
+    expect(launchpad.title).toBe('configure_launchpad');
+  });
+
+  it('extracts tag from section header', () => {
+    const section4B = plan.sections.find(s => s.number === '4B')!;
+    expect(section4B.tags).toEqual(['MIDI']);
+    expect(section4B.title).toBe('Page Input');
+  });
+
+  it('inherits section tags to cases (union merge)', () => {
+    const section4B = plan.sections.find(s => s.number === '4B')!;
+    // 4B.1 has [DMX] + inherits [MIDI] from section
+    expect(section4B.cases[0].tags).toContain('MIDI');
+    expect(section4B.cases[0].tags).toContain('DMX');
+    expect(section4B.cases[0].tags).toHaveLength(2);
+    // 4B.2 has no own tag, inherits [MIDI] from section
+    expect(section4B.cases[1].tags).toEqual(['MIDI']);
+  });
+
+  it('strips tags from case title', () => {
+    const section4B = plan.sections.find(s => s.number === '4B')!;
+    expect(section4B.cases[0].title).toBe('Normal mode');
+  });
+
+  it('sections without tags have empty array', () => {
+    expect(plan.sections[0].tags).toEqual([]);
+    expect(plan.sections[0].cases[0].tags).toEqual([]);
+  });
+
+  it('allTags collects all unique tags', () => {
+    const tags = allTags(plan);
+    expect(tags).toEqual(['DMX', 'MIDI', 'VDJ']);
+  });
+});
+
+describe('filterPlan', () => {
+  const plan = parseManualReview(SAMPLE_MD);
+
+  it('shows all cases when all tags available', () => {
+    const filtered = filterPlan(plan, new Set(['MIDI', 'DMX', 'VDJ']));
+    const totalCases = filtered.sections.reduce((sum, s) => sum + s.cases.length, 0);
+    const origCases = plan.sections.reduce((sum, s) => sum + s.cases.length, 0);
+    expect(totalCases).toBe(origCases);
+  });
+
+  it('shows only untagged cases when no tags available', () => {
+    const filtered = filterPlan(plan, new Set());
+    for (const section of filtered.sections) {
+      for (const tc of section.cases) {
+        expect(tc.tags).toEqual([]);
+      }
+    }
+    // Should exclude 2.2 [MIDI], 4B.* [MIDI/DMX], 12.* [VDJ]
+    const totalCases = filtered.sections.reduce((sum, s) => sum + s.cases.length, 0);
+    // Original has: 1.1,1.2 (0 tags), 2.1 (0), 2.2 (MIDI), 3.1,3.2 (0), 4B.1 (MIDI+DMX), 4B.2 (MIDI), 12.1,12.2 (VDJ)
+    // untagged = 1.1, 1.2, 2.1, 3.1, 3.2 = 5
+    expect(totalCases).toBe(5);
+  });
+
+  it('includes MIDI-tagged cases when MIDI is available', () => {
+    const filtered = filterPlan(plan, new Set(['MIDI']));
+    const caseNumbers = filtered.sections.flatMap(s => s.cases.map(c => c.number));
+    expect(caseNumbers).toContain('2.2'); // [MIDI]
+    expect(caseNumbers).toContain('4B.2'); // [MIDI] inherited
+    expect(caseNumbers).not.toContain('4B.1'); // [MIDI,DMX] — DMX not available
+    expect(caseNumbers).not.toContain('12.1'); // [VDJ]
+  });
+
+  it('excludes sections with no remaining cases', () => {
+    const filtered = filterPlan(plan, new Set());
+    const sectionNumbers = filtered.sections.map(s => s.number);
+    expect(sectionNumbers).not.toContain('4B'); // all cases need MIDI
+    expect(sectionNumbers).not.toContain('12'); // all cases need VDJ
+  });
+
+  it('handles multi-tag requirement (needs ALL tags)', () => {
+    const filtered = filterPlan(plan, new Set(['MIDI', 'DMX']));
+    const caseNumbers = filtered.sections.flatMap(s => s.cases.map(c => c.number));
+    expect(caseNumbers).toContain('4B.1'); // [MIDI,DMX] — both available
+    expect(caseNumbers).toContain('4B.2'); // [MIDI] — available
+    expect(caseNumbers).not.toContain('12.1'); // [VDJ] — not available
   });
 });

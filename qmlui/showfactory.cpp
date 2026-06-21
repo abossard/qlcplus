@@ -104,6 +104,9 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     Show *show = new Show(m_doc);
     show->setName(showName);
     show->setPath(kSongFolderPath);
+    // VDJ-tracked songs auto-enable external sync so the show timeline
+    // follows VDJ's absolute position (tempo changes, seeks, loops).
+    show->setSyncSource(1); // ShowRunner::External
     m_doc->addFunction(show);
 
     // Add a Track with the Audio as a timeline item

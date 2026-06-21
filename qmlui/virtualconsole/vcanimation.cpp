@@ -151,7 +151,7 @@ FunctionParent VCAnimation::functionParent() const
 
 quint32 VCAnimation::defaultVisibilityMask() const
 {
-    return Fader | Label | Color1 | Color2 | PresetCombo;
+    return Fader | Label | Color1 | Color2 | PresetCombo | Params;
 }
 
 quint32 VCAnimation::visibilityMask() const
@@ -513,27 +513,38 @@ void VCAnimation::refreshParameterControls()
 
     m_currentProperties.clear();
     m_paramIdToName.clear();
+    m_currentPropertyValues.clear();
 
     if (m_functionID == Function::invalidId())
+    {
+        emit algorithmParametersChanged();
         return;
+    }
 
     // Use m_localAlgorithmIndex to look up properties, not the live matrix.
     // The matrix's algorithm lags behind due to attribute overrides applied
     // on the next MasterTimer round.
     QStringList algoList = algorithms();
     if (m_localAlgorithmIndex < 0 || m_localAlgorithmIndex >= algoList.count())
+    {
+        emit algorithmParametersChanged();
         return;
+    }
 
     RGBAlgorithm *algo = RGBAlgorithm::algorithm(m_doc, algoList.at(m_localAlgorithmIndex));
     if (algo == nullptr || algo->type() != RGBAlgorithm::Script)
     {
         delete algo;
+        emit algorithmParametersChanged();
         return;
     }
 
     RGBScript *script = static_cast<RGBScript *>(algo);
     QList<RGBScriptProperty> props = script->properties();
     delete algo;
+
+    // Populate cache with current values from the matrix
+    RGBMatrix *matrix = currentMatrix();
 
     quint8 paramIndex = 0;
     for (const RGBScriptProperty &prop : props)
@@ -546,8 +557,63 @@ void VCAnimation::refreshParameterControls()
         registerExternalControl(controlId, label, false);
         m_paramIdToName.insert(controlId, prop.m_name);
         m_currentProperties.append(prop);
+
+        if (matrix)
+            m_currentPropertyValues.insert(prop.m_name, matrix->property(prop.m_name));
+
         paramIndex++;
     }
+
+    emit algorithmParametersChanged();
+}
+
+QVariantList VCAnimation::algorithmParameters() const
+{
+    QVariantList result;
+
+    for (const RGBScriptProperty &prop : m_currentProperties)
+    {
+        QVariantMap param;
+        param["name"] = prop.m_name;
+        param["displayName"] = prop.m_displayName.isEmpty() ? prop.m_name : prop.m_displayName;
+
+        QString currentValue = m_currentPropertyValues.value(prop.m_name);
+
+        if (prop.m_type == RGBScriptProperty::Range)
+        {
+            param["type"] = QStringLiteral("range");
+            param["min"] = prop.m_rangeMinValue;
+            param["max"] = prop.m_rangeMaxValue;
+            param["value"] = currentValue.isEmpty() ? prop.m_rangeMinValue : currentValue.toInt();
+        }
+        else if (prop.m_type == RGBScriptProperty::List)
+        {
+            param["type"] = QStringLiteral("list");
+            param["listValues"] = prop.m_listValues;
+            param["value"] = currentValue;
+        }
+
+        result.append(param);
+    }
+
+    return result;
+}
+
+void VCAnimation::setScriptProperty(const QString &name, const QVariant &value)
+{
+    RGBMatrix *matrix = currentMatrix();
+    if (matrix == nullptr)
+        return;
+
+    QString strValue = value.toString();
+
+    // Guard against feedback loops: skip if value unchanged
+    if (m_currentPropertyValues.value(name) == strValue)
+        return;
+
+    m_currentPropertyValues.insert(name, strValue);
+    matrix->setProperty(name, strValue);
+    emit parameterValueChanged(name, value);
 }
 
 void VCAnimation::slotInputValueChanged(quint8 id, uchar value)
@@ -600,7 +666,12 @@ void VCAnimation::slotInputValueChanged(quint8 id, uchar value)
                 mappedValue = prop.m_listValues.at(index);
             }
 
+            if (m_currentPropertyValues.value(propName) == mappedValue)
+                return;
+
             matrix->setProperty(propName, mappedValue);
+            m_currentPropertyValues.insert(propName, mappedValue);
+            emit parameterValueChanged(propName, QVariant(mappedValue));
             return;
         }
     }

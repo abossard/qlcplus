@@ -24,6 +24,8 @@
 #include <QMutex>
 #include <QMap>
 
+#include <atomic>
+
 #include <function.h>
 
 class ShowFunction;
@@ -41,6 +43,13 @@ class ShowRunner final : public QObject
     Q_OBJECT
 
 public:
+    /** Time source for show progression. */
+    enum SyncSource
+    {
+        Autonomous, //! ShowRunner increments elapsed time on each tick (default)
+        External    //! Elapsed time is provided externally (e.g. from VDJ position)
+    };
+
     ShowRunner(const Doc *doc, quint32 showID, quint32 startTime = 0);
     ~ShowRunner();
 
@@ -55,11 +64,27 @@ public:
 
     void write(MasterTimer *timer);
 
+    /** Set the time source for show progression. */
+    void setSyncSource(SyncSource source);
+
+    /** Get the current sync source. */
+    SyncSource syncSource() const { return m_syncSource; }
+
+    /** Provide the current elapsed time in milliseconds (thread-safe).
+     *  Only used when syncSource is External. */
+    void setExternalElapsedTime(quint32 ms);
+
 private:
     const Doc *m_doc;
 
     /** The reference of the show to play */
     Show* m_show;
+
+    /** Time source mode */
+    SyncSource m_syncSource;
+
+    /** Externally-provided elapsed time (thread-safe via atomic) */
+    std::atomic<quint32> m_externalElapsedTime{0};
 
     /** The list of time-based Functions the Show needs to play */
     QList <ShowFunction *> m_timeFunctions;
@@ -87,6 +112,9 @@ private:
 
     /** List of the currently running Functions and their stop time */
     QList < QPair<Function *, quint32> > m_runningQueue;
+
+    /** Handle backward seek: stop all running functions, reset indices */
+    void seekBackward(quint32 newTime);
 
 private:
     FunctionParent functionParent() const;

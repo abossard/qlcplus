@@ -1,4 +1,4 @@
-import { parseManualReview, allCheckItems } from './parser';
+import { parseManualReview, allCheckItems, allTags, filterPlan } from './parser';
 import { computeStats, generateReport } from './report';
 import {
   loadSession, saveSession, resetSession, startSession, concludeSession,
@@ -8,30 +8,33 @@ import {
 import { initKeyboard } from './keyboard';
 import type { TestPlan, CheckItem, ReviewSession } from './types';
 
+let fullPlan: TestPlan;
 let plan: TestPlan;
 let session: ReviewSession;
 let flatChecks: CheckItem[] = [];
 let currentCheckIndex = 0;
+let availableTags = new Set<string>();
+let knownTags: string[] = [];
 
 // ── Initialization ──
 
 async function init() {
   const md = await loadMarkdown();
-  plan = parseManualReview(md);
+  fullPlan = parseManualReview(md);
+  knownTags = allTags(fullPlan);
+  availableTags = new Set(knownTags); // default: all hardware available
+  plan = fullPlan;
   flatChecks = allCheckItems(plan);
 
   const runId = getRunId();
   if (runId) {
-    // Active run — load session and show review UI
     session = await loadSession();
     showReviewUI();
   } else {
-    // No active run — show start screen
-    session = await loadSession(); // empty session for now
+    session = await loadSession();
     showStartScreen();
   }
 
-  // Wire start button (always present)
   document.getElementById('btn-start')!.addEventListener('click', () => doStart());
 }
 
@@ -50,6 +53,7 @@ function showReviewUI() {
   document.getElementById('start-screen')!.style.display = 'none';
   document.getElementById('review-ui')!.style.display = '';
 
+  renderTagFilters();
   renderSidebar();
   renderContent();
   updateProgress();
@@ -107,6 +111,43 @@ async function loadMarkdown(): Promise<string> {
   return '# No MANUAL_REVIEW.md found\n\nPlace MANUAL_REVIEW.md in the repo root or serve it alongside this app.';
 }
 
+// ── Tag Filtering ──
+
+function renderTagFilters() {
+  const container = document.getElementById('tag-filters')!;
+  if (knownTags.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.innerHTML = '<label>Equipment:</label>';
+  for (const tag of knownTags) {
+    const checked = availableTags.has(tag) ? 'checked' : '';
+    const activeClass = availableTags.has(tag) ? ' active' : '';
+    container.innerHTML += `<label class="tag-chip${activeClass}" data-tag="${tag}">
+      <input type="checkbox" ${checked} data-tag="${tag}" />${tag}</label>`;
+  }
+  container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const input = e.target as HTMLInputElement;
+      const tag = input.dataset.tag!;
+      if (input.checked) availableTags.add(tag);
+      else availableTags.delete(tag);
+      input.parentElement!.classList.toggle('active', input.checked);
+      applyTagFilter();
+    });
+  });
+}
+
+function applyTagFilter() {
+  plan = filterPlan(fullPlan, availableTags);
+  flatChecks = allCheckItems(plan);
+  currentCheckIndex = Math.min(currentCheckIndex, Math.max(0, flatChecks.length - 1));
+  renderSidebar();
+  renderContent();
+  updateProgress();
+  highlightCurrentCheck();
+}
+
 // ── Rendering ──
 
 function renderSidebar() {
@@ -154,6 +195,14 @@ function renderSidebar() {
         : '⬜';
 
       caseEl.textContent = `${icon} ${tc.number} ${tc.title}`;
+      if (tc.tags.length > 0) {
+        for (const tag of tc.tags) {
+          const badge = document.createElement('span');
+          badge.className = `tag-badge tag-badge-${tag}`;
+          badge.textContent = tag;
+          caseEl.appendChild(badge);
+        }
+      }
       caseEl.addEventListener('click', () => {
         scrollToElement(tc.id);
         const firstCheck = checks[0];
@@ -195,6 +244,14 @@ function renderContent() {
 
       const caseHeader = document.createElement('h3');
       caseHeader.textContent = `${tc.number} ${tc.title}`;
+      if (tc.tags.length > 0) {
+        for (const tag of tc.tags) {
+          const badge = document.createElement('span');
+          badge.className = `tag-badge tag-badge-${tag}`;
+          badge.textContent = tag;
+          caseHeader.appendChild(badge);
+        }
+      }
       caseEl.appendChild(caseHeader);
 
       // Steps

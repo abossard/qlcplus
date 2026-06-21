@@ -209,6 +209,17 @@ public:
         std::optional<bool> resetFactorOnDialChange;
     };
 
+    /** RecordPanel configuration */
+    struct RecordPanelConfig
+    {
+        std::optional<QString> targetFolder;
+        std::optional<QString> scenePrefix;
+        std::optional<QString> chaserPrefix;
+        std::optional<uint> defaultFadeIn;
+        std::optional<uint> defaultHold;
+        std::optional<uint> defaultFadeOut;
+    };
+
     /** XY Pad preset */
     struct XYPadPresetInfo
     {
@@ -338,6 +349,15 @@ public:
         // XY Pad presets
         QList<XYPadPresetInfo> xyPadPresets;
 
+        // RecordPanel extended
+        QString rpTargetFolder;
+        QString rpScenePrefix;
+        QString rpChaserPrefix;
+        uint rpDefaultFadeIn = 0;
+        uint rpDefaultHold = 0;
+        uint rpDefaultFadeOut = 0;
+        bool rpIsRecordingChaser = false;
+
         // Base widget extended
         FontConfig fontConfig;
         QString backgroundImage;
@@ -348,6 +368,7 @@ public:
     {
         int index;
         QString name;
+        QString externalInputMode;  // "Normal", "Override", or "Inherit"
         QList<WidgetInfo> widgets;
     };
 
@@ -483,6 +504,9 @@ public:
     virtual int addClock(int parentID, const QRect &geometry,
                          const QString &clockType) = 0;
 
+    // RecordPanel widget
+    virtual int addRecordPanel(int parentID, const QRect &geometry) = 0;
+
     // Idempotency lookups (default: not found → always create)
     virtual int findPageByName(const QString &name) const
         { Q_UNUSED(name); return -1; }
@@ -584,6 +608,10 @@ public:
 
     // SpeedDial extended config
     virtual bool configureSpeedDial(int widgetID, const SpeedDialConfig &config)
+        { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
+
+    // RecordPanel extended config
+    virtual bool configureRecordPanel(int widgetID, const RecordPanelConfig &config)
         { Q_UNUSED(widgetID); Q_UNUSED(config); return false; }
 
     // XY Pad presets

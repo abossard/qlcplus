@@ -10,12 +10,14 @@ const PLAN: TestPlan = {
       id: 'section-1',
       number: '1',
       title: 'First Section',
+      tags: [],
       contextNote: 'Some context',
       cases: [
         {
           id: 'case-1-1',
           number: '1.1',
           title: 'Test Alpha',
+          tags: ['MIDI'],
           steps: [
             {
               kind: 'do',
@@ -34,6 +36,7 @@ const PLAN: TestPlan = {
           id: 'case-1-2',
           number: '1.2',
           title: 'Test Bravo',
+          tags: [],
           steps: [],
           tableChecks: [],
         },
@@ -90,5 +93,9 @@ describe('generateReport', () => {
   it('marks pending items', () => {
     // case-1-2 has no checks so nothing pending, but if a check had no session entry
     // it would show as pending — handled by the code
+  });
+
+  it('includes tags in case headers', () => {
+    expect(report).toContain('### 1.1 Test Alpha [MIDI]');
   });
 });

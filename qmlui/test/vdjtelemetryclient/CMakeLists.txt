@@ -7,6 +7,7 @@ add_executable(${module_name} WIN32
     ../../../plugins/vdjbridge/vdjtelemetryclient.cpp ../../../plugins/vdjbridge/vdjtelemetryclient.h
     ../../../plugins/vdjbridge/vdjbonjour.cpp ../../../plugins/vdjbridge/vdjbonjour.h
     ../../../plugins/vdjbridge/vdjbridgeplugin.cpp ../../../plugins/vdjbridge/vdjbridgeplugin.h
+    ../../../plugins/vdjbridge/configurevdjbridge.cpp ../../../plugins/vdjbridge/configurevdjbridge.h
     ../../../plugins/interfaces/qlcioplugin.cpp ../../../plugins/interfaces/qlcioplugin.h
     ../../songloadtracker.cpp ../../songloadtracker.h
     ../../showfactory.cpp ../../showfactory.h
@@ -23,6 +24,7 @@ target_link_libraries(${module_name} PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Network
+    Qt${QT_MAJOR_VERSION}::Widgets
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
 )

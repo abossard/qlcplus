@@ -1165,6 +1165,13 @@ void InputOutputMap::slotPluginBeat(quint32 universe, quint32 channel, uchar val
     slotProcessBeat();
 }
 
+void InputOutputMap::slotProcessAubioData(const AubioResults &results, quint32 power)
+{
+    Q_UNUSED(results)
+    Q_UNUSED(power)
+    // TODO: Route Aubio spectral analysis to beat/energy consumers
+}
+
 /*********************************************************************
  * Network server
  *********************************************************************/

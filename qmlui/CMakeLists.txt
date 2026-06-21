@@ -81,6 +81,7 @@ set(SRC_FILES
     virtualconsole/vcframe.cpp virtualconsole/vcframe.h
     virtualconsole/vclabel.cpp virtualconsole/vclabel.h
     virtualconsole/vcpage.cpp virtualconsole/vcpage.h
+    virtualconsole/vcrecordpanel.cpp virtualconsole/vcrecordpanel.h
     virtualconsole/vcslider.cpp virtualconsole/vcslider.h
     virtualconsole/vcsoloframe.cpp virtualconsole/vcsoloframe.h
     virtualconsole/vcwidget.cpp virtualconsole/vcwidget.h
