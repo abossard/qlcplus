@@ -578,7 +578,7 @@ void VCSpeedDial::setFunctionSpeed(quint32 fid, int speedType, SpeedMultiplier a
     m_functions[fid] = func;
 }
 
-void VCSpeedDial::applyFunctionsTime()
+void VCSpeedDial::applyFunctionsTime(bool enqueue)
 {
     if (m_multiplyMode)
     {
@@ -634,6 +634,9 @@ void VCSpeedDial::applyFunctionsTime()
                 function->setDuration(factoredTime * (m_multiplierCache[func.m_durationFactor] / 1000.0));
         }
     }
+
+    if (enqueue)
+        Tardis::instance()->enqueueAction(Tardis::VCSpeedDialApply, id(), QVariant(), QVariant());
 }
 
 /*********************************************************************
@@ -778,7 +781,7 @@ void VCSpeedDial::slotInputValueChanged(quint8 id, uchar value)
                 setCurrentFactor(One);
         break;
         case INPUT_APPLY_ID:
-            applyFunctionsTime();
+            applyFunctionsTime(true);
         break;
         case INPUT_1_16X_ID:
             setCurrentFactor(OneSixteenth);

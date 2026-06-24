@@ -435,7 +435,7 @@ VCWidgetItem
             onClicked:
             {
                 if (speedObj)
-                    speedObj.applyFunctionsTime()
+                    speedObj.applyFunctionsTime(true)
             }
         }
 

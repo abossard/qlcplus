@@ -93,6 +93,7 @@
     <file alias="BottomPanel.qml">qml/fixturesfunctions/BottomPanel.qml</file>
     <file alias="IntensityTool.qml">qml/fixturesfunctions/IntensityTool.qml</file>
     <file alias="PositionTool.qml">qml/fixturesfunctions/PositionTool.qml</file>
+    <file alias="Position3DTool.qml">qml/fixturesfunctions/Position3DTool.qml</file>
     <file alias="PresetsTool.qml">qml/fixturesfunctions/PresetsTool.qml</file>
     <file alias="BeamTool.qml">qml/fixturesfunctions/BeamTool.qml</file>
     <file alias="PresetCapabilityItem.qml">qml/fixturesfunctions/PresetCapabilityItem.qml</file>
@@ -188,6 +189,7 @@
 
     <file alias="SelectionEntity.qml">qml/fixturesfunctions/3DView/SelectionEntity.qml</file>
     <file alias="SelectionGeometry.qml">qml/fixturesfunctions/3DView/SelectionGeometry.qml</file>
+    <file alias="Position3DMarker.qml">qml/fixturesfunctions/3DView/Position3DMarker.qml</file>
 
     <file alias="StageSimple.qml">qml/fixturesfunctions/3DView/StageSimple.qml</file>
     <file alias="StageBox.qml">qml/fixturesfunctions/3DView/StageBox.qml</file>
