@@ -58,6 +58,7 @@ class ShowManager final : public PreviewContext
 
     Q_PROPERTY(Show::TimeDivision timeDivision READ timeDivision WRITE setTimeDivision NOTIFY timeDivisionChanged)
     Q_PROPERTY(int beatsDivision READ beatsDivision NOTIFY beatsDivisionChanged)
+    Q_PROPERTY(int bpmNumber READ bpmNumber WRITE setBpmNumber NOTIFY bpmNumberChanged)
     Q_PROPERTY(float timeScale READ timeScale WRITE setTimeScale NOTIFY timeScaleChanged)
     Q_PROPERTY(float tickSize READ tickSize NOTIFY tickSizeChanged)
     Q_PROPERTY(int currentTime READ currentTime WRITE setCurrentTime NOTIFY currentTimeChanged)
@@ -172,6 +173,12 @@ public:
     void setTimeDivision(Show::TimeDivision division);
     int beatsDivision() const;
 
+    /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
+     *  This is the SONG tempo (beats<->time conversion for authoring), distinct
+     *  from the global playback BPM (InputOutputManager::bpmNumber). */
+    int bpmNumber() const;
+    void setBpmNumber(int bpmNumber);
+
     /** Get/Set the current time scale of the Show Manager timeline */
     float timeScale() const;
     void setTimeScale(float timeScale);
@@ -186,6 +193,7 @@ public:
 signals:
     void timeDivisionChanged(Show::TimeDivision division);
     void beatsDivisionChanged(int beatsDivision);
+    void bpmNumberChanged(int bpmNumber);
     void timeScaleChanged(float timeScale);
     void tickSizeChanged(float tickSize);
     void currentTimeChanged(int currentTime);
@@ -193,6 +201,11 @@ signals:
 private:
     /** The current time scale of the Show Manager timeline */
     float m_timeScale;
+
+    /** Remembered zoom (time scale) per marker mode, so switching
+     *  Markers (Time <-> BPM) preserves each mode's zoom level */
+    float m_timeScaleTime;
+    float m_timeScaleBeats;
 
     /** Size in pixels of the Show Manager time division */
     float m_tickSize;

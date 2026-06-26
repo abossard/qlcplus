@@ -10,7 +10,7 @@
 
 #include "showfactory_test.h"
 #include "showfactory.h"
-#include "songloadtracker.h"
+#include "djfsm.h"
 
 #include "doc.h"
 #include "show.h"
@@ -71,8 +71,7 @@ void ShowFactory_Test::createShowForSong()
     ShowFactory factory(doc);
     QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
 
-    SongLoadTracker::SongInfo info;
-    info.deck = 1;
+    DjFsm::DeckSong info;
     info.filepath = filepath;
     info.title = title;
     info.artist = artist;
@@ -120,8 +119,7 @@ void ShowFactory_Test::dedupByName()
     ShowFactory factory(doc);
     QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
 
-    SongLoadTracker::SongInfo info;
-    info.deck = 1;
+    DjFsm::DeckSong info;
     info.filepath = "/music/dedup.mp3";
     info.title = "Dedup Song";
     info.artist = "Artist";
@@ -160,8 +158,7 @@ void ShowFactory_Test::showIdForFilepath()
     // Before any creation, should return invalidId
     QCOMPARE(factory.showIdForFilepath("/nonexistent.mp3"), Function::invalidId());
 
-    SongLoadTracker::SongInfo info;
-    info.deck = 1;
+    DjFsm::DeckSong info;
     info.filepath = "/music/lookup.mp3";
     info.title = "Lookup";
     info.artist = "Finder";
@@ -185,8 +182,7 @@ void ShowFactory_Test::signalEmitted()
     ShowFactory factory(doc);
     QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
 
-    SongLoadTracker::SongInfo info;
-    info.deck = 2;
+    DjFsm::DeckSong info;
     info.filepath = "/music/signal.mp3";
     info.title = "Signal Check";
     info.artist = "Emitter";
@@ -212,8 +208,7 @@ void ShowFactory_Test::emptyFilepathRejected()
     ShowFactory factory(doc);
     QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
 
-    SongLoadTracker::SongInfo info;
-    info.deck = 1;
+    DjFsm::DeckSong info;
     info.filepath = "";  // empty
     info.title = "Ghost";
     info.artist = "Nobody";

@@ -47,17 +47,27 @@ void PaletteIntegration_Test::palette_create_data()
     QTest::addColumn<QString>("name");
     QTest::addColumn<QVariant>("value1");
     QTest::addColumn<QVariant>("value2");
+    QTest::addColumn<QVariant>("value3");
 
     QTest::newRow("Dimmer")  << (int)QLCPalette::Dimmer  << QStringLiteral("Full")
-                             << QVariant(255) << QVariant();
+                             << QVariant(255) << QVariant() << QVariant();
     QTest::newRow("Color")   << (int)QLCPalette::Color   << QStringLiteral("Deep Blue")
-                             << QVariant(QLCPalette::colorToString(QColor(0, 0, 255), QColor(0, 0, 0))) << QVariant();
+                             << QVariant(QLCPalette::colorToString(QColor(0, 0, 255), QColor(0, 0, 0))) << QVariant() << QVariant();
     QTest::newRow("Pan")     << (int)QLCPalette::Pan     << QStringLiteral("Center Pan")
-                             << QVariant(180.0) << QVariant();
+                             << QVariant(180.0) << QVariant() << QVariant();
     QTest::newRow("Tilt")    << (int)QLCPalette::Tilt    << QStringLiteral("Tilt Down")
-                             << QVariant(45.0) << QVariant();
+                             << QVariant(45.0) << QVariant() << QVariant();
     QTest::newRow("PanTilt") << (int)QLCPalette::PanTilt << QStringLiteral("Center Stage")
-                             << QVariant(180.0) << QVariant(45.0);
+                             << QVariant(180.0) << QVariant(45.0) << QVariant();
+    // Distinct x/y/z so a swapped accessor (floatValue2<->floatValue3) is caught.
+    QTest::newRow("Position3D") << (int)QLCPalette::Position3D << QStringLiteral("Upstage Center")
+                             << QVariant(11.0) << QVariant(22.0) << QVariant(33.0);
+    QTest::newRow("Gobo")    << (int)QLCPalette::Gobo    << QStringLiteral("Gobo Spiral")
+                             << QVariant(7) << QVariant() << QVariant();
+    // Shutter is a 2-value type: at(0)=preset (intValue1), at(1)=percentage (intValue2).
+    // Distinct values catch a swapped accessor in the MCP create/serialize path.
+    QTest::newRow("Shutter") << (int)QLCPalette::Shutter << QStringLiteral("Strobe Fast")
+                             << QVariant(5) << QVariant(73) << QVariant();
 }
 
 void PaletteIntegration_Test::palette_create()
@@ -66,12 +76,15 @@ void PaletteIntegration_Test::palette_create()
     QFETCH(QString, name);
     QFETCH(QVariant, value1);
     QFETCH(QVariant, value2);
+    QFETCH(QVariant, value3);
 
     auto ptype = static_cast<QLCPalette::PaletteType>(paletteType);
     auto *pal = new QLCPalette(ptype);
     pal->setName(name);
 
-    if (value2.isValid())
+    if (value3.isValid())
+        pal->setValue(value1, value2, value3);
+    else if (value2.isValid())
         pal->setValue(value1, value2);
     else
         pal->setValue(value1);
@@ -83,12 +96,32 @@ void PaletteIntegration_Test::palette_create()
     QCOMPARE(pal->type(), ptype);
     QCOMPARE(pal->name(), name);
 
-    if (ptype == QLCPalette::PanTilt)
+    if (ptype == QLCPalette::Position3D)
+    {
+        // MCP query serializes x/y/z from floatValue1()/floatValue2()/floatValue3().
+        QCOMPARE(pal->floatValue1(), value1.toFloat());
+        QCOMPARE(pal->floatValue2(), value2.toFloat());
+        QCOMPARE(pal->floatValue3(), value3.toFloat());
+    }
+    else if (ptype == QLCPalette::Gobo)
+    {
+        // Shutter/Gobo/Zoom round-trip a single value via intValue1().
+        QCOMPARE(pal->intValue1(), value1.toInt());
+    }
+    else if (ptype == QLCPalette::Shutter)
+    {
+        // Shutter stores preset at(0)=intValue1() and percentage at(1)=intValue2().
+        QCOMPARE(pal->intValue1(), value1.toInt());
+        QCOMPARE(pal->intValue2(), value2.toInt());
+    }
+    else if (ptype == QLCPalette::PanTilt)
     {
         QVariantList vals = pal->values();
         QCOMPARE(vals.size(), 2);
         QCOMPARE(vals.at(0).toDouble(), value1.toDouble());
         QCOMPARE(vals.at(1).toDouble(), value2.toDouble());
+        // Guards the MCP serialize quirk: query_palettes reads tilt via intValue2().
+        QCOMPARE(pal->intValue2(), (int)value2.toDouble());
     }
     else if (ptype == QLCPalette::Color)
     {

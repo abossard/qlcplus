@@ -76,13 +76,13 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {
                     ok &= ioMap->setInputPatch(uid,
                         QString::fromStdString(item.at("inputPlugin").get<std::string>()),
-                        QString(), item.at("inputLine").get<int>());
+                        QString(), QString(), item.at("inputLine").get<int>());
                 }
                 if (item.contains("outputPlugin") && item.contains("outputLine"))
                 {
                     ok &= ioMap->setOutputPatch(uid,
                         QString::fromStdString(item.at("outputPlugin").get<std::string>()),
-                        QString(), item.at("outputLine").get<int>());
+                        QString(), QString(), item.at("outputLine").get<int>());
                 }
                 if (item.contains("passthrough"))
                 {
@@ -94,7 +94,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     InputPatch *inPatch = ioMap->inputPatch(uid);
                     if (inPatch && inPatch->isPatched())
                     {
-                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", inPatch->input(), true);
+                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true);
                     }
                 }
 
@@ -437,7 +437,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     quint32 line = 0;
                     QStringList inputs = oscPlugin->inputs();
                     if (!inputs.isEmpty())
-                        ok &= ioMap->setInputPatch(uid, "OSC", "", line);
+                        ok &= ioMap->setInputPatch(uid, "OSC", "", "", line);
                 }
 
                 // Patch OSC as output
@@ -447,7 +447,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     quint32 line = 0;
                     QStringList outputs = oscPlugin->outputs();
                     if (!outputs.isEmpty())
-                        ok &= ioMap->setOutputPatch(uid, "OSC", "", line, false);
+                        ok &= ioMap->setOutputPatch(uid, "OSC", "", "", line, false);
                 }
 
                 // Enable feedback
@@ -455,7 +455,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {
                     InputPatch *inPatch = ioMap->inputPatch(uid);
                     if (inPatch && inPatch->isPatched())
-                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", inPatch->input(), true);
+                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true);
                 }
 
                 // Set plugin parameters
@@ -776,16 +776,16 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             // Set input patch to MIDI DAW port
             if (inputLine >= 0)
-                ok &= ioMap->setInputPatch(universeID, "MIDI", "", inputLine);
+                ok &= ioMap->setInputPatch(universeID, "MIDI", "", "", inputLine);
 
             // Set output patch to MIDI DAW port
             if (outputLine >= 0)
-                ok &= ioMap->setOutputPatch(universeID, "MIDI", "", outputLine, false);
+                ok &= ioMap->setOutputPatch(universeID, "MIDI", "", "", outputLine, false);
 
             // Enable feedback on same port as input
             InputPatch *inPatch = ioMap->inputPatch(universeID);
             if (inPatch && inPatch->isPatched())
-                ok &= ioMap->setOutputPatch(universeID, inPatch->pluginName(), "", inPatch->input(), true);
+                ok &= ioMap->setOutputPatch(universeID, inPatch->pluginName(), "", "", inPatch->input(), true);
 
             // Set input profile matching the model
             for (const QString &profName : ioMap->profileNames())

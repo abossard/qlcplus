@@ -25,8 +25,6 @@
 #include <QByteArray>
 #include <QObject>
 
-class VdjDeckModel;
-
 /**
  * TCP server implementing the DMXDesktop telemetry protocol for VirtualDJ.
  *

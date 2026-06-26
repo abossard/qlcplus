@@ -16,6 +16,9 @@ private slots:
     void cleanup();
 
     void queryPalettes_invalidTypeFilterReturnsError();
+    void palettes_createQueryRoundTrip_data();
+    void palettes_createQueryRoundTrip();
+    void palettes_createInvalidTypeReturnsError();
     void queryRgbAlgorithms_invalidTypeReturnsError();
     void queryWorkspaceSummary_returnsExpectedCounts();
     void queryWorkspaceSummary_populatedDoc_returnsExactCounts();

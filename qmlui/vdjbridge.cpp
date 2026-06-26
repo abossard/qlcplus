@@ -18,8 +18,7 @@
 */
 
 #include "vdjbridge.h"
-#include "vdjdeckmodel.h"
-#include "songloadtracker.h"
+#include "djfsm.h"
 #include "showfactory.h"
 
 #include <QTimer>
@@ -29,17 +28,16 @@
 #include "show.h"
 #include "function.h"
 #include "mastertimer.h"
+#include "inputoutputmap.h"
 
 #include <QDebug>
 #include <QFileInfo>
 
 VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
-    , m_tracker(new SongLoadTracker(this))
+    , m_fsm(new DjFsm(this))
     , m_showFactory(nullptr)
 {
-    for (int i = 0; i < 4; ++i)
-        m_deckModels[i] = new VdjDeckModel(i + 1, this);
 }
 
 void VdjBridge::setDoc(Doc *doc)
@@ -48,9 +46,58 @@ void VdjBridge::setDoc(Doc *doc)
     if (m_doc && !m_showFactory)
     {
         m_showFactory = new ShowFactory(m_doc, this);
-        connect(m_tracker, &SongLoadTracker::songReady,
-                m_showFactory, &ShowFactory::createShowForSong);
+        // Note: show creation is driven by DJ Manager (which owns the
+        // filepath dedup decision), not auto-wired from the FSM here.
     }
+
+    // Route the active deck's authoritative BPM into the engine so the engine
+    // BPM follows VirtualDJ's steady value instead of jittery beat timing.
+    if (m_doc && m_fsm)
+    {
+        connect(m_fsm, &DjFsm::deckChanged, this, [this](int deck) {
+            if (deck == m_fsm->activeDeck())
+                pushActiveBpm();
+        });
+        connect(m_fsm, &DjFsm::activeDeckChanged, this, [this](int) {
+            pushActiveBpm();
+            // The active deck changed → immediately hand lighting to its show.
+            updatePerformShow();
+        });
+    }
+}
+
+void VdjBridge::pushActiveBpm()
+{
+    if (!m_doc)
+        return;
+    InputOutputMap *iom = m_doc->inputOutputMap();
+    if (!iom)
+        return;
+
+    const int active = m_fsm->activeDeck();
+    if (active < 1)
+        return;
+
+    const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
+    if (deck.playing)
+    {
+        // Playing: lock the engine BPM to VirtualDJ's steady value.
+        const double bpm = deck.song.bpm;
+        if (bpm > 0.0)
+            iom->setExternalBpm(qRound(bpm));
+    }
+    else
+    {
+        // Paused: drop the engine BPM super low as a visual cue (restores the
+        // old pre-lock behavior), while keeping the lock so it stays steady-low
+        // instead of jittering off stray beat pulses.
+        iom->setExternalBpm(m_pausedBpm);
+    }
+}
+
+void VdjBridge::setPausedBpm(int bpm)
+{
+    m_pausedBpm = bpm;
 }
 
 // ---------- OS2L attachment (unchanged) ----------
@@ -173,14 +220,6 @@ bool VdjBridge::telemetryConnected() const
         && m_vdjPlugin->connectionStatus(0) == QLCIOPlugin::Connected;
 }
 
-QList<QObject*> VdjBridge::decks() const
-{
-    QList<QObject*> list;
-    for (int i = 0; i < 4; ++i)
-        list.append(m_deckModels[i]);
-    return list;
-}
-
 // ---------- Telemetry signal handlers ----------
 
 void VdjBridge::onTelemetryBeat(int /*pos*/, qreal /*bpm*/, qreal /*strength*/, bool /*change*/)
@@ -193,7 +232,7 @@ void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVari
 {
     if (deckIndex < 0 || deckIndex >= 4)
         return;
-    applyDeckTrigger(m_deckModels[deckIndex], deckIndex, trigger, value);
+    applyDeckTrigger(deckIndex, trigger, value);
 }
 
 void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
@@ -220,13 +259,35 @@ void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
         qreal v = value.toDouble();
         if (!qFuzzyCompare(m_masterVu, v)) { m_masterVu = v; changed = true; }
     }
+    else if (trigger == "get_decks")
+    {
+        // VirtualDJ reports the real number of decks. Decks beyond this are
+        // phantom mirrors of the first decks (VDJ streams cloned data for them),
+        // so drive the tracked deck count from it — this is how the real
+        // DMXDesktop avoids showing cloned decks. Out-of-range values are
+        // clamped by DjFsm::setDeckCount; non-numeric values are ignored.
+        bool ok = false;
+        const int n = value.toInt(&ok);
+        if (ok)
+            m_fsm->setDeckCount(n);
+    }
     else if (trigger == "masterdeck")
     {
-        int v = value.toInt() - 1; // VDJ is 1-based, we store 0-based
-        if (v >= 0 && v < 4 && v != m_masterDeck)
+        // VirtualDJ reports masterdeck as on/off (not a deck index): on => the
+        // master/active deck is deck 1, off => deck 2. (2-deck topology.)
+        const QString sv = value.toString().toLower();
+        int deck1 = 0;
+        if (sv == "on" || sv == "true" || sv == "1")
+            deck1 = 1;
+        else if (sv == "off" || sv == "false" || sv == "0")
+            deck1 = 2;
+        else
+            deck1 = value.toInt(); // fall back to a numeric deck index if sent
+
+        if (deck1 >= 1 && deck1 <= 4 && (deck1 - 1) != m_masterDeck)
         {
-            m_masterDeck = v;
-            m_tracker->onMasterDeck(value.toInt()); // tracker uses 1-based
+            m_masterDeck = deck1 - 1; // 0-based for the auto-play path
+            m_fsm->onMasterDeck(deck1); // FSM uses 1-based
             emit masterDeckChanged();
         }
     }
@@ -243,13 +304,13 @@ void VdjBridge::onTelemetryClientConnected()
 void VdjBridge::onTelemetryClientDisconnected()
 {
     qDebug() << "[VdjBridge] Telemetry client disconnected — OS2L beats resumed";
-    // Reset deck models
-    for (int i = 0; i < 4; ++i)
-        m_deckModels[i]->reset();
-    // Reset FSM tracker
-    m_tracker->onDisconnected();
+    // The FSM holds all deck state — reset it.
+    m_fsm->onDisconnected();
+    // Release the authoritative BPM lock so the engine resumes normal behavior.
+    if (m_doc && m_doc->inputOutputMap())
+        m_doc->inputOutputMap()->clearExternalBpm();
     // Reset global state
-    m_masterDeck = 0;
+    m_masterDeck = -1;
     m_masterVolume = 0.0;
     m_crossfader = 0.0;
     m_headphoneVolume = 0.0;
@@ -258,94 +319,119 @@ void VdjBridge::onTelemetryClientDisconnected()
     emit globalMixerChanged();
 }
 
-void VdjBridge::applyDeckTrigger(VdjDeckModel *deck, int deckIndex,
-                                 const QString &trigger, const QVariant &value)
+void VdjBridge::applyDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value)
 {
-    // --- Route to FSM tracker (1-based deck) ---
-    m_tracker->onTrigger(deckIndex + 1, trigger, value);
+    // The DjFsm is the single source of truth for all per-deck VDJ data.
+    m_fsm->onDeckTrigger(deckIndex + 1, trigger, value);
 
-    // --- Route to deck model for UI state ---
-    if (trigger == "get_filepath")       { deck->setFilepath(value.toString()); }
-    else if (trigger == "get_title")     { deck->setTitle(value.toString()); }
-    else if (trigger == "get_artist")         { deck->setArtist(value.toString()); }
-    else if (trigger == "get_title_artist")   { deck->setTitleArtist(value.toString()); }
-    else if (trigger == "get_album")          { deck->setAlbum(value.toString()); }
-    else if (trigger == "get_genre")          { deck->setGenre(value.toString()); }
-    else if (trigger == "get_key")            { deck->setKey(value.toString()); }
-    else if (trigger == "get_bpm")            { deck->setBpm(value.toDouble()); }
-    else if (trigger == "get_firstbeat")      { deck->setFirstBeat(value.toDouble()); }
-    else if (trigger == "get_time total")     { deck->setTimeTotal(value.toDouble()); }
-    else if (trigger == "loaded")             { deck->setLoaded(value.toString() == "on"); }
-    else if (trigger == "play")
+    // Perform mode drives Show playback off the FSM's active deck.
+    driveActiveShow(deckIndex, trigger, value);
+}
+
+void VdjBridge::driveActiveShow(int deckIndex, const QString &trigger, const QVariant &value)
+{
+    Q_UNUSED(value)
+    if (!m_performMode || !m_doc || !m_showFactory || !m_fsm)
+        return;
+
+    // Only the active/master deck drives the Show.
+    if (deckIndex + 1 != m_fsm->activeDeck())
+        return;
+
+    const DjFsm::Deck &deck = m_fsm->deckAt(deckIndex);
+    if (deck.song.filepath.isEmpty())
+        return;
+
+    if (trigger == "play")
     {
-        bool playing = (value.toString() == "on");
-        deck->setPlaying(playing);
-
-        // Auto-start/stop: when the master deck starts/stops playing,
-        // start or stop the corresponding Show (if one exists).
-        if (deckIndex == m_masterDeck && m_doc && m_showFactory)
-        {
-            quint32 showId = m_showFactory->showIdForFilepath(deck->filepath());
-            if (showId != Function::invalidId())
-            {
-                Show *show = qobject_cast<Show*>(m_doc->function(showId));
-                if (show)
-                {
-                    if (playing && !show->isRunning())
-                    {
-                        qDebug() << "[VdjBridge] Auto-starting show:" << show->name();
-                        show->start(m_doc->masterTimer(), FunctionParent::master());
-                    }
-                    else if (playing && show->isRunning() && show->isPaused())
-                    {
-                        qDebug() << "[VdjBridge] Auto-resuming show:" << show->name();
-                        show->setPause(false);
-                    }
-                    else if (!playing && show->isRunning())
-                    {
-                        qDebug() << "[VdjBridge] Auto-pausing show:" << show->name();
-                        show->setPause(true);
-                    }
-                }
-            }
-        }
+        // Discrete transport change → (re)load the active show.
+        updatePerformShow();
     }
-    else if (trigger == "volume")             { deck->setVolume(value.toDouble()); }
-
-    // Continuous
-    else if (trigger == "get_position")              { deck->setPosition(value.toDouble()); }
-    else if (trigger == "get_time")                  { deck->setTimeRemaining(value.toDouble()); }
     else if (trigger == "get_time elapsed absolute")
     {
-        qreal seconds = value.toDouble();
-        deck->setTimeElapsed(seconds);
+        // Lightweight per-frame position sync from the FSM (full resolution).
+        quint32 showId = m_showFactory->showIdForFilepath(deck.song.filepath);
+        if (showId == Function::invalidId())
+            return;
+        Show *show = qobject_cast<Show*>(m_doc->function(showId));
+        if (show && show->isRunning() && show->syncSource() == 1)
+            show->setExternalElapsedTime(static_cast<quint32>(deck.elapsedMs));
+    }
+}
 
-        // Push-based sync: if this is the master deck, feed position
-        // directly to running Shows with External sync.
-        // All on the main thread — the atomic in ShowRunner bridges
-        // to the MasterTimer thread safely.
-        if (deckIndex == m_masterDeck && m_doc && seconds >= 0.0)
+void VdjBridge::updatePerformShow()
+{
+    if (!m_performMode || !m_doc || !m_showFactory || !m_fsm)
+        return;
+
+    const int active = m_fsm->activeDeck();
+    const DjFsm::Deck *deck = (active >= 1) ? &m_fsm->deckAt(active - 1) : nullptr;
+    const quint32 activeShowId = (deck && !deck->song.filepath.isEmpty())
+        ? m_showFactory->showIdForFilepath(deck->song.filepath)
+        : Function::invalidId();
+
+    // Pause every running song-Show that is NOT the active deck's show, so a
+    // change of active deck immediately hands lighting to the new show.
+    for (Function *f : m_doc->functionsByType(Function::ShowType))
+    {
+        Show *show = qobject_cast<Show*>(f);
+        if (!show || !show->isRunning() || show->syncSource() != 1)
+            continue;
+        if (show->id() != activeShowId && !show->isPaused())
+            show->setPause(true);
+    }
+
+    if (activeShowId == Function::invalidId() || !deck)
+        return;
+    Show *active_show = qobject_cast<Show*>(m_doc->function(activeShowId));
+    if (!active_show)
+        return;
+
+    if (deck->playing)
+    {
+        if (!active_show->isRunning())
         {
-            quint32 ms = static_cast<quint32>(seconds * 1000.0);
-            for (Function *f : m_doc->functionsByType(Function::ShowType))
+            qDebug() << "[VdjBridge] Perform: loading show" << active_show->name();
+            active_show->start(m_doc->masterTimer(), FunctionParent::master());
+        }
+        else if (active_show->isPaused())
+        {
+            active_show->setPause(false);
+        }
+        active_show->setExternalElapsedTime(static_cast<quint32>(deck->elapsedMs));
+    }
+    else if (active_show->isRunning() && !active_show->isPaused())
+    {
+        active_show->setPause(true);
+    }
+}
+
+void VdjBridge::setPerformMode(bool on)
+{
+    if (m_performMode == on)
+        return;
+
+    m_performMode = on;
+
+    if (on)
+    {
+        // Entering Perform mode → load the active deck's show right away.
+        updatePerformShow();
+    }
+    else if (m_doc)
+    {
+        // When leaving Perform mode, pause any running song Shows so VDJ
+        // playback no longer drives lighting output.
+        for (Function *f : m_doc->functionsByType(Function::ShowType))
+        {
+            Show *show = qobject_cast<Show*>(f);
+            if (show && show->isRunning() && !show->isPaused()
+                && show->syncSource() == 1)
             {
-                Show *show = qobject_cast<Show*>(f);
-                if (show && show->isRunning() && show->syncSource() == 1)
-                    show->setExternalElapsedTime(ms);
+                show->setPause(true);
             }
         }
     }
-    else if (trigger == "get_beatpos")               { deck->setBeatPos(value.toDouble()); }
-    else if (trigger == "get_vu_meter")              { deck->setVu(value.toDouble()); }
-    else if (trigger == "level")                     { deck->setLevel(value.toDouble()); }
 
-    // EQ
-    else if (trigger == "eq_high") { deck->setEqHigh(value.toDouble()); }
-    else if (trigger == "eq_med")  { deck->setEqMed(value.toDouble()); }
-    else if (trigger == "eq_low")  { deck->setEqLow(value.toDouble()); }
-    else if (trigger == "gain")    { deck->setGain(value.toDouble()); }
-
-    // Loop
-    else if (trigger == "loop")     { deck->setLooping(value.toBool()); }
-    else if (trigger == "get_loop") { deck->setLoopLength(value.toDouble()); }
+    emit performModeChanged();
 }

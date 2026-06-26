@@ -1116,6 +1116,18 @@ void InputOutputMap::setBpmNumber(int bpm)
     emit bpmNumberChanged(m_currentBPM);
 }
 
+void InputOutputMap::setExternalBpm(int bpm)
+{
+    m_externalBpmLock = true;
+    if (bpm > 0)
+        setBpmNumber(bpm);
+}
+
+void InputOutputMap::clearExternalBpm()
+{
+    m_externalBpmLock = false;
+}
+
 int InputOutputMap::bpmNumber() const
 {
     if (m_beatGeneratorType == Disabled)
@@ -1131,14 +1143,20 @@ void InputOutputMap::slotProcessBeat()
     qint64 elapsed = m_beatTime->elapsed();
     m_beatTime->restart();
 
-    int bpm = qRound(60000.0 / (float)elapsed);
-    float currBpmTime = 60000.0 / (float)m_currentBPM;
-    // here we check if the difference between the current BPM duration
-    // and the current time elapsed is within a range of +/-1ms.
-    // If it isn't, then the BPM number has really changed, otherwise
-    // it's just a tiny time drift
-    if (qAbs((float)elapsed - currBpmTime) > 1)
-        setBpmNumber(bpm);
+    // When an authoritative external BPM is locked (e.g. from VirtualDJ), do
+    // NOT derive the BPM from inter-beat pulse timing — that jitters with
+    // network/scheduling noise. The pulse still drives the beat clock below.
+    if (!m_externalBpmLock)
+    {
+        int bpm = qRound(60000.0 / (float)elapsed);
+        float currBpmTime = 60000.0 / (float)m_currentBPM;
+        // here we check if the difference between the current BPM duration
+        // and the current time elapsed is within a range of +/-1ms.
+        // If it isn't, then the BPM number has really changed, otherwise
+        // it's just a tiny time drift
+        if (qAbs((float)elapsed - currBpmTime) > 1)
+            setBpmNumber(bpm);
+    }
 
     m_doc->masterTimer()->requestBeat();
     emit beat();

@@ -44,6 +44,10 @@ private slots:
     void externalSyncForwardJump();
     void externalSyncBackwardSeek();
 
+    // Beat-clock fallback tests (no global beat source -> run at song BPM)
+    void internalBeatClockUsesSongBpm();
+    void internalBeatClockScalesWithSongBpm();
+
 private:
     Doc *m_doc;
     Show *m_show;

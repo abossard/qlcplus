@@ -439,11 +439,18 @@ void VirtualConsole::deletePage(int index)
 
     emit pagesCountChanged();
 
-    if (index > 0)
+    int oldSelectedPage = m_selectedPage;
+    if (index < m_selectedPage)
     {
         m_selectedPage--;
-        emit selectedPageChanged(m_selectedPage);
     }
+    else if (index == m_selectedPage && m_selectedPage >= m_pages.count())
+    {
+        m_selectedPage = m_pages.count() - 1;
+    }
+
+    if (m_selectedPage != oldSelectedPage)
+        emit selectedPageChanged(m_selectedPage);
 }
 
 bool VirtualConsole::setPagePIN(int index, QString currentPIN, QString newPIN)
@@ -513,11 +520,15 @@ int VirtualConsole::selectedPage() const
 
 void VirtualConsole::setSelectedPage(int selectedPage)
 {
-    if (m_selectedPage == selectedPage)
+    if (m_pages.isEmpty())
         return;
 
-    m_selectedPage = selectedPage;
-    emit selectedPageChanged(selectedPage);
+    int clampedPage = qBound(0, selectedPage, m_pages.count() - 1);
+    if (m_selectedPage == clampedPage)
+        return;
+
+    m_selectedPage = clampedPage;
+    emit selectedPageChanged(clampedPage);
     if (m_editMode)
         emit selectedWidgetChanged();
 }
@@ -531,7 +542,11 @@ void VirtualConsole::setPageInteraction(bool enable)
 
 void VirtualConsole::setPageScale(qreal factor)
 {
-    m_pages.at(m_selectedPage)->setPageScale(factor);
+    VCPage *activePage = page(m_selectedPage);
+    if (activePage == nullptr)
+        return;
+
+    activePage->setPageScale(factor);
 }
 
 /*********************************************************************
@@ -892,10 +907,9 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
 
 void VirtualConsole::selectAll()
 {
-    if (m_selectedPage >= m_pages.count())
+    VCFrame *page = qobject_cast<VCFrame *>(this->page(m_selectedPage));
+    if (page == nullptr)
         return;
-
-    VCFrame *page = m_pages.at(m_selectedPage);
     QList<VCWidget *> children = page->children(false);
     for (VCWidget *child : children)
     {
@@ -944,11 +958,8 @@ void VirtualConsole::nudgeWidgets(int dx, int dy)
 
 void VirtualConsole::autoLayoutPage()
 {
-    if (m_selectedPage >= m_pages.count())
-        return;
-
-    VCPage *page = m_pages.at(m_selectedPage);
-    if (!page)
+    VCPage *page = this->page(m_selectedPage);
+    if (page == nullptr)
         return;
 
     Tardis::instance()->beginBatch("autoLayoutPage");
@@ -1075,7 +1086,7 @@ void VirtualConsole::autoLayoutPage()
 VCWidget *VirtualConsole::selectedWidget() const
 {
     if (m_itemsMap.isEmpty())
-        return qobject_cast<VCWidget *>(m_pages.at(m_selectedPage));
+        return qobject_cast<VCWidget *>(page(m_selectedPage));
 
     return m_widgetsMap[m_itemsMap.firstKey()];
 }
@@ -1156,7 +1167,9 @@ void VirtualConsole::pasteFromClipboard()
     // no selected frame found ? Paste on current page
     if (frame == nullptr)
     {
-        frame = qobject_cast<VCFrame*>(m_pages.at(selectedPage()));
+        frame = qobject_cast<VCFrame*>(page(selectedPage()));
+        if (frame == nullptr)
+            return;
         renderParent = currentPageItem();
     }
 
@@ -1403,7 +1416,10 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
         }
 
         /** otherwise forward it to the currently selected page */
-        VCPage *activePage = m_pages.at(selectedPage());
+        const int activePageIndex = selectedPage();
+        VCPage *activePage = page(activePageIndex);
+        if (activePage == nullptr)
+            return;
         activePage->inputValueChanged(inputSourceKey, value);
 
         // Inherit mode: if the active page doesn't have a mapping for this key,
@@ -1413,7 +1429,7 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
         {
             for (int i = 0; i < m_pages.count(); i++)
             {
-                if (i != selectedPage() &&
+                if (i != activePageIndex &&
                     m_pages.at(i)->externalInputMode() == VCPage::Normal)
                 {
                     m_pages.at(i)->inputValueChangedGlobal(inputSourceKey, value);
@@ -1543,7 +1559,10 @@ void VirtualConsole::handleKeyEvent(QKeyEvent *e, bool pressed)
         }
 
         /** otherwise forward it to the currently selected page */
-        VCPage *activePage = m_pages.at(selectedPage());
+        const int activePageIndex = selectedPage();
+        VCPage *activePage = page(activePageIndex);
+        if (activePage == nullptr)
+            return;
         activePage->handleKeyEvent(seq, pressed);
 
         // Inherit mode: if the active page doesn't have this key sequence,
@@ -1553,7 +1572,7 @@ void VirtualConsole::handleKeyEvent(QKeyEvent *e, bool pressed)
         {
             for (int i = 0; i < m_pages.count(); i++)
             {
-                if (i != selectedPage() &&
+                if (i != activePageIndex &&
                     m_pages.at(i)->externalInputMode() == VCPage::Normal)
                 {
                     m_pages.at(i)->handleKeyEventGlobal(seq, pressed);

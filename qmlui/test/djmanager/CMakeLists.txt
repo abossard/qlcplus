@@ -1,14 +1,20 @@
-project(showfactory_test)
+project(djmanager_test)
 
 add_executable(${PROJECT_NAME}
-    showfactory_test.cpp
-    showfactory_test.h
+    djmanager_test.cpp
+    djmanager_test.h
+    ../../djmanager.cpp
+    ../../djmanager.h
+    ../../djfsm.cpp
+    ../../djfsm.h
     ../../showfactory.cpp
     ../../showfactory.h
     ../../audiobpmtag.cpp
     ../../audiobpmtag.h
-    ../../djfsm.cpp
-    ../../djfsm.h
+    ../../previewcontext.cpp
+    ../../previewcontext.h
+    ../../vdjbridge.cpp
+    ../../vdjbridge.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -21,6 +27,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
 )

@@ -206,6 +206,9 @@ Item
             var lastTime = 0
             var xPos = 0
             var stepsCount = 0
+            // divider/loop marks only span the bottom portion so dense loops
+            // don't visually fill (whiten) the whole item body
+            var markTop = itemRoot.height * 0.8
 
             for (var i = 0; i < previewData.length; i += 2)
             {
@@ -223,7 +226,7 @@ Item
                                 xPos = TimeUtils.timeToSize(lastTime, timeScale, tickSize)
                             else
                                 xPos = TimeUtils.beatsToSize(lastTime, tickSize, beatsDivision)
-                            context.moveTo(xPos, 0)
+                            context.moveTo(xPos, markTop)
                             context.lineTo(xPos, itemRoot.height)
                         }
                         context.stroke()
@@ -245,7 +248,7 @@ Item
                             xPos = TimeUtils.timeToSize(lastTime, timeScale, tickSize)
                         else
                             xPos = TimeUtils.beatsToSize(lastTime, tickSize, beatsDivision)
-                        context.moveTo(xPos, 0)
+                        context.moveTo(xPos, markTop)
                         context.lineTo(xPos, itemRoot.height)
                         stepsCount++
                     break
@@ -552,8 +555,10 @@ Item
                     // check grid snapping (skip if item-snapped)
                     if (!itemSnapped && itemRoot.x && showManager.gridEnabled)
                     {
+                        // snap to bars in Time mode, to beats in Beats mode
+                        var gridStep = timeDivision === Show.Time ? tickSize : (tickSize / beatsDivision)
                         var currX = itemRoot.x
-                        itemRoot.x = Math.round(itemRoot.x / tickSize) * tickSize
+                        itemRoot.x = Math.round(itemRoot.x / gridStep) * gridStep
                         itemRoot.width += (currX - itemRoot.x)
                     }
 
@@ -668,7 +673,9 @@ Item
                     // check grid snapping (skip if item-snapped)
                     if (!itemSnapped && showManager.gridEnabled)
                     {
-                        var snappedEndPos = Math.round((itemRoot.x + itemRoot.width) / tickSize) * tickSize
+                        // snap the end edge to bars in Time mode, to beats in Beats mode
+                        var gridStep = timeDivision === Show.Time ? tickSize : (tickSize / beatsDivision)
+                        var snappedEndPos = Math.round((itemRoot.x + itemRoot.width) / gridStep) * gridStep
                         itemRoot.width = snappedEndPos - itemRoot.x
                     }
 

@@ -24,13 +24,12 @@
 #include <QCheckBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
-#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QTextCursor>
-#include <QTime>
+#include <QTableWidget>
 
 ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     : QDialog(parent)
@@ -62,18 +61,35 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
 
     mainLayout->addLayout(formLayout);
 
-    // --- Debug log ---
-    auto *logLabel = new QLabel(tr("Debug log:"), this);
+    // --- Debug table ---
+    auto *logLabel = new QLabel(tr("Debug values:"), this);
     mainLayout->addWidget(logLabel);
 
-    m_logView = new QPlainTextEdit(this);
-    m_logView->setReadOnly(true);
-    m_logView->setMaximumBlockCount(MaxLogLines);
-    mainLayout->addWidget(m_logView, 1);
+    m_debugTable = new QTableWidget(this);
+    m_debugTable->setObjectName(QStringLiteral("debugTable"));
+    m_debugTable->setColumnCount(5);
+    m_debugTable->setHorizontalHeaderLabels({
+        tr("Source"),
+        tr("Key"),
+        tr("Latest value"),
+        tr("Receives"),
+        tr("Latest value receives"),
+    });
+    m_debugTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_debugTable->setSelectionMode(QAbstractItemView::NoSelection);
+    m_debugTable->setAlternatingRowColors(true);
+    m_debugTable->verticalHeader()->setVisible(false);
+    m_debugTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    m_debugTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_debugTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_debugTable->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    m_debugTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+    mainLayout->addWidget(m_debugTable, 1);
 
     // --- Buttons ---
     auto *buttonLayout = new QHBoxLayout;
-    auto *clearBtn = new QPushButton(tr("Clear Log"), this);
+    auto *clearBtn = new QPushButton(tr("Clear"), this);
+    clearBtn->setObjectName(QStringLiteral("clearDebugTableButton"));
     buttonLayout->addWidget(clearBtn);
     buttonLayout->addStretch();
 
@@ -136,7 +152,9 @@ void ConfigureVdjBridge::slotServiceNameChanged(const QString &text)
 
 void ConfigureVdjBridge::slotClearLog()
 {
-    m_logView->clear();
+    m_debugEntries.clear();
+    m_debugTable->setRowCount(0);
+    m_beatCounter = 0;
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -145,41 +163,42 @@ void ConfigureVdjBridge::slotClearLog()
 
 void ConfigureVdjBridge::slotDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value)
 {
-    appendLog(QStringLiteral("Deck %1: %2 = %3")
-              .arg(deckIndex + 1).arg(trigger, value.toString()));
+    const QString source = tr("Deck %1").arg(deckIndex + 1);
+    upsertDebugEntry(source, trigger, value.toString());
 }
 
 void ConfigureVdjBridge::slotGlobalTrigger(const QString &trigger, const QVariant &value)
 {
-    appendLog(QStringLiteral("Global: %1 = %2").arg(trigger, value.toString()));
+    upsertDebugEntry(tr("Global"), trigger, value.toString());
 }
 
 void ConfigureVdjBridge::slotBeatReceived(int pos, qreal bpm, qreal strength, bool change)
 {
-    // Throttle: log every 4th beat to avoid flooding
+    // Throttle: update every 4th beat to avoid flooding
     if (++m_beatCounter % 4 != 0)
         return;
 
-    appendLog(QStringLiteral("Beat: pos=%1 bpm=%2 str=%3%4")
-              .arg(pos)
-              .arg(bpm, 0, 'f', 1)
-              .arg(strength, 0, 'f', 2)
-              .arg(change ? QStringLiteral(" [change]") : QString()));
+    upsertDebugEntry(tr("Beat"), QStringLiteral("telemetry"),
+                     QStringLiteral("pos=%1 bpm=%2 str=%3%4")
+                     .arg(pos)
+                     .arg(bpm, 0, 'f', 1)
+                     .arg(strength, 0, 'f', 2)
+                     .arg(change ? QStringLiteral(" [change]") : QString()));
 }
 
 void ConfigureVdjBridge::slotClientConnected()
 {
     QString addr = m_plugin->clientAddress();
     if (addr.isEmpty())
-        appendLog(QStringLiteral("Client connected"));
+        upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected"));
     else
-        appendLog(QStringLiteral("Client connected from %1").arg(addr));
+        upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected from %1").arg(addr));
     updateStatusLabel();
 }
 
 void ConfigureVdjBridge::slotClientDisconnected()
 {
-    appendLog(QStringLiteral("Client disconnected"));
+    upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Disconnected"));
     updateStatusLabel();
 }
 
@@ -187,10 +206,31 @@ void ConfigureVdjBridge::slotClientDisconnected()
 // Helpers
 // ──────────────────────────────────────────────────────────────────
 
-void ConfigureVdjBridge::appendLog(const QString &message)
+void ConfigureVdjBridge::upsertDebugEntry(const QString &source, const QString &key, const QString &valueText)
 {
-    QString ts = QTime::currentTime().toString(QStringLiteral("HH:mm:ss.zzz"));
-    m_logView->appendPlainText(QStringLiteral("[%1] %2").arg(ts, message));
+    const QString normalizedSource = normalizeText(source);
+    const QString normalizedKey = normalizeText(key);
+    const QString normalizedValue = normalizeText(valueText);
+    const QString entryId = normalizedSource + QChar(0x1f) + normalizedKey;
+
+    DebugEntry &entry = m_debugEntries[entryId];
+    if (entry.row < 0)
+    {
+        entry.row = m_debugTable->rowCount();
+        m_debugTable->insertRow(entry.row);
+        m_debugTable->setItem(entry.row, 0, new QTableWidgetItem(normalizedSource));
+        m_debugTable->setItem(entry.row, 1, new QTableWidgetItem(normalizedKey));
+        m_debugTable->setItem(entry.row, 2, new QTableWidgetItem(normalizedValue));
+        m_debugTable->setItem(entry.row, 3, new QTableWidgetItem(QStringLiteral("0")));
+        m_debugTable->setItem(entry.row, 4, new QTableWidgetItem(QStringLiteral("0")));
+    }
+
+    entry.totalCount++;
+    const quint64 valueCount = ++entry.valueCounts[normalizedValue];
+
+    m_debugTable->item(entry.row, 2)->setText(normalizedValue);
+    m_debugTable->item(entry.row, 3)->setText(QString::number(entry.totalCount));
+    m_debugTable->item(entry.row, 4)->setText(QString::number(valueCount));
 }
 
 void ConfigureVdjBridge::updateStatusLabel()
@@ -218,8 +258,9 @@ void ConfigureVdjBridge::updateStatusLabel()
     }
 }
 
-void ConfigureVdjBridge::trimLog()
+QString ConfigureVdjBridge::normalizeText(const QString &text)
 {
-    // Using QPlainTextEdit::setMaximumBlockCount handles this automatically.
-    // Kept as a no-op in case manual trimming is needed later.
+    if (text.isEmpty())
+        return QStringLiteral("<empty>");
+    return text;
 }

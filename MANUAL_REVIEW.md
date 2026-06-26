@@ -2,7 +2,7 @@
 
 This checklist contains ONLY items that require human judgment (visual inspection, UX assessment, timing perception, 3D rendering). Anything that can be asserted automatically lives elsewhere:
 
-- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./qmlui/test/songmanager/songmanager_test && ./qmlui/test/songloadtracker/songloadtracker_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test`
+- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./qmlui/test/djfsm/djfsm_test && ./qmlui/test/djmanager/djmanager_test && ./qmlui/test/audiobpmtag/audiobpmtag_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test && ./qmlui/test/vdjtelemetryclient/vdjtelemetryclient_test`
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
 - **E2E tests:** `cd webaccess/web-dmx && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
@@ -498,7 +498,7 @@ Navigate to Virtual Console with VC editing access:
 
 ## 11. Song Manager — VDJ Integration
 
-> Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/songmanager/songmanager_test` (15 tests). The items below require VDJ connected or visual verification.
+> Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/djmanager/djmanager_test` (24 tests). The items below require VDJ connected or visual verification.
 
 ### 11.1 Currently playing indicator [VDJ] [HIGH RISK]
 
@@ -575,7 +575,7 @@ Navigate to Virtual Console with VC editing access:
 
 ## 12. VDJ Beat-Synced Show Playback [VDJ]
 
-> **Automated coverage:** `showrunner_test` (9 tests) and `show_test` (10 tests) cover the external sync engine: mode switching, position-driven function start/stop, forward jumps, backward seeks, and Show API delegation. `songloadtracker_test` (13 tests) covers the FSM in isolation. `showfactory_test` (9 tests) covers Audio+Show+Track creation and dedup. `vdjbridge_test` (8 tests) covers auto-start, auto-pause, and auto-resume integration. The items below require a live VDJ connection.
+> **Automated coverage:** `showrunner_test` (9 tests) and `show_test` (10 tests) cover the external sync engine: mode switching, position-driven function start/stop, forward jumps, backward seeks, and Show API delegation. `djfsm_test` (21 tests) covers the 4-deck FSM in isolation, including per-deck play-position (beat+time) tracking with throttled `positionChanged`. `showfactory_test` (9 tests) covers Audio+Show+Track creation and dedup. `audiobpmtag_test` (16 tests) covers reading the song's BPM from its MP3 ID3 `TBPM` tag and applying it to the created Show's time-division. `vdjbridge_test` (12 tests) covers auto-start, auto-pause, auto-resume integration, engine-BPM-follows-VDJ (jitter-locked), and Perform load/sync/switch. The items below require a live VDJ connection.
 
 ### 12.1 VDJ disconnect [HIGH RISK]
 

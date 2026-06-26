@@ -21,12 +21,13 @@
 #define CONFIGUREVDJBRIDGE_H
 
 #include <QDialog>
+#include <QHash>
 
 class QSpinBox;
 class QCheckBox;
 class QLineEdit;
 class QLabel;
-class QPlainTextEdit;
+class QTableWidget;
 class VdjBridgePlugin;
 
 class ConfigureVdjBridge : public QDialog
@@ -49,9 +50,16 @@ private slots:
     void slotClientDisconnected();
 
 private:
-    void appendLog(const QString &message);
+    void upsertDebugEntry(const QString &source, const QString &key, const QString &valueText);
     void updateStatusLabel();
-    void trimLog();
+    static QString normalizeText(const QString &text);
+
+    struct DebugEntry
+    {
+        int row = -1;
+        quint64 totalCount = 0;
+        QHash<QString, quint64> valueCounts;
+    };
 
     VdjBridgePlugin *m_plugin;
 
@@ -59,11 +67,10 @@ private:
     QCheckBox      *m_bonjourCheck;
     QLineEdit      *m_serviceNameEdit;
     QLabel         *m_statusLabel;
-    QPlainTextEdit *m_logView;
+    QTableWidget   *m_debugTable;
+    QHash<QString, DebugEntry> m_debugEntries;
 
     int m_beatCounter = 0;
-
-    static const int MaxLogLines = 500;
 };
 
 #endif // CONFIGUREVDJBRIDGE_H

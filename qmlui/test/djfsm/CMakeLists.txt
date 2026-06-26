@@ -1,13 +1,14 @@
-project(songloadtracker_test)
+project(djfsm_test)
 
 add_executable(${PROJECT_NAME}
-    songloadtracker_test.cpp
-    songloadtracker_test.h
-    ../../songloadtracker.cpp
-    ../../songloadtracker.h
+    djfsm_test.cpp
+    djfsm_test.h
+    ../../djfsm.cpp
+    ../../djfsm.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/engine/src
     ${CMAKE_SOURCE_DIR}/qmlui
 )
 

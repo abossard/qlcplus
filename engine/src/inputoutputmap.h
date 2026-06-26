@@ -604,6 +604,16 @@ public:
     void setBpmNumber(int bpm);
     int bpmNumber() const;
 
+    /**
+     * Set an authoritative external BPM (e.g. from VirtualDJ's get_bpm). While
+     * an external BPM is locked, the beat generator stops deriving BPM from
+     * inter-beat pulse timing (which jitters), so the BPM stays steady.
+     */
+    void setExternalBpm(int bpm);
+
+    /** Release the external BPM lock; resume deriving BPM from beat timing. */
+    void clearExternalBpm();
+
 protected slots:
     void slotMasterTimerBeat();
     void slotPluginBeat(quint32 universe, quint32 channel, uchar value, const QString &key);
@@ -618,6 +628,7 @@ signals:
 private:
     BeatGeneratorType m_beatGeneratorType;
     int m_currentBPM;
+    bool m_externalBpmLock = false;     //!< when true, skip timing-derived BPM
     QElapsedTimer *m_beatTime;
     AudioCapture *m_inputCapture;
 

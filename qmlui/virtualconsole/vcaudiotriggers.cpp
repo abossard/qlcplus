@@ -2402,6 +2402,31 @@ void VCAudioTriggers::rebuildBarAbsDmxChannels(BandMapping &bm) const
     }
 }
 
+void VCAudioTriggers::remapChannels(const QMap<SceneValue, SceneValue> &remapMap)
+{
+    QMutexLocker locker(&m_mappingsMutex);
+
+    for (BandMapping &bm : m_bandMappings)
+    {
+        if (bm.dmxChannels.isEmpty())
+            continue;
+
+        QList<SceneValue> newChannels;
+        for (const SceneValue &val : bm.dmxChannels)
+        {
+            SceneValue key(val.fxi, val.channel);
+            if (remapMap.contains(key))
+                newChannels.append(remapMap.value(key));
+        }
+
+        bm.dmxChannels = newChannels;
+        rebuildBarAbsDmxChannels(bm);
+    }
+
+    locker.unlock();
+    emit barsInfoChanged();
+}
+
 void VCAudioTriggers::updateBarWidgetReference(BandMapping &bm) const
 {
     if (bm.widgetId == VCWidget::invalidId())

@@ -40,7 +40,7 @@ Rectangle
     property real tickSize: showManager.tickSize
     property int currentTime: showManager.currentTime
     property int timeDivision: showManager.timeDivision
-    property int bpmNumber: ioManager.bpmNumber
+    property int bpmNumber: showManager.bpmNumber
     property int beatsDivision: showManager.beatsDivision
     property bool showTimeMarkers: true
 
@@ -89,15 +89,24 @@ Rectangle
 
     onDurationChanged:
     {
-        width = parseInt(TimeUtils.timeToSize(duration + 300000, timeScale, tickSize))
+        width = parseInt(timeDivision === Show.Time
+                ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
+                : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
         //console.log("New header width: " + width)
     }
 
     onTimeScaleChanged:
     {
         if (cursorHeight)
-            cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
-        width = parseInt(TimeUtils.timeToSize(duration + 300000, timeScale, tickSize))
+        {
+            if (timeDivision === Show.Time)
+                cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
+            else
+                cursor.x = TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
+        }
+        width = parseInt(timeDivision === Show.Time
+                ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
+                : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
         timeHeader.requestPaint()
         //console.log("New header width: " + width)
     }

@@ -114,6 +114,37 @@ Rectangle
         }
     }
 
+    IconButton
+    {
+        id: deleteTrackButton
+        x: parent.width - width - 2
+        y: parent.height - height - 4
+        z: 2
+        width: parent.width / 6
+        height: parent.height * 0.3
+        bgColor: "#8191A0"
+        faSource: FontAwesome.fa_minus
+        faColor: "#3C4A55"
+        tooltip: qsTr("Delete this track")
+        onClicked:
+        {
+            if (trackRef)
+            {
+                showManager.selectedTrackId = trackRef.id
+                deleteTrackPopup.message = qsTr("Are you sure you want to delete this track and all its items?")
+                                           + "\n\"" + trackRef.name + "\""
+                deleteTrackPopup.open()
+            }
+        }
+
+        CustomPopupDialog
+        {
+            id: deleteTrackPopup
+            title: qsTr("Delete track")
+            onAccepted: showManager.deleteSelectedTrack()
+        }
+    }
+
     MouseArea
     {
         anchors.fill: parent

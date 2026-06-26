@@ -43,6 +43,8 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
     , m_gridEnabled(false)
     , m_snapGuideX(-1.0)
     , m_timeScale(5.0)
+    , m_timeScaleTime(5.0)
+    , m_timeScaleBeats(1.0)
     , m_currentTime(0)
     , m_selectedTrackId(-1)
     , m_itemsColor(Qt::gray)
@@ -116,11 +118,13 @@ void ShowManager::setCurrentShowID(int currentShowID)
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
         emit showDurationChanged(m_currentShow->totalDuration());
         emit showNameChanged(m_currentShow->name());
+        emit bpmNumberChanged(m_currentShow->timeDivisionBPM());
     }
     else
     {
         emit showDurationChanged(0);
         emit showNameChanged("");
+        emit bpmNumberChanged(0);
     }
     emit tracksChanged();
     setPlaybackState(m_currentShow != nullptr ? m_currentShow->isRunning() : false,
@@ -251,24 +255,31 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
     if (m_currentShow == nullptr)
         return;
 
-    if (division == m_currentShow->timeDivisionType())
+    Show::TimeDivision current = m_currentShow->timeDivisionType();
+    if (division == current)
         return;
 
-    if (division == Show::Time)
-    {
-        setTimeScale(5.0);
-        m_currentShow->setTempoType(Function::Time);
-    }
+    // remember the zoom level of the mode we are leaving so switching back restores it
+    if (current == Show::Time)
+        m_timeScaleTime = m_timeScale;
     else
-    {
-        setTimeScale(1.0);
-        m_currentShow->setTempoType(Function::Beats);
-    }
-    m_currentShow->setTimeDivisionType(division);
-    emit timeDivisionChanged(division);
+        m_timeScaleBeats = m_timeScale;
 
-    if (division != Show::Time)
-        emit beatsDivisionChanged(m_currentShow->beatsDivision());
+    // switch the division first so setTimeScale recomputes tickSize for the new mode
+    m_currentShow->setTimeDivisionType(division);
+    m_currentShow->setTempoType(division == Show::Time ? Function::Time : Function::Beats);
+
+    // invalidate m_timeScale so setTimeScale always recomputes tickSize,
+    // even when the restored zoom equals the current value
+    m_timeScale = -1.0f;
+    setTimeScale(division == Show::Time ? m_timeScaleTime : m_timeScaleBeats);
+
+    // emit beatsDivision BEFORE timeDivision: ShowItem recomputes its geometry on
+    // timeDivisionChanged, and beatsToSize() divides by beatsDivision, so the new
+    // value (0 for Time, 2/3/4 for BPM) must already be applied to avoid a NaN width
+    // that makes items (e.g. the audio waveform) vanish until the next zoom.
+    emit beatsDivisionChanged(m_currentShow->beatsDivision());
+    emit timeDivisionChanged(division);
 }
 
 int ShowManager::beatsDivision() const
@@ -277,6 +288,34 @@ int ShowManager::beatsDivision() const
         return 0;
 
     return m_currentShow->beatsDivision();
+}
+
+int ShowManager::bpmNumber() const
+{
+    if (m_currentShow == nullptr)
+        return 0;
+
+    return m_currentShow->timeDivisionBPM();
+}
+
+void ShowManager::setBpmNumber(int bpmNumber)
+{
+    if (m_currentShow == nullptr)
+        return;
+
+    if (bpmNumber < 0)
+        bpmNumber = 0;
+
+    if (m_currentShow->timeDivisionBPM() == bpmNumber)
+        return;
+
+    m_currentShow->setTimeDivisionBPM(bpmNumber);
+    m_doc->setModified();
+    emit bpmNumberChanged(bpmNumber);
+
+    // a beat grid cannot be drawn without a tempo: fall back to Time markers
+    if (bpmNumber <= 0 && timeDivision() != Show::Time)
+        setTimeDivision(Show::Time);
 }
 
 float ShowManager::timeScale() const
@@ -610,14 +649,23 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
 
     if (m_gridEnabled && !itemSnapped)
     {
-        // calculate the X position from time and time scale
-        // timescale * 1000 : tickSize = time : x
-        float xPos = ((float)newStartTime * m_tickSize) / (m_timeScale * 1000.0);
-        // round to the nearest snap position
-        xPos = qRound(xPos / m_tickSize) * m_tickSize;
-        // recalculate the time from pixels
-        // xPos : time = tickSize : timescale * 1000
-        newTime = xPos * (1000 * m_timeScale) / m_tickSize;
+        if (timeDivision() == Show::Time)
+        {
+            // calculate the X position from time and time scale
+            // timescale * 1000 : tickSize = time : x
+            float xPos = ((float)newStartTime * m_tickSize) / (m_timeScale * 1000.0);
+            // round to the nearest snap position
+            xPos = qRound(xPos / m_tickSize) * m_tickSize;
+            // recalculate the time from pixels
+            // xPos : time = tickSize : timescale * 1000
+            newTime = xPos * (1000 * m_timeScale) / m_tickSize;
+        }
+        else
+        {
+            // Beats mode: start times are stored in beat units (1000 == 1 beat),
+            // so snap to the nearest whole beat regardless of zoom.
+            newTime = qRound(newStartTime / 1000.0) * 1000;
+        }
     }
 
     Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetStartTime, sf->id(), sf->startTime(), newTime);
@@ -1212,10 +1260,29 @@ void ShowManager::resetView()
 
 void ShowManager::renderView(QQuickItem *parent)
 {
+    // resetView() below deletes every QQuickItem; the selection list holds those
+    // same pointers. Remember the selected ShowFunctions, drop the (about-to-be
+    // dangling) item pointers, then re-map the selection onto the freshly created
+    // items below. This preserves the selection across a normal re-render (e.g.
+    // moving a track up/down) while it naturally clears on a show switch, where
+    // the previously-selected ShowFunctions are no longer present.
+    QList<ShowFunction *> previouslySelected;
+    for (const SelectedShowItem &si : m_selectedItems)
+    {
+        if (si.m_showFunc != nullptr)
+            previouslySelected.append(si.m_showFunc);
+    }
+    int previousCount = m_selectedItems.count();
+    m_selectedItems.clear();
+
     resetView();
 
     if (m_currentShow == nullptr)
+    {
+        if (previousCount != 0)
+            emit selectedItemsCountChanged(0);
         return;
+    }
 
     setContextItem(parent);
 
@@ -1237,10 +1304,24 @@ void ShowManager::renderView(QQuickItem *parent)
             newItem->setProperty("funcRef", QVariant::fromValue(func));
 
             m_itemsMap[sf->id()] = newItem;
+
+            // restore selection for ShowFunctions that survived the re-render
+            if (previouslySelected.contains(sf))
+            {
+                newItem->setProperty("isSelected", true);
+                SelectedShowItem ssi;
+                ssi.m_trackIndex = trkIdx;
+                ssi.m_showFunc = sf;
+                ssi.m_item = newItem;
+                m_selectedItems.append(ssi);
+            }
         }
 
         trkIdx++;
     }
+
+    if (m_selectedItems.count() != previousCount)
+        emit selectedItemsCountChanged(m_selectedItems.count());
 }
 
 void ShowManager::enableFlicking(bool enable)

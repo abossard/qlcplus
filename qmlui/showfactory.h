@@ -25,7 +25,7 @@
 #include <QSet>
 #include <QString>
 
-#include "songloadtracker.h"
+#include "djfsm.h"
 
 class Doc;
 
@@ -39,7 +39,7 @@ inline const QString kSongFolderPath = QStringLiteral("Songs");
  * - Its own internal set (same filepath within a session)
  * - Existing Doc functions by name
  *
- * Separated from VdjBridge/SongLoadTracker so that:
+ * Separated from VdjBridge/DjFsm so that:
  * - The FSM has no Doc dependency (testable in isolation)
  * - Show creation logic is contained in one place
  */
@@ -56,16 +56,34 @@ public:
     /** Lookup the showID created for a given filepath, or Function::invalidId() if absent. */
     quint32 showIdForFilepath(const QString &filepath) const;
 
+    /**
+     * Derive the human-readable Show name from song metadata:
+     * "Artist - Title", else "Title", else the filename stem.
+     */
+    static QString showNameForSong(const DjFsm::DeckSong &info);
+
+    /**
+     * Synchronously build an Audio + Show + Track for the song and return the
+     * new Show ID (or Function::invalidId() on failure). Always creates a new
+     * Show — used for user-initiated "create fresh show" actions where no
+     * telemetry burst is in flight. Registers the filepath→showId mapping.
+     */
+    quint32 buildShow(const DjFsm::DeckSong &info);
+
+    /** Register an externally-known filepath→showId mapping (e.g. user assignment). */
+    void registerMapping(const QString &filepath, quint32 showId);
+
 signals:
     /** Emitted after a Show is successfully added to the Doc for a song. */
     void showCreatedForSong(const QString &filepath, quint32 showId);
 
 public slots:
     /** Create Audio + Show + Track for the given song info. Deduplicates by filepath. */
-    void createShowForSong(const SongLoadTracker::SongInfo &info);
+    void createShowForSong(const DjFsm::DeckSong &info);
 
 private:
-    void createShowDeferred(const SongLoadTracker::SongInfo &info);
+    void createShowDeferred(const DjFsm::DeckSong &info);
+    quint32 buildShowFunctions(const DjFsm::DeckSong &info, const QString &showName);
 
     Doc *m_doc;
     QSet<QString> m_createdShows;

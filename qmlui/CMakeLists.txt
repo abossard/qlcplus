@@ -64,10 +64,10 @@ set(SRC_FILES
     treemodelitem.cpp treemodelitem.h
     uimanager.cpp uimanager.h
     vdjbridge.cpp vdjbridge.h
-    vdjdeckmodel.cpp vdjdeckmodel.h
-    songloadtracker.cpp songloadtracker.h
+    djfsm.cpp djfsm.h
     showfactory.cpp showfactory.h
-    songmanager.cpp songmanager.h
+    audiobpmtag.cpp audiobpmtag.h
+    djmanager.cpp djmanager.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h

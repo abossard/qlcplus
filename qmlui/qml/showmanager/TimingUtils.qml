@@ -62,7 +62,7 @@ Rectangle
         if (showManager.timeDivision === Show.Time)
             return showManager.currentTime
 
-        var bpm = ioManager ? ioManager.bpmNumber : 0
+        var bpm = showManager.bpmNumber
         if (bpm <= 0)
             return 0
         var beatDuration = 60000 / bpm
@@ -409,6 +409,34 @@ Rectangle
         width: parent.width
         anchors.margins: Math.round(UISettings.iconSizeDefault * 0.3)
         spacing: Math.round(UISettings.iconSizeDefault * 0.2)
+
+        SectionBox
+        {
+            width: parent.width
+            sectionLabel: qsTr("Tempo")
+            sectionContents:
+                RowLayout
+                {
+                    width: panelContainer.width
+
+                    RobotoText
+                    {
+                        label: qsTr("BPM")
+                    }
+
+                    CustomSpinBox
+                    {
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 999
+                        value: showManager.bpmNumber
+                        // The show tempo used to draw the beat grid (song BPM),
+                        // independent of the global playback BPM. Set to 0 to
+                        // disable beat markers.
+                        onValueModified: showManager.bpmNumber = value
+                    }
+                }
+        }
 
         SectionBox
         {

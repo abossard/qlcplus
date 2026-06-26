@@ -63,7 +63,7 @@
 #include "networkmanager.h"
 #include "flowconsole.h"
 #include "vdjbridge.h"
-#include "songmanager.h"
+#include "djmanager.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
@@ -224,13 +224,14 @@ void App::startup()
             QSettings settings;
             quint16 telemetryPort = static_cast<quint16>(
                 settings.value("vdj/telemetryPort", 8050).toUInt());
+            bool autoOpenVdjInput = settings.value("vdj/autoOpenInput", false).toBool();
             if (telemetryPort > 0 && telemetryPort != 8050)
             {
                 vdj->setParameter(0, 0, QLCIOPlugin::Input,
                                   QStringLiteral("hostPort"), telemetryPort);
             }
             m_vdjBridge->attachVdjPlugin(vdj);
-            if (telemetryPort > 0)
+            if (autoOpenVdjInput && telemetryPort > 0)
                 vdj->openInput(0, 0);
         }
 
@@ -239,17 +240,24 @@ void App::startup()
             m_vdjBridge->attachOS2LPlugin(os2l);
     }
 
-    // Song Manager — standalone view for VDJ status + auto-created Shows.
-    m_songManager = new SongManager(this, m_doc, m_vdjBridge,
-                                    m_vdjBridge ? m_vdjBridge->showFactory() : nullptr, this);
+    // DJ Manager — standalone view for VDJ status + auto-created Shows.
+    m_djManager = new DjManager(this, m_doc, m_vdjBridge,
+                                m_vdjBridge ? m_vdjBridge->showFactory() : nullptr, this);
+
+    // "Load show" from the DJ Manager switches the Show Manager to that show.
+    if (m_djManager != nullptr && m_showManager != nullptr)
+    {
+        connect(m_djManager, &DjManager::showLoadRequested,
+                m_showManager, &ShowManager::setCurrentShowID);
+    }
 
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);
     m_contextManager->registerContext(m_simpleDesk);
     m_contextManager->registerContext(m_showManager);
     m_contextManager->registerContext(m_ioManager);
-    if (m_songManager != nullptr)
-        m_contextManager->registerContext(m_songManager);
+    if (m_djManager != nullptr)
+        m_contextManager->registerContext(m_djManager);
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");

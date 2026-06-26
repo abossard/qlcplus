@@ -24,6 +24,7 @@
 #include "function.h"
 #include "show.h"
 #include "track.h"
+#include "audiobpmtag.h"
 
 #include <QTimer>
 #include "showfunction.h"
@@ -37,7 +38,7 @@ ShowFactory::ShowFactory(Doc *doc, QObject *parent)
 {
 }
 
-void ShowFactory::createShowForSong(const SongLoadTracker::SongInfo &info)
+void ShowFactory::createShowForSong(const DjFsm::DeckSong &info)
 {
     if (!m_doc)
         return;
@@ -54,25 +55,17 @@ void ShowFactory::createShowForSong(const SongLoadTracker::SongInfo &info)
     // Defer show creation to let the telemetry burst and QML initialization
     // complete fully. Creating Audio+Show triggers Doc::functionAdded which
     // updates QML models — doing this too early crashes the QML engine.
-    SongLoadTracker::SongInfo copy = info;
+    DjFsm::DeckSong copy = info;
     QTimer::singleShot(3000, this, [this, copy]() { createShowDeferred(copy); });
 }
 
-void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
+void ShowFactory::createShowDeferred(const DjFsm::DeckSong &info)
 {
     if (!m_doc)
         return;
 
     const QString &filepath = info.filepath;
-
-    // Derive a human-readable name from metadata or filename
-    QString showName;
-    if (!info.artist.isEmpty() && !info.title.isEmpty())
-        showName = info.artist + " - " + info.title;
-    else if (!info.title.isEmpty())
-        showName = info.title;
-    else
-        showName = QFileInfo(filepath).completeBaseName();
+    const QString showName = showNameForSong(info);
 
     // Check if a Show with this name already exists in Doc
     const auto shows = m_doc->functionsByType(Function::ShowType);
@@ -88,6 +81,32 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
         }
     }
 
+    quint32 showId = buildShowFunctions(info, showName);
+    if (showId == Function::invalidId())
+        return;
+
+    qDebug() << "[ShowFactory] Auto-created Show:" << showName
+             << "show ID:" << showId;
+
+    emit showCreatedForSong(filepath, showId);
+}
+
+QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)
+{
+    if (!info.artist.isEmpty() && !info.title.isEmpty())
+        return info.artist + " - " + info.title;
+    if (!info.title.isEmpty())
+        return info.title;
+    return QFileInfo(info.filepath).completeBaseName();
+}
+
+quint32 ShowFactory::buildShowFunctions(const DjFsm::DeckSong &info, const QString &showName)
+{
+    if (!m_doc)
+        return Function::invalidId();
+
+    const QString &filepath = info.filepath;
+
     // Create Audio function
     Audio *audio = new Audio(m_doc);
     audio->setName(showName);
@@ -96,7 +115,7 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     {
         qWarning() << "[ShowFactory] Failed to set audio source:" << filepath;
         delete audio;
-        return;
+        return Function::invalidId();
     }
     m_doc->addFunction(audio);
 
@@ -109,6 +128,10 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     show->setSyncSource(1); // ShowRunner::External
     m_doc->addFunction(show);
 
+    // Set the show's timing BPM from the music file's own ID3 tag (the file's
+    // BPM, independent of VDJ's pitch-affected playing BPM). No-op if absent.
+    AudioBpmTag::applyFileBpmToShow(show, filepath);
+
     // Add a Track with the Audio as a timeline item
     Track *track = new Track(Function::invalidId(), show);
     track->setName("Audio");
@@ -119,17 +142,46 @@ void ShowFactory::createShowDeferred(const SongLoadTracker::SongInfo &info)
     sf->setDuration(audio->totalDuration());
     sf->setColor(ShowFunction::defaultColor(Function::AudioType));
 
-    m_createdShows.insert(filepath);
-    m_filepathToShowId.insert(filepath, show->id());
-    qDebug() << "[ShowFactory] Auto-created Show:" << showName
-             << "audio ID:" << audio->id()
-             << "show ID:" << show->id()
-             << "duration:" << audio->totalDuration() << "ms";
+    if (!filepath.isEmpty())
+    {
+        m_createdShows.insert(filepath);
+        m_filepathToShowId.insert(filepath, show->id());
+    }
 
-    emit showCreatedForSong(filepath, show->id());
+    return show->id();
+}
+
+quint32 ShowFactory::buildShow(const DjFsm::DeckSong &info)
+{
+    if (!m_doc || info.filepath.isEmpty())
+        return Function::invalidId();
+
+    const QString showName = showNameForSong(info);
+    quint32 showId = buildShowFunctions(info, showName);
+    if (showId == Function::invalidId())
+        return Function::invalidId();
+
+    qDebug() << "[ShowFactory] Built Show on request:" << showName
+             << "show ID:" << showId;
+    emit showCreatedForSong(info.filepath, showId);
+    return showId;
+}
+
+void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
+{
+    if (filepath.isEmpty())
+        return;
+    if (showId == Function::invalidId())
+    {
+        m_filepathToShowId.remove(filepath);
+        return;
+    }
+    m_createdShows.insert(filepath);
+    m_filepathToShowId.insert(filepath, showId);
 }
 
 quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
 {
     return m_filepathToShowId.value(filepath, Function::invalidId());
 }
+

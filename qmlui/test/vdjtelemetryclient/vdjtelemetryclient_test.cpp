@@ -9,69 +9,9 @@
 
 #include "vdjtelemetryclient_test.h"
 #include "vdjtelemetryclient.h"
-#include "vdjdeckmodel.h"
+#include "djfsm.h"
 #include "vdjbridge.h"
 #include "vdjbridgeplugin.h"
-
-// ========================================================================
-// VdjDeckModel tests
-// ========================================================================
-
-void VdjTelemetryClient_Test::deckModelInitialState()
-{
-    VdjDeckModel deck(1);
-    QCOMPARE(deck.deckNumber(), 1);
-    QCOMPARE(deck.title(), QString());
-    QCOMPARE(deck.bpm(), 0.0);
-    QCOMPARE(deck.position(), 0.0);
-    QCOMPARE(deck.playing(), false);
-    QCOMPARE(deck.loaded(), false);
-    QCOMPARE(deck.looping(), false);
-}
-
-void VdjTelemetryClient_Test::deckModelSettersAndThrottle()
-{
-    VdjDeckModel deck(2);
-    QSignalSpy metaSpy(&deck, &VdjDeckModel::metadataChanged);
-    QSignalSpy transportSpy(&deck, &VdjDeckModel::transportChanged);
-
-    deck.setTitle("Test Song");
-    deck.setArtist("Test Artist");
-    deck.setPosition(0.5);
-
-    // Signals should NOT have fired yet (throttled)
-    QCOMPARE(metaSpy.count(), 0);
-    QCOMPARE(transportSpy.count(), 0);
-
-    // Wait for throttle timer (~33ms)
-    QTRY_VERIFY_WITH_TIMEOUT(metaSpy.count() == 1, 200);
-    QTRY_VERIFY_WITH_TIMEOUT(transportSpy.count() == 1, 200);
-
-    QCOMPARE(deck.title(), QString("Test Song"));
-    QCOMPARE(deck.artist(), QString("Test Artist"));
-    QCOMPARE(deck.position(), 0.5);
-}
-
-void VdjTelemetryClient_Test::deckModelReset()
-{
-    VdjDeckModel deck(3);
-    deck.setTitle("Song");
-    deck.setBpm(128.0);
-    deck.setPlaying(true);
-
-    // Wait for throttle to flush
-    QTRY_VERIFY_WITH_TIMEOUT(deck.title() == "Song", 200);
-
-    QSignalSpy metaSpy(&deck, &VdjDeckModel::metadataChanged);
-
-    deck.reset();
-
-    // Reset fires immediately (no throttle)
-    QCOMPARE(metaSpy.count(), 1);
-    QCOMPARE(deck.title(), QString());
-    QCOMPARE(deck.bpm(), 0.0);
-    QCOMPARE(deck.playing(), false);
-}
 
 // ========================================================================
 // NDJSON parser tests
@@ -409,14 +349,10 @@ void VdjTelemetryClient_Test::bridgeDeckTriggerRouting()
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_bpm","value":130.0})" "\n");
     fakeClient.flush();
 
-    QList<QObject*> decks = bridge.decks();
-    QCOMPARE(decks.size(), 4);
-    VdjDeckModel *deck1 = qobject_cast<VdjDeckModel*>(decks[0]);
-    QVERIFY(deck1 != nullptr);
-
-    // Wait for throttle to flush
-    QTRY_COMPARE_WITH_TIMEOUT(deck1->title(), QString("Bridge Test"), 1000);
-    QTRY_VERIFY_WITH_TIMEOUT(qFuzzyCompare(deck1->bpm(), 130.0), 1000);
+    // The DjFsm is the single source of truth for deck state.
+    DjFsm *fsm = bridge.djFsm();
+    QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString("Bridge Test"), 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(qFuzzyCompare(fsm->deckAt(0).song.bpm, 130.0), 1000);
 
     fakeClient.disconnectFromHost();
     plugin.closeInput(0, 0);
@@ -488,7 +424,7 @@ void VdjTelemetryClient_Test::bridgeBeatSuppressesOS2L()
     plugin.closeInput(0, 0);
 }
 
-void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckModels()
+void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
 {
     VdjBridge bridge;
     VdjBridgePlugin plugin;
@@ -509,12 +445,12 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckModels()
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Test"})" "\n");
     fakeClient.flush();
 
-    VdjDeckModel *deck1 = qobject_cast<VdjDeckModel*>(bridge.decks()[0]);
-    QTRY_COMPARE_WITH_TIMEOUT(deck1->title(), QString("Test"), 1000);
+    DjFsm *fsm = bridge.djFsm();
+    QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString("Test"), 1000);
 
-    // Disconnect
+    // Disconnect resets the FSM deck state.
     fakeClient.disconnectFromHost();
-    QTRY_COMPARE_WITH_TIMEOUT(deck1->title(), QString(), 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString(), 2000);
 
     plugin.closeInput(0, 0);
 }

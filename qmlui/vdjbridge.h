@@ -27,8 +27,7 @@
 
 class Doc;
 class QLCIOPlugin;
-class VdjDeckModel;
-class SongLoadTracker;
+class DjFsm;
 class ShowFactory;
 
 /**
@@ -42,8 +41,9 @@ class ShowFactory;
  * When the telemetry client is connected, beats from OS2L are suppressed
  * to avoid double-counting (telemetry also delivers beat events with BPM).
  *
- * Exposes 4 VdjDeckModel instances (one per VDJ deck) plus global mixer
- * state to QML.
+ * All per-deck telemetry is routed into the DjFsm, which is the single source
+ * of truth for deck/song state; the bridge itself keeps only global mixer
+ * state and drives Perform-mode Show playback off the FSM.
  */
 class VdjBridge final : public QObject
 {
@@ -56,12 +56,12 @@ class VdjBridge final : public QObject
     // --- Telemetry properties ---
     Q_PROPERTY(QString telemetryStatus READ telemetryStatus NOTIFY telemetryStatusChanged)
     Q_PROPERTY(bool telemetryConnected READ telemetryConnected NOTIFY telemetryStatusChanged)
-    Q_PROPERTY(QList<QObject*> decks READ decks CONSTANT)
     Q_PROPERTY(int masterDeck READ masterDeck NOTIFY masterDeckChanged)
     Q_PROPERTY(qreal masterVolume READ masterVolume NOTIFY globalMixerChanged)
     Q_PROPERTY(qreal crossfader READ crossfader NOTIFY globalMixerChanged)
     Q_PROPERTY(qreal headphoneVolume READ headphoneVolume NOTIFY globalMixerChanged)
     Q_PROPERTY(qreal masterVu READ masterVu NOTIFY globalMixerChanged)
+    Q_PROPERTY(bool performMode READ performMode WRITE setPerformMode NOTIFY performModeChanged)
 
 public:
     explicit VdjBridge(QObject *parent = nullptr);
@@ -84,6 +84,17 @@ public:
     /** Access the ShowFactory for UI components that observe show creation. */
     ShowFactory *showFactory() const { return m_showFactory; }
 
+    /** Access the 4-deck FSM that DJ Manager observes. */
+    DjFsm *djFsm() const { return m_fsm; }
+
+    /**
+     * Perform mode. When enabled, the active deck's Show is auto-started and
+     * kept synchronized with the deck's playback position. When disabled
+     * (default), VDJ playback never drives Show playback.
+     */
+    bool performMode() const { return m_performMode; }
+    void setPerformMode(bool on);
+
     // --- Legacy getters ---
     bool connected() const { return m_connected; }
     int beatCount() const { return m_beatCount; }
@@ -91,12 +102,16 @@ public:
     // --- Telemetry getters ---
     QString telemetryStatus() const;
     bool telemetryConnected() const;
-    QList<QObject*> decks() const;
     int masterDeck() const { return m_masterDeck; }
     qreal masterVolume() const { return m_masterVolume; }
     qreal crossfader() const { return m_crossfader; }
     qreal headphoneVolume() const { return m_headphoneVolume; }
     qreal masterVu() const { return m_masterVu; }
+
+    /** BPM pushed to the engine while the active deck is paused (visual "drop
+     *  super low" cue). Defaults to 1; configurable for the future. */
+    int pausedBpm() const { return m_pausedBpm; }
+    void setPausedBpm(int bpm);
 
 public slots:
     /** Connected to OS2LPlugin::beatReceived (string-based). */
@@ -111,6 +126,7 @@ signals:
     void telemetryStatusChanged();
     void masterDeckChanged();
     void globalMixerChanged();
+    void performModeChanged();
 
 private slots:
     void onTelemetryBeat(int pos, qreal bpm, qreal strength, bool change);
@@ -120,27 +136,32 @@ private slots:
     void onTelemetryClientDisconnected();
 
 private:
-    void applyDeckTrigger(VdjDeckModel *deck, int deckIndex,
-                          const QString &trigger, const QVariant &value);
+    void applyDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value);
+    void driveActiveShow(int deckIndex, const QString &trigger, const QVariant &value);
+    void updatePerformShow();
+    void pushActiveBpm();
 
     // Doc (for auto-show creation via ShowFactory)
     Doc *m_doc = nullptr;
-    SongLoadTracker *m_tracker = nullptr;
+    DjFsm *m_fsm = nullptr;
     ShowFactory *m_showFactory = nullptr;
+    bool m_performMode = false;
 
     // OS2L
     QPointer<QLCIOPlugin> m_plugin;
     bool m_connected = false;
     int m_beatCount = 0;
 
-    // Telemetry (now sourced from the VDJ Bridge plugin)
+    // Telemetry (the DjFsm holds all per-deck state; the bridge keeps only
+    // global mixer state).
     QPointer<QLCIOPlugin> m_vdjPlugin;
-    VdjDeckModel *m_deckModels[4] = {};
-    int m_masterDeck = 0;
+    int m_masterDeck = -1;          //!< 0-based active deck; -1 = none yet
     qreal m_masterVolume = 0.0;
     qreal m_crossfader = 0.0;
     qreal m_headphoneVolume = 0.0;
     qreal m_masterVu = 0.0;
+
+    int m_pausedBpm = 1;            //!< engine BPM while the active deck is paused
 };
 
 #endif // VDJBRIDGE_H

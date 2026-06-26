@@ -42,6 +42,7 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     , m_elapsedTime(startTime)
     , m_currentBeatFunctionIndex(0)
     , m_elapsedBeats(0)
+    , m_internalBeatClockMs(0.0)
     , beatSynced(false)
     , m_totalRunTime(0)
 {
@@ -124,6 +125,7 @@ void ShowRunner::stop()
 {
     m_elapsedTime = 0;
     m_elapsedBeats = 0;
+    m_internalBeatClockMs = 0.0;
     m_currentTimeFunctionIndex = 0;
     m_currentBeatFunctionIndex = 0;
 
@@ -171,19 +173,41 @@ void ShowRunner::write(MasterTimer *timer)
     {
         //qDebug() << Q_FUNC_INFO << "isBeat:" << timer->isBeat() << ", elapsed beats:" << m_elapsedBeats;
 
-        if (timer->isBeat())
+        if (timer->beatSourceType() != MasterTimer::None)
         {
-            if (beatSynced == false)
+            // A global beat source is active (Internal BPM generator or external
+            // VDJ/MIDI/audio): advance one beat per global beat tick. The Show is
+            // authored on its own (song-BPM) beat grid, so running it at the global
+            // BPM scales the playback speed by globalBPM/songBPM automatically
+            // (e.g. a 60-BPM song played at a 120-BPM global beat runs at 2x).
+            if (timer->isBeat())
             {
-                beatSynced = true;
-                qDebug() << "Beat synced";
+                if (beatSynced == false)
+                {
+                    beatSynced = true;
+                    qDebug() << "Beat synced";
+                }
+                else
+                    m_elapsedBeats += 1000;
             }
-            else
-                m_elapsedBeats += 1000;
-        }
 
-        if (beatSynced == false)
-            return;
+            if (beatSynced == false)
+                return;
+        }
+        else
+        {
+            // No global beat source: synthesize the beat clock from the Show's own
+            // BPM so a beat-based Show still plays (at the song BPM) instead of
+            // freezing. One "beat" is 60000/songBPM ms; m_elapsedBeats counts in
+            // beat-units where 1000 == 1 beat.
+            int songBpm = m_show->timeDivisionBPM();
+            if (songBpm <= 0)
+                songBpm = 120;
+
+            beatSynced = true;
+            m_internalBeatClockMs += double(MasterTimer::tick());
+            m_elapsedBeats = quint32((m_internalBeatClockMs * songBpm * 1000.0) / 60000.0);
+        }
     }
 
     // check if there are time-based functions to start

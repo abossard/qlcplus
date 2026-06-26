@@ -1,42 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="IOMGR">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="SHOWMGR">
  <Creator>
   <Name>Q Light Controller Plus</Name>
-  <Version>5.2.2 GIT</Version>
+  <Version>5.3.0 GIT</Version>
   <Author>Andre Bossard</Author>
  </Creator>
  <Engine Autostart="0">
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="132"/>
+   <BeatGenerator BeatType="Plugin" BPM="128"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
-    <Input Plugin="OS2L" UID="OS2L line" Line="0" Profile="VirtualDJ VirtualDJ">
-     <PluginParameters bonjourEnabled="true" hostAddress="" hostPort="0"/>
-    </Input>
-    <Output Plugin="DMX USB" UID="None" Line="0"/>
+    <Output Plugin="DMX USB" Name="None" UID="None" Line="0"/>
    </Universe>
    <Universe Name="Universe 2" ID="1">
-    <Input Plugin="OSC" UID="127.0.0.1" Line="1" Profile="MAGIC MAGIC"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Input Plugin="OSC" Name="127.0.0.1" UID="" Line="0" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="0" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
    <Universe Name="Universe 3" ID="2">
-    <Input Plugin="MIDI" UID="None" Line="1" Profile="Akai APC Mini mk2"/>
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Input Plugin="MIDI" Name="None" UID="None" Line="1" Profile="Akai APC Mini mk2"/>
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="320" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
-    <Feedback Plugin="MIDI" UID="None" Line="1"/>
+    <Feedback Plugin="MIDI" Name="None" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 4" ID="3">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="640" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
-    <Feedback Plugin="MIDI" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 5" ID="4">
-    <Output Plugin="DDP" UID="127.0.0.1" Line="1">
+    <Input Plugin="VDJ Bridge" Name="1: VDJ Telemetry" UID="" Line="0"/>
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="960" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
@@ -1249,10 +1246,12 @@
    <Color Index="1">4288217343</Color>
    <ControlMode>RGBWBrighter</ControlMode>
    <FixtureGroup>0</FixtureGroup>
+   <Property Name="direction" Value="Right"/>
+   <Property Name="orientation" Value="Horizontal"/>
+   <Property Name="tailfade" Value="Yes"/>
   </Function>
   <Function ID="42" Type="RGBMatrix" Name="BG">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Speed FadeIn="0" FadeOut="0" Duration="29"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
    <Algorithm Type="Script">Audio Power</Algorithm>
@@ -1263,6 +1262,8 @@
    <Color Index="4">4294967295</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
+   <Property Name="bass_decay_rate" Value="0.05"/>
+   <Property Name="sparks_decay_rate" Value="0.15"/>
   </Function>
   <Function ID="43" Type="Scene" Name="WHITE">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -1621,6 +1622,475 @@
     <Frequency>3</Frequency>
     <Phase>0</Phase>
    </Axis>
+  </Function>
+  <Function ID="76" Type="Audio" Name="Qubiko - Talking To Myself (Extended Mix) 2022 [125 F Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="345600"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-04/Qubiko - Talking To Myself (Extended Mix) 2022 [125 F Minor].mp3</Source>
+  </Function>
+  <Function ID="77" Type="Show" Name="Qubiko - Talking To Myself (Extended Mix)" Path="Songs" LastPlayed="2026-06-25T06:39:21">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="76" StartTime="0" Duration="345600" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="78" Type="Audio" Name="Tita Lau - One Of A Kind (Extended Mix) 2023 [125 F Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="315520"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Tita Lau - One Of A Kind (Extended Mix) 2023 [125 F Minor].mp3</Source>
+  </Function>
+  <Function ID="79" Type="Show" Name="Tita Lau - One Of A Kind" Path="Songs" LastPlayed="2026-06-24T23:01:36">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="78" StartTime="0" Duration="315520" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="80" Type="Audio" Name="GENESI (ITA) - Everything You Have Done (Meduza Edit Extended) 2023 [125 G Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="339870"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/GENESI (ITA) - Everything You Have Done (Meduza Edit Extended) 2023 [125 G Minor].mp3</Source>
+  </Function>
+  <Function ID="81" Type="Show" Name="Adapter - Kattapult" Path="Songs" LastPlayed="2026-06-24T23:59:03">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="80" StartTime="0" Duration="339870" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="82" Type="Audio" Name="Cloonee - Fine Night (Original Mix) 2023 [128 Gb Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="360262"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Cloonee - Fine Night (Original Mix) 2023 [128 Gb Minor].mp3</Source>
+  </Function>
+  <Function ID="83" Type="Show" Name="Benny Benassi, Andro, The Biz, Zamna Soundsystem - Satisfaction" Path="Songs" LastPlayed="2026-06-24T23:02:46">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="82" StartTime="0" Duration="360262" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="84" Type="Audio" Name="Adapter - Kattapult (James Hype Edit) (Extended Mix) 2024 [128 F Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="277738"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Adapter - Kattapult (James Hype Edit) (Extended Mix) 2024 [128 F Major].mp3</Source>
+  </Function>
+  <Function ID="85" Type="Show" Name="Aluna, Chris Lake - Beggin'" Path="Songs" LastPlayed="2026-06-24T23:00:55">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="84" StartTime="0" Duration="277738" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="86" Type="Audio" Name="Benny Benassi, The Biz, Zamna Soundsystem, Andro (IT) - Satisfaction (Remix) 2024 [125 Bb Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="328799"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Benny Benassi, The Biz, Zamna Soundsystem, Andro (IT) - Satisfaction (Remix) 2024 [125 Bb Major].mp3</Source>
+  </Function>
+  <Function ID="87" Type="Show" Name="SLVR - Je Win Je" Path="Songs" LastPlayed="2026-06-24T23:57:56" LastEdited="2026-06-24T23:58:24">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="86" StartTime="0" Duration="328799" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="88" Type="Audio" Name="SLVR - Je Win Je (Extended Mix) 2023 [124 C Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="251129"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/SLVR - Je Win Je (Extended Mix) 2023 [124 C Major].mp3</Source>
+  </Function>
+  <Function ID="89" Type="Show" Name="Kita Alexander, FISHER (OZ) - Atmosphere" Path="Songs" LastEdited="2026-06-24T23:44:03">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="88" StartTime="0" Duration="251129" Color="#608053"/>
+   </Track>
+   <Track ID="1" Name="Track 2" isMute="0">
+    <ShowFunction ID="42" StartTime="3826" Duration="10000" Color="#659b9b"/>
+   </Track>
+  </Function>
+  <Function ID="90" Type="Audio" Name="Hugo Cantarra, Taim - What Did You Say (Extended Mix) 2022 [126 Gb Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="312380"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Hugo Cantarra, Taim - What Did You Say (Extended Mix) 2022 [126 Gb Minor].mp3</Source>
+  </Function>
+  <Function ID="91" Type="Show" Name="Jack wins, Mr. Belt &amp; Wezol - One Thing" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="90" StartTime="0" Duration="312380" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="92" Type="Audio" Name="FISHER (OZ) - Losing It (Extended) 2018 [125 G Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="400509"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/FISHER (OZ) - Losing It (Extended) 2018 [125 G Major].mp3</Source>
+  </Function>
+  <Function ID="93" Type="Show" Name="PAX, Rui Da Silva - Touch Me" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="92" StartTime="0" Duration="400509" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="94" Type="Audio" Name="Mr. Belt &amp; Wezol, Jack wins - One Thing (Extended Mix) 2019 [125 D# Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="248058"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Mr. Belt &amp; Wezol, Jack wins - One Thing (Extended Mix) 2019 [125 D# Minor].mp3</Source>
+  </Function>
+  <Function ID="95" Type="Show" Name="Matt Sassari - Give It to Me" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="94" StartTime="0" Duration="248058" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="96" Type="Audio" Name="Laurent Wolf, Eric Carter - No Stress feat. Eric Carter (Sofi Tukker Extended Remix) 2019 [130 D# Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="304830"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Laurent Wolf, Eric Carter - No Stress feat. Eric Carter (Sofi Tukker Extended Remix) 2019 [130 D# Minor].mp3</Source>
+  </Function>
+  <Function ID="97" Type="Show" Name="Laurent Wolf, Eric Carter - No Stress" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="96" StartTime="0" Duration="304830" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="98" Type="Audio" Name="VisionV - Dancing Thing (Extended Mix) 2023 [130 Ab Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="282900"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/VisionV - Dancing Thing (Extended Mix) 2023 [130 Ab Minor].mp3</Source>
+  </Function>
+  <Function ID="99" Type="Show" Name="VisionV - Dancing Thing" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="98" StartTime="0" Duration="282900" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="100" Type="Audio" Name="PAX - Is It You (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="359486"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-04/PAX - Is It You (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="101" Type="Show" Name="PAX - Is It You" Path="Songs" LastPlayed="2026-06-25T00:21:41">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="100" StartTime="0" Duration="359486" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="102" Type="Audio" Name="Avicii ft Aloe Blacc - Wake Me Up (Klasse COL CoD 503 Edit) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="463126"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Avicii ft Aloe Blacc - Wake Me Up (Klasse COL CoD 503 Edit) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="103" Type="Show" Name="Avicii feat. Aloe Blacc - Wake Me Up ( Klasse COL CoD 503 Edit)" Path="Songs" LastPlayed="2026-06-25T00:27:10" LastEdited="2026-06-25T09:34:12">
+   <TimeDivision Type="Time" BPM="0"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="102" StartTime="0" Duration="463126" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="104" Type="Audio" Name="Avicii - Waiting For Love (Heliograph Remix) (Clean).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="374935"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Avicii - Waiting For Love (Heliograph Remix) (Clean).mp3</Source>
+  </Function>
+  <Function ID="105" Type="Show" Name="Avicii - Waiting For Love (Heliograph Remix)" Path="Songs" LastPlayed="2026-06-25T00:33:41">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="MUSIC" isMute="0">
+    <ShowFunction ID="104" StartTime="0" Duration="374935" Color="#608053"/>
+   </Track>
+   <Track ID="1" Name="Track 2" isMute="0">
+    <ShowFunction ID="42" StartTime="50306" Duration="10676" Color="#659b9b"/>
+   </Track>
+  </Function>
+  <Function ID="106" Type="Audio" Name="Jaden Bojsen ft David Guetta - Upside Down (SauLe Club Edit) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="188146"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Jaden Bojsen ft David Guetta - Upside Down (SauLe Club Edit) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="107" Type="Show" Name="Jaden Bojsen feat. David Guetta - Upside Down (SauLe Club Edit)" Path="Songs" LastPlayed="2026-06-25T00:39:16">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="106" StartTime="0" Duration="188146" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="108" Type="Audio" Name="POLOVICH - Sweet Dreams (Original Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="281076"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/POLOVICH - Sweet Dreams (Original Mix).mp3</Source>
+  </Function>
+  <Function ID="109" Type="Show" Name="POLOVICH - Sweet Dreams" Path="Songs" LastPlayed="2026-06-25T00:41:46">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="108" StartTime="0" Duration="281076" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="110" Type="Audio" Name="Richard Grey ft Lissat &amp; Kamafro - Stayin Alive (Afro Disco Mix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="174915"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Richard Grey ft Lissat &amp; Kamafro - Stayin Alive (Afro Disco Mix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="111" Type="Show" Name="Richard Grey feat. Lissat &amp; Kamafro - Stayin Alive (Afro Disco Mix)" Path="Songs" LastPlayed="2026-06-25T00:45:56">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="110" StartTime="0" Duration="174915" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="112" Type="Audio" Name="HUGEL ft French Montana &amp; Max B - One Night (Dirty Extended).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="291147"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/HUGEL ft French Montana &amp; Max B - One Night (Dirty Extended).mp3</Source>
+  </Function>
+  <Function ID="113" Type="Show" Name="HUGEL feat. French Montana &amp; Max B - One Night" Path="Songs" LastPlayed="2026-06-25T00:48:16">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="112" StartTime="0" Duration="291147" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="114" Type="Audio" Name="Avicii - Levels (Tom Enzy Edit) (Clean).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="200314"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Avicii - Levels (Tom Enzy Edit) (Clean).mp3</Source>
+  </Function>
+  <Function ID="115" Type="Show" Name="Avicii - Levels (Tom Enzy Edit)" Path="Songs" LastPlayed="2026-06-25T00:52:31">
+   <TimeDivision Type="Time" BPM="130"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="114" StartTime="0" Duration="200314" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="116" Type="Audio" Name="Morgan Wallen - Last Night (Patrick Zurn A Sky Full Of Stars Edit) (Dirty).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="271331"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Morgan Wallen - Last Night (Patrick Zurn A Sky Full Of Stars Edit) (Dirty).mp3</Source>
+  </Function>
+  <Function ID="117" Type="Show" Name="Morgan Wallen - Last Night (Patrick Zurn A Sky Full Of Stars Edit)" Path="Songs" LastPlayed="2026-06-25T00:55:20">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="116" StartTime="0" Duration="271331" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="118" Type="Audio" Name="James Hype ft Miggy Dela Rosa - Ferrari (Sergio T &amp; Vogia Ethnica Edit) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="252578"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/James Hype ft Miggy Dela Rosa - Ferrari (Sergio T &amp; Vogia Ethnica Edit) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="119" Type="Show" Name="James Hype feat. Miggy Dela Rosa - Ferrari (Sergio T &amp; Vogia Ethnica Edit)" Path="Songs" LastPlayed="2026-06-25T00:57:30">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="118" StartTime="0" Duration="252578" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="120" Type="Show" Name="MYSHOW">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Track 1" isMute="0">
+    <ShowFunction ID="41" StartTime="0" Duration="10000" Color="#659b9b"/>
+   </Track>
+  </Function>
+  <Function ID="121" Type="Audio" Name="Andhim &amp; AMEME &amp; Malou &amp; Avi Snow - Feel The Love (Hotlap Remix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="385287"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Andhim &amp; AMEME &amp; Malou &amp; Avi Snow - Feel The Love (Hotlap Remix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="122" Type="Show" Name="Andhim &amp; AMEME &amp; Malou &amp; Avi Snow - Feel The Love (Hotlap Remix)" Path="Songs" LastPlayed="2026-06-25T01:01:09">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="121" StartTime="0" Duration="385287" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="123" Type="Audio" Name="Max Styler - Lights Out (Extended Mix) 2024 [128 Gb Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="331875"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Max Styler - Lights Out (Extended Mix) 2024 [128 Gb Major].mp3</Source>
+  </Function>
+  <Function ID="124" Type="Show" Name="Max Styler - Lights Out" Path="Songs" LastPlayed="2026-06-25T07:14:34">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="123" StartTime="0" Duration="331875" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="125" Type="Audio" Name="Tiga, Audion, Matroda - Let_s Go Dancing (Matroda Remix) 2024 [128 G Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="305688"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-04/Tiga, Audion, Matroda - Let_s Go Dancing (Matroda Remix) 2024 [128 G Minor].mp3</Source>
+  </Function>
+  <Function ID="126" Type="Show" Name="Tiga, Audion, Matroda - Let's Go Dancing (Matroda Remix)" Path="Songs" LastPlayed="2026-06-25T07:14:26">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="125" StartTime="0" Duration="305688" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="127" Type="Audio" Name="Ciara - 1,2 Step (Klasse COL Follow My Trumpet Edit) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="348547"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/Ciara - 1,2 Step (Klasse COL Follow My Trumpet Edit) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="128" Type="Show" Name="Ciara - 1,2 Step (Klasse COL Follow My Trumpet Edit)" Path="Songs" LastPlayed="2026-06-25T06:35:12" LastEdited="2026-06-25T07:15:48">
+   <TimeDivision Type="BPM_4_4" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="127" StartTime="0" Duration="348547" Color="#608053"/>
+   </Track>
+   <Track ID="1" Name="Track 2" isMute="0">
+    <ShowFunction ID="41" StartTime="74000" Duration="4000" Color="#659b9b"/>
+   </Track>
+   <Track ID="2" Name="Track 3" isMute="0">
+    <ShowFunction ID="42" StartTime="68000" Duration="6000" Color="#659b9b"/>
+   </Track>
+  </Function>
+  <Function ID="129" Type="Audio" Name="KVSH &amp; Verk - 1, 2 Step (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="266666"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-05hh/KVSH &amp; Verk - 1, 2 Step (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="130" Type="Show" Name="KVSH &amp; Verk - 1, 2 Step" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="129" StartTime="0" Duration="266666" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="131" Type="Audio" Name="Timbaland ft Keri Hilson &amp; D.O.E. - The Way I Are (Don Diablo Remix - Mike Fresh VIP Edit) (Clean).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="140990"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Timbaland ft Keri Hilson &amp; D.O.E. - The Way I Are (Don Diablo Remix - Mike Fresh VIP Edit) (Clean).mp3</Source>
+  </Function>
+  <Function ID="132" Type="Show" Name="Timbaland feat. Keri Hilson &amp; D.O.E. - The Way I Are (Don Diablo Remix - Mike Fresh VIP Edit)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="131" StartTime="0" Duration="140990" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="133" Type="Audio" Name="Afrojack ft Eva Simons - Take Over Control (Nitefreak Remix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="414796"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Afrojack ft Eva Simons - Take Over Control (Nitefreak Remix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="134" Type="Show" Name="Afrojack feat. Eva Simons - Take Over Control (Nitefreak Remix)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="133" StartTime="0" Duration="414796" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="135" Type="Audio" Name="Sam Feldt ft Kesha - Stronger (Club Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="180952"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Sam Feldt ft Kesha - Stronger (Club Mix).mp3</Source>
+  </Function>
+  <Function ID="136" Type="Show" Name="Sam Feldt feat. Kesha - Stronger (Club Mix) (Radio Edit)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="135" StartTime="0" Duration="180952" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="137" Type="Audio" Name="Diplo &amp; Hugel ft Julia Church - Stay High (Adriel Arduino The Days Edit) (Clean).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="367084"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Diplo &amp; Hugel ft Julia Church - Stay High (Adriel Arduino The Days Edit) (Clean).mp3</Source>
+  </Function>
+  <Function ID="138" Type="Show" Name="Diplo &amp; Hugel feat. Julia Church - Stay High (Adriel Arduino The Days Edit)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="137" StartTime="0" Duration="367084" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="139" Type="Audio" Name="Jennifer Lopez ft David Guetta - Save Me Tonight (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="252317"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Jennifer Lopez ft David Guetta - Save Me Tonight (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="140" Type="Show" Name="Jennifer Lopez feat. David Guetta - Save Me Tonight" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="139" StartTime="0" Duration="252317" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="141" Type="Audio" Name="Sam Paganini - Rave (Adam Beyer &amp; Layton Giordani Remix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="348110"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Sam Paganini - Rave (Adam Beyer &amp; Layton Giordani Remix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="142" Type="Show" Name="Sam Paganini - Rave (Adam Beyer &amp; Layton Giordani Remix)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="141" StartTime="0" Duration="348110" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="143" Type="Audio" Name="HUGEL &amp; Imael Angel &amp; Ultra Nate - Im Moving To The Sun (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="353760"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/HUGEL &amp; Imael Angel &amp; Ultra Nate - Im Moving To The Sun (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="144" Type="Show" Name="HUGEL &amp; Imael Angel &amp; Ultra Nate - Im Moving To The Sun" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="143" StartTime="0" Duration="353760" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="145" Type="Audio" Name="HI-LO &amp; Reinier Zonneveld - Flying Octopus (Original Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="347142"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/HI-LO &amp; Reinier Zonneveld - Flying Octopus (Original Mix).mp3</Source>
+  </Function>
+  <Function ID="146" Type="Show" Name="HI-LO &amp; Reinier Zonneveld - Flying Octopus" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="145" StartTime="0" Duration="347142" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="147" Type="Audio" Name="Mau P - Drugs From Amsterdam (Reinier Zonneveld Remix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="371749"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Mau P - Drugs From Amsterdam (Reinier Zonneveld Remix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="148" Type="Show" Name="Mau P - Drugs From Amsterdam (Reinier Zonneveld Remix)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="147" StartTime="0" Duration="371749" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="149" Type="Audio" Name="Deborah De Luca &amp; Robert Miles - Children (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="343111"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Deborah De Luca &amp; Robert Miles - Children (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="150" Type="Show" Name="Deborah De Luca &amp; Robert Miles - Children" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="149" StartTime="0" Duration="343111" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="151" Type="Audio" Name="Shouse - Call My Name (ARYME Remix) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="336393"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Shouse - Call My Name (ARYME Remix) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="152" Type="Show" Name="Shouse - Call My Name (ARYME Remix)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="151" StartTime="0" Duration="336393" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="153" Type="Audio" Name="Humans Musik - 2 Phones On (Adriel Arduino Rolling In The Deep Edit) (Extended Mix).mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="308571"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Humans Musik - 2 Phones On (Adriel Arduino Rolling In The Deep Edit) (Extended Mix).mp3</Source>
+  </Function>
+  <Function ID="154" Type="Show" Name="Humans Musik - 2 Phones On (Adriel Arduino Rolling In The Deep Edit)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="153" StartTime="0" Duration="308571" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="155" Type="Audio" Name="Wuki, Sofi Tukker - Sunshine (My Girl) (Sofi Tukker Extended Remix) 2024 [133 C Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="195773"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Wuki, Sofi Tukker - Sunshine (My Girl) (Sofi Tukker Extended Remix) 2024 [133 C Major].mp3</Source>
+  </Function>
+  <Function ID="156" Type="Show" Name="Wuki, Sofi Tukker - Sunshine" Path="Songs" LastPlayed="2026-06-25T07:14:28">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="155" StartTime="0" Duration="195773" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="157" Type="Audio" Name="Chris Lake, Gotye, Kimbra, Sante Sansone, FISHER (OZ) - Somebody (2024) (Extended Mix) 2024 [130 D Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="255582"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Chris Lake, Gotye, Kimbra, Sante Sansone, FISHER (OZ) - Somebody (2024) (Extended Mix) 2024 [130 D Minor].mp3</Source>
+  </Function>
+  <Function ID="158" Type="Show" Name="Chris Lake, Gotye, Fisher, Kimbra, Sante Sansone - Somebody (2024)" Path="Songs">
+   <TimeDivision Type="Time" BPM="120"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="157" StartTime="0" Duration="255582" Color="#608053"/>
+   </Track>
   </Function>
   <Function ID="309" Type="Scene" Name="BALLM" Hidden="True">
    <Speed FadeIn="0" FadeOut="0" Duration="0"/>
@@ -2680,72 +3150,14 @@
      <Function ID="0"/>
      <Action>Toggle</Action>
     </Button>
-    <Frame Caption="EFFECTS" ID="5">
-     <WindowState Visible="True" X="228" Y="45" Width="776" Height="670"/>
-     <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
-     <ShowEnableButton>True</ShowEnableButton>
-     <Collapsed>False</Collapsed>
-     <Disabled>False</Disabled>
-     <Matrix Caption="A1" ID="15">
-      <WindowState Visible="True" X="380" Y="45" Width="396" Height="152"/>
-      <Function ID="42" InstantApply="true"/>
-     </Matrix>
-     <CueList Caption="BASE" ID="16">
-      <WindowState Visible="True" X="380" Y="213" Width="380" Height="289"/>
-      <Chaser>46</Chaser>
-     </CueList>
-     <Button Caption="WSTROBE" ID="18">
-      <WindowState Visible="True" X="396" Y="502" Width="106" Height="76"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <Function ID="46"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="OVERFFECTS" ID="21">
-      <WindowState Visible="True" X="670" Y="563" Width="86" Height="86"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <Function ID="40"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Matrix Caption="A2" ID="13">
-      <WindowState Visible="True" X="15" Y="213" Width="350" Height="152"/>
-      <Function ID="20" InstantApply="true"/>
-      <Visibility>255</Visibility>
-     </Matrix>
-     <Button Caption="BG" ID="20">
-      <WindowState Visible="True" X="563" Y="533" Width="86" Height="86"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <Function ID="42"/>
-      <Action>Toggle</Action>
-     </Button>
-     <SpeedDial Caption="CHANGE" ID="19">
-      <WindowState Visible="True" X="15" Y="365" Width="350" Height="258"/>
-      <Visibility>736</Visibility>
-      <Time>4000</Time>
-      <MultiplyMode>True</MultiplyMode>
-      <AbsoluteValue Minimum="1000" Maximum="10000"/>
-      <Function FadeIn="0" FadeOut="0" Duration="6">45</Function>
-      <Function FadeIn="0" FadeOut="0" Duration="6">46</Function>
-     </SpeedDial>
-     <Button Caption="SOAP" ID="22">
-      <WindowState Visible="True" X="517" Y="594" Width="86" Height="86"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <Function ID="20"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Matrix Caption="OVERLAY" ID="14">
-      <WindowState Visible="True" X="15" Y="45" Width="350" Height="152"/>
-      <Function ID="40" InstantApply="true"/>
-     </Matrix>
-    </Frame>
+    <Slider Caption="DIM" ID="12" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="165" Y="135" Width="60" Height="195"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Percentage">Submaster</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="255"/>
+    </Slider>
     <Slider Caption="WHITE" ID="10" WidgetStyle="Slider" InvertedAppearance="false">
      <WindowState Visible="True" X="15" Y="135" Width="60" Height="195"/>
      <Appearance>
@@ -3075,14 +3487,72 @@
       <Channel Fixture="6">319</Channel>
      </Level>
     </Slider>
-    <Slider Caption="DIM" ID="12" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="165" Y="135" Width="60" Height="195"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <SliderMode ValueDisplayStyle="Percentage">Submaster</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255"/>
-    </Slider>
+    <Frame Caption="EFFECTS" ID="5">
+     <WindowState Visible="True" X="228" Y="45" Width="776" Height="670"/>
+     <AllowResize>True</AllowResize>
+     <ShowHeader>True</ShowHeader>
+     <ShowEnableButton>True</ShowEnableButton>
+     <Collapsed>False</Collapsed>
+     <Disabled>False</Disabled>
+     <Button Caption="BG" ID="20">
+      <WindowState Visible="True" X="563" Y="533" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="42"/>
+      <Action>Toggle</Action>
+     </Button>
+     <SpeedDial Caption="CHANGE" ID="19">
+      <WindowState Visible="True" X="15" Y="365" Width="350" Height="258"/>
+      <Visibility>736</Visibility>
+      <Time>4000</Time>
+      <MultiplyMode>True</MultiplyMode>
+      <AbsoluteValue Minimum="1000" Maximum="10000"/>
+      <Function FadeIn="0" FadeOut="0" Duration="6">45</Function>
+      <Function FadeIn="0" FadeOut="0" Duration="6">46</Function>
+     </SpeedDial>
+     <Button Caption="WSTROBE" ID="18">
+      <WindowState Visible="True" X="396" Y="502" Width="106" Height="76"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="46"/>
+      <Action>Toggle</Action>
+     </Button>
+     <CueList Caption="BASE" ID="16">
+      <WindowState Visible="True" X="380" Y="213" Width="380" Height="289"/>
+      <Chaser>46</Chaser>
+     </CueList>
+     <Button Caption="OVERFFECTS" ID="21">
+      <WindowState Visible="True" X="670" Y="563" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="40"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Button Caption="SOAP" ID="22">
+      <WindowState Visible="True" X="517" Y="594" Width="86" Height="86"/>
+      <Appearance>
+       <BackgroundColor>4282664004</BackgroundColor>
+      </Appearance>
+      <Function ID="20"/>
+      <Action>Toggle</Action>
+     </Button>
+     <Matrix Caption="A2" ID="13">
+      <WindowState Visible="True" X="15" Y="213" Width="350" Height="152"/>
+      <Function ID="20" InstantApply="true"/>
+      <Visibility>255</Visibility>
+     </Matrix>
+     <Matrix Caption="A1" ID="15">
+      <WindowState Visible="True" X="380" Y="45" Width="396" Height="152"/>
+      <Function ID="42" InstantApply="true"/>
+     </Matrix>
+     <Matrix Caption="OVERLAY" ID="14">
+      <WindowState Visible="True" X="15" Y="45" Width="350" Height="152"/>
+      <Function ID="40" InstantApply="true"/>
+     </Matrix>
+    </Frame>
    </SoloFrame>
   </Frame>
   <Frame Caption="AUDIO" ID="3">
@@ -3095,257 +3565,6 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
-   <Frame Caption="DEFAULTS" ID="50">
-    <Appearance>
-     <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
-    </Appearance>
-    <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>False</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <SoloFrame Caption="BALL" ID="6">
-     <WindowState Visible="True" X="525" Y="15" Width="510" Height="495"/>
-     <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
-     <ShowEnableButton>True</ShowEnableButton>
-     <Collapsed>False</Collapsed>
-     <Disabled>False</Disabled>
-     <Button Caption="Fire" ID="36">
-      <WindowState Visible="True" X="135" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4284879104</BackgroundColor>
-      </Appearance>
-      <Function ID="63"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Pulse" ID="37">
-      <WindowState Visible="True" X="255" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4282646630</BackgroundColor>
-      </Appearance>
-      <Function ID="64"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Marquee" ID="38">
-      <WindowState Visible="True" X="375" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4284892160</BackgroundColor>
-      </Appearance>
-      <Function ID="65"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Audio React" ID="40">
-      <WindowState Visible="True" X="135" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278203170</BackgroundColor>
-      </Appearance>
-      <Function ID="67"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Audio Fire" ID="41">
-      <WindowState Visible="True" X="255" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4282646528</BackgroundColor>
-      </Appearance>
-      <Function ID="68"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Starfield" ID="42">
-      <WindowState Visible="True" X="375" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278194500</BackgroundColor>
-      </Appearance>
-      <Function ID="69"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Rainbow" ID="35">
-      <WindowState Visible="True" X="15" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4282655232</BackgroundColor>
-      </Appearance>
-      <Function ID="62"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Full Red" ID="43">
-      <WindowState Visible="True" X="15" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4284874752</BackgroundColor>
-      </Appearance>
-      <Function ID="58"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Full Blue" ID="44">
-      <WindowState Visible="True" X="135" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278190182</BackgroundColor>
-      </Appearance>
-      <Function ID="59"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Plasma" ID="39">
-      <WindowState Visible="True" X="15" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4281532484</BackgroundColor>
-      </Appearance>
-      <Function ID="66"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Color Cycle" ID="45">
-      <WindowState Visible="True" X="255" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4280435712</BackgroundColor>
-      </Appearance>
-      <Function ID="71"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Spin Slow" ID="46">
-      <WindowState Visible="True" X="15" Y="270" Width="105" Height="60"/>
-      <Function ID="60"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Spin Fast" ID="47">
-      <WindowState Visible="True" X="135" Y="270" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4283782485</BackgroundColor>
-      </Appearance>
-      <Function ID="61"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Slider Caption="BALL DIM" ID="48" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="15" Y="345" Width="60" Height="195"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="0">
-       <Channel Fixture="7">5</Channel>
-      </Level>
-     </Slider>
-     <Slider Caption="BALL STROBE" ID="49" WidgetStyle="Slider" InvertedAppearance="false">
-      <WindowState Visible="True" X="90" Y="345" Width="60" Height="195"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <SliderMode ValueDisplayStyle="Exact">Level</SliderMode>
-      <Level LowLimit="0" HighLimit="255" Value="0">
-       <Channel Fixture="7">6</Channel>
-      </Level>
-     </Slider>
-    </SoloFrame>
-    <SoloFrame Caption="HERO" ID="4">
-     <WindowState Visible="True" X="15" Y="15" Width="495" Height="495"/>
-     <AllowResize>True</AllowResize>
-     <ShowHeader>True</ShowHeader>
-     <ShowEnableButton>True</ShowEnableButton>
-     <Collapsed>False</Collapsed>
-     <Disabled>False</Disabled>
-     <Button Caption="Figure 8" ID="30">
-      <WindowState Visible="True" X="135" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278203204</BackgroundColor>
-      </Appearance>
-      <Function ID="73"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Lissajous" ID="31">
-      <WindowState Visible="True" X="255" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278203204</BackgroundColor>
-      </Appearance>
-      <Function ID="74"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Red Wash" ID="17">
-      <WindowState Visible="True" X="15" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4284874752</BackgroundColor>
-      </Appearance>
-      <Function ID="50"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Color Cycle" ID="28">
-      <WindowState Visible="True" X="255" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4280435712</BackgroundColor>
-      </Appearance>
-      <Function ID="70"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Blue Wash" ID="23">
-      <WindowState Visible="True" X="135" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278190182</BackgroundColor>
-      </Appearance>
-      <Function ID="51"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Center" ID="32">
-      <WindowState Visible="True" X="375" Y="195" Width="105" Height="60"/>
-      <Function ID="56"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Audience" ID="33">
-      <WindowState Visible="True" X="375" Y="120" Width="105" Height="60"/>
-      <Function ID="57"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Cyan Wash" ID="25">
-      <WindowState Visible="True" X="375" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278216294</BackgroundColor>
-      </Appearance>
-      <Function ID="53"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Purple Wash" ID="24">
-      <WindowState Visible="True" X="255" Y="45" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4282646630</BackgroundColor>
-      </Appearance>
-      <Function ID="52"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="White Spot" ID="26">
-      <WindowState Visible="True" X="15" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4282664004</BackgroundColor>
-      </Appearance>
-      <Function ID="54"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Circle" ID="29">
-      <WindowState Visible="True" X="15" Y="195" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4278203204</BackgroundColor>
-      </Appearance>
-      <Function ID="72"/>
-      <Action>Toggle</Action>
-     </Button>
-     <Button Caption="Gobo Spot" ID="27">
-      <WindowState Visible="True" X="135" Y="120" Width="105" Height="60"/>
-      <Appearance>
-       <BackgroundColor>4281545472</BackgroundColor>
-      </Appearance>
-      <Function ID="55"/>
-      <Action>Toggle</Action>
-     </Button>
-     <XYPad Caption="XY Pad 35" ID="34" InvertedAppearance="0">
-      <WindowState Visible="True" X="15" Y="270" Width="195" Height="195"/>
-      <Appearance>
-       <Font>Roboto Condensed,25,-1,5,700,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
-      </Appearance>
-      <Fixture ID="0" Head="0">
-       <Axis ID="X" LowLimit="0" HighLimit="1" Reverse="False"/>
-       <Axis ID="Y" LowLimit="0" HighLimit="1" Reverse="False"/>
-      </Fixture>
-      <Window hMin="0" hMax="255" vMin="0" vMax="255"/>
-      <Pan Position="110.693"/>
-      <Tilt Position="107.096"/>
-     </XYPad>
-    </SoloFrame>
-   </Frame>
    <AudioTriggers AudioProfileID="0" Caption="Audio Trigger 1" ID="0">
     <WindowState Visible="True" X="15" Y="15" Width="365" Height="304"/>
     <Appearance>

@@ -66,7 +66,7 @@ Rectangle
             item = ioEntry
         else if (ctx === "FC")
             item = fcEntry
-        else if (ctx === "SONGMGR")
+        else if (ctx === "DJMGR")
             item = songEntry
 
         if (item)
@@ -355,13 +355,13 @@ Rectangle
             {
                 id: songEntry
                 Layout.alignment: Qt.AlignTop
-                property string ctxName: "SONGMGR"
-                property string ctxRes: "qrc:/SongManager.qml"
+                property string ctxName: "DJMGR"
+                property string ctxRes: "qrc:/DjManager.qml"
 
                 visible: qlcplus.accessMask & App.AC_ShowManager
                 imgSource: "qrc:/showmanager.svg"
-                entryText: qsTr("Song Manager")
-                tooltip: ShortcutUtils.withShortcut(qsTr("Song Manager"), "Alt+7")
+                entryText: qsTr("DJ Manager")
+                tooltip: ShortcutUtils.withShortcut(qsTr("DJ Manager"), "Alt+7")
                 ButtonGroup.group: menuBarGroup
                 onCheckedChanged:
                 {
@@ -371,7 +371,7 @@ Rectangle
                 onRightClicked:
                 {
                     songEntry.visible = false
-                    contextManager.detachContext("SONGMGR")
+                    contextManager.detachContext("DJMGR")
                 }
             }
             Rectangle

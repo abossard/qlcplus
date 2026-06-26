@@ -437,8 +437,8 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     tm.register_tool(Tool(
         "query_palettes",
         Json{{"type", "object"}, {"properties", {
-            {"typeFilter", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Shutter", "Gobo", "Zoom"}},
-                {"description", "Filter by type: Dimmer, Color, Pan, Tilt, PanTilt (omit for all)"}}}
+            {"typeFilter", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}},
+                {"description", "Filter by type: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom (omit for all)"}}}
         }}},
         Json{},
         [doc](const Json &args) -> Json {
@@ -447,7 +447,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             if (!err.empty()) return err;
 
             static const Json kEnums = {
-                {"typeFilter", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Shutter", "Gobo", "Zoom"}}}}
+                {"typeFilter", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}}}}
             };
             err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
@@ -502,6 +502,19 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         entry["panDegrees"] = p->floatValue1();
                         entry["tiltDegrees"] = (double)p->intValue2();
                         break;
+                    case QLCPalette::Position3D:
+                        entry["x"] = p->floatValue1();
+                        entry["y"] = p->floatValue2();
+                        entry["z"] = p->floatValue3();
+                        break;
+                    case QLCPalette::Shutter:
+                        entry["value"] = p->intValue1();
+                        entry["value2"] = p->intValue2();
+                        break;
+                    case QLCPalette::Gobo:
+                    case QLCPalette::Zoom:
+                        entry["value"] = p->intValue1();
+                        break;
                     default:
                         break;
                 }
@@ -522,7 +535,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         },
         std::nullopt,
         std::string("List all palettes with their type, values, and which scenes reference them. "
-                     "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt."),
+                     "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

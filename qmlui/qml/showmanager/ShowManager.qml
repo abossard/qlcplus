@@ -75,9 +75,28 @@ Rectangle
 
     function centerView()
     {
-        var xPos = TimeUtils.timeToSize(showManager.currentTime, timeScale, tickSize) - (timelineHeader.width / 2)
+        var cursorX = (showManager.timeDivision === Show.Time)
+                ? TimeUtils.timeToSize(showManager.currentTime, timeScale, tickSize)
+                : TimeUtils.timeToBeatPosition(showManager.currentTime, tickSize,
+                                               showManager.bpmNumber, showManager.beatsDivision)
+        var xPos = cursorX - (timelineHeader.width / 2)
         if (xPos >= 0)
             xViewOffset = xPos
+    }
+
+    function zoomTimeline(zoomIn)
+    {
+        // In Time mode a larger timeScale renders smaller content (zoom out).
+        // In Beats mode tickSize grows with timeScale, so the relation is inverted.
+        // "grow" = whether the visual zoom request needs timeScale to increase.
+        var grow = showManager.timeDivision === Show.Time ? !zoomIn : zoomIn
+        var step = grow ? (showManager.timeScale >= 1.0 ? 1.0 : 0.1)
+                        : (showManager.timeScale > 1.0 ? 1.0 : 0.1)
+        var ts = showManager.timeScale + (grow ? step : -step)
+        if (ts < 0.1)
+            ts = 0.1
+        showManager.timeScale = ts
+        centerView()
     }
 
     function renderAndCenter()
@@ -387,9 +406,34 @@ Rectangle
                     { mLabel: qsTr("BPM 3/4"), mValue: Show.BPM_3_4 },
                     { mLabel: qsTr("BPM 2/4"), mValue: Show.BPM_2_4 }
                 ]
+                id: markersCombo
                 enabled: showManager.isEditing
                 currValue: showManager.timeDivision
-                onValueChanged: showManager.timeDivision = currentValue
+                onValueChanged:
+                {
+                    // Beat markers need a tempo: refuse non-Time until a BPM is set.
+                    // The revert must be deferred (Qt.callLater) because the combo is
+                    // mid-update here (its isUpdating guard would swallow a synchronous
+                    // currValue/currentIndex change).
+                    if (currentValue !== Show.Time && showManager.bpmNumber <= 0)
+                    {
+                        Qt.callLater(function() { markersCombo.currValue = Show.Time })
+                        return
+                    }
+                    showManager.timeDivision = currentValue
+                }
+
+                // keep the combo in sync when the division changes from C++
+                // (e.g. auto-revert to Time when the BPM is cleared to 0)
+                Connections
+                {
+                    target: showManager
+                    function onTimeDivisionChanged(division)
+                    {
+                        if (markersCombo.currValue !== division)
+                            Qt.callLater(function() { markersCombo.currValue = division })
+                    }
+                }
             }
 
             ZoomItem
@@ -398,23 +442,8 @@ Rectangle
                 implicitHeight: parent.height - 2
                 fontColor: "#222"
 
-                onZoomOutClicked:
-                {
-                    if (showManager.timeScale >= 1.0)
-                        showManager.timeScale += 1.0
-                    else
-                        showManager.timeScale += 0.1
-                    centerView()
-                }
-
-                onZoomInClicked:
-                {
-                    if (showManager.timeScale > 1.0)
-                        showManager.timeScale -= 1.0
-                    else
-                        showManager.timeScale -= 0.1
-                    centerView()
-                }
+                onZoomOutClicked: showMgrContainer.zoomTimeline(false)
+                onZoomInClicked: showMgrContainer.zoomTimeline(true)
             }
         }
     } // top bar
@@ -533,7 +562,7 @@ Rectangle
                 if (timeDivision === Show.Time)
                     showManager.currentTime = TimeUtils.posToMs(mouseX, timeScale, tickSize)
                 else
-                    showManager.currentTime = TimeUtils.posToBeatMs(mouseX, tickSize, ioManager.bpmNumber, showManager.beatsDivision)
+                    showManager.currentTime = TimeUtils.posToBeatMs(mouseX, tickSize, showManager.bpmNumber, showManager.beatsDivision)
                 showManager.resetItemsSelection()
             }
         }
@@ -626,7 +655,10 @@ Rectangle
                 anchors.fill: parent
                 onClicked: (mouse) =>
                 {
-                    showManager.currentTime = TimeUtils.posToMs(mouse.x, timeScale, tickSize)
+                    if (showManager.timeDivision === Show.Time)
+                        showManager.currentTime = TimeUtils.posToMs(mouse.x, timeScale, tickSize)
+                    else
+                        showManager.currentTime = TimeUtils.posToBeatMs(mouse.x, tickSize, showManager.bpmNumber, showManager.beatsDivision)
                     showManager.resetItemsSelection()
                 }
             }

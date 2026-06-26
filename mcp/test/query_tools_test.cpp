@@ -64,6 +64,113 @@ void QueryTools_Test::queryPalettes_invalidTypeFilterReturnsError()
     QVERIFY2(message.contains(QStringLiteral("typeFilter")), qPrintable(message));
 }
 
+void QueryTools_Test::palettes_createQueryRoundTrip_data()
+{
+    // One rich row per upstream 5.3.0 palette type. Values are DISTINCT (and
+    // distinct between value/value2 for Shutter) so a swapped accessor in
+    // create_palettes or query_palettes serialization fails the round-trip.
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<double>("x");
+    QTest::addColumn<double>("y");
+    QTest::addColumn<double>("z");
+    QTest::addColumn<int>("value");
+    QTest::addColumn<int>("value2"); // -1 == not applicable
+
+    QTest::newRow("Position3D") << QStringLiteral("Position3D") << QStringLiteral("Upstage Center")
+                                << 11.0 << 22.0 << 33.0 << -1 << -1;
+    QTest::newRow("Gobo")       << QStringLiteral("Gobo")       << QStringLiteral("Gobo Spiral")
+                                << 0.0 << 0.0 << 0.0 << 7 << -1;
+    // Shutter is a 2-value type: value=preset (at(0)), value2=percentage (at(1)).
+    QTest::newRow("Shutter")    << QStringLiteral("Shutter")    << QStringLiteral("Strobe Fast")
+                                << 0.0 << 0.0 << 0.0 << 5 << 73;
+    QTest::newRow("Zoom")       << QStringLiteral("Zoom")       << QStringLiteral("Zoom Wide")
+                                << 0.0 << 0.0 << 0.0 << 88 << -1;
+}
+
+void QueryTools_Test::palettes_createQueryRoundTrip()
+{
+    // Exercise the real MCP boundary for the upstream 5.3.0 palette types:
+    // create_palettes (new switch cases) -> query_palettes (new serialize cases).
+    QFETCH(QString, type);
+    QFETCH(QString, name);
+    QFETCH(double, x);
+    QFETCH(double, y);
+    QFETCH(double, z);
+    QFETCH(int, value);
+    QFETCH(int, value2);
+
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+    registerQueryTools(tm, m_doc, nullptr);
+
+    // Arrange + Act: build a create item shaped for this palette type.
+    Json item = {{"name", name.toStdString()}, {"type", type.toStdString()}};
+    if (type == QStringLiteral("Position3D"))
+    {
+        item["x"] = x;
+        item["y"] = y;
+        item["z"] = z;
+    }
+    else
+    {
+        item["value"] = value;
+        if (value2 >= 0)
+            item["value2"] = value2;
+    }
+
+    Json createRes = parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
+    QVERIFY2(createRes.is_array(), "create_palettes must return an array");
+    QCOMPARE((int)createRes.size(), 1);
+    QCOMPARE(createRes[0]["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(createRes[0]["type"].get<std::string>(), type.toStdString());
+
+    // Assert: typeFilter returns exactly this palette, with type-specific fields
+    // round-tripping through the MCP serialize cases.
+    Json list = parsedToolResult(tm.invoke("query_palettes", Json{{"typeFilter", type.toStdString()}}));
+    QVERIFY2(list.is_array(), "query_palettes must return an array");
+    QCOMPARE((int)list.size(), 1);
+    const Json &entry = list[0];
+    QCOMPARE(entry["type"].get<std::string>(), type.toStdString());
+
+    if (type == QStringLiteral("Position3D"))
+    {
+        // x/y/z sourced from floatValue1()/floatValue2()/floatValue3().
+        QCOMPARE(entry["x"].get<double>(), x);
+        QCOMPARE(entry["y"].get<double>(), y);
+        QCOMPARE(entry["z"].get<double>(), z);
+    }
+    else
+    {
+        // value sourced from intValue1(); value2 (Shutter pct) from intValue2().
+        QCOMPARE(entry["value"].get<int>(), value);
+        if (value2 >= 0)
+            QCOMPARE(entry["value2"].get<int>(), value2);
+    }
+}
+
+void QueryTools_Test::palettes_createInvalidTypeReturnsError()
+{
+    // create_palettes must reject an unknown type via the Undefined->error branch,
+    // not create a palette.
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+
+    Json createRes = parsedToolResult(tm.invoke("create_palettes",
+        Json{{"items", Json::array({Json{{"name", "Nope"}, {"type", "Bogus"}}})}}));
+
+    QVERIFY2(createRes.is_array(), "create_palettes must return an array");
+    QCOMPARE((int)createRes.size(), 1);
+    const Json &res = createRes[0];
+    QVERIFY2(res.contains("error"), "Invalid type must return an error entry");
+    QVERIFY2(!res.contains("status") || res["status"].get<std::string>() != std::string("created"),
+             "Invalid type must not create a palette");
+    QString message = QString::fromStdString(res["error"].get<std::string>());
+    QVERIFY2(message.contains(QStringLiteral("invalid"), Qt::CaseInsensitive)
+                 && message.contains(QStringLiteral("type"), Qt::CaseInsensitive),
+             qPrintable(message));
+}
+
 void QueryTools_Test::queryRgbAlgorithms_invalidTypeReturnsError()
 {
     auto tm = makeQueryToolManager(m_doc);

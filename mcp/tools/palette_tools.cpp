@@ -42,12 +42,9 @@ QLCPalette* findPaletteByNameAndType(Doc *doc, const QString &name, QLCPalette::
 
 QLCPalette::PaletteType stringToPaletteType(const std::string &s)
 {
-    if (s == "Dimmer")  return QLCPalette::Dimmer;
-    if (s == "Color")   return QLCPalette::Color;
-    if (s == "Pan")     return QLCPalette::Pan;
-    if (s == "Tilt")    return QLCPalette::Tilt;
-    if (s == "PanTilt") return QLCPalette::PanTilt;
-    return QLCPalette::Undefined;
+    // Delegate to the engine so there is a single source of truth for the
+    // palette-type spellings (incl. Position3D, Shutter, Gobo, Zoom).
+    return QLCPalette::stringToType(QString::fromStdString(s));
 }
 
 } // anonymous namespace
@@ -59,19 +56,23 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
     // create_palettes (batch)
     static const std::string typeDesc =
-        "Palette type: Dimmer, Color, Pan, Tilt, PanTilt";
+        "Palette type: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom";
 
     tm.register_tool(Tool(
         "create_palettes",
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}, {"description", "Palette name (required)"}}},
-                {"type", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt"}}, {"description", typeDesc}}},
-                {"value", {{"type", "integer"}, {"description", "Dimmer intensity 0-255"}}},
+                {"type", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}}, {"description", typeDesc}}},
+                {"value", {{"type", "integer"}, {"description", "Dimmer intensity 0-255; the single value for Gobo and Zoom; the shutter preset for Shutter"}}},
+                {"value2", {{"type", "integer"}, {"description", "Shutter percentage 0-100; used with `value` as the shutter preset"}}},
                 {"panDegrees", {{"type", "number"}, {"description", "Pan degrees (Pan or PanTilt type)"}}},
                 {"tiltDegrees", {{"type", "number"}, {"description", "Tilt degrees (Tilt or PanTilt type)"}}},
                 {"rgb", {{"type", "string"}, {"description", "Color: RGB hex '#rrggbb'"}}},
-                {"wauv", {{"type", "string"}, {"description", "Color: White/Amber/UV hex '#wwaauu' (optional, default '#000000')"}}}
+                {"wauv", {{"type", "string"}, {"description", "Color: White/Amber/UV hex '#wwaauu' (optional, default '#000000')"}}},
+                {"x", {{"type", "number"}, {"description", "Position3D: X coordinate"}}},
+                {"y", {{"type", "number"}, {"description", "Position3D: Y coordinate"}}},
+                {"z", {{"type", "number"}, {"description", "Position3D: Z coordinate"}}}
             }}, {"required", {"name", "type"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -85,11 +86,11 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto itemErr = validateFields(item, {"name", "type", "value", "panDegrees", "tiltDegrees", "rgb", "wauv"});
+                auto itemErr = validateFields(item, {"name", "type", "value", "value2", "panDegrees", "tiltDegrees", "rgb", "wauv", "x", "y", "z"});
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
 
                 static const Json kEnums = {
-                    {"type", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt"}}}}
+                    {"type", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}}}}
                 };
                 itemErr = validateEnums(item, kEnums);
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
@@ -104,7 +105,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 QLCPalette::PaletteType ptype = stringToPaletteType(item.at("type").get<std::string>());
                 if (ptype == QLCPalette::Undefined)
                 {
-                    results.push_back({{"error", "invalid type. Must be: Dimmer, Color, Pan, Tilt, PanTilt"},
+                    results.push_back({{"error", "invalid type. Must be: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom"},
                                        {"name", name.toStdString()}});
                     continue;
                 }
@@ -155,6 +156,28 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                         palette->setValue(QVariant(panDeg), QVariant(tiltDeg));
                     }
                     break;
+                    case QLCPalette::Position3D:
+                    {
+                        double x = item.value("x", 0.0);
+                        double y = item.value("y", 0.0);
+                        double z = item.value("z", 0.0);
+                        palette->setValue(QVariant(x), QVariant(y), QVariant(z));
+                    }
+                    break;
+                    case QLCPalette::Shutter:
+                    {
+                        int preset = item.value("value", 0);
+                        int pct = item.value("value2", 0);
+                        palette->setValue(QVariant(preset), QVariant(pct));
+                    }
+                    break;
+                    case QLCPalette::Gobo:
+                    case QLCPalette::Zoom:
+                    {
+                        int val = item.value("value", 0);
+                        palette->setValue(QVariant(val));
+                    }
+                    break;
                     default:
                         break;
                 }
@@ -176,7 +199,8 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt. "
+        std::string("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt, "
+                     "Position3D (x/y/z), Shutter (preset `value` + `value2` percentage 0-100), Gobo, Zoom (single value). "
                      "Upserts by name+type. Palettes are the building blocks for scenes: create palettes first, then "
                      "reference them in create_scenes via paletteNames/paletteIDs. Batch. "
                      "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),

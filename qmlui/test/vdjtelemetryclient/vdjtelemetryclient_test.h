@@ -13,11 +13,6 @@ class VdjTelemetryClient_Test : public QObject
     Q_OBJECT
 
 private slots:
-    // VdjDeckModel tests
-    void deckModelInitialState();
-    void deckModelSettersAndThrottle();
-    void deckModelReset();
-
     // NDJSON parser tests
     void parseSubscribedDeckTrigger_data();
     void parseSubscribedDeckTrigger();
@@ -42,7 +37,7 @@ private slots:
     void bridgeDeckTriggerRouting();
     void bridgeGlobalTriggerRouting();
     void bridgeBeatSuppressesOS2L();
-    void bridgeClientDisconnectResetsDeckModels();
+    void bridgeClientDisconnectResetsDeckState();
 };
 
 #endif

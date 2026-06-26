@@ -49,7 +49,7 @@ class FixtureEditor;
 class FlowConsole;
 class Tardis;
 class VdjBridge;
-class SongManager;
+class DjManager;
 class QLCIOPlugin;
 class QMouseEvent;
 
@@ -252,7 +252,7 @@ private:
     Tardis *m_tardis;
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
-    SongManager *m_songManager = nullptr;
+    DjManager *m_djManager = nullptr;
 
     /*********************************************************************
      * Doc

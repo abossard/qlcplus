@@ -25,6 +25,7 @@
 #include "track.h"
 #include "scene.h"
 #include "doc.h"
+#include "mastertimer.h"
 #include "showrunner_test.h"
 
 void ShowRunner_Test::initTestCase()
@@ -181,6 +182,81 @@ void ShowRunner_Test::externalSyncBackwardSeek()
     runner.stop();
     m_doc->deleteFunction(scene->id());
     m_doc->deleteFunction(show->id());
+}
+
+void ShowRunner_Test::internalBeatClockUsesSongBpm()
+{
+    // With NO global beat source (MasterTimer defaults to None), a beat-based Show
+    // must still advance, driven by the Show's own BPM. At 120 BPM a beat lasts
+    // 500ms; the MasterTimer tick is 20ms (50Hz), so 1 beat == 25 ticks.
+    QCOMPARE(m_doc->masterTimer()->beatSourceType(), MasterTimer::None);
+
+    Show *show = new Show(m_doc);
+    show->setTempoType(Function::Beats);
+    show->setTimeDivisionBPM(120);
+    m_doc->addFunction(show);
+
+    Scene *scene = new Scene(m_doc);
+    scene->setTempoType(Function::Beats);
+    m_doc->addFunction(scene);
+
+    Track *track = new Track(scene->id());
+    ShowFunction *sf = new ShowFunction(show->getLatestShowFunctionId());
+    sf->setFunctionID(scene->id());
+    sf->setStartTime(1000);   // beat 1 (1000 == 1 beat)
+    sf->setDuration(1000);
+    track->addShowFunction(sf);
+    show->addTrack(track);
+
+    ShowRunner runner(m_doc, show->id());
+    QCOMPARE(runner.m_beatFunctions.count(), 1);
+
+    // 24 ticks => 480ms => 0.96 beat => function at beat 1 NOT yet started
+    for (int i = 0; i < 24; i++)
+        runner.write(m_doc->masterTimer());
+    QVERIFY(runner.m_elapsedBeats < quint32(1000));
+    QCOMPARE(runner.m_runningQueue.count(), 0);
+
+    // 25th tick => 500ms => exactly 1 beat => function starts
+    runner.write(m_doc->masterTimer());
+    QCOMPARE(runner.m_elapsedBeats, quint32(1000));
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+
+    runner.stop();
+    QCOMPARE(runner.m_elapsedBeats, quint32(0));
+    m_doc->deleteFunction(scene->id());
+    m_doc->deleteFunction(show->id());
+}
+
+void ShowRunner_Test::internalBeatClockScalesWithSongBpm()
+{
+    // The internal clock rate is proportional to the Show BPM: after the same
+    // number of ticks, a 120-BPM show has advanced twice as many beats as a
+    // 60-BPM show (so a 60-BPM song played faster/slower scales correctly).
+    QCOMPARE(m_doc->masterTimer()->beatSourceType(), MasterTimer::None);
+
+    auto runBeats = [this](int bpm) -> quint32
+    {
+        Show *show = new Show(m_doc);
+        show->setTempoType(Function::Beats);
+        show->setTimeDivisionBPM(bpm);
+        m_doc->addFunction(show);
+
+        ShowRunner runner(m_doc, show->id());
+        for (int i = 0; i < 25; i++)      // 25 ticks == 500ms
+            runner.write(m_doc->masterTimer());
+        quint32 beats = runner.m_elapsedBeats;
+        runner.stop();
+        m_doc->deleteFunction(show->id());
+        return beats;
+    };
+
+    quint32 beats120 = runBeats(120); // 500ms @120bpm => 1 beat  => 1000
+    quint32 beats60  = runBeats(60);  // 500ms @60bpm  => 0.5 beat => 500
+
+    QCOMPARE(beats120, quint32(1000));
+    QCOMPARE(beats60,  quint32(500));
+    QCOMPARE(beats120, beats60 * 2);
 }
 
 QTEST_APPLESS_MAIN(ShowRunner_Test)

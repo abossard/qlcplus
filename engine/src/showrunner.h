@@ -104,6 +104,11 @@ private:
     /** Elapsed beats since runner start */
     quint32 m_elapsedBeats;
 
+    /** Accumulated milliseconds used to synthesize the beat clock from the
+     *  Show's own BPM when no global beat source is active (so a beat-based
+     *  Show plays at the song BPM instead of freezing). */
+    double m_internalBeatClockMs;
+
     /** Flag used to sinchronize playback to beats */
     bool beatSynced;
 
