@@ -68,3 +68,15 @@ qml_properties_list.txt
 docs/widget-mockup.html
 .copilot-research/
 .*
+
+# Manual review run artifacts (manual-review-canvas extension / tools/manual-review)
+test-reports/
+
+# The `.*` rule above also matches the `.github` directory, which would ignore
+# newly-added project extensions. Re-include this committed canvas extension.
+!.github/
+!.github/extensions/
+!.github/extensions/manual-review-canvas/
+!.github/extensions/manual-review-canvas/**
+!.github/extensions/qlcplus-control/
+!.github/extensions/qlcplus-control/**

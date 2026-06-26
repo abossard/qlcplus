@@ -1,5 +1,11 @@
 # Manual Review Runner
 
+> **Superseded by the Manual Review canvas extension**
+> (`.github/extensions/manual-review-canvas/`). The canvas runs the same
+> checklist inside the Copilot side panel with no web server or `npm install`,
+> writes the same `test-reports/<runId>/` output, and adds agent-callable
+> actions. Prefer the canvas; this runner is kept for reference.
+
 Interactive web-based walkthrough for the QLC+ manual review checklist.
 
 ## Quick Start
