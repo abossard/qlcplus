@@ -632,41 +632,44 @@ Navigate to Virtual Console with VC editing access:
 
 ---
 
-## 13b. VCAnimation — On-Widget Algorithm Parameter Controls
+## 13b. VCAnimation — Preset Controls (upstream-restored)
 
-**Prerequisite:** Load a workspace with an RGBMatrix function assigned to a VCAnimation widget. The RGBMatrix must use a **Script** algorithm that has Range and/or List properties (e.g., "Plasma", "Diamonds", or any custom script with `// Properties` block).
+> **⚠️ Changed by the June 2026 upstream merge.** The fork's previous *on-widget algorithm-parameter* UI (Range SpinBoxes / List dropdowns) was **removed** when we adopted upstream's restored **preset** model (commit `d4b099f3b`). The widget face now shows color-swatch **buttons** + RGB **knobs** + Animation/Text label buttons (`VCAnimationPreset`, `applyPreset`, `presetKnobValue`). The checks below reflect the new behaviour — there are no more algorithm-parameter mini-sliders.
 
-### 13b.1 Parameter display on algorithm change
+**Prerequisite:** Load a workspace with an RGBMatrix function assigned to a VCAnimation widget. Configure at least one of each preset kind via the preset config popup (Color button, Color knob, Animation/Text label).
 
-- ☐ Switch the algorithm in the VCAnimation combo box to a Script with parameters → mini-sliders (Range) and/or dropdowns (List) appear below the algorithm combo
-- ☐ Switch to a non-Script algorithm (e.g., "Full Columns") → parameter controls disappear
-- ☐ Switch back to a Script with different parameters → controls update to match the new algorithm's properties
+### 13b.1 Presets render on the widget face
 
-### 13b.2 Range parameter interaction
+- ☐ Configured color-swatch buttons appear (square swatches in their channel color)
+- ☐ Configured RGB knobs (Color1–5 Knob) appear and are tinted to their channel color
+- ☐ Animation / Text label presets appear as wider labelled buttons
+- ☐ Unconfigured / empty preset list → presets area is hidden, fader + algorithm combo still shown
 
-- ☐ Adjust a Range parameter SpinBox on the widget face → DMX output changes (verify via Simple Desk or universe monitor)
-- ☐ SpinBox respects min/max bounds from the script property definition
+### 13b.2 Color button / Animation / Text presets
 
-### 13b.3 List parameter interaction
+- ☐ Click a color preset button → the matrix color updates (verify via lighting output or Simple Desk)
+- ☐ Click an Animation preset → the matrix switches to that script algorithm
+- ☐ Click a Text preset → the matrix applies the configured text content
+- ☐ The active preset shows a highlighted (white) border
 
-- ☐ Change a List parameter dropdown on the widget face → effect changes visually (verify lighting output)
-- ☐ Dropdown shows all values defined in the script's List property
+### 13b.3 Color knob presets [DMX]
+
+- ☐ Drag a Color knob on the widget face → the corresponding RGB channel intensity changes (verify DMX output)
+- ☐ The knob value reflects the matrix's current color for that channel (re-reads when colors change)
 
 ### 13b.4 MIDI → widget face sync [MIDI]
 
-- ☐ Assign a MIDI controller to a parameter external control in the VCAnimation **properties panel** (External Controls section)
-- ☐ Move the MIDI knob → the corresponding on-widget SpinBox/dropdown updates in real time
-- ☐ MIDI assignment is ONLY available in the properties panel External Controls, NOT on the widget face controls
+- ☐ Assign a MIDI controller to a preset external control in the VCAnimation **properties panel**
+- ☐ Move the MIDI knob → the corresponding on-widget knob/button updates in real time
 
-### 13b.5 Visibility toggle
+### 13b.5 Preset configuration & persistence
 
-- ☐ Open VCAnimation properties → "Visible elements" section → uncheck "Parameters" → parameter controls hide on widget face
-- ☐ Re-check "Parameters" → controls reappear
-- ☐ Save/load workspace → visibility setting persists
+- ☐ Open the preset config popup (PopupAnimationPreset) → add / edit / remove presets
+- ☐ Save then reload the workspace → preset configuration persists (Tardis undo/redo of preset changes works)
 
 ### 13b.6 No regression
 
-- ☐ Fader, caption label, color buttons, and algorithm combo all still work correctly
+- ☐ Fader, caption label, and algorithm combo all still work correctly
 - ☐ Existing MIDI mappings for Intensity and Algorithm are unaffected
 
 ---
@@ -701,6 +704,51 @@ Upstream `db8151f` added a channels-preview toggle and auto-selects newly added 
 
 ---
 
+## 16. Upstream merge — presets / dimmer / audio / stability (June 2026)
+
+**Context:** Merged 15 upstream commits (`d4b099f3b` *restore VC animation presets*, RGBMatrix generic-dimmer + speed-phase fixes, audio `writeAudio` partial-write, threading/SIGSEGV-on-reload fixes, async side panels, Show Manager copy/paste). The conflict resolutions and behavioural changes below need a human eye.
+
+### 16.1 VCAnimation presets swap-in [MEDIUM RISK]
+
+We took upstream's presets and **dropped** the fork's algorithm-parameter UI. Full functional coverage is in **§13b** above — run that section.
+
+### 16.2 RGBMatrix generic single-channel dimmer fade [DMX] [MEDIUM RISK]
+
+Upstream fixed dimmer output for generic dimmers with no master intensity channel; resolution kept our `addEntry` refactor (`VS_GreyOrFull` if a master dimmer exists, else `VS_Grey`).
+
+- ☐ RGBMatrix in Dimmer mode on a fixture WITHOUT a master intensity channel (single dimmer channel) → the channel **fades smoothly** through greyscale, not just 0/255 on/off blink
+- ☐ RGBMatrix on a fixture WITH a master dimmer → master carries the fade, the per-head dimmer just opens fully (unchanged behaviour)
+
+### 16.3 RGBMatrix speed phase preservation [DMX] [LOW RISK]
+
+Upstream "preserve phase when changing RGBMatrix speed at runtime".
+
+- ☐ While an RGBMatrix runs, change its speed → the animation continues from the same phase (no visible jump / restart)
+
+### 16.4 Audio playback smoothness [LOW RISK]
+
+`writeAudio` now writes only what fits in the device buffer (partial writes retried by the base renderer); we kept `qWarning` logging.
+
+- ☐ Play an Audio function → audio is smooth, no stutter / underruns / dropouts (test Qt6 build)
+- ☐ No flood of `[writeAudio] expected to write…` warnings in the `-d` console during normal playback
+
+### 16.5 Show Manager paste badge [LOW RISK]
+
+Paste button counter now reflects **clipboard** contents (was selection count); tooltip keeps our Ctrl+V hint and the `isEditing` paste guard.
+
+- ☐ Copy 2 items in Show Manager → the paste button badge shows the clipboard count (2); hover shows the `Ctrl+V` tooltip
+- ☐ Ctrl+V / paste button only pastes while a show is being edited
+
+### 16.6 Reload / threading / freeze stability smoke [HIGH RISK]
+
+Upstream included "fix threading race conditions causing SIGSEGV on file reload", "NULL checks in `Doc::saveXML`", and "make side panels asynchronous to avoid freezing".
+
+- ☐ Open a workspace, then File → Open another, several times → no crash
+- ☐ Trigger autosave / manual save during playback → no crash
+- ☐ Open Fixture/Function side panels repeatedly while functions run → UI does not freeze
+
+---
+
 ## 14. Sign-off
 
 | Area                          | Tester | Date | Pass / Fail | Notes |
@@ -721,9 +769,11 @@ Upstream `db8151f` added a channels-preview toggle and auto-selects newly added 
 | Beat subdivision (FineFractions) |     |      |             |       |
 | Song Manager — VDJ integration  |        |      |             |       |
 | VDJ beat-synced show playback |        |      |             | Requires live VDJ connection |
-| VCAnimation param controls    |        |      |             | Requires Script algo with Range/List props |
+| VCAnimation presets (upstream-restored) | |      |             | §13b — knob/button presets; algorithm-param UI removed |
 | Upstream 5.3.0 palette merge  |        |      |             | Verify MCP palette tools + new palette types |
 | Upstream 5.3.0 3D view / sequence |    |      |             | 3D marker, lock flag, sequence step auto-select |
+| June 2026 merge — dimmer / audio / paste | |   |             | §16.2–16.5 generic dimmer fade, audio smoothness, paste badge |
+| June 2026 merge — reload / threading stability | | |        | §16.6 SIGSEGV-on-reload, async panels, saveXML NULL checks |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 
