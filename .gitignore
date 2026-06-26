@@ -1,5 +1,4 @@
 # C++ objects and libs
-
 *.slo
 *.lo
 *.o
@@ -15,7 +14,6 @@
 dist/
 
 # Qt-es
-
 .qmake.stash
 .qtc_clangd
 *.pro.user
@@ -80,3 +78,8 @@ test-reports/
 !.github/extensions/manual-review-canvas/**
 !.github/extensions/qlcplus-control/
 !.github/extensions/qlcplus-control/**
+
+# AI and agents
+.codex
+.claude
+.agents

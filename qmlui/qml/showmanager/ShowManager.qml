@@ -329,7 +329,7 @@ Rectangle
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
                 tooltip: ShortcutUtils.withShortcut(qsTr("Paste items in the clipboard at cursor position"), "Ctrl+V")
-                counter: showManager.selectedItemsCount
+                counter: showManager.clipboardItemsCount
                 onClicked: showMgrContainer.requestPasteItems()
             }
 

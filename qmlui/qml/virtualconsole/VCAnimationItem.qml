@@ -31,11 +31,23 @@ VCWidgetItem
 
     clip: true
 
-    WheelEater { anchors.fill: parent; z: 1 }
-
     function colorControlVisible(index)
     {
         return true
+    }
+
+    function presetButtonLabel(presetData)
+    {
+        if (!presetData)
+            return ""
+
+        switch (presetData.typeString)
+        {
+            case "Animation": return presetData.resource
+            case "Text": return presetData.resource
+            // Color/Reset buttons rely on the swatch color, keep them compact
+            default: return ""
+        }
     }
 
     function toggleColorTool(colorTool, button)
@@ -88,7 +100,7 @@ VCWidgetItem
         {
             id: levelFader
             Layout.fillHeight: true
-            Layout.rowSpan: 4
+            Layout.rowSpan: 3
             from: 0
             to: 255
             visible: animationObj ? animationObj.visibilityMask & VCAnimation.Fader : true
@@ -182,78 +194,91 @@ VCWidgetItem
             }
         }
 
-        // Algorithm parameter controls (Range → SpinBox, List → ComboBox)
-        GridLayout
+        Flow
         {
+            id: presetsFlow
             Layout.fillWidth: true
-            columns: 2
-            columnSpacing: 3
-            rowSpacing: 2
-            visible: animationObj ? (animationObj.visibilityMask & VCAnimation.Params) && paramsRepeater.count > 0 : false
+            Layout.columnSpan: itemsLayout.columns
+            spacing: 3
+            visible: animationObj && animationObj.presetsList.length > 0
 
             Repeater
             {
-                id: paramsRepeater
-                model: animationObj ? animationObj.algorithmParameters : []
-
-                delegate: RobotoText
-                {
-                    required property var modelData
-                    required property int index
-                    Layout.row: index
-                    Layout.column: 0
-                    height: UISettings.listItemHeight
-                    fontSize: UISettings.textSizeDefault * 0.9
-                    label: modelData.displayName
-                }
-            }
-
-            Repeater
-            {
-                model: animationObj ? animationObj.algorithmParameters : []
+                id: presetsRepeater
+                model: animationObj ? animationObj.presetsList : null
 
                 delegate: Loader
                 {
                     required property var modelData
-                    required property int index
-                    Layout.row: index
-                    Layout.column: 1
-                    Layout.fillWidth: true
-                    height: UISettings.listItemHeight
-
-                    sourceComponent: modelData.type === "range" ? rangeComponent : listComponent
+                    sourceComponent: modelData.isKnob ? knobPresetComponent : buttonPresetComponent
 
                     onLoaded:
                     {
-                        if (modelData.type === "range")
-                        {
-                            item.propName = modelData.name
-                            item.from = modelData.min
-                            item.to = modelData.max
-                            item.value = modelData.value
-                        }
-                        else
-                        {
-                            item.propName = modelData.name
-                            item.setupModel(modelData.listValues, modelData.value)
-                        }
-                    }
-
-                    Connections
-                    {
-                        target: animationObj
-                        function onParameterValueChanged(name, value)
-                        {
-                            if (name !== modelData.name)
-                                return
-                            if (modelData.type === "range")
-                                item.value = parseInt(value)
-                            else
-                                item.updateCurrentValue(value)
-                        }
+                        item.presetData = modelData
                     }
                 }
             }
+        }
+    }
+
+    Component
+    {
+        id: buttonPresetComponent
+
+        GenericButton
+        {
+            property var presetData
+
+            // color presets are square swatches, label presets (Text/Animation) are wider
+            width: (presetData && presetData.colorIndex >= 0)
+                   ? UISettings.iconSizeDefault : UISettings.iconSizeDefault * 2
+            height: UISettings.iconSizeDefault
+            label: presetData ? animationRoot.presetButtonLabel(presetData) : ""
+            bgColor: (presetData && presetData.colorIndex >= 0 && presetData.color)
+                     ? presetData.color : UISettings.bgControl
+            border.color: (presetData && presetData.active) ? "white" : UISettings.bgLight
+            border.width: (presetData && presetData.active) ? 2 : 1
+
+            onClicked:
+            {
+                if (animationObj && presetData)
+                    animationObj.applyPreset(presetData.id)
+            }
+        }
+    }
+
+    Component
+    {
+        id: knobPresetComponent
+
+        QLCPlusKnob
+        {
+            id: knobControl
+            property var presetData
+
+            width: UISettings.iconSizeDefault
+            height: width
+            from: 0
+            to: 255
+            // R/G/B knobs are tinted with their channel color
+            knobColor: (presetData && presetData.color) ? presetData.color : "#808080"
+            levelColor: (presetData && presetData.color) ? presetData.color : "#00FF00"
+            // re-read whenever the matrix colors change (referencing colors makes
+            // the binding reactive even though the value comes from a method)
+            value: (animationObj && presetData && animationObj.colors)
+                   ? animationObj.presetKnobValue(presetData.id) : 0
+
+            onMoved:
+            {
+                if (animationObj && presetData)
+                    animationObj.setPresetKnobValue(presetData.id, value)
+            }
+
+            // tooltip indicating the RGB channel this knob controls
+            ToolTip.text: knobControl.presetData ? knobControl.presetData.tooltip : ""
+            ToolTip.delay: 1000
+            ToolTip.timeout: 5000
+            ToolTip.visible: knobControl.hovered && ToolTip.text
         }
     }
 
@@ -282,64 +307,5 @@ VCWidgetItem
                 }
             }
         ]
-    }
-
-    Component
-    {
-        id: rangeComponent
-
-        CustomSpinBox
-        {
-            property string propName: ""
-
-            onValueModified:
-            {
-                if (animationObj && propName !== "")
-                    animationObj.setScriptProperty(propName, value)
-            }
-        }
-    }
-
-    Component
-    {
-        id: listComponent
-
-        CustomComboBox
-        {
-            property string propName: ""
-
-            function setupModel(listValues, currentValue)
-            {
-                model = listValues
-                for (var i = 0; i < listValues.length; i++)
-                {
-                    if (listValues[i] === currentValue)
-                    {
-                        currentIndex = i
-                        return
-                    }
-                }
-                currentIndex = 0
-            }
-
-            function updateCurrentValue(newValue)
-            {
-                for (var i = 0; i < model.length; i++)
-                {
-                    if (model[i] === newValue.toString())
-                    {
-                        currentIndex = i
-                        return
-                    }
-                }
-            }
-
-            textRole: ""
-            onActivated: (index) =>
-            {
-                if (animationObj && propName !== "" && model)
-                    animationObj.setScriptProperty(propName, model[index])
-            }
-        }
     }
 }

@@ -72,6 +72,7 @@ set(SRC_FILES
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h
     virtualconsole/vcanimation.cpp virtualconsole/vcanimation.h
+    virtualconsole/vcanimationpreset.cpp virtualconsole/vcanimationpreset.h
     virtualconsole/vcaudiotriggers.cpp virtualconsole/vcaudiotriggers.h
     virtualconsole/audiosparklineitem.cpp virtualconsole/audiosparklineitem.h
     virtualconsole/vcbutton.cpp virtualconsole/vcbutton.h

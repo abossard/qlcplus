@@ -90,6 +90,7 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_stepHandler(new RGBMatrixStep())
     , m_stepsCount(0)
     , m_stepBeatDuration(0)
+    , m_continuousPhase(0.0)
     , m_applyingStyleAttributes(false)
     , m_controlMode(RGBMatrix::ControlModeRgb)
     , m_rotation(0)
@@ -503,6 +504,10 @@ void RGBMatrix::setMapColors(RGBAlgorithm *algorithm)
 void RGBMatrix::setProperty(QString propName, QString value)
 {
     QMutexLocker algoLocker(&m_algorithmMutex);
+
+    // Remember the old step count before changing it (used to scale the step index)
+    int oldStepsCount = m_stepsCount;
+
     m_properties[propName] = value;
     if (m_algorithm != NULL && m_algorithm->type() == RGBAlgorithm::Script)
     {
@@ -510,6 +515,31 @@ void RGBMatrix::setProperty(QString propName, QString value)
         script->setProperty(propName, value);
     }
     m_stepsCount = algorithmStepsCount();
+
+    // Scale currentStepIndex to the new step count to preserve the phase.
+    // We use m_continuousPhase (a continuous 0.0-1.0 value) instead of the discrete
+    // stepIndex to avoid accumulating rounding errors over multiple speed changes.
+    // Analogous to EFXFixture::durationChanged() using m_currentAngle.
+    if (m_stepHandler != NULL && m_stepsCount > 0 && oldStepsCount != m_stepsCount)
+    {
+        // If m_continuousPhase is not up to date yet (first change),
+        // compute it from the current stepIndex
+        if (oldStepsCount > 0)
+        {
+            int currentStepIndex = m_stepHandler->currentStepIndex();
+            m_continuousPhase = double(currentStepIndex) / double(oldStepsCount);
+        }
+
+        // Rescale the phase to the new step count (preserve the continuous phase,
+        // not the discrete index)
+        int newStepIndex = int(round(m_continuousPhase * double(m_stepsCount)));
+        // Make sure it stays within range
+        if (newStepIndex >= m_stepsCount)
+            newStepIndex = m_stepsCount - 1;
+        if (newStepIndex < 0)
+            newStepIndex = 0;
+        m_stepHandler->setCurrentStepIndex(newStepIndex);
+    }
 }
 
 QString RGBMatrix::property(QString propName)
@@ -770,6 +800,10 @@ void RGBMatrix::preRun(MasterTimer *timer)
             // Copy direction from parent class direction
             m_stepHandler->initializeDirection(direction(), m_rgbColors[0], m_rgbColors[1], m_stepsCount, m_runAlgorithm);
 
+            // Update continuous phase when starting playback
+            if (m_stepsCount > 0)
+                m_continuousPhase = double(m_stepHandler->currentStepIndex()) / double(m_stepsCount);
+
             if (m_runAlgorithm->type() == RGBAlgorithm::Script)
             {
                 RGBScript *script = static_cast<RGBScript*> (m_runAlgorithm);
@@ -998,6 +1032,11 @@ bool RGBMatrix::roundCheckLocked()
         stop(FunctionParent::master());
         return false;
     }
+
+    // Update continuous phase based on current step index (prevents cumulative rounding errors)
+    // This is analogous to how EFX uses m_currentAngle for phase scaling
+    if (m_stepsCount > 0)
+        m_continuousPhase = double(m_stepHandler->currentStepIndex()) / double(m_stepsCount);
 
     m_roundTime.restart();
 
@@ -1279,7 +1318,7 @@ void RGBMatrix::rebuildPixelPlan(const FixtureGroup *grp)
                 addEntry(masterDim, VS_Grey);
 
             if (headDim != QLCChannel::invalid() && headDim != masterDim)
-                addEntry(headDim, VS_GreyOrFull);
+                addEntry(headDim, masterDim != QLCChannel::invalid() ? VS_GreyOrFull : VS_Grey);
         }
         else
         {
@@ -1425,9 +1464,18 @@ void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QL
 
 uchar RGBMatrix::rgbToGrey(uint col)
 {
+    uchar r = qRed(col);
+    uchar g = qGreen(col);
+    uchar b = qBlue(col);
+
+    // Special case: if R=G=B (grayscale), return the value directly.
+    // This avoids floating-point precision issues.
+    if (r == g && g == b)
+        return r;
+
     // the weights are taken from
     // https://en.wikipedia.org/wiki/YUV#SDTV_with_BT.601
-    return (0.299 * qRed(col) + 0.587 * qGreen(col) + 0.114 * qBlue(col));
+    return uchar(round(0.299 * r + 0.587 * g + 0.114 * b));
 }
 
 /*********************************************************************

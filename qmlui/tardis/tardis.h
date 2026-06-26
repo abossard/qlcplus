@@ -245,6 +245,7 @@ public:
         VCAnimationSetColor3,
         VCAnimationSetColor4,
         VCAnimationSetColor5,
+        VCAnimationActivatePreset,
 
         /* Network protocol actions */
         NetAnnounce = 0xFF00,
