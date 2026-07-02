@@ -10,6 +10,7 @@ add_executable(${module_name} WIN32
     ../../../plugins/interfaces/qlcioplugin.cpp ../../../plugins/interfaces/qlcioplugin.h
     ../../djfsm.cpp ../../djfsm.h
     ../../showfactory.cpp ../../showfactory.h
+    ../../audiobpmtag.cpp ../../audiobpmtag.h
 )
 
 target_include_directories(${module_name} PRIVATE
