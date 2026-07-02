@@ -749,6 +749,52 @@ Upstream included "fix threading race conditions causing SIGSEGV on file reload"
 
 ---
 
+## 17. Upstream merge — EFX dimmer / XYPad ranges / VC slider catch-up (July 2026)
+
+**Context:** Merged 12 upstream commits (EFX dimmer control + fade, XYPad per-fixture range UI restored, VC slider input catch-up fixes, VC frame page creation, video playback fixes, 3D pan/tilt speed tuning). The XYPad commit landed in the same code the fork's MCP bridge extends — that conflict resolution kept **both** upstream's QML range editor (`headsRangeInfo`/`setHeadsRange`) and the fork's MCP helpers (`setFixtureRange`/`removeHead`), so cross-surface consistency is the main thing to verify.
+
+### 17.1 XYPad range — QML UI ↔ MCP consistency [HIGH RISK]
+
+Both surfaces write the same `XYPadFixture` min/max/reverse fields; the QML editor scales by display mode (%, DMX, degrees), the MCP bridge writes normalized 0.0–1.0 values directly.
+
+- ☐ In the VC XYPad properties, select a head → the restored Pan/Tilt range editor shows values; set a narrower range → the pad output respects it
+- ☐ Switch display mode (% / DMX / degrees) → range values rescale sensibly; in Degrees mode with a mixed selection, the max bound is the smallest range among selected fixtures
+- ☐ Set a range via MCP (widget update with `xyPadConfig` fixture ranges) → reopen the QML range editor → it shows the equivalent values (no unit mismatch)
+- ☐ Set a range in the QML editor → query the widget via MCP → normalized values match
+- ☐ Remove a head via MCP `removeXYPadFixture` → the QML fixture list updates; no stale rows
+
+### 17.2 EFX dimmer control [DMX] [MEDIUM RISK]
+
+New upstream feature: EFX functions can now drive a dimmer level with fade handling.
+
+- ☐ EFX editor shows the new dimmer control; setting it changes fixture intensity while the EFX runs
+- ☐ Dimmer fades in/out smoothly on EFX start/stop (no snap to full / snap to zero)
+- ☐ An EFX with dimmer control does not fight the fork's DJ Expression Intensity slider (HTP behaves — see §7.2 layer separation)
+
+### 17.3 VC slider input catch-up [MIDI] [MEDIUM RISK]
+
+Upstream fixed catch-up when the slider is disabled and on page change. This overlaps the fork's page-dependent input modes (§4B).
+
+- ☐ Slider in catch-up mode: move the MIDI fader while the slider's page is inactive, switch to that page → the slider does not jump until the fader crosses the current value
+- ☐ Same check with the slider disabled, then re-enabled
+- ☐ Re-run §4B.2/§4B.3 (Override/Inherit) with a slider — catch-up and page input modes don't interfere
+
+### 17.4 VC frame pages creation [LOW RISK]
+
+- ☐ Add/remove pages on a multipage frame → widgets land on the expected page, no orphaned widgets
+- ☐ Frame page switching still honours per-page external input modes (§4B) after the change
+
+### 17.5 Video playback fixes [LOW RISK]
+
+- ☐ Show Manager: pause then resume a show containing a Video → playback resumes at the right position, video visible
+- ☐ Windowed video playback: close the window manually while playing → no crash, function state stops cleanly
+
+### 17.6 3D preview pan/tilt speed [LOW RISK]
+
+- ☐ Move pan/tilt (Simple Desk or XYPad) while watching the 3D preview → head reorients noticeably more reactively than before, without overshoot or jitter
+
+---
+
 ## 14. Sign-off
 
 | Area                          | Tester | Date | Pass / Fail | Notes |
@@ -774,6 +820,8 @@ Upstream included "fix threading race conditions causing SIGSEGV on file reload"
 | Upstream 5.3.0 3D view / sequence |    |      |             | 3D marker, lock flag, sequence step auto-select |
 | June 2026 merge — dimmer / audio / paste | |   |             | §16.2–16.5 generic dimmer fade, audio smoothness, paste badge |
 | June 2026 merge — reload / threading stability | | |        | §16.6 SIGSEGV-on-reload, async panels, saveXML NULL checks |
+| July 2026 merge — XYPad ranges (UI ↔ MCP) |    |      |             | §17.1 conflict-resolution area — both surfaces must agree |
+| July 2026 merge — EFX dimmer / slider catch-up / video | | |       | §17.2–17.6 |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 
