@@ -86,6 +86,32 @@ Rectangle
                     font.pixelSize: 13
                 }
 
+                // Perform FSM state: Live (green) / Suspended / Armed (amber).
+                // Hidden when Idle. Makes silent resolution failures visible.
+                Text {
+                    visible: vdjBridge && vdjBridge.performState !== PerformFsm.Idle
+                    text: {
+                        if (!vdjBridge)
+                            return ""
+                        switch (vdjBridge.performState) {
+                        case PerformFsm.Live:
+                            return "PERFORM: Live — " + vdjBridge.performShowName
+                        case PerformFsm.Suspended:
+                            return "PERFORM: Suspended — " + vdjBridge.performShowName
+                        case PerformFsm.Armed:
+                            return "PERFORM: Armed — no show for active deck yet"
+                        default:
+                            return ""
+                        }
+                    }
+                    color: vdjBridge && vdjBridge.performState === PerformFsm.Live
+                           ? "#2ecc71" : "#f1c40f"
+                    font.pixelSize: 13
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 340
+                }
+
                 // Perform toggle
                 Switch {
                     id: performSwitch
@@ -124,6 +150,49 @@ Rectangle
                         font.pixelSize: 12
                         verticalAlignment: Text.AlignVCenter
                         horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+        }
+
+        // ── VirtualDJ database status: resolved path, or a red error banner.
+        //    Beat grids and cue markers (VDJ Beat mode) come from this file. ──
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 24
+            color: djManager && djManager.vdjDatabaseFound ? "#2a2a2a" : "#7a1f1f"
+
+            // re-check when the view is (re)opened
+            Component.onCompleted: if (djManager) djManager.refreshVdjDatabase()
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 8
+
+                Text {
+                    text: djManager && djManager.vdjDatabaseFound
+                          ? "VDJ database: " + djManager.vdjDatabasePath
+                          : "⚠ VirtualDJ database.xml not found — beat grids and cue markers are unavailable"
+                    color: djManager && djManager.vdjDatabaseFound ? "#2ecc71" : "#ffffff"
+                    font.pixelSize: 12
+                    font.bold: djManager ? !djManager.vdjDatabaseFound : false
+                    elide: Text.ElideMiddle
+                    Layout.fillWidth: true
+                }
+
+                // retry after installing/scanning VDJ
+                Text {
+                    visible: djManager ? !djManager.vdjDatabaseFound : false
+                    text: "Retry"
+                    color: "#ffdddd"
+                    font.pixelSize: 12
+                    font.underline: true
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: if (djManager) djManager.refreshVdjDatabase()
                     }
                 }
             }

@@ -44,12 +44,13 @@ Rectangle
         text: trackRef ? trackRef.name : ""
         wrapMode: TextInput.Wrap
         allowDoubleClick: true
+        enabled: !showManager.readOnly
 
         onTextConfirmed:
             function(text)
             {
-                if (trackRef)
-                    trackRef.name = text
+                // routed through ShowManager so the readOnly guard applies
+                showManager.setTrackName(trackRef, text)
             }
     }
 
@@ -73,6 +74,7 @@ Rectangle
         checkedColor: "yellow"
         imgSource: ""
         checkable: true
+        enabled: !showManager.readOnly
         tooltip: qsTr("Solo this track")
         onToggled: showManager.setTrackSolo(trackRef.id, checked)
 
@@ -100,8 +102,10 @@ Rectangle
         checked: trackRef ? trackRef.mute : false
         imgSource: ""
         checkable: true
+        enabled: !showManager.readOnly
         tooltip: qsTr("Mute this track")
-        onToggled: if (trackRef) trackRef.mute = checked
+        // routed through ShowManager so the readOnly guard applies
+        onToggled: showManager.setTrackMute(trackRef, checked)
 
         RobotoText
         {
@@ -125,6 +129,7 @@ Rectangle
         bgColor: "#8191A0"
         faSource: FontAwesome.fa_minus
         faColor: "#3C4A55"
+        enabled: !showManager.readOnly
         tooltip: qsTr("Delete this track")
         onClicked:
         {

@@ -617,6 +617,34 @@ Navigate to Virtual Console with VC editing access:
   - ☐ In Show Manager, select the auto-created Show → it should exist under the `Songs/` folder
   - ☐ The Show's sync source should be `External` (check debug output for `[ShowRunner] Sync source set to External` when playing)
 
+### 12.4b Perform — FSM-driven activation, visibility, read-only [MEDIUM RISK]
+
+> Control flow is a typed state machine (`PerformFsm`: Idle/Armed/Live/Suspended), unit-tested end to end (`performfsm_test` 12 tests, `vdjbridge_test::performAdoptsAndReleasesSyncSource`, `djmanager_test::performResolvesShowAfterWorkspaceReload` + `performShowsActiveShowInShowManager`). This verifies the visible behavior — **run both on a fresh workspace and on a saved+reopened one** (the reload case was broken before).
+
+**Activation & status row**
+- ☐ Enable **Perform** in the DJ Manager → status text appears next to the toggle: `PERFORM: Live — <show>` (green) while VDJ plays, `Suspended — <show>` (amber) when paused, `Armed — no show for active deck yet` (amber) when the song has no show
+- ☐ `-d` console logs each transition: `[PerformFsm] Idle -> Live (show N)` etc., plus `adopted show` / `released show` lines
+- ☐ **Reload case:** save the workspace, quit, reopen, enable Perform, play in VDJ → the show's functions actually fire on the timeline (lighting output changes), cursor follows
+
+**Show Manager follow + read-only**
+- ☐ The active deck's show loads automatically in the Show Manager; the amber **PERFORM — read only** badge shows in the toolbar
+- ☐ Cursor tracks VDJ continuously; pausing VDJ freezes it; a VDJ loop jumps the cursor back each pass and re-fires the looped functions; deck switch swaps the show
+- ☐ While Perform is on: items can't be dragged/resized (handles hidden), toolbar edit + play/stop buttons disabled, Space/Ctrl+Space/Ctrl+V inert, track rename/solo/mute/delete disabled, BPM/timings/insert/cut panel disabled, dragging a function from the Function Manager onto the timeline does nothing
+- ☐ Still allowed read-only: navigation, zoom, selection, copy, opening other shows
+
+**Undo is frozen during Perform** (review fix — Tardis bypassed the guards)
+- ☐ Move an item, enable Perform, press Ctrl+Z and Ctrl+Shift+Z → nothing moves
+- ☐ Disable Perform → Ctrl+Z now undoes the pre-Perform move as usual
+
+**Corrupt database resilience** (review fix — grid painter had no density bound)
+- ☐ Song whose database entry has an implausible Bpm value (< 12 or > 600 BPM equivalent) → VDJ Beat mode shows a plain time ruler (grid rejected), no freeze
+- ☐ Zooming far out on a valid VDJ Beat show → beat lines disappear below ~2 px spacing instead of smearing/stalling the header
+
+**Release semantics**
+- ☐ Perform off → show pauses, badge disappears, everything editable again
+- ☐ After Perform off, pressing Play in the Show Manager plays the show normally (autonomous clock — the adopted External sync source was restored)
+- ☐ Perform off also pauses any *other* still-running external-sync show (stale-session safety net)
+
 ### 12.5 Auto-start / auto-pause [LOW RISK]
 
 > LOW RISK: Core logic is well-covered by unit tests. Manual verification confirms QML UI updates track the bridge state correctly.
@@ -795,6 +823,48 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 
 ---
 
+## 18. VDJ Beat time division (July 2026)
+
+**Context:** New `VDJ Beat` entry in the Show editor's Markers combo. Item positions stay in **milliseconds** (identical storage to Time mode — switching Time ↔ VDJ Beat never moves anything), while the beat grid and POI/cue markers are read **live from VirtualDJ's `database.xml`** (nothing is copied into the workspace). Auto-created VDJ shows default to this mode. Unit coverage: `show_test` (enum/string round-trip), `vdjdatabasereader_test` (10 tests: parsing, seconds-per-beat conversion, anchor POI, cache/mtime refresh).
+
+**Prereq:** A VDJ-analyzed song (present in `~/Library/Application Support/VirtualDJ/database.xml` on macOS, `~/Documents/VirtualDJ/database.xml` on Windows) with a show in QLC+ (auto-created via VDJ, or set the division manually).
+
+### 18.1 Grid accuracy [HIGH RISK]
+
+- ☐ Open the show in Show Manager with VDJ Beat selected → beat lines appear over the timeline header, first beat NOT necessarily at 0:00 (phase anchor from VDJ)
+- ☐ Zoom in on the audio waveform → beat lines land on the audible/visible transients through the WHOLE song (no drift at the end — fractional BPM honored)
+- ☐ Every 4th beat from the anchor renders taller (downbeat)
+- ☐ Compare a few beat positions against VDJ's own grid view → identical
+
+### 18.2 POI markers (read-only)
+
+- ☐ VDJ cue points appear as orange flag markers with their names in the header
+- ☐ Markers cannot be moved/edited from QLC+ (display only)
+- ☐ Loop/remix POIs appear too (same styling)
+
+### 18.3 Snapping
+
+- ☐ With grid enabled, dragging an item snaps its start to the nearest VDJ beat (anchor phase respected, not multiples of 0)
+- ☐ Resizing via left/right handles snaps edges to the grid
+- ☐ Snapped item start times are exact beat times in ms (check via Timings panel)
+
+### 18.4 Database status in DJ Song View
+
+- ☐ Open the DJ Manager view → a slim status row under the top bar shows `VDJ database: <full path>` in green (macOS: `~/Library/Application Support/VirtualDJ/database.xml`)
+- ☐ Rename/move the database temporarily, reopen the DJ view → a **red banner** appears: "VirtualDJ database.xml not found — beat grids and cue markers are unavailable", with a working **Retry** link
+- ☐ Restore the file, click Retry → banner turns back into the green path row
+- ☐ Optional: set a custom path via QSettings key `virtualdj/databasePath` → it wins over the standard locations; an invalid override falls through to the standard locations
+
+### 18.5 Mode behaviour
+
+- ☐ Switching Time ↔ VDJ Beat does not move any item (same ms storage); switching to BPM 4/4 keeps the old beat-unit reinterpretation behaviour
+- ☐ Song missing from database.xml → falls back gracefully: plain time ruler, `no VDJ grid data` debug line, no crash
+- ☐ Save + reload → division persists as `VDJBeat` in the `.qxw`; grid reappears (re-read from database.xml)
+- ☐ Re-analyze/move a cue in VDJ, save its database, reopen the show in QLC+ → updated markers appear (mtime-based cache refresh)
+- ☐ Playback with Perform/external sync: cursor and functions fire at the same ms positions regardless of division mode
+
+---
+
 ## 14. Sign-off
 
 | Area                          | Tester | Date | Pass / Fail | Notes |
@@ -822,6 +892,7 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 | June 2026 merge — reload / threading stability | | |        | §16.6 SIGSEGV-on-reload, async panels, saveXML NULL checks |
 | July 2026 merge — XYPad ranges (UI ↔ MCP) |    |      |             | §17.1 conflict-resolution area — both surfaces must agree |
 | July 2026 merge — EFX dimmer / slider catch-up / video | | |       | §17.2–17.6 |
+| VDJ Beat time division          |        |      |             | §18 — grid accuracy, POI markers, snapping |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 

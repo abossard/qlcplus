@@ -25,6 +25,7 @@
 
 #include "previewcontext.h"
 #include "show.h"
+#include "vdjdatabasereader.h"
 
 class Doc;
 class Track;
@@ -46,6 +47,7 @@ class ShowManager final : public PreviewContext
 
     Q_PROPERTY(int currentShowID READ currentShowID WRITE setCurrentShowID NOTIFY currentShowIDChanged)
     Q_PROPERTY(bool isEditing READ isEditing NOTIFY isEditingChanged)
+    Q_PROPERTY(bool readOnly READ readOnly NOTIFY readOnlyChanged)
     Q_PROPERTY(QString showName READ showName WRITE setShowName NOTIFY showNameChanged)
     Q_PROPERTY(QColor itemsColor READ itemsColor WRITE setItemsColor NOTIFY itemsColorChanged)
 
@@ -57,7 +59,12 @@ class ShowManager final : public PreviewContext
     Q_PROPERTY(int showDuration READ showDuration NOTIFY showDurationChanged)
 
     Q_PROPERTY(Show::TimeDivision timeDivision READ timeDivision WRITE setTimeDivision NOTIFY timeDivisionChanged)
+    Q_PROPERTY(bool timeBasedDivision READ timeBasedDivision NOTIFY timeDivisionChanged)
     Q_PROPERTY(int beatsDivision READ beatsDivision NOTIFY beatsDivisionChanged)
+    Q_PROPERTY(bool vdjGridValid READ vdjGridValid NOTIFY vdjGridChanged)
+    Q_PROPERTY(double vdjBeatPeriodMs READ vdjBeatPeriodMs NOTIFY vdjGridChanged)
+    Q_PROPERTY(double vdjGridAnchorMs READ vdjGridAnchorMs NOTIFY vdjGridChanged)
+    Q_PROPERTY(QVariantList vdjPois READ vdjPois NOTIFY vdjGridChanged)
     Q_PROPERTY(int bpmNumber READ bpmNumber WRITE setBpmNumber NOTIFY bpmNumberChanged)
     Q_PROPERTY(float timeScale READ timeScale WRITE setTimeScale NOTIFY timeScaleChanged)
     Q_PROPERTY(float tickSize READ tickSize NOTIFY tickSizeChanged)
@@ -82,6 +89,13 @@ public:
 
     /** Flag to indicate if a Show is currently being edited */
     bool isEditing() const;
+
+    /** Read-only mode (VDJ Perform): viewing/navigation stays available,
+     *  every mutation and manual transport is blocked. Written from a single
+     *  place — the PerformFsm state wiring in App. Enforced here in C++;
+     *  the QML gates are affordance mirrors, not the enforcement. */
+    bool readOnly() const;
+    void setReadOnly(bool readOnly);
 
     /** Set the ID of the Show Function to edit */
     void setCurrentShowID(int currentShowID);
@@ -133,6 +147,7 @@ public:
 signals:
     void currentShowIDChanged(int currentShowID);
     void isEditingChanged();
+    void readOnlyChanged();
     void showNameChanged(QString showName);
     void stretchFunctionsChanged(bool stretchFunction);
     void gridEnabledChanged(bool gridEnabled);
@@ -162,6 +177,9 @@ private:
      *  snapped to the closest grid divisor */
     bool m_gridEnabled;
 
+    /** Read-only mode (VDJ Perform) — blocks all mutations */
+    bool m_readOnly = false;
+
     /** X position of the snap guide line (-1 = hidden) */
     double m_snapGuideX;
 
@@ -173,6 +191,18 @@ public:
     Show::TimeDivision timeDivision() const;
     void setTimeDivision(Show::TimeDivision division);
     int beatsDivision() const;
+
+    /** True when item positions are stored in milliseconds (Time, VDJBeat),
+     *  false for the beat-unit BPM modes (1000 == 1 beat) */
+    bool timeBasedDivision() const;
+
+    /** VDJBeat mode: beat grid and read-only POI markers of the current
+     *  show's audio file, read live from the VirtualDJ database.xml.
+     *  Nothing is copied into QLC+ data structures. */
+    bool vdjGridValid() const;
+    double vdjBeatPeriodMs() const;
+    double vdjGridAnchorMs() const;
+    QVariantList vdjPois() const;
 
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
      *  This is the SONG tempo (beats<->time conversion for authoring), distinct
@@ -194,12 +224,23 @@ public:
 signals:
     void timeDivisionChanged(Show::TimeDivision division);
     void beatsDivisionChanged(int beatsDivision);
+    void vdjGridChanged();
     void bpmNumberChanged(int bpmNumber);
     void timeScaleChanged(float timeScale);
     void tickSizeChanged(float tickSize);
     void currentTimeChanged(int currentTime);
 
 private:
+    /** Refresh the VDJ grid data for the current show (VDJBeat mode) */
+    void updateVdjGrid();
+
+    /** Lazily-populated VirtualDJ database access (VDJBeat mode) */
+    VdjDatabaseReader m_vdjReader;
+
+    /** Grid + markers of the current show's audio file ('valid' false
+     *  when not in VDJBeat mode or the song is not in the database) */
+    VdjDatabaseReader::SongGrid m_vdjGrid;
+
     /** The current time scale of the Show Manager timeline */
     float m_timeScale;
 
@@ -226,6 +267,11 @@ public:
     void setSelectedTrackId(int id);
 
     Q_INVOKABLE void setTrackSolo(int index, bool solo);
+
+    /** Guarded track mutations (QML must not write Track properties
+     *  directly — direct writes would bypass the readOnly enforcement) */
+    Q_INVOKABLE void setTrackName(Track *track, QString name);
+    Q_INVOKABLE void setTrackMute(Track *track, bool mute);
 
     /** Move the track with the provided index in the provided direction */
     Q_INVOKABLE void moveTrack(int index, int direction);
@@ -356,6 +402,7 @@ public:
 protected slots:
     void slotTimeChanged(quint32 msec_time);
     void slotShowFinished();
+    void slotShowStarted();
     void slotShowStopped();
 
 private:

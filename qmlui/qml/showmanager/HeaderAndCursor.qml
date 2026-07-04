@@ -40,6 +40,8 @@ Rectangle
     property real tickSize: showManager.tickSize
     property int currentTime: showManager.currentTime
     property int timeDivision: showManager.timeDivision
+    // ms-stored divisions (Time, VDJ Beat) share the same pixel<->time mapping
+    property bool msMode: showManager.timeBasedDivision
     property int bpmNumber: showManager.bpmNumber
     property int beatsDivision: showManager.beatsDivision
     property bool showTimeMarkers: true
@@ -76,11 +78,18 @@ Rectangle
 
     onTimeDivisionChanged: timeHeader.requestPaint()
 
+    // repaint when VDJ grid/POI data (re)loads in VDJ Beat mode
+    Connections
+    {
+        target: showManager
+        function onVdjGridChanged() { timeHeader.requestPaint() }
+    }
+
     onCurrentTimeChanged:
     {
         if (cursorHeight)
         {
-            if (timeDivision === Show.Time)
+            if (msMode)
                 cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
             else
                 cursor.x = TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
@@ -89,7 +98,7 @@ Rectangle
 
     onDurationChanged:
     {
-        width = parseInt(timeDivision === Show.Time
+        width = parseInt(msMode
                 ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
                 : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
         //console.log("New header width: " + width)
@@ -99,12 +108,12 @@ Rectangle
     {
         if (cursorHeight)
         {
-            if (timeDivision === Show.Time)
+            if (msMode)
                 cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
             else
                 cursor.x = TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
         }
-        width = parseInt(timeDivision === Show.Time
+        width = parseInt(msMode
                 ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
                 : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
         timeHeader.requestPaint()
@@ -200,7 +209,7 @@ Rectangle
 
                     if (showTimeMarkers)
                     {
-                        if (timeDivision === Show.Time)
+                        if (msMode)
                             context.fillText(TimeUtils.msToString(msTime), xPos + 3, height - fontSize)
                         else
                             context.fillText(barNumber, xPos + 3, height - fontSize)
@@ -214,6 +223,83 @@ Rectangle
             }
             context.closePath()
             context.stroke()
+
+            // VDJ Beat mode: overlay the song's beat grid and POI markers,
+            // read live from the VirtualDJ database (read-only)
+            if (timeDivision === Show.VDJBeat && showManager.vdjGridValid)
+                paintVdjOverlay(context, fontSize)
+        }
+
+        // paint beat lines (anchor phase + fractional period) and POI flags.
+        // Canvas coordinates: global px minus the canvas item x offset.
+        function paintVdjOverlay(context, fontSize)
+        {
+            var periodMs = showManager.vdjBeatPeriodMs
+            var anchorMs = showManager.vdjGridAnchorMs
+            if (periodMs <= 0)
+                return
+
+            // visible time range of this canvas chunk
+            var msPerPx = (timeScale * 1000.0) / tickSize
+            var tStart = Math.max(0, x * msPerPx)
+            var tEnd = (x + width) * msPerPx
+
+            // skip beat lines denser than 2 px: unreadable anyway, and the
+            // density check bounds the loop to width/2 iterations even for
+            // a corrupt database period
+            var periodPx = periodMs / msPerPx
+            if (periodPx >= 2)
+            {
+                var beatIdx = Math.ceil((tStart - anchorMs) / periodMs)
+                var firstVisibleBeat = Math.max(beatIdx, Math.ceil(-anchorMs / periodMs))
+
+                context.beginPath()
+                context.strokeStyle = UISettings.selection
+
+                for (var b = firstVisibleBeat; ; b++)
+                {
+                    var tMs = anchorMs + (b * periodMs)
+                    if (tMs > tEnd)
+                        break
+
+                    var bx = (tMs / msPerPx) - x
+                    // downbeat (every 4th from the anchor) gets a taller line
+                    var top = (b % 4 === 0) ? height * 0.4 : height * 0.75
+                    context.moveTo(bx, top)
+                    context.lineTo(bx, height)
+                }
+                context.stroke()
+            }
+
+            // POI markers: flag + name, read-only. Cues use their VDJ color;
+            // structural markers (automix/remix/...) render dimmer.
+            var pois = showManager.vdjPois
+
+            for (var p = 0; p < pois.length; p++)
+            {
+                var pMs = pois[p].timeMs
+                if (pMs < tStart || pMs > tEnd)
+                    continue
+
+                var pColor = pois[p].color ? pois[p].color
+                           : (pois[p].type === "cue" ? "orange" : "#808080")
+
+                context.beginPath()
+                context.strokeStyle = pColor
+                context.fillStyle = pColor
+
+                var px = (pMs / msPerPx) - x
+                context.moveTo(px, 0)
+                context.lineTo(px, height)
+                // small flag triangle at the top
+                context.moveTo(px, 0)
+                context.lineTo(px + 6, 3)
+                context.lineTo(px, 6)
+                context.stroke()
+
+                if (showTimeMarkers && pois[p].name)
+                    context.fillText(pois[p].name, px + 8, fontSize)
+            }
         }
     }
 

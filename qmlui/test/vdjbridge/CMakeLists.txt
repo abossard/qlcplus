@@ -3,6 +3,7 @@ set(module_name "vdjbridge_test")
 add_executable(${module_name} WIN32
     ${module_name}.cpp ${module_name}.h
     ../../vdjbridge.cpp ../../vdjbridge.h
+    ../../performfsm.cpp ../../performfsm.h
     ../../../plugins/vdjbridge/configurevdjbridge.cpp ../../../plugins/vdjbridge/configurevdjbridge.h
     ../../../plugins/vdjbridge/vdjbridgeplugin.cpp ../../../plugins/vdjbridge/vdjbridgeplugin.h
     ../../../plugins/vdjbridge/vdjtelemetryclient.cpp ../../../plugins/vdjbridge/vdjtelemetryclient.h

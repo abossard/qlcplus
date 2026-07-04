@@ -230,6 +230,64 @@ void VdjBridge_Test::autoStartPauseResumeCycle()
     QVERIFY(!f.show->isPaused());
 }
 
+// --- Perform adopts the show's sync source and restores it on release.
+//     This covers the reloaded-workspace case: shows are Autonomous after a
+//     load (sync source is not persisted), and manual playback must keep
+//     working once Perform is off. ---
+
+void VdjBridge_Test::performAdoptsAndReleasesSyncSource()
+{
+    Doc *doc = new Doc(nullptr, 4);
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+
+    // a plain show as it comes out of a workspace load: Autonomous sync
+    Show *show = new Show(doc);
+    show->setName("Adopt Me");
+    doc->addFunction(show);
+    Scene *scene = new Scene(doc);
+    doc->addFunction(scene);
+    Track *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    ShowFunction *sf = track->createShowFunction(scene->id());
+    sf->setStartTime(0);
+    sf->setDuration(300000);
+    QCOMPARE(show->syncSource(), 0); // Autonomous
+
+    // mapping restored (as DjManager does after rebuildFromDoc)
+    bridge.showFactory()->registerMapping("/music/adopt.mp3", show->id());
+
+    auto deckTrigger = [&bridge](const QString &t, const QVariant &v) {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+            Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+    };
+    deckTrigger("get_filepath", QVariant("/music/adopt.mp3"));
+    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+
+    doc->masterTimer()->start();
+
+    // enabling Perform adopts the show: External sync while performing
+    bridge.setPerformMode(true);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Suspended);
+    QCOMPARE(show->syncSource(), 1);
+
+    deckTrigger("play", QVariant("on"));
+    QTest::qWait(50);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Live);
+    QVERIFY(show->isRunning());
+
+    // Perform off: released — paused and the original sync source restored,
+    // so manual playback advances normally again
+    bridge.setPerformMode(false);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Idle);
+    QVERIFY(show->isPaused());
+    QCOMPARE(show->syncSource(), 0);
+
+    doc->masterTimer()->stop();
+    delete doc;
+}
+
 void VdjBridge_Test::debugTableTracksLatestValuesAndCounts()
 {
     VdjBridgePlugin plugin;

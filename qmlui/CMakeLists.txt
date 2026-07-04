@@ -64,6 +64,8 @@ set(SRC_FILES
     treemodelitem.cpp treemodelitem.h
     uimanager.cpp uimanager.h
     vdjbridge.cpp vdjbridge.h
+    vdjdatabasereader.cpp vdjdatabasereader.h
+    performfsm.cpp performfsm.h
     djfsm.cpp djfsm.h
     showfactory.cpp showfactory.h
     audiobpmtag.cpp audiobpmtag.h

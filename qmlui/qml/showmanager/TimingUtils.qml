@@ -47,7 +47,7 @@ Rectangle
     property bool hasSelection: selectedItems.length > 0
     property bool hasSingleSelection: selectedItems.length === 1
     property bool hasMultipleSelection: selectedItems.length > 1
-    property int tempoType: showManager.timeDivision === Show.Time ? QLCFunction.Time : QLCFunction.Beats
+    property int tempoType: showManager.timeBasedDivision ? QLCFunction.Time : QLCFunction.Beats
 
     function refreshSelection()
     {
@@ -59,7 +59,7 @@ Rectangle
 
     function cursorValue()
     {
-        if (showManager.timeDivision === Show.Time)
+        if (showManager.timeBasedDivision)
             return showManager.currentTime
 
         var bpm = showManager.bpmNumber
@@ -71,7 +71,7 @@ Rectangle
 
     function minDurationValue()
     {
-        return showManager.timeDivision === Show.Time ? 1 : 125
+        return showManager.timeBasedDivision ? 1 : 125
     }
 
     function timeLabelForValue(value)
@@ -430,6 +430,7 @@ Rectangle
                         from: 0
                         to: 999
                         value: showManager.bpmNumber
+                        enabled: !showManager.readOnly
                         // The show tempo used to draw the beat grid (song BPM),
                         // independent of the global playback BPM. Set to 0 to
                         // disable beat markers.
@@ -450,7 +451,7 @@ Rectangle
                     GenericButton
                     {
                         width: parent.width
-                        enabled: hasSelection
+                        enabled: hasSelection && !showManager.readOnly
                         label: qsTr("Align start to cursor")
                         onClicked: alignStartToCursor()
                     }
@@ -458,7 +459,7 @@ Rectangle
                     GenericButton
                     {
                         width: parent.width
-                        enabled: hasSelection
+                        enabled: hasSelection && !showManager.readOnly
                         label: qsTr("Align end to cursor")
                         onClicked: alignEndToCursor()
                     }
@@ -512,7 +513,7 @@ Rectangle
                             id: startTimeButton
                             Layout.fillWidth: true
                             opacity: activeField === fieldStart ? 0 : 1
-                            enabled: hasSelection && activeField !== fieldStart
+                            enabled: hasSelection && activeField !== fieldStart && !showManager.readOnly
                             bgColor: UISettings.bgMedium
                             hoverColor: UISettings.fgLight
                             label: timeLabelForValue(selectedItem ? selectedItem.startTime : 0)
@@ -529,7 +530,7 @@ Rectangle
                             id: endTimeButton
                             Layout.fillWidth: true
                             opacity: activeField === fieldEnd ? 0 : 1
-                            enabled: hasSelection && activeField !== fieldEnd
+                            enabled: hasSelection && activeField !== fieldEnd && !showManager.readOnly
                             bgColor: UISettings.bgMedium
                             hoverColor: UISettings.fgLight
                             label: timeLabelForValue(selectedItem ? (selectedItem.startTime + selectedItem.duration) : 0)
@@ -546,7 +547,7 @@ Rectangle
                             id: durationButton
                             Layout.fillWidth: true
                             opacity: activeField === fieldDuration ? 0 : 1
-                            enabled: hasSelection && activeField !== fieldDuration
+                            enabled: hasSelection && activeField !== fieldDuration && !showManager.readOnly
                             bgColor: UISettings.bgMedium
                             hoverColor: UISettings.fgLight
                             label: timeLabelForValue(selectedItem ? selectedItem.duration : 0)
@@ -605,7 +606,7 @@ Rectangle
                         anchors.topMargin: 5
                         width: parent.width
                         height: UISettings.iconSizeDefault
-                        enabled: showManager.isEditing
+                        enabled: showManager.isEditing && !showManager.readOnly
                         label: qsTr("Insert time")
                         onClicked: insertTime()
                     }
@@ -617,7 +618,7 @@ Rectangle
                         anchors.topMargin: 5
                         width: parent.width
                         height: UISettings.iconSizeDefault
-                        enabled: showManager.isEditing
+                        enabled: showManager.isEditing && !showManager.readOnly
                         label: qsTr("Cut time")
                         onClicked: cutTime()
                     }

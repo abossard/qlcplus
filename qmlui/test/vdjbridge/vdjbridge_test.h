@@ -19,6 +19,7 @@ private slots:
     void autoPauseShowOnPlayOff();
     void autoResumeShowOnPlayOn();
     void autoStartPauseResumeCycle();
+    void performAdoptsAndReleasesSyncSource();
     void debugTableTracksLatestValuesAndCounts();
     void engineBpmFollowsVdjAndIgnoresJitter();
     void engineBpmDropsLowWhenPaused();

@@ -158,6 +158,12 @@ void Tardis::endBatch()
 
 void Tardis::undoAction()
 {
+    // VDJ Perform mode: the Show Manager is read-only and history replay
+    // mutates shows directly (bypassing the ShowManager guards), so history
+    // navigation is frozen entirely while Perform is engaged.
+    if (m_showManager && m_showManager->readOnly())
+        return;
+
     if (m_historyIndex == -1 || m_history.isEmpty())
         return;
 
@@ -192,6 +198,10 @@ void Tardis::undoAction()
 
 void Tardis::redoAction()
 {
+    // see undoAction(): history replay is frozen while Perform is engaged
+    if (m_showManager && m_showManager->readOnly())
+        return;
+
     if (m_history.isEmpty() || m_historyIndex == m_history.count() - 1)
         return;
 

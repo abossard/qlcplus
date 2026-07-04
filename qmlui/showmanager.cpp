@@ -24,6 +24,7 @@
 
 #include "waveformimageprovider.h"
 #include "showmanager.h"
+#include "audio.h"
 #include "sequence.h"
 #include "tardis.h"
 #include "chaser.h"
@@ -95,6 +96,20 @@ bool ShowManager::isEditing() const
     return m_currentShow == nullptr ? false : true;
 }
 
+bool ShowManager::readOnly() const
+{
+    return m_readOnly;
+}
+
+void ShowManager::setReadOnly(bool readOnly)
+{
+    if (m_readOnly == readOnly)
+        return;
+
+    m_readOnly = readOnly;
+    emit readOnlyChanged();
+}
+
 void ShowManager::setCurrentShowID(int currentShowID)
 {
     if (m_currentShow != nullptr)
@@ -103,6 +118,7 @@ void ShowManager::setCurrentShowID(int currentShowID)
             return;
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
+        disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
     }
 
@@ -115,6 +131,8 @@ void ShowManager::setCurrentShowID(int currentShowID)
     {
         connect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
         connect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
+        // playback may be started externally (VDJ Perform mode): track it
+        connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
         emit showDurationChanged(m_currentShow->totalDuration());
         emit showNameChanged(m_currentShow->name());
@@ -127,6 +145,7 @@ void ShowManager::setCurrentShowID(int currentShowID)
         emit bpmNumberChanged(0);
     }
     emit tracksChanged();
+    updateVdjGrid();
     setPlaybackState(m_currentShow != nullptr ? m_currentShow->isRunning() : false,
                      m_currentShow != nullptr ? m_currentShow->isPaused() : false);
 }
@@ -141,6 +160,9 @@ QString ShowManager::showName() const
 
 void ShowManager::setShowName(QString showName)
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow == nullptr || m_currentShow->name() == showName)
         return;
 
@@ -212,7 +234,7 @@ QVariantList ShowManager::getSnapEdges(quint32 excludeFuncId,
             double startX, endX;
             quint32 endTime = sf->startTime() + sf->duration();
 
-            if (timeDivision() == Show::Time)
+            if (Show::isTimeBasedDivision(timeDivision()))
             {
                 startX = ((double)sf->startTime() * m_tickSize) / (m_timeScale * 1000.0);
                 endX = ((double)endTime * m_tickSize) / (m_timeScale * 1000.0);
@@ -252,6 +274,9 @@ Show::TimeDivision ShowManager::timeDivision() const
 
 void ShowManager::setTimeDivision(Show::TimeDivision division)
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow == nullptr)
         return;
 
@@ -260,19 +285,21 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
         return;
 
     // remember the zoom level of the mode we are leaving so switching back restores it
-    if (current == Show::Time)
+    if (Show::isTimeBasedDivision(current))
         m_timeScaleTime = m_timeScale;
     else
         m_timeScaleBeats = m_timeScale;
 
     // switch the division first so setTimeScale recomputes tickSize for the new mode
     m_currentShow->setTimeDivisionType(division);
-    m_currentShow->setTempoType(division == Show::Time ? Function::Time : Function::Beats);
+    m_currentShow->setTempoType(Show::isTimeBasedDivision(division) ? Function::Time : Function::Beats);
 
     // invalidate m_timeScale so setTimeScale always recomputes tickSize,
     // even when the restored zoom equals the current value
     m_timeScale = -1.0f;
-    setTimeScale(division == Show::Time ? m_timeScaleTime : m_timeScaleBeats);
+    setTimeScale(Show::isTimeBasedDivision(division) ? m_timeScaleTime : m_timeScaleBeats);
+
+    updateVdjGrid();
 
     // emit beatsDivision BEFORE timeDivision: ShowItem recomputes its geometry on
     // timeDivisionChanged, and beatsToSize() divides by beatsDivision, so the new
@@ -300,6 +327,9 @@ int ShowManager::bpmNumber() const
 
 void ShowManager::setBpmNumber(int bpmNumber)
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow == nullptr)
         return;
 
@@ -313,9 +343,81 @@ void ShowManager::setBpmNumber(int bpmNumber)
     m_doc->setModified();
     emit bpmNumberChanged(bpmNumber);
 
-    // a beat grid cannot be drawn without a tempo: fall back to Time markers
-    if (bpmNumber <= 0 && timeDivision() != Show::Time)
+    // a beat grid cannot be drawn without a tempo: fall back to Time markers.
+    // VDJBeat is exempt: its grid comes from the VirtualDJ database, not the BPM.
+    if (bpmNumber <= 0 && !Show::isTimeBasedDivision(timeDivision()))
         setTimeDivision(Show::Time);
+}
+
+bool ShowManager::timeBasedDivision() const
+{
+    return Show::isTimeBasedDivision(timeDivision());
+}
+
+bool ShowManager::vdjGridValid() const
+{
+    return m_vdjGrid.valid;
+}
+
+double ShowManager::vdjBeatPeriodMs() const
+{
+    return m_vdjGrid.beatPeriodMs;
+}
+
+double ShowManager::vdjGridAnchorMs() const
+{
+    return m_vdjGrid.anchorMs;
+}
+
+QVariantList ShowManager::vdjPois() const
+{
+    QVariantList list;
+    for (const VdjDatabaseReader::Poi &poi : m_vdjGrid.pois)
+    {
+        QVariantMap map;
+        map.insert(QStringLiteral("name"), poi.name);
+        map.insert(QStringLiteral("timeMs"), poi.posMs);
+        map.insert(QStringLiteral("type"), poi.type);
+        map.insert(QStringLiteral("num"), poi.num);
+        map.insert(QStringLiteral("color"), poi.color);
+        list.append(map);
+    }
+    return list;
+}
+
+void ShowManager::updateVdjGrid()
+{
+    VdjDatabaseReader::SongGrid grid;
+
+    if (m_currentShow != nullptr && m_currentShow->timeDivisionType() == Show::VDJBeat)
+    {
+        // find the first Audio function on the timeline: its source file
+        // is the key into the VirtualDJ database
+        for (Track *track : m_currentShow->tracks())
+        {
+            for (ShowFunction *sf : track->showFunctions())
+            {
+                Function *func = m_doc->function(sf->functionID());
+                if (func == nullptr || func->type() != Function::AudioType)
+                    continue;
+
+                Audio *audio = qobject_cast<Audio *>(func);
+                if (audio == nullptr)
+                    continue;
+
+                grid = m_vdjReader.lookup(audio->getSourceFileName());
+                if (grid.valid == false)
+                    qDebug() << "[ShowManager] no VDJ grid data for"
+                             << audio->getSourceFileName();
+                break;
+            }
+            if (grid.valid)
+                break;
+        }
+    }
+
+    m_vdjGrid = grid;
+    emit vdjGridChanged();
 }
 
 float ShowManager::timeScale() const
@@ -329,7 +431,7 @@ void ShowManager::setTimeScale(float timeScale)
         return;
 
     m_timeScale = timeScale;
-    float tickScale = timeDivision() == Show::Time ? 1.0 : timeScale;
+    float tickScale = Show::isTimeBasedDivision(timeDivision()) ? 1.0 : timeScale;
 
     if (m_detached)
     {
@@ -396,6 +498,9 @@ void ShowManager::setSelectedTrackId(int id)
 
 void ShowManager::setTrackSolo(int index, bool solo)
 {
+    if (m_readOnly)
+        return;
+
     QList<Track*> tracks = m_currentShow->tracks();
 
     if (index < 0 || index >= tracks.count())
@@ -410,8 +515,28 @@ void ShowManager::setTrackSolo(int index, bool solo)
     }
 }
 
+void ShowManager::setTrackName(Track *track, QString name)
+{
+    if (m_readOnly || track == nullptr || track->name() == name)
+        return;
+
+    track->setName(name);
+    m_doc->setModified();
+}
+
+void ShowManager::setTrackMute(Track *track, bool mute)
+{
+    if (m_readOnly || track == nullptr)
+        return;
+
+    track->setMute(mute);
+}
+
 void ShowManager::moveTrack(int index, int direction)
 {
+    if (m_readOnly)
+        return;
+
     QList<Track*> tracks = m_currentShow->tracks();
 
     if (index < 0 || index >= tracks.count())
@@ -425,6 +550,9 @@ void ShowManager::moveTrack(int index, int direction)
 
 void ShowManager::deleteSelectedTrack()
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow == nullptr)
         return;
 
@@ -457,6 +585,9 @@ void ShowManager::deleteSelectedTrack()
 void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVariantList idsList,
                            ShowFunction *sourceFunc)
 {
+    if (m_readOnly)
+        return;
+
     if (idsList.count() == 0)
         return;
 
@@ -479,6 +610,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
 
         connect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
         connect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
+        connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
         emit currentShowIDChanged(m_currentShow->id());
         emit showNameChanged(m_currentShow->name());
@@ -528,7 +660,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
 
         ShowFunction *showFunc = selectedTrack->createShowFunction(functionID);
 
-        if (timeDivision() == Show::Time)
+        if (Show::isTimeBasedDivision(timeDivision()))
         {
             func->setTempoType(Function::Time);
             showFunc->setDuration(func->totalDuration() ? func->totalDuration() : 5000);
@@ -585,6 +717,9 @@ void ShowManager::addShowItem(ShowFunction *sf, quint32 trackId)
 
 void ShowManager::deleteShowItems(QVariantList data)
 {
+    if (m_readOnly)
+        return;
+
     Q_UNUSED(data);
 
     if (m_currentShow == nullptr)
@@ -635,6 +770,9 @@ void ShowManager::deleteShowItem(ShowFunction *sf)
 
 bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int newTrackIdx, int newStartTime, bool itemSnapped)
 {
+    if (m_readOnly)
+        return false;
+
     if (m_currentShow == nullptr || sf == nullptr)
         return false;
 
@@ -664,7 +802,18 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
 
     if (m_gridEnabled && !itemSnapped)
     {
-        if (timeDivision() == Show::Time)
+        if (timeDivision() == Show::VDJBeat && m_vdjGrid.valid)
+        {
+            // VDJBeat mode: times are stored in ms. Snap to the nearest beat of
+            // the VirtualDJ grid (anchor phase + fractional beat period), which
+            // keeps positions sample-accurate to the song regardless of zoom.
+            // All math in double, clamped before the int conversion.
+            const double period = m_vdjGrid.beatPeriodMs;
+            const double anchor = m_vdjGrid.anchorMs;
+            const double snapped = anchor + double(qRound64((newStartTime - anchor) / period)) * period;
+            newTime = int(qBound(0.0, snapped, 2147483647.0));
+        }
+        else if (Show::isTimeBasedDivision(timeDivision()))
         {
             // calculate the X position from time and time scale
             // timescale * 1000 : tickSize = time : x
@@ -701,6 +850,9 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
 
 bool ShowManager::setShowItemStartTime(ShowFunction *sf, int startTime)
 {
+    if (m_readOnly)
+        return false;
+
     if (sf == nullptr)
         return false;
 
@@ -720,6 +872,9 @@ bool ShowManager::setShowItemStartTime(ShowFunction *sf, int startTime)
 
 bool ShowManager::setShowItemDuration(ShowFunction *sf, int duration)
 {
+    if (m_readOnly)
+        return false;
+
     if (sf == nullptr)
         return false;
 
@@ -739,7 +894,7 @@ bool ShowManager::setShowItemDuration(ShowFunction *sf, int duration)
 
 int ShowManager::minimumTimelineDuration(Show::TimeDivision division) const
 {
-    return division == Show::Time ? 1 : 125;
+    return Show::isTimeBasedDivision(division) ? 1 : 125;
 }
 
 quint32 ShowManager::itemRelativeTimeFromCursor(const ShowFunction *sf, int cursorTime) const
@@ -903,6 +1058,9 @@ bool ShowManager::moveAllItemsAfterCursor(int cursorTime, int delta)
 
 bool ShowManager::insertShowItemTime(ShowFunction *sf, int length)
 {
+    if (m_readOnly)
+        return false;
+
     return insertShowItemTimeAt(sf, length, m_currentTime);
 }
 
@@ -994,6 +1152,9 @@ bool ShowManager::insertShowItemTimeAt(ShowFunction *sf, int length, int cursorT
 
 bool ShowManager::cutShowItemTime(ShowFunction *sf, int length)
 {
+    if (m_readOnly)
+        return false;
+
     return cutShowItemTimeAt(sf, length, m_currentTime);
 }
 
@@ -1151,6 +1312,9 @@ bool ShowManager::cutShowItemTimeAt(ShowFunction *sf, int length, int cursorTime
 
 bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
 {
+    if (m_readOnly)
+        return false;
+
     if (m_currentShow == nullptr || length <= 0)
         return false;
 
@@ -1211,6 +1375,9 @@ bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
 
 bool ShowManager::cutTimeAtCursor(int length, int cursorTime)
 {
+    if (m_readOnly)
+        return false;
+
     if (m_currentShow == nullptr || length <= 0)
         return false;
 
@@ -1252,10 +1419,12 @@ void ShowManager::resetContents()
     {
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
+        disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
     }
 
     m_currentShow = nullptr;
+    updateVdjGrid();
 
     // the clipboard holds ShowFunction pointers belonging to the show
     // being closed, so drop them to avoid dangling references
@@ -1363,6 +1532,9 @@ int ShowManager::showDuration() const
 
 void ShowManager::playShow()
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow == nullptr)
         return;
 
@@ -1398,6 +1570,9 @@ void ShowManager::playShow()
 
 void ShowManager::stopShow()
 {
+    if (m_readOnly)
+        return;
+
     if (m_currentShow != nullptr && m_currentShow->isRunning())
     {
         m_cursorMovedDuringPause = false;
@@ -1432,6 +1607,9 @@ QColor ShowManager::itemsColor() const
 
 void ShowManager::setItemsColor(QColor itemsColor)
 {
+    if (m_readOnly)
+        return;
+
     if (m_itemsColor == itemsColor)
         return;
 
@@ -1571,6 +1749,9 @@ bool ShowManager::selectedItemsLocked() const
 
 void ShowManager::setSelectedItemsLock(bool lock)
 {
+    if (m_readOnly)
+        return;
+
     foreach (SelectedShowItem si, m_selectedItems)
     {
         if (si.m_showFunc != nullptr)
@@ -1587,6 +1768,11 @@ void ShowManager::slotTimeChanged(quint32 msec_time)
 void ShowManager::slotShowFinished()
 {
     stopShow();
+}
+
+void ShowManager::slotShowStarted()
+{
+    setPlaybackState(true, m_currentShow != nullptr ? m_currentShow->isPaused() : false);
 }
 
 void ShowManager::slotShowStopped()
@@ -1718,6 +1904,9 @@ void ShowManager::copyToClipboard()
 
 void ShowManager::pasteFromClipboard()
 {
+    if (m_readOnly)
+        return;
+
     quint32 lowerTime = UINT_MAX;
 
     // pre-parse copied items to find the one with lowest start time

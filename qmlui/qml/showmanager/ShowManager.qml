@@ -46,18 +46,22 @@ Rectangle
     property int showID: showManager.currentShowID
     property int selectedTrackIndex: -1
 
+    // single QML gate for every mutating affordance; the C++ side enforces
+    // the same rule authoritatively (VDJ Perform mode = read only)
+    readonly property bool canEdit: showManager.isEditing && !showManager.readOnly
+
     onShowIDChanged: renderAndCenter()
     Component.onCompleted: renderAndCenter()
 
     function requestPlayShow()
     {
-        if (showManager.isEditing)
+        if (canEdit)
             showManager.playShow()
     }
 
     function requestStopShow()
     {
-        if (showManager.isEditing)
+        if (canEdit)
             showManager.stopShow()
     }
 
@@ -69,13 +73,13 @@ Rectangle
 
     function requestPasteItems()
     {
-        if (showManager.isEditing)
+        if (canEdit)
             showManager.pasteFromClipboard()
     }
 
     function centerView()
     {
-        var cursorX = (showManager.timeDivision === Show.Time)
+        var cursorX = showManager.timeBasedDivision
                 ? TimeUtils.timeToSize(showManager.currentTime, timeScale, tickSize)
                 : TimeUtils.timeToBeatPosition(showManager.currentTime, tickSize,
                                                showManager.bpmNumber, showManager.beatsDivision)
@@ -86,10 +90,10 @@ Rectangle
 
     function zoomTimeline(zoomIn)
     {
-        // In Time mode a larger timeScale renders smaller content (zoom out).
+        // In time-based modes a larger timeScale renders smaller content (zoom out).
         // In Beats mode tickSize grows with timeScale, so the relation is inverted.
         // "grow" = whether the visual zoom request needs timeScale to increase.
-        var grow = showManager.timeDivision === Show.Time ? !zoomIn : zoomIn
+        var grow = showManager.timeBasedDivision ? !zoomIn : zoomIn
         var step = grow ? (showManager.timeScale >= 1.0 ? 1.0 : 0.1)
                         : (showManager.timeScale > 1.0 ? 1.0 : 0.1)
         var ts = showManager.timeScale + (grow ? step : -step)
@@ -182,9 +186,30 @@ Rectangle
                 width: showMgrContainer.width / 5
                 height: parent.height - 10
                 text: showManager.showName
-                enabled: showManager.isEditing
+                enabled: canEdit
 
                 onTextEdited: showManager.showName = text
+            }
+
+            // read-only indicator while VDJ Perform drives this show
+            Rectangle
+            {
+                visible: showManager.readOnly
+                width: performBadgeText.width + UISettings.textSizeDefault
+                height: parent.height - 10
+                radius: height / 4
+                color: "#7a5c00"
+                border.color: "#f1c40f"
+                border.width: 1
+
+                RobotoText
+                {
+                    id: performBadgeText
+                    anchors.centerIn: parent
+                    label: qsTr("PERFORM — read only")
+                    labelColor: "#f1c40f"
+                    fontSize: UISettings.textSizeDefault * 0.7
+                }
             }
 
             IconButton
@@ -195,7 +220,7 @@ Rectangle
                 height: width
                 imgSource: "qrc:/color.svg"
                 checkable: true
-                enabled: showManager.isEditing
+                enabled: canEdit
                 tooltip: qsTr("Show items color")
                 onCheckedChanged: colTool.visible = !colTool.visible
 
@@ -224,6 +249,7 @@ Rectangle
                 width: parent.height - 6
                 height: width
                 imgSource: "qrc:/lock.svg"
+                enabled: canEdit
                 counter: showManager.selectedItemsCount
 
                 function checkLockStatus()
@@ -291,6 +317,7 @@ Rectangle
                 faSource: FontAwesome.fa_minus
                 faColor: "crimson"
                 tooltip: qsTr("Remove the selected items")
+                enabled: canEdit
                 counter: showManager.selectedItemsCount
                 onClicked:
                 {
@@ -329,6 +356,7 @@ Rectangle
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
                 tooltip: ShortcutUtils.withShortcut(qsTr("Paste items in the clipboard at cursor position"), "Ctrl+V")
+                enabled: canEdit
                 counter: showManager.clipboardItemsCount
                 onClicked: showMgrContainer.requestPasteItems()
             }
@@ -368,7 +396,7 @@ Rectangle
                          (showManager.isPlaying ? "darkorange" : UISettings.bgLight)
                 tooltip: ShortcutUtils.withShortcut((showManager.isPlaying && !showManager.isPaused) ? qsTr("Pause") : qsTr("Play or resume"), "Space")
                 checkable: false
-                enabled: showManager.isEditing
+                enabled: canEdit
                 onClicked: showMgrContainer.requestPlayShow()
             }
             IconButton
@@ -382,7 +410,7 @@ Rectangle
                 tooltip: ShortcutUtils.withShortcut(qsTr("Stop or rewind"),
                     Qt.platform.os === "osx" ? "Meta+Space" : "Ctrl+Space")
                 checkable: false
-                enabled: showManager.isEditing
+                enabled: canEdit
                 onClicked: showMgrContainer.requestStopShow()
             }
 
@@ -402,20 +430,24 @@ Rectangle
             {
                 model: [
                     { mLabel: qsTr("Time"), mValue: Show.Time },
+                    { mLabel: qsTr("VDJ Beat"), mValue: Show.VDJBeat },
                     { mLabel: qsTr("BPM 4/4"), mValue: Show.BPM_4_4 },
                     { mLabel: qsTr("BPM 3/4"), mValue: Show.BPM_3_4 },
                     { mLabel: qsTr("BPM 2/4"), mValue: Show.BPM_2_4 }
                 ]
                 id: markersCombo
-                enabled: showManager.isEditing
+                enabled: canEdit
                 currValue: showManager.timeDivision
                 onValueChanged:
                 {
-                    // Beat markers need a tempo: refuse non-Time until a BPM is set.
+                    // BPM beat markers need a tempo: refuse them until a BPM is set.
+                    // Time and VDJ Beat are exempt (the VDJ grid comes from the
+                    // VirtualDJ database, not from the BPM number).
                     // The revert must be deferred (Qt.callLater) because the combo is
                     // mid-update here (its isUpdating guard would swallow a synchronous
                     // currValue/currentIndex change).
-                    if (currentValue !== Show.Time && showManager.bpmNumber <= 0)
+                    if (currentValue !== Show.Time && currentValue !== Show.VDJBeat
+                        && showManager.bpmNumber <= 0)
                     {
                         Qt.callLater(function() { markersCombo.currValue = Show.Time })
                         return
@@ -559,7 +591,7 @@ Rectangle
 
             onClicked: (mouseX, mouseY) =>
             {
-                if (timeDivision === Show.Time)
+                if (showManager.timeBasedDivision)
                     showManager.currentTime = TimeUtils.posToMs(mouseX, timeScale, tickSize)
                 else
                     showManager.currentTime = TimeUtils.posToBeatMs(mouseX, tickSize, showManager.bpmNumber, showManager.beatsDivision)
@@ -655,7 +687,7 @@ Rectangle
                 anchors.fill: parent
                 onClicked: (mouse) =>
                 {
-                    if (showManager.timeDivision === Show.Time)
+                    if (showManager.timeBasedDivision)
                         showManager.currentTime = TimeUtils.posToMs(mouse.x, timeScale, tickSize)
                     else
                         showManager.currentTime = TimeUtils.posToBeatMs(mouse.x, tickSize, showManager.bpmNumber, showManager.beatsDivision)
@@ -710,6 +742,7 @@ Rectangle
                 width: showMgrContainer.width - trackWidth
                 height: tracksBox.count * trackHeight
                 z: 2
+                enabled: !showManager.readOnly
 
                 keys: [ "function" ]
                 onDropped:
@@ -721,7 +754,7 @@ Rectangle
                     {
                         var trackIdx = (itemsArea.contentY + drag.y) / trackHeight
                         var fTime
-                        if (showManager.timeDivision === Show.Time)
+                        if (showManager.timeBasedDivision)
                             fTime = TimeUtils.posToMs(itemsArea.contentX + drag.x, timeScale, tickSize)
                         else
                             fTime = TimeUtils.posToBeat(itemsArea.contentX + drag.x, tickSize, showManager.beatsDivision)
@@ -766,6 +799,7 @@ Rectangle
                 {
                     id: funcNewTrackDrop
                     anchors.fill: parent
+                    enabled: !showManager.readOnly
 
                     keys: [ "function" ]
 
@@ -795,7 +829,7 @@ Rectangle
                         {
                             var fTime
 
-                            if (showManager.timeDivision === Show.Time)
+                            if (showManager.timeBasedDivision)
                                 fTime = TimeUtils.posToMs(xViewOffset + drag.x, timeScale, tickSize)
                             else
                                 fTime = TimeUtils.posToBeat(xViewOffset + drag.x, tickSize, showManager.beatsDivision)

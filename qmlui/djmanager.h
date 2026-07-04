@@ -99,6 +99,9 @@ public:
     /** Build a DeckSong snapshot from a row (used to create a fresh show). */
     DjFsm::DeckSong songForFilepath(const QString &filepath) const;
 
+    /** All filepath -> showId assignments (for factory mapping restore). */
+    QList<QPair<QString, quint32>> showMappings() const;
+
     /** Mark the currently-playing filepaths (diff against the last set). */
     void setPlayingFilepaths(const QSet<QString> &playing);
 
@@ -225,6 +228,8 @@ class DjManager final : public PreviewContext
     Q_PROPERTY(int activeRemainingMs READ activeRemainingMs NOTIFY activePositionChanged)
     Q_PROPERTY(double activeBeatPos READ activeBeatPos NOTIFY activePositionChanged)
     Q_PROPERTY(int deckCount READ deckCount WRITE setDeckCount NOTIFY deckCountChanged)
+    Q_PROPERTY(QString vdjDatabasePath READ vdjDatabasePath NOTIFY vdjDatabasePathChanged)
+    Q_PROPERTY(bool vdjDatabaseFound READ vdjDatabaseFound NOTIFY vdjDatabasePathChanged)
 
 public:
     DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
@@ -257,6 +262,14 @@ public:
     int deckCount() const;
     void setDeckCount(int count);
 
+    /** Resolved VirtualDJ database.xml path (empty when none was found).
+     *  Shown in the DJ view so the user can verify the grid/cue source. */
+    QString vdjDatabasePath() const;
+    bool vdjDatabaseFound() const;
+
+    /** Re-run the database locate algorithm (e.g. after VDJ [re]scans). */
+    Q_INVOKABLE void refreshVdjDatabase();
+
     // --- Per-song show actions (invoked from QML) ---
 
     /** Open the show assigned to a song in the Show Manager. */
@@ -274,6 +287,13 @@ public:
     /** List of existing Shows as [{ id, name }] for the assign picker. */
     Q_INVOKABLE QVariantList availableShows() const;
 
+public slots:
+    /** Perform mode: keep the Show Manager on the active deck's show, so the
+     *  playing show (and its VDJ-driven playhead) is always the one shown.
+     *  Called on perform-enable, active-song changes and deferred show
+     *  creation; a no-op when Perform is off or no show exists yet. */
+    void syncPerformShowToManager();
+
 signals:
     void sortModeChanged();
     void sortAscendingChanged();
@@ -284,6 +304,7 @@ signals:
     void activePositionChanged();
     void deckCountChanged();
     void showLoadRequested(int showId);
+    void vdjDatabasePathChanged();
 
 private slots:
     void onSongChanged(int deck, const DjFsm::DeckSong &song);
@@ -310,6 +331,7 @@ private:
     DjSongFilterModel *m_proxy;
     DjDeckModel *m_deckModel;
     QSet<QString> m_lastPlayingPaths;
+    QString m_vdjDatabasePath;
 };
 
 #endif // DJMANAGER_H

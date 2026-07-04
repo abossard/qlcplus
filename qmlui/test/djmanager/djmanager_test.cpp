@@ -660,6 +660,111 @@ void DjManager_Test::externalPositionSyncDrivesShowWhenPerforming()
     delete doc;
 }
 
+void DjManager_Test::performShowsActiveShowInShowManager()
+{
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+    DjFsm *fsm = bridge.djFsm();
+    DjManager mgr(&view, doc, &bridge, bridge.showFactory());
+
+    // two songs with assigned shows on decks 1 and 2
+    Show *show1 = new Show(doc);
+    show1->setName("Perform One");
+    show1->setPath(kSongFolderPath);
+    doc->addFunction(show1);
+    Show *show2 = new Show(doc);
+    show2->setName("Perform Two");
+    show2->setPath(kSongFolderPath);
+    doc->addFunction(show2);
+
+    feedSong(fsm, 1, "/m/one.mp3", "One", "DJ", 120.0);
+    feedSong(fsm, 2, "/m/two.mp3", "Two", "DJ", 124.0);
+    mgr.assignShow("/m/one.mp3", static_cast<int>(show1->id()));
+    mgr.assignShow("/m/two.mp3", static_cast<int>(show2->id()));
+
+    auto setMasterDeck = [&bridge](int deck) {
+        QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+            Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(deck)));
+    };
+
+    QSignalSpy spy(&mgr, &DjManager::showLoadRequested);
+
+    // Perform OFF: active deck changes must not touch the Show Manager
+    setMasterDeck(1);
+    QCOMPARE(spy.count(), 0);
+
+    // enabling Perform loads the active deck's show right away
+    mgr.setPerformMode(true);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy[0][0].toInt(), static_cast<int>(show1->id()));
+
+    // switching the master deck follows with the new deck's show
+    setMasterDeck(2);
+    QCOMPARE(spy.count(), 2);
+    QCOMPARE(spy[1][0].toInt(), static_cast<int>(show2->id()));
+
+    // Perform OFF again: deck changes no longer drive the Show Manager
+    mgr.setPerformMode(false);
+    setMasterDeck(1);
+    QCOMPARE(spy.count(), 2);
+
+    delete doc;
+}
+
+void DjManager_Test::performResolvesShowAfterWorkspaceReload()
+{
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+
+    // Simulate a REOPENED workspace: the Show exists in the Doc with its
+    // Audio child, but the session-level factory mapping is empty.
+    Show *show = new Show(doc);
+    show->setName("Reloaded");
+    show->setPath(kSongFolderPath);
+    doc->addFunction(show);
+
+    Audio *audio = new Audio(doc);
+    audio->setSourceFileName("/m/reload.mp3");
+    doc->addFunction(audio);
+
+    Track *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    ShowFunction *sf = track->createShowFunction(audio->id());
+    sf->setStartTime(0);
+    sf->setDuration(300000);
+
+    QCOMPARE(bridge.showFactory()->showIdForFilepath("/m/reload.mp3"),
+             Function::invalidId());
+
+    // DjManager construction rebuilds the model from the Doc and must
+    // restore the factory mapping (previously it stayed empty until a
+    // 3s deferred name-match, which also duplicated renamed shows).
+    DjManager mgr(&view, doc, &bridge, bridge.showFactory());
+    QCOMPARE(bridge.showFactory()->showIdForFilepath("/m/reload.mp3"), show->id());
+
+    // VDJ loads the song: the existing show is reused, no duplicate created
+    const int showsBefore = doc->functionsByType(Function::ShowType).count();
+    feedSong(bridge.djFsm(), 1, "/m/reload.mp3", "Reloaded", "DJ", 120.0);
+    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(1)));
+
+    // Enabling Perform resolves the reloaded show immediately and the Show
+    // Manager follow fires — the previously distrusted case.
+    QSignalSpy loadSpy(&mgr, &DjManager::showLoadRequested);
+    mgr.setPerformMode(true);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Suspended);
+    QCOMPARE(bridge.performFsm()->activeShowId(), show->id());
+    QCOMPARE(loadSpy.count(), 1);
+    QCOMPARE(loadSpy[0][0].toInt(), static_cast<int>(show->id()));
+    QCOMPARE(doc->functionsByType(Function::ShowType).count(), showsBefore);
+
+    delete doc;
+}
+
 void DjManager_Test::deckTableReflectsFsmStateAndUpdates()
 {
     Doc *doc = createDoc();

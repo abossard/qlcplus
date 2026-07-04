@@ -36,6 +36,8 @@ Item
     property int duration: sfRef ? sfRef.duration : -1
     property int trackIndex: -1
     property int timeDivision: showManager.timeDivision
+    // ms-stored divisions (Time, VDJ Beat) share the same pixel<->time mapping
+    property bool msMode: showManager.timeBasedDivision
     property real timeScale: showManager.timeScale
     property real tickSize: showManager.tickSize
     property int beatsDivision: showManager.beatsDivision
@@ -85,7 +87,7 @@ Item
         if (isDragging || funcRef == null)
             return
 
-        if (timeDivision === Show.Time)
+        if (msMode)
         {
             x = TimeUtils.timeToSize(startTime, timeScale, tickSize)
             width = TimeUtils.timeToSize(duration, timeScale, tickSize)
@@ -97,13 +99,30 @@ Item
         }
     }
 
+    // Grid-snap an X pixel position. In VDJ Beat mode the grid is the song's
+    // beat grid (fractional period + phase anchor from the VirtualDJ database);
+    // otherwise bars (Time) or whole beats (BPM modes).
+    function snapXToGrid(xPos)
+    {
+        if (timeDivision === Show.VDJBeat && showManager.vdjGridValid)
+        {
+            var periodPx = TimeUtils.timeToSize(showManager.vdjBeatPeriodMs, timeScale, tickSize)
+            var anchorPx = TimeUtils.timeToSize(showManager.vdjGridAnchorMs, timeScale, tickSize)
+            if (periodPx <= 0)
+                return xPos
+            return anchorPx + Math.round((xPos - anchorPx) / periodPx) * periodPx
+        }
+        var gridStep = msMode ? tickSize : (tickSize / beatsDivision)
+        return Math.round(xPos / gridStep) * gridStep
+    }
+
     function updateTooltipText()
     {
         var tooltip = funcRef ? funcRef.name + "\n" : ""
         var pos = 0
         var dur = 0
 
-        if (timeDivision === Show.Time)
+        if (msMode)
         {
             pos = TimeUtils.msToString(TimeUtils.posToMs(itemRoot.x + showItemBody.x, timeScale, tickSize))
             dur = TimeUtils.msToString(TimeUtils.posToMs(itemRoot.width, timeScale, tickSize))
@@ -222,7 +241,7 @@ Item
                         for (var l = 0; l < loopCount; l++)
                         {
                             lastTime += previewData[1]
-                            if (timeDivision === Show.Time)
+                            if (msMode)
                                 xPos = TimeUtils.timeToSize(lastTime, timeScale, tickSize)
                             else
                                 xPos = TimeUtils.beatsToSize(lastTime, tickSize, beatsDivision)
@@ -235,7 +254,7 @@ Item
                     break
                     case ShowManager.FadeIn:
                         var fiEnd
-                        if (timeDivision === Show.Time)
+                        if (msMode)
                             fiEnd = TimeUtils.timeToSize(lastTime + previewData[i + 1], timeScale, tickSize)
                         else
                             fiEnd = TimeUtils.beatsToSize(lastTime + previewData[i + 1], tickSize, beatsDivision)
@@ -244,7 +263,7 @@ Item
                     break
                     case ShowManager.StepDivider:
                         lastTime = previewData[i + 1]
-                        if (timeDivision === Show.Time)
+                        if (msMode)
                             xPos = TimeUtils.timeToSize(lastTime, timeScale, tickSize)
                         else
                             xPos = TimeUtils.beatsToSize(lastTime, tickSize, beatsDivision)
@@ -254,7 +273,7 @@ Item
                     break
                     case ShowManager.FadeOut:
                         var foEnd
-                        if (timeDivision === Show.Time)
+                        if (msMode)
                             foEnd = TimeUtils.timeToSize(lastTime + previewData[i + 1], timeScale, tickSize)
                         else
                             foEnd = TimeUtils.beatsToSize(lastTime + previewData[i + 1], tickSize, beatsDivision)
@@ -328,7 +347,7 @@ Item
 
         onPressed: (mouse) =>
         {
-            if (sfRef && sfRef.locked)
+            if ((sfRef && sfRef.locked) || showManager.readOnly)
                 return;
             showManager.enableFlicking(false)
             pressMouseX = mouse.x
@@ -389,7 +408,7 @@ Item
             showItemBody.y = dy
 
             var txt
-            if (timeDivision === Show.Time)
+            if (msMode)
                 txt = TimeUtils.msToString(TimeUtils.posToMs(itemRoot.x + showItemBody.x, timeScale, tickSize))
             else
                 txt = TimeUtils.beatsToString((itemRoot.x + showItemBody.x) / (tickSize / beatsDivision), beatsDivision)
@@ -398,7 +417,7 @@ Item
         }
         onReleased: (mouse) =>
         {
-            if (sfRef && sfRef.locked)
+            if ((sfRef && sfRef.locked) || showManager.readOnly)
                 return;
 
             showManager.snapGuideX = -1
@@ -408,7 +427,7 @@ Item
                 infoText = ""
 
                 var newTime
-                if (timeDivision === Show.Time)
+                if (msMode)
                     newTime = TimeUtils.posToMs(itemRoot.x + showItemBody.x, timeScale, tickSize)
                 else
                     newTime = TimeUtils.posToBeat(itemRoot.x + showItemBody.x, tickSize, beatsDivision)
@@ -472,7 +491,7 @@ Item
         width: 10
         height: itemRoot.height
         color: horLeftHdlMa.containsMouse ? "#7FFFFF00" : "transparent"
-        visible: sfRef ? (sfRef.locked ? false : true) : false
+        visible: sfRef ? (!sfRef.locked && !showManager.readOnly) : false
 
         MouseArea
         {
@@ -555,16 +574,16 @@ Item
                     // check grid snapping (skip if item-snapped)
                     if (!itemSnapped && itemRoot.x && showManager.gridEnabled)
                     {
-                        // snap to bars in Time mode, to beats in Beats mode
-                        var gridStep = timeDivision === Show.Time ? tickSize : (tickSize / beatsDivision)
+                        // snap to bars in Time mode, to the VDJ beat grid in
+                        // VDJ Beat mode, to beats in Beats mode
                         var currX = itemRoot.x
-                        itemRoot.x = Math.round(itemRoot.x / gridStep) * gridStep
+                        itemRoot.x = snapXToGrid(itemRoot.x)
                         itemRoot.width += (currX - itemRoot.x)
                     }
 
                     var newDuration, newStartTime
 
-                    if (timeDivision === Show.Time)
+                    if (msMode)
                     {
                         newStartTime = TimeUtils.posToMs(itemRoot.x, timeScale, tickSize)
                         newDuration = TimeUtils.posToMs(itemRoot.width, timeScale, tickSize)
@@ -602,7 +621,7 @@ Item
         width: 10
         height: itemRoot.height
         color: horRightHdlMa.containsMouse ? "#7FFFFF00" : "transparent"
-        visible: sfRef ? (sfRef.locked ? false : true) : false
+        visible: sfRef ? (!sfRef.locked && !showManager.readOnly) : false
 
         MouseArea
         {
@@ -673,15 +692,15 @@ Item
                     // check grid snapping (skip if item-snapped)
                     if (!itemSnapped && showManager.gridEnabled)
                     {
-                        // snap the end edge to bars in Time mode, to beats in Beats mode
-                        var gridStep = timeDivision === Show.Time ? tickSize : (tickSize / beatsDivision)
-                        var snappedEndPos = Math.round((itemRoot.x + itemRoot.width) / gridStep) * gridStep
+                        // snap the end edge to bars in Time mode, to the VDJ
+                        // beat grid in VDJ Beat mode, to beats in Beats mode
+                        var snappedEndPos = snapXToGrid(itemRoot.x + itemRoot.width)
                         itemRoot.width = snappedEndPos - itemRoot.x
                     }
 
                     var newDuration
 
-                    if (timeDivision === Show.Time)
+                    if (msMode)
                         newDuration = TimeUtils.posToMs(itemRoot.width, timeScale, tickSize)
                     else
                         newDuration = (Math.round(itemRoot.width / (tickSize / beatsDivision)) * 1000)

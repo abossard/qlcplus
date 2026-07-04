@@ -73,9 +73,17 @@ public:
     /** Register an externally-known filepath→showId mapping (e.g. user assignment). */
     void registerMapping(const QString &filepath, quint32 showId);
 
+    /** Bulk mapping restore (workspace load): inserts all pairs and emits a
+     *  single mappingChanged(QString(), invalidId) instead of one per song. */
+    void registerMappings(const QList<QPair<QString, quint32>> &mappings);
+
 signals:
     /** Emitted after a Show is successfully added to the Doc for a song. */
     void showCreatedForSong(const QString &filepath, quint32 showId);
+
+    /** Emitted whenever the filepath->show mapping changes (assign, clear,
+     *  restore-from-Doc). Perform-mode consumers re-resolve on this. */
+    void mappingChanged(const QString &filepath, quint32 showId);
 
 public slots:
     /** Create Audio + Show + Track for the given song info. Deduplicates by filepath. */

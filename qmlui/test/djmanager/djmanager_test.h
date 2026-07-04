@@ -45,6 +45,8 @@ private slots:
     void performOffPausesRunningShow();
     void performLoadsAndSwitchesActiveShow();
     void externalPositionSyncDrivesShowWhenPerforming();
+    void performShowsActiveShowInShowManager();
+    void performResolvesShowAfterWorkspaceReload();
 
     // Deck table / topology
     void deckTableReflectsFsmStateAndUpdates();

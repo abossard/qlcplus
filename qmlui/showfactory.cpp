@@ -123,14 +123,22 @@ quint32 ShowFactory::buildShowFunctions(const DjFsm::DeckSong &info, const QStri
     Show *show = new Show(m_doc);
     show->setName(showName);
     show->setPath(kSongFolderPath);
-    // VDJ-tracked songs auto-enable external sync so the show timeline
-    // follows VDJ's absolute position (tempo changes, seeks, loops).
-    show->setSyncSource(1); // ShowRunner::External
+    // NOTE: the sync source is NOT set here. It is adopted at runtime by
+    // VdjBridge when Perform drives this show (External while adopted,
+    // restored afterwards). Setting it permanently would freeze manual
+    // playback at 0 and would be lost on workspace reload anyway (the
+    // sync source is not persisted in the .qxw).
     m_doc->addFunction(show);
 
     // Set the show's timing BPM from the music file's own ID3 tag (the file's
     // BPM, independent of VDJ's pitch-affected playing BPM). No-op if absent.
     AudioBpmTag::applyFileBpmToShow(show, filepath);
+
+    // VDJ-tracked songs default to the VDJ Beat division: item positions stay
+    // in milliseconds (matching the external position sync) while the editor
+    // reads the accurate beat grid and cue markers from VDJ's database.xml.
+    // The BPM number set above remains as a fallback for the BPM modes.
+    show->setTimeDivisionType(Show::VDJBeat);
 
     // Add a Track with the Audio as a timeline item
     Track *track = new Track(Function::invalidId(), show);
@@ -174,10 +182,29 @@ void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
     if (showId == Function::invalidId())
     {
         m_filepathToShowId.remove(filepath);
+        emit mappingChanged(filepath, showId);
         return;
     }
     m_createdShows.insert(filepath);
     m_filepathToShowId.insert(filepath, showId);
+    emit mappingChanged(filepath, showId);
+}
+
+void ShowFactory::registerMappings(const QList<QPair<QString, quint32>> &mappings)
+{
+    if (mappings.isEmpty())
+        return;
+
+    for (const auto &mapping : mappings)
+    {
+        if (mapping.first.isEmpty() || mapping.second == Function::invalidId())
+            continue;
+        m_createdShows.insert(mapping.first);
+        m_filepathToShowId.insert(mapping.first, mapping.second);
+    }
+
+    // one bulk notification instead of O(mappings) emissions
+    emit mappingChanged(QString(), Function::invalidId());
 }
 
 quint32 ShowFactory::showIdForFilepath(const QString &filepath) const

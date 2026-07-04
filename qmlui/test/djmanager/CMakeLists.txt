@@ -15,6 +15,10 @@ add_executable(${PROJECT_NAME}
     ../../previewcontext.h
     ../../vdjbridge.cpp
     ../../vdjbridge.h
+    ../../vdjdatabasereader.cpp
+    ../../vdjdatabasereader.h
+    ../../performfsm.cpp
+    ../../performfsm.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

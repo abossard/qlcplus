@@ -256,6 +256,17 @@ void App::startup()
                 m_showManager, &ShowManager::setCurrentShowID);
     }
 
+    // Perform FSM drives the Show Manager read-only state: while Perform is
+    // engaged (Armed/Live/Suspended), the Show Manager blocks all mutations.
+    // Single writer — nothing else may call setReadOnly.
+    if (m_vdjBridge != nullptr && m_showManager != nullptr)
+    {
+        PerformFsm *performFsm = m_vdjBridge->performFsm();
+        connect(performFsm, &PerformFsm::stateChanged, m_showManager,
+                [this, performFsm]() { m_showManager->setReadOnly(performFsm->readOnly()); });
+        m_showManager->setReadOnly(performFsm->readOnly());
+    }
+
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);
     m_contextManager->registerContext(m_simpleDesk);
@@ -270,6 +281,7 @@ void App::startup()
     qmlRegisterUncreatableType<NetworkManager>("org.qlcplus.classes", 1, 0, "NetworkManager", "Can't create a NetworkManager!");
     qmlRegisterUncreatableType<SimpleDesk>("org.qlcplus.classes", 1, 0, "SimpleDesk", "Can't create a SimpleDesk!");
     qmlRegisterUncreatableType<VdjBridge>("org.qlcplus.classes", 1, 0, "VdjBridge", "Use the vdjBridge context property");
+    qmlRegisterUncreatableType<PerformFsm>("org.qlcplus.classes", 1, 0, "PerformFsm", "Perform state enum access only");
 
     // Start up in non-modified state
     m_doc->resetModified();

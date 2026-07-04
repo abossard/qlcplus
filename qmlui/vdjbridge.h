@@ -25,7 +25,10 @@
 #include <QList>
 #include <QSet>
 
+#include "performfsm.h"
+
 class Doc;
+class Show;
 class QLCIOPlugin;
 class DjFsm;
 class ShowFactory;
@@ -62,6 +65,8 @@ class VdjBridge final : public QObject
     Q_PROPERTY(qreal headphoneVolume READ headphoneVolume NOTIFY globalMixerChanged)
     Q_PROPERTY(qreal masterVu READ masterVu NOTIFY globalMixerChanged)
     Q_PROPERTY(bool performMode READ performMode WRITE setPerformMode NOTIFY performModeChanged)
+    Q_PROPERTY(PerformFsm::PerformState performState READ performState NOTIFY performStatusChanged)
+    Q_PROPERTY(QString performShowName READ performShowName NOTIFY performStatusChanged)
 
 public:
     explicit VdjBridge(QObject *parent = nullptr);
@@ -91,9 +96,20 @@ public:
      * Perform mode. When enabled, the active deck's Show is auto-started and
      * kept synchronized with the deck's playback position. When disabled
      * (default), VDJ playback never drives Show playback.
+     *
+     * All control decisions flow through the PerformFsm (single source of
+     * truth); this bridge feeds its events and executes engine effects on
+     * its transitions.
      */
-    bool performMode() const { return m_performMode; }
+    bool performMode() const { return m_performFsm->enabled(); }
     void setPerformMode(bool on);
+
+    /** The Perform control-plane FSM (read-only for consumers). */
+    PerformFsm *performFsm() const { return m_performFsm; }
+    PerformFsm::PerformState performState() const { return m_performFsm->state(); }
+
+    /** Name of the show currently resolved for Perform, or empty. */
+    QString performShowName() const;
 
     // --- Legacy getters ---
     bool connected() const { return m_connected; }
@@ -127,6 +143,7 @@ signals:
     void masterDeckChanged();
     void globalMixerChanged();
     void performModeChanged();
+    void performStatusChanged();
 
 private slots:
     void onTelemetryBeat(int pos, qreal bpm, qreal strength, bool change);
@@ -138,14 +155,35 @@ private slots:
 private:
     void applyDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value);
     void driveActiveShow(int deckIndex, const QString &trigger, const QVariant &value);
-    void updatePerformShow();
     void pushActiveBpm();
+
+    // --- Perform: FSM event feeding + transition-driven engine effects ---
+
+    /** Re-resolve the FSM inputs (active deck's show + playing state) */
+    void refreshPerformInputs();
+
+    /** Engine effects on FSM transitions */
+    void applyPerformState(PerformFsm::PerformState state);
+    void applyPerformShowChange(quint32 showId);
+
+    /** Sync-source adoption: while Perform drives a show it runs with
+     *  External sync; the previous source is restored on release so
+     *  manual playback keeps working (nothing is persisted). */
+    void adoptActiveShow();
+    void releaseAdoptedShow();
+    void startAdoptedShow();
+    void pauseAdoptedShow();
+    Show *lookupShow(quint32 showId) const;
 
     // Doc (for auto-show creation via ShowFactory)
     Doc *m_doc = nullptr;
     DjFsm *m_fsm = nullptr;
     ShowFactory *m_showFactory = nullptr;
-    bool m_performMode = false;
+    PerformFsm *m_performFsm = nullptr;
+
+    /** Show currently adopted by Perform (engine-effect state) */
+    quint32 m_adoptedShowId = PerformFsm::InvalidShowId;
+    int m_adoptedPrevSyncSource = 0;
 
     // OS2L
     QPointer<QLCIOPlugin> m_plugin;

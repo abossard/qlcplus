@@ -37,17 +37,41 @@ VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
     , m_fsm(new DjFsm(this))
     , m_showFactory(nullptr)
+    , m_performFsm(new PerformFsm(this))
 {
+    // Engine effects run on FSM transitions (unidirectional: the FSM decides,
+    // the bridge executes; effects never write back into the FSM).
+    connect(m_performFsm, &PerformFsm::stateChanged,
+            this, &VdjBridge::applyPerformState);
+    connect(m_performFsm, &PerformFsm::activeShowChanged,
+            this, &VdjBridge::applyPerformShowChange);
+
+    // status forwarding for QML
+    connect(m_performFsm, &PerformFsm::stateChanged,
+            this, &VdjBridge::performStatusChanged);
+    connect(m_performFsm, &PerformFsm::activeShowChanged,
+            this, &VdjBridge::performStatusChanged);
 }
 
 void VdjBridge::setDoc(Doc *doc)
 {
+    // PerformFsm avoids an engine dependency by re-declaring the invalid-id
+    // sentinel; pin the two together so they cannot drift
+    Q_ASSERT(PerformFsm::InvalidShowId == Function::invalidId());
+
     m_doc = doc;
     if (m_doc && !m_showFactory)
     {
         m_showFactory = new ShowFactory(m_doc, this);
         // Note: show creation is driven by DJ Manager (which owns the
         // filepath dedup decision), not auto-wired from the FSM here.
+
+        // Any mapping change (deferred creation, assignment, restore-from-Doc)
+        // can resolve the Perform show — re-feed the FSM inputs.
+        connect(m_showFactory, &ShowFactory::showCreatedForSong,
+                this, [this](const QString &, quint32) { refreshPerformInputs(); });
+        connect(m_showFactory, &ShowFactory::mappingChanged,
+                this, [this](const QString &, quint32) { refreshPerformInputs(); });
     }
 
     // Route the active deck's authoritative BPM into the engine so the engine
@@ -56,13 +80,19 @@ void VdjBridge::setDoc(Doc *doc)
     {
         connect(m_fsm, &DjFsm::deckChanged, this, [this](int deck) {
             if (deck == m_fsm->activeDeck())
+            {
                 pushActiveBpm();
+                // transport of the active deck feeds the Perform FSM
+                m_performFsm->setDeckPlaying(m_fsm->deckAt(deck - 1).playing);
+            }
         });
         connect(m_fsm, &DjFsm::activeDeckChanged, this, [this](int) {
             pushActiveBpm();
-            // The active deck changed → immediately hand lighting to its show.
-            updatePerformShow();
+            // active deck changed → re-resolve the Perform show + transport
+            refreshPerformInputs();
         });
+        connect(m_fsm, &DjFsm::activeSongChanged,
+                this, &VdjBridge::refreshPerformInputs);
     }
 }
 
@@ -331,107 +361,174 @@ void VdjBridge::applyDeckTrigger(int deckIndex, const QString &trigger, const QV
 void VdjBridge::driveActiveShow(int deckIndex, const QString &trigger, const QVariant &value)
 {
     Q_UNUSED(value)
-    if (!m_performMode || !m_doc || !m_showFactory || !m_fsm)
+    if (!m_fsm || deckIndex + 1 != m_fsm->activeDeck())
         return;
 
-    // Only the active/master deck drives the Show.
-    if (deckIndex + 1 != m_fsm->activeDeck())
-        return;
-
-    const DjFsm::Deck &deck = m_fsm->deckAt(deckIndex);
-    if (deck.song.filepath.isEmpty())
-        return;
-
-    if (trigger == "play")
+    // Data plane only: per-frame position sync while Live. All control
+    // decisions (start/pause/handover) flow through the PerformFsm via
+    // the DjFsm signal connections in setDoc().
+    if (trigger == QLatin1String("get_time elapsed absolute")
+        && m_performFsm->state() == PerformFsm::PerformState::Live)
     {
-        // Discrete transport change → (re)load the active show.
-        updatePerformShow();
-    }
-    else if (trigger == "get_time elapsed absolute")
-    {
-        // Lightweight per-frame position sync from the FSM (full resolution).
-        quint32 showId = m_showFactory->showIdForFilepath(deck.song.filepath);
-        if (showId == Function::invalidId())
-            return;
-        Show *show = qobject_cast<Show*>(m_doc->function(showId));
-        if (show && show->isRunning() && show->syncSource() == 1)
-            show->setExternalElapsedTime(static_cast<quint32>(deck.elapsedMs));
-    }
-}
-
-void VdjBridge::updatePerformShow()
-{
-    if (!m_performMode || !m_doc || !m_showFactory || !m_fsm)
-        return;
-
-    const int active = m_fsm->activeDeck();
-    const DjFsm::Deck *deck = (active >= 1) ? &m_fsm->deckAt(active - 1) : nullptr;
-    const quint32 activeShowId = (deck && !deck->song.filepath.isEmpty())
-        ? m_showFactory->showIdForFilepath(deck->song.filepath)
-        : Function::invalidId();
-
-    // Pause every running song-Show that is NOT the active deck's show, so a
-    // change of active deck immediately hands lighting to the new show.
-    for (Function *f : m_doc->functionsByType(Function::ShowType))
-    {
-        Show *show = qobject_cast<Show*>(f);
-        if (!show || !show->isRunning() || show->syncSource() != 1)
-            continue;
-        if (show->id() != activeShowId && !show->isPaused())
-            show->setPause(true);
-    }
-
-    if (activeShowId == Function::invalidId() || !deck)
-        return;
-    Show *active_show = qobject_cast<Show*>(m_doc->function(activeShowId));
-    if (!active_show)
-        return;
-
-    if (deck->playing)
-    {
-        if (!active_show->isRunning())
+        Show *show = lookupShow(m_adoptedShowId);
+        if (show && show->isRunning())
         {
-            qDebug() << "[VdjBridge] Perform: loading show" << active_show->name();
-            active_show->start(m_doc->masterTimer(), FunctionParent::master());
+            const int elapsed = m_fsm->deckAt(deckIndex).elapsedMs;
+            show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
         }
-        else if (active_show->isPaused())
-        {
-            active_show->setPause(false);
-        }
-        active_show->setExternalElapsedTime(static_cast<quint32>(deck->elapsedMs));
-    }
-    else if (active_show->isRunning() && !active_show->isPaused())
-    {
-        active_show->setPause(true);
     }
 }
 
 void VdjBridge::setPerformMode(bool on)
 {
-    if (m_performMode == on)
+    if (performMode() == on)
         return;
 
-    m_performMode = on;
-
-    if (on)
-    {
-        // Entering Perform mode → load the active deck's show right away.
-        updatePerformShow();
-    }
-    else if (m_doc)
-    {
-        // When leaving Perform mode, pause any running song Shows so VDJ
-        // playback no longer drives lighting output.
-        for (Function *f : m_doc->functionsByType(Function::ShowType))
-        {
-            Show *show = qobject_cast<Show*>(f);
-            if (show && show->isRunning() && !show->isPaused()
-                && show->syncSource() == 1)
-            {
-                show->setPause(true);
-            }
-        }
-    }
-
+    // resolve inputs BEFORE enabling so Idle -> Live happens in one
+    // transition when VDJ is already playing
+    refreshPerformInputs();
+    m_performFsm->setPerformEnabled(on);
     emit performModeChanged();
+}
+
+QString VdjBridge::performShowName() const
+{
+    Show *show = lookupShow(m_performFsm->activeShowId());
+    return show ? show->name() : QString();
+}
+
+void VdjBridge::refreshPerformInputs()
+{
+    if (!m_fsm)
+        return;
+
+    const int active = m_fsm->activeDeck();
+    const DjFsm::Deck *deck = (active >= 1) ? &m_fsm->deckAt(active - 1) : nullptr;
+
+    quint32 showId = PerformFsm::InvalidShowId;
+    if (deck && !deck->song.filepath.isEmpty() && m_showFactory)
+    {
+        const quint32 id = m_showFactory->showIdForFilepath(deck->song.filepath);
+        if (id != Function::invalidId())
+            showId = id;
+    }
+
+    // transport first so Armed -> Live happens directly on show resolution
+    m_performFsm->setDeckPlaying(deck ? deck->playing : false);
+    m_performFsm->setActiveShow(showId);
+}
+
+Show *VdjBridge::lookupShow(quint32 showId) const
+{
+    if (!m_doc || showId == PerformFsm::InvalidShowId)
+        return nullptr;
+    return qobject_cast<Show*>(m_doc->function(showId));
+}
+
+void VdjBridge::applyPerformState(PerformFsm::PerformState state)
+{
+    switch (state)
+    {
+        case PerformFsm::PerformState::Idle:
+            releaseAdoptedShow();
+            // safety net: pause any OTHER external-sync show still running
+            // (e.g. left over from an older workspace/session), so leaving
+            // Perform always stops VDJ-driven lighting completely
+            if (m_doc)
+            {
+                for (Function *f : m_doc->functionsByType(Function::ShowType))
+                {
+                    Show *show = qobject_cast<Show*>(f);
+                    if (show && show->isRunning() && !show->isPaused()
+                        && show->syncSource() == 1)
+                    {
+                        show->setPause(true);
+                    }
+                }
+            }
+            break;
+        case PerformFsm::PerformState::Armed:
+            releaseAdoptedShow();
+            break;
+        case PerformFsm::PerformState::Live:
+            adoptActiveShow();
+            startAdoptedShow();
+            break;
+        case PerformFsm::PerformState::Suspended:
+            // "VDJ stops -> the progression stops": adopted show freezes
+            adoptActiveShow();
+            pauseAdoptedShow();
+            break;
+    }
+}
+
+void VdjBridge::applyPerformShowChange(quint32 showId)
+{
+    if (m_adoptedShowId == showId)
+        return;
+
+    // deck handover: release the old show (pause + restore sync source),
+    // then re-apply the current state to adopt/start the new one
+    releaseAdoptedShow();
+    applyPerformState(m_performFsm->state());
+}
+
+void VdjBridge::adoptActiveShow()
+{
+    const quint32 id = m_performFsm->activeShowId();
+    if (m_adoptedShowId == id)
+        return;
+
+    releaseAdoptedShow();
+
+    Show *show = lookupShow(id);
+    if (show == nullptr)
+        return;
+
+    m_adoptedShowId = id;
+    m_adoptedPrevSyncSource = show->syncSource();
+    show->setSyncSource(1); // ShowRunner::External — VDJ owns the playhead
+    qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
+}
+
+void VdjBridge::releaseAdoptedShow()
+{
+    Show *show = lookupShow(m_adoptedShowId);
+    if (show != nullptr)
+    {
+        if (show->isRunning() && !show->isPaused())
+            show->setPause(true);
+        show->setSyncSource(m_adoptedPrevSyncSource);
+        qDebug() << "[VdjBridge] Perform: released show" << show->name();
+    }
+    m_adoptedShowId = PerformFsm::InvalidShowId;
+    m_adoptedPrevSyncSource = 0;
+}
+
+void VdjBridge::startAdoptedShow()
+{
+    Show *show = lookupShow(m_adoptedShowId);
+    if (show == nullptr || m_doc == nullptr || m_fsm == nullptr)
+        return;
+
+    const int active = m_fsm->activeDeck();
+    const int elapsed = (active >= 1) ? m_fsm->deckAt(active - 1).elapsedMs : 0;
+
+    if (!show->isRunning())
+    {
+        qDebug() << "[VdjBridge] Perform: starting show" << show->name();
+        show->start(m_doc->masterTimer(), FunctionParent::master());
+    }
+    else if (show->isPaused())
+    {
+        show->setPause(false);
+    }
+    show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
+}
+
+void VdjBridge::pauseAdoptedShow()
+{
+    Show *show = lookupShow(m_adoptedShowId);
+    if (show && show->isRunning() && !show->isPaused())
+        show->setPause(true);
 }

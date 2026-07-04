@@ -27,6 +27,7 @@
 #include "showfunction.h"
 #include "showfactory.h"
 #include "vdjbridge.h"
+#include "vdjdatabasereader.h"
 
 #include <QFileInfo>
 #include <QQmlContext>
@@ -179,6 +180,17 @@ void DjSongModel::rebuildFromDoc()
         m_rows.append(row);
     }
     endResetModel();
+}
+
+QList<QPair<QString, quint32>> DjSongModel::showMappings() const
+{
+    QList<QPair<QString, quint32>> mappings;
+    for (const Row &row : m_rows)
+    {
+        if (row.showId != Function::invalidId())
+            mappings.append(qMakePair(row.filepath, row.showId));
+    }
+    return mappings;
 }
 
 bool DjSongModel::upsertSong(const DjFsm::DeckSong &song)
@@ -562,6 +574,10 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
 
     view->rootContext()->setContextProperty("djManager", this);
 
+    // resolve the VirtualDJ database once at startup; the QML view offers
+    // a refresh and re-checks whenever it is (re)loaded
+    refreshVdjDatabase();
+
     if (m_factory)
     {
         connect(m_factory, &ShowFactory::showCreatedForSong,
@@ -587,6 +603,13 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     {
         connect(m_bridge, &VdjBridge::performModeChanged,
                 this, &DjManager::performModeChanged);
+
+        // Perform FSM drives the Show Manager follow: whenever the state or
+        // the resolved show changes, the currently-performed show is loaded.
+        connect(m_bridge->performFsm(), &PerformFsm::stateChanged,
+                this, &DjManager::syncPerformShowToManager);
+        connect(m_bridge->performFsm(), &PerformFsm::activeShowChanged,
+                this, &DjManager::syncPerformShowToManager);
     }
 
     if (m_doc)
@@ -597,7 +620,38 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
         connect(m_doc, &Doc::functionChanged, this, &DjManager::onFunctionChanged);
 
         m_model->rebuildFromDoc();
+
+        // Restore the filepath->show mapping into the factory so Perform can
+        // resolve shows immediately after a workspace (re)load, instead of
+        // waiting for a deferred name-match (which duplicates renamed shows).
+        if (m_factory)
+            m_factory->registerMappings(m_model->showMappings());
     }
+}
+
+QString DjManager::vdjDatabasePath() const
+{
+    return m_vdjDatabasePath;
+}
+
+bool DjManager::vdjDatabaseFound() const
+{
+    return m_vdjDatabasePath.isEmpty() == false;
+}
+
+void DjManager::refreshVdjDatabase()
+{
+    const QString path = VdjDatabaseReader::locateDatabase();
+    if (path == m_vdjDatabasePath)
+        return;
+
+    m_vdjDatabasePath = path;
+    if (path.isEmpty())
+        qWarning() << "[DjManager] no VirtualDJ database.xml found; candidates:"
+                   << VdjDatabaseReader::databaseCandidates(QString());
+    else
+        qDebug() << "[DjManager] VirtualDJ database:" << path;
+    emit vdjDatabasePathChanged();
 }
 
 QAbstractItemModel *DjManager::songListModel() const
@@ -835,6 +889,22 @@ void DjManager::onActiveSongChanged()
     emit activeChanged();
 }
 
+void DjManager::syncPerformShowToManager()
+{
+    // Read-only consumer of the Perform FSM: whenever Perform has a resolved
+    // show (Live or Suspended), the Show Manager displays it.
+    if (!m_bridge)
+        return;
+
+    PerformFsm *fsm = m_bridge->performFsm();
+    if (fsm->state() == PerformFsm::PerformState::Idle)
+        return;
+    if (fsm->activeShowId() == PerformFsm::InvalidShowId)
+        return;
+
+    emit showLoadRequested(static_cast<int>(fsm->activeShowId()));
+}
+
 void DjManager::onDeckCountChanged()
 {
     m_deckModel->refreshAll();
@@ -970,4 +1040,9 @@ void DjManager::mergeShowFromDoc(quint32 showId)
         emit songCountChanged();
     }
     m_model->setShow(filepath, showId);
+
+    // Keep the factory mapping in sync so Perform resolves this show without
+    // the deferred name-match (covers incremental workspace loading).
+    if (m_factory)
+        m_factory->registerMapping(filepath, showId);
 }
