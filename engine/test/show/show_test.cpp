@@ -115,16 +115,26 @@ void Show_Test::timeDivision()
     QCOMPARE(s.beatsDivision(), 3);
     s.setTimeDivisionType(Show::Time);
     QCOMPARE(s.beatsDivision(), 0);
+    s.setTimeDivisionType(Show::VDJBeat);
+    QCOMPARE(s.beatsDivision(), 0);
 
     QCOMPARE(s.stringToTempo("Time"), Show::Time);
+    QCOMPARE(s.stringToTempo("VDJBeat"), Show::VDJBeat);
     QCOMPARE(s.stringToTempo("BPM_4_4"), Show::BPM_4_4);
     QCOMPARE(s.stringToTempo("BPM_3_4"), Show::BPM_3_4);
     QCOMPARE(s.stringToTempo("BPM_2_4"), Show::BPM_2_4);
 
     QCOMPARE(s.tempoToString(Show::Time), "Time");
+    QCOMPARE(s.tempoToString(Show::VDJBeat), "VDJBeat");
     QCOMPARE(s.tempoToString(Show::BPM_4_4), "BPM_4_4");
     QCOMPARE(s.tempoToString(Show::BPM_3_4), "BPM_3_4");
     QCOMPARE(s.tempoToString(Show::BPM_2_4), "BPM_2_4");
+
+    QVERIFY(Show::isTimeBasedDivision(Show::Time) == true);
+    QVERIFY(Show::isTimeBasedDivision(Show::VDJBeat) == true);
+    QVERIFY(Show::isTimeBasedDivision(Show::BPM_4_4) == false);
+    QVERIFY(Show::isTimeBasedDivision(Show::BPM_3_4) == false);
+    QVERIFY(Show::isTimeBasedDivision(Show::BPM_2_4) == false);
 }
 
 void Show_Test::tracks()

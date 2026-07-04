@@ -72,9 +72,20 @@ public:
         BPM_4_4,
         BPM_3_4,
         BPM_2_4,
+        /** Time-stored mode: item positions stay in milliseconds (like Time),
+         *  while the editor paints the beat grid and POI markers read live
+         *  from the VirtualDJ database.xml of the show's audio file. */
+        VDJBeat,
         Invalid
     };
     Q_ENUM(TimeDivision)
+
+    /** Divisions storing item positions in milliseconds (as opposed to
+     *  beat units, where 1000 == 1 beat) */
+    static bool isTimeBasedDivision(Show::TimeDivision type)
+    {
+        return type == Time || type == VDJBeat;
+    }
 
     /** Set the show time division type (Time, BPM) */
     void setTimeDivision(Show::TimeDivision type, int BPM);

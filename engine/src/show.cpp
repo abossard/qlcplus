@@ -191,6 +191,7 @@ QString Show::tempoToString(Show::TimeDivision type)
     switch(type)
     {
         case Time: return QString("Time"); break;
+        case VDJBeat: return QString("VDJBeat"); break;
         case BPM_4_4: return QString("BPM_4_4"); break;
         case BPM_3_4: return QString("BPM_3_4"); break;
         case BPM_2_4: return QString("BPM_2_4"); break;
@@ -205,6 +206,8 @@ Show::TimeDivision Show::stringToTempo(const QString& tempo)
 {
     if (tempo == "Time")
         return Time;
+    else if (tempo == "VDJBeat")
+        return VDJBeat;
     else if (tempo == "BPM_4_4")
         return BPM_4_4;
     else if (tempo == "BPM_3_4")
