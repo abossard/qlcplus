@@ -38,6 +38,7 @@
 #define KXMLQLCVCSpeedDialApplyKey          QStringLiteral("ApplyKey")
 #define KXMLQLCVCSpeedDialResetFactorOnDialChange QStringLiteral("ResetFactorOnDialChange")
 #define KXMLQLCVCSpeedDialMultiplyMode      QStringLiteral("MultiplyMode")
+#define KXMLQLCVCSpeedDialControlBPM        QStringLiteral("ControlBPM")
 #define KXMLQLCVCSpeedDialVisibilityMask    QStringLiteral("Visibility")
 #define KXMLQLCVCSpeedDialTime              QStringLiteral("Time")
 #define KXMLQLCVCSpeedDialFunction          QStringLiteral("Function")
@@ -52,6 +53,7 @@ class VCSpeedDial : public VCWidget
     Q_PROPERTY(uint currentTime READ currentTime WRITE setCurrentTime NOTIFY currentTimeChanged FINAL)
     Q_PROPERTY(bool resetOnDialChange READ resetOnDialChange WRITE setResetOnDialChange NOTIFY resetOnDialChangeChanged FINAL)
     Q_PROPERTY(bool multiplyMode READ multiplyMode WRITE setMultiplyMode NOTIFY multiplyModeChanged FINAL)
+    Q_PROPERTY(bool controlBPM READ controlBPM WRITE setControlBPM NOTIFY controlBPMChanged FINAL)
     Q_PROPERTY(SpeedMultiplier currentFactor READ currentFactor WRITE setCurrentFactor NOTIFY currentFactorChanged FINAL)
     Q_PROPERTY(int tapTimeValue READ tapTimeValue NOTIFY tapTimeValueChanged FINAL)
 
@@ -175,12 +177,17 @@ public:
     void setMultiplyMode(bool mode);
     Q_INVOKABLE void resetSpeeds();
 
+    /* Get/Set a flag to make the Tap button control the global BPM rate */
+    bool controlBPM() const;
+    void setControlBPM(bool newControlBPM);
+
 signals:
     void timeMinimumValueChanged();
     void timeMaximumValueChanged();
     void currentTimeChanged();
     void resetOnDialChangeChanged();
     void multiplyModeChanged();
+    void controlBPMChanged();
 
 private:
     uint m_timeMinimumValue;
@@ -188,6 +195,7 @@ private:
     uint m_currentTime;
     bool m_resetOnDialChange;
     bool m_multiplyMode;
+    bool m_controlBPM;
 
     /*********************************************************************
      * Speed factor

@@ -27,6 +27,7 @@
 
 #include "doc.h"
 #include "qlcmacros.h"
+#include "inputoutputmap.h"
 #include "vcspeeddial.h"
 #include "vcspeeddialpreset.h"
 #include "tardis.h"
@@ -55,6 +56,7 @@ VCSpeedDial::VCSpeedDial(Doc *doc, QObject *parent)
     , m_currentTime(0)
     , m_resetOnDialChange(false)
     , m_multiplyMode(false)
+    , m_controlBPM(false)
     , m_currentFactor(One)
     , m_lastAssignedPresetId(15)
     , m_lastTap(0)
@@ -164,6 +166,8 @@ bool VCSpeedDial::copyFrom(const VCWidget *widget)
     setCurrentTime(speedDial->currentTime());
     setTimeMinimumValue(speedDial->timeMinimumValue());
     setTimeMaximumValue(speedDial->timeMaximumValue());
+    setResetOnDialChange(speedDial->resetOnDialChange());
+    setControlBPM(speedDial->controlBPM());
 
     setFunctions(speedDial->functions());
     setMultiplyMode(speedDial->multiplyMode());
@@ -338,6 +342,20 @@ void VCSpeedDial::resetSpeeds()
 
     m_currentFactor = One;
     emit currentFactorChanged();
+}
+
+bool VCSpeedDial::controlBPM() const
+{
+    return m_controlBPM;
+}
+
+void VCSpeedDial::setControlBPM(bool newControlBPM)
+{
+    if (m_controlBPM == newControlBPM)
+        return;
+
+    m_controlBPM = newControlBPM;
+    emit controlBPMChanged();
 }
 
 /*********************************************************************
@@ -662,6 +680,9 @@ void VCSpeedDial::tap()
 
         setCurrentTime(tapTime);
 
+        if (m_controlBPM && tapTime > 0)
+            m_doc->inputOutputMap()->setBpmNumber(qMin(qRound(60000.0 / tapTime), 1000));
+
         if (m_tapTimeValue != tapTime)
         {
             m_tapTimeValue = tapTime;
@@ -873,6 +894,10 @@ bool VCSpeedDial::loadXML(QXmlStreamReader &root)
         {
             loadedMultiplyMode = root.readElementText() == KXMLQLCTrue;
         }
+        else if (root.name() == KXMLQLCVCSpeedDialControlBPM)
+        {
+            setControlBPM(root.readElementText() == KXMLQLCTrue);
+        }
         else if (root.name() == KXMLQLCVCSpeedDialFunction)
         {
             QXmlStreamAttributes attrs = root.attributes();
@@ -951,6 +976,10 @@ bool VCSpeedDial::saveXML(QXmlStreamWriter *doc) const
 
     if (multiplyMode())
         doc->writeTextElement(KXMLQLCVCSpeedDialMultiplyMode, KXMLQLCTrue);
+
+    /* Tap button controls the global BPM rate */
+    if (controlBPM())
+        doc->writeTextElement(KXMLQLCVCSpeedDialControlBPM, KXMLQLCTrue);
 
     /* Absolute input */
     doc->writeStartElement(KXMLQLCVCSpeedDialAbsoluteValue);
