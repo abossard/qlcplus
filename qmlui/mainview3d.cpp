@@ -167,6 +167,11 @@ void MainView3D::slotRefreshView()
 
     qDebug() << "Refreshing 3D view...";
 
+    // the stage type might have changed (e.g. on project load), so
+    // recreate the stage entity and notify the UI to update the selector
+    createStage();
+    emit stageIndexChanged(m_monProps->stageType());
+
     for (Fixture *fixture : m_doc->fixtures())
     {
         if (m_monProps->containsFixture(fixture->id()))
@@ -1648,7 +1653,7 @@ void MainView3D::updateLightMatrix(SceneItem *mesh, quint32 itemID)
     if (fixture != nullptr)
     {
         const QString resource = FixtureUtils::fixtureLightResource(fixture);
-        if (!resource.isEmpty() && !m_monProps->containsLightItem(resource, headIndex))
+        if (!resource.isEmpty() && !m_monProps->containsLightEmitter(resource, headIndex))
         {
             QVector3D localOffset;
             if (mesh->m_armItem)

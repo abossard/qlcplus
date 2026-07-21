@@ -76,6 +76,7 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
     , m_contextManager(ctxManager)
     , m_selectedPage(0)
     , m_latestWidgetId(0)
+    , m_clipboardIsCut(false)
     , m_inputDetectionEnabled(false)
     , m_autoDetectionWidget(nullptr)
     , m_autoDetectionSource(nullptr)
@@ -173,6 +174,7 @@ void VirtualConsole::setEditMode(bool editMode)
     if (editMode == false)
     {
         m_clipboardIDList.clear();
+        m_clipboardIsCut = false;
         emit clipboardItemsCountChanged();
 
         resetWidgetSelection();
@@ -805,6 +807,84 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
     }
 }
 
+void VirtualConsole::setWidgetsDistribution(int direction)
+{
+    if (m_widgetsMap.count() < 3)
+        return;
+
+    qreal min = 1000000;
+    qreal max = 0;
+    qreal widgetsSize = 0;
+    qreal gap = 0;
+    QVector<VCWidget *> sortedWidgets;
+    QVector<qreal> sortedPos;
+
+    /* cycle through selected widgets and do the following:
+     * 1- calculate the total width/height
+     * 2- sort the widgets from the leftmost/topmost item
+     * 3- detect the minimum and maximum items position
+     */
+    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    while (it.hasNext())
+    {
+        it.next();
+
+        VCWidget *widget = m_widgetsMap[it.key()];
+        QRectF wGeom = widget->geometry();
+        qreal pos = direction == Qt::Horizontal ? wGeom.x() : wGeom.y();
+        qreal size = direction == Qt::Horizontal ? wGeom.width() : wGeom.height();
+        int i = 0;
+
+        // 1
+        widgetsSize += size;
+
+        // 2
+        for (i = 0; i < sortedPos.count(); i++)
+        {
+            if (pos < sortedPos[i])
+                break;
+        }
+        if (sortedPos.isEmpty() || i == sortedWidgets.count())
+        {
+            sortedWidgets.append(widget);
+            sortedPos.append(pos);
+        }
+        else
+        {
+            sortedWidgets.insert(i, widget);
+            sortedPos.insert(i, pos);
+        }
+
+        // 3
+        if (pos + size > max)
+            max = pos + size;
+        if (pos < min)
+            min = pos;
+    }
+
+    gap = ((max - min) - widgetsSize) / (sortedWidgets.count() - 1);
+
+    qreal newPos = min;
+
+    for (int idx = 0; idx < sortedWidgets.count(); idx++)
+    {
+        VCWidget *widget = sortedWidgets[idx];
+        QRectF wGeom = widget->geometry();
+        qreal size = direction == Qt::Horizontal ? wGeom.width() : wGeom.height();
+
+        // the first and last widget don't need any adjustment
+        if (idx > 0 && idx < sortedWidgets.count() - 1)
+        {
+            if (direction == Qt::Horizontal)
+                widget->setGeometry(QRect(newPos, wGeom.y(), wGeom.width(), wGeom.height()));
+            else
+                widget->setGeometry(QRect(wGeom.x(), newPos, wGeom.width(), wGeom.height()));
+        }
+
+        newPos += size + gap;
+    }
+}
+
 void VirtualConsole::setWidgetsCaption(QString caption)
 {
     QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
@@ -1138,6 +1218,19 @@ void VirtualConsole::copyToClipboard()
     for (quint32 wID : m_itemsMap.keys())
         m_clipboardIDList.append(wID);
 
+    m_clipboardIsCut = false;
+
+    emit clipboardItemsCountChanged();
+}
+
+void VirtualConsole::cutToClipboard()
+{
+    m_clipboardIDList.clear();
+    for (quint32 wID : m_itemsMap.keys())
+        m_clipboardIDList.append(wID);
+
+    m_clipboardIsCut = true;
+
     emit clipboardItemsCountChanged();
 }
 
@@ -1193,6 +1286,8 @@ void VirtualConsole::pasteFromClipboard()
             currPos.setY(currPos.y() + copy->geometry().height());
         }
     }
+
+    flushClipboardAfterPaste(frame->id());
 }
 
 QVariantList VirtualConsole::clipboardItemsList() const
@@ -1202,7 +1297,54 @@ QVariantList VirtualConsole::clipboardItemsList() const
 
 int VirtualConsole::clipboardItemsCount() const
 {
-    return m_clipboardIDList.count();
+    int count = 0;
+
+    // count the clipboard items, including the children of the
+    // frames, since those are pasted along with their parent
+    for (QVariant wID : m_clipboardIDList)
+    {
+        VCWidget *w = widget(wID.toUInt());
+        if (w == nullptr)
+            continue;
+
+        count++;
+
+        if (w->type() == VCWidget::FrameWidget ||
+            w->type() == VCWidget::SoloFrameWidget)
+        {
+            VCFrame *frame = qobject_cast<VCFrame *>(w);
+            count += frame->children(true).count();
+        }
+    }
+
+    return count;
+}
+
+bool VirtualConsole::clipboardIsCut() const
+{
+    return m_clipboardIsCut;
+}
+
+void VirtualConsole::flushClipboardAfterPaste(quint32 targetFrameID)
+{
+    if (m_clipboardIsCut == false)
+        return;
+
+    // a cut/paste: remove the source widgets and empty the clipboard.
+    // Never delete the frame the widgets have been pasted into
+    QVariantList toDelete;
+    for (QVariant wID : m_clipboardIDList)
+    {
+        if (wID.toUInt() == targetFrameID)
+            continue;
+        toDelete.append(wID);
+    }
+
+    deleteVCWidgets(toDelete);
+
+    m_clipboardIDList.clear();
+    m_clipboardIsCut = false;
+    emit clipboardItemsCountChanged();
 }
 
 /*********************************************************************
