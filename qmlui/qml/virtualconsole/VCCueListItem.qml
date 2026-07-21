@@ -208,7 +208,7 @@ VCWidgetItem
                 if (cueListObj) 
                     cueListObj.addFunctions(list, index)
             }
-            onEnterPressed: (list, index) =>
+            onEnterPressed: (index) =>
             {
                 if (cueListObj) 
                     cueListObj.playCurrentStep()

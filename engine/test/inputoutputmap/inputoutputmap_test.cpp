@@ -615,8 +615,7 @@ void InputOutputMap_Test::inputSourceNames()
 void InputOutputMap_Test::profileDirectories()
 {
     QDir dir = InputOutputMap::systemProfileDirectory();
-    QDir ipDir;
-    ipDir.setPath(INPUTPROFILEDIR);
+    QDir ipDir(QCoreApplication::applicationDirPath() + "/../" INPUTPROFILEDIR);
     QVERIFY(dir.filter() & QDir::Files);
     QVERIFY(dir.nameFilters().contains(QString("*%1").arg(KExtInputProfile)));
     QCOMPARE(dir.absolutePath(), ipDir.absolutePath());
@@ -860,4 +859,4 @@ void InputOutputMap_Test::grandMaster()
     QVERIFY(iom.grandMasterValueMode() == GrandMaster::Limit);
 }
 
-QTEST_APPLESS_MAIN(InputOutputMap_Test)
+QTEST_GUILESS_MAIN(InputOutputMap_Test)

@@ -39,6 +39,8 @@ private slots:
     void clone();
     void save();
     void load();
+    void fontSerializationCompatibility_data();
+    void fontSerializationCompatibility();
     void staticLetters();
     void horizontalScroll();
     void verticalScroll();

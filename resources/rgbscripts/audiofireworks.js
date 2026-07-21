@@ -242,7 +242,7 @@ var testAlgo;
     var SPAWN_TRIGGERS = {
         0: function(a) { return a.beat.fired; },
         1: function(a) { return a.onset.fired; },
-        2: function(a) { return a.note.on; }
+        2: function(a) { return a.note && a.note.on; }
     };
     var KICK_PARTICLE_BUDGET_RATIO = 0.7;
     var AMBIENT_MIN_POWER = 0.1;

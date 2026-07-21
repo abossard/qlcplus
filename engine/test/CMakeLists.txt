@@ -70,3 +70,5 @@ add_subdirectory(universe)
 add_subdirectory(universeperf)
 add_subdirectory(video)
 add_subdirectory(iopluginstub)
+
+add_dependencies(inputoutputmap_test iopluginstub)

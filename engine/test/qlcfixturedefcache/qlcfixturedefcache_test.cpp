@@ -137,13 +137,17 @@ void QLCFixtureDefCache_Test::reload()
 {
     QLCFixtureDef *def = cache.fixtureDef("Botex", "SP-1500");
     QLCChannel *channel = def->channel("Control");
+    QLCFixtureDef detached;
 
-    QVERIFY(def->channels().count() == 5);
+    QCOMPARE(def->channels().count(), 5);
     def->removeChannel(channel);
-    QVERIFY(def->channels().count() == 4);
+    QCOMPARE(def->channels().count(), 4);
 
-    cache.reloadFixtureDef(def);
-    QVERIFY(def->channels().count() == 5);
+    QVERIFY(!cache.reloadFixtureDef(&detached));
+    QVERIFY(cache.reloadFixtureDef(def));
+    def = cache.fixtureDef("Botex", "SP-1500");
+    QVERIFY(def != nullptr);
+    QCOMPARE(def->channels().count(), 5);
 }
 
 void QLCFixtureDefCache_Test::fixtureDef()
@@ -219,8 +223,7 @@ void QLCFixtureDefCache_Test::defDirectories()
 
     QVERIFY(dir.filter() & QDir::Files);
     QVERIFY(dir.nameFilters().contains(QString("*%1").arg(KExtFixture)));
-    QDir fxDir;
-    fxDir.setPath(FIXTUREDIR);
+    QDir fxDir(QCoreApplication::applicationDirPath() + "/../" FIXTUREDIR);
     QCOMPARE(dir.absolutePath(), fxDir.absolutePath());
 
     dir = QLCFixtureDefCache::userDefinitionDirectory();
@@ -247,4 +250,4 @@ void QLCFixtureDefCache_Test::storeDef()
     file.remove();
 }
 
-QTEST_APPLESS_MAIN(QLCFixtureDefCache_Test)
+QTEST_GUILESS_MAIN(QLCFixtureDefCache_Test)

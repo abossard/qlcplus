@@ -31,8 +31,21 @@
 #undef private
 
 #include "doc.h"
+#include "rgbmatrix.h"
 
 #include "../common/resource_paths.h"
+
+namespace {
+
+QString capturedWarning;
+
+void captureWarning(QtMsgType type, const QMessageLogContext &, const QString &message)
+{
+    if (type == QtWarningMsg)
+        capturedWarning = message;
+}
+
+}
 
 void RGBScript_Test::initTestCase()
 {
@@ -66,6 +79,7 @@ void RGBScript_Test::directories()
     QString path("%1/../%2");
     QCOMPARE(dir.path(), path.arg(QCoreApplication::applicationDirPath())
                              .arg("Resources/RGBScripts"));
+    QVERIFY(QFileInfo::exists(dir.filePath("hsvutil.js")));
 #elif defined(WIN32) || defined(Q_OS_WIN)
     QVERIFY(dir.path().endsWith("RGBScripts"));
 #else
@@ -92,33 +106,27 @@ void RGBScript_Test::scripts()
     QVERIFY(dir.entryList().size() > 0);
 
     // Prepare check that file is registered for delivery
-    QString proFilePath = dir.filePath("CMakeLists.txt");
+    QString proFilePath = QDir(RGBSCRIPTS_SOURCE_DIR).filePath("CMakeLists.txt");
     QFile proFile(proFilePath);
-    QVERIFY(proFile.open(QIODevice::ReadWrite));
-    QTextStream pro (&proFile);
+    QVERIFY(proFile.open(QIODevice::ReadOnly));
+    const QString cmakeContents = QTextStream(&proFile).readAll();
 
     // Catch syntax / JS engine errors explicitly in the test.
     foreach (QString file, dir.entryList()) {
-        RGBScript* script = new RGBScript(m_doc);
-        QFile absFile(dir.absoluteFilePath(file));
-        QVERIFY(script->load(absFile.fileName()));
-
         qDebug() << "Searching '" + file + "' in CMakeLists.txt";
 
         // Check that the script is listed in the cmake file.
         if (file != "empty.js") {
             QString searchString = "    " + file;
-            QString line;
-            bool foundInProFile = false;
-            do {
-                line = pro.readLine();
-                if (line.contains(searchString, Qt::CaseSensitive)) {
-                    foundInProFile = true;
-                }
-            } while (!line.isNull() && foundInProFile == false);
-
-            QVERIFY(foundInProFile);
+            QVERIFY(cmakeContents.contains(searchString, Qt::CaseSensitive));
         }
+
+        if (file == "hsvutil.js")
+            continue;
+
+        RGBScript script(m_doc);
+        QFile absFile(dir.absoluteFilePath(file));
+        QVERIFY(script.load(absFile.fileName()));
     }
     proFile.close();
 
@@ -161,6 +169,16 @@ void RGBScript_Test::script()
     QVERIFY(s->m_rgbMapStepCount.isValid() == true);
 #endif
     delete s;
+
+    s = m_doc->rgbScriptsCache()->script("Audio Fire");
+    const QString originalSpeed = s->property("speed");
+    const QString changedSpeed = QStringLiteral("0.08");
+    QVERIFY(originalSpeed != changedSpeed);
+    QVERIFY(s->setProperty("speed", changedSpeed));
+    QCOMPARE(s->property("speed"), changedSpeed);
+    qInfo().noquote() << "Float property speed:" << originalSpeed
+                      << "->" << s->property("speed");
+    delete s;
 }
 
 void RGBScript_Test::evaluateException()
@@ -168,8 +186,17 @@ void RGBScript_Test::evaluateException()
     // Should be    function()
     QString code("( function { return 5; } )()");
     RGBScript s(m_doc);
+    s.m_fileName = QStringLiteral("malformed-syntax.js");
     s.m_contents = code;
-    QCOMPARE(s.evaluate(), false);
+    capturedWarning.clear();
+    QtMessageHandler previousHandler = qInstallMessageHandler(captureWarning);
+    const bool result = s.evaluate();
+    qInstallMessageHandler(previousHandler);
+    QCOMPARE(result, false);
+    QVERIFY2(capturedWarning.contains("malformed-syntax.js: Exception at line") &&
+             capturedWarning.contains("SyntaxError"),
+             qPrintable(capturedWarning));
+    qInfo().noquote() << "Captured diagnostic:" << capturedWarning;
 }
 
 void RGBScript_Test::evaluateNoRgbMapFunction()
@@ -178,8 +205,17 @@ void RGBScript_Test::evaluateNoRgbMapFunction()
     QString code("( function() { return 5; } )()");
     RGBScript s(m_doc);
     RGBMap map;
+    s.m_fileName = QStringLiteral("missing-rgb-map.js");
     s.m_contents = code;
-    QCOMPARE(s.evaluate(), false);
+    capturedWarning.clear();
+    QtMessageHandler previousHandler = qInstallMessageHandler(captureWarning);
+    const bool result = s.evaluate();
+    qInstallMessageHandler(previousHandler);
+    QCOMPARE(result, false);
+    QVERIFY2(capturedWarning.contains("missing-rgb-map.js") &&
+             capturedWarning.contains("missing the rgbMap() function"),
+             qPrintable(capturedWarning));
+    qInfo().noquote() << "Captured diagnostic:" << capturedWarning;
     s.rgbMap(QSize(5, 5), 1, 0, map);
     QCOMPARE(map, RGBMap());
 }
@@ -189,8 +225,17 @@ void RGBScript_Test::evaluateNoRgbMapStepCountFunction()
     // No rgbMapStepCount() function present
     QString code("( function() { var foo = new Object; foo.rgbMap = function() { return 0; }; return foo; } )()");
     RGBScript s(m_doc);
+    s.m_fileName = QStringLiteral("missing-step-count.js");
     s.m_contents = code;
-    QCOMPARE(s.evaluate(), false);
+    capturedWarning.clear();
+    QtMessageHandler previousHandler = qInstallMessageHandler(captureWarning);
+    const bool result = s.evaluate();
+    qInstallMessageHandler(previousHandler);
+    QCOMPARE(result, false);
+    QVERIFY2(capturedWarning.contains("missing-step-count.js") &&
+             capturedWarning.contains("missing the rgbMapStepCount() function"),
+             qPrintable(capturedWarning));
+    qInfo().noquote() << "Captured diagnostic:" << capturedWarning;
     QCOMPARE(s.rgbMapStepCount(QSize(5, 5)), -1);
 }
 
@@ -199,8 +244,17 @@ void RGBScript_Test::evaluateInvalidApiVersion()
     // No apiVersion property
     QString code("( function() { var foo = new Object; foo.rgbMap = function() { return 0; }; foo.rgbMapStepCount = function(width, height) { return 0; }; return foo; } )()");
     RGBScript s(m_doc);
+    s.m_fileName = QStringLiteral("invalid-api-version.js");
     s.m_contents = code;
-    QCOMPARE(s.evaluate(), false);
+    capturedWarning.clear();
+    QtMessageHandler previousHandler = qInstallMessageHandler(captureWarning);
+    const bool result = s.evaluate();
+    qInstallMessageHandler(previousHandler);
+    QCOMPARE(result, false);
+    QVERIFY2(capturedWarning.contains("invalid-api-version.js") &&
+             capturedWarning.contains("has an invalid apiVersion: 0"),
+             qPrintable(capturedWarning));
+    qInfo().noquote() << "Captured diagnostic:" << capturedWarning;
 }
 
 void RGBScript_Test::rgbMapStepCount()
@@ -215,13 +269,17 @@ void RGBScript_Test::rgbMapColorArray()
     RGBMap map;
     RGBScript* s = m_doc->rgbScriptsCache()->script("Alternate");
     QCOMPARE(s->evaluate(), true);
+    RGBMatrix* matrix = new RGBMatrix(m_doc);
+    matrix->setAlgorithm(s);
+    matrix->setColor(0, QColor(Qt::red));
+    matrix->setColor(1, QColor(Qt::green));
+    QVERIFY(m_doc->addFunction(matrix));
     QVector<uint> rawRgbColors = {
-            QColor(Qt::red).rgb() & 0x00ffffff,
-            QColor(Qt::green).rgb() & 0x00ffffff
+            QColor(Qt::red).rgb(),
+            QColor(Qt::green).rgb()
     };
     QSize mapSize = QSize(5, 5);
 
-    s->rgbMapSetColors(rawRgbColors);
     s->rgbMap(mapSize, 0, 0, map);
     QVERIFY(map.isEmpty() == false);
 
@@ -237,7 +295,7 @@ void RGBScript_Test::rgbMapColorArray()
                 QCOMPARE(map[y][x], rawRgbColors[0]);
         }
     }
-    delete s;
+    QVERIFY(m_doc->deleteFunction(matrix->id()));
 }
 
 void RGBScript_Test::rgbMap()
@@ -246,7 +304,7 @@ void RGBScript_Test::rgbMap()
     RGBScript* s = m_doc->rgbScriptsCache()->script("Stripes");
     QVector<uint> rawRgbColors = {
         QColor(Qt::red).rgb(),
-        uint(0)
+        QColor(Qt::black).rgb()
     };
     s->rgbMap(QSize(3, 4), 0, 0, map);
     // verify that an array within an array has been returned
@@ -284,12 +342,19 @@ void RGBScript_Test::runScripts()
         uint(0)
     };
 
+    RGBScriptsCache scripts(m_doc);
+    QVERIFY(scripts.load(QDir(INTERNAL_SCRIPTDIR)));
+    QStringList names = scripts.names();
+    QVERIFY(names.contains(QStringLiteral("Audio Cellular")));
+    QVERIFY(names.contains(QStringLiteral("Audio Fire")));
+    QVERIFY(names.contains(QStringLiteral("Audio Fireworks")));
+    QVERIFY(names.contains(QStringLiteral("Balls")));
+
     // Iterate the list of scripts
-    QStringList names = m_doc->rgbScriptsCache()->names();
     foreach (QString name, names)
     {
         qDebug() << "Evaluating script" << name;
-        QScopedPointer<RGBScript> s(m_doc->rgbScriptsCache()->script(name));
+        QScopedPointer<RGBScript> s(scripts.script(name));
         QString fileName = s->fileName();
         QString scriptName = fileName.split(QDir::separator()).last();
 
@@ -349,7 +414,7 @@ void RGBScript_Test::runScripts()
             {
                 for (int x = 0; x < mapSize.width(); x++)
                 {
-                    QVERIFY(rgbMap[y][x] <= 0xffffff);
+                    QCOMPARE(rgbMap[y][x] & 0xff000000u, 0xff000000u);
                 }
             }
         }
@@ -373,9 +438,7 @@ void RGBScript_Test::runScripts()
                 {
                     if (s->acceptColors() > 0)
                     {
-                        // verify that the alpha channel is zero
-                        QVERIFY((rgbMap[y][x] & 0xff000000) == 0);
-                        QVERIFY((rgbMap[y][x] >> 16) <= 0x0000ff);
+                        QCOMPARE(rgbMap[y][x] & 0xff000000u, 0xff000000u);
                         if (!randomScript && 0 == step && 1 < s->acceptColors() && 2 < steps)
                         {
                             // if more than one color is accepted  and the script has more than two steps - one per color,
@@ -386,7 +449,7 @@ void RGBScript_Test::runScripts()
                     }
                     else
                     {
-                        QVERIFY(rgbMap[y][x] <= 0x00ffffff);
+                        QCOMPARE(rgbMap[y][x] & 0xff000000u, 0xff000000u);
                     }
                 }
             }
@@ -440,7 +503,7 @@ void RGBScript_Test::runScripts()
                             {
                                 for (int x = 0; x < mapSize.width(); x++)
                                 {
-                                    QVERIFY(map[y][x] <= 0xffffff);
+                                    QCOMPARE(map[y][x] & 0xff000000u, 0xff000000u);
                                 }
                             }
                         }
@@ -470,7 +533,7 @@ void RGBScript_Test::runScripts()
                         {
                             for (int x = 0; x < mapSize.width(); x++)
                             {
-                                QVERIFY(map[y][x] <= 0xffffff);
+                                QCOMPARE(map[y][x] & 0xff000000u, 0xff000000u);
                             }
                         }
                     }
@@ -489,16 +552,20 @@ void RGBScript_Test::runScripts()
                         {
                             for (int x = 0; x < mapSize.width(); x++)
                             {
-                                QVERIFY(map[y][x] <= 0xffffff);
+                                QCOMPARE(map[y][x] & 0xff000000u, 0xff000000u);
                             }
                         }
                     }
                     break;
                 case RGBScriptProperty::Float:
-                    // Test with an integer value
-                    s->setProperty(property.m_name, QString::number(-1024));
+                {
+                    const QString value = s->property(property.m_name);
+                    bool ok = false;
+                    value.toDouble(&ok);
+                    QVERIFY(ok);
+                    s->setProperty(property.m_name, value);
                     qDebug() << "  Readback: " << s->property(property.m_name);
-                    QVERIFY(s->property(property.m_name) == QString::number(-1024));
+                    QCOMPARE(s->property(property.m_name), value);
                     for (int step = 0; step < realsteps; step++)
                     {
                         RGBMap map;
@@ -510,11 +577,12 @@ void RGBScript_Test::runScripts()
                         {
                             for (int x = 0; x < mapSize.width(); x++)
                             {
-                                QVERIFY(map[y][x] <= 0xffffff);
+                                QCOMPARE(map[y][x] & 0xff000000u, 0xff000000u);
                             }
                         }
                     }
                     break;
+                }
                 case RGBScriptProperty::String:
                     // Test with an integer value
                     s->setProperty(property.m_name, QString("QLC+"));
@@ -531,7 +599,7 @@ void RGBScript_Test::runScripts()
                         {
                             for (int x = 0; x < mapSize.width(); x++)
                             {
-                                QVERIFY(map[y][x] <= 0xffffff);
+                                QCOMPARE(map[y][x] & 0xff000000u, 0xff000000u);
                             }
                         }
                     }

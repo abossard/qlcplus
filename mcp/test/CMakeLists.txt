@@ -228,6 +228,8 @@ target_include_directories(mcp_conversions_test PRIVATE
     ${CMAKE_SOURCE_DIR}/mcp
     ${CMAKE_SOURCE_DIR}/mcp/tools
 )
+target_compile_definitions(mcp_conversions_test PRIVATE
+    TIME_UTILS_SOURCE_PATH="${CMAKE_SOURCE_DIR}/qmlui/js/TimeUtils.js")
 
 target_link_libraries(mcp_conversions_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Core

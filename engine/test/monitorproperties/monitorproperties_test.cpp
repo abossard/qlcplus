@@ -78,11 +78,20 @@ void MonitorProperties_Test::lightItems()
     QCOMPARE(mp.containsLightEmitter("moving_head.dae", 0), false);
 }
 
+void MonitorProperties_Test::lightItemsXML_data()
+{
+    QTest::addColumn<QString>("tag");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("legacy-light-item") << QString("LightItem") << true;
+    QTest::newRow("canonical-light-emitter") << QString("LightEmitter") << true;
+    QTest::newRow("unknown-light-source") << QString("LightSource") << false;
+}
+
 void MonitorProperties_Test::lightItemsXML()
 {
-    Doc doc(this);
-    MonitorProperties mp;
-    mp.setLightPosition("moving_head.dae", 0, QVector3D(1.5f, 2.5f, 3.5f));
+    QFETCH(QString, tag);
+    QFETCH(bool, accepted);
 
     QByteArray xmlData;
     QBuffer buffer(&xmlData);
@@ -90,10 +99,19 @@ void MonitorProperties_Test::lightItemsXML()
 
     QXmlStreamWriter writer(&buffer);
     writer.writeStartDocument();
-    QVERIFY(mp.saveXML(&writer, &doc));
+    writer.writeStartElement(KXMLQLCMonitorProperties);
+    writer.writeAttribute("DisplayMode", "0");
+    writer.writeStartElement(tag);
+    writer.writeAttribute("Res", "moving_head.dae");
+    writer.writeAttribute("XPos", "1.5");
+    writer.writeAttribute("YPos", "2.5");
+    writer.writeAttribute("ZPos", "3.5");
+    writer.writeEndElement();
+    writer.writeEndElement();
     writer.writeEndDocument();
     buffer.close();
 
+    Doc doc(this);
     MonitorProperties loaded;
     QXmlStreamReader reader(xmlData);
     while (reader.readNextStartElement())
@@ -106,7 +124,25 @@ void MonitorProperties_Test::lightItemsXML()
         reader.skipCurrentElement();
     }
 
+    if (accepted == false)
+    {
+        QVERIFY(loaded.lightResources().isEmpty());
+        return;
+    }
+
     QCOMPARE(loaded.lightPosition("moving_head.dae", 0), QVector3D(1.5f, 2.5f, 3.5f));
+
+    QByteArray savedData;
+    QBuffer savedBuffer(&savedData);
+    QVERIFY(savedBuffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter savedWriter(&savedBuffer);
+    savedWriter.writeStartDocument();
+    QVERIFY(loaded.saveXML(&savedWriter, &doc));
+    savedWriter.writeEndDocument();
+    savedBuffer.close();
+
+    QVERIFY(savedData.contains("<LightEmitter"));
+    QVERIFY(savedData.contains("<LightItem") == false);
 }
 
 void MonitorProperties_Test::genericItems()

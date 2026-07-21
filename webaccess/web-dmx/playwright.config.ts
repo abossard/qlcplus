@@ -5,7 +5,8 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,       // tests share one QLC+ instance
-  retries: 2,
+  workers: 1,
+  retries: 0,
   reporter: [
     ['list'],
     ['./e2e/markdown-reporter.ts', { outputFile: 'e2e/screenshots/TEST_REPORT.md' }],

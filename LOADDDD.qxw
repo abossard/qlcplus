@@ -14,26 +14,26 @@
     <Output Plugin="DMX USB" Name="None" UID="None" Line="0"/>
    </Universe>
    <Universe Name="Universe 2" ID="1">
-    <Input Plugin="OSC" Name="127.0.0.1" UID="" Line="0" Profile="MAGIC MAGIC"/>
-    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
+    <Input Plugin="OSC" Name="127.0.0.1" UID="" Line="1" Profile="MAGIC MAGIC"/>
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="0" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
    <Universe Name="Universe 3" ID="2">
     <Input Plugin="MIDI" Name="None" UID="None" Line="1" Profile="Akai APC Mini mk2"/>
-    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="320" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
     <Feedback Plugin="MIDI" Name="None" UID="None" Line="1"/>
    </Universe>
    <Universe Name="Universe 4" ID="3">
-    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="640" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
    <Universe Name="Universe 5" ID="4">
     <Input Plugin="VDJ Bridge" Name="1: VDJ Telemetry" UID="" Line="0"/>
-    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="0">
+    <Output Plugin="DDP" Name="127.0.0.1" UID="" Line="1">
      <PluginParameters UniverseChannels="320" ddpComponents="RGBW" ddpDestId="1" ddpIP="127.0.0.1" ddpKeepAliveMs="1000" ddpMaxFps="25" ddpOffset="960" ddpPort="4048" ddpSkipUnchanged="true" ddpTransmitMode="Partial"/>
     </Output>
    </Universe>
@@ -1203,8 +1203,7 @@
    <Mirror>3</Mirror>
   </Function>
   <Function ID="38" Type="RGBMatrix" Name="AAA">
-   <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="0" Duration="63"/>
+   <Speed FadeIn="0" FadeOut="0" Duration="29"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
    <Algorithm Type="Script">Audio Aurora</Algorithm>
@@ -1324,6 +1323,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>2</Frequency>
@@ -1346,6 +1346,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>2</Frequency>
@@ -1525,6 +1526,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>2</Frequency>
@@ -1554,6 +1556,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>2</Frequency>
@@ -1583,6 +1586,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>3</Frequency>
@@ -1612,6 +1616,7 @@
    <Rotation>0</Rotation>
    <StartOffset>0</StartOffset>
    <IsRelative>0</IsRelative>
+   <DimmerControl>0</DimmerControl>
    <Axis Name="X">
     <Offset>127</Offset>
     <Frequency>2</Frequency>
@@ -1661,10 +1666,13 @@
    <RunOrder>SingleShot</RunOrder>
    <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2024_08/Cloonee - Fine Night (Original Mix) 2023 [128 Gb Minor].mp3</Source>
   </Function>
-  <Function ID="83" Type="Show" Name="Benny Benassi, Andro, The Biz, Zamna Soundsystem - Satisfaction" Path="Songs" LastPlayed="2026-06-24T23:02:46">
-   <TimeDivision Type="Time" BPM="120"/>
+  <Function ID="83" Type="Show" Name="Benny Benassi, Andro, The Biz, Zamna Soundsystem - Satisfaction" Path="Songs" LastPlayed="2026-07-04T10:58:55">
+   <TimeDivision Type="VDJBeat" BPM="120"/>
    <Track ID="0" Name="Audio" isMute="0">
     <ShowFunction ID="82" StartTime="0" Duration="360262" Color="#608053"/>
+   </Track>
+   <Track ID="1" Name="Track 2" isMute="0">
+    <ShowFunction ID="38" StartTime="0" Duration="75021" Color="#659b9b"/>
    </Track>
   </Function>
   <Function ID="84" Type="Audio" Name="Adapter - Kattapult (James Hype Edit) (Extended Mix) 2024 [128 F Major].mp3" Path="Songs">
@@ -1955,7 +1963,7 @@
    <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Afrojack ft Eva Simons - Take Over Control (Nitefreak Remix) (Extended Mix).mp3</Source>
   </Function>
   <Function ID="134" Type="Show" Name="Afrojack feat. Eva Simons - Take Over Control (Nitefreak Remix)" Path="Songs">
-   <TimeDivision Type="Time" BPM="120"/>
+   <TimeDivision Type="VDJBeat" BPM="120"/>
    <Track ID="0" Name="Audio" isMute="0">
     <ShowFunction ID="133" StartTime="0" Duration="414796" Color="#608053"/>
    </Track>
@@ -2032,10 +2040,11 @@
    <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-06hh/Mau P - Drugs From Amsterdam (Reinier Zonneveld Remix) (Extended Mix).mp3</Source>
   </Function>
   <Function ID="148" Type="Show" Name="Mau P - Drugs From Amsterdam (Reinier Zonneveld Remix)" Path="Songs">
-   <TimeDivision Type="Time" BPM="120"/>
+   <TimeDivision Type="VDJBeat" BPM="120"/>
    <Track ID="0" Name="Audio" isMute="0">
     <ShowFunction ID="147" StartTime="0" Duration="371749" Color="#608053"/>
    </Track>
+   <Track ID="1" Name="Track 2" isMute="0"/>
   </Function>
   <Function ID="149" Type="Audio" Name="Deborah De Luca &amp; Robert Miles - Children (Extended Mix).mp3" Path="Songs">
    <Speed FadeIn="0" FadeOut="0" Duration="343111"/>
@@ -3494,6 +3503,10 @@
      <ShowEnableButton>True</ShowEnableButton>
      <Collapsed>False</Collapsed>
      <Disabled>False</Disabled>
+     <Matrix Caption="OVERLAY" ID="14">
+      <WindowState Visible="True" X="15" Y="45" Width="350" Height="152"/>
+      <Function ID="40" InstantApply="true"/>
+     </Matrix>
      <Button Caption="BG" ID="20">
       <WindowState Visible="True" X="563" Y="533" Width="86" Height="86"/>
       <Appearance>
@@ -3547,10 +3560,6 @@
      <Matrix Caption="A1" ID="15">
       <WindowState Visible="True" X="380" Y="45" Width="396" Height="152"/>
       <Function ID="42" InstantApply="true"/>
-     </Matrix>
-     <Matrix Caption="OVERLAY" ID="14">
-      <WindowState Visible="True" X="15" Y="45" Width="350" Height="152"/>
-      <Function ID="40" InstantApply="true"/>
      </Matrix>
     </Frame>
    </SoloFrame>

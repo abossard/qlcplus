@@ -176,7 +176,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
     const key = addrKey(fx.universe, absAddr);
     const ws = useVCStore.getState().wsClient;
     // QLC+ sdResetChannel uses 1-based addresses.
-    ws?.send(`QLC+API|sdResetChannel|${absAddr + 1}`);
+    ws?.send(`QLC+API|sdResetChannel|${fx.universe * 512 + absAddr + 1}`);
     const heldChannels = new Set(state.heldChannels);
     heldChannels.delete(key);
     const pendingWrites = new Map(state.pendingWrites);
@@ -267,10 +267,11 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
     for (const [key, value] of state.pendingWrites) {
       const colon = key.indexOf(':');
       if (colon < 0) continue;
+      const universe = parseInt(key.slice(0, colon), 10);
       const addr = parseInt(key.slice(colon + 1), 10);
-      if (!Number.isFinite(addr)) continue;
+      if (!Number.isFinite(universe) || !Number.isFinite(addr)) continue;
       // QLC+ Simple Desk CH| protocol uses 1-based addresses.
-      ws?.send(`CH|${addr + 1}|${value}`);
+      ws?.send(`CH|${universe * 512 + addr + 1}|${value}`);
     }
     set({ pendingWrites: new Map() });
   },

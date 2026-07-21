@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDmxStore } from '../store/dmx-store';
+import { useVCStore } from '../store/vc-store';
 import FixturePanel from '../components/dmx/FixturePanel';
 import type { FixtureInfo } from '../lib/dmx-types';
 
@@ -42,6 +43,7 @@ function persistCollapsed(set: Set<number>) {
 }
 
 export default function DmxView() {
+  const connected = useVCStore(s => s.connected);
   const fixtures = useDmxStore(s => s.fixtures);
   const loading = useDmxStore(s => s.loading);
   const error = useDmxStore(s => s.error);
@@ -59,13 +61,14 @@ export default function DmxView() {
   }, [loadFixtures]);
 
   useEffect(() => {
+    if (!connected) return;
     const detach = attachWS();
     return () => detach();
-  }, [attachWS]);
+  }, [attachWS, connected]);
 
   useEffect(() => {
     const ids = Array.from(fixtures.keys());
-    if (!ids.length) return;
+    if (!connected || !ids.length) return;
     subscribeFixtures(ids);
     // Send periodic heartbeats to prevent 30s timeout cleanup.
     const hbInterval = setInterval(() => {
@@ -82,7 +85,7 @@ export default function DmxView() {
       document.removeEventListener('visibilitychange', onVisible);
       unsubscribeFixtures(ids);
     };
-  }, [fixtures, subscribeFixtures, unsubscribeFixtures]);
+  }, [connected, fixtures, subscribeFixtures, unsubscribeFixtures]);
 
   const toggleUniverse = useCallback((u: number) => {
     setCollapsedUniverses(prev => {

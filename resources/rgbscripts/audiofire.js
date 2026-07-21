@@ -31,14 +31,14 @@ var testAlgo;
 
     algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
     algo.properties.push("name:color_shift|type:float|display:Color Shift|write:setColorShift|read:getColorShift");
-    algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
+    algo.properties.push("name:intensity|type:range|display:Intensity|values:1,64|write:setIntensity|read:getIntensity");
     algo.properties.push("name:fade_chance|type:float|display:Fade Chance|write:setFadeChance|read:getFadeChance");
 
     algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
     algo.getSpeed = function() { return algo.speed; };
     algo.setColorShift = function(v) { algo.color_shift = parseFloat(v); };
     algo.getColorShift = function() { return algo.color_shift; };
-    algo.setIntensity = function(v) { algo.intensity = parseFloat(v); };
+    algo.setIntensity = function(v) { algo.intensity = parseInt(v, 10); };
     algo.getIntensity = function() { return algo.intensity; };
     algo.setFadeChance = function(v) { algo.fade_chance = parseFloat(v); };
     algo.getFadeChance = function() { return algo.fade_chance; };

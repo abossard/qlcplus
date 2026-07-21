@@ -31,8 +31,8 @@ var testAlgo;
 
     algo.presetRules = "30,90,110,150";
     algo.properties.push(
-      "name:presetRules|type:list|display:Rule Pool|" +
-      "values:30,90,110,150;30,30,30,30;All|write:setRules|read:getRules");
+      "name:presetRules|type:string|display:Rule Pool|" +
+      "write:setRules|read:getRules");
     algo.setRules = function(_v) {
       algo.presetRules = _v;
       algo.rulePoolCache = null;

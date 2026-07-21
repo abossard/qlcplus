@@ -88,9 +88,10 @@ var testAlgo;
     };
 
     util.getRawColor = function (idx) {
-      idx = idx % util.colorArray.length;
-      var color = util.colorArray[idx];
-      return color;
+      var colors = (algo.presetIndex === 0 && Array.isArray(algo.colors) && algo.colors.length > 0)
+        ? algo.colors : util.colorArray;
+      if (colors.length === 0) return {h: 0, s: 0, v: 0};
+      return colors[idx % colors.length] || {h: 0, s: 0, v: 0};
     }
 
     algo.setPreset = function(_preset)

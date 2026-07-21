@@ -15,6 +15,80 @@ async function loadApp(page: Page) {
   await page.locator('.fixture-panel').first().waitFor({ timeout: 15_000 });
 }
 
+async function setFunctionStatus(page: Page, functionId: number, running: boolean) {
+  await page.evaluate(
+    ([id, status]) => new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(`ws://${window.location.host}/qlcplusWS`);
+      const expected = status ? 'Running' : 'Stopped';
+      let poll = 0;
+      const timeout = window.setTimeout(() => {
+        window.clearInterval(poll);
+        socket.close();
+        reject(new Error(`Function ${id} did not become ${expected}`));
+      }, 5_000);
+      socket.onopen = () => {
+        socket.send(`QLC+API|setFunctionStatus|${id}|${status ? 1 : 0}`);
+        const requestStatus = () => socket.send(`QLC+API|getFunctionStatus|${id}`);
+        requestStatus();
+        poll = window.setInterval(requestStatus, 50);
+      };
+      socket.onmessage = event => {
+        if (String(event.data) !== `QLC+API|getFunctionStatus|${expected}`) return;
+        window.clearTimeout(timeout);
+        window.clearInterval(poll);
+        socket.close();
+        resolve();
+      };
+      socket.onerror = () => {
+        window.clearTimeout(timeout);
+        window.clearInterval(poll);
+        reject(new Error('Unable to connect to the QLC+ WebSocket'));
+      };
+    }),
+    [functionId, running] as const,
+  );
+}
+
+async function sendWebAccessCommand(page: Page, command: string) {
+  await page.evaluate(
+    cmd => new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(`ws://${window.location.host}/qlcplusWS`);
+      socket.onopen = () => {
+        socket.send(cmd);
+        socket.close();
+        resolve();
+      };
+      socket.onerror = () => reject(new Error('Unable to connect to the QLC+ WebSocket'));
+    }),
+    command,
+  );
+}
+
+async function resetChannelAndWait(page: Page, absoluteChannel: number) {
+  await page.evaluate(
+    channel => new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(`ws://${window.location.host}/qlcplusWS`);
+      const timeout = window.setTimeout(() => {
+        socket.close();
+        reject(new Error(`Reset ${channel} was not acknowledged`));
+      }, 5_000);
+      socket.onopen = () =>
+        socket.send(`QLC+API|sdResetChannel|${channel}`);
+      socket.onmessage = event => {
+        if (!String(event.data).startsWith('QLC+API|getChannelsValues|')) return;
+        window.clearTimeout(timeout);
+        socket.close();
+        resolve();
+      };
+      socket.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error('Unable to connect to the QLC+ WebSocket'));
+      };
+    }),
+    absoluteChannel,
+  );
+}
+
 // Dispatch synthetic pointer events on a fader track. Stubs setPointerCapture
 // because synthetic PointerEvents have no active pointer state, which would
 // otherwise cause React's onPointerDown handler to throw before updating state.
@@ -603,27 +677,82 @@ test.describe('DMX Panel — Fader Drag', () => {
 // 12. Reset fixture
 // ---------------------------------------------------------------------------
 test.describe('DMX Panel — Reset', () => {
-  test('reset button is clickable and sends reset command', async ({ page }) => {
+  test('reset releases the override and restores the underlying DMX value', async ({ page }) => {
+    await page.addInitScript(() => {
+      const messages: string[] = [];
+      (window as any).__qlcSentMessages = messages;
+      const send = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (data) {
+        messages.push(String(data));
+        return send.call(this, data);
+      };
+    });
     await loadApp(page);
-    const hero = page.locator('.fixture-panel', { hasText: 'HERO' }).first();
-    const track = hero.locator('.dimmer-fader:not(.readonly) .cf-track').first();
+    const fixture = page.locator('.fixture-panel', { hasText: 'WLED - Row 1' }).first();
+    const rawToggle = fixture.locator('.rc-toggle');
+    if ((await rawToggle.getAttribute('aria-expanded')) !== 'true') {
+      await rawToggle.click();
+    }
+    const track = fixture.locator('.rc-grid .cf-track[aria-label="Red 1"]').first();
     await expect(track).toBeVisible({ timeout: 5_000 });
     await track.scrollIntoViewIfNeeded();
 
-    // Set high value via helper that stubs setPointerCapture.
-    await pointerClickAt(track, 0.025);
-    // Poll for stable high value (WS echo can briefly override).
-    await expect.poll(
-      async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
-      { timeout: 3_000, intervals: [50, 100, 200] }
-    ).toBeGreaterThan(100);
-    const valueBefore = Number(await track.getAttribute('aria-valuenow'));
+    const underlyingValue = 255;
+    const overrideValue = 64;
+    try {
+      await setFunctionStatus(page, 1, true);
+      await expect.poll(
+        async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
+        { timeout: 5_000, intervals: [25, 50, 100] },
+      ).toBe(underlyingValue);
 
-    await hero.locator('.fp-reset').click();
+      // Universe 2, channel 1 => absolute one-based channel 513.
+      await sendWebAccessCommand(page, `CH|513|${overrideValue}`);
+      await expect.poll(
+        async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
+        { timeout: 3_000, intervals: [25, 50, 100] },
+      ).toBe(overrideValue);
 
-    await expect.poll(
-      async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
-      { timeout: 5_000 }
-    ).toBeLessThan(valueBefore);
+      await fixture.locator('.fp-reset').click();
+      await expect.poll(
+        () => page.evaluate(() =>
+          (window as any).__qlcSentMessages.includes('QLC+API|sdResetChannel|513')),
+        { timeout: 2_000, intervals: [10, 25, 50] },
+      ).toBeTruthy();
+      await expect.poll(
+        async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
+        { timeout: 5_000, intervals: [25, 50, 100] },
+      ).toBe(underlyingValue);
+    } finally {
+      await setFunctionStatus(page, 1, false);
+    }
+  });
+
+  test('invalid reset address leaves a seeded valid channel unchanged', async ({ page }) => {
+    await loadApp(page);
+    const fixture = page.locator('.fixture-panel', { hasText: 'WLED - Row 1' }).first();
+    const rawToggle = fixture.locator('.rc-toggle');
+    if ((await rawToggle.getAttribute('aria-expanded')) !== 'true') {
+      await rawToggle.click();
+    }
+    const track = fixture.locator('.rc-grid .cf-track[aria-label="Red 1"]').first();
+    await expect(track).toBeVisible({ timeout: 5_000 });
+
+    const seededValue = 64;
+    await setFunctionStatus(page, 1, true);
+    try {
+      await sendWebAccessCommand(page, `CH|513|${seededValue}`);
+      await expect.poll(
+        async () => Number(await track.getAttribute('aria-valuenow') ?? '0'),
+        { timeout: 3_000, intervals: [25, 50, 100] },
+      ).toBe(seededValue);
+
+      await resetChannelAndWait(page, 999_999);
+      await expect(track).toHaveAttribute('aria-valuenow', String(seededValue));
+      console.log(`Invalid reset 999999 preserved channel 513 at ${seededValue}`);
+    } finally {
+      await resetChannelAndWait(page, 513);
+      await setFunctionStatus(page, 1, false);
+    }
   });
 });

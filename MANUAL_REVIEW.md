@@ -865,6 +865,53 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 
 ---
 
+## 19. Upstream merge — controls, fixture editor, and desktop UX (July 2026)
+
+**Context:** Merged 28 upstream commits through `187b779fd`. WebAccess escaping/upload hardening is covered by `webaccessescaping_test`, `webaccessupload_test`, and the smoke suite; fixture additions are covered by schema validation. The items below require hardware, visual inspection, or interaction with the running QML UI.
+
+### 19.1 Fixture-group cycling shortcut [LOW RISK]
+
+- ☐ Create at least three fixture groups, select unrelated fixtures, then press **Ctrl+Tab** repeatedly → each press clears the old selection and selects the next complete group
+- ☐ Continue past the last group → selection wraps to the first group; with no groups, the shortcut is a no-op
+
+### 19.2 Speed Dial TAP controls global BPM [MEDIUM RISK]
+
+- ☐ Show the TAP control on a Speed Dial → the **Tap button controls the global BPM rate** option appears; hide TAP → the option is hidden
+- ☐ Enable the option and tap near 120 BPM → the global BPM value settles near 120 while the Speed Dial time still follows the taps
+- ☐ Disable the option and tap a different tempo → the Speed Dial changes but the global BPM does not
+- ☐ Save and reload → the option persists; a TAP-only widget uses the full available width
+
+### 19.3 MIDI encoder, XYPad feedback, and slider modes [MIDI] [MEDIUM RISK]
+
+- ☐ Map relative encoders to XYPad pan/tilt, move the pad from the UI or a preset, then turn one encoder step → movement continues from the visible position without jumping from zero
+- ☐ Move the XYPad from UI, preset, and undo/redo → controller feedback follows without feedback loops, jitter, or reversed direction
+- ☐ Switch a VC Slider through Level, Adjust, Submaster, and Grand Master → monitoring/override state is cleared where unavailable and no stale active faders remain
+- ☐ Assign a function to a non-Adjust slider → it switches to Adjust and controls the selected function
+
+### 19.4 Fixture Editor aliases [MEDIUM RISK]
+
+- ☐ Open a fixture definition with an Alias capability → the Aliases section lists it with the correct capability range and alias count
+- ☐ Add, edit, and remove aliases; use **Apply to all modes** → mode/channel choices update immediately, duplicates are not created, and invalid references show a warning
+- ☐ Save and reopen the definition → aliases and counts persist; deleting/renaming referenced channels or modes refreshes the list without stale rows
+
+### 19.5 Simple Desk scroll restoration [LOW RISK]
+
+- ☐ Scroll far across Simple Desk channels, switch to another main view, then return → the first visible channel is restored instead of jumping to the beginning
+- ☐ Repeat after resizing the window and with a short channel list → restoration stays in bounds and the list remains usable
+
+### 19.6 Off-screen window geometry recovery [LOW RISK]
+
+- ☐ Close QLC+ on a secondary display, disconnect that display, then relaunch → the window is centered and reachable on an available display
+- ☐ Relaunch with the same display layout → a valid saved position and size are preserved
+
+### 19.7 Full color tool and animation preset creation [LOW RISK]
+
+- ☐ With UI scaling above 100%, drag across the full color picker → the selected color remains under the pointer and the preview updates continuously
+- ☐ Enter R/G/B values manually → picker preview and emitted color stay synchronized; palette editing exposes White, Amber, and UV controls
+- ☐ Add a VCAnimation color preset with the full picker, drag through several colors, then close → exactly one preset is created using the final color
+
+---
+
 ## 14. Sign-off
 
 | Area                          | Tester | Date | Pass / Fail | Notes |
@@ -893,9 +940,61 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 | July 2026 merge — XYPad ranges (UI ↔ MCP) |    |      |             | §17.1 conflict-resolution area — both surfaces must agree |
 | July 2026 merge — EFX dimmer / slider catch-up / video | | |       | §17.2–17.6 |
 | VDJ Beat time division          |        |      |             | §18 — grid accuracy, POI markers, snapping |
+| July 2026 merge — controls / aliases / desktop UX | | |          | §19 — shortcuts, TAP BPM, MIDI feedback, Fixture Editor, geometry |
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 
 ---
 
 *Last updated: split from the full test plan — automated checks now live in `scripts/smoke-test.sh`, the `engine/test/beatquantize` + `mcp/test/*` unit tests, and `webaccess/web-dmx/e2e/` Playwright suites. This document covers only items that require human judgement.*
+
+---
+
+## 20. July 2026 upstream merge — QML interaction and platform review
+
+**Context:** Automated builds, native/browser suites, fixture validation, and legacy `LightItem` XML compatibility run before this section. These checks are limited to interaction quality, visual state, language review, or unavailable target platforms.
+
+### 20.1 Virtual Console distribution and cut/paste [MEDIUM RISK]
+
+- ☐ Select three or more differently sized widgets and distribute horizontally, then vertically → the outermost widget boundaries do not move and every interior gap is visually equal
+- ☐ Cut a frame and attempt to paste into that same frame, then repeat with an outer frame targeting one of its nested frames → no self/ancestor copy is created, the hierarchy remains intact, and no widget disappears
+- ☐ Complete a valid cut/paste between unrelated frames → source widgets are removed exactly once, pasted widgets retain their children, and the clipboard count resets to zero; a later Paste does nothing
+
+### 20.2 Function and widget drag feedback [LOW RISK]
+
+- ☐ Drag each VC widget type from the widget list at several grab points → the reduced icon stays centered under the pointer and drops on the intended frame/location
+- ☐ Drag single and multiple function rows into compatible editors/widgets → the drag preview stays centered after leaving the source row and the correct functions are added
+
+### 20.3 Editor undo and folder-open chaser steps [MEDIUM RISK]
+
+- ☐ Create a function, leave its editor open, then undo creation → the editor closes to the function list without a stale preview, timer activity, or crash
+- ☐ In a Chaser editor, open a function folder/tree while adding a step → the embedded tree remains non-editing and one correct chaser step is added
+
+### 20.4 3D stage reload and legacy beam origin (visual) [MEDIUM RISK]
+
+- ☐ Load workspaces using different 3D stage types in succession → the stage mesh and selector both refresh to each loaded workspace without retaining the previous stage
+- ☐ Load a legacy workspace containing monitor `<LightItem>` beam-origin metadata → fixture beams originate from the same visible offsets as after saving/reloading the canonical `<LightEmitter>` form
+
+### 20.5 PIN Return and cue-list signals [LOW RISK]
+
+- ☐ Enter a valid and invalid PIN by pressing **Return** in the PIN field → Return follows the same accept/validation path as the dialog button, with no double submission
+- ☐ Add functions to a cue list at a chosen insertion index, then press **Enter** on a selected cue → functions are inserted at that index and only the current step plays
+
+### 20.6 Translation review (language)
+
+- ☐ Review the changed Catalan, Spanish, German, and Japanese strings in their corresponding QML, classic UI, Fixture Editor, and WebAccess surfaces → text is accurate, fits controls, and contains no broken placeholders or accelerators
+
+### 20.7 Android package metadata (Android platform)
+
+- ☐ Build/install the Android target on a clean device or emulator → package ID is `org.qlcplus.android`, version code is `1`, the launcher icon/name are correct, and install/upgrade behavior matches the intentional package reset
+
+### 20.8 Merge sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| VC distribution and cut/paste | | | | §20.1 |
+| Function/widget drag and editor lifecycle | | | | §20.2–20.3 |
+| 3D reload and beam origin | | | | §20.4 |
+| PIN and cue-list interaction | | | | §20.5 |
+| Translations | | | | §20.6 |
+| Android package metadata | | | | §20.7 |

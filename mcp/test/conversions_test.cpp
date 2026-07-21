@@ -23,19 +23,8 @@ namespace {
 
 QString timeUtilsPath()
 {
-    const QStringList candidates = {
-        QCoreApplication::applicationDirPath() + QStringLiteral("/../../../qmlui/js/TimeUtils.js"),
-        QDir::currentPath() + QStringLiteral("/../qmlui/js/TimeUtils.js"),
-        QDir::currentPath() + QStringLiteral("/qmlui/js/TimeUtils.js")
-    };
-
-    for (const QString &candidate : candidates)
-    {
-        if (QFile::exists(candidate))
-            return candidate;
-    }
-
-    return QString();
+    const QString path = QStringLiteral(TIME_UTILS_SOURCE_PATH);
+    return QFile::exists(path) ? path : QString();
 }
 
 QJSValue evaluateTimeUtils(QJSEngine &engine, const QString &path)

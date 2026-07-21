@@ -188,21 +188,30 @@ void MasterTimer_Test::interval()
     mt->registerDMXSource(&dss);
     QVERIFY(mt->m_dmxSourceList.size() == 1);
 
-    /* Wait for one second */
-    QTest::qWait(1000);
-
-#ifndef SKIP_TEST
-    /* It's not guaranteed that context switch happens exactly after 50
-       cycles, so we just have to estimate here... */
-    QVERIFY(fs.m_writeCalls >= 49 && fs.m_writeCalls <= 51);
-    QVERIFY(dss.m_writeCalls >= 49 && dss.m_writeCalls <= 51);
-#endif
+    const int expectedWrites = int(MasterTimer::frequency());
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while ((fs.m_writeCalls < expectedWrites ||
+            dss.m_writeCalls < expectedWrites) &&
+           elapsed.elapsed() < 2000)
+    {
+        QTest::qWait(5);
+    }
+    const int functionWrites = fs.m_writeCalls;
+    const int sourceWrites = dss.m_writeCalls;
+    const qint64 writeDuration = elapsed.elapsed();
 
     fs.stop(FunctionParent::master());
-    QTest::qWait(1000);
-    QVERIFY(mt->runningFunctions() == 0);
-
+    elapsed.restart();
+    while (mt->runningFunctions() != 0 && elapsed.elapsed() < 1000)
+        QTest::qWait(5);
     mt->unregisterDMXSource(&dss);
+    mt->stop();
+
+    QVERIFY(functionWrites >= expectedWrites);
+    QVERIFY(sourceWrites >= expectedWrites);
+    QVERIFY(writeDuration >= qint64(expectedWrites - 1) * MasterTimer::tick());
+    QVERIFY(mt->runningFunctions() == 0);
     QVERIFY(mt->m_dmxSourceList.size() == 0);
 }
 

@@ -45,9 +45,15 @@ test.describe('Manual Review Runner', () => {
   // ── Pass / Fail / Skip via button clicks ──
 
   test('user clicks Pass button on a check item', async ({ page }) => {
+    const progress = page.locator('#progress-text');
+    const before = await progress.textContent();
+    const total = Number(before?.match(/\((\d+) items\)/)?.[1] ?? 0);
+    expect(total).toBeGreaterThan(100);
+
     await page.locator('[title="Pass (p)"]').first().click();
-    await expect(page.locator('#progress-text')).toContainText('1✅');
-    await expect(page.locator('#progress-text')).not.toContainText('0%');
+    await expect(progress).toContainText('1✅');
+    await expect(progress).toContainText('— 1% complete');
+    console.log(`Manual progress floor: total=${total}, display="${await progress.textContent()}"`);
   });
 
   test('user clicks Fail button on a check item', async ({ page }) => {

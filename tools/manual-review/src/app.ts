@@ -474,7 +474,8 @@ function scrollToElement(id: string) {
 
 function updateProgress() {
   const stats = computeStats(plan, session);
-  const pct = stats.total > 0 ? Math.round(((stats.total - stats.pending) / stats.total) * 100) : 0;
+  const completed = stats.total - stats.pending;
+  const pct = completed > 0 ? Math.max(1, Math.round((completed / stats.total) * 100)) : 0;
 
   const bar = document.getElementById('progress-bar')!;
   bar.style.width = `${pct}%`;

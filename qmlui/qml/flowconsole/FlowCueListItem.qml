@@ -93,10 +93,18 @@ FlowWidgetItem
             nextIndex: sideFaderMode === VCCueList.Crossfade && cueListObj ? cueListObj.nextStepIndex : -1
             isRunning: playbackStatus === VCCueList.Playing
 
-            onIndexChanged: if (cueListObj) cueListObj.playbackIndex = index
-            onNoteTextChanged: if (cueListObj) cueListObj.setStepNote(index, text)
-            onAddFunctions: if (cueListObj) cueListObj.addFunctions(list, index)
-            onEnterPressed: if (cueListObj) cueListObj.playCurrentStep()
+            onIndexChanged: (index) => {
+                if (cueListObj) cueListObj.playbackIndex = index
+            }
+            onNoteTextChanged: (index, text) => {
+                if (cueListObj) cueListObj.setStepNote(index, text)
+            }
+            onAddFunctions: (list, index) => {
+                if (cueListObj) cueListObj.addFunctions(list, index)
+            }
+            onEnterPressed: (index) => {
+                if (cueListObj) cueListObj.playCurrentStep()
+            }
         }
 
         Row

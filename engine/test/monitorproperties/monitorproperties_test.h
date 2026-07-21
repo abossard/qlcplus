@@ -30,6 +30,7 @@ private slots:
     void defaults();
     void fixtureItems();
     void lightItems();
+    void lightItemsXML_data();
     void lightItemsXML();
     void genericItems();
     void reset();

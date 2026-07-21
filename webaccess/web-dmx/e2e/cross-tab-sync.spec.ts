@@ -9,20 +9,19 @@ import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 const APP_URL = '/vc/';
 
 async function loadDmxTab(page: Page) {
+  let sawInitialDmxState = false;
+  page.on('websocket', ws => {
+    ws.on('framereceived', ({ payload }) => {
+      if (typeof payload === 'string' && payload.includes('"cmd":"DMX_STATE"'))
+        sawInitialDmxState = true;
+    });
+  });
   await page.goto(APP_URL);
   // DMX is the only view — wait for it to render directly.
   await page.waitForSelector('.dmx-view', { timeout: 10_000 });
   await page.locator('.fixture-panel').first().waitFor({ timeout: 15_000 });
-  // Wait for the WS connection to establish and DMX_SUB to fire.
-  // The status should show "Live" once connected.
-  await page.waitForFunction(
-    () => document.querySelector('.status-text')?.textContent === 'Live',
-    { timeout: 10_000 },
-  ).catch(() => {
-    // If it doesn't go Live, that's OK — Demo Mode also works for local state.
-  });
-  // Give the DMX subscription time to complete.
-  await page.waitForTimeout(1500);
+  await expect(page.locator('.status-text')).toHaveText('Live', { timeout: 10_000 });
+  await expect.poll(() => sawInitialDmxState, { timeout: 10_000 }).toBe(true);
 }
 
 // Read the aria-valuenow from the HERO dimmer fader.
@@ -68,6 +67,31 @@ async function clickFaderAt(page: Page, verticalPct: number) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+test('a cached-module cold tab applies its initial DMX subscription snapshot', async ({ browser }) => {
+  const context = await browser.newContext();
+  const seedPage = await context.newPage();
+  await loadDmxTab(seedPage);
+  await clickFaderAt(seedPage, 0.1);
+  await expect.poll(() => readFirstFaderValue(seedPage), { timeout: 3_000 })
+    .toBeGreaterThan(200);
+  await seedPage.close();
+
+  const coldPage = await context.newPage();
+  await coldPage.routeWebSocket(/\/qlcplusWS$/, async ws => {
+    // Force fixture loading to win the startup race against WebSocket open.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    ws.connectToServer();
+  });
+  await coldPage.goto(APP_URL);
+  await coldPage.waitForSelector('.dmx-view', { timeout: 10_000 });
+  await coldPage.locator('.fixture-panel').first().waitFor({ timeout: 15_000 });
+  await expect(coldPage.locator('.status-text')).toHaveText('Live', { timeout: 10_000 });
+  await expect.poll(() => readFirstFaderValue(coldPage), { timeout: 3_000 })
+    .toBeGreaterThan(200);
+
+  await context.close();
+});
+
 test.describe('Cross-Tab DMX Sync', () => {
   let context: BrowserContext;
   let tabA: Page;

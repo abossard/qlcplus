@@ -751,14 +751,14 @@ void CueStack_Test::switchCue()
     QCOMPARE(fader->channels()[chHash].channel(), uint(1));
     QCOMPARE(fader->channels()[chHash].fadeTime(), uint(20));
 
-    chHash = GenericFader::channelHash(fxi->id(), 0);
+    chHash = GenericFader::channelHash(Fixture::invalidId(), 10);
     QCOMPARE(fader->channels()[chHash].start(), uchar(0));
     QCOMPARE(fader->channels()[chHash].current(), uchar(0));
     QCOMPARE(fader->channels()[chHash].target(), uchar(255));
     QCOMPARE(fader->channels()[chHash].channel(), uint(0));
     QCOMPARE(fader->channels()[chHash].fadeTime(), uint(20));
 
-    chHash = GenericFader::channelHash(fxi->id(), 1);
+    chHash = GenericFader::channelHash(Fixture::invalidId(), 11);
     QCOMPARE(fader->channels()[chHash].start(), uchar(0));
     QCOMPARE(fader->channels()[chHash].current(), uchar(0));
     QCOMPARE(fader->channels()[chHash].target(), uchar(255));
@@ -781,9 +781,9 @@ void CueStack_Test::switchCue()
     fader->m_channels[chHash].setCurrent(127);
     chHash = GenericFader::channelHash(Fixture::invalidId(), 1);
     fader->m_channels[chHash].setCurrent(127);
-    chHash = GenericFader::channelHash(fxi->id(), 0);
+    chHash = GenericFader::channelHash(Fixture::invalidId(), 10);
     fader->m_channels[chHash].setCurrent(127);
-    chHash = GenericFader::channelHash(fxi->id(), 1);
+    chHash = GenericFader::channelHash(Fixture::invalidId(), 11);
     fader->m_channels[chHash].setCurrent(127);
     chHash = GenericFader::channelHash(Fixture::invalidId(), 500);
     fader->m_channels[chHash].setCurrent(127);
@@ -809,7 +809,7 @@ void CueStack_Test::switchCue()
     QCOMPARE(fader->channels()[chHash].channel(), uint(1));
     QCOMPARE(fader->channels()[chHash].fadeTime(), uint(40));
 
-    chHash = GenericFader::channelHash(fxi->id(), 1); // LTP channel also in the next cue
+    chHash = GenericFader::channelHash(Fixture::invalidId(), 11); // LTP channel also in the next cue
     QCOMPARE(fader->channels()[chHash].start(), uchar(127));
     QCOMPARE(fader->channels()[chHash].current(), uchar(127));
     QCOMPARE(fader->channels()[chHash].target(), uchar(255));
@@ -971,4 +971,4 @@ void CueStack_Test::write()
     cs.postRun(m_doc->masterTimer(), m_doc->inputOutputMap()->universes());
 }
 
-QTEST_APPLESS_MAIN(CueStack_Test)
+QTEST_GUILESS_MAIN(CueStack_Test)

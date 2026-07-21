@@ -30,6 +30,41 @@
 
 #include "doc.h"
 
+namespace {
+
+bool loadSerializedFont(RGBText &text, const QString &serialized)
+{
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly | QIODevice::Text);
+    QXmlStreamWriter writer(&buffer);
+    writer.writeStartElement("Algorithm");
+    writer.writeAttribute("Type", "Text");
+    writer.writeTextElement("Font", serialized);
+    writer.writeEndDocument();
+    buffer.close();
+
+    buffer.open(QIODevice::ReadOnly | QIODevice::Text);
+    QXmlStreamReader reader(&buffer);
+    reader.readNextStartElement();
+    return text.loadXML(reader);
+}
+
+void compareFontSemantics(const QFont &actual, const QFont &expected)
+{
+    QCOMPARE(actual.family(), expected.family());
+    QCOMPARE(actual.styleName(), expected.styleName());
+    QCOMPARE(actual.pointSizeF(), expected.pointSizeF());
+    QCOMPARE(actual.pixelSize(), expected.pixelSize());
+    QCOMPARE(actual.weight(), expected.weight());
+    QCOMPARE(actual.style(), expected.style());
+    QCOMPARE(actual.underline(), expected.underline());
+    QCOMPARE(actual.strikeOut(), expected.strikeOut());
+    QCOMPARE(actual.fixedPitch(), expected.fixedPitch());
+    QCOMPARE(actual.stretch(), expected.stretch());
+}
+
+}
+
 void RGBText_Test::initTestCase()
 {
     m_doc = new Doc(this);
@@ -242,14 +277,17 @@ void RGBText_Test::load()
     RGBText text(m_doc);
     QVERIFY(text.loadXML(xmlReader) == true);
     QCOMPARE(text.text(), QString("Foobar"));
-    QCOMPARE(text.font(), fn);
+    compareFontSemantics(text.font(), fn);
     QCOMPARE(text.animationStyle(), RGBText::Horizontal);
     QCOMPARE(text.xOffset(), 10);
     QCOMPARE(text.yOffset(), -20);
 
     buffer.close();
     QByteArray bData = buffer.data();
-    bData.replace(fn.toString().toUtf8(), "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z");
+    const QString malformed = "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z";
+    QFont qtParsedFont;
+    const bool qtAcceptedMalformed = qtParsedFont.fromString(malformed);
+    bData.replace(fn.toString().toUtf8(), malformed.toUtf8());
     buffer.setData(bData);
     buffer.open(QIODevice::ReadWrite | QIODevice::Text);
     buffer.seek(0);
@@ -257,7 +295,10 @@ void RGBText_Test::load()
     xmlReader.readNextStartElement();
 
     QVERIFY(text.loadXML(xmlReader) == true);
-    QCOMPARE(text.font(), fn); // Invalid font is ignored by loadXML()
+    if (qtAcceptedMalformed)
+        compareFontSemantics(text.font(), qtParsedFont);
+    else
+        compareFontSemantics(text.font(), fn);
 
     buffer.close();
     bData = buffer.data();
@@ -313,6 +354,52 @@ void RGBText_Test::load()
     xmlReader.readNextStartElement();
 
     QVERIFY(text.loadXML(xmlReader) == false);
+}
+
+void RGBText_Test::fontSerializationCompatibility_data()
+{
+    QTest::addColumn<QString>("serialized");
+    QTest::addColumn<bool>("mustBeAccepted");
+
+    QFont full;
+    full.setFamily("Sans Serif");
+    full.setPixelSize(17);
+    full.setWeight(QFont::DemiBold);
+
+    QTest::newRow("compact-default") << QStringLiteral("Default") << true;
+    QTest::newRow("full-serialization") << full.toString() << true;
+    QTest::newRow("qt-rejected-empty") << QString() << false;
+    QTest::newRow("qt-permissive-malformed")
+        << QStringLiteral("a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z")
+        << false;
+}
+
+void RGBText_Test::fontSerializationCompatibility()
+{
+    QFETCH(QString, serialized);
+    QFETCH(bool, mustBeAccepted);
+
+    QFont qtParsed;
+    const bool qtAccepted = qtParsed.fromString(serialized);
+    if (mustBeAccepted)
+        QVERIFY2(qtAccepted, qPrintable(QString("Qt rejected compatible font form: %1").arg(serialized)));
+
+    RGBText text(m_doc);
+    QFont original;
+    original.setFamily("QLC Original Test Font");
+    original.setPixelSize(23);
+    original.setWeight(QFont::Bold);
+    text.setFont(original);
+
+    QVERIFY(loadSerializedFont(text, serialized));
+    if (qtAccepted)
+        compareFontSemantics(text.font(), qtParsed);
+    else
+        compareFontSemantics(text.font(), original);
+
+    qInfo().noquote() << "Font serialization"
+                      << (serialized.isEmpty() ? QStringLiteral("<empty>") : serialized)
+                      << "QtAccepted=" << qtAccepted;
 }
 
 void RGBText_Test::staticLetters()

@@ -10,6 +10,7 @@
 
 #include <QBuffer>
 #include <QDir>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 
 // shaped like a real VDJ 2023 database (verified against a live install):
@@ -176,13 +177,12 @@ void VdjDatabaseReader_Test::databaseCandidatesIncludeHomeAndDrive()
 {
     const QStringList candidates = VdjDatabaseReader::databaseCandidates("/Music/Artist - Title.mp3");
     QVERIFY(candidates.count() >= 1);
-#ifdef Q_OS_MACOS
     QCOMPARE(candidates.first(),
-             QDir::homePath() + "/Library/Application Support/VirtualDJ/database.xml");
-#else
-    QCOMPARE(candidates.first(), QDir::homePath() + "/Documents/VirtualDJ/database.xml");
-#endif
-    QVERIFY(candidates.contains(QDir::homePath() + "/Documents/VirtualDJ/database.xml"));
+             QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) +
+                 "/VirtualDJ/database.xml");
+    QVERIFY(candidates.contains(
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) +
+            "/VirtualDJ/database.xml"));
 
     for (const QString &c : candidates)
         QVERIFY(c.endsWith("VirtualDJ/database.xml"));

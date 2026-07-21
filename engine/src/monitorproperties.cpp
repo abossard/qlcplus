@@ -47,6 +47,7 @@
 #define KXMLQLCMonitorCustomBgItem      QStringLiteral("BackgroundItem")
 
 #define KXMLQLCMonitorFixtureItem   QStringLiteral("FxItem")
+#define KXMLQLCMonitorLegacyLightItem QStringLiteral("LightItem")
 #define KXMLQLCMonitorLightEmitter  QStringLiteral("LightEmitter")
 #define KXMLQLCMonitorStageItem     QStringLiteral("StageItem")
 #define KXMLQLCMonitorMeshItem      QStringLiteral("MeshItem")
@@ -776,7 +777,8 @@ bool MonitorProperties::loadXML(QXmlStreamReader &root, const Doc *mainDocument)
             root.skipCurrentElement();
 
         }
-        else if (root.name() == KXMLQLCMonitorLightEmitter)
+        else if (root.name() == KXMLQLCMonitorLightEmitter
+                 || root.name() == KXMLQLCMonitorLegacyLightItem)
         {
             if (tAttrs.hasAttribute(KXMLQLCMonitorItemRes) == false)
             {
