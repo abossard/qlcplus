@@ -998,3 +998,39 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 | PIN and cue-list interaction | | | | §20.5 |
 | Translations | | | | §20.6 |
 | Android package metadata | | | | §20.7 |
+
+---
+
+## 21. RGB Matrix music / visual quality
+
+> `node tests/test_audio_scripts.js` owns type, finite/bounded HSV, dimensions,
+> resize, declared-property, reset, and causal-output checks. Do not repeat
+> those mechanical assertions here.
+
+Use a familiar track with distinct low, mid, high, onset, beat, and downbeat
+material. Preview on an asymmetric matrix; repeat the fixture-output item on
+the intended hardware.
+
+### 21.1 Review checks
+
+- ☐ **Visual intent/composition:** Aurora, Plasma, Soap, Reaction-Diffusion,
+  Tunnel, and Vortex form deliberate layers/fields rather than visually
+  arbitrary noise; controls produce artistically useful compositions.
+- ☐ **Causal musical readability:** Energy, Equalizer, Split Tower, Reactor,
+  Fireworks, Puddles, and Shot make the expected band or event readable without
+  needing to watch an analyzer.
+- ☐ **Timing feel:** Buildup's build/drop, Glitch/Strobe hit accents, and
+  Scan/Scan Multi movement feel locked at slow and fast BPM without rushing,
+  dragging, or double-triggering.
+- ☐ **Transitions/continuity:** Melt and Sparkle, Fire, Lava, Water, and the
+  scanner family move and decay continuously; parameter changes do not create
+  distracting visual jumps unless the chosen mode promises a cut/strobe.
+- ☐ **Fixture output [DMX]:** palette hue, contrast, 1D extrusion, transforms,
+  and physical pixel order remain legible on the target fixture; note any
+  hardware-specific banding, clipping, or mapping artifact.
+
+### 21.2 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| RGB Matrix music / visual quality | | | | §21 — intent, causality, timing, continuity, fixture output |

@@ -430,8 +430,8 @@ document.addEventListener('click',e=>{
   if(!editMode){
     const gb=e.target.closest('.gbtn');if(gb){const g=GROUPS.find(x=>x.id===gb.dataset.g);g.on=!g.on;gb.setAttribute('aria-pressed',g.on);refreshExcluded();toast(`${gb.textContent.trim()} ${g.on?'included':'excluded'}`,g.on?'go':'warn');return;}
     const act=e.target.closest('.gb');if(act){doAction(act.dataset.act);return;}
-    const cb=e.target.closest('#sceneCombo');if(cb){$('#sceneCombo').classList.toggle('open');return;}
     const so=e.target.closest('.copt');if(so){curScene=+so.dataset.s;renderScenes();$('#sceneCombo').classList.remove('open');loadScene();return;}
+    const cb=e.target.closest('#sceneCombo');if(cb){$('#sceneCombo').classList.toggle('open');return;}
     if(!e.target.closest('#sceneCombo'))$('#sceneCombo').classList.remove('open');
   }
   // settings channel-group checkboxes

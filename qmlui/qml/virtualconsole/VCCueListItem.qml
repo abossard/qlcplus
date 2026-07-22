@@ -200,9 +200,17 @@ VCWidgetItem
             tempoType: cueListObj ? cueListObj.tempoType : QLCFunction.Time
             isRunning: playbackStatus === VCCueList.Playing ? true : false
 
-            onIndexChanged: if (cueListObj) cueListObj.playbackIndex = index
+            onIndexChanged: (index) =>
+            {
+                if (cueListObj)
+                    cueListObj.playbackIndex = index
+            }
             //onStepValueChanged: chaserEditor.setStepSpeed(index, value, type)
-            onNoteTextChanged: if (cueListObj) cueListObj.setStepNote(index, text)
+            onNoteTextChanged: (index, text) =>
+            {
+                if (cueListObj)
+                    cueListObj.setStepNote(index, text)
+            }
             onAddFunctions: (list, index) =>
             {
                 if (cueListObj) 

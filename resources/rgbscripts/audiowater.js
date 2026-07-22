@@ -139,7 +139,7 @@ var testAlgo;
         var current = (curBuf === 0) ? buf0 : buf1;
         for (var x = 0; x < width; x++) {
             var val = current[x];
-            var h = 1 - 2 * Math.abs(val - 0.5);
+            var h = HSVUtil.triangle(val);
             var vScaled = (val + shift) / (1 + shift);
             var sv = Math.max(0, Math.min(1, 2 - (vScaled + shift)));
             var v = Math.max(0, Math.min(1, vScaled));

@@ -1,6 +1,6 @@
 # QLC+ Audio API v2 Reference
 
-42 audio-reactive RGB scripts. 16 flat properties on the `audio` argument.
+41 audio-reactive RGB scripts. 15 flat properties on the `audio` argument.
 
 ## API Surface
 
@@ -35,20 +35,21 @@ audio = {
 
 | Property | Scripts | Count |
 |----------|---------|-------|
-| `audio.low` | audio_colors, audioaurora, audiobasslaser, audioblocks, audioblurz, audiocellular, audiochaser, audiocrawler, audiodjlight, audioenergy, audioenergy2, audioequalizer, audiofire, audiofireworks, audioflowfield, audioglitch, audioglitch2, audiogravimeter, audiohueshift, audiolava, audiomelt, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscanflare, audioscanmulti, audioshockwave, audiosoap, audiospectrum, audiosplittower, audiotunnel, audiovortex, audiowater | 36 |
-| `audio.dt` | audioaurora, audiobarcode, audioblocks, audioblurz, audiobuildup, audiocellular, audiochaser, audiocrawler, audiodjlight, audioenergy2, audiofire, audioflowfield, audioglitch, audioglitch2, audiogravimeter, audiolava, audiomelt, audiomeltsparkle, audioplasma, audiopuddles, audioreaction, audioreactor, audioscan, audioscanflare, audioscanmulti, audioshockwave, audiosoap, audiostrobe, audiotunnel, audiovortex | 30 |
-| `audio.high` | audio_colors, audioaurora, audiobarcode, audiobasslaser, audioblurz, audiochaser, audiodjlight, audioenergy, audioequalizer, audiofireworks, audioflowfield, audioglitch, audiogravimeter, audiohueshift, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscan, audioscanmulti, audiosoap, audiospectrum, audiosplittower, audiotunnel, audiovortex, audiowater | 28 |
-| `audio.mid` | audio_colors, audioaurora, audioblurz, audiochaser, audiodjlight, audioenergy, audioequalizer, audiofireworks, audioflowfield, audioglitch, audiogravimeter, audiohueshift, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscan, audioscanmulti, audiosoap, audiospectrum, audiosplittower, audiowater | 24 |
+| `audio.low` | audioaurora, audiobasslaser, audioblocks, audioblurz, audiocellular, audiochaser, audiocrawler, audiodjlight, audioenergy, audioenergy2, audioequalizer, audiofire, audiofireworks, audioflowfield, audioglitch, audioglitch2, audiogravimeter, audiohueshift, audiolava, audiomelt, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscanflare, audioscanmulti, audioshockwave, audioshot, audiosoap, audiospectrum, audiosplittower, audiostrobe, audiotunnel, audiovortex, audiowater | 37 |
+| `audio.dt` | audioaurora, audiobarcode, audioblocks, audioblurz, audiobuildup, audiocellular, audiochaser, audiocrawler, audiodjlight, audioenergy, audioenergy2, audiofire, audioflowfield, audioglitch, audioglitch2, audiogravimeter, audiolava, audiomelt, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscan, audioscanflare, audioscanmulti, audioshockwave, audiosoap, audiostrobe, audiotunnel, audiovortex | 32 |
+| `audio.high` | audioaurora, audiobarcode, audiobasslaser, audioblurz, audiochaser, audiodjlight, audioenergy, audioequalizer, audiofireworks, audioflowfield, audioglitch, audiogravimeter, audiohueshift, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscan, audioscanmulti, audioshockwave, audioshot, audiosoap, audiospectrum, audiosplittower, audiostrobe, audiotunnel, audiovortex, audiowater | 30 |
+| `audio.mid` | audioaurora, audioblurz, audiochaser, audiodjlight, audioenergy, audioequalizer, audiofireworks, audioflowfield, audioglitch, audiogravimeter, audiohueshift, audiomeltsparkle, audioplasma, audiopower, audiopuddles, audioreaction, audioreactor, audioscan, audioscanmulti, audioshockwave, audioshot, audiosoap, audiospectrum, audiosplittower, audiostrobe, audiotunnel, audiovortex, audiowater | 28 |
 | `audio.bpm` | audiobarcode, audiobeatcolors, audioblurz, audiocellular, audiochaser, audiofire, audioflowfield, audioglitch, audioglitch2, audiogravimeter, audiomeltsparkle, audiopuddles, audioreaction, audioscan, audioscanflare, audioscanmulti, audioshockwave, audiosoap, audiostrobe | 19 |
 | `audio.beatFired` | audiobasslaser, audiobuildup, audiocellular, audiochaser, audiofireworks, audioflowfield, audioglitch, audiogravimeter, audiopuddles, audioreaction, audioshockwave, audioshot, audiostrobe | 13 |
-| `audio.onset` | audiobarcode, audioglitch, audiomeltsparkle, audiopower, audiopuddles, audioreactor, audioshockwave, audioshot, audiostrobe, audiotunnel, audiovortex | 11 |
-| `audio.onsetIntensity` | audiobarcode, audiobasslaser, audioblurz, audiofireworks, audioglitch, audiopuddles, audioreactor, audioshockwave, audioshot, audiotunnel, audiovortex | 11 |
+| `audio.downbeat` | audiobeatcolors, audiocellular, audiochaser, audioenergy, audioequalizer, audiopower, audioreactor, audioscan, audioscanflare, audioscanmulti, audiotunnel, audiovortex | 12 |
 | `audio.cosPulse` | audioaurora, audiobeatcolors, audiobuildup, audiochaser, audioenergy, audiohueshift, audioreactor, audiosplittower, audiotunnel, audiovortex | 10 |
+| `audio.onset` | audiobarcode, audiofireworks, audioglitch, audiomeltsparkle, audiopower, audiopuddles, audioreactor, audioshockwave, audioshot, audiostrobe | 10 |
+| `audio.onsetIntensity` | audiobarcode, audiobasslaser, audioblurz, audiofireworks, audioglitch, audiopuddles, audioreactor, audioshot | 8 |
 | `audio.beat` | audioblurz, audioequalizer, audioplasma, audiopower, audioscan, audiosoap | 6 |
 | `audio.bass` | audioblurz, audioequalizer, audioplasma, audiopower, audioscan, audiosoap | 6 |
-| `audio.downbeat` | audiobeatcolors, audiocellular, audioequalizer | 3 |
 | `audio.barPhase` | audiobeatcolors, audioreactor | 2 |
 | `audio.phase` | audiobeatcolors | 1 |
+| `audio.version` | — | 0 |
 
 ## Per-Script Summary
 
@@ -62,14 +63,14 @@ audio = {
 | Audio Blurz | `audioblurz.js` | bass, beat, bpm, dt, high, low, mid, onsetIntensity |
 | Audio Buildup | `audiobuildup.js` | beatFired, cosPulse, dt |
 | Audio Cellular | `audiocellular.js` | beatFired, bpm, downbeat, dt, low |
-| Audio Chaser | `audiochaser.js` | beatFired, bpm, cosPulse, dt, high, low, mid |
+| Audio Chaser | `audiochaser.js` | beatFired, bpm, cosPulse, downbeat, dt, high, low, mid |
 | Audio Crawler | `audiocrawler.js` | dt, low |
 | Audio DJ Light | `audiodjlight.js` | dt, high, low, mid |
-| Audio Energy | `audioenergy.js` | cosPulse, high, low, mid |
+| Audio Energy | `audioenergy.js` | cosPulse, downbeat, dt, high, low, mid |
 | Audio Energy 2 | `audioenergy2.js` | dt, low |
 | Audio Equalizer | `audioequalizer.js` | bass, beat, downbeat, high, low, mid |
 | Audio Fire | `audiofire.js` | bpm, dt, low |
-| Audio Fireworks | `audiofireworks.js` | beatFired, high, low, mid, onsetIntensity |
+| Audio Fireworks | `audiofireworks.js` | beatFired, high, low, mid, onset, onsetIntensity |
 | Audio Flow Field | `audioflowfield.js` | beatFired, bpm, dt, high, low, mid |
 | Audio Glitch | `audioglitch.js` | beatFired, bpm, dt, high, low, mid, onset, onsetIntensity |
 | Audio Glitch 2 | `audioglitch2.js` | bpm, dt, low |
@@ -79,21 +80,21 @@ audio = {
 | Audio Melt | `audiomelt.js` | dt, low |
 | Audio Melt and Sparkle | `audiomeltsparkle.js` | bpm, dt, high, low, mid, onset |
 | Audio Plasma | `audioplasma.js` | bass, beat, dt, high, low, mid |
-| Audio Power | `audiopower.js` | bass, beat, high, low, mid, onset |
+| Audio Power | `audiopower.js` | bass, beat, downbeat, dt, high, low, mid, onset |
 | Audio Puddles | `audiopuddles.js` | beatFired, bpm, dt, high, low, mid, onset, onsetIntensity |
 | Audio Reaction-Diffusion | `audioreaction.js` | beatFired, bpm, dt, high, low, mid |
-| Audio Reactor | `audioreactor.js` | barPhase, cosPulse, dt, high, low, mid, onset, onsetIntensity |
-| Audio Scan | `audioscan.js` | bass, beat, bpm, dt, high, mid |
-| Audio Scan and Flare | `audioscanflare.js` | bpm, dt, low |
-| Audio Scan Multi | `audioscanmulti.js` | bpm, dt, high, low, mid |
-| Audio Shockwave | `audioshockwave.js` | beatFired, bpm, dt, low, onset, onsetIntensity |
-| Audio Shot | `audioshot.js` | beatFired, onset, onsetIntensity |
+| Audio Reactor | `audioreactor.js` | barPhase, cosPulse, downbeat, dt, high, low, mid, onset, onsetIntensity |
+| Audio Scan | `audioscan.js` | bass, beat, bpm, downbeat, dt, high, mid |
+| Audio Scan and Flare | `audioscanflare.js` | bpm, downbeat, dt, low |
+| Audio Scan Multi | `audioscanmulti.js` | bpm, downbeat, dt, high, low, mid |
+| Audio Shockwave | `audioshockwave.js` | beatFired, bpm, dt, high, low, mid, onset |
+| Audio Shot | `audioshot.js` | beatFired, high, low, mid, onset, onsetIntensity |
 | Audio Soap | `audiosoap.js` | bass, beat, bpm, dt, high, low, mid |
 | Audio Spectrum | `audiospectrum.js` | high, low, mid |
 | Audio Split Tower | `audiosplittower.js` | cosPulse, high, low, mid |
-| Audio Strobe | `audiostrobe.js` | beatFired, bpm, dt, onset |
-| Audio Tunnel | `audiotunnel.js` | cosPulse, dt, high, low, onset, onsetIntensity |
-| Audio Vortex | `audiovortex.js` | cosPulse, dt, high, low, onset, onsetIntensity |
+| Audio Strobe | `audiostrobe.js` | beatFired, bpm, dt, high, low, mid, onset |
+| Audio Tunnel | `audiotunnel.js` | cosPulse, downbeat, dt, high, low, mid |
+| Audio Vortex | `audiovortex.js` | cosPulse, downbeat, dt, high, low, mid |
 | Audio Water | `audiowater.js` | high, low, mid |
 
 ## Common Patterns

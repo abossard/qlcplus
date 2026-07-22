@@ -42,7 +42,7 @@ var testAlgo;
     algo.presetTriggerMode = 0;
     algo.properties.push(
       "name:triggerMode|type:list|display:Trigger Mode|" +
-      "values:Beat,Onset,Note|write:setTriggerMode|read:getTriggerMode");
+      "values:Beat,Onset|write:setTriggerMode|read:getTriggerMode");
 
     algo.particles = [];
     var lastW = 0, lastH = 0;
@@ -70,11 +70,10 @@ var testAlgo;
     algo.getParticleSize = function() { return algo.presetParticleSize; };
     algo.setTriggerMode = function(_v) {
         if (_v === "Onset") algo.presetTriggerMode = 1;
-        else if (_v === "Note") algo.presetTriggerMode = 2;
         else algo.presetTriggerMode = 0;
     };
     algo.getTriggerMode = function() {
-        return ["Beat", "Onset", "Note"][algo.presetTriggerMode];
+        return ["Beat", "Onset"][algo.presetTriggerMode];
     };
 
     algo.presetKickThreshold = 6;
@@ -240,9 +239,8 @@ var testAlgo;
     }
 
     var SPAWN_TRIGGERS = {
-        0: function(a) { return a.beat.fired; },
-        1: function(a) { return a.onset.fired; },
-        2: function(a) { return a.note && a.note.on; }
+        0: function(a) { return a.beatFired; },
+        1: function(a) { return a.onset; }
     };
     var KICK_PARTICLE_BUDGET_RATIO = 0.7;
     var AMBIENT_MIN_POWER = 0.1;

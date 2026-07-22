@@ -232,9 +232,7 @@ var testAlgo;
                     level = Math.max(level, flashAmount);
                 }
 
-                var brightness = Math.min(1, level) * overall;
-                // Engine clamps s/v to [0,1]; hue wraps. We multiply v by
-                // brightness; s and h carry the band/pitch identity.
+                var brightness = HSVUtil.clamp01(Math.min(1, level) * overall);
                 var pi = (y * width + x) * 3;
                 map[pi]     = color.h;
                 map[pi + 1] = color.s;

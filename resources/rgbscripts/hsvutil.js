@@ -78,6 +78,7 @@ HSVUtil.interpolate = function(arr, size) {
     if (arr.length === 0) return new Array(size).fill(0);
     if (arr.length === size) return arr.slice();
     if (arr.length === 1) return new Array(size).fill(arr[0]);
+    if (size === 1) return [arr[0]];
 
     var result = new Array(size);
     var ratio = (arr.length - 1) / (size - 1);
@@ -237,4 +238,3 @@ HSVUtil.noiseField2d = function(width, height, freq, offsetX, offsetY) {
     }
     return field;
 };
-
