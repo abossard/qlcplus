@@ -33,6 +33,7 @@
 
 class AudioAnalyzer;
 class AubioProcessor;
+class BeatTracker;
 struct AubioResults;
 struct AubioConfig;
 
@@ -91,7 +92,12 @@ signals:
     /** Emitted after each capture block once aubio analysis is complete. */
     void aubioDataReady(const AubioResults &results, quint32 power);
     void volumeChanged(int volume);
-    void beatDetected();
+
+    /** Emitted on every beat detected by the beat tracker. @a bpm is
+     *  the tracker's own tempo estimate; 0 means "no estimate", in
+     *  which case the receiver has to derive the tempo from the
+     *  spacing of the beat signals. */
+    void beatDetected(int bpm);
 
 protected:
     QMutex m_mutex;
@@ -113,6 +119,7 @@ protected:
     AudioAnalyzer *m_analyzer = nullptr;
 
     uint64_t m_frameIndex = 0;
+    BeatTracker *m_beatTracker;
 };
 
 #endif // AUDIOCAPTURE_H

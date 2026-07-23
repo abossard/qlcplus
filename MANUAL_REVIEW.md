@@ -1034,3 +1034,28 @@ the intended hardware.
 | Area | Tester | Date | Pass / Fail | Notes |
 |------|--------|------|-------------|-------|
 | RGB Matrix music / visual quality | | | | §21 — intent, causality, timing, continuity, fixture output |
+
+---
+
+## 22. Global beat tracker and Aubio coexistence
+
+### 22.1 Live microphone/music BPM and silence
+
+- ☐ Select a live microphone input, play familiar metronome-backed music at 90, 120, and 174 BPM, then compare the global BPM display with the source → each tempo settles on the audible pulse without octave doubling/halving
+- ☐ Stop the source and leave the microphone at its normal noise floor → the beat indicator stops producing phantom beats; resume the source → BPM and beat indication recover without restarting capture
+
+### 22.2 Beat-indicator timing and Aubio feature continuity
+
+- ☐ Watch the global beat indicator against clearly audible kick transients at slow and fast tempos → flashes stay perceptually aligned, regular, and single-triggered
+- ☐ While the global tracker is active, exercise an Audio Trigger profile using Aubio low/mid/high energy, onset, beat, and volume mappings → profile meters and mapped fixture output continue responding without freezes, dropouts, or missing features
+
+### 22.3 Authoritative external BPM lock
+
+- ☐ Lock an external VirtualDJ BPM at 128 while live audio reports a conflicting tempo → the displayed BPM remains 128 while every incoming pulse still advances the beat indicator
+- ☐ Release/disconnect the external BPM lock while audio continues → the global BPM resumes following the audio source without restarting QLC+
+
+### 22.4 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Live audio BPM, silence, beat timing, Aubio continuity, external lock | | | | §22.1–22.3 |

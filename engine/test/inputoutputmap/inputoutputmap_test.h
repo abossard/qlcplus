@@ -54,11 +54,11 @@ private slots:
     void claimReleaseDumpReset();
     void blackout();
     void grandMaster();
+    void beatSourceBpmAndExternalLock();
 
 private:
     Doc* m_doc;
 };
 
 #endif
-
 

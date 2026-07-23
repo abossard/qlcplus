@@ -259,8 +259,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
                 this, &VCAudioTriggers::slotAubioDataReady);
         connect(m_inputCapture, SIGNAL(volumeChanged(int)),
                 this, SIGNAL(volumeLevelChanged()));
-        connect(m_inputCapture, SIGNAL(beatDetected()),
-                this, SLOT(slotBeatDetected()));
+        connect(m_inputCapture, &AudioCapture::beatDetected,
+                this, &VCAudioTriggers::slotBeatDetected);
         m_inputCapture->registerBandsNumber(BandSourceCount - 1);
 
         // Push current profile's aubio config to the global processor
@@ -287,8 +287,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
                        this, &VCAudioTriggers::slotAubioDataReady);
             disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
                        this, SIGNAL(volumeLevelChanged()));
-            disconnect(m_inputCapture, SIGNAL(beatDetected()),
-                       this, SLOT(slotBeatDetected()));
+            disconnect(m_inputCapture, &AudioCapture::beatDetected,
+                       this, &VCAudioTriggers::slotBeatDetected);
         }
 
         m_doc->masterTimer()->unregisterDMXSource(this);

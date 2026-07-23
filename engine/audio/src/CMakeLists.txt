@@ -7,6 +7,7 @@ add_library(${module_name}
     audioanalyzer.cpp audioanalyzer.h
     audio.cpp audio.h
     audiocapture.cpp audiocapture.h
+    beattracker.cpp beattracker.h
     audioframe.h
     audiosnapshot.h
     audiodecoder.cpp audiodecoder.h

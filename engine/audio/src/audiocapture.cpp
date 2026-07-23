@@ -20,6 +20,7 @@
 #include "audiochannelconfig.h"
 #include "aubioprocessor.h"
 #include "aubioresults.h"
+#include "beattracker.h"
 
 #define M_2PI       6.28318530718
 
@@ -60,12 +61,14 @@ AudioCapture::AudioCapture(QObject* parent)
     m_audioMixdown = new int16_t[m_bufferSize];
 
     m_aubio->initialize(m_sampleRate);
+    m_beatTracker = new BeatTracker(m_sampleRate, m_channels);
 }
 
 AudioCapture::~AudioCapture()
 {
     Q_ASSERT(!this->isRunning());
 
+    delete m_beatTracker;
     delete[] m_audioBuffer;
     delete[] m_audioMixdown;
     delete m_aubio;
@@ -247,8 +250,6 @@ void AudioCapture::processData()
     if (power != prevPower)
         emit volumeChanged(int(power));
 
-    if (aubio.beat)
-        emit beatDetected();
 }
 
 void AudioCapture::run()
@@ -273,6 +274,9 @@ void AudioCapture::run()
             {
                 QMutexLocker locker(&m_mutex);
                 processData();
+
+                if (m_beatTracker->processAudio(m_audioBuffer, m_captureSize))
+                    emit beatDetected(qRound(m_beatTracker->bpm()));
             }
             else
             {

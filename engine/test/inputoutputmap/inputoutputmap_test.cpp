@@ -859,4 +859,44 @@ void InputOutputMap_Test::grandMaster()
     QVERIFY(iom.grandMasterValueMode() == GrandMaster::Limit);
 }
 
+void InputOutputMap_Test::beatSourceBpmAndExternalLock()
+{
+    InputOutputMap iom(m_doc, 4);
+    iom.setBeatGeneratorType(InputOutputMap::Plugin);
+    QSignalSpy beatSpy(&iom, &InputOutputMap::beat);
+    QVERIFY(beatSpy.isValid());
+
+    QVERIFY(QMetaObject::invokeMethod(&iom, "slotProcessBeat",
+                                      Qt::DirectConnection, Q_ARG(int, 140)));
+    QCOMPARE(iom.bpmNumber(), 140);
+    QCOMPARE(beatSpy.count(), 1);
+
+    QTest::qWait(600);
+    QVERIFY(QMetaObject::invokeMethod(&iom, "slotProcessBeat",
+                                      Qt::DirectConnection, Q_ARG(int, 0)));
+    QVERIFY(iom.bpmNumber() > 0);
+    QVERIFY(iom.bpmNumber() != 140);
+    QCOMPARE(beatSpy.count(), 2);
+
+    iom.setExternalBpm(128);
+    QCOMPARE(iom.bpmNumber(), 128);
+
+    QVERIFY(QMetaObject::invokeMethod(&iom, "slotProcessBeat",
+                                      Qt::DirectConnection, Q_ARG(int, 140)));
+    QCOMPARE(iom.bpmNumber(), 128);
+    QCOMPARE(beatSpy.count(), 3);
+
+    QTest::qWait(600);
+    QVERIFY(QMetaObject::invokeMethod(&iom, "slotProcessBeat",
+                                      Qt::DirectConnection, Q_ARG(int, 0)));
+    QCOMPARE(iom.bpmNumber(), 128);
+    QCOMPARE(beatSpy.count(), 4);
+
+    iom.clearExternalBpm();
+    QVERIFY(QMetaObject::invokeMethod(&iom, "slotProcessBeat",
+                                      Qt::DirectConnection, Q_ARG(int, 140)));
+    QCOMPARE(iom.bpmNumber(), 140);
+    QCOMPARE(beatSpy.count(), 5);
+}
+
 QTEST_GUILESS_MAIN(InputOutputMap_Test)
