@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <memory>
 
 #include <QSettings>
 #include <QDebug>
@@ -62,6 +64,8 @@ AudioCapture::AudioCapture(QObject* parent)
 
     m_aubio->initialize(m_sampleRate);
     m_beatTracker = new BeatTracker(m_sampleRate, m_channels);
+    m_appliedSampleRate = m_sampleRate;
+    m_appliedChannels = m_channels;
 }
 
 AudioCapture::~AudioCapture()
@@ -102,6 +106,45 @@ void AudioCapture::setAubioConfig(const AubioConfig &cfg)
 {
     if (m_aubio != nullptr)
         m_aubio->setPendingConfig(cfg);
+}
+
+bool AudioCapture::applyCaptureFormat(unsigned int sampleRate, unsigned int channels)
+{
+    if (sampleRate == 0 || channels == 0
+        || channels > unsigned(std::numeric_limits<int>::max()) / m_bufferSize)
+    {
+        qWarning() << "[AudioCapture] Invalid negotiated format"
+                   << sampleRate << "Hz" << channels << "channels";
+        return false;
+    }
+
+    const unsigned int captureSize = m_bufferSize * channels;
+    if (sampleRate == m_appliedSampleRate
+        && channels == m_appliedChannels
+        && captureSize == m_captureSize)
+    {
+        return true;
+    }
+
+    std::unique_ptr<int16_t[]> resizedBuffer;
+    if (captureSize != m_captureSize)
+        resizedBuffer = std::make_unique<int16_t[]>(captureSize);
+
+    QMutexLocker locker(&m_mutex);
+    if (resizedBuffer)
+    {
+        delete[] m_audioBuffer;
+        m_audioBuffer = resizedBuffer.release();
+        m_captureSize = captureSize;
+    }
+
+    m_sampleRate = sampleRate;
+    m_channels = channels;
+    m_aubio->initialize(sampleRate);
+    m_beatTracker->setFormat(sampleRate, channels);
+    m_appliedSampleRate = sampleRate;
+    m_appliedChannels = channels;
+    return true;
 }
 
 int AudioCapture::lowCutBin(int N)
@@ -263,6 +306,15 @@ void AudioCapture::run()
     if (!initialize())
     {
         qWarning() << "[AudioCapture] Could not initialize audio capture, abandon";
+        return;
+    }
+
+    // Capture backends can replace the requested format with a device-supported
+    // one during initialize(). Synchronize every format-dependent consumer
+    // before the first read.
+    if (!applyCaptureFormat(m_sampleRate, m_channels))
+    {
+        uninitialize();
         return;
     }
 

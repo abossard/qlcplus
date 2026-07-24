@@ -22,8 +22,10 @@
 
 #include "audiocapture.h"
 
+#include <QAudioDevice>
 #include <QAudioSource>
 #include <QAudioFormat>
+#include <QByteArrayView>
 
 /** @addtogroup engine_audio Audio
  * @{
@@ -41,6 +43,19 @@ public:
 
     /** @reimpl */
     void setVolume(qreal volume) override;
+
+    static QAudioFormat selectCaptureFormat(const QAudioDevice &device,
+                                            int sampleRate,
+                                            int channels);
+    static bool convertSamples(QByteArrayView input,
+                               const QAudioFormat &format,
+                               int sampleCount,
+                               int16_t *output);
+    static bool readConvertedSamples(QIODevice *input,
+                                     QByteArray &pending,
+                                     const QAudioFormat &format,
+                                     int sampleCount,
+                                     int16_t *output);
 
 protected:
     /** @reimpl */

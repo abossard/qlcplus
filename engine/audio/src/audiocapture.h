@@ -120,6 +120,12 @@ protected:
 
     uint64_t m_frameIndex = 0;
     BeatTracker *m_beatTracker;
+
+private:
+    bool applyCaptureFormat(unsigned int sampleRate, unsigned int channels);
+
+    unsigned int m_appliedSampleRate = 0;
+    unsigned int m_appliedChannels = 0;
 };
 
 #endif // AUDIOCAPTURE_H

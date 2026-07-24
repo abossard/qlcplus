@@ -17,6 +17,12 @@
   limitations under the License.
 */
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <vector>
+
 #include <QMediaDevices>
 #include <QAudioDevice>
 #include <QSettings>
@@ -24,6 +30,16 @@
 #include <QCoreApplication>
 
 #include "audiocapture_qt6.h"
+
+namespace
+{
+
+bool isConvertibleSampleFormat(QAudioFormat::SampleFormat format)
+{
+    return format == QAudioFormat::Int16 || format == QAudioFormat::Float;
+}
+
+}
 
 AudioCaptureQt6::AudioCaptureQt6(QObject * parent)
     : AudioCapture(parent)
@@ -58,18 +74,22 @@ bool AudioCaptureQt6::initialize()
         }
     }
 
-    m_format.setSampleRate(m_sampleRate);
-    m_format.setChannelCount(m_channels);
-    m_format.setSampleFormat(QAudioFormat::Int16);
-    //m_format.setCodec("audio/pcm");
-
-    if (!audioDevice.isFormatSupported(m_format))
+    QAudioFormat requestedFormat;
+    requestedFormat.setSampleRate(m_sampleRate);
+    requestedFormat.setChannelCount(m_channels);
+    requestedFormat.setSampleFormat(QAudioFormat::Int16);
+    m_format = selectCaptureFormat(audioDevice, m_sampleRate, m_channels);
+    if (!m_format.isValid())
     {
-        qWarning() << "Requested format not supported - trying to use nearest";
-        m_format = audioDevice.preferredFormat(); // nearestFormat(m_format);
-        m_channels = m_format.channelCount();
-        m_sampleRate = m_format.sampleRate();
+        qWarning() << "No supported audio capture format for device"
+                   << audioDevice.description();
+        return false;
     }
+    if (m_format != requestedFormat)
+        qWarning() << "Requested format not supported - using" << m_format;
+
+    m_channels = m_format.channelCount();
+    m_sampleRate = m_format.sampleRate();
 
     Q_ASSERT(m_audioSource == NULL);
 
@@ -136,18 +156,108 @@ bool AudioCaptureQt6::readAudio(int maxSize)
     if (m_audioSource == NULL || m_input == NULL)
         return false;
 
-    int bufferSize = maxSize * sizeof(*m_audioBuffer);
+    return readConvertedSamples(m_input, m_currentReadBuffer, m_format,
+                                maxSize, m_audioBuffer);
+}
 
-    QByteArray readBuffer = m_input->readAll();
-    m_currentReadBuffer += readBuffer;
+QAudioFormat AudioCaptureQt6::selectCaptureFormat(const QAudioDevice &device,
+                                                  int sampleRate,
+                                                  int channels)
+{
+    if (device.isNull() || sampleRate <= 0 || channels <= 0)
+        return {};
 
-    if (m_currentReadBuffer.size() < bufferSize)
+    QAudioFormat requested;
+    requested.setSampleRate(sampleRate);
+    requested.setChannelCount(channels);
+    requested.setSampleFormat(QAudioFormat::Int16);
+    if (device.isFormatSupported(requested))
+        return requested;
+
+    const QAudioFormat preferred = device.preferredFormat();
+    QAudioFormat preferredInt16 = preferred;
+    preferredInt16.setSampleFormat(QAudioFormat::Int16);
+    if (device.isFormatSupported(preferredInt16))
+        return preferredInt16;
+
+    if (preferred.isValid() && isConvertibleSampleFormat(preferred.sampleFormat()))
+        return preferred;
+
+    return {};
+}
+
+bool AudioCaptureQt6::convertSamples(QByteArrayView input,
+                                     const QAudioFormat &format,
+                                     int sampleCount,
+                                     int16_t *output)
+{
+    if (output == nullptr || sampleCount <= 0
+        || !isConvertibleSampleFormat(format.sampleFormat()))
     {
-        // nothing has been read
         return false;
     }
 
-    memcpy(m_audioBuffer, m_currentReadBuffer.data(), bufferSize);
-    m_currentReadBuffer.remove(0, bufferSize);
+    const int bytesPerSample = format.bytesPerSample();
+    if (bytesPerSample <= 0
+        || sampleCount > std::numeric_limits<int>::max() / bytesPerSample
+        || input.size() != qsizetype(sampleCount * bytesPerSample))
+    {
+        return false;
+    }
+
+    if (format.sampleFormat() == QAudioFormat::Int16)
+    {
+        std::memcpy(output, input.data(), size_t(input.size()));
+        return true;
+    }
+
+    std::vector<int16_t> converted(static_cast<size_t>(sampleCount));
+    for (int i = 0; i < sampleCount; i++)
+    {
+        float value;
+        std::memcpy(&value, input.data() + qsizetype(i * sizeof(float)),
+                    sizeof(value));
+        if (!std::isfinite(value))
+            return false;
+
+        value = std::clamp(value, -1.0f, 1.0f);
+        const double scale = value < 0.0f ? 32768.0 : 32767.0;
+        converted[size_t(i)] = int16_t(std::lround(double(value) * scale));
+    }
+
+    std::memcpy(output, converted.data(), converted.size() * sizeof(int16_t));
     return true;
+}
+
+bool AudioCaptureQt6::readConvertedSamples(QIODevice *input,
+                                           QByteArray &pending,
+                                           const QAudioFormat &format,
+                                           int sampleCount,
+                                           int16_t *output)
+{
+    if (input == nullptr || output == nullptr || !format.isValid()
+        || sampleCount <= 0 || format.channelCount() <= 0
+        || sampleCount % format.channelCount() != 0
+        || !isConvertibleSampleFormat(format.sampleFormat()))
+    {
+        return false;
+    }
+
+    const int frames = sampleCount / format.channelCount();
+    const int requiredBytes = format.bytesForFrames(frames);
+    if (requiredBytes <= 0
+        || qint64(requiredBytes)
+            != qint64(sampleCount) * format.bytesPerSample())
+    {
+        return false;
+    }
+
+    pending.append(input->readAll());
+    if (pending.size() < requiredBytes)
+        return false;
+
+    const QByteArrayView block(pending.constData(), requiredBytes);
+    const bool converted = convertSamples(block, format, sampleCount, output);
+    pending.remove(0, requiredBytes);
+    return converted;
 }
