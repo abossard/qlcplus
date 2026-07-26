@@ -701,6 +701,22 @@ void VCFrame::removeWidgetFromPageMap(VCWidget *widget)
     }
 }
 
+bool VCFrame::moveWidgetToPage(VCWidget *widget, int pageIndex)
+{
+    if (widget == nullptr || widget->parent() != this ||
+        pageIndex < 0 || pageIndex >= totalPagesNumber())
+        return false;
+
+    m_pagesMap.remove(widget);
+    widget->setPage(pageIndex);
+    widget->remapInputSources(pageIndex);
+    m_pagesMap.insert(widget, pageIndex);
+    widget->setVisible(pageIndex == currentPage());
+    widget->updateFeedback();
+    setDocModified();
+    return true;
+}
+
 
 /*********************************************************************
  * Disable state

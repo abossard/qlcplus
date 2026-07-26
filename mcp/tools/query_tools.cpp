@@ -41,6 +41,8 @@
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
+#include <algorithm>
+
 using Json = nlohmann::json;
 
 void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
@@ -50,18 +52,98 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     // query_fixtures — list all patched fixtures
     tm.register_tool(Tool(
         "query_fixtures",
-        Json{{"type", "object"}, {"properties", Json::object()}},
+        Json{{"type", "object"}, {"properties", {
+            {"id", {{"type", "integer"}, {"minimum", 0}, {"description", "Exact fixture ID"}}},
+            {"name", {{"type", "string"}, {"description", "Case-insensitive name substring"}}},
+            {"universe", {{"type", "integer"}, {"minimum", 0}, {"description", "Exact zero-based universe"}}},
+            {"page", {{"type", "object"}, {"properties", {
+                {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}}},
+                {"cursor", {{"type", "string"}, {"description", "Opaque cursor returned by the previous page"}}}
+            }}, {"additionalProperties", false}}}
+        }}},
         Json{},
-        [doc](const Json &) -> Json {
+        [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"id", "name", "universe", "page"});
+            if (!err.empty()) return err;
+            if (args.contains("id") && (!args["id"].is_number_integer() || args["id"].get<int>() < 0))
+                return Json({{"error", "id must be a non-negative integer"}}).dump();
+            if (args.contains("name") && !args["name"].is_string())
+                return Json({{"error", "name must be a string"}}).dump();
+            if (args.contains("universe") &&
+                (!args["universe"].is_number_integer() || args["universe"].get<int>() < 0))
+                return Json({{"error", "universe must be a non-negative integer"}}).dump();
+            if (args.contains("page") && !args["page"].is_object())
+                return Json({{"error", "page must be an object"}}).dump();
+
+            QList<Fixture *> fixtures = doc->fixtures();
+            std::sort(fixtures.begin(), fixtures.end(),
+                [](const Fixture *left, const Fixture *right) { return left->id() < right->id(); });
+
             Json results = Json::array();
-            for (Fixture *fxi : doc->fixtures())
+            for (Fixture *fxi : fixtures)
+            {
+                if (args.contains("id") && fxi->id() != args["id"].get<quint32>())
+                    continue;
+                if (args.contains("name") &&
+                    !fxi->name().contains(QString::fromStdString(args["name"].get<std::string>()),
+                                          Qt::CaseInsensitive))
+                    continue;
+                if (args.contains("universe") && fxi->universe() != args["universe"].get<quint32>())
+                    continue;
                 results.push_back(mcp::fixtureToJson(fxi));
-            return results.dump();
+            }
+
+            if (!args.contains("page"))
+                return results.dump();
+
+            const Json &page = args["page"];
+            err = validateFields(page, {"limit", "cursor"});
+            if (!err.empty()) return err;
+            int limit = 50;
+            if (page.contains("limit"))
+            {
+                if (!page["limit"].is_number_integer())
+                    return Json({{"error", "page.limit must be an integer from 1 to 100"}}).dump();
+                limit = page["limit"].get<int>();
+                if (limit < 1 || limit > 100)
+                    return Json({{"error", "page.limit must be from 1 to 100"}}).dump();
+            }
+
+            int offset = 0;
+            if (page.contains("cursor"))
+            {
+                if (!page["cursor"].is_string())
+                    return Json({{"error", "page.cursor must be an opaque string"}}).dump();
+                QByteArray encoded = QByteArray::fromStdString(page["cursor"].get<std::string>());
+                QByteArray decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+                const QByteArray prefix("fixture-offset:");
+                bool validOffset = false;
+                if (decoded.startsWith(prefix))
+                    offset = decoded.mid(prefix.size()).toInt(&validOffset);
+                if (!validOffset || offset < 0 || offset >= int(results.size()))
+                    return Json({{"error", "page.cursor is invalid or no longer points into this filtered result"}}).dump();
+            }
+
+            Json items = Json::array();
+            int end = std::min(offset + limit, int(results.size()));
+            for (int index = offset; index < end; ++index)
+                items.push_back(results[index]);
+
+            Json envelope = {{"items", items}, {"total", results.size()}, {"nextCursor", nullptr}};
+            if (end < int(results.size()))
+            {
+                QByteArray cursor = QByteArray("fixture-offset:") + QByteArray::number(end);
+                envelope["nextCursor"] = cursor.toBase64(
+                    QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals).toStdString();
+            }
+            return envelope.dump();
             });
         },
         std::nullopt,
-        std::string("List all patched fixtures with capabilities and physical properties. Returns IDs needed for other tools. "
+        std::string("List patched fixtures in fixture-ID order, optionally filtered by id, case-insensitive name, and universe. "
+                    "Without page, returns the legacy bare array. With page, returns a bounded cursor envelope. "
+                    "Returns IDs needed for other tools. "
                     "Includes type (Moving Head, Dimmer, etc.), capabilities (RGBW, ContinuousTiltRotation, Pan/Tilt, UV, Amber), "
                     "headMap with per-head channel indices and rgbChannels for multi-head fixtures, and physical properties."),
         std::nullopt
@@ -142,9 +224,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 {"model", {{"type", "string"}}},
                 {"mode", {{"type", "string"}, {"description", "Fixture mode name (use query_available_fixtures to discover modes)"}}},
                 {"name", {{"type", "string"}, {"description", "Base name for the fixture(s)"}}},
-                {"universe", {{"type", "integer"}}},
-                {"address", {{"type", "integer"}, {"description", "DMX start address (0-based)"}}},
-                {"quantity", {{"type", "integer"}, {"description", "Number of fixtures to patch (default 1)"}}}
+                {"universe", {{"type", "integer"}, {"minimum", 0}, {"maximum", 127}}},
+                {"address", {{"type", "integer"}, {"minimum", 0}, {"maximum", 511},
+                             {"description", "DMX start address (0-based)"}}},
+                {"quantity", {{"type", "integer"}, {"minimum", 1}, {"maximum", 512},
+                              {"description", "Number of fixtures to patch (default 1)"}}}
             }}, {"required", {"manufacturer", "model", "mode", "name", "universe", "address"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -157,6 +241,25 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             {
                 auto err = validateFields(item, {"manufacturer", "model", "mode", "name", "universe", "address", "quantity"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+                if (!item["universe"].is_number_integer() ||
+                    item["universe"].get<int>() < 0 || item["universe"].get<int>() > 127)
+                {
+                    results.push_back({{"error", "universe must be an integer from 0 to 127"}});
+                    continue;
+                }
+                if (!item["address"].is_number_integer() ||
+                    item["address"].get<int>() < 0 || item["address"].get<int>() > 511)
+                {
+                    results.push_back({{"error", "address must be an integer from 0 to 511"}});
+                    continue;
+                }
+                if (item.contains("quantity") &&
+                    (!item["quantity"].is_number_integer() ||
+                     item["quantity"].get<int>() < 1 || item["quantity"].get<int>() > 512))
+                {
+                    results.push_back({{"error", "quantity must be an integer from 1 to 512"}});
+                    continue;
+                }
 
                 QString mfg = QString::fromStdString(item.at("manufacturer").get<std::string>());
                 QString model = QString::fromStdString(item.at("model").get<std::string>());
@@ -180,6 +283,15 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 {
                     results.push_back({{"error", "Mode not found: " + modeName.toStdString() +
                         " for fixture " + mfg.toStdString() + " " + model.toStdString()}});
+                    continue;
+                }
+                if (address + quantity * mode->channels().size() > 512)
+                {
+                    results.push_back({
+                        {"error", "fixture quantity and footprint exceed DMX address 511"},
+                        {"address", address}, {"quantity", quantity},
+                        {"channelsPerFixture", mode->channels().size()}
+                    });
                     continue;
                 }
 
@@ -231,7 +343,116 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             });
         },
         std::nullopt,
-        std::string("Patch fixtures into the project. Upserts: skips if fixture with same name/address exists. Batch."),
+        std::string("Create fixtures in the project. Returns status 'existing' only for an exact name, universe, and address match; "
+                    "a changed address creates a separate fixture rather than updating an existing one. Batch."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotIdempotent));
+
+    // update_fixture — atomically repair one fixture's setup properties
+    tm.register_tool(Tool(
+        "update_fixture",
+        Json{{"type", "object"}, {"properties", {
+            {"id", {{"type", "integer"}, {"minimum", 0}, {"description", "Existing fixture ID"}}},
+            {"name", {{"type", "string"}, {"description", "New fixture name"}}},
+            {"universe", {{"type", "integer"}, {"minimum", 0}, {"maximum", 127},
+                          {"description", "New zero-based universe"}}},
+            {"address", {{"type", "integer"}, {"minimum", 0}, {"maximum", 511},
+                         {"description", "New zero-based DMX start address"}}}
+        }}, {"required", {"id"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"id", "name", "universe", "address"});
+            if (!err.empty()) return err;
+            if (!args.contains("id") || !args["id"].is_number_integer() || args["id"].get<int>() < 0)
+                return Json({{"error", "id is required and must be a non-negative integer"}}).dump();
+            if (!args.contains("name") && !args.contains("universe") && !args.contains("address"))
+                return Json({{"error", "provide at least one update field: name, universe, or address"}}).dump();
+            if (args.contains("name") &&
+                (!args["name"].is_string() || args["name"].get<std::string>().empty()))
+                return Json({{"error", "name must be a non-empty string"}}).dump();
+            if (args.contains("universe") &&
+                (!args["universe"].is_number_integer() ||
+                 args["universe"].get<int>() < 0 || args["universe"].get<int>() > 127))
+                return Json({{"error", "universe must be an integer from 0 to 127"}}).dump();
+            if (args.contains("address") &&
+                (!args["address"].is_number_integer() ||
+                 args["address"].get<int>() < 0 || args["address"].get<int>() > 511))
+                return Json({{"error", "address must be an integer from 0 to 511"}}).dump();
+
+            const quint32 id = args["id"].get<quint32>();
+            Fixture *fixture = doc->fixture(id);
+            if (!fixture)
+                return Json({{"error", "fixture ID " + std::to_string(id) + " was not found"},
+                             {"id", id}}).dump();
+
+            const QString finalName = args.contains("name")
+                ? QString::fromStdString(args["name"].get<std::string>()) : fixture->name();
+            const quint32 finalUniverse = args.contains("universe")
+                ? args["universe"].get<quint32>() : fixture->universe();
+            const quint32 finalAddress = args.contains("address")
+                ? args["address"].get<quint32>() : fixture->address();
+            const quint32 channels = fixture->channels();
+
+            if (!fixture->crossUniverse() && finalAddress + channels > 512)
+            {
+                return Json({
+                    {"error", "fixture footprint exceeds address 511; choose address at most " +
+                              std::to_string(512 - channels)},
+                    {"id", id}, {"address", finalAddress}, {"channels", channels}
+                }).dump();
+            }
+
+            const quint32 finalUniverseAddress = (finalUniverse << 9) | finalAddress;
+            for (quint32 offset = 0; offset < channels; ++offset)
+            {
+                const quint32 owner = doc->fixtureForAddress(finalUniverseAddress + offset);
+                if (owner != Fixture::invalidId() && owner != id)
+                {
+                    return Json({
+                        {"error", "target footprint conflicts with fixture ID " +
+                                  std::to_string(owner) + " at universe " +
+                                  std::to_string(finalUniverse) + ", address " +
+                                  std::to_string(finalAddress + offset)},
+                        {"id", id}, {"conflictingFixtureID", owner},
+                        {"universe", finalUniverse}, {"address", finalAddress + offset}
+                    }).dump();
+                }
+            }
+
+            auto setupState = [](const Fixture *entry) {
+                return Json{
+                    {"id", entry->id()},
+                    {"name", entry->name().toStdString()},
+                    {"universe", entry->universe()},
+                    {"address", entry->address()},
+                    {"channels", entry->channels()}
+                };
+            };
+
+            const Json before = setupState(fixture);
+            if (fixture->name() == finalName && fixture->universe() == finalUniverse &&
+                fixture->address() == finalAddress)
+                return Json({{"status", "unchanged"}, {"before", before}, {"after", before}}).dump();
+
+            const bool signalsWereBlocked = fixture->blockSignals(true);
+            if (fixture->name() != finalName) fixture->setName(finalName);
+            if (fixture->universe() != finalUniverse) fixture->setUniverse(finalUniverse);
+            if (fixture->address() != finalAddress) fixture->setAddress(finalAddress);
+            fixture->blockSignals(signalsWereBlocked);
+            if (!signalsWereBlocked)
+                fixture->setID(id);
+
+            return Json({
+                {"status", "updated"},
+                {"before", before},
+                {"after", setupState(fixture)}
+            }).dump();
+            });
+        },
+        std::nullopt,
+        std::string("Atomically rename or repatch one existing fixture by ID after validating its complete final footprint."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));

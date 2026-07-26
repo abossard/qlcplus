@@ -72,6 +72,64 @@ void VCValidation_Test::typeToString_roundTrip()
     }
 }
 
+void VCValidation_Test::runtimeFields_rejected_data()
+{
+    QTest::addColumn<int>("widgetType");
+    QTest::addColumn<bool>("createMode");
+    QTest::addColumn<QString>("field");
+
+    QTest::newRow("update-xy") << int(VCType::XYPad) << false << QString("xyPadPosition");
+    QTest::newRow("update-page") << int(VCType::Frame) << false << QString("currentPage");
+    QTest::newRow("update-capture") << int(VCType::AudioTriggers) << false << QString("captureEnabled");
+    QTest::newRow("update-volume") << int(VCType::AudioTriggers) << false << QString("volumeLevel");
+    QTest::newRow("create-capture") << int(VCType::AudioTriggers) << true << QString("captureEnabled");
+}
+
+void VCValidation_Test::runtimeFields_rejected()
+{
+    QFETCH(int, widgetType);
+    QFETCH(bool, createMode);
+    QFETCH(QString, field);
+
+    Json item = createMode
+        ? Json{{"type", VCType::toString(widgetType)}, {"parentID", 1}}
+        : Json{{"widgetID", 1}};
+    item[field.toStdString()] = field == "xyPadPosition"
+        ? Json{{"x", 0.2}, {"y", 0.8}}
+        : Json(1);
+
+    const std::string error = VCValidate::validateFieldsForType(item, widgetType, createMode);
+    QVERIFY2(!error.empty(), qPrintable(field));
+    QCOMPARE(Json::parse(error)["invalidFields"][0].get<std::string>(), field.toStdString());
+}
+
+void VCValidation_Test::childPageIndex_data()
+{
+    QTest::addColumn<int>("widgetType");
+    QTest::addColumn<QByteArray>("itemJson");
+    QTest::addColumn<bool>("valid");
+
+    QTest::newRow("button-page-1") << int(VCType::Button)
+        << QByteArray(R"({"type":"button","parentID":42,"childPageIndex":1})") << true;
+    QTest::newRow("frame-rejected") << int(VCType::Frame)
+        << QByteArray(R"({"type":"frame","parentID":42,"childPageIndex":1})") << false;
+    QTest::newRow("negative-rejected") << int(VCType::Button)
+        << QByteArray(R"({"type":"button","parentID":42,"childPageIndex":-1})") << false;
+    QTest::newRow("wrong-type-rejected") << int(VCType::Button)
+        << QByteArray(R"({"type":"button","parentID":42,"childPageIndex":"one"})") << false;
+}
+
+void VCValidation_Test::childPageIndex()
+{
+    QFETCH(int, widgetType);
+    QFETCH(QByteArray, itemJson);
+    QFETCH(bool, valid);
+
+    const Json item = Json::parse(itemJson.constData());
+    const std::string error = VCValidate::validate(item, widgetType, true);
+    QCOMPARE(error.empty(), valid);
+}
+
 // ========== Field validation — create mode ==========
 
 void VCValidation_Test::createValidation_buttonFieldsValid()

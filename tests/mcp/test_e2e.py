@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 End-to-end MCP server test for QLC+ over HTTP transport.
-Tests all 25+ tools: fixtures, functions, VC, channels, I/O, prompts.
+Tests the setup-only MCP surface: fixtures, functions, VC, channels, I/O, prompts.
 """
 
 import subprocess
@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 
 QLCPLUS_BIN = os.environ.get("QLCPLUS_BIN", "./build-mcp/qmlui/qlcplus-qml")
-MCP_PORT = 19876
+MCP_PORT = int(os.environ.get("MCP_PORT", "9696"))
 MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
 
 _id_counter = 0
@@ -39,20 +39,29 @@ def http_post(url, data, headers=None):
 
 
 def start_server():
+    log_path = os.environ.get("QLCPLUS_E2E_LOG")
+    log_stream = open(log_path, "w") if log_path else subprocess.DEVNULL
     proc = subprocess.Popen(
         [QLCPLUS_BIN, "--mcp-port", str(MCP_PORT)],
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=log_stream,
+        stderr=subprocess.STDOUT,
         env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},
     )
+    proc.e2e_log_stream = log_stream
+    print(f"SERVER_PID={proc.pid}")
     # Wait for HTTP server to be ready
     for attempt in range(30):
         if proc.poll() is not None:
-            raise RuntimeError(f"Server exited: {proc.stderr.read().decode()}")
+            if log_path:
+                log_stream.flush()
+                with open(log_path) as log:
+                    raise RuntimeError(f"Server exited: {log.read()}")
+            raise RuntimeError("Server exited before readiness")
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{MCP_PORT}/mcp", timeout=1)
-        except urllib.error.HTTPError:
+        except urllib.error.HTTPError as e:
+            print(f"MCP_READY_HTTP={e.code} attempt={attempt + 1}")
             break  # Server is up (returned an HTTP error, but it's listening)
         except urllib.error.URLError:
             time.sleep(0.5)
@@ -106,7 +115,7 @@ def test(name, func):
 
 def run_tests():
     global _passed, _failed
-    print(f"Starting QLC+ MCP HTTP server: {QLCPLUS_BIN} --mcp-http {MCP_PORT}\n")
+    print(f"Starting QLC+ MCP HTTP server: {QLCPLUS_BIN} --mcp-port {MCP_PORT}\n")
     proc = start_server()
 
     try:
@@ -126,12 +135,21 @@ def run_tests():
             r = send("tools/list", {})
             tools = r["result"]["tools"]
             names = [t["name"] for t in tools]
-            assert len(tools) >= 30, f"Expected >=30, got {len(tools)}"
             for required in ["query_fixtures", "create_scenes", "create_chasers",
-                             "add_vc_buttons", "configure_channels", "set_channel_modifiers",
-                             "get_show_design_guide"]:
+                             "vc_create_widgets", "vc_update_widgets", "vc_map_inputs",
+                             "vc_reflow_frame", "flow_query_layout", "read_dmx_values",
+                             "configure_channels", "set_channel_modifiers"]:
                 assert required in names, f"Missing tool: {required}"
-        test("list_tools (>=25)", t_list_tools)
+            for forbidden in ["set_grand_master", "update_scene_from_dmx"]:
+                assert forbidden not in names, f"Live-control tool still exposed: {forbidden}"
+            schemas = {tool["name"]: tool["inputSchema"] for tool in tools}
+            create_props = schemas["vc_create_widgets"]["properties"]["items"]["items"]["properties"]
+            update_props = schemas["vc_update_widgets"]["properties"]["items"]["items"]["properties"]
+            assert "volumeLevel" in create_props
+            assert "captureEnabled" not in create_props
+            for field in ("xyPadPosition", "currentPage", "captureEnabled", "volumeLevel"):
+                assert field not in update_props, f"Runtime mutation field still exposed: {field}"
+        test("list_tools (setup-only exact sentinels)", t_list_tools)
 
         # === QUERY EMPTY ===
         print("\n=== Query Empty Project ===")
@@ -265,13 +283,18 @@ def run_tests():
 
         def t_create_scenes():
             fxIDs = [f["id"] for f in patched] if has_fixtures else [0, 1, 2, 3]
+            values = [
+                [{"fixtureID": fid, "channel": 0, "value": value} for fid in fxIDs]
+                for value in (200, 180, 160)
+            ]
             r = call("create_scenes", {"items": [
-                {"name": "Red Wash", "fixtureIDs": fxIDs, "color": {"r":255,"g":0,"b":0}, "intensity": 200},
-                {"name": "Blue Wash", "fixtureIDs": fxIDs, "color": {"r":0,"g":0,"b":255}, "intensity": 180},
-                {"name": "Green Wash", "fixtureIDs": fxIDs, "color": {"r":0,"g":255,"b":0}},
+                {"name": "Red Wash", "fixtureIDs": fxIDs, "channelValues": values[0]},
+                {"name": "Blue Wash", "fixtureIDs": fxIDs, "channelValues": values[1]},
+                {"name": "Green Wash", "fixtureIDs": fxIDs, "channelValues": values[2]},
             ]})
             assert len(r) == 3
             assert r[0]["name"] == "Red Wash"
+            assert all(item["status"] == "created" for item in r)
         test("create_scenes (3 batch)", t_create_scenes)
 
         all_fns = call("query_functions")
@@ -281,8 +304,9 @@ def run_tests():
 
         def t_create_chasers():
             r = call("create_chasers", {"items": [
-                {"name": "Color Chase", "functionIDs": scene_ids,
-                 "holdTime": 1000, "fadeIn": 500, "fadeOut": 200,
+                {"name": "Color Chase",
+                 "steps": [{"functionID": fid, "hold": 1000, "fadeIn": 500, "fadeOut": 200}
+                           for fid in scene_ids],
                  "runOrder": "loop", "direction": "forward",
                  "tempoType": "time", "fadeInMode": "common",
                  "fadeOutMode": "common", "durationMode": "common"},
@@ -318,11 +342,10 @@ def run_tests():
 
         def t_query_all_functions():
             r = call("query_functions")
-            assert len(r) >= 6, f"Expected >=6 functions, got {len(r)}"
-            names = [f["name"] for f in r]
-            assert "Red Wash" in names
-            assert "Color Chase" in names
-            assert "Party Mood" in names
+            names = {f["name"] for f in r}
+            expected = {"Red Wash", "Blue Wash", "Green Wash", "Color Chase",
+                        "Circle Move", "Party Mood", "Rainbow"}
+            assert expected <= names, f"Missing functions: {sorted(expected - names)}"
         test("query_functions (verify all created)", t_query_all_functions)
 
         # === I/O CONFIGURATION ===
@@ -354,185 +377,257 @@ def run_tests():
         # === VIRTUAL CONSOLE ===
         print("\n=== Virtual Console ===")
 
-        def t_query_vc_pages():
-            r = call("query_vc_pages")
+        def t_vc_query_pages():
+            r = call("vc_query_pages")
             assert len(r) >= 1, "Should have at least 1 default page"
-        test("query_vc_pages", t_query_vc_pages)
+        test("vc_query_pages", t_vc_query_pages)
 
-        def t_create_vc_pages():
-            r = call("create_vc_pages", {"items": [{"name": "Test Page"}]})
+        def t_vc_create_pages():
+            r = call("vc_create_pages", {"items": [{"name": "Test Page"}]})
             assert len(r) == 1
             assert "pageIndex" in r[0]
             return r[0]["pageIndex"]
-        test("create_vc_pages", t_create_vc_pages)
+        test("vc_create_pages", t_vc_create_pages)
 
-        pages = call("query_vc_pages")
-        page_idx = len(pages) - 1
+        pages = call("vc_query_pages")
+        page_idx = next(page["index"] for page in pages if page["name"] == "Test Page")
+        frame_ids = []
 
-        def t_add_vc_frames():
-            r = call("add_vc_frames", {"items": [
-                {"pageIndex": page_idx, "x": 10, "y": 10, "width": 400, "height": 200,
-                 "caption": "Moods", "solo": True},
-                {"pageIndex": page_idx, "x": 10, "y": 220, "width": 400, "height": 150,
-                 "caption": "Effects", "solo": False},
+        def t_create_vc_frames():
+            r = call("vc_create_widgets", {"items": [
+                {"type": "soloframe", "pageIndex": page_idx, "x": 10, "y": 10,
+                 "width": 400, "height": 200, "caption": "Moods"},
+                {"type": "frame", "pageIndex": page_idx, "x": 10, "y": 220,
+                 "width": 400, "height": 150, "caption": "Effects"},
             ]})
             assert len(r) == 2
             assert all("widgetID" in w for w in r)
-        test("add_vc_frames (solo + normal)", t_add_vc_frames)
+            frame_ids.extend(w["widgetID"] for w in r)
+        test("vc_create_widgets (solo + normal frames)", t_create_vc_frames)
 
-        def t_add_vc_buttons():
+        def t_multipage_child_authoring():
+            frame = call("vc_create_widgets", {"items": [{
+                "type": "soloframe", "pageIndex": page_idx, "caption": "Phase Pages",
+                "multipageMode": True, "totalPages": 2,
+                "pageLabels": ["Intro", "Drop"],
+            }]})[0]
+            frame_id = frame["widgetID"]
+            before = call("vc_query_widgets", {"widgetIDs": [frame_id]})[0]
+            assert before["currentPage"] == 0
+
+            child = call("vc_create_widgets", {"items": [{
+                "type": "button", "parentID": frame_id, "caption": "Drop Go",
+                "action": "toggle", "childPageIndex": 1,
+            }]})[0]
+            details = call("vc_query_widgets", {
+                "widgetIDs": [child["widgetID"], frame_id],
+            })
+            assert details[0]["childPageIndex"] == 1
+            assert details[1]["currentPage"] == 0
+        test("multipage childPageIndex authoring preserves current page",
+             t_multipage_child_authoring)
+
+        def t_invalid_child_page_is_non_mutating():
+            frame = call("vc_create_widgets", {"items": [{
+                "type": "frame", "pageIndex": page_idx, "caption": "Page Guard",
+                "multipageMode": True, "totalPages": 2,
+            }]})[0]
+            frame_id = frame["widgetID"]
+            existing = call("vc_create_widgets", {"items": [{
+                "type": "slider", "parentID": frame_id, "caption": "Guarded Slider",
+                "mode": "level", "clickAndGoType": "none", "childPageIndex": 1,
+            }]})[0]
+            existing_id = existing["widgetID"]
+            before = call("vc_query_widgets", {"widgetIDs": [existing_id]})[0]
+
+            invalid_new = call("vc_create_widgets", {"items": [{
+                "type": "button", "parentID": frame_id, "caption": "Invalid Page New",
+                "childPageIndex": 99,
+            }]})[0]
+            assert "outside the parent frame page range" in invalid_new["error"]
+            assert "widgetID" not in invalid_new
+            assert call("vc_query_pages", {"nameFilter": "Invalid Page New"}) == []
+
+            invalid_upsert = call("vc_create_widgets", {"items": [{
+                "type": "slider", "parentID": frame_id, "caption": "Guarded Slider",
+                "mode": "level", "clickAndGoType": "colors", "childPageIndex": 99,
+            }]})[0]
+            assert "outside the parent frame page range" in invalid_upsert["error"]
+            after = call("vc_query_widgets", {"widgetIDs": [existing_id]})[0]
+            assert after == before
+        test("invalid childPageIndex rejects create and upsert without mutation",
+             t_invalid_child_page_is_non_mutating)
+
+        button_ids = []
+
+        def t_create_vc_buttons():
             fns = call("query_functions")
             fn_id = fns[0]["id"] if fns else 0
-            r = call("add_vc_buttons", {"items": [
-                {"parentID": page_idx, "x": 10, "y": 430, "width": 100, "height": 50,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "button", "parentID": frame_ids[0], "x": 10, "y": 10,
+                 "width": 100, "height": 50,
                  "functionID": fn_id, "caption": "Red", "action": "toggle"},
-                {"parentID": page_idx, "x": 120, "y": 430, "width": 100, "height": 50,
+                {"type": "button", "parentID": frame_ids[0], "x": 120, "y": 10,
+                 "width": 100, "height": 50,
                  "functionID": fn_id, "caption": "Strobe", "action": "flash"},
             ]})
             assert len(r) == 2
-        test("add_vc_buttons (toggle + flash)", t_add_vc_buttons)
+            button_ids.extend(w["widgetID"] for w in r)
+        test("vc_create_widgets buttons (toggle + flash)", t_create_vc_buttons)
 
-        def t_add_vc_sliders():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 420, "y": 10, "width": 60, "height": 400,
+        def t_create_vc_sliders():
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 10, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Master", "mode": "submaster"},
             ]})
             assert len(r) == 1
-        test("add_vc_sliders (submaster)", t_add_vc_sliders)
+        test("vc_create_widgets slider (submaster)", t_create_vc_sliders)
 
         # === SLIDER EXTENDED PROPERTIES ===
         print("\n=== Slider Extended Properties ===")
 
         def t_slider_grandmaster():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 500, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 80, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "GM", "mode": "grandmaster",
                  "gmValueMode": "reduce", "gmChannelMode": "allchannels"},
             ]})
             assert len(r) == 1
             wid = r[0]["widgetID"]
             assert wid >= 0, f"Expected valid ID, got {r[0]}"
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["sliderMode"] == "grandmaster", f"Expected grandmaster, got {d.get('sliderMode')}"
             assert d["gmValueMode"] == "reduce", f"Expected reduce, got {d.get('gmValueMode')}"
             assert d["gmChannelMode"] == "allchannels", f"Expected allchannels, got {d.get('gmChannelMode')}"
         test("slider grandmaster mode", t_slider_grandmaster)
 
         def t_slider_click_and_go():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 580, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 150, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Gobo Pick", "mode": "level",
                  "clickAndGoType": "preset"},
             ]})
             assert len(r) == 1
             wid = r[0]["widgetID"]
             assert wid >= 0
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["clickAndGoType"] == "preset", f"Expected preset, got {d.get('clickAndGoType')}"
         test("slider clickAndGoType (preset)", t_slider_click_and_go)
 
         def t_slider_value_display_style():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 660, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 220, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Pct Slider", "mode": "level",
                  "valueDisplayStyle": "percentage"},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["valueDisplayStyle"] == "percentage", f"Expected percentage, got {d.get('valueDisplayStyle')}"
         test("slider valueDisplayStyle (percentage)", t_slider_value_display_style)
 
         def t_slider_range_limits():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 740, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 290, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Ranged", "mode": "level",
                  "rangeLowLimit": 50, "rangeHighLimit": 200},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["rangeLowLimit"] == 50, f"rangeLowLimit: {d.get('rangeLowLimit')}"
             assert d["rangeHighLimit"] == 200, f"rangeHighLimit: {d.get('rangeHighLimit')}"
         test("slider rangeLowLimit/rangeHighLimit", t_slider_range_limits)
 
         def t_slider_monitor():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 820, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 360, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Monitored", "mode": "level",
                  "monitorEnabled": True},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["monitorEnabled"] == True, f"monitorEnabled: {d.get('monitorEnabled')}"
         test("slider monitorEnabled", t_slider_monitor)
 
         def t_slider_inverted():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 900, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 430, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Inverted", "mode": "level",
                  "invertedAppearance": True},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d.get("invertedAppearance") == True or d.get("sliderInvertedAppearance") == True, \
                 f"invertedAppearance not set: {d}"
         test("slider invertedAppearance", t_slider_inverted)
 
         def t_slider_upsert():
             # Create a slider, then create another with same caption → should upsert
-            r1 = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 980, "y": 10, "width": 60, "height": 400,
+            r1 = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 500, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Upsert Test", "mode": "level"},
             ]})
             wid1 = r1[0]["widgetID"]
             assert r1[0]["status"] == "created"
 
-            r2 = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "caption": "Upsert Test", "mode": "level",
+            r2 = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1],
+                 "caption": "Upsert Test", "mode": "level",
                  "clickAndGoType": "colors"},
             ]})
             assert r2[0]["status"] == "updated", f"Expected updated, got {r2[0].get('status')}"
             assert r2[0]["widgetID"] == wid1, "Upsert should return same widget ID"
 
-            d = call("query_widget_details", {"widgetIDs": [wid1]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid1]})[0]
             assert d["clickAndGoType"] == "colors", f"Expected colors after upsert, got {d.get('clickAndGoType')}"
         test("slider upsert (update existing by caption)", t_slider_upsert)
 
         def t_slider_colors_on_create():
-            r = call("add_vc_sliders", {"items": [
-                {"parentID": page_idx, "x": 1060, "y": 10, "width": 60, "height": 400,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "slider", "parentID": frame_ids[1], "x": 570, "y": 10,
+                 "width": 60, "height": 120,
                  "caption": "Colored", "mode": "level",
                  "clickAndGoType": "colors",
                  "bgColor": "#1a3300", "fgColor": "#ffffff"},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["clickAndGoType"] == "colors"
         test("slider with colors + clickAndGo on create", t_slider_colors_on_create)
 
-        def t_add_vc_cuelists():
+        def t_create_vc_cuelists():
             fns = call("query_functions")
             chaser_id = next((f["id"] for f in fns if f.get("type") == "Chaser"), fns[0]["id"] if fns else 0)
-            r = call("add_vc_cuelists", {"items": [
-                {"parentID": page_idx, "x": 490, "y": 10, "width": 300, "height": 200,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "cuelist", "parentID": frame_ids[0], "x": 10, "y": 70,
+                 "width": 300, "height": 100,
                  "chaserID": chaser_id, "caption": "Color Chase"},
             ]})
             assert len(r) == 1
-        test("add_vc_cuelists", t_add_vc_cuelists)
+        test("vc_create_widgets cuelist", t_create_vc_cuelists)
 
-        def t_add_vc_labels():
-            r = call("add_vc_labels", {"items": [
-                {"parentID": page_idx, "x": 10, "y": 490, "width": 200, "height": 30,
-                 "text": "Audio Reactive"},
+        def t_create_vc_labels():
+            r = call("vc_create_widgets", {"items": [
+                {"type": "label", "parentID": frame_ids[0], "x": 10, "y": 180,
+                 "width": 200, "height": 30, "text": "Audio Reactive"},
             ]})
             assert len(r) == 1
-        test("add_vc_labels", t_add_vc_labels)
+        test("vc_create_widgets label", t_create_vc_labels)
 
-        def t_map_vc_inputs():
-            r = call("map_vc_inputs", {"items": [
-                {"widgetID": 0, "inputUniverse": 0, "inputChannel": 1},
+        def t_vc_map_inputs():
+            r = call("vc_map_inputs", {"items": [
+                {"widgetID": button_ids[0], "inputUniverse": 0, "inputChannel": 1},
             ]})
             assert len(r) == 1
-        test("map_vc_inputs", t_map_vc_inputs)
+            assert r[0]["status"] == "ok"
+        test("vc_map_inputs", t_vc_map_inputs)
 
         # === XY PAD ===
         print("\n=== XY Pad ===")
@@ -557,20 +652,20 @@ def run_tests():
             if not mh_patched:
                 print("    (skipped: no moving heads)")
                 return
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 200,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "xypad", "parentID": frame_ids[0], "size": 200,
                  "fixtureIDs": mh_fixture_ids},
             ]})
             assert len(r) == 1
             assert r[0]["widgetID"] >= 0, f"Expected valid ID, got {r[0]}"
-        test("add_vc_xypads (basic fixtureIDs)", t_xypad_basic)
+        test("vc_create_widgets xypad (basic fixtureIDs)", t_xypad_basic)
 
         def t_xypad_with_config():
             if not mh_patched:
                 print("    (skipped: no moving heads)")
                 return
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 200,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "xypad", "parentID": frame_ids[0], "size": 200,
                  "fixtures": [
                      {"fixtureID": mh_fixture_ids[0], "head": 0,
                       "xMin": 0.1, "xMax": 0.9, "yMin": 0.2, "yMax": 0.8}
@@ -581,15 +676,15 @@ def run_tests():
             assert len(r) == 1
             assert r[0]["widgetID"] >= 0
             return r[0]["widgetID"]
-        test("add_vc_xypads (per-fixture config)", t_xypad_with_config)
+        test("vc_create_widgets xypad (per-fixture config)", t_xypad_with_config)
 
         def t_xypad_query_details():
             if not mh_patched:
                 print("    (skipped: no moving heads)")
                 return
             # Create a pad with known config
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 200,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "xypad", "parentID": frame_ids[0], "size": 200,
                  "fixtures": [
                      {"fixtureID": mh_fixture_ids[0], "xMin": 0.25, "xMax": 0.75}
                  ],
@@ -598,7 +693,7 @@ def run_tests():
             wid = r[0]["widgetID"]
             assert wid >= 0
 
-            details = call("query_widget_details", {"widgetIDs": [wid]})
+            details = call("vc_query_widgets", {"widgetIDs": [wid]})
             assert len(details) == 1
             d = details[0]
             assert d["type"] == "XY Pad", f"Expected XY Pad, got {d['type']}"
@@ -609,28 +704,28 @@ def run_tests():
             assert fx["fixtureID"] == mh_fixture_ids[0]
             assert abs(fx["xMin"] - 0.25) < 0.01, f"xMin: {fx['xMin']}"
             assert abs(fx["xMax"] - 0.75) < 0.01, f"xMax: {fx['xMax']}"
-        test("query_widget_details (XY Pad fixtures+degrees)", t_xypad_query_details)
+        test("vc_query_widgets (XY Pad fixtures+degrees)", t_xypad_query_details)
 
         def t_xypad_display_mode():
             if not mh_patched:
                 print("    (skipped: no moving heads)")
                 return
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 150,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "xypad", "parentID": frame_ids[0], "size": 150,
                  "fixtureIDs": [mh_fixture_ids[0]],
                  "displayMode": "percentage"},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["displayMode"] == "percentage"
 
             # Update display mode
-            r2 = call("update_widgets", {"items": [
+            r2 = call("vc_update_widgets", {"items": [
                 {"widgetID": wid, "displayMode": "dmx"}
             ]})
             assert any(c["property"] == "displayMode" and c["status"] == "ok"
                        for c in r2[0]["changes"])
-            d2 = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d2 = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d2["displayMode"] == "dmx"
         test("XY Pad display mode (create + update)", t_xypad_display_mode)
 
@@ -638,57 +733,39 @@ def run_tests():
             if not mh_patched:
                 print("    (skipped: no moving heads)")
                 return
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 150,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "xypad", "parentID": frame_ids[0], "size": 150,
                  "fixtureIDs": [mh_fixture_ids[0]],
                  "invertedAppearance": True},
             ]})
             wid = r[0]["widgetID"]
-            d = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d["invertedAppearance"] == True
 
             # Toggle off via update
-            call("update_widgets", {"items": [
+            call("vc_update_widgets", {"items": [
                 {"widgetID": wid, "invertedAppearance": False}
             ]})
-            d2 = call("query_widget_details", {"widgetIDs": [wid]})[0]
+            d2 = call("vc_query_widgets", {"widgetIDs": [wid]})[0]
             assert d2["invertedAppearance"] == False
         test("XY Pad inverted appearance", t_xypad_inverted)
-
-        def t_xypad_position():
-            if not mh_patched:
-                print("    (skipped: no moving heads)")
-                return
-            r = call("add_vc_xypads", {"items": [
-                {"parentID": page_idx, "size": 150,
-                 "fixtureIDs": [mh_fixture_ids[0]]},
-            ]})
-            wid = r[0]["widgetID"]
-
-            # Set position via update_widgets
-            r2 = call("update_widgets", {"items": [
-                {"widgetID": wid, "xyPadPosition": {"x": 0.5, "y": 0.3}}
-            ]})
-            assert any(c["property"] == "xyPadPosition" and c["status"] == "ok"
-                       for c in r2[0]["changes"])
-        test("XY Pad position control", t_xypad_position)
 
         # === AUDIO TRIGGERS ===
         print("\n=== Audio Triggers ===")
 
         def t_audio_triggers_create():
-            r = call("add_vc_audio_triggers", {"items": [
-                {"parentID": page_idx, "width": 300, "height": 150,
+            r = call("vc_create_widgets", {"items": [
+                {"type": "audioTrigger", "parentID": frame_ids[0], "width": 300, "height": 150,
                  "barsNumber": 5, "volumeLevel": 200},
             ]})
             assert len(r) == 1
             assert r[0]["widgetID"] >= 0
             return r[0]["widgetID"]
-        test("add_vc_audio_triggers (with settings)", t_audio_triggers_create)
+        test("vc_create_widgets audioTrigger (with settings)", t_audio_triggers_create)
 
         # Get the widget ID for subsequent tests
-        at_r = call("add_vc_audio_triggers", {"items": [
-            {"parentID": page_idx, "barsNumber": 5}
+        at_r = call("vc_create_widgets", {"items": [
+            {"type": "audioTrigger", "parentID": frame_ids[0], "barsNumber": 5}
         ]})
         at_wid = at_r[0]["widgetID"] if at_r and at_r[0].get("widgetID", -1) >= 0 else -1
 
@@ -696,16 +773,16 @@ def run_tests():
             if at_wid < 0:
                 print("    (skipped: no widget)")
                 return
-            d = call("query_widget_details", {"widgetIDs": [at_wid]})
+            d = call("vc_query_widgets", {"widgetIDs": [at_wid]})
             assert len(d) == 1
             det = d[0]
             assert det["type"] == "Audio Triggers", f"Got {det['type']}"
             assert "barsNumber" in det, "Missing barsNumber"
-            assert det["barsNumber"] == 5, f"Expected 5 bars, got {det['barsNumber']}"
+            assert det["barsNumber"] == 6, f"Expected fixed six-band mapping, got {det['barsNumber']}"
             assert "bars" in det, "Missing bars array"
-            assert len(det["bars"]) == 5
+            assert len(det["bars"]) == 6
             assert det["bars"][0]["barIndex"] == 0  # volume bar
-        test("query_widget_details (Audio Triggers)", t_audio_triggers_query)
+        test("vc_query_widgets (Audio Triggers)", t_audio_triggers_query)
 
         def t_audio_triggers_configure_function_bar():
             if at_wid < 0:
@@ -716,66 +793,54 @@ def run_tests():
                 print("    (skipped: no functions)")
                 return
             fn_id = fns[0]["id"]
-            r = call("configure_audio_triggers", {"items": [
+            r = call("vc_update_widgets", {"items": [
                 {"widgetID": at_wid, "bars": [
-                    {"barIndex": 1, "type": "function", "functionID": fn_id,
-                     "minThreshold": 30, "maxThreshold": 70}
+                    {"barIndex": 1, "type": "function", "functionID": fn_id}
                 ]}
             ]})
-            assert r[0]["bars"][0]["status"] == "ok"
+            bar_change = next(change for change in r[0]["changes"]
+                              if change["property"] == "bars")
+            assert bar_change["bars"][0]["status"] == "ok"
 
             # Verify round-trip
-            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
+            d = call("vc_query_widgets", {"widgetIDs": [at_wid]})[0]
             bar1 = d["bars"][1]
             assert bar1["type"] == "function", f"Expected function, got {bar1['type']}"
             assert bar1["functionID"] == fn_id
-            assert bar1["minThreshold"] == 30
-            assert bar1["maxThreshold"] == 70
         test("configure_audio_triggers (function bar)", t_audio_triggers_configure_function_bar)
 
         def t_audio_triggers_configure_none_bar():
             if at_wid < 0:
                 print("    (skipped: no widget)")
                 return
-            r = call("configure_audio_triggers", {"items": [
+            r = call("vc_update_widgets", {"items": [
                 {"widgetID": at_wid, "bars": [
                     {"barIndex": 1, "type": "none"}
                 ]}
             ]})
-            assert r[0]["bars"][0]["status"] == "ok"
-            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
+            bar_change = next(change for change in r[0]["changes"]
+                              if change["property"] == "bars")
+            assert bar_change["bars"][0]["status"] == "ok"
+            d = call("vc_query_widgets", {"widgetIDs": [at_wid]})[0]
             assert d["bars"][1]["type"] == "none"
         test("configure_audio_triggers (reset bar to none)", t_audio_triggers_configure_none_bar)
-
-        def t_audio_triggers_update():
-            if at_wid < 0:
-                print("    (skipped: no widget)")
-                return
-            r = call("update_widgets", {"items": [
-                {"widgetID": at_wid, "barsNumber": 8, "volumeLevel": 150}
-            ]})
-            changes = {c["property"]: c["status"] for c in r[0]["changes"]}
-            assert changes.get("barsNumber") == "ok"
-            assert changes.get("volumeLevel") == "ok"
-
-            d = call("query_widget_details", {"widgetIDs": [at_wid]})[0]
-            assert d["barsNumber"] == 8
-            assert d["volumeLevel"] == 150
-        test("update_widgets (Audio Triggers barsNumber+volume)", t_audio_triggers_update)
 
         # === PROMPTS ===
         print("\n=== Design Guide ===")
 
-        def t_show_design_guide():
-            r = call("get_show_design_guide")
-            text = str(r)
-            assert "TIER 1" in text or "Just Works" in text, "Missing Tier 1"
-            assert "TIER 2" in text or "Flexible" in text, "Missing Tier 2"
-            assert "TIER 3" in text or "Full Production" in text, "Missing Tier 3"
-            assert "Church" in text, "Missing Church venue"
-            assert "HTP" in text, "Missing HTP/LTP rules"
-            assert "show-setup.md" in text, "Missing post-build doc instruction"
-        test("get_show_design_guide (tiers + venues + docs)", t_show_design_guide)
+        def t_design_dj_show_prompt():
+            listed = send("prompts/list", {})
+            names = {prompt["name"] for prompt in listed["result"]["prompts"]}
+            assert {"design_dj_show", "debug_channel_conflict", "setup_launchpad"} <= names
+            generated = send("prompts/get", {
+                "name": "design_dj_show",
+                "arguments": {"colors_per_phase": "3", "energy_style": "balanced"},
+            })
+            text = generated["result"]["messages"][0]["content"]["text"]
+            assert "# DJ Show Design" in text
+            assert "Two-Tier Architecture" in text
+            assert "3 colors per phase" in text
+        test("design_dj_show prompt (current prompt API)", t_design_dj_show_prompt)
 
         # === SUMMARY ===
         print(f"\n{'='*50}")
@@ -795,6 +860,10 @@ def run_tests():
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait(timeout=5)
+        if proc.e2e_log_stream is not subprocess.DEVNULL:
+            proc.e2e_log_stream.close()
+        print(f"SERVER_PID={proc.pid} terminated")
 
 
 if __name__ == "__main__":

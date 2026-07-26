@@ -349,9 +349,8 @@ void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *v
                 "Scripts can also read `Engine.getBPM()` and `Engine.getBeatDuration()` for beat-synced algorithms, "
                 "or use easing, randomness, and state machines for organic effects that sliders can't achieve.\n\n"
 
-                "## Live Capture Workflow\n"
-                "- `read_dmx_values` — read current DMX output for any fixture/channel filter\n"
-                "- `update_scene_from_dmx` — capture live state into a new or existing scene\n\n"
+                "## Setup Diagnostics\n"
+                "- `read_dmx_values` — inspect current DMX output for any fixture/channel filter without changing show state\n\n"
 
                 "---\n\n"
                 "## VC Layout Best Practices\n"

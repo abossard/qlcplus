@@ -77,7 +77,7 @@ graph TB
     TM --> QT & FT & VCC & VCU & VCI & VCL & IO & CH
     PM --> PR
 
-    QT -->|"query_fixtures<br/>patch_fixtures<br/>query_functions<br/>query_available_fixtures<br/>vc_query_pages<br/>vc_query_widgets"| Doc
+    QT -->|"query_fixtures<br/>patch_fixtures<br/>update_fixture<br/>query_functions<br/>query_available_fixtures<br/>vc_query_pages<br/>vc_query_widgets"| Doc
     QT -->|"vc_query_*"| VCB
 
     FT -->|"create_scenes<br/>create_chasers<br/>create_sequences<br/>create_efxs<br/>create_collections<br/>create_rgb_matrices<br/>create_scripts<br/>delete_functions"| Doc
@@ -155,6 +155,7 @@ mindmap
       query_fixtures 🔍
       query_available_fixtures 🔍
       patch_fixtures ♻️
+      update_fixture ♻️
       query_functions 🔍
       vc_query_pages 🔍
       vc_query_widgets 🔍
@@ -532,8 +533,7 @@ classDiagram
     }
 
     class AudioTriggerProps {
-        +captureEnabled: bool
-        +volumeLevel: int
+        +volumeLevel: int (create only)
         +barsNumber: int
     }
 
@@ -739,6 +739,7 @@ classDiagram
         +bgColor/fgColor: QColor
         +validSources: SourceDef[]
         +parentID: int
+        +childPageIndex: int
         -- Button extended --
         +iconPath, startupIntensity, flashOverride...
         -- Slider extended --

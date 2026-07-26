@@ -169,6 +169,9 @@ public:
     /** Remove the child $widget from the frame page map */
     virtual void removeWidgetFromPageMap(VCWidget *widget);
 
+    /** Move a direct child to a multipage slot without changing the visible page. */
+    bool moveWidgetToPage(VCWidget *widget, int pageIndex);
+
 protected:
     void setupWidget(VCWidget *widget, int page);
 

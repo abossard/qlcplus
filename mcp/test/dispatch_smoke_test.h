@@ -29,6 +29,8 @@ private slots:
     void dispatchSmoke_configureChannels_emptyDoc_returnsArray();
     void dispatchSmoke_configureUniverses_validItem_returnsResult();
     void dispatchSmoke_unknownField_returnsError();
+    void dispatchSmoke_liveControlTools_notRegistered();
+    void dispatchSmoke_setupAndDiagnosticsTools_remainRegistered();
 
 private:
     Doc *m_doc = nullptr;

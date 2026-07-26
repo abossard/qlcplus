@@ -628,68 +628,6 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
     )
     .set_annotations(mcp::kAnnotOpenWorld));
 
-    // set_grand_master — control grand master value and mode
-    tm.register_tool(Tool(
-        "set_grand_master",
-        Json{{"type", "object"}, {"properties", {
-            {"value", {{"type", "integer"}, {"description", "Grand master value 0-255"}}},
-            {"valueMode", {{"type", "string"}, {"enum", {"limit", "reduce"}}, {"description", "'limit' or 'reduce'"}}},
-            {"channelMode", {{"type", "string"}, {"enum", {"intensity", "all"}}, {"description", "'intensity' or 'all'"}}}
-        }}},
-        Json{},
-        [doc](const Json &args) -> Json {
-            return execOnMainThread(doc, [&]() -> Json {
-            auto err = validateFields(args, {"value", "valueMode", "channelMode"});
-            if (!err.empty()) return err;
-
-            static const Json kEnums = {
-                {"valueMode", {{"enum", {"limit", "reduce"}}}},
-                {"channelMode", {{"enum", {"intensity", "all"}}}}
-            };
-            err = validateEnums(args, kEnums);
-            if (!err.empty()) return err;
-
-            InputOutputMap *ioMap = doc->inputOutputMap();
-
-            if (args.contains("value"))
-            {
-                int val = args.at("value").get<int>();
-                if (val < 0) val = 0;
-                if (val > 255) val = 255;
-                ioMap->setGrandMasterValue(static_cast<uchar>(val));
-            }
-
-            if (args.contains("valueMode"))
-            {
-                std::string mode = args.at("valueMode").get<std::string>();
-                if (mode == "limit")
-                    ioMap->setGrandMasterValueMode(GrandMaster::Limit);
-                else if (mode == "reduce")
-                    ioMap->setGrandMasterValueMode(GrandMaster::Reduce);
-            }
-
-            if (args.contains("channelMode"))
-            {
-                std::string mode = args.at("channelMode").get<std::string>();
-                if (mode == "intensity")
-                    ioMap->setGrandMasterChannelMode(GrandMaster::Intensity);
-                else if (mode == "all")
-                    ioMap->setGrandMasterChannelMode(GrandMaster::AllChannels);
-            }
-
-            Json result;
-            result["value"] = (int)ioMap->grandMasterValue();
-            result["valueMode"] = (ioMap->grandMasterValueMode() == GrandMaster::Limit) ? "limit" : "reduce";
-            result["channelMode"] = (ioMap->grandMasterChannelMode() == GrandMaster::Intensity) ? "intensity" : "all";
-            return result.dump();
-            });
-        },
-        std::nullopt,
-        std::string("Set grand master value, value mode, and channel mode."),
-        std::nullopt
-    )
-    .set_annotations(mcp::kAnnotOpenWorld));
-
     // configure_launchpad — auto-configure a Novation Launchpad in one call
     tm.register_tool(Tool(
         "configure_launchpad",

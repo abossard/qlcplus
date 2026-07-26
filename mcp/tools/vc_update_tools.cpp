@@ -86,10 +86,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"disabled", {{"type", "boolean"}, {"description", "Disable/enable widget"}}},
                 {"displayMode", {{"type", "string"}, {"enum", {"degrees", "percentage", "dmx"}},
                     {"description", "XY Pad display mode"}}},
-                {"xyPadPosition", {{"type", "object"}, {"properties", {
-                    {"x", {{"type", "number"}, {"description", "X position (0.0-1.0)"}}},
-                    {"y", {{"type", "number"}, {"description", "Y position (0.0-1.0)"}}}
-                }}, {"description", "Set XY Pad cursor position"}}},
                 {"presets", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"name", {{"type", "string"}}},
                     {"type", {{"type", "string"}, {"enum", {"position", "efx", "scene", "fixtureGroup"}}}},
@@ -98,7 +94,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 }}}}, {"description", "XY Pad: position/EFX/scene presets"}}},
                 {"multipageMode", {{"type", "boolean"}, {"description", "Frame: enable multipage mode"}}},
                 {"totalPages", {{"type", "integer"}, {"description", "Frame: total number of pages"}}},
-                {"currentPage", {{"type", "integer"}, {"description", "Frame: current page index"}}},
                 {"pagesLoop", {{"type", "boolean"}, {"description", "Frame: loop pages"}}},
                 {"pageLabels", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "Frame: page names (one per page, ordered by index)"}}},
                 {"headerVisible", {{"type", "boolean"}, {"description", "Frame: show header"}}},
@@ -140,12 +135,8 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"absoluteValueMin", {{"type", "integer"}, {"description", "SpeedDial: absolute value range min (ms)"}}},
                 {"absoluteValueMax", {{"type", "integer"}, {"description", "SpeedDial: absolute value range max (ms)"}}},
                 {"resetFactorOnDialChange", {{"type", "boolean"}, {"description", "SpeedDial: reset factor on dial change"}}},
-                {"captureEnabled", {{"type", "boolean"},
-                    {"description", "Audio Triggers: enable/disable audio capture"}}},
-                {"volumeLevel", {{"type", "integer"},
-                    {"description", "Audio Triggers: input volume 0-255"}}},
                 {"barsNumber", {{"type", "integer"},
-                    {"description", "Audio Triggers: total number of bars (min 1)"}}},
+                    {"description", "Audio Triggers: legacy compatibility field; QLC+ 5 uses a fixed six-band mapping"}}},
                 {"bars", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                     {"barIndex", {{"type", "integer"}, {"description", "Bar index (0=volume bar, 1+=spectrum bars)"}}},
                     {"type", {{"type", "string"}, {"description", "Bar type: none, dmx, function, widget"}}},
@@ -274,30 +265,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     changes.push_back({{"property", "invertedAppearance"}, {"status", ok ? "ok" : "failed"}});
                 }
 
-                if (item.contains("xyPadPosition"))
-                {
-                    auto pos = item.at("xyPadPosition");
-                    qreal x = pos.contains("x") ? pos.at("x").get<double>() : 0.0;
-                    qreal y = pos.contains("y") ? pos.at("y").get<double>() : 0.0;
-                    bool ok = vcBridge->setXYPadPosition(wid, x, y);
-                    changes.push_back({{"property", "xyPadPosition"}, {"status", ok ? "ok" : "failed"}});
-                }
-
                 // Audio Triggers updates
-                if (item.contains("captureEnabled"))
-                {
-                    bool ok = vcBridge->setAudioTriggerCapture(wid,
-                        item.at("captureEnabled").get<bool>());
-                    changes.push_back({{"property", "captureEnabled"}, {"status", ok ? "ok" : "failed"}});
-                }
-
-                if (item.contains("volumeLevel"))
-                {
-                    bool ok = vcBridge->setAudioTriggerVolume(wid,
-                        item.at("volumeLevel").get<int>());
-                    changes.push_back({{"property", "volumeLevel"}, {"status", ok ? "ok" : "failed"}});
-                }
-
                 if (item.contains("barsNumber"))
                 {
                     bool ok = vcBridge->setAudioTriggerBarsNumber(wid,
@@ -412,7 +380,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     bool hasFrameCfg = false;
                     if (item.contains("multipageMode")) { frameCfg.multipageMode = item["multipageMode"].get<bool>(); hasFrameCfg = true; }
                     if (item.contains("totalPages")) { frameCfg.totalPages = item["totalPages"].get<int>(); hasFrameCfg = true; }
-                    if (item.contains("currentPage")) { frameCfg.currentPage = item["currentPage"].get<int>(); hasFrameCfg = true; }
                     if (item.contains("pagesLoop")) { frameCfg.pagesLoop = item["pagesLoop"].get<bool>(); hasFrameCfg = true; }
                     if (item.contains("pageLabels"))
                     {

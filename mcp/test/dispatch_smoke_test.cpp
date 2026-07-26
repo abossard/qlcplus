@@ -156,4 +156,27 @@ void DispatchSmoke_Test::dispatchSmoke_unknownField_returnsError()
              "Unknown fields must produce per-item error");
 }
 
+void DispatchSmoke_Test::dispatchSmoke_liveControlTools_notRegistered()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerFunctionTools(tm, m_doc);
+    registerIOTools(tm, m_doc);
+
+    QVERIFY(!tm.has("set_grand_master"));
+    QVERIFY(!tm.has("update_scene_from_dmx"));
+}
+
+void DispatchSmoke_Test::dispatchSmoke_setupAndDiagnosticsTools_remainRegistered()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerQueryTools(tm, m_doc, nullptr);
+    registerFunctionTools(tm, m_doc);
+    registerIOTools(tm, m_doc);
+    registerChannelTools(tm, m_doc);
+
+    for (const char *name : {"query_fixtures", "patch_fixtures", "update_fixture", "create_scenes",
+                            "configure_universes", "read_dmx_values"})
+        QVERIFY2(tm.has(name), name);
+}
+
 QTEST_MAIN(DispatchSmoke_Test)

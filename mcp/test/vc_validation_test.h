@@ -59,6 +59,8 @@ private slots:
     void updateValidation_multipageModeOnLabel_rejected();
     void updateValidation_barsNumberOnAudioTrigger_valid();
     void updateValidation_barsNumberOnButton_rejected();
+    void runtimeFields_rejected_data();
+    void runtimeFields_rejected();
 
     // Value validation
     void valueValidation_validAction();
@@ -91,6 +93,8 @@ private slots:
     // parentID / pageIndex exclusivity
     void parentOrPage_data();
     void parentOrPage();
+    void childPageIndex_data();
+    void childPageIndex();
 
     // Batch items validation
     void validateItemsArray_data();

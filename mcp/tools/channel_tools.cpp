@@ -441,7 +441,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                      "Returns the merged result of all running functions. "
                      "Filter by channel group and optionally exclude zero values. "
                      "Position/zoom channels include degree conversion. "
-                     "Use with update_scene_from_dmx to capture live state into scenes."),
+                     "Read-only setup diagnostic; does not change DMX or show state."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));

@@ -495,14 +495,16 @@
 > }
 > ```
 >
-> ### Available tools (47)
+> ### Available tools
+>
+> The MCP surface is for setup, authoring, inspection, and bounded repair—not live-show actuation. `read_dmx_values` remains available as a read-only setup diagnostic.
 > | Category | Tools |
 > |----------|-------|
 > | **Query** | `query_fixtures`, `query_available_fixtures`, `query_functions`, `query_fixture_channels`, `query_palettes`, `query_universes`, `query_input_profiles`, `query_midi_devices`, `query_osc_status`, `query_channel_modifiers`, `query_feedback_profile` |
-> | **Patch** | `patch_fixtures` |
-> | **Functions** | `create_scenes`, `create_chasers`, `create_sequences`, `create_efxs`, `create_collections`, `create_rgb_matrices`, `create_scripts`, `create_fixture_groups`, `update_scene_from_dmx`, `delete_functions` |
+> | **Patch** | `patch_fixtures`, `update_fixture` |
+> | **Functions** | `create_scenes`, `create_chasers`, `create_sequences`, `create_efxs`, `create_collections`, `create_rgb_matrices`, `create_scripts`, `create_fixture_groups`, `delete_functions` |
 > | **Palettes** | `create_palettes`, `delete_palettes` |
-> | **Channels** | `configure_channels`, `read_dmx_values`, `set_channel_modifiers`, `convert_degrees_to_dmx`, `set_grand_master` |
+> | **Channels** | `configure_channels`, `read_dmx_values`, `set_channel_modifiers`, `convert_degrees_to_dmx` |
 > | **I/O** | `configure_universes`, `configure_plugin_params`, `configure_osc`, `configure_beat_source`, `configure_launchpad`, `set_input_profile`, `vc_configure_feedback` |
 > | **Virtual Console** | `vc_create_pages`, `vc_create_widgets`, `vc_query_pages`, `vc_query_widgets`, `vc_update_widgets`, `vc_delete_widgets`, `vc_reparent_widgets` |
 > | **VC Input** | `vc_map_inputs`, `vc_set_key_sequences`, `vc_detect_overlaps` |

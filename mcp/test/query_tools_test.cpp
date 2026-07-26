@@ -3,6 +3,7 @@
 */
 
 #include <QtTest>
+#include <QSignalSpy>
 
 #include "query_tools_test.h"
 #include "tool_registry.h"
@@ -38,6 +39,64 @@ void verifyNonNegativeInteger(const Json &obj, const char *key)
     QVERIFY2(obj.contains(key), qPrintable(QStringLiteral("Missing key: %1").arg(key)));
     QVERIFY2(obj[key].is_number_integer(), qPrintable(QStringLiteral("Key is not an integer: %1").arg(key)));
     QVERIFY2(obj[key].get<int>() >= 0, qPrintable(QStringLiteral("Key is negative: %1").arg(key)));
+}
+
+QList<quint32> addFixtureLayout(Doc *doc)
+{
+    const struct FixtureSpec {
+        const char *name;
+        quint32 universe;
+        quint32 address;
+        quint32 channels;
+    } specs[] = {
+        {"Alpha Wash", 0, 10, 4},
+        {"beta Spot", 1, 20, 8},
+        {"Alpha Bar", 0, 30, 3},
+        {"Gamma", 2, 5, 1},
+        {"alpha Accent", 1, 100, 6},
+    };
+
+    QList<quint32> ids;
+    for (const FixtureSpec &spec : specs)
+    {
+        auto *fixture = new Fixture(doc);
+        fixture->setName(spec.name);
+        fixture->setUniverse(spec.universe);
+        fixture->setAddress(spec.address);
+        fixture->setChannels(spec.channels);
+        if (!doc->addFixture(fixture))
+        {
+            delete fixture;
+            return {};
+        }
+        ids.append(fixture->id());
+    }
+    return ids;
+}
+
+QList<int> fixtureIds(const Json &fixtures)
+{
+    QList<int> ids;
+    if (!fixtures.is_array())
+        return ids;
+    for (const Json &fixture : fixtures)
+    {
+        if (!fixture.is_object() || !fixture.contains("id") || !fixture["id"].is_number_integer())
+            return {};
+        ids.append(fixture["id"].get<int>());
+    }
+    return ids;
+}
+
+Json fixtureState(const Fixture *fixture)
+{
+    return {
+        {"id", fixture->id()},
+        {"name", fixture->name().toStdString()},
+        {"universe", fixture->universe()},
+        {"address", fixture->address()},
+        {"channels", fixture->channels()}
+    };
 }
 
 }
@@ -251,6 +310,249 @@ void QueryTools_Test::queryWorkspaceSummary_populatedDoc_returnsExactCounts()
     QCOMPARE(fns["collections"].get<int>(), 0);
     QCOMPARE(fns["rgbMatrices"].get<int>(), 0);
     QCOMPARE(fns["efx"].get<int>(), 0);
+}
+
+void QueryTools_Test::queryFixtures_legacyShapeAndFilters()
+{
+    const QList<quint32> ids = addFixtureLayout(m_doc);
+    QCOMPARE(ids.size(), 5);
+    auto tm = makeQueryToolManager(m_doc);
+
+    const Json all = parsedToolResult(tm.invoke("query_fixtures", Json::object()));
+    QVERIFY(all.is_array());
+    QCOMPARE(fixtureIds(all), QList<int>({int(ids[0]), int(ids[1]), int(ids[2]), int(ids[3]), int(ids[4])}));
+
+    const Json byId = parsedToolResult(tm.invoke("query_fixtures", {{"id", ids[2]}}));
+    QVERIFY2(byId.is_array(), byId.dump().c_str());
+    QCOMPARE(fixtureIds(byId), QList<int>({int(ids[2])}));
+
+    const Json byName = parsedToolResult(tm.invoke("query_fixtures", {{"name", "ALPHA"}}));
+    QVERIFY2(byName.is_array(), byName.dump().c_str());
+    QCOMPARE(fixtureIds(byName), QList<int>({int(ids[0]), int(ids[2]), int(ids[4])}));
+
+    const Json byUniverse = parsedToolResult(tm.invoke("query_fixtures", {{"universe", 1}}));
+    QVERIFY2(byUniverse.is_array(), byUniverse.dump().c_str());
+    QCOMPARE(fixtureIds(byUniverse), QList<int>({int(ids[1]), int(ids[4])}));
+
+    const Json combined = parsedToolResult(tm.invoke(
+        "query_fixtures", {{"name", "alpha"}, {"universe", 1}}));
+    QVERIFY2(combined.is_array(), combined.dump().c_str());
+    QCOMPARE(fixtureIds(combined), QList<int>({int(ids[4])}));
+}
+
+void QueryTools_Test::queryFixtures_cursorPagination()
+{
+    const QList<quint32> ids = addFixtureLayout(m_doc);
+    QCOMPARE(ids.size(), 5);
+    auto tm = makeQueryToolManager(m_doc);
+
+    Json first = parsedToolResult(tm.invoke("query_fixtures", {{"page", {{"limit", 2}}}}));
+    QVERIFY2(first.is_object(), first.dump().c_str());
+    QVERIFY(first.contains("total") && first["total"].is_number_integer());
+    QVERIFY(first.contains("items") && first["items"].is_array());
+    QVERIFY(first.contains("nextCursor"));
+    QCOMPARE(first["total"].get<int>(), 5);
+    QCOMPARE(fixtureIds(first["items"]), QList<int>({int(ids[0]), int(ids[1])}));
+    QVERIFY(first["nextCursor"].is_string());
+
+    Json second = parsedToolResult(tm.invoke("query_fixtures",
+        {{"page", {{"limit", 2}, {"cursor", first["nextCursor"]}}}}));
+    QVERIFY2(second.is_object(), second.dump().c_str());
+    QVERIFY(second.contains("total") && second["total"].is_number_integer());
+    QVERIFY(second.contains("items") && second["items"].is_array());
+    QVERIFY(second.contains("nextCursor"));
+    QCOMPARE(second["total"].get<int>(), 5);
+    QCOMPARE(fixtureIds(second["items"]), QList<int>({int(ids[2]), int(ids[3])}));
+
+    Json third = parsedToolResult(tm.invoke("query_fixtures",
+        {{"page", {{"limit", 2}, {"cursor", second["nextCursor"]}}}}));
+    QVERIFY2(third.is_object(), third.dump().c_str());
+    QVERIFY(third.contains("total") && third["total"].is_number_integer());
+    QVERIFY(third.contains("items") && third["items"].is_array());
+    QVERIFY(third.contains("nextCursor"));
+    QCOMPARE(third["total"].get<int>(), 5);
+    QCOMPARE(fixtureIds(third["items"]), QList<int>({int(ids[4])}));
+    QVERIFY(third["nextCursor"].is_null());
+}
+
+void QueryTools_Test::queryFixtures_invalidPage_data()
+{
+    QTest::addColumn<QByteArray>("arguments");
+    QTest::newRow("zero-limit") << QByteArray(R"({"page":{"limit":0}})");
+    QTest::newRow("excessive-limit") << QByteArray(R"({"page":{"limit":101}})");
+    QTest::newRow("wrong-limit-type") << QByteArray(R"({"page":{"limit":"two"}})");
+    QTest::newRow("invalid-cursor") << QByteArray(R"({"page":{"limit":2,"cursor":"not-a-cursor"}})");
+}
+
+void QueryTools_Test::queryFixtures_invalidPage()
+{
+    QFETCH(QByteArray, arguments);
+    addFixtureLayout(m_doc);
+    auto tm = makeQueryToolManager(m_doc);
+
+    const Json result = parsedToolResult(
+        tm.invoke("query_fixtures", Json::parse(arguments.constData())));
+    QVERIFY(result.is_object());
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+}
+
+void QueryTools_Test::updateFixture_atomicAndIdempotent()
+{
+    const QList<quint32> ids = addFixtureLayout(m_doc);
+    QCOMPARE(ids.size(), 5);
+    Fixture *target = m_doc->fixture(ids[0]);
+    const quint32 oldUniverseAddress = target->universeAddress();
+    const quint32 channels = target->channels();
+    auto tm = makeQueryToolManager(m_doc);
+    QVERIFY(tm.has("update_fixture"));
+    QSignalSpy changedSpy(m_doc, &Doc::fixtureChanged);
+
+    const Json request = {
+        {"id", ids[0]}, {"name", "Renamed Wash"}, {"universe", 3}, {"address", 40}
+    };
+    const Json updated = parsedToolResult(tm.invoke("update_fixture", request));
+    QVERIFY2(updated.is_object(), updated.dump().c_str());
+    QVERIFY(updated.contains("status") && updated["status"].is_string());
+    QVERIFY(updated.contains("before") && updated["before"].is_object());
+    QVERIFY(updated.contains("after") && updated["after"].is_object());
+    QVERIFY(updated["before"].contains("id") && updated["before"]["id"].is_number_integer());
+    QVERIFY(updated["after"].contains("id") && updated["after"]["id"].is_number_integer());
+    QCOMPARE(updated["status"].get<std::string>(), std::string("updated"));
+    QCOMPARE(updated["before"]["id"].get<quint32>(), ids[0]);
+    QCOMPARE(updated["after"]["id"].get<quint32>(), ids[0]);
+    QCOMPARE(target->name(), QString("Renamed Wash"));
+    QCOMPARE(target->universe(), quint32(3));
+    QCOMPARE(target->address(), quint32(40));
+    QCOMPARE(changedSpy.size(), 1);
+    for (quint32 offset = 0; offset < channels; ++offset)
+    {
+        QCOMPARE(m_doc->fixtureForAddress(oldUniverseAddress + offset), Fixture::invalidId());
+        QCOMPARE(m_doc->fixtureForAddress(target->universeAddress() + offset), ids[0]);
+    }
+
+    changedSpy.clear();
+    const Json unchanged = parsedToolResult(tm.invoke("update_fixture", request));
+    QVERIFY2(unchanged.is_object(), unchanged.dump().c_str());
+    QVERIFY(unchanged.contains("status") && unchanged["status"].is_string());
+    QCOMPARE(unchanged["status"].get<std::string>(), std::string("unchanged"));
+    QCOMPARE(fixtureState(target), updated["after"]);
+    QCOMPARE(changedSpy.size(), 0);
+}
+
+void QueryTools_Test::updateFixture_invalidRequest_data()
+{
+    QTest::addColumn<QByteArray>("requestTemplate");
+
+    QTest::newRow("unknown-id") << QByteArray(R"({"id":9999,"name":"Nope"})");
+    QTest::newRow("unknown-field") << QByteArray(R"({"id":0,"bogus":1})");
+    QTest::newRow("missing-update") << QByteArray(R"({"id":0})");
+    QTest::newRow("wrong-id-type") << QByteArray(R"({"id":"zero","name":"Nope"})");
+    QTest::newRow("wrong-name-type") << QByteArray(R"({"id":0,"name":42})");
+    QTest::newRow("negative-universe") << QByteArray(R"({"id":0,"universe":-1})");
+    QTest::newRow("address-outside") << QByteArray(R"({"id":0,"address":512})");
+    QTest::newRow("footprint-overflow") << QByteArray(R"({"id":0,"address":510})");
+    QTest::newRow("occupied-range") << QByteArray(R"({"id":0,"universe":1,"address":100})");
+}
+
+void QueryTools_Test::updateFixture_invalidRequest()
+{
+    QFETCH(QByteArray, requestTemplate);
+    const QList<quint32> ids = addFixtureLayout(m_doc);
+    QCOMPARE(ids.size(), 5);
+    Fixture *target = m_doc->fixture(ids[0]);
+    const Json before = fixtureState(target);
+    const quint32 oldUniverseAddress = target->universeAddress();
+    const quint32 blockerAddress = m_doc->fixture(ids[4])->universeAddress();
+    const quint32 oldOwner = m_doc->fixtureForAddress(oldUniverseAddress);
+    const quint32 blockerOwner = m_doc->fixtureForAddress(blockerAddress);
+    QSignalSpy changedSpy(m_doc, &Doc::fixtureChanged);
+    auto tm = makeQueryToolManager(m_doc);
+    QVERIFY(tm.has("update_fixture"));
+
+    Json request = Json::parse(requestTemplate.constData());
+    if (request.contains("id") && request["id"].is_number_integer() &&
+        request["id"].get<int>() == 0)
+        request["id"] = ids[0];
+
+    const Json result = parsedToolResult(tm.invoke("update_fixture", request));
+    QVERIFY(result.is_object());
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+    QCOMPARE(fixtureState(target), before);
+    QCOMPARE(m_doc->fixtureForAddress(oldUniverseAddress), oldOwner);
+    QCOMPARE(m_doc->fixtureForAddress(blockerAddress), blockerOwner);
+    QCOMPARE(changedSpy.size(), 0);
+}
+
+void QueryTools_Test::patchFixtures_schemaDescribesExactMatch()
+{
+    auto tm = makeQueryToolManager(m_doc);
+    const Json schema = tm.input_schema_for("patch_fixtures");
+    QVERIFY2(schema.is_object(), schema.dump().c_str());
+    QVERIFY(schema.contains("properties") && schema["properties"].is_object());
+    const Json &rootProperties = schema["properties"];
+    QVERIFY(rootProperties.contains("items") && rootProperties["items"].is_object());
+    const Json &itemsSchema = rootProperties["items"];
+    QVERIFY(itemsSchema.contains("items") && itemsSchema["items"].is_object());
+    const Json &itemSchema = itemsSchema["items"];
+    QVERIFY(itemSchema.contains("properties") && itemSchema["properties"].is_object());
+    const Json &properties = itemSchema["properties"];
+    for (const char *field : {"universe", "address", "quantity"})
+        QVERIFY(properties.contains(field) && properties[field].is_object());
+    QVERIFY(properties["universe"].contains("minimum") &&
+            properties["universe"]["minimum"].is_number_integer());
+    QVERIFY(properties["address"].contains("minimum") &&
+            properties["address"]["minimum"].is_number_integer());
+    QVERIFY(properties["address"].contains("maximum") &&
+            properties["address"]["maximum"].is_number_integer());
+    QVERIFY(properties["quantity"].contains("minimum") &&
+            properties["quantity"]["minimum"].is_number_integer());
+    QCOMPARE(properties["universe"]["minimum"].get<int>(), 0);
+    QCOMPARE(properties["address"]["minimum"].get<int>(), 0);
+    QCOMPARE(properties["address"]["maximum"].get<int>(), 511);
+    QCOMPARE(properties["quantity"]["minimum"].get<int>(), 1);
+
+    const std::string description = tm.get("patch_fixtures").description().value_or("");
+    QVERIFY(QString::fromStdString(description).contains("exact", Qt::CaseInsensitive));
+    QVERIFY(!QString::fromStdString(description).contains("upsert", Qt::CaseInsensitive));
+}
+
+void QueryTools_Test::patchFixtures_invalidBounds_data()
+{
+    QTest::addColumn<QByteArray>("itemJson");
+    QTest::addColumn<QString>("field");
+
+    QTest::newRow("negative-universe")
+        << QByteArray(R"({"manufacturer":"Missing","model":"Missing","mode":"Missing","name":"Bad","universe":-1,"address":0})")
+        << QString("universe");
+    QTest::newRow("excessive-universe")
+        << QByteArray(R"({"manufacturer":"Missing","model":"Missing","mode":"Missing","name":"Bad","universe":128,"address":0})")
+        << QString("universe");
+    QTest::newRow("negative-address")
+        << QByteArray(R"({"manufacturer":"Missing","model":"Missing","mode":"Missing","name":"Bad","universe":0,"address":-1})")
+        << QString("address");
+    QTest::newRow("excessive-address")
+        << QByteArray(R"({"manufacturer":"Missing","model":"Missing","mode":"Missing","name":"Bad","universe":0,"address":512})")
+        << QString("address");
+    QTest::newRow("zero-quantity")
+        << QByteArray(R"({"manufacturer":"Missing","model":"Missing","mode":"Missing","name":"Bad","universe":0,"address":0,"quantity":0})")
+        << QString("quantity");
+}
+
+void QueryTools_Test::patchFixtures_invalidBounds()
+{
+    QFETCH(QByteArray, itemJson);
+    QFETCH(QString, field);
+    auto tm = makeQueryToolManager(m_doc);
+    QVERIFY(tm.has("patch_fixtures"));
+
+    const Json result = parsedToolResult(tm.invoke(
+        "patch_fixtures", {{"items", Json::array({Json::parse(itemJson.constData())})}}));
+    QVERIFY(result.is_array());
+    QCOMPARE(result.size(), size_t(1));
+    QVERIFY2(result[0].contains("error"), result.dump().c_str());
+    QVERIFY(QString::fromStdString(result[0]["error"].get<std::string>())
+                .contains(field, Qt::CaseInsensitive));
+    QCOMPARE(m_doc->fixturesCount(), 0);
 }
 
 QTEST_MAIN(QueryTools_Test)

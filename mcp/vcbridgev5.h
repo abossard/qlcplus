@@ -115,6 +115,7 @@ public:
 
     // Widget details query
     WidgetDetails getWidgetDetails(int widgetID) const override;
+    bool setWidgetPage(int widgetID, int pageIndex) override;
 
     // Widget property mutations
     bool setWidgetCaption(int widgetID, const QString &caption) override;

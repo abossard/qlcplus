@@ -136,7 +136,6 @@ public:
     {
         std::optional<bool> multipageMode;
         std::optional<int> totalPages;
-        std::optional<int> currentPage;
         std::optional<bool> pagesLoop;
         std::optional<QStringList> pageLabels;
         std::optional<bool> headerVisible;
@@ -253,6 +252,7 @@ public:
         QColor fgColor;
         QList<SourceDef> validSources;
         int parentID = -1;
+        int childPageIndex = 0;
 
         // Slider extended properties
         QString clickAndGoType;               // "none"/"colors"/"preset"
@@ -527,6 +527,8 @@ public:
     // Widget details query
     virtual WidgetDetails getWidgetDetails(int widgetID) const
         { Q_UNUSED(widgetID); return WidgetDetails(); }
+    virtual bool setWidgetPage(int widgetID, int pageIndex)
+        { Q_UNUSED(widgetID); Q_UNUSED(pageIndex); return false; }
 
     // Widget property mutations
     virtual bool setWidgetCaption(int widgetID, const QString &caption)

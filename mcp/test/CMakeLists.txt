@@ -36,6 +36,31 @@ target_link_libraries(mcp_vc_validation_test PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# VC public tool surface tests — registered schemas and stateful behavior
+add_executable(mcp_vc_tool_surface_test WIN32
+    vc_tool_surface_test.cpp vc_tool_surface_test.h
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole/gridlayout.cpp
+)
+
+target_include_directories(mcp_vc_tool_surface_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+)
+
+target_link_libraries(mcp_vc_tool_surface_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
 # VC Bridge Structs tests — exercises VCBridge config structs and defaults
 add_executable(mcp_vc_structs_test WIN32
     vc_bridge_structs_test.cpp vc_bridge_structs_test.h

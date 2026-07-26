@@ -38,6 +38,7 @@ void VCBridgeStructs_Test::widgetDetails_defaultValues()
     QVERIFY(d.channels.isEmpty());
     QVERIFY(d.inputMappings.isEmpty());
     QCOMPARE(d.parentID, -1);
+    QCOMPARE(d.childPageIndex, 0);
 
     // Slider defaults
     QVERIFY(d.clickAndGoType.isEmpty());
@@ -134,7 +135,6 @@ void VCBridgeStructs_Test::frameConfig_allOptionalEmpty()
     VCBridge::FrameConfig cfg;
     QVERIFY(!cfg.multipageMode.has_value());
     QVERIFY(!cfg.totalPages.has_value());
-    QVERIFY(!cfg.currentPage.has_value());
     QVERIFY(!cfg.pagesLoop.has_value());
     QVERIFY(!cfg.pageLabels.has_value());
     QVERIFY(!cfg.headerVisible.has_value());
@@ -230,7 +230,6 @@ void VCBridgeStructs_Test::frameConfig_setAndRead()
     VCBridge::FrameConfig cfg;
     cfg.multipageMode = true;
     cfg.totalPages = 5;
-    cfg.currentPage = 2;
     cfg.pagesLoop = true;
     cfg.pageLabels = QStringList{"Intro", "Drop", "Outro"};
     cfg.headerVisible = false;
@@ -241,7 +240,6 @@ void VCBridgeStructs_Test::frameConfig_setAndRead()
 
     QCOMPARE(cfg.multipageMode.value(), true);
     QCOMPARE(cfg.totalPages.value(), 5);
-    QCOMPARE(cfg.currentPage.value(), 2);
     QCOMPARE(cfg.pagesLoop.value(), true);
     QCOMPARE(cfg.pageLabels.value(), (QStringList{"Intro", "Drop", "Outro"}));
     QCOMPARE(cfg.headerVisible.value(), false);

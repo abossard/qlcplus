@@ -109,6 +109,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"type", {{"type", "string"}, {"enum", {"frame", "soloframe", "button", "slider", "xypad", "cuelist", "label", "speedDial", "audioTrigger", "matrix", "clock"}}, {"description", "Widget type to create"}}},
                 {"parentID", {{"type", "integer"}, {"description", "Parent frame or page widget ID"}}},
+                {"childPageIndex", {{"type", "integer"}, {"minimum", 0}, {"description", "Target page within a multipage parent frame (non-container widgets only)"}}},
                 {"pageIndex", {{"type", "integer"}, {"description", "Page index (for top-level frames only)"}}},
                 {"caption", {{"type", "string"}, {"description", "Widget caption/label"}}},
                 {"upsert", {{"type", "boolean"}, {"description", "If true, update existing widget with same caption (default: true for most types)"}}},
@@ -174,9 +175,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"absoluteValueMax", {{"type", "integer"}, {"description", "SpeedDial: absolute value range max (ms)"}}},
                 {"visibilityMask", {{"type", "integer"}, {"description", "SpeedDial/Matrix: visibility bitmask"}}},
                 {"resetFactorOnDialChange", {{"type", "boolean"}, {"description", "SpeedDial: reset factor on dial change"}}},
-                {"captureEnabled", {{"type", "boolean"}, {"description", "AudioTrigger: enable audio capture"}}},
                 {"volumeLevel", {{"type", "integer"}, {"description", "AudioTrigger: audio input volume 0-255"}}},
-                {"barsNumber", {{"type", "integer"}, {"description", "AudioTrigger: total number of bars"}}},
+                {"barsNumber", {{"type", "integer"}, {"description", "AudioTrigger: legacy compatibility field; QLC+ 5 uses a fixed six-band mapping"}}},
                 {"clockType", {{"type", "string"}, {"enum", {"clock", "stopwatch", "countdown"}}, {"description", "Clock type"}}},
                 {"countdownHours", {{"type", "integer"}, {"description", "Clock: countdown hours"}}},
                 {"countdownMinutes", {{"type", "integer"}, {"description", "Clock: countdown minutes"}}},
@@ -231,6 +231,23 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 // For frames, pageIndex is also allowed
                 auto validationErr = VCValidate::validate(item, widgetType, true);
                 if (!validationErr.empty()) { results.push_back(nlohmann::json::parse(validationErr)); continue; }
+
+                if (item.contains("childPageIndex"))
+                {
+                    const int parentID = item.at("parentID").get<int>();
+                    const int pageIndex = item.at("childPageIndex").get<int>();
+                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(parentID);
+                    if (parent.id < 0 || pageIndex >= parent.totalPages)
+                    {
+                        const std::string range = parent.totalPages > 0
+                            ? "0-" + std::to_string(parent.totalPages - 1)
+                            : "empty";
+                        results.push_back({{"error", "childPageIndex " + std::to_string(pageIndex) +
+                            " is outside the parent frame page range " + range +
+                            " (parentID " + std::to_string(parentID) + ")"}});
+                        continue;
+                    }
+                }
 
                 // 3. Dispatch to the appropriate creation logic based on type
                 switch (widgetType)
@@ -338,6 +355,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         int existingId = vcBridge->findWidgetByCaption(parentID, "Button", caption);
                         if (existingId >= 0)
                         {
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
+                                continue;
+                            }
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
                             continue;
                         }
@@ -409,6 +432,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                 QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
                                 QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                                 vcBridge->setWidgetColors(existingId, bg, fg);
+                            }
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
+                                continue;
                             }
                             results.push_back({{"widgetID", existingId}, {"status", "updated"}});
                             continue;
@@ -535,6 +564,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         int existingId = vcBridge->findWidgetByCaption(parentID, "CueList", caption);
                         if (existingId >= 0)
                         {
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
+                                continue;
+                            }
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
                             continue;
                         }
@@ -586,6 +621,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         int existingId = vcBridge->findWidgetByCaption(parentID, "Label", text);
                         if (existingId >= 0)
                         {
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
+                                continue;
+                            }
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
                             continue;
                         }
@@ -699,8 +740,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                             vcBridge->setAudioTriggerBarsNumber(id, item.at("barsNumber").get<int>());
                         if (item.contains("volumeLevel"))
                             vcBridge->setAudioTriggerVolume(id, item.at("volumeLevel").get<int>());
-                        if (item.contains("captureEnabled") && item.at("captureEnabled").get<bool>())
-                            vcBridge->setAudioTriggerCapture(id, true);
                     }
                     break;
                 }
@@ -826,6 +865,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         int existingId = vcBridge->findWidgetByCaption(parentID, "Record Panel", caption);
                         if (existingId >= 0)
                         {
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
+                                continue;
+                            }
                             results.push_back({{"widgetID", existingId}, {"status", "existing"}});
                             continue;
                         }
@@ -866,6 +911,14 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 default:
                     results.push_back({{"error", "unsupported widget type: " + typeStr}});
                     break;
+                }
+
+                if (item.contains("childPageIndex") && !results.empty() &&
+                    results.back().contains("widgetID") && !results.back().contains("error"))
+                {
+                    int widgetID = results.back()["widgetID"].get<int>();
+                    if (!vcBridge->setWidgetPage(widgetID, item["childPageIndex"].get<int>()))
+                        results.back() = {{"widgetID", widgetID}, {"error", "childPageIndex is outside the parent frame page range"}};
                 }
             }
             return results.dump();

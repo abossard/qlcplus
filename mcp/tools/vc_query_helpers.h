@@ -44,7 +44,7 @@ inline const std::set<std::string> kValidWidgetTypes = {
 
 inline const std::set<std::string> kValidProperties = {
     // Core
-    "type", "caption", "pageIndex", "parentID", "geometry",
+    "type", "caption", "pageIndex", "parentID", "childPageIndex", "geometry",
     // Function binding
     "functionID", "action",
     // Slider
@@ -404,6 +404,8 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
     if (has("type"))      w["type"]     = d.type.toStdString();
     if (has("caption"))   w["caption"]  = d.caption.toStdString();
     if (has("parentID"))  w["parentID"] = d.parentID;
+    if (has("childPageIndex") && d.parentID >= 0)
+        w["childPageIndex"] = d.childPageIndex;
     if (has("geometry"))
     {
         w["x"] = d.geometry.x();

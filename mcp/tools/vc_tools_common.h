@@ -81,6 +81,7 @@ namespace VCType
             {"Button",          Button},
             {"Slider",          Slider},
             {"XYPad",           XYPad},
+            {"XY Pad",          XYPad},
             {"Frame",           Frame},
             {"Solo frame",      SoloFrame},
             {"Speed dial",      SpeedDial},
@@ -185,7 +186,7 @@ namespace VCFields
                 "visibilityMask", "resetFactorOnDialChange"
             }},
             {AudioTriggers, {
-                "captureEnabled", "volumeLevel", "barsNumber"
+                "volumeLevel", "barsNumber"
             }},
             {Animation, {
                 "color1", "color2", "color3", "color4", "color5",
@@ -225,17 +226,17 @@ namespace VCFields
                 "gmValueMode", "gmChannelMode"
             }},
             {Frame, {
-                "multipageMode", "totalPages", "currentPage", "pagesLoop",
+                "multipageMode", "totalPages", "pagesLoop",
                 "pageLabels", "headerVisible", "enableButtonVisible", "collapsed"
             }},
             {SoloFrame, {
-                "multipageMode", "totalPages", "currentPage", "pagesLoop",
+                "multipageMode", "totalPages", "pagesLoop",
                 "pageLabels", "headerVisible", "enableButtonVisible", "collapsed",
                 "soloframeMixing", "excludeMonitoredFunctions"
             }},
             {XYPad, {
                 "displayMode", "invertedAppearance",
-                "position", "xyPadPosition", "presets"
+                "position", "presets"
             }},
             {CueList, {
                 "chaserID", "chaserName",
@@ -248,7 +249,7 @@ namespace VCFields
                 "visibilityMask", "resetFactorOnDialChange"
             }},
             {AudioTriggers, {
-                "captureEnabled", "volumeLevel", "barsNumber", "bars"
+                "barsNumber", "bars"
             }},
             {Animation, {
                 "functionID", "functionName",
@@ -296,6 +297,8 @@ namespace VCValidate
             : VCFields::updateFieldsForType(widgetType);
         for (const auto &f : typeSpecific)
             allowed.insert(f);
+        if (isCreate && widgetType != VCType::Frame && widgetType != VCType::SoloFrame)
+            allowed.insert("childPageIndex");
 
         return allowed;
     }
@@ -506,6 +509,14 @@ namespace VCValidate
         }
 
         // Numeric range checks
+        if (item.contains("childPageIndex"))
+        {
+            if (!item["childPageIndex"].is_number_integer())
+                return mkErr("childPageIndex", "must be a non-negative integer");
+            if (item["childPageIndex"].get<int>() < 0)
+                return mkErr("childPageIndex", "must be a non-negative integer");
+        }
+
         if (item.contains("startupIntensity"))
         {
             double v = item["startupIntensity"].get<double>();

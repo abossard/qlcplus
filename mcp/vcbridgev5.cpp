@@ -862,6 +862,7 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     VCWidget *parent = qobject_cast<VCWidget*>(widget->parent());
     if (parent)
         d.parentID = (int)parent->id();
+    d.childPageIndex = widget->page();
 
     // Input mappings with per-source feedback
     for (const auto &src : widget->inputSources())
@@ -1210,6 +1211,15 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     return d;
 }
 
+bool VCBridgeV5::setWidgetPage(int widgetID, int pageIndex)
+{
+    VCWidget *widget = m_vc->widget(widgetID);
+    if (!widget)
+        return false;
+    VCFrame *frame = qobject_cast<VCFrame *>(widget->parent());
+    return frame && frame->moveWidgetToPage(widget, pageIndex);
+}
+
 // --- Widget property mutations ---
 
 bool VCBridgeV5::setWidgetCaption(int widgetID, const QString &caption)
@@ -1536,8 +1546,6 @@ bool VCBridgeV5::configureFrame(int widgetID, const FrameConfig &config)
         frame->setMultiPageMode(config.multipageMode.value());
     if (config.totalPages.has_value())
         frame->setTotalPagesNumber(config.totalPages.value());
-    if (config.currentPage.has_value())
-        frame->setCurrentPage(config.currentPage.value());
     if (config.pagesLoop.has_value())
         frame->setPagesLoop(config.pagesLoop.value());
     if (config.pageLabels.has_value())
