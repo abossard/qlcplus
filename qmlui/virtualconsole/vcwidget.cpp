@@ -1097,7 +1097,8 @@ void VCWidget::slotInputSourceValueChanged(quint32 universe, quint32 channel, uc
 
 void VCWidget::sendFeedback(int value, quint8 id, SourceValueType type)
 {
-    if (isDisabled())
+    // do not send feedback if widget is disabled or hidden
+    if (isDisabled() || !isVisible())
         return;
 
     for (QSharedPointer<QLCInputSource> &source : m_inputSources) // C++11
