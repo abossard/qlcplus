@@ -5,16 +5,32 @@
 # Point AUBIO_SOURCE_DIR at the `src/` directory of an aubio checkout
 # (compatible with 0.4.9 and 0.5.0-alpha layouts):
 #   cmake -DAUBIO_SOURCE_DIR=/path/to/aubio/src ...
+# When it is empty, the pinned revision below is downloaded instead.
 #
 # We deliberately do NOT call upstream's root or src/ CMakeLists.txt — it is
 # SHARED-only, hard-requires PkgConfig, lists I/O and effects sources
 # unconditionally, and does not wire Accelerate/FFTW config correctly. We
-# treat the external repository as a source tree only.
+# treat the external repository as a source tree only. SOURCE_SUBDIR therefore
+# points at a directory that does not exist, which is how FetchContent is told
+# to download without adding the dependency's own project to the build.
 
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 
-set(AUBIO_SOURCE_DIR "/Users/abossard/Desktop/projects/aubio/src"
-    CACHE PATH "Path to aubio source tree (the src/ subdir of an aubio checkout)")
+set(AUBIO_SOURCE_DIR ""
+    CACHE PATH "Path to aubio source tree (the src/ subdir of an aubio checkout). Empty: download AUBIO_GIT_TAG.")
+set(AUBIO_GIT_TAG "ad5cf975aed08cc4562dd008cf9f83b12b82ffb8"
+    CACHE STRING "aubio revision downloaded when AUBIO_SOURCE_DIR is empty")
+
+if(NOT AUBIO_SOURCE_DIR)
+    include(FetchContent)
+    FetchContent_Declare(aubio
+        GIT_REPOSITORY https://github.com/aubio/aubio.git
+        GIT_TAG ${AUBIO_GIT_TAG}
+        SOURCE_SUBDIR qlcplus-does-not-configure-aubio
+    )
+    FetchContent_MakeAvailable(aubio)
+    set(AUBIO_SOURCE_DIR "${aubio_SOURCE_DIR}/src")
+endif()
 
 if(NOT EXISTS "${AUBIO_SOURCE_DIR}/aubio.h")
     message(FATAL_ERROR
