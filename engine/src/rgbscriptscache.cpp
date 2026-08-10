@@ -45,6 +45,9 @@ RGBScript* RGBScriptsCache::script(QString name) const
     QString filename = m_scriptsMap.value(name);
     if (filename.isEmpty())
     {
+        qWarning() << "RGB script" << name << "is not available to RGBMatrix."
+                   << "HSV audio scripts live in the HUE script directory and"
+                   << "are only offered to HUEMatrix.";
         return mScript;
     }
     else

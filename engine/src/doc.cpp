@@ -40,6 +40,7 @@
 #include "oscaudiosource.h"
 #include "audiochannel.h"
 #include "rgbscriptscache.h"
+#include "huescriptscache.h"
 #include "channelsgroup.h"
 #include "scriptwrapper.h"
 #include "collection.h"
@@ -68,6 +69,7 @@ Doc::Doc(QObject* parent, int universes)
     , m_fixtureDefCache(new QLCFixtureDefCache)
     , m_modifiersCache(new QLCModifiersCache)
     , m_rgbScriptsCache(new RGBScriptsCache(this))
+    , m_hueScriptsCache(new HUEScriptsCache(this))
     , m_ioPluginCache(new IOPluginCache(this))
     , m_audioPluginCache(new AudioPluginCache(this))
     , m_masterTimer(new MasterTimer(this))
@@ -128,6 +130,9 @@ Doc::~Doc()
 
     delete m_rgbScriptsCache;
     m_rgbScriptsCache = NULL;
+
+    delete m_hueScriptsCache;
+    m_hueScriptsCache = NULL;
 }
 
 void Doc::clearContents()
@@ -274,6 +279,11 @@ QLCModifiersCache* Doc::modifiersCache() const
 RGBScriptsCache* Doc::rgbScriptsCache() const
 {
     return m_rgbScriptsCache;
+}
+
+HUEScriptsCache* Doc::hueScriptsCache() const
+{
+    return m_hueScriptsCache;
 }
 
 IOPluginCache* Doc::ioPluginCache() const

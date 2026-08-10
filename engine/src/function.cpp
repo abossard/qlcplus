@@ -32,6 +32,7 @@
 #include "mastertimer.h"
 #include "collection.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
 #include "function.h"
 #include "sequence.h"
 #include "chaser.h"
@@ -50,6 +51,7 @@ const QString KEFXString        (        "EFX" );
 const QString KCollectionString ( "Collection" );
 const QString KScriptString     (     "Script" );
 const QString KRGBMatrixString  (  "RGBMatrix" );
+const QString KHUEMatrixString  (  "HUEMatrix" );
 const QString KShowString       (       "Show" );
 const QString KSequenceString   (   "Sequence" );
 const QString KAudioString      (      "Audio" );
@@ -248,6 +250,7 @@ QString Function::typeToString(Type type)
         case CollectionType: return KCollectionString;
         case ScriptType:     return KScriptString;
         case RGBMatrixType:  return KRGBMatrixString;
+        case HUEMatrixType:  return KHUEMatrixString;
         case ShowType:       return KShowString;
         case SequenceType:   return KSequenceString;
         case AudioType:      return KAudioString;
@@ -272,6 +275,8 @@ Function::Type Function::stringToType(const QString& string)
         return ScriptType;
     else if (string == KRGBMatrixString)
         return RGBMatrixType;
+    else if (string == KHUEMatrixString)
+        return HUEMatrixType;
     else if (string == KShowString)
         return ShowType;
     else if (string == KSequenceString)
@@ -1117,6 +1122,8 @@ bool Function::loader(QXmlStreamReader &root, Doc* doc)
         function = new class Script(doc);
     else if (type == Function::RGBMatrixType)
         function = new class RGBMatrix(doc);
+    else if (type == Function::HUEMatrixType)
+        function = new class HUEMatrix(doc);
     else if (type == Function::ShowType)
         function = new class Show(doc);
     else if (type == Function::SequenceType)
@@ -1136,6 +1143,16 @@ bool Function::loader(QXmlStreamReader &root, Doc* doc)
     function->setLastEdited(lastEdited);
     if (function->loadXML(root) == true)
     {
+        // A matrix whose stored algorithm is unavailable to its type loads
+        // silently to nothing; say which function lost its algorithm. The
+        // missing algorithm's name is reported by the scripts cache.
+        RGBMatrix *matrix = qobject_cast<RGBMatrix*> (function);
+        if (matrix != NULL && matrix->algorithm() == NULL)
+            qWarning() << "Function" << name << "of type"
+                       << Function::typeToString(type)
+                       << "lost its algorithm: the stored algorithm is not"
+                       << "available to this function type.";
+
         if (doc->addFunction(function, id) == true)
         {
             /* Success */

@@ -1131,6 +1131,7 @@ bool ShowManager::insertShowItemTimeAt(ShowFunction *sf, int length, int cursorT
         case Function::CollectionType:
         case Function::EFXType:
         case Function::RGBMatrixType:
+        case Function::HUEMatrixType:
         {
             int newDuration = sf->duration() + length;
             if (newDuration < minDuration)
@@ -1226,6 +1227,7 @@ bool ShowManager::cutShowItemTimeAt(ShowFunction *sf, int length, int cursorTime
         case Function::CollectionType:
         case Function::EFXType:
         case Function::RGBMatrixType:
+        case Function::HUEMatrixType:
         {
             int newDuration = int(sf->duration()) - targetCutDuration;
             if (newDuration < minDuration)

@@ -44,6 +44,7 @@ class AudioCapture;
 class AudioAnalyzer;
 class OscAudioSource;
 class RGBScriptsCache;
+class HUEScriptsCache;
 class AudioPluginCache;
 class MonitorProperties;
 
@@ -138,6 +139,8 @@ public:
     /** Get the RGB scripts cache object */
     RGBScriptsCache *rgbScriptsCache() const;
 
+    HUEScriptsCache *hueScriptsCache() const;
+
     /** Get the I/O plugin cache object */
     IOPluginCache *ioPluginCache() const;
 
@@ -169,6 +172,7 @@ private:
     QLCFixtureDefCache *m_fixtureDefCache;
     QLCModifiersCache *m_modifiersCache;
     RGBScriptsCache *m_rgbScriptsCache;
+    HUEScriptsCache *m_hueScriptsCache;
     IOPluginCache *m_ioPluginCache;
     AudioPluginCache *m_audioPluginCache;
     MasterTimer *m_masterTimer;

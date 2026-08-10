@@ -123,6 +123,7 @@
     <file alias="rename.svg">rename.svg</file>
     <file alias="resize.svg">resize.svg</file>
     <file alias="rgbmatrix.svg">rgbmatrix.svg</file>
+    <file alias="huematrix.svg">huematrix.svg</file>
     <file alias="selectall.svg">selectall.svg</file>
     <file alias="sequence.svg">sequence.svg</file>
     <file alias="scanner.svg">scanner.svg</file>

@@ -165,6 +165,18 @@ Rectangle
                 z: 2
                 width: height
                 height: topBar.height - 2
+                imgSource: "qrc:/huematrix.svg"
+                checkable: true
+                checked: functionManager.functionsFilter & QLCFunction.HUEMatrixType
+                tooltip: qsTr("HUE Matrices")
+                counter: functionManager.hueMatrixCount
+                onCheckedChanged: setFunctionFilter(QLCFunction.HUEMatrixType, checked)
+            }
+            IconButton
+            {
+                z: 2
+                width: height
+                height: topBar.height - 2
                 imgSource: "qrc:/showmanager.svg"
                 checkable: true
                 checked: functionManager.functionsFilter & QLCFunction.ShowType

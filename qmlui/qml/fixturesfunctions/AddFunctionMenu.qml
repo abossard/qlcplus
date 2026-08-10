@@ -88,6 +88,12 @@ Popup
         }
         ContextMenuEntry
         {
+            imgSource: "qrc:/huematrix.svg"
+            entryText: qsTr("New HUE Matrix")
+            onClicked: entryClicked(QLCFunction.HUEMatrixType)
+        }
+        ContextMenuEntry
+        {
             imgSource: "qrc:/showmanager.svg"
             entryText: qsTr("New Show")
             onClicked: entryClicked(QLCFunction.ShowType)

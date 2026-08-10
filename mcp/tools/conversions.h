@@ -42,6 +42,7 @@
 #include "efx.h"
 #include "scenevalue.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
 #include "rgbalgorithm.h"
 #include "fixturegroup.h"
 #include "universe.h"
@@ -223,12 +224,21 @@ inline std::string rgbAlgorithmTypeToString(RGBAlgorithm::Type type)
     }
 }
 
+// Pure function: control mode name, honouring HUEMatrix' additive modes
+inline std::string controlModeName(RGBMatrix *matrix)
+{
+    if (qobject_cast<HUEMatrix *>(matrix) != NULL)
+        return HUEMatrix::controlModeToString(matrix->controlMode()).toStdString();
+    return RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
+}
+
 // Convert an RGBMatrix to detailed JSON
 inline Json rgbMatrixToJson(RGBMatrix *matrix)
 {
     Json entry;
     entry["id"] = (int)matrix->id();
     entry["name"] = matrix->name().toStdString();
+    entry["type"] = Function::typeToString(matrix->type()).toStdString();
     if (!matrix->path().isEmpty())
         entry["path"] = matrix->path().toStdString();
     entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
@@ -253,7 +263,7 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
 
     entry["runOrder"] = Function::runOrderToString(matrix->runOrder()).toStdString();
     entry["direction"] = Function::directionToString(matrix->direction()).toStdString();
-    entry["controlMode"] = RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
+    entry["controlMode"] = controlModeName(matrix);
     entry["blendMode"] = Universe::blendModeToString(matrix->blendMode()).toStdString();
 
     // Algorithm
@@ -279,23 +289,26 @@ inline Json rgbMatrixToJson(RGBMatrix *matrix)
 
     entry["stepsCount"] = matrix->stepsCount();
 
-    // Rotation & Mirror
-    if (matrix->rotation() != 0)
-        entry["rotation"] = matrix->rotation() * 90; // 0, 90, 180, 270
-    if (matrix->mirror() != 0)
+    // Rotation, Mirror and Beat Transform are HUEMatrix-only
+    HUEMatrix *hue = qobject_cast<HUEMatrix *>(matrix);
+    if (hue != NULL)
     {
-        static const char *mirrorNames[] = {"Off", "Horizontal", "Vertical", "Both"};
-        entry["mirror"] = mirrorNames[matrix->mirror() & 3];
-    }
-    if (matrix->mirrorBlend() != RGBMatrix::MirrorFlip)
-        entry["mirrorBlend"] = RGBMatrix::mirrorBlendToString(matrix->mirrorBlend()).toStdString();
+        if (hue->rotation() != 0)
+            entry["rotation"] = hue->rotation() * 90; // 0, 90, 180, 270
+        if (hue->mirror() != 0)
+        {
+            static const char *mirrorNames[] = {"Off", "Horizontal", "Vertical", "Both"};
+            entry["mirror"] = mirrorNames[hue->mirror() & 3];
+        }
+        if (hue->mirrorBlend() != HUEMatrix::MirrorFlip)
+            entry["mirrorBlend"] = HUEMatrix::mirrorBlendToString(hue->mirrorBlend()).toStdString();
 
-    // Beat Transform
-    if (matrix->beatEffect() != RGBMatrix::BeatEffectOff)
-    {
-        entry["beatEffect"] = RGBMatrix::beatEffectToString(matrix->beatEffect()).toStdString();
-        entry["beatSelection"] = RGBMatrix::beatSelectionToString(matrix->beatSelection()).toStdString();
-        entry["beatOrientation"] = RGBMatrix::beatOrientationToString(matrix->beatOrientation()).toStdString();
+        if (hue->beatEffect() != HUEMatrix::BeatEffectOff)
+        {
+            entry["beatEffect"] = HUEMatrix::beatEffectToString(hue->beatEffect()).toStdString();
+            entry["beatSelection"] = HUEMatrix::beatSelectionToString(hue->beatSelection()).toStdString();
+            entry["beatOrientation"] = HUEMatrix::beatOrientationToString(hue->beatOrientation()).toStdString();
+        }
     }
 
     return entry;
@@ -646,14 +659,14 @@ inline Json functionToJson(Function *fn)
             entry["direction"] = Function::directionToString(efx->direction()).toStdString();
         }
     }
-    else if (fn->type() == Function::RGBMatrixType)
+    else if (fn->type() == Function::RGBMatrixType || fn->type() == Function::HUEMatrixType)
     {
         RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
         if (matrix)
         {
             entry["fixtureGroupID"] = (int)matrix->fixtureGroup();
             entry["tempoType"] = matrix->tempoType() == Function::Beats ? "beats" : "time";
-            entry["controlMode"] = RGBMatrix::controlModeToString(matrix->controlMode()).toStdString();
+            entry["controlMode"] = controlModeName(matrix);
             if (matrix->blendMode() != Universe::NormalBlend)
                 entry["blendMode"] = Universe::blendModeToString(matrix->blendMode()).toStdString();
             RGBAlgorithm *algo = matrix->algorithm();

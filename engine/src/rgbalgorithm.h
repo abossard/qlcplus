@@ -106,6 +106,23 @@ public:
     virtual int acceptColors() const = 0;
 
     /************************************************************************
+     * Additive fork-only hooks (see HUEMatrix / HUEScript)
+     *
+     * Defaults keep every upstream algorithm behaving exactly as before.
+     ************************************************************************/
+public:
+    /** Whether the algorithm consumes live audio input.
+     *  The built-in RGBAudio spectrum algorithm is audio-driven by definition,
+     *  so the default keys off the algorithm type rather than being hard false. */
+    virtual bool usesAudio() const { return type() == Audio; }
+
+    /** Audio input categories the algorithm requests */
+    virtual QStringList audioInputCategories() const { return QStringList(); }
+
+    /** Inform the algorithm of the display size it renders into */
+    virtual void setDisplaySize(const QSize &size) { Q_UNUSED(size) }
+
+    /************************************************************************
      * RGB Colors
      ************************************************************************/
 public:

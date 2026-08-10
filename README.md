@@ -24,9 +24,10 @@
 > - **Enhanced Function Wizard** — rainbow/warm/cool palettes, beat-synced chasers, movement patterns, prism/focus/zoom detection, per-fixture VC pages, QLCPalette generation
 > - Launchpad controller integration support
 > - Audio capture / BPM detection for scripts
-> - **22 audio-reactive RGB scripts** (LedFX-ported atmospheric effects, strobes, motion, EQ visualizers)
-> - **RGB Matrix rotation & mirroring** (engine-level, all algorithm types)
-> - **RGB Matrix low-latency step transitions** (~3ms vs ~22ms previously)
+> - **41 audio-reactive HSV scripts** (LedFX-ported atmospheric effects, strobes, motion, EQ visualizers) — in `resources/huescripts/`, offered to **HUE Matrix** only
+> - **HUE Matrix — a new function type forked from RGB Matrix.** `RGBMatrix` is restored byte-identical to upstream QLC+; all fork behaviour (HSV script contract, rotation/mirror, beat transforms, brightness, RGBW modes, audio scripts) lives in `HUEMatrix`, which inherits from it. Both are selectable side by side.
+> - **HUE Matrix rotation & mirroring** (engine-level, all algorithm types)
+> - **HUE Matrix low-latency step transitions** (~3ms vs ~22ms previously)
 > - **Blend mode ordering fix** for Mask/Subtractive blend modes
 > - **Enhanced OS2L plugin** — Bonjour/mDNS auto-discovery, song metadata, connection status LED, web diagnostics dashboard
 > - **Auto-reload last workspace** on startup (no `--openlast` flag needed)
@@ -42,7 +43,7 @@
 > - **FineFractions for all editors** — RGB Matrix, EFX, Scene, and Speed Dial preset editors now show 1/4, 1/8, 1/16 beat subdivisions (previously limited to 1/1 and 1/2)
 > - **Update Scene from Live** — DMX Dump dialog: "Update only scene channels from live" button captures current pre-GM DMX values into an existing scene, scoped to only the channels already in the scene (preserves layer separation, with Tardis undo)
 > - **Speed Dial multiply mode** — factor buttons (1/16x–16x) multiply existing function speeds instead of replacing them; preserves authored fadeIn/hold/fadeOut ratios; one-click reset to originals; works with both Time and Beats mode functions
-> - **RGB Matrix RGBW mode** — new `RGBW (Accurate)` and `RGBW (Brighter)` control modes drive R, G, B, AND White channels simultaneously. Accurate extracts white (`W=min(R,G,B)`, subtract from RGB); Brighter keeps RGB full and adds white on top. Works with any RGBW fixture — not fixture-specific.
+> - **HUE Matrix RGBW mode** — `RGBW (Accurate)` and `RGBW (Brighter)` control modes drive R, G, B, AND White channels simultaneously. Accurate extracts white (`W=min(R,G,B)`, subtract from RGB); Brighter keeps RGB full and adds white on top. Works with any RGBW fixture — not fixture-specific.
 > - **Keyboard shortcuts** — 20+ shortcuts ported from v4: Ctrl+N/O/S (New/Open/Save), Ctrl+Z/Shift+Z (Undo/Redo), Ctrl+Shift+Esc (Panic/Stop All), F11 (Fullscreen), Alt+1–6 (view switching), Ctrl+PgUp/PgDown (cycle views), Ctrl+[/] (drawer toggle), Function Manager (Delete/Clone/Wizard), Show Manager (Space/Ctrl+Space play/stop, copy/paste). Platform-aware tooltips (⌘ on macOS). Guards for text editing, popups, kiosk mode.
 > - **DDP multi-universe sync fix** — eliminated frame-queue desync that caused 4+ DDP universes to display out of order. Replaced unreliable cross-thread batching with immediate per-universe send (sub-millisecond gap, PUSH per universe — matches Art-Net behavior).
 >
@@ -64,8 +65,9 @@
 > 1/1 and 1/2 beat subdivisions (`ByTwoFractions`). All four now use `FineFractions`,
 > exposing the full 1/1, 1/2, 1/4, 1/8, 1/16 range — matching Chaser editor behavior.
 >
-> #### RGB Matrix RGBW Control Modes
-> Two new control modes for RGBW fixtures:
+> #### HUE Matrix RGBW Control Modes
+> Two control modes for RGBW fixtures, available on **HUE Matrix** (`RGBMatrix` is
+> byte-identical to upstream and does not offer them):
 >
 > | Mode | Algorithm | Best for |
 > |------|-----------|----------|
@@ -101,9 +103,10 @@
 > Each universe's data is sent as soon as it arrives (PUSH flag per universe).
 > Inter-universe gap is sub-millisecond. Matches Art-Net behavior (no sync packet).
 >
-> #### RGB Matrix Rotation & Mirroring
-> Rotation and mirroring are now engine-level properties on `RGBMatrix`, available
-> for **all** algorithm types (Plain, Script, Text, Image, Audio).
+> #### HUE Matrix Rotation & Mirroring
+> Rotation and mirroring are engine-level properties on `HUEMatrix`, available
+> for **all** algorithm types (Plain, Script, Text, Image, Audio). They are not
+> present on `RGBMatrix`, which is byte-identical to upstream.
 >
 > | Property | Values | Description |
 > |----------|--------|-------------|
@@ -794,6 +797,10 @@ cd build
 # Engine tests (beat quantization)
 cmake --build . --target beatquantize_test -j8 && ./engine/test/beatquantize/beatquantize_test
 
+# HUE Matrix / RGB Matrix (run from each suite's own build dir - resource paths are cwd-relative)
+cmake --build . --target huematrix_test -j8 && (cd engine/test/huematrix && ./huematrix_test)
+cmake --build . --target rgbmatrix_test -j8 && (cd engine/test/rgbmatrix && ./rgbmatrix_test)
+
 # MCP tests
 cmake --build . --target mcp_conversions_test -j8 && ./mcp/test/mcp_conversions_test
 cmake --build . --target mcp_vc_query_filter_test -j8 && ./mcp/test/mcp_vc_query_filter_test
@@ -806,6 +813,10 @@ cmake --build . --target mcp_vc_validation_test -j8 && ./mcp/test/mcp_vc_validat
 | `mcp_conversions_test` | 43 | Beat string parsing/formatting, decimal precision, off-grid snapping, GCD reduction, round-trips |
 | `mcp_vc_query_filter_test` | — | VC widget query filtering and pagination |
 | `mcp_vc_validation_test` | — | Widget type/field validation |
+| `huematrix_test` | 42 | HUE Matrix: HSV `Float32Array` contract, dual packed-uint contract, algorithm-list separation, fork properties + XML round-trip, icon-site enumeration, bounded destructor drain, async precompute, per-tick audio recompute, load warnings |
+| `rgbmatrix_test` | 9 | Upstream's own suite, unmodified — proves the `RGBMatrix` restore |
+| `rgbscript_test` | 14 | Upstream's own suite, unmodified — packed-uint script contract |
+| `mcp_rgb_transform_test` | 15 | Rotation, mirror + blend, and beat transforms (spatial) |
 
 ### E2E tests (Web DMX Control Panel)
 

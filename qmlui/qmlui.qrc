@@ -136,6 +136,7 @@
     <file alias="ChaserEditor.qml">qml/fixturesfunctions/ChaserEditor.qml</file>
     <file alias="SequenceEditor.qml">qml/fixturesfunctions/SequenceEditor.qml</file>
     <file alias="RGBMatrixEditor.qml">qml/fixturesfunctions/RGBMatrixEditor.qml</file>
+    <file alias="HUEMatrixEditor.qml">qml/fixturesfunctions/HUEMatrixEditor.qml</file>
     <file alias="RGBMatrixPreview.qml">qml/fixturesfunctions/RGBMatrixPreview.qml</file>
     <file alias="EFXEditor.qml">qml/fixturesfunctions/EFXEditor.qml</file>
     <file alias="EFXPreview.qml">qml/fixturesfunctions/EFXPreview.qml</file>

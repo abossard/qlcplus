@@ -18,7 +18,7 @@ var testAlgo;
   function () {
     var algo = new Object;
     algo.apiVersion = 3;
-    algo.name = "Audio Spectrum";
+    algo.name = "Audio Spectrum Bars";
     algo.author = "Ported from LedFx";
     algo.acceptColors = 0;
     algo.usesAudio = true;

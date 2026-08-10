@@ -33,6 +33,7 @@
 #include "efx.h"
 #include "efxfixture.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
 #include "rgbalgorithm.h"
 #include "rgbscriptv4.h"
 #include "rgbtext.h"
@@ -57,6 +58,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         "create_scenes",
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"type", {{"type", "string"}, {"enum", {"RGBMatrix", "HUEMatrix"}}, {"description", "HUEMatrix (default) supports HSV/audio scripts plus rotation, mirror and beat transforms. RGBMatrix is the plain upstream matrix."}}},
                 {"name", {{"type", "string"}}},
                 {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Phase1/Moods'). Creates folders implicitly."}}},
                 {"fixtureIDs", {{"type", "array"}, {"items", {{"type", "integer"}}}}},
@@ -305,6 +307,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 static const Json kEnums = {
+                    {"type", {{"enum", {"RGBMatrix", "HUEMatrix"}}}},
                     {"tempoType", {{"enum", {"time", "beats"}}}},
                     {"runOrder", {{"enum", {"loop", "single", "pingpong", "random"}}}},
                     {"direction", {{"enum", {"forward", "backward"}}}},
@@ -802,7 +805,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto err = validateFields(item, {"name", "path", "fixtureGroupID", "algorithm",
+                auto err = validateFields(item, {"name", "type", "path", "fixtureGroupID", "algorithm",
                     "startColor", "endColor", "colors", "duration", "fadeIn", "fadeOut",
                     "tempoType", "runOrder", "direction", "controlMode", "blendMode",
                     "properties", "text", "animationStyle", "rotation", "mirror", "mirrorBlend",
@@ -826,7 +829,31 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
-                Function *existing = mcp::findFunction(doc, name, Function::RGBMatrixType);
+                // Default to HUEMatrix: it is a superset of RGBMatrix and the only
+                // type accepting the rotation/mirror/beat fields of this schema.
+                bool wantHue = true;
+                if (item.contains("type"))
+                    wantHue = item.at("type").get<std::string>() != "RGBMatrix";
+
+                static const char *kHueOnly[] = {"rotation", "mirror", "mirrorBlend",
+                                                 "beatEffect", "beatSelection", "beatOrientation"};
+                if (!wantHue)
+                {
+                    bool rejected = false;
+                    for (const char *f : kHueOnly)
+                    {
+                        if (item.contains(f))
+                        {
+                            results.push_back({{"error", std::string(f) + " is only supported on a HUEMatrix"}});
+                            rejected = true;
+                            break;
+                        }
+                    }
+                    if (rejected) continue;
+                }
+
+                Function::Type wantType = wantHue ? Function::HUEMatrixType : Function::RGBMatrixType;
+                Function *existing = mcp::findFunction(doc, name, wantType);
                 RGBMatrix *matrix;
                 bool isNew = false;
                 if (existing)
@@ -835,10 +862,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 }
                 else
                 {
-                    matrix = new RGBMatrix(doc);
+                    matrix = wantHue ? new HUEMatrix(doc) : new RGBMatrix(doc);
                     matrix->setName(name);
                     isNew = true;
                 }
+                HUEMatrix *hueMatrix = qobject_cast<HUEMatrix *>(matrix);
 
                 if (item.contains("path"))
                     matrix->setPath(QString::fromStdString(item.at("path").get<std::string>()));
@@ -850,9 +878,14 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("algorithm"))
                 {
                     QString algoName = QString::fromStdString(item.at("algorithm").get<std::string>());
-                    RGBAlgorithm *algo = RGBAlgorithm::algorithm(doc, algoName);
-                    if (algo)
-                        matrix->setAlgorithm(algo);
+                    RGBAlgorithm *algo = hueMatrix != NULL ? HUEMatrix::createAlgorithm(doc, algoName)
+                                                          : RGBAlgorithm::algorithm(doc, algoName);
+                    if (algo == NULL)
+                    {
+                        results.push_back({{"error", "unknown algorithm: " + algoName.toStdString()}});
+                        continue;
+                    }
+                    matrix->setAlgorithm(algo);
                 }
 
                 // Colors: prefer 'colors' array, fall back to startColor/endColor
@@ -923,7 +956,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("controlMode"))
                 {
                     QString cm = QString::fromStdString(item.at("controlMode").get<std::string>());
-                    matrix->setControlMode(RGBMatrix::stringToControlMode(cm));
+                    RGBMatrix::ControlMode mode = hueMatrix != NULL ? HUEMatrix::stringToControlMode(cm)
+                                                                   : RGBMatrix::stringToControlMode(cm);
+                    matrix->setControlMode(mode);
                 }
 
                 // Blend mode
@@ -997,44 +1032,46 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                     }
                 }
 
-                // Rotation & Mirror
-                if (item.contains("rotation"))
-                    matrix->setRotation((item.at("rotation").get<int>() / 90) & 3);
+                // Rotation, Mirror and Beat Transform (HUEMatrix only)
+                if (hueMatrix != NULL)
+                {
+                    if (item.contains("rotation"))
+                        hueMatrix->setRotation((item.at("rotation").get<int>() / 90) & 3);
 
-                if (item.contains("mirror"))
-                {
-                    QString m = QString::fromStdString(item.at("mirror").get<std::string>());
-                    if (m.compare("Horizontal", Qt::CaseInsensitive) == 0)
-                        matrix->setMirror(1);
-                    else if (m.compare("Vertical", Qt::CaseInsensitive) == 0)
-                        matrix->setMirror(2);
-                    else if (m.compare("Both", Qt::CaseInsensitive) == 0)
-                        matrix->setMirror(3);
-                    else
-                        matrix->setMirror(0);
-                }
+                    if (item.contains("mirror"))
+                    {
+                        QString m = QString::fromStdString(item.at("mirror").get<std::string>());
+                        if (m.compare("Horizontal", Qt::CaseInsensitive) == 0)
+                            hueMatrix->setMirror(1);
+                        else if (m.compare("Vertical", Qt::CaseInsensitive) == 0)
+                            hueMatrix->setMirror(2);
+                        else if (m.compare("Both", Qt::CaseInsensitive) == 0)
+                            hueMatrix->setMirror(3);
+                        else
+                            hueMatrix->setMirror(0);
+                    }
 
-                if (item.contains("mirrorBlend"))
-                {
-                    QString mb = QString::fromStdString(item.at("mirrorBlend").get<std::string>());
-                    matrix->setMirrorBlend(RGBMatrix::stringToMirrorBlend(mb));
-                }
+                    if (item.contains("mirrorBlend"))
+                    {
+                        QString mb = QString::fromStdString(item.at("mirrorBlend").get<std::string>());
+                        hueMatrix->setMirrorBlend(HUEMatrix::stringToMirrorBlend(mb));
+                    }
 
-                // Beat Transform
-                if (item.contains("beatEffect"))
-                {
-                    QString be = QString::fromStdString(item.at("beatEffect").get<std::string>());
-                    matrix->setBeatEffect(RGBMatrix::stringToBeatEffect(be));
-                }
-                if (item.contains("beatSelection"))
-                {
-                    QString bs = QString::fromStdString(item.at("beatSelection").get<std::string>());
-                    matrix->setBeatSelection(RGBMatrix::stringToBeatSelection(bs));
-                }
-                if (item.contains("beatOrientation"))
-                {
-                    QString bo = QString::fromStdString(item.at("beatOrientation").get<std::string>());
-                    matrix->setBeatOrientation(RGBMatrix::stringToBeatOrientation(bo));
+                    if (item.contains("beatEffect"))
+                    {
+                        QString be = QString::fromStdString(item.at("beatEffect").get<std::string>());
+                        hueMatrix->setBeatEffect(HUEMatrix::stringToBeatEffect(be));
+                    }
+                    if (item.contains("beatSelection"))
+                    {
+                        QString bs = QString::fromStdString(item.at("beatSelection").get<std::string>());
+                        hueMatrix->setBeatSelection(HUEMatrix::stringToBeatSelection(bs));
+                    }
+                    if (item.contains("beatOrientation"))
+                    {
+                        QString bo = QString::fromStdString(item.at("beatOrientation").get<std::string>());
+                        hueMatrix->setBeatOrientation(HUEMatrix::stringToBeatOrientation(bo));
+                    }
                 }
 
                 if (isNew)

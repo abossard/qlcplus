@@ -37,8 +37,11 @@ class JSThread;
 
 #define KXMLQLCRGBScript QStringLiteral("Script")
 
-class RGBScript final : public RGBAlgorithm
+class RGBScript : public RGBAlgorithm
 {
+    /* See the note on RGBMatrix::friend class HUEMatrix. */
+    friend class HUEScript;
+
     /************************************************************************
      * Initialization
      ************************************************************************/
@@ -66,7 +69,7 @@ public:
     QString fileName() const;
 
     /** Evaluate the script's contents and see if it checks out */
-    bool evaluate();
+    virtual bool evaluate();
 
 private:
     static void initEngine();

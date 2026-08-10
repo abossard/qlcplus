@@ -570,6 +570,12 @@ Navigate to Virtual Console with VC editing access:
 - **Song Manager — artist/BPM/key metadata:** Artist, BPM, and key fields in the song list are placeholders. The Show name embeds "Artist - Title" but structured extraction is not yet implemented.
 - **Song Manager — folder path:** Songs are identified by Shows in the `Songs/` function folder. Manually placing non-song Shows in that folder will cause them to appear in the Song Manager.
 - **Page input modes — multiple Normal pages:** If multiple Normal pages define mappings for the same MIDI channel/key, all matching Normal pages will fire when Inherit-mode fallback triggers. This is by design (they all contribute to the "global pool"), but can cause double-triggers if the same widget binding exists on two Normal pages.
+- **HUEMatrix — existing workspaces lose audio algorithms:** The 41 HSV audio scripts moved from `resources/rgbscripts/` to `resources/huescripts/`, so pre-existing `RGBMatrix` functions that referenced them no longer resolve (56 functions across `GARAGE.qxw`, `LOADDDD.qxw`, `G2.qxw`). A warning naming both the script and the function is emitted on load. By design — no automatic migration; recreate them as `HUEMatrix` functions.
+- **HUEMatrix — fork-only `<AudioProfileID>` is dropped from RGBMatrix:** `RGBMatrix` is now byte-identical to upstream, which does not know that tag, so it is discarded on load with an `Unknown RGB matrix tag` warning (5 functions in `GARAGE.qxw`). Reassign the audio profile on the recreated `HUEMatrix`.
+- **HUEMatrix — "Audio Spectrum" script renamed:** The HSV script that shadowed the built-in `RGBAudio` algorithm is now "Audio Spectrum Bars", so the built-in is reachable again by name. Workspaces storing the old script name will not resolve it.
+- **HUEMatrix — VC Animation widget icon:** A `HUEMatrix` can be assigned to a Virtual Console Animation widget (`HUEMatrix` IS-A `RGBMatrix`), but the widget icon is unconditionally the RGB Matrix icon. Cosmetic only.
+- **HUEMatrix — editor algorithm list is not covered by tests:** `qmlui` builds an executable rather than a library and `FunctionEditor` depends on `Tardis`, so the editor cannot be constructed in a unit test. `HUEMatrixEditor::algorithms()` delegating to `HUEMatrix::availableAlgorithms()` is verified only at the cache boundary — §23.1 covers it manually.
+- **HUEMatrix — shutdown drain:** Destroying a `HUEMatrix` waits up to 2 s per object for an in-flight async precompute task that never ran, then warns and continues. Many stuck matrices would add up at shutdown; not observed in practice.
 
 ---
 
@@ -1059,3 +1065,54 @@ the intended hardware.
 | Area | Tester | Date | Pass / Fail | Notes |
 |------|--------|------|-------------|-------|
 | Live audio BPM, silence, beat timing, Aubio continuity, external lock | | | | §22.1–22.3 |
+---
+
+## 23. HUEMatrix fork and RGBMatrix upstream restore
+
+> **Automated coverage:** `huematrix_test` (42 cases) owns the HSV `Float32Array`
+> contract, the dual packed-uint contract, fork-property in-memory and XML
+> round-trips, algorithm-list separation, icon-site enumeration, built-in
+> reachability, bounded destructor drain, async-precompute generation checks,
+> per-tick recompute for audio algorithms, and the unavailable-algorithm and
+> `AudioProfileID` load warnings. `rgbmatrix_test` (9) and `rgbscript_test` (14)
+> are upstream's own suites, unmodified, and prove the restore.
+> `mcp_rgb_transform_test` (15) covers rotation/mirror/beat spatially.
+> Do not repeat those mechanical assertions here.
+>
+> `engine/src/rgbmatrix.cpp` is byte-identical to `upstream/master`
+> (`git diff upstream/master -- engine/src/rgbmatrix.cpp` is empty). The items
+> below are the visual, hardware, and workspace-migration judgments automation
+> cannot make.
+
+### 23.1 Both matrix types are selectable and distinct [LOW RISK]
+
+- ☐ Open the Add Function menu → both "RGB Matrix" and "HUE Matrix" are offered, with visibly different icons
+- ☐ Filter the function tree by each type in turn → the two filter buttons show different icons and each lists only its own functions
+- ☐ Create a HUE Matrix and open its editor → the algorithm dropdown lists the 41 audio effects **and** the upstream stock patterns
+- ☐ Create an RGB Matrix and open its editor → the algorithm dropdown lists **only** upstream stock patterns, with no `Audio *` entries
+
+### 23.2 RGBMatrix behaves as pristine upstream [MEDIUM RISK]
+
+- ☐ Run several stock patterns (Stripes, Plasma, Gradient, Fireworks) on an RGB Matrix and compare against expected upstream behaviour → colour, motion, and step timing show no fork-specific artifacts
+- ☐ Confirm the fork-only controls (rotation, mirror, beat effect, brightness, RGBW control modes) are **absent** from the RGB Matrix editor → they belong to HUE Matrix only
+
+### 23.3 HUEMatrix audio effects on hardware [DMX] [MEDIUM RISK]
+
+- ☐ Play familiar material through a HUE Matrix running Aurora, Equalizer, Fire, and Water → hue, saturation, and value read correctly on the physical fixture, with no banding or clipping introduced by the HSV→RGB conversion
+- ☐ Exercise rotation, mirror + mirror blend, and a beat effect while audio is running → transforms compose with the audio response without tearing, stutter, or dropped frames
+- ☐ Select the built-in "Audio Spectrum" (not the "Audio Spectrum Bars" script) on a HUE Matrix → it renders as the built-in algorithm
+
+### 23.4 Existing workspace migration [HIGH RISK]
+
+- ☐ Load a workspace that predates the fork (e.g. `GARAGE.qxw`) with the console visible → warnings name each function that lost its algorithm, and each dropped `AudioProfileID`; the app does not crash
+- ☐ Recreate one affected effect as a HUE Matrix and confirm it renders as before → the migration path is workable by hand
+- ☐ Save and reload the migrated workspace → the HUE Matrix keeps its algorithm, transforms, beat settings, and control mode
+
+### 23.5 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Type selection and editor lists | | | | §23.1 |
+| RGBMatrix upstream parity | | | | §23.2 |
+| HUEMatrix audio on hardware | | | | §23.3 |
+| Legacy workspace migration | | | | §23.4 |

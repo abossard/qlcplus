@@ -942,7 +942,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             Json results = Json::array();
             for (Function *fn : doc->functions())
             {
-                if (fn->type() != Function::RGBMatrixType) continue;
+                if (fn->type() != Function::RGBMatrixType && fn->type() != Function::HUEMatrixType) continue;
                 RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
                 if (!matrix) continue;
 
@@ -994,7 +994,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         [doc, vcBridge](const Json &) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             int scenes = 0, chasers = 0, sequences = 0, collections = 0;
-            int rgbMatrices = 0, efx = 0, scripts = 0, shows = 0;
+            int rgbMatrices = 0, hueMatrices = 0, efx = 0, scripts = 0, shows = 0;
             int audio = 0, video = 0;
             for (Function *fn : doc->functions())
             {
@@ -1006,6 +1006,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     case Function::SequenceType:   sequences++; break;
                     case Function::CollectionType: collections++; break;
                     case Function::RGBMatrixType:  rgbMatrices++; break;
+                    case Function::HUEMatrixType:  hueMatrices++; break;
                     case Function::EFXType:        efx++; break;
                     case Function::ScriptType:     scripts++; break;
                     case Function::ShowType:       shows++; break;
@@ -1037,6 +1038,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             fns["chasers"] = chasers;
             fns["collections"] = collections;
             fns["rgbMatrices"] = rgbMatrices;
+            fns["hueMatrices"] = hueMatrices;
             fns["efx"] = efx;
             fns["scripts"] = scripts;
             fns["shows"] = shows;
@@ -1052,7 +1054,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         },
         std::nullopt,
         std::string("Lightweight workspace overview. Returns counts of fixtures, fixture groups, universes, "
-                     "functions (grouped by type: scenes, chasers, collections, rgbMatrices, efx, scripts, "
+                     "functions (grouped by type: scenes, chasers, collections, rgbMatrices, hueMatrices, efx, scripts, "
                      "shows, sequences, audio, video), palettes, VC pages, and currently running functions. "
                      "Use as a fast first call before drilling into specific entities."),
         std::nullopt

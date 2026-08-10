@@ -26,6 +26,8 @@
 #include "collectioneditor.h"
 #include "functionmanager.h"
 #include "rgbmatrixeditor.h"
+#include "huematrixeditor.h"
+#include "huematrix.h"
 #include "treemodelitem.h"
 #include "chasereditor.h"
 #include "scripteditor.h"
@@ -62,7 +64,7 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
     , m_searchFilter(QString())
 {
     m_sceneCount = m_chaserCount = m_sequenceCount = m_efxCount = 0;
-    m_collectionCount = m_rgbMatrixCount = m_scriptCount = 0;
+    m_collectionCount = m_rgbMatrixCount = m_hueMatrixCount = m_scriptCount = 0;
     m_showCount = m_audioCount = m_videoCount = 0;
     m_runningCount = 0;
     m_showRunningOnly = false;
@@ -74,6 +76,7 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
     qmlRegisterUncreatableType<Collection>("org.qlcplus.classes", 1, 0, "Collection", "Can't create a Collection");
     qmlRegisterUncreatableType<Chaser>("org.qlcplus.classes", 1, 0, "Chaser", "Can't create a Chaser");
     qmlRegisterUncreatableType<RGBMatrix>("org.qlcplus.classes", 1, 0, "RGBMatrix", "Can't create a RGBMatrix");
+    qmlRegisterUncreatableType<HUEMatrix>("org.qlcplus.classes", 1, 0, "HUEMatrix", "Can't create a HUEMatrix");
     qmlRegisterUncreatableType<EFX>("org.qlcplus.classes", 1, 0, "EFX", "Can't create an EFX");
 
     // register SceneValue to perform QVariant comparisons
@@ -369,6 +372,14 @@ quint32 FunctionManager::createFunction(int type, QVariantList fixturesList)
             emit rgbMatrixCountChanged();
         }
         break;
+        case Function::HUEMatrixType:
+        {
+            f = new HUEMatrix(m_doc);
+            name = tr("New HUE Matrix");
+            m_hueMatrixCount++;
+            emit hueMatrixCountChanged();
+        }
+        break;
         case Function::ScriptType:
         {
             f = new Script(m_doc);
@@ -484,6 +495,7 @@ QString FunctionManager::functionIcon(int type)
         case Function::CollectionType: return "qrc:/collection.svg";
         case Function::ScriptType: return "qrc:/script.svg";
         case Function::RGBMatrixType: return "qrc:/rgbmatrix.svg";
+        case Function::HUEMatrixType: return "qrc:/huematrix.svg";
         case Function::ShowType: return "qrc:/showmanager.svg";
         case Function::AudioType: return "qrc:/audio.svg";
         case Function::VideoType: return "qrc:/video.svg";
@@ -645,6 +657,7 @@ QString FunctionManager::getEditorResource(int funcID)
         case Function::EFXType: return "qrc:/EFXEditor.qml";
         case Function::CollectionType: return "qrc:/CollectionEditor.qml";
         case Function::RGBMatrixType: return "qrc:/RGBMatrixEditor.qml";
+        case Function::HUEMatrixType: return "qrc:/HUEMatrixEditor.qml";
         case Function::ShowType: return "qrc:/ShowManager.qml";
         case Function::ScriptType: return "qrc:/ScriptEditor.qml";
         case Function::AudioType: return "qrc:/AudioEditor.qml";
@@ -734,6 +747,11 @@ void FunctionManager::setEditorFunction(quint32 fID, bool requestUI, bool back)
         case Function::RGBMatrixType:
         {
             m_currentEditor = new RGBMatrixEditor(m_view, m_doc, this);
+        }
+        break;
+        case Function::HUEMatrixType:
+        {
+            m_currentEditor = new HUEMatrixEditor(m_view, m_doc, this);
         }
         break;
         case Function::ScriptType:
@@ -1770,6 +1788,7 @@ void FunctionManager::addFunctionTreeItem(Function *func)
         case Function::EFXType: m_efxCount++; break;
         case Function::CollectionType: m_collectionCount++; break;
         case Function::RGBMatrixType: m_rgbMatrixCount++; break;
+        case Function::HUEMatrixType: m_hueMatrixCount++; break;
         case Function::ScriptType: m_scriptCount++; break;
         case Function::ShowType: m_showCount++; break;
         case Function::AudioType: m_audioCount++; break;
@@ -1806,7 +1825,7 @@ void FunctionManager::updateFunctionsTree()
     storeExpandedPaths();
 
     m_sceneCount = m_chaserCount = m_sequenceCount = m_efxCount = 0;
-    m_collectionCount = m_rgbMatrixCount = m_scriptCount = 0;
+    m_collectionCount = m_rgbMatrixCount = m_hueMatrixCount = m_scriptCount = 0;
     m_showCount = m_audioCount = m_videoCount = 0;
 
     m_functionTree->clear();

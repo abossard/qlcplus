@@ -27,6 +27,7 @@
 #include "qlcfixturedefcache.h"
 #include "monitorproperties.h"
 #include "rgbscriptscache.h"
+#include "huescriptscache.h"
 #include "qlcfixturemode.h"
 #include "qlcfixturedef.h"
 #include "fixtureutils.h"
@@ -66,6 +67,12 @@ ImportManager::ImportManager(QQuickView *view, Doc *doc, QObject *parent)
     /* Load RGB scripts */
     m_importDoc->rgbScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory());
     m_importDoc->rgbScriptsCache()->load(RGBScriptsCache::userScriptsDirectory());
+
+    /* Load HUE scripts so imported HUEMatrix functions resolve their algorithm */
+    m_importDoc->hueScriptsCache()->load(HUEScriptsCache::systemScriptsDirectory(), true);
+    m_importDoc->hueScriptsCache()->load(HUEScriptsCache::userScriptsDirectory(), true);
+    m_importDoc->hueScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory(), false);
+    m_importDoc->hueScriptsCache()->load(RGBScriptsCache::userScriptsDirectory(), false);
 
     m_view->rootContext()->setContextProperty("importManager", this);
 }
@@ -580,6 +587,7 @@ void ImportManager::importFunctionID(quint32 funcID)
         }
         break;
         case Function::RGBMatrixType:
+        case Function::HUEMatrixType:
         {
             RGBMatrix *rgbm = qobject_cast<RGBMatrix *>(docFunction);
             if (rgbm->fixtureGroup() == FixtureGroup::invalidId())
@@ -958,6 +966,7 @@ void ImportManager::checkFunctionDependency(quint32 fid)
 
         // RGB Matrix requires a fixture group
         case Function::RGBMatrixType:
+        case Function::HUEMatrixType:
         {
             RGBMatrix *rgbm = qobject_cast<RGBMatrix *>(func);
             fxList = rgbm->components();

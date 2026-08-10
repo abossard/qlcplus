@@ -92,10 +92,15 @@ private:
     int m_crDelta, m_cgDelta, m_cbDelta;
 };
 
-class RGBMatrix final : public Function
+class RGBMatrix : public Function
 {
     Q_OBJECT
     Q_DISABLE_COPY(RGBMatrix)
+
+    /* Fork-only subclass; needs the same internals as RGBMatrix itself.
+     * A friend declaration is used instead of widening access specifiers,
+     * because the upstream unit tests rely on a `#define private public` hack. */
+    friend class HUEMatrix;
 
    /*********************************************************************
      * Initialization
@@ -140,7 +145,7 @@ public:
     quint32 totalDuration() override;
 
     /** Set the matrix to control or not the dimmer channel */
-    void setDimmerControl(bool dimmerControl);
+    virtual void setDimmerControl(bool dimmerControl);
 
     /** Get the matrix ability to control the dimmer channel */
     bool dimmerControl() const;
@@ -165,7 +170,7 @@ public:
 public:
     /** Get/Set the Fixture Group associated to this RGBMatrix */
     quint32 fixtureGroup() const;
-    void setFixtureGroup(quint32 id);
+    virtual void setFixtureGroup(quint32 id);
 
     /** @reimp */
     QList<quint32> components() const override;
@@ -179,7 +184,7 @@ private:
      ************************************************************************/
 public:
     /** Set the current RGB Algorithm. RGBMatrix takes ownership of the pointer. */
-    void setAlgorithm(RGBAlgorithm* algo);
+    virtual void setAlgorithm(RGBAlgorithm* algo);
 
     /** Get the current RGB Algorithm. */
     RGBAlgorithm* algorithm() const;
@@ -195,10 +200,10 @@ public:
     int stepsCount() const;
 
     /** Get the preview of the current algorithm at the given step */
-    void previewMap(int step, RGBMatrixStep *handler);
+    virtual void previewMap(int step, RGBMatrixStep *handler);
 
 private:
-    int algorithmStepsCount();
+    virtual int algorithmStepsCount();
 
 private:
     bool m_requestEngineCreation;
@@ -292,7 +297,7 @@ public:
 
 private:
     /** Check what should be done when elapsed() >= duration() */
-    void roundCheck();
+    virtual void roundCheck();
 
     /** Check if the engine needs to be re-created */
     void checkEngineCreation();
@@ -352,12 +357,16 @@ public:
         ControlModeAmber,
         ControlModeUV,
         ControlModeDimmer,
-        ControlModeShutter
+        ControlModeShutter,
+        /* Additive fork-only modes (see HUEMatrix). Never set on a plain RGBMatrix.
+         * Explicit values guarantee no upstream enumerator is renumbered. */
+        ControlModeRgbw = 6,
+        ControlModeRgbwBrighter = 7
     };
 
     /** Get/Set the control mode associated to this RGBMatrix */
     RGBMatrix::ControlMode controlMode() const;
-    void setControlMode(RGBMatrix::ControlMode mode);
+    virtual void setControlMode(RGBMatrix::ControlMode mode);
 
     /** Return a control mode from a string */
     static RGBMatrix::ControlMode stringToControlMode(QString mode);
