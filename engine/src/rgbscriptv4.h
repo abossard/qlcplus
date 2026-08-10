@@ -22,14 +22,10 @@
 
 #include <QHash>
 #include <QJSValue>
-#include <QMutex>
-#include <functional>
 
 #include "rgbalgorithm.h"
 #include "rgbscriptproperty.h"
 
-class AudioCapture;
-class RGBMatrix;
 class QJSEngine;
 class QDir;
 
@@ -71,16 +67,6 @@ public:
 
     /** Evaluate the script's contents and see if it checks out */
     bool evaluate();
-
-    /** Phase 4: Schedule a callable to run on the shared JS thread.
-     *  Used to dispatch async rgbMap pre-computations without blocking the
-     *  MasterTimer thread, and to safely defer deletion of script-typed
-     *  algorithms after any in-flight tasks have drained (FIFO).
-     *
-     *  Returns false if the JS thread is not running (caller should fall
-     *  back to a synchronous path). Safe to call from any thread.
-     */
-    static bool scheduleOnJSThread(std::function<void()> fn);
 
 private:
     static void initEngine();
@@ -126,18 +112,6 @@ public:
     int acceptColors() const override;
 
     /** @reimp */
-    bool usesAudio() const override;
-
-    /** @reimp */
-    QStringList audioInputCategories() const override;
-
-    /** @reimp */
-    void setDisplaySize(const QSize &size) override;
-
-    /** @reimp */
-    void postRun() override;
-
-    /** @reimp */
     bool loadXML(QXmlStreamReader &root) override;
 
     /** @reimp */
@@ -150,38 +124,6 @@ private:
     QJSValue m_rgbMapStepCount; //! rgbMapStepCount() function
     QJSValue m_rgbMapSetColors; //! rgbMapSetColors() function
     QJSValue m_rgbMapGetColors; //! rgbMapSetColors() function
-    bool m_usesAudio;           //! Whether the script declared algo.usesAudio = true
-    QStringList m_audioInputCategories; //! Top-level audio.X categories used by the script
-
-    /************************************************************************
-     * Audio support
-     ************************************************************************/
-private:
-    /** Connect to AudioCapture and register for spectrum data */
-    void setupAudioCapture();
-
-    /** Disconnect from AudioCapture and release resources */
-    void teardownAudioCapture();
-
-    /** Build a JS object with current audio data to pass as 5th arg to rgbMap */
-    QJSValue buildAudioDataObject();
-
-    /**
-     * Build the gradientColors / gradientBandColors HSV arrays from the owning
-     * RGBMatrix and inject them as properties on m_script (the algo object).
-     * Also injects algo.color (primary HSV color) and stashes the arrays on
-     * m_currentGradientColors / m_currentBandColors so buildAudioDataObject()
-     * can republish them on audio.colors.
-     *
-     * @param rgb fallback color (packed 0xRRGGBB) used when the matrix has
-     *            no valid color stops; converted to HSV before injection.
-     */
-    void injectColors(uint rgb, RGBMatrix *matrix);
-
-private:
-    AudioCapture *m_audioInput;
-    bool m_audioRegistered;
-    bool m_hsvContractValidated;    //! Skip Float32Array type checks after first frame
 
     /************************************************************************
      * Properties

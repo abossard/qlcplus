@@ -82,7 +82,7 @@ void RGBMatrix_Test::initial()
     RGBMatrix mtx(m_doc);
     QCOMPARE(mtx.type(), Function::RGBMatrixType);
     QCOMPARE(mtx.fixtureGroup(), FixtureGroup::invalidId());
-    QCOMPARE(mtx.getColor(0), QColor());
+    QCOMPARE(mtx.getColor(0), QColor(Qt::red));
     QCOMPARE(mtx.getColor(1), QColor());
     QCOMPARE(mtx.m_fadersMap.count(), 0);
     QCOMPARE(mtx.m_stepHandler->currentStepIndex(), 0);
@@ -164,7 +164,6 @@ void RGBMatrix_Test::previewMaps()
     mtx.setTotalDuration(8000);
     QCOMPARE(mtx.totalDuration(), uint(8000));
 
-    handler.setStepColor(QColor(Qt::red));
     mtx.previewMap(0, &handler);
     QCOMPARE(handler.m_map.size(), 5);
 
@@ -175,15 +174,13 @@ void RGBMatrix_Test::previewMaps()
         {
             for (int x = 0; x < 5; x++)
             {
-                const QRgb expected = x == z ? QColor(Qt::red).rgb()
-                                             : QColor(Qt::black).rgb();
-                QCOMPARE(handler.m_map[y][x], expected);
+                if (x == z)
+                    QCOMPARE(handler.m_map[y][x], QColor(Qt::black).rgb());
+                else
+                    QCOMPARE(handler.m_map[y][x], uint(0));
             }
         }
     }
-    qInfo() << "Preview pattern final step:"
-            << handler.m_map[0][4] << "stripe,"
-            << handler.m_map[0][0] << "background";
 }
 
 void RGBMatrix_Test::property()

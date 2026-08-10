@@ -29,7 +29,6 @@ function()
     algo.apiVersion = 2;
     algo.name = "Waves";
     algo.author = "Nathan Durnan";
-    algo.acceptColors = 2;
 
     algo.properties = new Array();
     algo.taillength = 50;
@@ -116,13 +115,10 @@ function()
       var tailSteps = Math.round(span * algo.taillength/100);
       if (tailSteps === 0) { tailSteps = 1; }
 
-      var map = HSVUtil.createMap(width, height);
-      var baseH = algo.colors[0].h;
-      var baseS = algo.colors[0].s;
-      var baseV = algo.colors[0].v;
-
+      var map = new Array(height);
       for (var y = 0; y < height; y++)
       {
+        map[y] = new Array();
         for (var x = 0; x < width; x++)
         {
           var pos = ((algo.orientation === 0) ? x : y);
@@ -173,16 +169,18 @@ function()
               break;
           }
           // Determine the fade for this pixel
-          if (fill)
+          var thisRgb = rgb;
+          if (fill && (algo.tailfade === 1))
           {
-            var v = baseV;
-            if (algo.tailfade === 1)
-            {
-              var thisTailStep = Math.round(util.fadeSteps * (step - stepPos) / tailSteps);
-              v = baseV * util.fadeObject[thisTailStep];
-            }
-            HSVUtil.setPixel(map, width, x, y, baseH, baseS, v);
+            var thisTailStep = Math.round(util.fadeSteps * (step - stepPos) / tailSteps);
+            var r = Math.round(((rgb >> 16) & 0x00FF) * util.fadeObject[thisTailStep]);
+            var g = Math.round(((rgb >> 8) & 0x00FF) * util.fadeObject[thisTailStep]);
+            var b = Math.round((rgb & 0x00FF) * util.fadeObject[thisTailStep]);
+            thisRgb = (r << 16) + (g << 8) + b;
           }
+          // Populate the matrix
+          map[y][x] = (fill ? thisRgb : 0);
+          map[y][x] = (fill ? thisRgb : 0);
         }
       }
       return map;

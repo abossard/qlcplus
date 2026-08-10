@@ -27,16 +27,24 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "One By One";
     algo.author = "Jano Svitok";
-    algo.acceptColors = 2;
 
     algo.properties = new Array();
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-        var map = HSVUtil.createMap(width, height);
+        var map = new Array(height);
+        for (var y = 0; y < height; y++)
+        {
+            map[y] = new Array();
+            for (var x = 0; x < width; x++)
+            {
+                map[y][x] = 0;
+            }
+        }
+
         var xx = step % width;
         var yy = (step - xx) / width;
-        HSVUtil.setPixel(map, width, xx, yy, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+        map[yy][xx] = rgb;
 
         return map;
     };

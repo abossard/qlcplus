@@ -58,7 +58,7 @@ var testAlgo;
       this.xCenter = x;
       this.yCenter = y;
       this.step = step;
-      this.color = {h: 0, s: 0, v: 0};
+      this.color = 0;
     };
 
     algo.setLinesSize = function(_size)
@@ -218,21 +218,30 @@ var testAlgo;
       util.initialized = true;
     };
 
-    util.getColor = function(step, color)
+    util.getColor = function(step, rgb)
     {
       if (algo.fadeMode === 0)
       {
-        return color;
+        return rgb;
       }
       else
       {
+        var r = (rgb >> 16) & 0x00FF;
+        var g = (rgb >> 8) & 0x00FF;
+        var b = rgb & 0x00FF;
+
         var stepCount = Math.floor(util.linesMaxSize);
         var fadeStep = step;
         if (algo.fadeMode === 2) {
           fadeStep = stepCount - step;
         }
         var factor = fadeStep / stepCount;
-        return {h: color.h, s: color.s, v: color.v * factor};
+        var newR = Math.round(r * factor);
+        var newG = Math.round(g * factor);
+        var newB = Math.round(b * factor);
+
+        var newRGB = (newR << 16) + (newG << 8) + newB;
+        return newRGB;
       }
     };
 
@@ -241,10 +250,7 @@ var testAlgo;
       cx = Math.round(cx);
       cy = Math.round(cy);
       if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-        var i3 = (cy * width + cx) * 3;
-        util.pixelMap[i3] = color.h;
-        util.pixelMap[i3 + 1] = color.s;
-        util.pixelMap[i3 + 2] = color.v;
+        util.pixelMap[cy][cx] = color;
       }
     };
 
@@ -252,7 +258,14 @@ var testAlgo;
     {
       var x, y;
       // create an empty, black pixelMap
-      util.pixelMap = HSVUtil.createMap(width, height);
+      util.pixelMap = new Array(height);
+      for (y = 0; y < height; y++)
+      {
+        util.pixelMap[y] = new Array(width);
+        for (x = 0; x < width; x++) {
+          util.pixelMap[y][x] = 0;
+        }
+      }
 
       for (var i = 0; i < algo.linesAmount; i++)
       {
@@ -264,7 +277,7 @@ var testAlgo;
             continue;
 
           // apply the current step color
-          lines[i].color = {h: algo.colors[0].h, s: algo.colors[0].s, v: algo.colors[0].v};
+          lines[i].color = rgb;
 
           // if biased .. move the start points to the cardinal ends of the space
           if (algo.linesBias == 1 || algo.linesBias == 5 || algo.linesBias == 6)
@@ -293,11 +306,7 @@ var testAlgo;
             lines[i].xCenter = Math.round(Math.random() * (width - 1));
           }
 
-          var ic = lines[i].color;
-          var i3 = (lines[i].yCenter * width + lines[i].xCenter) * 3;
-          util.pixelMap[i3] = ic.h;
-          util.pixelMap[i3 + 1] = ic.s;
-          util.pixelMap[i3 + 2] = ic.v;
+          util.pixelMap[lines[i].yCenter][lines[i].xCenter] = lines[i].color;
         } else {
           var color = util.getColor(lines[i].step, lines[i].color);
           //alert("Line " + i + " xCenter: " + lines[i].xCenter + " color: " + color.toString(16));

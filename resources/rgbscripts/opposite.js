@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Opposite";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
     algo.orientation = 0;
     algo.properties = new Array();
     algo.properties.push("name:orientation|type:list|display:Orientation|values:Horizontal,Vertical|write:setOrientation|read:getOrientation");
@@ -46,10 +45,10 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = HSVUtil.createMap(width, height);
-      var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+      var map = new Array(height);
       for (var y = 0; y < height; y++)
       {
+        map[y] = new Array();
         for (var x = 0; x < width; x++)
         {
           if (algo.orientation === 1)
@@ -57,13 +56,17 @@ var testAlgo;
             if ((x % 2) === 0)
             {
               if (y === step) {
-                HSVUtil.setPixel(map, width, x, y, h, s, v);
+                map[y][x] = rgb;
+              } else {
+                map[y][x] = 0;
               }
             }
             else
             {
               if (y === ((height - 1) - step)) {
-                HSVUtil.setPixel(map, width, x, y, h, s, v);
+                map[y][x] = rgb;
+              } else {
+                map[y][x] = 0;
               }
             }
           }
@@ -72,13 +75,17 @@ var testAlgo;
             if ((y % 2) === 0)
             {
               if (x === step) {
-                HSVUtil.setPixel(map, width, x, y, h, s, v);
+                map[y][x] = rgb;
+              } else {
+                map[y][x] = 0;
               }
             }
             else
             {
               if (x === ((width - 1) - step)) {
-                HSVUtil.setPixel(map, width, x, y, h, s, v);
+                map[y][x] = rgb;
+              } else {
+                map[y][x] = 0;
               }
             }
           }

@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Stripes";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();
@@ -47,14 +46,17 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = HSVUtil.createMap(width, height);
+      var map = new Array(height);
       for (var y = 0; y < height; y++)
       {
+          map[y] = new Array();
           for (var x = 0; x < width; x++)
           {
             if ((algo.orientation === 0 && x === step) ||
                 (algo.orientation === 1 && y === step)) {
-                  HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                  map[y][x] = rgb;
+            } else {
+                map[y][x] = 0;
             }
           }
       }

@@ -53,6 +53,7 @@ var testAlgo;
     var util = new Object;
     util.initialized = false;
     util.gradientData = new Array();
+    util.colorArray = new Array();
 
     algo.setPreset = function(_preset)
     {
@@ -94,7 +95,7 @@ var testAlgo;
 
     algo.setSize = function(_size)
     {
-      algo.presetSize = parseFloat(_size);
+      algo.presetSize = _size;
       util.initialized = false;
     };
 
@@ -105,7 +106,7 @@ var testAlgo;
 
     algo.setRamp = function(_ramp)
     {
-      algo.ramp = parseFloat(_ramp);
+      algo.ramp = _ramp;
       util.initialized = false;
     };
 
@@ -116,7 +117,7 @@ var testAlgo;
 
     algo.setStep = function(_step)
     {
-      algo.stepsize = parseFloat(_step);
+      algo.stepsize = _step;
       util.initialized = false;
     };
 
@@ -127,7 +128,8 @@ var testAlgo;
 
     util.initialize = function()
     {
-      // calculate the HSV gradient for the selected preset
+      // calculate the gradient for the selected preset
+      // with the given width
       var gradIdx = 0;
       util.gradientData = new Array();
       var colorArray = algo.rgbMapGetColors();
@@ -136,27 +138,29 @@ var testAlgo;
         var sColor = colorArray[i];
         var eColor = colorArray[(i + 1) % colorArray.length];
         if (! sColor)
-          sColor = {h: 0, s: 0, v: 0};
+          sColor = 0;
         if (! eColor)
-          eColor = {h: 0, s: 0, v: 0};
+          eColor = 0;
 
-        util.gradientData[gradIdx++] = {h: sColor.h, s: sColor.s, v: sColor.v};
+        util.gradientData[gradIdx++] = sColor;
+        var sr = (sColor >> 16) & 0x00FF;
+        var sg = (sColor >> 8) & 0x00FF;
+        var sb = sColor & 0x00FF;
+        var er = (eColor >> 16) & 0x00FF;
+        var eg = (eColor >> 8) & 0x00FF;
+        var eb = eColor & 0x00FF;
 
-        // Shortest arc for hue interpolation
-        var dh = eColor.h - sColor.h;
-        if (dh > 0.5) dh -= 1;
-        if (dh < -0.5) dh += 1;
-        var stepH = dh / 300;
-        var stepS = (eColor.s - sColor.s) / 300;
-        var stepV = (eColor.v - sColor.v) / 300;
+        var stepR = ((er - sr) / 300);
+        var stepG = ((eg - sg) / 300);
+        var stepB = ((eb - sb) / 300);
 
         for (var s = 1; s < 300; s++)
         {
-          var gh = (sColor.h + stepH * s) % 1;
-          if (gh < 0) gh += 1;
-          var gs = sColor.s + stepS * s;
-          var gv = sColor.v + stepV * s;
-          util.gradientData[gradIdx++] = {h: gh, s: gs, v: gv};
+          var gradR = Math.floor(sr + (stepR * s)) & 0x00FF;
+          var gradG = Math.floor(sg + (stepG * s)) & 0x00FF;
+          var gradB = Math.floor(sb + (stepB * s)) & 0x00FF;
+          var gradRGB = (gradR << 16) + (gradG << 8) + gradB;
+          util.gradientData[gradIdx++] = gradRGB;
         }
       }
       util.permArray = new Array(512);
@@ -258,61 +262,50 @@ var testAlgo;
       return scaled;
     }
 
-    algo.rgbMapSetColors = function(rawColors) {};
+    algo.rgbMapSetColors = function(rawColors)
+    {
+      if (! Array.isArray(rawColors))
+        return;
+
+      util.colorArray = new Array(rawColors.length);
+      for (var i = 0; i < util.colorArray.length; i++) {
+        if (i < rawColors.length)
+        {
+          util.colorArray[i] = rawColors[i];
+        } else {
+          util.colorArray[i] = 0;
+        }
+      }
+      util.initialized = false;
+    }
 
     algo.rgbMapGetColors = function()
     {
       if (algo.presetIndex === 1)
       {
-        // Fire
-        return [
-          {h: 0.1667, s: 1, v: 1},
-          {h: 0, s: 1, v: 1},
-          {h: 0.6667, s: 1, v: 0.251},
-          {h: 0, s: 1, v: 1}
-        ];
+        return [ 0xFFFF00, 0xFF0000, 0x000040, 0xFF0000 ];
       }
       else if (algo.presetIndex === 2)
       {
-        // Abstract
-        return [
-          {h: 0.639, s: 0.667, v: 1},
-          {h: 0.5, s: 1, v: 1},
-          {h: 0.8333, s: 1, v: 1},
-          {h: 0.1667, s: 1, v: 1}
-        ];
+        return [ 0x5571FF, 0x00FFFF, 0xFF00FF, 0xFFFF00 ];
       }
       else if (algo.presetIndex === 3)
       {
-        // Ocean
-        return [
-          {h: 0.614, s: 1, v: 0.725},
-          {h: 0.514, s: 0.992, v: 1}
-        ];
+        return [ 0x003AB9, 0x02EAFF ];
       }
       else if (algo.presetIndex === 4)
       {
-        // User Defined
-        if (algo.colors && algo.colors.length > 0)
+        if (util.colorArray.length <= 0)
         {
-          return algo.colors;
+          // No user defined colors set, return default
+          return [ 0x00FF00, 0xFFAA00, 0x0000FF, 0xFFFF00, 0xFFFFFF ];
         }
-        return [
-          {h: 0.3333, s: 1, v: 1},
-          {h: 0.111, s: 1, v: 1},
-          {h: 0.6667, s: 1, v: 1},
-          {h: 0.1667, s: 1, v: 1},
-          {h: 0, s: 0, v: 1}
-        ];
+        return util.colorArray;
       }
       else
       {
-        // Rainbow (presetIndex === 0 or default)
-        return [
-          {h: 0, s: 1, v: 1},
-          {h: 0.3333, s: 1, v: 1},
-          {h: 0.6667, s: 1, v: 1}
-        ];
+        // Either presetIndex === 0 or an invalid presetIndex
+        return [ 0xFF0000, 0x00FF00, 0x0000FF ];
       }
     }
 
@@ -333,9 +326,10 @@ var testAlgo;
       // keep the patten square
       var square = (width > height) ? width : height;
 
-      var map = HSVUtil.createMap(width, height);
+      var map = new Array(height);
       for (var y = 0; y < height; y++)
       {
+        map[y] = new Array();
 
         for (var x = 0; x < width; x++)
         {
@@ -343,13 +337,7 @@ var testAlgo;
           var ny = y / square;
           var n = util.noise(size * nx, size * ny, algo.bstepcount);
           var gradStep = Math.round(Math.pow(n, (algo.ramp / 10)) * util.gradientData.length);
-          var color = util.gradientData[gradStep];
-          if (color) {
-            var i = (y * width + x) * 3;
-            map[i] = color.h;
-            map[i + 1] = color.s;
-            map[i + 2] = color.v;
-          }
+          map[y][x] = util.gradientData[gradStep];
         }
       }
 

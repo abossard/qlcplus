@@ -19,135 +19,21 @@
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
-#include <QRegularExpression>
-#include <QTextStream>
 #include <QJSEngine>
-#include <QStringList>
 #include <QThread>
 #include <QDebug>
 #include <QFile>
-#include <QDir>
 
 // cppcheck-suppress missingIncludeSystem
 #include <QCoreApplication>
 // cppcheck-suppress missingIncludeSystem
 #include <QSemaphore>
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
 
 #include "rgbscriptv4.h"
 
 #include "rgbscriptscache.h"
-#include "audiochannel.h"
-#include "audiocapture.h"
-#include "audioprofile.h"
-#include "audiosnapshot.h"
-#include "mastertimer.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
-#include "doc.h"
-#include "rgbmatrix.h"
-
-namespace
-{
-    RGBMatrix *owningMatrix(Doc *doc, const RGBScript *script)
-    {
-        if (doc == NULL || script == NULL)
-            return NULL;
-
-        foreach (Function *function, doc->functionsByType(Function::RGBMatrixType))
-        {
-            RGBMatrix *matrix = qobject_cast<RGBMatrix*> (function);
-            if (matrix != NULL && matrix->algorithm() == script)
-                return matrix;
-        }
-
-        return NULL;
-    }
-
-    static constexpr int kAudioApiVersion = 5;
-    static constexpr int kBeatsPerBar = 4;
-    static constexpr double kPi = 3.14159265358979323846;
-
-    /** Convert HSV (h,s,v each in [0,1]) to packed 0xAARRGGBB via qRgb(). */
-    static inline uint hsvToRgb(float h, float s, float v)
-    {
-        if (!std::isfinite(h)) h = 0.0f;
-        if (!std::isfinite(s)) s = 0.0f;
-        if (!std::isfinite(v)) v = 0.0f;
-        h = h - floorf(h); if (h < 0) h += 1.0f;
-        s = qBound(0.0f, s, 1.0f);
-        v = qBound(0.0f, v, 1.0f);
-
-        float c = v * s;
-        float x = c * (1.0f - fabsf(fmodf(h * 6.0f, 2.0f) - 1.0f));
-        float m = v - c;
-        float r, g, b;
-        int sector = (int)(h * 6.0f) % 6;
-        switch (sector) {
-            case 0: r=c; g=x; b=0; break;
-            case 1: r=x; g=c; b=0; break;
-            case 2: r=0; g=c; b=x; break;
-            case 3: r=0; g=x; b=c; break;
-            case 4: r=x; g=0; b=c; break;
-            default: r=c; g=0; b=x; break;
-        }
-        int ri = qRound((r+m) * 255.0f);
-        int gi = qRound((g+m) * 255.0f);
-        int bi = qRound((b+m) * 255.0f);
-        return qRgb(ri, gi, bi);
-    }
-
-    /** Convert packed 0xRRGGBB to HSV floats in [0,1]. */
-    struct HsvColor { float h, s, v; };
-
-    /** Marshal an HsvColor into a QJSValue {h,s,v} object. */
-    static inline QJSValue hsvToJs(QJSEngine *engine, const HsvColor &hsv)
-    {
-        QJSValue obj = engine->newObject();
-        obj.setProperty(QStringLiteral("h"), QJSValue(double(hsv.h)));
-        obj.setProperty(QStringLiteral("s"), QJSValue(double(hsv.s)));
-        obj.setProperty(QStringLiteral("v"), QJSValue(double(hsv.v)));
-        return obj;
-    }
-
-    static inline HsvColor rgbToHsv(uint packed)
-    {
-        float r = float((packed >> 16) & 0xFF) / 255.0f;
-        float g = float((packed >> 8) & 0xFF) / 255.0f;
-        float b = float(packed & 0xFF) / 255.0f;
-        float mx = std::max({r, g, b});
-        float mn = std::min({r, g, b});
-        float d = mx - mn;
-        float h = 0.0f;
-        float s = (mx == 0.0f) ? 0.0f : d / mx;
-        if (d != 0.0f) {
-            if (mx == r) h = fmodf((g - b) / d + 6.0f, 6.0f) / 6.0f;
-            else if (mx == g) h = ((b - r) / d + 2.0f) / 6.0f;
-            else h = ((r - g) / d + 4.0f) / 6.0f;
-        }
-        return {h, s, mx};
-    }
-
-    bool onsetFiredAt(const AudioSnapshot &snap, int methodIndex)
-    {
-        switch (methodIndex)
-        {
-        case 0: return snap.onsets.energy;
-        case 1: return snap.onsets.hfc;
-        case 2: return snap.onsets.complex_;
-        case 3: return snap.onsets.phase;
-        case 4: return snap.onsets.wphase;
-        case 5: return snap.onsets.specdiff;
-        case 6: return snap.onsets.kl;
-        case 7: return snap.onsets.mkl;
-        case 8: return snap.onsets.specflux;
-        default: return false;
-        }
-    }
-
-}
 
 /****************************************************************************
  * Initialization
@@ -173,10 +59,6 @@ public:
 RGBScript::RGBScript(Doc *doc)
     : RGBAlgorithm(doc)
     , m_apiVersion(0)
-    , m_usesAudio(false)
-    , m_audioInput(NULL)
-    , m_audioRegistered(false)
-    , m_hsvContractValidated(false)
 {
 }
 
@@ -185,10 +67,6 @@ RGBScript::RGBScript(const RGBScript& s)
     , m_fileName(s.m_fileName)
     , m_contents(s.m_contents)
     , m_apiVersion(0)
-    , m_usesAudio(false)
-    , m_audioInput(NULL)
-    , m_audioRegistered(false)
-    , m_hsvContractValidated(false)
 {
     evaluate();
     foreach (RGBScriptProperty cap, s.m_properties)
@@ -199,7 +77,6 @@ RGBScript::RGBScript(const RGBScript& s)
 
 RGBScript::~RGBScript()
 {
-    teardownAudioCapture();
 }
 
 RGBScript &RGBScript::operator=(const RGBScript &s)
@@ -277,29 +154,6 @@ void RGBScript::initEngine()
         // cppcheck-suppress unknownMacro
         qAddPostRoutine(RGBScript::cleanupEngine);
         s_jsThread->ready.acquire(1);
-
-        // Load shared audio script helpers into the engine's global scope.
-        QDir scriptsDir = RGBScriptsCache::systemScriptsDirectory();
-        const QStringList shimNames = {
-            QStringLiteral("hsvutil.js")
-        };
-        for (const QString &shimName : shimNames)
-        {
-            QString shimPath = scriptsDir.filePath(shimName);
-            QFile shimFile(shimPath);
-            if (shimFile.open(QIODevice::ReadOnly))
-            {
-                QString shimContents = QTextStream(&shimFile).readAll();
-                shimFile.close();
-                QMetaObject::invokeMethod(s_jsThread->engine, [shimContents, shimPath]{
-                    QJSValue result = s_jsThread->engine->evaluate(shimContents, shimPath);
-                    if (result.isError())
-                        displayError(result, shimPath);
-                    else
-                        qDebug() << "[RGBScript] Loaded RGB script shim" << shimPath;
-                }, Qt::BlockingQueuedConnection);
-            }
-        }
     }
     Q_ASSERT(s_jsThread->engine != NULL);
 }
@@ -310,15 +164,6 @@ void RGBScript::cleanupEngine()
     s_jsThread->wait();
     delete s_jsThread;
     s_jsThread = NULL;
-}
-
-bool RGBScript::scheduleOnJSThread(std::function<void()> fn)
-{
-    if (s_jsThread == NULL || s_jsThread->engine == NULL)
-        return false;
-
-    QMetaObject::invokeMethod(s_jsThread->engine, std::move(fn), Qt::QueuedConnection);
-    return true;
 }
 
 
@@ -335,8 +180,6 @@ bool RGBScript::evaluate()
     m_rgbMapStepCount = QJSValue();
     m_rgbMapSetColors = QJSValue();
     m_apiVersion = 0;
-    m_usesAudio = false;
-    m_hsvContractValidated = false;
 
     if (m_fileName.isEmpty() || m_contents.isEmpty())
     {
@@ -370,45 +213,6 @@ bool RGBScript::evaluate()
     m_apiVersion = m_script.property("apiVersion").toInt();
     if (m_apiVersion > 0)
     {
-        // Check if the script requests audio data
-        QJSValue usesAudioVal = m_script.property("usesAudio");
-        m_usesAudio = (!usesAudioVal.isUndefined() && usesAudioVal.toBool());
-
-        // Extract audio input categories: prefer explicit algo.audioInputs,
-        // fall back to auto-detection from source.
-        m_audioInputCategories.clear();
-        if (m_usesAudio)
-        {
-            QJSValue inputsVal = m_script.property(QStringLiteral("audioInputs"));
-            if (inputsVal.isArray())
-            {
-                const int len = inputsVal.property(QStringLiteral("length")).toInt();
-                for (int i = 0; i < len; ++i)
-                {
-                    QString cat = inputsVal.property(quint32(i)).toString();
-                    if (!cat.isEmpty() && !m_audioInputCategories.contains(cat))
-                        m_audioInputCategories.append(cat);
-                }
-            }
-            else
-            {
-                // Auto-detect from source: extract top-level audio.X references
-                static const QRegularExpression rx(QStringLiteral("\\baudio\\.(\\w+)"));
-                QRegularExpressionMatchIterator it = rx.globalMatch(m_contents);
-                QSet<QString> seen;
-                while (it.hasNext())
-                {
-                    QString cat = it.next().captured(1);
-                    if (cat != QStringLiteral("timing") && !seen.contains(cat))
-                    {
-                        seen.insert(cat);
-                        m_audioInputCategories.append(cat);
-                    }
-                }
-                m_audioInputCategories.sort();
-            }
-        }
-
         if (m_apiVersion >= 3)
         {
             m_rgbMapSetColors = m_script.property(QStringLiteral("rgbMapSetColors"));
@@ -492,15 +296,9 @@ void RGBScript::rgbMapSetColors(const QVector<uint> &colors)
     int accColors = acceptColors();
     int rawColorCount = colors.count();
 
-    // HSV-only contract: scripts receive an array of {h,s,v} objects, never
-    // packed RGB integers. Convert each stop here.
-    QJSEngine *engine = s_jsThread->engine;
-    QJSValue jsRawColors = engine->newArray(accColors);
+    QJSValue jsRawColors = s_jsThread->engine->newArray(accColors);
     for (int i = 0; i < rawColorCount && i < accColors; i++)
-    {
-        HsvColor hsv = rgbToHsv(colors.at(i) & 0xFFFFFFu);
-        jsRawColors.setProperty(i, hsvToJs(engine, hsv));
-    }
+        jsRawColors.setProperty(i, QJSValue(colors.at(i)));
 
     QJSValueList args;
     args << jsRawColors;
@@ -546,118 +344,34 @@ void RGBScript::rgbMap(const QSize& size, uint rgb, int step, RGBMap &map)
     if (m_rgbMap.isUndefined() == true)
         return;
 
-    // Resolve owning matrix once per frame — avoids repeated O(N) linear scan.
-    RGBMatrix *matrix = owningMatrix(doc(), this);
-
-    // Inject the user's color palette as algo.colors (array of {h,s,v}).
-    injectColors(rgb, matrix);
-
-    // If this is an audio-aware script, set up audio capture on first call
-    // and inject audio data as a 5th argument
-    if (m_usesAudio)
-    {
-        setupAudioCapture();
-    }
-
+    // Call the rgbMap function
     QJSValueList args;
-    // 3rd argument is the primary color as {h,s,v} (HSV-only contract).
-    // Same value as algo.color set by injectGradientArrays(); kept positional
-    // so the rgbMap(width, height, color, step[, audio]) signature is stable.
-    QJSEngine *engine = s_jsThread->engine;
-    HsvColor primary = rgbToHsv(rgb & 0xFFFFFFu);
-    args << size.width() << size.height() << hsvToJs(engine, primary) << step;
-
-    if (m_usesAudio)
-        args << buildAudioDataObject();
+    args << size.width() << size.height() << rgb << step;
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
-    {
         displayError(yarray, m_fileName);
-        return;
-    }
 
-    // HSV-only contract: scripts MUST return a Float32Array of length
-    // width*height*3 (interleaved H,S,V floats in [0,1]). The engine converts
-    // to packed RGB here. Returning a Uint32Array (the legacy RGB path) is
-    // no longer supported.
-    const int width = size.width();
-    const int height = size.height();
-    if (width <= 0 || height <= 0)
-        return;
-
-    const int expectedHsvBytes = width * height * 3 * 4;    // Float32Array: 3 floats/pixel
-
-    // Full validation on first frame; fast-path on subsequent frames.
-    if (!m_hsvContractValidated)
+    // Check the matrix to be a valid matrix
+    if (yarray.isArray())
     {
-        QJSValue bpeProp = yarray.property(QStringLiteral("BYTES_PER_ELEMENT"));
-        if (!bpeProp.isNumber())
+        QVariantList yvArray = yarray.toVariant().toList();
+        int ylen = yvArray.length();
+        map.resize(ylen);
+
+        for (int y = 0; y < ylen && y < size.height(); y++)
         {
-            qWarning() << "RGBScript" << m_fileName
-                       << "rgbMap() did not return a TypedArray. HSV contract"
-                       << "requires a flat Float32Array of length width*height*3.";
-            return;
+            QVariantList xvArray = yvArray.at(y).toList();
+            int xlen = xvArray.length();
+            map[y].resize(xlen);
+
+            for (int x = 0; x < xlen && x < size.width(); x++)
+                map[y][x] = xvArray.at(x).toUInt();
         }
-
-        QJSValue ctorName = yarray.property(QStringLiteral("constructor"))
-                                  .property(QStringLiteral("name"));
-        if (ctorName.toString() != QStringLiteral("Float32Array"))
-        {
-            qWarning() << "RGBScript" << m_fileName
-                       << "returned" << ctorName.toString()
-                       << "but only Float32Array (HSV) is supported.";
-            return;
-        }
-
-        if (bpeProp.toInt() != 4)
-        {
-            qWarning() << "RGBScript" << m_fileName
-                       << "unexpected BYTES_PER_ELEMENT:" << bpeProp.toInt();
-            return;
-        }
-
-        m_hsvContractValidated = true;
     }
-
-    const int byteLength = yarray.property(QStringLiteral("byteLength")).toInt();
-    if (byteLength != expectedHsvBytes)
+    else
     {
-        qWarning() << "RGBScript" << m_fileName
-                   << "TypedArray size mismatch: byteLength=" << byteLength
-                   << "(expected" << expectedHsvBytes << ")";
-        return;
-    }
-
-    QJSValue bufProp = yarray.property(QStringLiteral("buffer"));
-    if (!bufProp.isObject())
-    {
-        qWarning() << "RGBScript" << m_fileName
-                   << "TypedArray has no underlying ArrayBuffer";
-        return;
-    }
-
-    QByteArray bytes = bufProp.toVariant().toByteArray();
-    if (bytes.size() != expectedHsvBytes)
-    {
-        qWarning() << "RGBScript" << m_fileName
-                   << "ArrayBuffer extraction size mismatch: got" << bytes.size()
-                   << "expected" << expectedHsvBytes;
-        return;
-    }
-
-    map.resize(height);
-    // Convert interleaved float H,S,V triples to packed RGB.
-    const float *src = reinterpret_cast<const float*>(bytes.constData());
-    for (int y = 0; y < height; ++y)
-    {
-        map[y].resize(width);
-        const float *row = src + (y * width * 3);
-        for (int x = 0; x < width; ++x)
-        {
-            int i = x * 3;
-            map[y][x] = hsvToRgb(row[i], row[i + 1], row[i + 2]);
-        }
+        qWarning() << "Returned value is not an array within an array!";
     }
 }
 
@@ -740,164 +454,6 @@ bool RGBScript::saveXML(QXmlStreamWriter *doc) const
         return false;
     }
 }
-
-bool RGBScript::usesAudio() const
-{
-    return m_usesAudio;
-}
-
-QStringList RGBScript::audioInputCategories() const
-{
-    return m_audioInputCategories;
-}
-
-void RGBScript::setDisplaySize(const QSize &size)
-{
-    if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
-    {
-        QMetaObject::invokeMethod(s_jsThread->engine, [this, size]{ setDisplaySize(size); }, Qt::BlockingQueuedConnection);
-        return;
-    }
-
-    if (!m_script.isObject())
-        return;
-
-    m_script.setProperty(QStringLiteral("displayWidth"), size.width());
-    m_script.setProperty(QStringLiteral("displayHeight"), size.height());
-}
-
-void RGBScript::postRun()
-{
-    teardownAudioCapture();
-}
-
-/****************************************************************************
- * Audio support
- ****************************************************************************/
-
-void RGBScript::setupAudioCapture()
-{
-    if (doc() == NULL)
-        return;
-
-    QSharedPointer<AudioCapture> capture = doc()->audioInputCapture();
-    if (capture.isNull())
-        return;
-
-    if (m_audioInput != NULL && capture.data() == m_audioInput)
-        return; // Already connected to this capture
-
-    teardownAudioCapture();
-    m_audioInput = capture.data();
-
-    // The audio object is sourced exclusively from the AudioProfile's
-    // AudioChannel snapshot inside buildAudioDataObject(). We don't need
-    // to subscribe to aubioDataReady — we just need the capture thread
-    // to be running.
-    m_audioInput->registerBandsNumber(1);
-    m_audioRegistered = true;
-}
-
-void RGBScript::teardownAudioCapture()
-{
-    if (m_audioInput != NULL)
-    {
-        if (m_audioRegistered)
-        {
-            m_audioInput->unregisterBandsNumber(1);
-            m_audioRegistered = false;
-        }
-        m_audioInput = NULL;
-    }
-}
-
-void RGBScript::injectColors(uint rgb, RGBMatrix *matrix)
-{
-    QJSEngine *engine = s_jsThread->engine;
-    if (engine == NULL || m_script.isUndefined())
-        return;
-
-    int numColors = acceptColors();
-    if (numColors <= 0)
-    {
-        m_script.setProperty(QStringLiteral("colors"), engine->newArray(0));
-        return;
-    }
-
-    // Convert user-picked color stops to HSV. Invalid/missing slots get
-    // the step color fallback so algo.colors always has exactly numColors elements.
-    HsvColor fallback = rgbToHsv(rgb & 0xFFFFFFu);
-    QVector<QColor> cols;
-    if (matrix != NULL)
-        cols = matrix->getColors();
-
-    // Check if any user-picked color is set (vs all being fallback/default).
-    bool anyUserSet = false;
-    QJSValue colorsArr = engine->newArray(quint32(numColors));
-    for (int i = 0; i < numColors; ++i)
-    {
-        bool valid = (i < cols.size() && cols.at(i).isValid());
-        if (valid) anyUserSet = true;
-        HsvColor hsv = valid ? rgbToHsv(cols.at(i).rgb() & 0xFFFFFFu) : fallback;
-        colorsArr.setProperty(quint32(i), hsvToJs(engine, hsv));
-    }
-
-    m_script.setProperty(QStringLiteral("colors"), colorsArr);
-    m_script.setProperty(QStringLiteral("hasUserColors"), QJSValue(anyUserSet));
-}
-
-QJSValue RGBScript::buildAudioDataObject()
-{
-    QJSEngine *engine = s_jsThread->engine;
-    QJSValue audioObj = engine->newObject();
-    AudioChannel *channel = NULL;
-    AudioChannelConfig config = AudioChannelConfig::defaults();
-    Doc *currentDoc = doc();
-    AudioProfile *profile = NULL;
-    if (currentDoc != NULL)
-    {
-        profile = currentDoc->audioProfile(currentDoc->activeAudioProfileId());
-        if (profile == NULL)
-            profile = currentDoc->defaultAudioProfile();
-    }
-    if (profile != NULL)
-    {
-        channel = profile->channel();
-        config = (channel != NULL) ? channel->config() : profile->channelConfig();
-    }
-
-    AudioSnapshot snap;
-    if (channel != NULL)
-        snap = channel->snapshot();
-
-    const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
-                                            0, AUBIO_ONSET_METHODS - 1);
-
-    const bool tempoActive = snap.music.bpm > 0.0;
-    const double bpm = tempoActive ? snap.music.bpm : 120.0;
-    const double beatPhase = snap.music.beatPhase;
-    const double dt = (double(MasterTimer::tick()) / 1000.0) * (bpm / 60.0);
-
-    audioObj.setProperty(QStringLiteral("beat"),           QJSValue(snap.beatPower));
-    audioObj.setProperty(QStringLiteral("bass"),           QJSValue(snap.bassPower));
-    audioObj.setProperty(QStringLiteral("low"),            QJSValue(snap.lows));
-    audioObj.setProperty(QStringLiteral("mid"),            QJSValue(snap.mids));
-    audioObj.setProperty(QStringLiteral("high"),           QJSValue(snap.highs));
-    audioObj.setProperty(QStringLiteral("onset"),          QJSValue(onsetFiredAt(snap, onsetMethodIndex)));
-    audioObj.setProperty(QStringLiteral("onsetIntensity"), QJSValue(snap.onsets.thresholdedDescriptors[onsetMethodIndex]));
-    audioObj.setProperty(QStringLiteral("beatFired"),      QJSValue(snap.beatTrigger.firedThisFrame));
-    audioObj.setProperty(QStringLiteral("downbeat"),       QJSValue(snap.downbeatFired));
-    audioObj.setProperty(QStringLiteral("bpm"),            QJSValue(bpm));
-    audioObj.setProperty(QStringLiteral("phase"),          QJSValue(beatPhase));
-    audioObj.setProperty(QStringLiteral("barPhase"),       QJSValue(snap.music.barPhase / double(kBeatsPerBar)));
-    audioObj.setProperty(QStringLiteral("dt"),             QJSValue(tempoActive ? dt : 0.0));
-    audioObj.setProperty(QStringLiteral("cosPulse"),       QJSValue(tempoActive
-        ? std::max(0.0, std::cos(beatPhase * kPi)) : 0.0));
-    audioObj.setProperty(QStringLiteral("version"),        QJSValue(kAudioApiVersion));
-
-    return audioObj;
-}
-
 
 /************************************************************************
  * Capabilities

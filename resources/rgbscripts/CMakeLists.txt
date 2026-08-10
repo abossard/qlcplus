@@ -2,47 +2,6 @@ project(scripts)
 
 set(SCRIPT_FILES
     alternate.js
-    audioaurora.js
-    audiobarcode.js
-    audiobasslaser.js
-    audiobeatcolors.js
-    audiobuildup.js
-    audioblocks.js
-    audioblurz.js
-    audiocellular.js
-    audiochaser.js
-    audiocrawler.js
-    audiodjlight.js
-    audioenergy.js
-    audioenergy2.js
-    audioequalizer.js
-    audiofire.js
-    audiofireworks.js
-    audioflowfield.js
-    audioglitch.js
-    audioglitch2.js
-    audiogravimeter.js
-    audiohueshift.js
-    audiolava.js
-    audiomelt.js
-    audiomeltsparkle.js
-    audioplasma.js
-    audiopower.js
-    audiopuddles.js
-    audioreaction.js
-    audioreactor.js
-    audioscan.js
-    audioscanflare.js
-    audioscanmulti.js
-    audioshockwave.js
-    audioshot.js
-    audiosoap.js
-    audiospectrum.js
-    audiosplittower.js
-    audiostrobe.js
-    audiotunnel.js
-    audiovortex.js
-    audiowater.js
     balls.js
     blinder.js
     circles.js
@@ -70,7 +29,6 @@ set(SCRIPT_FILES
     randompixelperrowmulticolor.js
     randomrow.js
     randomsingle.js
-    hsvutil.js
     sinewave.js
     snowbubbles.js
     squares.js
@@ -94,18 +52,6 @@ if(ANDROID)
     # Copy the script files to the assets directory
     foreach(SCRIPT_FILE IN LISTS SCRIPT_FILES)
         file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT_FILE} DESTINATION ${SCRIPTS_ASSETS_DIR})
-    endforeach()
-endif()
-
-# Create symlinks in build directory for dev builds (out-of-source only)
-get_filename_component(_src_real "${CMAKE_CURRENT_SOURCE_DIR}" REALPATH)
-get_filename_component(_bld_real "${CMAKE_CURRENT_BINARY_DIR}" REALPATH)
-if(NOT ANDROID AND NOT _src_real STREQUAL _bld_real)
-    foreach(SCRIPT_FILE IN LISTS SCRIPT_FILES)
-        if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}")
-            file(CREATE_LINK "${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT_FILE}"
-                 "${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}" SYMBOLIC)
-        endif()
     endforeach()
 endif()
 

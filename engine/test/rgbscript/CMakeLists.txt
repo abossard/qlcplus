@@ -14,20 +14,6 @@ target_link_libraries(rgbscript_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
 )
-target_compile_definitions(rgbscript_test PRIVATE
-    RGBSCRIPTS_SOURCE_DIR="${CMAKE_SOURCE_DIR}/resources/rgbscripts")
-
-if(APPLE)
-    set(RGBSCRIPT_TEST_RESOURCE_DIR
-        "${CMAKE_CURRENT_BINARY_DIR}/../Resources/RGBScripts")
-    file(MAKE_DIRECTORY "${RGBSCRIPT_TEST_RESOURCE_DIR}")
-    if(NOT EXISTS "${RGBSCRIPT_TEST_RESOURCE_DIR}/hsvutil.js")
-        file(CREATE_LINK
-            "${CMAKE_SOURCE_DIR}/resources/rgbscripts/hsvutil.js"
-            "${RGBSCRIPT_TEST_RESOURCE_DIR}/hsvutil.js"
-            SYMBOLIC COPY_ON_ERROR)
-    endif()
-endif()
 
 if(qmlui OR (QT_VERSION_MAJOR GREATER 5))
     target_link_libraries(rgbscript_test PRIVATE

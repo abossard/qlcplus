@@ -31,7 +31,6 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Even/Odd";
         algo.author = "Heikki Junnila";
-        algo.acceptColors = 2;
 
         /**
          * The actual "algorithm" for this RGB script. Produces a map of
@@ -43,15 +42,17 @@ var testAlgo;
          */
         algo.rgbMap = function(width, height, rgb, step)
         {
-            var map = HSVUtil.createMap(width, height);
-            var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+            var map = new Array(height);
             var i = step;
             for (var y = 0; y < height; y++)
             {
+                map[y] = new Array();
                 for (var x = 0; x < width; x++)
                 {
                     if ((i % 2) === 0) {
-                        HSVUtil.setPixel(map, width, x, y, h, s, v);
+                        map[y][x] = rgb;
+                    } else {
+                        map[y][x] = 0;
                     }
                     i++;
                 }

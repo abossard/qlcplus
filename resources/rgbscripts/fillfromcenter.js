@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Fill From Center";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();
@@ -55,10 +54,10 @@ var testAlgo;
             isEven = (height % 2 === 0);
         }
 
-        var map = HSVUtil.createMap(width, height);
-        var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+        var map = new Array(height);
         for (var y = 0; y < height; y++)
         {
+            map[y] = new Array();
             for (var x = 0; x < width; x++)
             {
                 var fill = 0;
@@ -76,7 +75,9 @@ var testAlgo;
                 }
 
                 if(fill === 1) {
-                    HSVUtil.setPixel(map, width, x, y, h, s, v);
+                    map[y][x] = rgb;
+                } else {
+                    map[y][x] = 0;
                 }
             }
         }

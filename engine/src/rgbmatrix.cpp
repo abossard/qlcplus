@@ -23,15 +23,11 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QDebug>
-#include <QRandomGenerator>
-#include <QThread>
 #include <cmath>
 #include <QDir>
 
 #include "rgbscriptscache.h"
 #include "qlcfixturehead.h"
-#include "audiochannel.h"
-#include "audioprofile.h"
 #include "fixturegroup.h"
 #include "genericfader.h"
 #include "fadechannel.h"
@@ -58,17 +54,6 @@
 #define KXMLQLCRGBMatrixControlModeUV       QStringLiteral("UV")
 #define KXMLQLCRGBMatrixControlModeDimmer   QStringLiteral("Dimmer")
 #define KXMLQLCRGBMatrixControlModeShutter  QStringLiteral("Shutter")
-#define KXMLQLCRGBMatrixControlModeRgbw     QStringLiteral("RGBW")
-#define KXMLQLCRGBMatrixControlModeRgbwBrighter QStringLiteral("RGBWBrighter")
-
-#define KXMLQLCRGBMatrixRotation            QStringLiteral("Rotation")
-#define KXMLQLCRGBMatrixMirror              QStringLiteral("Mirror")
-#define KXMLQLCRGBMatrixMirrorBlend         QStringLiteral("MirrorBlend")
-#define KXMLQLCRGBMatrixBrightness          QStringLiteral("Brightness")
-
-#define KXMLQLCRGBMatrixBeatEffect          QStringLiteral("BeatEffect")
-#define KXMLQLCRGBMatrixBeatSelection       QStringLiteral("BeatSelection")
-#define KXMLQLCRGBMatrixBeatOrientation     QStringLiteral("BeatOrientation")
 
 static const int RGBMatrixColorMask = 0x00FFFFFF;
 
@@ -93,37 +78,15 @@ RGBMatrix::RGBMatrix(Doc *doc)
     , m_continuousPhase(0.0)
     , m_applyingStyleAttributes(false)
     , m_controlMode(RGBMatrix::ControlModeRgb)
-    , m_rotation(0)
-    , m_mirror(0)
-    , m_mirrorBlend(MirrorFlip)
-    , m_brightness(1.0)
-    , m_beatEffect(BeatEffectOff)
-    , m_beatSelection(BeatSelAllOnDownbeat)
-    , m_beatOrientation(BeatOrientRows)
-    , m_currentBeat(0)
-    , m_lastBeat(-1)
-    , m_randomSegment(0)
 {
-    // Phase 4: precomputed-map state starts empty. m_currentGeneration begins
-    // at 0; consumers only trust the precomputed map when ready==1, so the
-    // initial value of m_precomputedGeneration is harmless until first kick.
-    m_precomputedReady.storeRelease(0);
-    m_precomputedInFlight.storeRelease(0);
-    m_currentGeneration.storeRelease(0);
-    m_precomputedGeneration = 0;
-    m_precomputedStep = -1;
-    m_precomputedColor = 0;
-    m_precomputedAlgorithm = nullptr;
-
     setName(tr("New RGB Matrix"));
     setDuration(500);
 
     m_rgbColors.fill(QColor(), RGBAlgorithmColorDisplayCount);
-    // Don't pre-set slot 0 to red — leave all slots invalid so scripts
-    // can detect "no user colors" via algo.hasUserColors.
+    setColor(0, Qt::red);
 
-    setAlgorithm(RGBAlgorithm::algorithm(doc, "Stripes"));
-
+    /** Register the fixed attributes before loading an algorithm, so that
+     *  the attributes exposed by a Script are always appended after them */
     for (int i = 0; i < ColorAttributeCount; ++i)
     {
         registerAttribute(tr("Color %1").arg(i + 1), LastWins | Single, -1.0, 16777215.0,
@@ -131,36 +94,16 @@ RGBMatrix::RGBMatrix(Doc *doc)
     }
 
     int algoCount = RGBAlgorithm::algorithms(doc).count();
-    registerAttribute(tr("Pattern"), LastWins | Single, 0.0, algoCount > 0 ? algoCount - 1 : 0, algorithmIndex());
+    registerAttribute(tr("Pattern"), LastWins | Single, 0.0, algoCount > 0 ? algoCount - 1 : 0, 0);
 
-    // Mark the PixelPlan dirty initially. It will be (re)built lazily on the
-    // first updateMapChannels() call. Connect to Doc signals so that fixture
-    // address/mode changes and group membership changes invalidate the cache.
-    m_pixelPlanDirty.storeRelease(1);
-    if (doc != NULL)
-    {
-        connect(doc, &Doc::fixtureChanged,
-                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
-        connect(doc, &Doc::fixtureRemoved,
-                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
-        connect(doc, &Doc::fixtureGroupChanged,
-                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
-        connect(doc, &Doc::fixtureGroupRemoved,
-                this, &RGBMatrix::invalidatePixelPlan, Qt::DirectConnection);
-    }
+    setAlgorithm(RGBAlgorithm::algorithm(doc, "Stripes"));
 }
 
 RGBMatrix::~RGBMatrix()
 {
-    // Phase 4: any async precompute task captures `this`. Wait for it to
-    // drain before we tear down. Bounded to ~one rgbMap duration (~10ms).
-    while (m_precomputedInFlight.loadAcquire() != 0)
-        QThread::yieldCurrentThread();
-
     //if (m_runAlgorithm != NULL)
     //    delete m_runAlgorithm;
-    deferDeleteAlgorithm(m_algorithm);
-    m_algorithm = NULL;
+    delete m_algorithm;
     delete m_stepHandler;
 }
 
@@ -190,7 +133,7 @@ void RGBMatrix::setTotalDuration(quint32 msec)
     if (grp == NULL)
         return;
 
-    int steps = m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp));
+    int steps = m_algorithm->rgbMapStepCount(grp->size());
     setDuration(msec / steps);
 }
 
@@ -206,13 +149,12 @@ quint32 RGBMatrix::totalDuration()
         return 0;
 
     //qDebug () << "Algorithm steps:" << m_algorithm->rgbMapStepCount(grp->size());
-    return m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp)) * duration();
+    return m_algorithm->rgbMapStepCount(grp->size()) * duration();
 }
 
 void RGBMatrix::setDimmerControl(bool dimmerControl)
 {
     m_dimmerControl = dimmerControl;
-    m_pixelPlanDirty.storeRelease(1);
 }
 
 bool RGBMatrix::dimmerControl() const
@@ -262,13 +204,6 @@ bool RGBMatrix::copyFrom(const Function* function)
         setAlgorithm(NULL);
 
     setControlMode(mtx->controlMode());
-    setRotation(mtx->rotation());
-    setMirror(mtx->mirror());
-    setMirrorBlend(mtx->mirrorBlend());
-    setBrightness(mtx->brightness());
-    setBeatEffect(mtx->beatEffect());
-    setBeatSelection(mtx->beatSelection());
-    setBeatOrientation(mtx->beatOrientation());
 
     return Function::copyFrom(function);
 }
@@ -290,10 +225,6 @@ void RGBMatrix::setFixtureGroup(quint32 id)
         m_group = doc()->fixtureGroup(m_fixtureGroupID);
     }
     m_stepsCount = algorithmStepsCount();
-    m_pixelPlanDirty.storeRelease(1);
-    // Phase 4: any precomputed map is for the OLD group. Invalidate.
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
 }
 
 QList<quint32> RGBMatrix::components() const
@@ -310,18 +241,15 @@ QList<quint32> RGBMatrix::components() const
 
 void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
 {
-    RGBAlgorithm *oldAlgo = nullptr;
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
-        oldAlgo = m_algorithm;
-        m_algorithm = algo;
 
-        // Phase 4: invalidate any pending/stored precomputed frame BEFORE
-        // releasing the algorithm pointer for deletion. Bumping the generation
-        // ensures any in-flight JSThread task that captured the old generation
-        // will discard its result rather than store it.
-        m_currentGeneration.fetchAndAddRelaxed(1);
-        m_precomputedReady.storeRelease(0);
+        /** Unregister the attributes of the outgoing algorithm while it is
+         *  still around, since their names come from its properties */
+        unregisterScriptPropertyAttributes();
+
+        delete m_algorithm;
+        m_algorithm = algo;
 
         m_requestEngineCreation = true;
 
@@ -343,15 +271,15 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
                 }
             }
 
-            // Colors are injected via injectColors() at render time;
-            // no need to seed m_rgbColors from the script here.
+            QVector<uint> colors = script->rgbMapGetColors();
+            for (int i = 0; i < colors.count(); i++)
+                m_rgbColors.replace(i, QColor::fromRgb(colors.at(i)));
         }
     }
-    // Phase 4: deferred delete of the previous algorithm. For Script-typed
-    // algos, this serializes after any pending precompute tasks on the
-    // JSThread (FIFO), avoiding use-after-free in the async path.
-    deferDeleteAlgorithm(oldAlgo);
     m_stepsCount = algorithmStepsCount();
+
+    /** Expose the properties of the new algorithm as Function attributes */
+    registerScriptPropertyAttributes();
 
     if (m_applyingStyleAttributes == false)
         Function::adjustAttribute(algorithmIndex(), PatternAttr);
@@ -391,7 +319,7 @@ int RGBMatrix::algorithmStepsCount()
 
     FixtureGroup *grp = doc()->fixtureGroup(fixtureGroup());
     if (grp != NULL)
-        return m_algorithm->rgbMapStepCount(effectiveAlgorithmSize(grp));
+        return m_algorithm->rgbMapStepCount(grp->size());
 
     return 0;
 }
@@ -407,14 +335,8 @@ void RGBMatrix::previewMap(int step, RGBMatrixStep *handler)
 
     if (m_group != NULL)
     {
-        QSize algoSize = effectiveAlgorithmSize(m_group);
-        if (m_algorithm->usesAudio())
-            m_algorithm->setDisplaySize(m_group->size());
         setMapColors(m_algorithm);
-        m_algorithm->rgbMap(algoSize, handler->stepColor().rgb(), step, handler->m_map);
-        if (m_rotation || m_mirror)
-            applyTransforms(handler->m_map, algoSize, m_group->size(),
-                            m_rotation, m_mirror, m_mirrorBlend);
+        m_algorithm->rgbMap(m_group->size(), handler->stepColor().rgb(), step, handler->m_map);
     }
 }
 
@@ -513,6 +435,10 @@ void RGBMatrix::setProperty(QString propName, QString value)
     {
         RGBScript *script = static_cast<RGBScript*> (m_algorithm);
         script->setProperty(propName, value);
+
+        QVector<uint> colors = script->rgbMapGetColors();
+        for (int i = 0; i < colors.count(); i++)
+            setColor(i, QColor::fromRgb(colors.at(i)));
     }
     m_stepsCount = algorithmStepsCount();
 
@@ -635,34 +561,6 @@ bool RGBMatrix::loadXML(QXmlStreamReader &root)
         {
             setDimmerControl(root.readElementText().toInt());
         }
-        else if (root.name() == KXMLQLCRGBMatrixRotation)
-        {
-            setRotation(root.readElementText().toInt());
-        }
-        else if (root.name() == KXMLQLCRGBMatrixMirror)
-        {
-            setMirror(root.readElementText().toInt());
-        }
-        else if (root.name() == KXMLQLCRGBMatrixMirrorBlend)
-        {
-            setMirrorBlend(stringToMirrorBlend(root.readElementText()));
-        }
-        else if (root.name() == KXMLQLCRGBMatrixBrightness)
-        {
-            setBrightness(root.readElementText().toDouble());
-        }
-        else if (root.name() == KXMLQLCRGBMatrixBeatEffect)
-        {
-            setBeatEffect(stringToBeatEffect(root.readElementText()));
-        }
-        else if (root.name() == KXMLQLCRGBMatrixBeatSelection)
-        {
-            setBeatSelection(stringToBeatSelection(root.readElementText()));
-        }
-        else if (root.name() == KXMLQLCRGBMatrixBeatOrientation)
-        {
-            setBeatOrientation(stringToBeatOrientation(root.readElementText()));
-        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown RGB matrix tag:" << root.name();
@@ -730,24 +628,6 @@ bool RGBMatrix::saveXML(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLQLCRGBMatrixPropertyName, it.key());
         doc->writeAttribute(KXMLQLCRGBMatrixPropertyValue, it.value());
         doc->writeEndElement();
-    }
-
-    /* Rotation & Mirror */
-    if (m_rotation != 0)
-        doc->writeTextElement(KXMLQLCRGBMatrixRotation, QString::number(m_rotation));
-    if (m_mirror != 0)
-        doc->writeTextElement(KXMLQLCRGBMatrixMirror, QString::number(m_mirror));
-    if (m_mirrorBlend != MirrorFlip)
-        doc->writeTextElement(KXMLQLCRGBMatrixMirrorBlend, mirrorBlendToString(m_mirrorBlend));
-    if (m_brightness != 1.0)
-        doc->writeTextElement(KXMLQLCRGBMatrixBrightness, QString::number(m_brightness));
-
-    /* Beat Transform */
-    if (m_beatEffect != BeatEffectOff)
-    {
-        doc->writeTextElement(KXMLQLCRGBMatrixBeatEffect, beatEffectToString(m_beatEffect));
-        doc->writeTextElement(KXMLQLCRGBMatrixBeatSelection, beatSelectionToString(m_beatSelection));
-        doc->writeTextElement(KXMLQLCRGBMatrixBeatOrientation, beatOrientationToString(m_beatOrientation));
     }
 
     /* End the <Function> tag */
@@ -825,19 +705,13 @@ void RGBMatrix::preRun(MasterTimer *timer)
 
     m_roundTime.restart();
 
-    // The resolved fixture group may have changed since last preRun; force the
-    // PixelPlan to be rebuilt on the first updateMapChannels() call.
-    m_pixelPlanDirty.storeRelease(1);
-
-    // Phase 4: drop any precomputed map carried over from a previous run.
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
-
     Function::preRun(timer);
 }
 
 void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
 {
+    Q_UNUSED(timer);
+
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
         if (m_group == NULL)
@@ -858,130 +732,59 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
         if (m_runAlgorithm == NULL || m_runAlgorithm->apiVersion() == 0)
             return;
 
-        if (isPaused())
-            return;
+        if (isPaused() == false)
+        {
+            // Get a new map every time elapsed is reset to zero
+            if (elapsed() < MasterTimer::tick())
+            {
+                if (tempoType() == Beats)
+                    m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
 
-        // Refresh beat duration before any beat checks
-        if (tempoType() == Beats)
-            m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
+                //qDebug() << "RGBMatrix step" << m_stepHandler->currentStepIndex() << ", color:" << QString::number(m_stepHandler->stepColor().rgb(), 16);
+                m_runAlgorithm->rgbMap(m_group->size(), m_stepHandler->stepColor().rgb(),
+                                       m_stepHandler->currentStepIndex(), m_stepHandler->m_map);
+                updateMapChannels(m_stepHandler->m_map, m_group, universes);
+            }
+        }
+    }
 
-        // Advance step if due
-        // Save pre-increment elapsed for the map-compute guard below
-        quint32 prevElapsed = elapsed();
+    if (isPaused() == false)
+    {
+        // Increment the ms elapsed time
         incrementElapsed();
-        bool stepChanged = false;
 
+        /* Check if we need to change direction, stop completely or go to next step
+         * The cases are:
+         * 1- time tempo type: act normally, on ms elapsed time
+         * 2- beat tempo type, beat occurred: check if the elapsed beats is a multiple of
+         *    the step beat duration. If so, proceed to the next step
+         * 3- beat tempo type, not beat: if the ms elapsed time reached the step beat
+         *    duration in ms, and the ms time to the next beat is not less than 1/16 of
+         *    the step beat duration in ms, then proceed to the next step. If the ms time to the
+         *    next beat is less than 1/16 of the step beat duration in ms, then defer the step
+         *    change to case #2, to resync the matrix to the next beat
+         */
         if (tempoType() == Time && elapsed() >= duration())
         {
-            stepChanged = roundCheckLocked();
+            roundCheck();
         }
         else if (tempoType() == Beats)
         {
             if (timer->isBeat())
             {
                 incrementElapsedBeats();
+                qDebug() << "Elapsed beats:" << elapsedBeats() << ", time elapsed:" << elapsed() << ", step time:" << m_stepBeatDuration;
                 if (elapsedBeats() % duration() == 0)
                 {
-                    stepChanged = roundCheckLocked();
+                    roundCheck();
                     resetElapsed();
                 }
             }
             else if (elapsed() >= m_stepBeatDuration && (uint)timer->timeToNextBeat() > m_stepBeatDuration / 16)
             {
-                stepChanged = roundCheckLocked();
+                qDebug() << "Elapsed exceeded";
+                roundCheck();
             }
-        }
-
-        // --- Beat Transform: update current beat ---
-        int beatsPerBar = 4;
-        if (m_beatEffect != BeatEffectOff)
-        {
-            AudioProfile *profile = doc()->audioProfile(doc()->activeAudioProfileId());
-            if (profile == NULL)
-                profile = doc()->defaultAudioProfile();
-            AudioChannel *channel = (profile != NULL) ? profile->channel() : NULL;
-            if (profile != NULL)
-                beatsPerBar = std::clamp(profile->channelConfig().aubio.beatsPerBar, 1, 8);
-            if (channel != NULL)
-            {
-                AudioSnapshot snap = channel->snapshot();
-                if (snap.music.barPhase > 0)
-                    m_currentBeat = int(snap.music.barPhase) % beatsPerBar;
-                else if (timer->isBeat())
-                    m_currentBeat = (m_currentBeat + 1) % beatsPerBar;
-            }
-            else if (timer->isBeat())
-            {
-                m_currentBeat = (m_currentBeat + 1) % beatsPerBar;
-            }
-
-            // Latch random segment on beat change
-            if (m_beatSelection == BeatSelRandom && m_currentBeat != m_lastBeat)
-            {
-                m_randomSegment = QRandomGenerator::global()->bounded(beatsPerBar);
-                m_lastBeat = m_currentBeat;
-            }
-        }
-
-        // Compute and output map
-        // Recompute when: step just changed, first tick of a step, audio-reactive, or beat transform active
-        if (stepChanged || prevElapsed < MasterTimer::tick() || m_runAlgorithm->usesAudio()
-            || m_beatEffect != BeatEffectOff)
-        {
-            QSize algoSize = effectiveAlgorithmSize(m_group);
-            uint stepColor = m_stepHandler->stepColor().rgb();
-            int stepIndex = m_stepHandler->currentStepIndex();
-            quint32 generation = m_currentGeneration.loadAcquire();
-
-            // --- Phase 4: try to consume a precomputed frame ---
-            //
-            // The precomputed map already has rotation/mirror applied (those
-            // are stable across ticks). Beat transform is NOT precomputed
-            // because m_currentBeat is determined per-tick on this thread.
-            bool mapReady = false;
-            if (m_precomputedReady.loadAcquire() == 1)
-            {
-                QMutexLocker pre(&m_precomputedMutex);
-                if (m_precomputedReady.loadAcquire() == 1
-                    && m_precomputedGeneration == generation
-                    && m_precomputedAlgorithm == m_runAlgorithm
-                    && m_precomputedStep == stepIndex
-                    && m_precomputedColor == stepColor
-                    && m_precomputedAlgoSize == algoSize)
-                {
-                    m_stepHandler->m_map = std::move(m_precomputedMap);
-                    m_precomputedMap = RGBMap();
-                    m_precomputedReady.storeRelease(0);
-                    mapReady = true;
-                }
-                else
-                {
-                    // Stale or mismatched: discard.
-                    m_precomputedReady.storeRelease(0);
-                }
-            }
-
-            if (!mapReady)
-            {
-                if (m_runAlgorithm->usesAudio())
-                    m_runAlgorithm->setDisplaySize(m_group->size());
-                m_runAlgorithm->rgbMap(algoSize, stepColor, stepIndex, m_stepHandler->m_map);
-                if (m_rotation || m_mirror)
-                    applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
-                                    m_rotation, m_mirror, m_mirrorBlend);
-            }
-
-            if (m_beatEffect != BeatEffectOff)
-                applyBeatTransform(m_stepHandler->m_map, m_currentBeat, beatsPerBar);
-            updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
-
-            // --- Phase 4: kick off async pre-computation for the NEXT tick ---
-            //
-            // We assume the next tick will use the same step/color (true for
-            // most ticks: step changes only when elapsed >= duration). If the
-            // assumption is wrong, the consumer will detect the mismatch and
-            // fall back to the synchronous path.
-            kickAsyncRgbMap(m_runAlgorithm, algoSize, stepColor, stepIndex, generation);
         }
     }
 }
@@ -1021,17 +824,14 @@ void RGBMatrix::postRun(MasterTimer *timer, QList<Universe *> universes)
     Function::postRun(timer, universes);
 }
 
-bool RGBMatrix::roundCheckLocked()
+void RGBMatrix::roundCheck()
 {
+    QMutexLocker algorithmLocker(&m_algorithmMutex);
     if (m_algorithm == NULL)
-        return false;
+        return;
 
-    bool advanced = m_stepHandler->checkNextStep(runOrder(), m_rgbColors[0], m_rgbColors[1], m_stepsCount);
-    if (advanced == false)
-    {
+    if (m_stepHandler->checkNextStep(runOrder(), m_rgbColors[0], m_rgbColors[1], m_stepsCount) == false)
         stop(FunctionParent::master());
-        return false;
-    }
 
     // Update continuous phase based on current step index (prevents cumulative rounding errors)
     // This is analogous to how EFX uses m_currentAngle for phase scaling
@@ -1044,14 +844,6 @@ bool RGBMatrix::roundCheckLocked()
         roundElapsed(m_stepBeatDuration);
     else
         roundElapsed(duration());
-
-    return true;
-}
-
-void RGBMatrix::roundCheck()
-{
-    QMutexLocker algorithmLocker(&m_algorithmMutex);
-    roundCheckLocked();
 }
 
 QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
@@ -1063,7 +855,7 @@ QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
     QSharedPointer<GenericFader> fader = m_fadersMap.value(universe->id(), QSharedPointer<GenericFader>());
     if (fader.isNull())
     {
-        fader = universe->requestFader(Universe::blendModePriority(blendMode()));
+        fader = universe->requestFader();
         fader->adjustIntensity(getAttributeValue(Intensity));
         fader->setBlendMode(blendMode());
         fader->setName(name());
@@ -1074,7 +866,7 @@ QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
     return fader;
 }
 
-void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime, uint fadeOutTime)
+void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime)
 {
     fc.setStart(fc.current());
     fc.setTarget(value);
@@ -1082,383 +874,144 @@ void RGBMatrix::updateFaderValues(FadeChannel &fc, uchar value, uint fadeTime, u
     fc.setReady(false);
     // fade in/out depends on target value
     if (value == 0)
-        fc.setFadeTime(fadeOutTime);
+        fc.setFadeTime(fadeOutSpeed());
     else
         fc.setFadeTime(fadeTime);
 }
 
-void RGBMatrix::invalidatePixelPlan(quint32 id)
+void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QList<Universe *> universes)
 {
-    Q_UNUSED(id)
-    // Conservative: any fixture / fixture-group change may affect the resolved
-    // channels. Marking dirty is cheap; the rebuild only happens on next tick.
-    m_pixelPlanDirty.storeRelease(1);
-}
+    uint fadeTime = (overrideFadeInSpeed() == defaultSpeed()) ? fadeInSpeed() : overrideFadeInSpeed();
 
-/*****************************************************************************
- * Phase 4: Async rgbMap pre-computation helpers
- *****************************************************************************/
-
-void RGBMatrix::deferDeleteAlgorithm(RGBAlgorithm *algo)
-{
-    if (algo == nullptr)
-        return;
-
-#ifdef QT_QML_LIB
-    // Script-typed algorithms own QJSValue handles tied to the JSThread's
-    // QJSEngine. Even ignoring our async tasks, deleting them off-thread is
-    // unsafe. Queue the delete on the JSThread so it serializes after any
-    // pending precompute tasks (FIFO).
-    if (algo->type() == RGBAlgorithm::Script
-        && RGBScript::scheduleOnJSThread([algo]() { delete algo; }))
-    {
-        return;
-    }
-#endif
-    delete algo;
-}
-
-void RGBMatrix::kickAsyncRgbMap(RGBAlgorithm *algo, const QSize &algoSize,
-                                uint stepColor, int step, quint32 generation)
-{
-#ifdef QT_QML_LIB
-    if (algo == nullptr)
-        return;
-
-    // Only Script algorithms benefit — others (Image, PlainColor, Text, Audio)
-    // run inline on this thread already and are fast.
-    if (algo->type() != RGBAlgorithm::Script)
-        return;
-
-    // Throttle: at most one async task in flight per matrix. If a previous
-    // task hasn't been consumed yet, skip — the current frame's sync path is
-    // already producing usable output.
-    int expected = 0;
-    if (!m_precomputedInFlight.testAndSetAcquire(expected, 1))
-        return;
-
-    // Capture by value: algo pointer + immutable params + generation snapshot.
-    // We do NOT take m_algorithmMutex inside the JSThread task — that would
-    // deadlock with the synchronous rgbMap path (MasterTimer holds the mutex
-    // while BlockingQueuedConnection-waiting on JSThread).
-    //
-    // Lifetime safety:
-    //   - algo pointer remains valid as long as any in-flight task could be
-    //     using it: setAlgorithm() / ~RGBMatrix() use deferDeleteAlgorithm()
-    //     which queues the delete on the JSThread *after* this task (FIFO).
-    //   - `this` remains valid because ~RGBMatrix() spins on
-    //     m_precomputedInFlight before destroying members.
-    QSize captureAlgoSize = algoSize;
-    int captureRotation = m_rotation;
-    int captureMirror = m_mirror;
-    MirrorBlend captureBlend = m_mirrorBlend;
-    QSize captureGroupSize;
-    if (m_group != nullptr)
-        captureGroupSize = m_group->size();
-    bool captureUsesAudio = algo->usesAudio();
-
-    bool ok = RGBScript::scheduleOnJSThread(
-        [this, algo, captureAlgoSize, stepColor, step, generation,
-         captureRotation, captureMirror, captureBlend, captureGroupSize,
-         captureUsesAudio]()
-        {
-            // Re-check generation BEFORE we even call rgbMap. Cheap and lets
-            // us bail out if the matrix was reconfigured while we were queued.
-            if (m_currentGeneration.loadAcquire() != generation)
-            {
-                m_precomputedInFlight.storeRelease(0);
-                return;
-            }
-
-            if (captureUsesAudio && !captureGroupSize.isEmpty())
-                algo->setDisplaySize(captureGroupSize);
-
-            RGBMap localMap;
-            algo->rgbMap(captureAlgoSize, stepColor, step, localMap);
-
-            if ((captureRotation || captureMirror) && !captureGroupSize.isEmpty())
-                applyTransforms(localMap, captureAlgoSize, captureGroupSize,
-                                captureRotation, captureMirror, captureBlend);
-
-            // Re-check generation AFTER computation. If a parameter changed
-            // mid-flight, drop the result rather than poison the cache.
-            if (m_currentGeneration.loadAcquire() != generation)
-            {
-                m_precomputedInFlight.storeRelease(0);
-                return;
-            }
-
-            {
-                QMutexLocker pre(&m_precomputedMutex);
-                m_precomputedMap = std::move(localMap);
-                m_precomputedAlgoSize = captureAlgoSize;
-                m_precomputedStep = step;
-                m_precomputedColor = stepColor;
-                m_precomputedGeneration = generation;
-                m_precomputedAlgorithm = algo;
-            }
-            m_precomputedReady.storeRelease(1);
-            m_precomputedInFlight.storeRelease(0);
-        });
-
-    if (!ok)
-        m_precomputedInFlight.storeRelease(0);
-#else
-    Q_UNUSED(algo)
-    Q_UNUSED(algoSize)
-    Q_UNUSED(stepColor)
-    Q_UNUSED(step)
-    Q_UNUSED(generation)
-#endif
-}
-
-void RGBMatrix::rebuildPixelPlan(const FixtureGroup *grp)
-{
-    m_pixelPlan.clear();
-    m_pixelPlanGroup = grp;
-    m_pixelPlanDirty.storeRelease(0);
-
-    if (grp == NULL)
-        return;
-
-    Doc *d = doc();
-
+    // Create/modify fade channels for ALL heads in the group
     QMapIterator<QLCPoint, GroupHead> it(grp->headsMap());
     while (it.hasNext())
     {
         it.next();
-        const QLCPoint &pt = it.key();
-        const GroupHead &grpHead = it.value();
-
-        Fixture *fxi = d->fixture(grpHead.fxi);
+        QLCPoint pt = it.key();
+        GroupHead grpHead = it.value();
+        Fixture *fxi = doc()->fixture(grpHead.fxi);
         if (fxi == NULL)
             continue;
 
         QLCFixtureHead head = fxi->head(grpHead.head);
-        const quint32 absAddress = fxi->universeAddress();
-        const quint32 fxID = grpHead.fxi;
-        const quint16 px = quint16(pt.x());
-        const quint16 py = quint16(pt.y());
 
-        auto addEntry = [&](quint32 ch, PixelValueSource src) {
-            if (ch == QLCChannel::invalid())
-                return;
-            PixelPlanEntry e;
-            e.x = px;
-            e.y = py;
-            e.universeIndex = quint32((absAddress + ch) / 512);
-            e.fixtureID = fxID;
-            e.channel = ch;
-            e.source = src;
-            m_pixelPlan.append(e);
-        };
+        if (pt.y() >= map.count() || pt.x() >= map[pt.y()].count())
+            continue;
+
+        uint col = map[pt.y()][pt.x()];
+        QVector<quint32> channelList;
+        QVector<uchar> valueList;
 
         if (m_controlMode == ControlModeRgb)
         {
-            QVector<quint32> chList = head.rgbChannels();
-            if (chList.size() == 3)
+            channelList = head.rgbChannels();
+
+            if (channelList.size() == 3)
             {
-                addEntry(chList.at(0), VS_Red);
-                addEntry(chList.at(1), VS_Green);
-                addEntry(chList.at(2), VS_Blue);
+                valueList.append(qRed(col));
+                valueList.append(qGreen(col));
+                valueList.append(qBlue(col));
             }
             else
             {
-                chList = head.cmyChannels();
-                if (chList.size() == 3)
+                channelList = head.cmyChannels();
+
+                if (channelList.size() == 3)
                 {
-                    addEntry(chList.at(0), VS_Cyan);
-                    addEntry(chList.at(1), VS_Magenta);
-                    addEntry(chList.at(2), VS_Yellow);
-                }
-            }
-        }
-        else if (m_controlMode == ControlModeRgbw || m_controlMode == ControlModeRgbwBrighter)
-        {
-            const bool subtractWhite = (m_controlMode == ControlModeRgbw);
-            quint32 rCh = head.channelNumber(QLCChannel::Red, QLCChannel::MSB);
-            quint32 gCh = head.channelNumber(QLCChannel::Green, QLCChannel::MSB);
-            quint32 bCh = head.channelNumber(QLCChannel::Blue, QLCChannel::MSB);
-            quint32 wCh = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
-
-            if (rCh != QLCChannel::invalid() && gCh != QLCChannel::invalid() && bCh != QLCChannel::invalid())
-            {
-                addEntry(rCh, subtractWhite ? VS_RedSubW : VS_Red);
-                addEntry(gCh, subtractWhite ? VS_GreenSubW : VS_Green);
-                addEntry(bCh, subtractWhite ? VS_BlueSubW : VS_Blue);
-
-                if (wCh != QLCChannel::invalid())
-                    addEntry(wCh, VS_White);
-
-                if (m_dimmerControl)
-                {
-                    quint32 masterDim = fxi->masterIntensityChannel();
-                    quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
-
-                    if (masterDim != QLCChannel::invalid())
-                        addEntry(masterDim, VS_Grey);
-
-                    if (headDim != QLCChannel::invalid() && headDim != masterDim)
-                        addEntry(headDim, VS_GreyOrFull);
+                    // CMY color mixing
+                    QColor cmyCol(col);
+                    valueList.append(cmyCol.cyan());
+                    valueList.append(cmyCol.magenta());
+                    valueList.append(cmyCol.yellow());
                 }
             }
         }
         else if (m_controlMode == ControlModeShutter)
         {
-            QVector<quint32> chList = head.shutterChannels();
-            if (chList.size())
-                addEntry(chList.first(), VS_Grey);
+            channelList = head.shutterChannels();
+
+            if (channelList.size())
+            {
+                // make sure only one channel is in the list
+                channelList.resize(1);
+                valueList.append(rgbToGrey(col));
+            }
         }
         else if (m_controlMode == ControlModeDimmer || m_dimmerControl)
         {
+            // Collect all dimmers that affect current head:
+            // They are the master dimmer (affects whole fixture)
+            // and per-head dimmer.
+            //
+            // If there are no RGB or CMY channels, the least important* dimmer channel
+            // is used to create grayscale image.
+            //
+            // The rest of the dimmer channels are set to full if dimmer control is
+            // enabled and target color is > 0 (see
+            // https://www.qlcplus.org/forum/viewtopic.php?f=29&t=11090)
+            //
+            // Note: If there is only one head, and only one dimmer channel,
+            // make it a master dimmer in fixture definition.
+            //
+            // *least important - per head dimmer if present,
+            // otherwise per fixture dimmer if present
+
             quint32 masterDim = fxi->masterIntensityChannel();
             quint32 headDim = head.channelNumber(QLCChannel::Intensity, QLCChannel::MSB);
 
             if (masterDim != QLCChannel::invalid())
-                addEntry(masterDim, VS_Grey);
+            {
+                channelList.append(masterDim);
+                valueList.append(rgbToGrey(col));
+            }
 
             if (headDim != QLCChannel::invalid() && headDim != masterDim)
-                addEntry(headDim, masterDim != QLCChannel::invalid() ? VS_GreyOrFull : VS_Grey);
+            {
+                channelList.append(headDim);
+                // If a master dimmer is present, it carries the greyscale fade and the
+                // per-head dimmer is just opened fully (on/off). With no master dimmer
+                // (e.g. generic single-channel dimmers), the head dimmer must carry the
+                // greyscale value itself, otherwise it would only ever output 0 or 255.
+                if (masterDim != QLCChannel::invalid())
+                    valueList.append(rgbToGrey(col) == 0 ? 0 : 255);
+                else
+                    valueList.append(rgbToGrey(col));
+            }
         }
         else
         {
-            quint32 ch = QLCChannel::invalid();
             if (m_controlMode == ControlModeWhite)
-                ch = head.channelNumber(QLCChannel::White, QLCChannel::MSB);
+                channelList.append(head.channelNumber(QLCChannel::White, QLCChannel::MSB));
             else if (m_controlMode == ControlModeAmber)
-                ch = head.channelNumber(QLCChannel::Amber, QLCChannel::MSB);
+                channelList.append(head.channelNumber(QLCChannel::Amber, QLCChannel::MSB));
             else if (m_controlMode == ControlModeUV)
-                ch = head.channelNumber(QLCChannel::UV, QLCChannel::MSB);
+                channelList.append(head.channelNumber(QLCChannel::UV, QLCChannel::MSB));
 
-            addEntry(ch, VS_Grey);
+            valueList.append(rgbToGrey(col));
         }
-    }
 
-    // Sort by (universeIndex, y, x, channel) so the per-tick loop can amortize
-    // the getFader() lookup across consecutive entries from the same universe,
-    // and benefit from per-pixel scratch reuse within a universe.
-    std::sort(m_pixelPlan.begin(), m_pixelPlan.end(),
-              [](const PixelPlanEntry &a, const PixelPlanEntry &b) {
-                  if (a.universeIndex != b.universeIndex) return a.universeIndex < b.universeIndex;
-                  if (a.y != b.y) return a.y < b.y;
-                  if (a.x != b.x) return a.x < b.x;
-                  return a.channel < b.channel;
-              });
-}
+        quint32 absAddress = fxi->universeAddress();
 
-void RGBMatrix::updateMapChannels(const RGBMap& map, const FixtureGroup *grp, QList<Universe *> universes, int beatDuration)
-{
-    uint fadeTime = (overrideFadeInSpeed() == defaultSpeed()) ? fadeInSpeed() : overrideFadeInSpeed();
-    uint fadeOutTime = (overrideFadeOutSpeed() == defaultSpeed()) ? fadeOutSpeed() : overrideFadeOutSpeed();
-
-    if (tempoType() == Beats)
-    {
-        fadeTime = beatsToTime(fadeTime, beatDuration);
-        fadeOutTime = beatsToTime(fadeOutTime, beatDuration);
-    }
-
-    // Rebuild the pre-resolved channel plan whenever it has been invalidated
-    // (fixture group / control mode / dimmer control / fixture address change).
-    if (m_pixelPlanDirty.loadAcquire() || m_pixelPlanGroup != grp)
-        rebuildPixelPlan(grp);
-
-    if (m_pixelPlan.isEmpty())
-        return;
-
-    Doc *d = doc();
-    const int mapH = map.count();
-    const int universeCount = universes.size();
-
-    quint32 lastUni = UINT_MAX;
-    Universe *cachedUniverse = nullptr;
-    QSharedPointer<GenericFader> cachedFader;
-
-    quint16 lastX = 0xFFFF;
-    quint16 lastY = 0xFFFF;
-    bool pixelValid = false;
-    uchar r = 0, g = 0, b = 0, w = 0, grey = 0;
-    QColor cmyCol;
-
-    for (int i = 0, n = m_pixelPlan.size(); i < n; ++i)
-    {
-        const PixelPlanEntry &e = m_pixelPlan.at(i);
-
-        // Per-pixel scratch values. Recomputed only when (x, y) changes,
-        // which (after sorting) happens once per pixel within a universe.
-        if (e.x != lastX || e.y != lastY)
+        for (int i = 0; i < channelList.count(); i++)
         {
-            lastX = e.x;
-            lastY = e.y;
-            pixelValid = (int(e.y) < mapH && int(e.x) < map.at(e.y).count());
-            if (pixelValid)
+            if (channelList.at(i) == QLCChannel::invalid())
+                continue;
+
+            quint32 universeIndex = floor((absAddress + channelList.at(i)) / 512);
+            Universe *universe = universes.at(universeIndex);
+            QSharedPointer<GenericFader> fader = getFader(universe);
+            if (fader.isNull())
+                continue;
+
+            const quint32 fixtureID = grpHead.fxi;
+            const quint32 channel = channelList.at(i);
+            const uchar value = valueList.at(i);
+            fader->updateChannel(doc(), universe, fixtureID, channel, [this, value, fadeTime](FadeChannel &fc)
             {
-                uint col = map.at(e.y).at(e.x);
-                r = uchar(qRed(col));
-                g = uchar(qGreen(col));
-                b = uchar(qBlue(col));
-                w = qMin(r, qMin(g, b));
-                grey = rgbToGrey(col);
-                cmyCol = QColor::fromRgb(col);
-
-                if (m_brightness != 1.0)
-                {
-                    r = uchar(qBound(0, int(r * m_brightness), 255));
-                    g = uchar(qBound(0, int(g * m_brightness), 255));
-                    b = uchar(qBound(0, int(b * m_brightness), 255));
-                    w = uchar(qBound(0, int(w * m_brightness), 255));
-                    grey = uchar(qBound(0, int(grey * m_brightness), 255));
-                    cmyCol = QColor::fromRgb(qBound(0, int(qRed(cmyCol.rgb()) * m_brightness), 255),
-                                             qBound(0, int(qGreen(cmyCol.rgb()) * m_brightness), 255),
-                                             qBound(0, int(qBlue(cmyCol.rgb()) * m_brightness), 255));
-                }
-            }
+                updateFaderValues(fc, value, fadeTime);
+            });
         }
-
-        if (!pixelValid)
-            continue;
-
-        // Universe / fader lookup is amortized across consecutive entries from
-        // the same universe thanks to the sort in rebuildPixelPlan().
-        if (e.universeIndex != lastUni)
-        {
-            lastUni = e.universeIndex;
-            if (int(e.universeIndex) >= universeCount)
-            {
-                cachedUniverse = nullptr;
-                cachedFader.clear();
-            }
-            else
-            {
-                cachedUniverse = universes.at(e.universeIndex);
-                cachedFader = getFader(cachedUniverse);
-            }
-        }
-
-        if (cachedFader.isNull())
-            continue;
-
-        uchar value = 0;
-        switch (e.source)
-        {
-            case VS_Red:        value = r; break;
-            case VS_Green:      value = g; break;
-            case VS_Blue:       value = b; break;
-            case VS_Cyan:       value = uchar(cmyCol.cyan()); break;
-            case VS_Magenta:    value = uchar(cmyCol.magenta()); break;
-            case VS_Yellow:     value = uchar(cmyCol.yellow()); break;
-            case VS_White:      value = w; break;
-            case VS_RedSubW:    value = uchar(r - w); break;
-            case VS_GreenSubW:  value = uchar(g - w); break;
-            case VS_BlueSubW:   value = uchar(b - w); break;
-            case VS_Grey:       value = grey; break;
-            case VS_GreyOrFull: value = grey == 0 ? 0 : 255; break;
-        }
-
-        cachedFader->updateChannel(d, cachedUniverse, e.fixtureID, e.channel,
-            [this, value, fadeTime, fadeOutTime](FadeChannel &fc)
-        {
-            updateFaderValues(fc, value, fadeTime, fadeOutTime);
-        });
     }
 }
 
@@ -1502,6 +1055,10 @@ int RGBMatrix::adjustAttribute(qreal fraction, int attributeId)
     {
         applyPatternAttribute(getAttributeValue(PatternAttr));
     }
+    else if (attrIndex >= ScriptPropertyAttr)
+    {
+        applyScriptPropertyAttribute(attrIndex - ScriptPropertyAttr, getAttributeValue(attrIndex));
+    }
 
     return attrIndex;
 }
@@ -1512,6 +1069,109 @@ void RGBMatrix::applyStyleAttributes()
         applyColorAttribute(i, getAttributeValue(Color1Attr + i));
 
     applyPatternAttribute(getAttributeValue(PatternAttr));
+
+    for (int i = 0; i < scriptPropertyAttributes().count(); i++)
+        applyScriptPropertyAttribute(i, getAttributeValue(ScriptPropertyAttr + i));
+}
+
+QList<RGBScriptProperty> RGBMatrix::scriptPropertyAttributes() const
+{
+    QList<RGBScriptProperty> list;
+
+    if (m_algorithm == NULL || m_algorithm->type() != RGBAlgorithm::Script)
+        return list;
+
+    RGBScript *script = static_cast<RGBScript*> (m_algorithm);
+
+    foreach (RGBScriptProperty prop, script->properties())
+    {
+        /** Only the properties that a slider can drive are exposed:
+         *  a list needs at least two values to pick from, a range needs
+         *  a meaningful span and a string cannot be controlled at all */
+        if (prop.m_type == RGBScriptProperty::List)
+        {
+            if (prop.m_listValues.count() > 1)
+                list.append(prop);
+        }
+        else if (prop.m_type == RGBScriptProperty::Range)
+        {
+            if (prop.m_rangeMaxValue > prop.m_rangeMinValue)
+                list.append(prop);
+        }
+        else if (prop.m_type == RGBScriptProperty::Float)
+        {
+            list.append(prop);
+        }
+    }
+
+    return list;
+}
+
+QString RGBMatrix::scriptPropertyAttributeName(const RGBScriptProperty &prop)
+{
+    return prop.m_displayName.isEmpty() ? prop.m_name : prop.m_displayName;
+}
+
+void RGBMatrix::unregisterScriptPropertyAttributes()
+{
+    foreach (RGBScriptProperty prop, scriptPropertyAttributes())
+        unregisterAttribute(scriptPropertyAttributeName(prop));
+}
+
+void RGBMatrix::registerScriptPropertyAttributes()
+{
+    QMutexLocker algorithmLocker(&m_algorithmMutex);
+
+    foreach (RGBScriptProperty prop, scriptPropertyAttributes())
+    {
+        qreal min = 0.0;
+        qreal max = 1.0;
+
+        if (prop.m_type == RGBScriptProperty::List)
+            max = prop.m_listValues.count() - 1;
+        else if (prop.m_type == RGBScriptProperty::Range)
+        {
+            min = prop.m_rangeMinValue;
+            max = prop.m_rangeMaxValue;
+        }
+        /** Scripts don't declare a range for float properties,
+         *  so 0.0 - 1.0 is assumed */
+
+        /** A list property holds a string, so the attribute value is the
+         *  index of the current value in the values list */
+        QString current = property(prop.m_name);
+        qreal value = prop.m_type == RGBScriptProperty::List ?
+                      qMax(0, prop.m_listValues.indexOf(current)) : current.toDouble();
+
+        registerAttribute(scriptPropertyAttributeName(prop), LastWins | Single,
+                          min, max, qBound(min, value, max));
+    }
+}
+
+void RGBMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
+{
+    QList<RGBScriptProperty> props = scriptPropertyAttributes();
+    if (attrIndex < 0 || attrIndex >= props.count())
+        return;
+
+    const RGBScriptProperty prop = props.at(attrIndex);
+    QString strValue;
+
+    switch (prop.m_type)
+    {
+        case RGBScriptProperty::List:
+            strValue = prop.m_listValues.at(qBound(0, int(qRound(value)), prop.m_listValues.count() - 1));
+        break;
+        case RGBScriptProperty::Float:
+            strValue = QString::number(value);
+        break;
+        default:
+            strValue = QString::number(qRound(value));
+        break;
+    }
+
+    if (property(prop.m_name) != strValue)
+        setProperty(prop.m_name, strValue);
 }
 
 void RGBMatrix::applyColorAttribute(int colorIndex, qreal packedColor)
@@ -1595,34 +1255,23 @@ RGBMatrix::ControlMode RGBMatrix::controlMode() const
 void RGBMatrix::setControlMode(RGBMatrix::ControlMode mode)
 {
     m_controlMode = mode;
-    m_pixelPlanDirty.storeRelease(1);
-    // Phase 4: control mode affects how rgbMap output is interpreted, but
-    // not the rgbMap output itself. Bump generation defensively to avoid any
-    // edge case where the script could observe controlMode (it currently
-    // doesn't, but better safe than sorry).
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
     emit changed(id());
 }
 
 RGBMatrix::ControlMode RGBMatrix::stringToControlMode(QString mode)
 {
-    if (mode.compare(KXMLQLCRGBMatrixControlModeRgb, Qt::CaseInsensitive) == 0)
+    if (mode == KXMLQLCRGBMatrixControlModeRgb)
         return ControlModeRgb;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeAmber, Qt::CaseInsensitive) == 0)
+    else if (mode == KXMLQLCRGBMatrixControlModeAmber)
         return ControlModeAmber;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeWhite, Qt::CaseInsensitive) == 0)
+    else if (mode == KXMLQLCRGBMatrixControlModeWhite)
         return ControlModeWhite;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeUV, Qt::CaseInsensitive) == 0)
+    else if (mode == KXMLQLCRGBMatrixControlModeUV)
         return ControlModeUV;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeDimmer, Qt::CaseInsensitive) == 0)
+    else if (mode == KXMLQLCRGBMatrixControlModeDimmer)
         return ControlModeDimmer;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeShutter, Qt::CaseInsensitive) == 0)
+    else if (mode == KXMLQLCRGBMatrixControlModeShutter)
         return ControlModeShutter;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeRgbw, Qt::CaseInsensitive) == 0)
-        return ControlModeRgbw;
-    else if (mode.compare(KXMLQLCRGBMatrixControlModeRgbwBrighter, Qt::CaseInsensitive) == 0)
-        return ControlModeRgbwBrighter;
 
     return ControlModeRgb;
 }
@@ -1650,420 +1299,6 @@ QString RGBMatrix::controlModeToString(RGBMatrix::ControlMode mode)
         case ControlModeShutter:
             return QString(KXMLQLCRGBMatrixControlModeShutter);
         break;
-        case ControlModeRgbw:
-            return QString(KXMLQLCRGBMatrixControlModeRgbw);
-        break;
-        case ControlModeRgbwBrighter:
-            return QString(KXMLQLCRGBMatrixControlModeRgbwBrighter);
-        break;
-    }
-}
-
-/*************************************************************************
- * Rotation & Mirror
- *************************************************************************/
-
-int RGBMatrix::rotation() const
-{
-    return m_rotation;
-}
-
-void RGBMatrix::setRotation(int r)
-{
-    m_rotation = r & 3;
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
-    emit changed(id());
-}
-
-int RGBMatrix::mirror() const
-{
-    return m_mirror;
-}
-
-void RGBMatrix::setMirror(int m)
-{
-    m_mirror = m & 3;
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
-    emit changed(id());
-}
-
-RGBMatrix::MirrorBlend RGBMatrix::mirrorBlend() const
-{
-    return m_mirrorBlend;
-}
-
-void RGBMatrix::setMirrorBlend(MirrorBlend b)
-{
-    if (b < MirrorFlip || b > MirrorAdditive)
-        b = MirrorFlip;
-    m_mirrorBlend = b;
-    m_currentGeneration.fetchAndAddRelaxed(1);
-    m_precomputedReady.storeRelease(0);
-    emit changed(id());
-}
-
-qreal RGBMatrix::brightness() const
-{
-    return m_brightness;
-}
-
-void RGBMatrix::setBrightness(qreal b)
-{
-    m_brightness = qMax(0.0, b);
-    emit changed(id());
-}
-
-QSize RGBMatrix::effectiveAlgorithmSize() const
-{
-    if (m_group == NULL)
-        return QSize();
-    return effectiveAlgorithmSize(m_group);
-}
-
-QSize RGBMatrix::effectiveAlgorithmSize(const FixtureGroup *grp) const
-{
-    QSize s = grp->size();
-    if (m_rotation == 1 || m_rotation == 3)
-        s = QSize(s.height(), s.width());
-    return s;
-}
-
-QString RGBMatrix::mirrorBlendToString(MirrorBlend b)
-{
-    switch (b)
-    {
-        case MirrorMax: return QStringLiteral("Max");
-        case MirrorAverage: return QStringLiteral("Average");
-        case MirrorAdditive: return QStringLiteral("Additive");
-        default: return QStringLiteral("Flip");
-    }
-}
-
-RGBMatrix::MirrorBlend RGBMatrix::stringToMirrorBlend(const QString &s)
-{
-    if (s.compare(QStringLiteral("Max"), Qt::CaseInsensitive) == 0) return MirrorMax;
-    if (s.compare(QStringLiteral("Average"), Qt::CaseInsensitive) == 0) return MirrorAverage;
-    if (s.compare(QStringLiteral("Additive"), Qt::CaseInsensitive) == 0) return MirrorAdditive;
-    return MirrorFlip;
-}
-
-static inline uint blendPixels(uint a, uint b, RGBMatrix::MirrorBlend blend)
-{
-    uint ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
-    uint br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-    uint r, g, bl;
-
-    switch (blend)
-    {
-        case RGBMatrix::MirrorMax:
-            r = qMax(ar, br); g = qMax(ag, bg); bl = qMax(ab, bb);
-            break;
-        case RGBMatrix::MirrorAverage:
-            r = (ar + br) / 2; g = (ag + bg) / 2; bl = (ab + bb) / 2;
-            break;
-        case RGBMatrix::MirrorAdditive:
-            r = qMin(255u, ar + br); g = qMin(255u, ag + bg); bl = qMin(255u, ab + bb);
-            break;
-        default: // MirrorFlip — caller handles this case directly
-            return a;
-    }
-    return (r << 16) | (g << 8) | bl;
-}
-
-void RGBMatrix::applyTransforms(RGBMap &map, const QSize & /* srcSize */, const QSize &dstSize,
-                                int rotation, int mirror, MirrorBlend blend)
-{
-    int dw = dstSize.width();
-    int dh = dstSize.height();
-
-    // Source dimensions from the actual map data
-    int sh = map.size();
-    int sw = (sh > 0) ? map[0].size() : 0;
-
-    // Step 1: Rotation — build a new map with destination dimensions
-    RGBMap rotated;
-    rotated.resize(dh);
-    for (int y = 0; y < dh; y++)
-    {
-        rotated[y].resize(dw);
-        rotated[y].fill(0);
-    }
-
-    for (int dy = 0; dy < dh; dy++)
-    {
-        for (int dx = 0; dx < dw; dx++)
-        {
-            int sx, sy;
-            switch (rotation)
-            {
-                case 0: // 0°: identity
-                    sx = dx; sy = dy;
-                    break;
-                case 1: // 90° CW
-                    sx = dy; sy = sh - 1 - dx;
-                    break;
-                case 2: // 180°
-                    sx = dw - 1 - dx; sy = dh - 1 - dy;
-                    break;
-                case 3: // 270° CW
-                    sx = sw - 1 - dy; sy = dx;
-                    break;
-                default:
-                    sx = dx; sy = dy;
-                    break;
-            }
-
-            if (sy >= 0 && sy < sh && sx >= 0 && sx < (int)map[sy].size())
-                rotated[dy][dx] = map[sy][sx];
-        }
-    }
-
-    // Step 2: Mirror
-    if (mirror & 1) // Horizontal — mirror placed on vertical center line
-    {
-        if (blend == MirrorFlip)
-        {
-            // Pure flip: left half is source, copied to right half
-            for (int y = 0; y < dh; y++)
-                for (int x = 0; x < dw / 2; x++)
-                    rotated[y][dw - 1 - x] = rotated[y][x];
-        }
-        else
-        {
-            for (int y = 0; y < dh; y++)
-            {
-                for (int x = 0; x < dw / 2; x++)
-                {
-                    int mx = dw - 1 - x;
-                    uint merged = blendPixels(rotated[y][x], rotated[y][mx], blend);
-                    rotated[y][x] = merged;
-                    rotated[y][mx] = merged;
-                }
-            }
-        }
-    }
-
-    if (mirror & 2) // Vertical — mirror placed on horizontal center line
-    {
-        if (blend == MirrorFlip)
-        {
-            // Pure flip: top half is source, copied to bottom half
-            for (int y = 0; y < dh / 2; y++)
-                for (int x = 0; x < dw; x++)
-                    rotated[dh - 1 - y][x] = rotated[y][x];
-        }
-        else
-        {
-            for (int y = 0; y < dh / 2; y++)
-            {
-                int my = dh - 1 - y;
-                for (int x = 0; x < dw; x++)
-                {
-                    uint merged = blendPixels(rotated[y][x], rotated[my][x], blend);
-                    rotated[y][x] = merged;
-                    rotated[my][x] = merged;
-                }
-            }
-        }
-    }
-
-    map = rotated;
-}
-
-/*************************************************************************
- * Beat Transform
- *************************************************************************/
-
-RGBMatrix::BeatEffect RGBMatrix::beatEffect() const
-{
-    return m_beatEffect;
-}
-
-void RGBMatrix::setBeatEffect(BeatEffect e)
-{
-    m_beatEffect = e;
-}
-
-RGBMatrix::BeatSelection RGBMatrix::beatSelection() const
-{
-    return m_beatSelection;
-}
-
-void RGBMatrix::setBeatSelection(BeatSelection s)
-{
-    m_beatSelection = s;
-}
-
-RGBMatrix::BeatOrientation RGBMatrix::beatOrientation() const
-{
-    return m_beatOrientation;
-}
-
-void RGBMatrix::setBeatOrientation(BeatOrientation o)
-{
-    m_beatOrientation = o;
-}
-
-QString RGBMatrix::beatEffectToString(BeatEffect e)
-{
-    switch (e)
-    {
-        case BeatEffectMirror:      return QStringLiteral("Mirror");
-        case BeatEffectColorInvert: return QStringLiteral("ColorInvert");
-        case BeatEffectBlackout:    return QStringLiteral("Blackout");
-        case BeatEffectWhiteout:    return QStringLiteral("Whiteout");
-        default:                    return QStringLiteral("Off");
-    }
-}
-
-RGBMatrix::BeatEffect RGBMatrix::stringToBeatEffect(const QString &s)
-{
-    if (s.compare(QStringLiteral("Mirror"), Qt::CaseInsensitive) == 0)      return BeatEffectMirror;
-    if (s.compare(QStringLiteral("ColorInvert"), Qt::CaseInsensitive) == 0) return BeatEffectColorInvert;
-    if (s.compare(QStringLiteral("Blackout"), Qt::CaseInsensitive) == 0)    return BeatEffectBlackout;
-    if (s.compare(QStringLiteral("Whiteout"), Qt::CaseInsensitive) == 0)    return BeatEffectWhiteout;
-    return BeatEffectOff;
-}
-
-QString RGBMatrix::beatSelectionToString(BeatSelection s)
-{
-    switch (s)
-    {
-        case BeatSelWalk:    return QStringLiteral("Walk");
-        case BeatSelRandom:  return QStringLiteral("Random");
-        default:             return QStringLiteral("AllOnDownbeat");
-    }
-}
-
-RGBMatrix::BeatSelection RGBMatrix::stringToBeatSelection(const QString &s)
-{
-    if (s.compare(QStringLiteral("Walk"), Qt::CaseInsensitive) == 0)   return BeatSelWalk;
-    if (s.compare(QStringLiteral("Random"), Qt::CaseInsensitive) == 0) return BeatSelRandom;
-    return BeatSelAllOnDownbeat;
-}
-
-QString RGBMatrix::beatOrientationToString(BeatOrientation o)
-{
-    switch (o)
-    {
-        case BeatOrientColumns: return QStringLiteral("Columns");
-        default:                return QStringLiteral("Rows");
-    }
-}
-
-RGBMatrix::BeatOrientation RGBMatrix::stringToBeatOrientation(const QString &s)
-{
-    if (s.compare(QStringLiteral("Columns"), Qt::CaseInsensitive) == 0) return BeatOrientColumns;
-    return BeatOrientRows;
-}
-
-void RGBMatrix::segmentRange(int segment, int total, int segmentsCount, int &start, int &end)
-{
-    if (segmentsCount < 1) segmentsCount = 1;
-    int base = total / segmentsCount;
-    int remainder = total % segmentsCount;
-    start = segment * base + qMin(segment, remainder);
-    end = start + base + (segment < remainder ? 1 : 0);
-}
-
-void RGBMatrix::applyBeatTransform(RGBMap &map, int currentBeat, int beatsPerBar)
-{
-    if (m_beatEffect == BeatEffectOff)
-        return;
-
-    int rows = map.size();
-    if (rows == 0) return;
-    int cols = map[0].size();
-    if (cols == 0) return;
-
-    int total = (m_beatOrientation == BeatOrientRows) ? rows : cols;
-    if (beatsPerBar < 1) beatsPerBar = 1;
-
-    // Determine affected segments
-    QVector<int> affected;
-    if (m_beatSelection == BeatSelAllOnDownbeat)
-    {
-        if (currentBeat != beatsPerBar - 1) return;
-        affected.reserve(beatsPerBar);
-        for (int i = 0; i < beatsPerBar; i++) affected.append(i);
-    }
-    else if (m_beatSelection == BeatSelWalk)
-    {
-        affected = {currentBeat % beatsPerBar};
-    }
-    else // BeatSelRandom
-    {
-        affected = {m_randomSegment % beatsPerBar};
-    }
-
-    for (int seg : affected)
-    {
-        int start, end;
-        segmentRange(seg, total, beatsPerBar, start, end);
-
-        switch (m_beatEffect)
-        {
-            case BeatEffectMirror:
-                if (m_beatOrientation == BeatOrientRows)
-                {
-                    for (int y = start; y < end; y++)
-                        std::reverse(map[y].begin(), map[y].end());
-                }
-                else
-                {
-                    for (int y = 0; y < rows; y++)
-                        std::reverse(map[y].begin() + start, map[y].begin() + end);
-                }
-                break;
-
-            case BeatEffectColorInvert:
-                if (m_beatOrientation == BeatOrientRows)
-                {
-                    for (int y = start; y < end; y++)
-                        for (int x = 0; x < cols; x++)
-                            map[y][x] ^= 0x00FFFFFF;
-                }
-                else
-                {
-                    for (int y = 0; y < rows; y++)
-                        for (int x = start; x < end; x++)
-                            map[y][x] ^= 0x00FFFFFF;
-                }
-                break;
-
-            case BeatEffectBlackout:
-                if (m_beatOrientation == BeatOrientRows)
-                {
-                    for (int y = start; y < end; y++)
-                        map[y].fill(0);
-                }
-                else
-                {
-                    for (int y = 0; y < rows; y++)
-                        for (int x = start; x < end; x++)
-                            map[y][x] = 0;
-                }
-                break;
-
-            case BeatEffectWhiteout:
-                if (m_beatOrientation == BeatOrientRows)
-                {
-                    for (int y = start; y < end; y++)
-                        map[y].fill(0x00FFFFFF);
-                }
-                else
-                {
-                    for (int y = 0; y < rows; y++)
-                        for (int x = start; x < end; x++)
-                            map[y][x] = 0x00FFFFFF;
-                }
-                break;
-
-            default:
-                break;
-        }
     }
 }
 
@@ -2248,10 +1483,3 @@ bool RGBMatrixStep::checkNextStep(Function::RunOrder order,
 
     return true;
 }
-
-/*************************************************************************
- * Audio Routing
- *************************************************************************/
-
-// Audio routing was removed: scripts pick the audio feature they listen to
-// directly via script properties. RGB matrices no longer remap audio sources.

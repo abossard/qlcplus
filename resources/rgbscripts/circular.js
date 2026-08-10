@@ -78,7 +78,7 @@ var testAlgo;
       }
       angle += Math.PI / 2;
       if (offx < 0) {
-        angle += Math.PI;  
+        angle += Math.PI;
       }
       return angle;
     }
@@ -208,8 +208,14 @@ var testAlgo;
         util.circleRadius = height;
       }
 
-      util.map = HSVUtil.createMap(width, height);
-      
+      util.map = new Array(height);
+      for (var y = 0; y < height; y++) {
+        util.map[y] = new Array(width);
+        for (var x = 0; x < width; x ++) {
+          util.map[y][x] = 0;
+        }
+      }
+
       util.stepFade = algo.rgbMapStepCount(width, height) / algo.segmentsCount;
       util.circleFactor = algo.rgbMapStepCount(width, height) / 3;
 
@@ -221,6 +227,51 @@ var testAlgo;
 
       util.initialized = true;
     };
+
+    // Combine RGB color from color channels
+    util.mergeRgb = function(r, g, b) {
+      r = Math.min(255, Math.round(r));
+      g = Math.min(255, Math.round(g));
+      b = Math.min(255, Math.round(b));
+      return ((r << 16) + (g << 8) + b);
+    }
+
+    util.dimColor = function(mRgb, factor) {
+      if (mRgb < 1) {
+        return 0;
+      }
+      // split rgb into components
+      var pointr = (mRgb >> 16) & 0x00FF;
+      var pointg = (mRgb >> 8) & 0x00FF;
+      var pointb = mRgb & 0x00FF;
+      // add the color to the mapped location
+      pointr *= factor;
+      pointg *= factor;
+      pointb *= factor;
+      // set mapped point
+      return util.mergeRgb(pointr, pointg, pointb);
+    }
+
+    util.getColor = function(r, g, b, mRgb)
+    {
+      // Stay within boundaries for the input values (do not overshoot in calculation)
+      r = Math.max(0, Math.min(255, Math.round(r)));
+      g = Math.max(0, Math.min(255, Math.round(g)));
+      b = Math.max(0, Math.min(255, Math.round(b)));
+
+      // split rgb in to components
+      var pointr = (mRgb >> 16) & 0x00FF;
+      var pointg = (mRgb >> 8) & 0x00FF;
+      var pointb = mRgb & 0x00FF;
+
+      // add the color to the algo.mapped location
+      pointr += r;
+      pointg += g;
+      pointb += b;
+
+      // set algo.mapped point
+      return util.mergeRgb(pointr, pointg, pointb);
+    }
 
     // Blind out towards 0 percent
     util.blindoutPercent = function(percent, sharpness)
@@ -240,12 +291,51 @@ var testAlgo;
       return factor;
     }
 
-    // Compute the geometric brightness factor for a pixel
-    util.getPixelFactor = function(ry, rx)
+    util.step = function(width, height, rgb, step)
+    {
+      // clear algo.map data
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x ++) {
+          util.map[y][x] = 0;
+        }
+      }
+
+      util.progstep = step;
+      util.stepPercent = util.progstep / algo.rgbMapStepCount(util.width, util.height);
+      if (algo.circularMode === 6) {
+        util.stepAngle = util.twoPi * util.stepPercent;
+      }
+
+      if (algo.centerRadius !== 0) {
+        var offsAngle = util.twoPi * util.stepPercent;
+        var direction = 1;
+        if (algo.centerRadius < 0) {
+          direction = -1;
+        }
+        var offsFactor = Math.min(util.width, util.height) * algo.centerRadius / 20;
+        util.vCenterX = util.centerX + Math.sin(offsAngle) * offsFactor;
+        util.vCenterY = util.centerY + direction * Math.cos(offsAngle) * offsFactor;
+      }
+
+
+      // Optimize multiple calculations
+      var r = (rgb >> 16) & 0x00FF;
+      var g = (rgb >> 8) & 0x00FF;
+      var b = rgb & 0x00FF;
+
+      // Draw the current map
+      for (ry = 0; ry < height; ry++) {
+        for (rx = 0; rx < width; rx++) {
+          util.map[ry][rx] = util.getMapPixelColor(ry, rx, r, g, b);
+        }
+      }
+    }
+
+    util.getMapPixelColor = function(ry, rx, r, g, b)
     {
       var factor = 1.0;
 
-      // calculate the offset difference of map location to the float
+      // calculate the offset difference of algo.map location to the float
       // location of the object
       var offx = rx - util.vCenterX;
       var offy = ry - util.vCenterY;
@@ -273,6 +363,7 @@ var testAlgo;
             + util.twoPi * factor - Math.PI);
       } else if (algo.circularMode === 3) {
         // Right S-Curve
+//        angle = util.twoPi / (1 - 0.1 / (algo.getWidth() / 10));
         var pRadius = Math.sqrt(offx * offx / algo.getWidth() + offy * offy / algo.getWidth());
         var virtualx = Math.sin(angle) * pRadius;
         var virtualy = offy;
@@ -310,7 +401,7 @@ var testAlgo;
       } else if (algo.circularMode === 7) {
         // Propellor
         // Calculate the relative angle to the next propellor blade
-        var segmentAngle = util.twoPi / algo.segmentsCount;
+        var segmentAngle = util.twoPi / algo.segmentsCount; //algo.segmentsCount;
         var barAngle = (pointAngle + stepAngle + segmentAngle / 2) % segmentAngle - segmentAngle / 2;
         // Calculate the distance to the main angle
         var barDistance = pointRadius * Math.abs(Math.sin(barAngle));
@@ -327,9 +418,9 @@ var testAlgo;
         var sidefade1 = Math.atan((algo.getWidth() - virtualx - virtualx) / algo.segmentsCount + 1);
         var sidefade2 = Math.atan((algo.getWidth() + virtualx + virtualx) / algo.segmentsCount + 1);
         var endfade = Math.atan(virtualy + 1.5);
-  
+
         factor = endfade + sidefade1 + sidefade2 - 2;
-  
+
         var fadeFactor = 0;
         if (algo.fadeMode === 1) {
           fadeFactor = algo.divisor * Math.atan(1.5 * (angle / util.twoPi)) - algo.divisor + 1;
@@ -337,8 +428,8 @@ var testAlgo;
         else if (algo.fadeMode === 2) {
           fadeFactor = algo.divisor * Math.atan(1.5 * (1 - (angle / util.twoPi))) - algo.divisor + 1;
         }
-        
-        factor = Math.max(factor, fadeFactor)  
+
+        factor = Math.max(factor, fadeFactor);
       }
 
       if (algo.fillMatrix === 0) {
@@ -364,45 +455,9 @@ var testAlgo;
         }
       }
 
-      // Normalize the factor      
+      // Normalize the factor
       factor = Math.min(1, Math.max(0, factor));
-      return factor;
-    }
-
-    util.step = function(width, height, step)
-    {
-      // create a fresh map each frame (Float32Array, zeroed)
-      util.map = HSVUtil.createMap(width, height);
-
-      util.progstep = step;
-      util.stepPercent = util.progstep / algo.rgbMapStepCount(util.width, util.height);
-      if (algo.circularMode === 6) {
-        util.stepAngle = util.twoPi * util.stepPercent;
-      }
-
-      if (algo.centerRadius !== 0) {
-        var offsAngle = util.twoPi * util.stepPercent;
-        var direction = 1;
-        if (algo.centerRadius < 0) {
-          direction = -1;
-        }
-        var offsFactor = Math.min(util.width, util.height) * algo.centerRadius / 20;
-        util.vCenterX = util.centerX + Math.sin(offsAngle) * offsFactor;
-        util.vCenterY = util.centerY + direction * Math.cos(offsAngle) * offsFactor;
-      }
-
-      // Draw the current map
-      for (ry = 0; ry < height; ry++) {
-        for (rx = 0; rx < width; rx++) {
-          var factor = util.getPixelFactor(ry, rx);
-          if (factor > 0) {
-            var idx = (ry * width + rx) * 3;
-            util.map[idx] = algo.colors[0].h;
-            util.map[idx + 1] = algo.colors[0].s;
-            util.map[idx + 2] = algo.colors[0].v * factor;
-          }
-        }
-      }
+      return util.getColor(r * factor, g * factor, b * factor, util.map[ry][rx]);
     }
 
     algo.rgbMap = function(width, height, rgb, step)
@@ -411,8 +466,8 @@ var testAlgo;
       {
           util.initialize(width, height);
       }
-      
-      util.step(width, height, step);
+
+      util.step(width, height, rgb, step);
 
       return util.map;
     };

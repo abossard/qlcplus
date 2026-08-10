@@ -32,7 +32,6 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Random Single";
         algo.author = "David Garyga";
-        algo.acceptColors = 2;
         algo.width = 0;
         algo.height = 0;
 
@@ -63,12 +62,17 @@ var testAlgo;
          */
         util.createStep = function(width, height, sy, sx)
         {
-            var map = new Array(width * height);
+            var map = new Array(height);
             for (var y = 0; y < height; y++)
             {
+                map[y] = new Array(width);
                 for (var x = 0; x < width; x++)
                 {
-                    map[y * width + x] = (sy === y && sx === x) ? 1 : 0;
+                    if (sy === y && sx === x) {
+                        map[y][x] = 1;
+                    } else {
+                        map[y][x] = 0;
+                    }
                 }
             }
 
@@ -76,18 +80,20 @@ var testAlgo;
         };
 
         /**
-         * Create map with HSV color where mask is active
+         * Create map with the real rgb value (because it now changes at each step)
          */
-        util.createStepHsv = function(width, height, step)
+        util.createStepRgb = function(width, height, step, rgb)
         {
-            var map = HSVUtil.createMap(width, height);
-            var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+            var map = new Array(height);
             for (var y = 0; y < height; y++)
             {
+                map[y] = new Array(width);
                 for (var x = 0; x < width; x++)
                 {
-                    if (step[y * width + x] !== 0) {
-                        HSVUtil.setPixel(map, width, x, y, h, s, v);
+                    if (step[y][x] !== 0) {
+                        map[y][x] = rgb;
+                    } else {
+                        map[y][x] = 0;
                     }
                 }
             }
@@ -136,7 +142,7 @@ var testAlgo;
 
             // refresh with real color
 
-            return util.createStepHsv(width, height, algo.steps[step]);
+            return util.createStepRgb(width, height, algo.steps[step], rgb);
         };
 
         /**

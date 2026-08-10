@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Stripes From Center";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();
@@ -55,15 +54,18 @@ var testAlgo;
             isEven = (width % 2 === 0);
         }
 
-        var map = HSVUtil.createMap(width, height);
+        var map = new Array(height);
         for (var y = 0; y < height; y++)
         {
+            map[y] = new Array();
             for (var x = 0; x < width; x++)
             {
                 var cmpAxis = (algo.orientation ? y : x);
 
                 if (cmpAxis === center + step + (isEven ? 1 : 0 ) || cmpAxis === center - step) {
-                    HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                    map[y][x] = rgb;
+                } else {
+                    map[y][x] = 0;
                 }
             }
         }
