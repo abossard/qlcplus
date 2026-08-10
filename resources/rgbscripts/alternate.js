@@ -105,37 +105,39 @@ var testAlgo;
   };
 
   var util = new Object;
+  util.colorArray = new Array(algo.acceptColors);
 
   util.getRawColor = function (idx) {
-    if (Array.isArray(algo.colors) && algo.colors.length > idx && algo.colors[idx]) {
-      return algo.colors[idx];
+    var color = 0;
+    if (Array.isArray(util.colorArray) && util.colorArray.length > idx && util.colorArray[idx]) {
+      color = util.colorArray[idx];
     }
-    return {h: 0, s: 0, v: 0};
-  };
-
-  algo.rgbMapSetColors = function(rawColors) {};
-
-  algo.rgbMapGetColors = function() { return []; };
-
-  function writeColor(map, width, x, y, color) {
-    var i = (y * width + x) * 3;
-    map[i] = color.h; map[i + 1] = color.s; map[i + 2] = color.v;
+    return color;
   }
 
-  function copyPixel(map, width, srcX, srcY, dstX, dstY) {
-    var si = (srcY * width + srcX) * 3;
-    var di = (dstY * width + dstX) * 3;
-    map[di] = map[si]; map[di + 1] = map[si + 1]; map[di + 2] = map[si + 2];
+  algo.rgbMapSetColors = function(rawColors)
+  {
+    if (! Array.isArray(rawColors))
+      return;
+    for (var i = 0; i < algo.acceptColors; i++) {
+      if (i < rawColors.length)
+      {
+        util.colorArray[i] = rawColors[i];
+      } else {
+        util.colorArray[i] = 0;
+      }
+    }
   }
 
   algo.rgbMap = function(width, height, rgb, step) {
-    var map = HSVUtil.createMap(width, height);
+    var map = new Array(height);
     var colorSelectOne = (step === 1) ? false : true;
     var rowColorOne = colorSelectOne;
     var realBlockSize = algo.blockSize;
 
     // Setup the rgb map
     for (y = 0; y < height; y++) {
+      map[y] = new Array(width);
     }
 
     var xMax = width;
@@ -225,9 +227,9 @@ var testAlgo;
           }
         }
         if (colorSelectOne) {
-          writeColor(map, width, x, y, util.getRawColor(0));
+          map[y][x] = util.getRawColor(0);
         } else {
-          writeColor(map, width, x, y, util.getRawColor(1));
+          map[y][x] = util.getRawColor(1);
         }
       }
     }
@@ -236,21 +238,21 @@ var testAlgo;
       if (algo.orientation === 0) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            copyPixel(map, width, x, y, width - x - 1, y);
+            map[y][width - x - 1] = map[y][x];
           }
         }
       } else if (algo.orientation === 1) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            copyPixel(map, width, x, y, x, height - y - 1);
+            map[height - y - 1][x] = map[y][x];
           }
         }
       } else if (algo.orientation === 2) {
         for (y = 0; y < yMax; y++) {
           for (x = 0; x < xMax; x++) {
-            copyPixel(map, width, x, y, x, height - y - 1);
-            copyPixel(map, width, x, y, width - x - 1, y);
-            copyPixel(map, width, x, y, width - x - 1, height - y - 1);
+            map[height - y - 1][x] = map[y][x];
+            map[y][width - x - 1] = map[y][x];
+            map[height - y - 1][width - x - 1] = map[y][x];
           }
         }
       }

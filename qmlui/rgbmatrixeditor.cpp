@@ -199,9 +199,7 @@ void RGBMatrixEditor::setColorAtIndex(int index, QColor color)
     if (m_matrix == nullptr || m_matrix->getColor(index) == color)
         return;
 
-    if (m_matrix->controlMode() != RGBMatrix::ControlModeRgb &&
-        m_matrix->controlMode() != RGBMatrix::ControlModeRgbw &&
-        m_matrix->controlMode() != RGBMatrix::ControlModeRgbwBrighter)
+    if (m_matrix->controlMode() != RGBMatrix::ControlModeRgb)
     {
         // Convert color to grayscale for non-RGB control modes
         uchar gray = qGray(color.rgb());
@@ -225,7 +223,6 @@ void RGBMatrixEditor::resetColorAtIndex(int index)
     m_matrix->setColor(index, QColor());
     if (index < 2)
         m_previewStepHandler->calculateColorDelta(m_matrix->getColor(0), m_matrix->getColor(1), m_matrix->algorithm());
-    emit algoColorsChanged();
 }
 
 bool RGBMatrixEditor::hasColorAtIndex(int index) const
@@ -246,9 +243,7 @@ void RGBMatrixEditor::updateColors()
         return;
 
     if (m_matrix->blendMode() == Universe::MaskBlend ||
-        (m_matrix->controlMode() != RGBMatrix::ControlModeRgb &&
-         m_matrix->controlMode() != RGBMatrix::ControlModeRgbw &&
-         m_matrix->controlMode() != RGBMatrix::ControlModeRgbwBrighter))
+        m_matrix->controlMode() != RGBMatrix::ControlModeRgb)
     {
         m_matrix->setColor(0, Qt::white);
         // Overwrite more colors only if applied.
@@ -614,143 +609,6 @@ void RGBMatrixEditor::setControlMode(int mode)
 }
 
 /************************************************************************
- * Rotation & Mirror
- ************************************************************************/
-
-int RGBMatrixEditor::rotation() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->rotation();
-}
-
-void RGBMatrixEditor::setRotation(int r)
-{
-    if (m_matrix == nullptr || r == m_matrix->rotation())
-        return;
-    m_matrix->setRotation(r);
-    initPreviewData();
-    emit rotationChanged();
-}
-
-int RGBMatrixEditor::mirror() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->mirror();
-}
-
-void RGBMatrixEditor::setMirror(int m)
-{
-    if (m_matrix == nullptr || m == m_matrix->mirror())
-        return;
-    m_matrix->setMirror(m);
-    initPreviewData();
-    emit mirrorChanged();
-}
-
-int RGBMatrixEditor::mirrorBlend() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->mirrorBlend();
-}
-
-void RGBMatrixEditor::setMirrorBlend(int b)
-{
-    if (m_matrix == nullptr || b == m_matrix->mirrorBlend())
-        return;
-    m_matrix->setMirrorBlend(RGBMatrix::MirrorBlend(b));
-    initPreviewData();
-    emit mirrorBlendChanged();
-}
-
-qreal RGBMatrixEditor::brightness() const
-{
-    if (m_matrix == nullptr)
-        return 1.0;
-    return m_matrix->brightness();
-}
-
-void RGBMatrixEditor::setBrightness(qreal b)
-{
-    if (m_matrix == nullptr || qFuzzyCompare(b, m_matrix->brightness()))
-        return;
-    m_matrix->setBrightness(b);
-    emit brightnessChanged();
-}
-
-/************************************************************************
- * Beat Transform
- ************************************************************************/
-
-int RGBMatrixEditor::beatEffect() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->beatEffect();
-}
-
-void RGBMatrixEditor::setBeatEffect(int e)
-{
-    if (m_matrix == nullptr || e == m_matrix->beatEffect())
-        return;
-    m_matrix->setBeatEffect(RGBMatrix::BeatEffect(e));
-    initPreviewData();
-    emit beatEffectChanged();
-}
-
-int RGBMatrixEditor::beatSelection() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->beatSelection();
-}
-
-void RGBMatrixEditor::setBeatSelection(int s)
-{
-    if (m_matrix == nullptr || s == m_matrix->beatSelection())
-        return;
-    m_matrix->setBeatSelection(RGBMatrix::BeatSelection(s));
-    initPreviewData();
-    emit beatSelectionChanged();
-}
-
-int RGBMatrixEditor::beatOrientation() const
-{
-    if (m_matrix == nullptr)
-        return 0;
-    return m_matrix->beatOrientation();
-}
-
-void RGBMatrixEditor::setBeatOrientation(int o)
-{
-    if (m_matrix == nullptr || o == m_matrix->beatOrientation())
-        return;
-    m_matrix->setBeatOrientation(RGBMatrix::BeatOrientation(o));
-    initPreviewData();
-    emit beatOrientationChanged();
-}
-
-/************************************************************************
- * Audio Routing
- ************************************************************************/
-
-bool RGBMatrixEditor::algorithmUsesAudio() const
-{
-    if (m_matrix == nullptr || m_matrix->algorithm() == nullptr)
-        return false;
-    return m_matrix->algorithm()->usesAudio();
-}
-
-QStringList RGBMatrixEditor::audioInputCategories() const
-{
-    if (m_matrix == nullptr || m_matrix->algorithm() == nullptr)
-        return {};
-    return m_matrix->algorithm()->audioInputCategories();
-}
-
-/************************************************************************
  * Save to Sequence
  ************************************************************************/
 
@@ -992,21 +850,13 @@ void RGBMatrixEditor::slotPreviewTimeout()
     {
         m_previewElapsed += MasterTimer::tick();
     }
-    else if (m_matrix->tempoType() == Function::Beats)
+    else if (m_matrix->tempoType() == Function::Beats && m_gotBeat)
     {
-        m_previewElapsed += MasterTimer::tick();
+        m_gotBeat = false;
+        m_previewElapsed += 1000;
     }
 
-    uint effectiveDuration = m_matrix->duration();
-    if (m_matrix->tempoType() == Function::Beats)
-    {
-        int beatDur = m_doc->masterTimer()->beatTimeDuration();
-        effectiveDuration = Function::beatsToTime(effectiveDuration, beatDur);
-        if (effectiveDuration == 0)
-            effectiveDuration = MasterTimer::tick();
-    }
-
-    if (m_previewElapsed >= effectiveDuration)
+    if (m_previewElapsed >= m_matrix->duration())
     {
         QMutexLocker locker(&m_previewMutex);
 

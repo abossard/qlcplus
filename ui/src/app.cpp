@@ -49,6 +49,7 @@
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
 #include "rgbscriptscache.h"
+#include "huescriptscache.h"
 #include "videoprovider.h"
 #include "qlcconfig.h"
 #include "qlcfile.h"
@@ -514,6 +515,14 @@ void App::initDoc()
     /* Load RGB scripts */
     m_doc->rgbScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory());
     m_doc->rgbScriptsCache()->load(RGBScriptsCache::userScriptsDirectory());
+
+    /* Load HUE scripts. HUEMatrix offers these plus every stock RGB script,
+       so the stock directories are registered here too, without the HSV
+       contract. */
+    m_doc->hueScriptsCache()->load(HUEScriptsCache::systemScriptsDirectory(), true);
+    m_doc->hueScriptsCache()->load(HUEScriptsCache::userScriptsDirectory(), true);
+    m_doc->hueScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory(), false);
+    m_doc->hueScriptsCache()->load(RGBScriptsCache::userScriptsDirectory(), false);
 
     /* Load plugins */
     connect(m_doc->ioPluginCache(), SIGNAL(pluginLoaded(const QString&)),

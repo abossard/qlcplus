@@ -58,6 +58,11 @@ add_library(${module_name} SHARED
     qlcphysical.cpp qlcphysical.h
     qlcpoint.cpp qlcpoint.h
     rgbalgorithm.cpp rgbalgorithm.h
+    rgbaudio.cpp rgbaudio.h
+    huematrix.cpp huematrix.h
+    huescript.cpp huescript.h
+    huescriptscache.cpp huescriptscache.h
+    huecolor.h jsthread_p.h
     rgbimage.cpp rgbimage.h
     rgbmatrix.cpp rgbmatrix.h
     rgbplain.cpp rgbplain.h

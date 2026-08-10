@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" version="1.1">
+  <title>HUE Matrix</title>
+  <!-- A 4x4 cell grid swept through the hue circle: distinguishes HUEMatrix
+       from the RGB circles of rgbmatrix.svg at a glance. -->
+  <g>
+    <rect x="4"  y="4"  width="9" height="9" rx="1.5" fill="#ff0000"/>
+    <rect x="15" y="4"  width="9" height="9" rx="1.5" fill="#ff8000"/>
+    <rect x="26" y="4"  width="9" height="9" rx="1.5" fill="#ffe000"/>
+    <rect x="37" y="4"  width="7" height="9" rx="1.5" fill="#a6ff00"/>
+
+    <rect x="4"  y="15" width="9" height="9" rx="1.5" fill="#00ff2b"/>
+    <rect x="15" y="15" width="9" height="9" rx="1.5" fill="#00ff95"/>
+    <rect x="26" y="15" width="9" height="9" rx="1.5" fill="#00e5ff"/>
+    <rect x="37" y="15" width="7" height="9" rx="1.5" fill="#0080ff"/>
+
+    <rect x="4"  y="26" width="9" height="9" rx="1.5" fill="#1a1aff"/>
+    <rect x="15" y="26" width="9" height="9" rx="1.5" fill="#7a00ff"/>
+    <rect x="26" y="26" width="9" height="9" rx="1.5" fill="#d400ff"/>
+    <rect x="37" y="26" width="7" height="9" rx="1.5" fill="#ff00a2"/>
+
+    <rect x="4"  y="37" width="9" height="7" rx="1.5" fill="#ff004d"/>
+    <rect x="15" y="37" width="9" height="7" rx="1.5" fill="#ff5555"/>
+    <rect x="26" y="37" width="9" height="7" rx="1.5" fill="#ffaaaa"/>
+    <rect x="37" y="37" width="7" height="7" rx="1.5" fill="#ffffff"/>
+  </g>
+</svg>

@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Fill Unfill From Center";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();
@@ -61,10 +60,10 @@ var testAlgo;
         }
         var centerStep = center + 1;
 
-        var map = HSVUtil.createMap(width, height);
-        var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+        var map = new Array(height);
         for (var y = 0; y < height; y++)
         {
+            map[y] = new Array();
             for (var x = 0; x < width; x++)
             {
                 var cmpAxis = x;
@@ -74,14 +73,18 @@ var testAlgo;
                 if (step < centerStep)
                 {
                     if (cmpAxis <= center + step + (isEven ? 1 : 0 ) && cmpAxis >= center - step) {
-                        HSVUtil.setPixel(map, width, x, y, h, s, v);
+                        map[y][x] = rgb;
+                    } else {
+                        map[y][x] = 0;
                     }
                 }
                 else
                 {
                     var step2 = step - centerStep;
-                    if (!(cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2)) {
-                        HSVUtil.setPixel(map, width, x, y, h, s, v);
+                    if (cmpAxis <= center + step2 + (isEven ? 1 : 0 ) && cmpAxis >= center - step2) {
+                        map[y][x] = 0;
+                    } else {
+                        map[y][x] = rgb;
                     }
                 }
             }

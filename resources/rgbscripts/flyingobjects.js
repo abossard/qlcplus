@@ -37,8 +37,10 @@ var testAlgo;
     // Algorithms ----------------------------
 
     var ballAlgo = new Object;
-    ballAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    ballAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt((offx * offx) + (offy * offy));
@@ -46,8 +48,7 @@ var testAlgo;
       if (factor < 0) {
         factor = 0;
       }
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var bellAlgo = new Object;
@@ -63,35 +64,39 @@ var testAlgo;
       bellAlgo.cache.clapperDeflection = 0.025 * algo.twoPi;
       bellAlgo.cache.presetRadius = algo.presetRadius;
     }
-    bellAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    bellAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (bellAlgo.cache.presetRadius != algo.presetRadius) {
         bellAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt((offx * offx) + (offy * offy));
       var factor = 0;
 
+      // Offset to bottom
       var realOffy = offy + bellAlgo.cache.bottomOffset;
       var scaling = bellAlgo.cache.scaling;
       factor = 1 - Math.sqrt(offx * offx * scaling + realOffy * realOffy) + realOffy;
       factor *= util.blindoutPercent(1 - Math.abs(realOffy) / (algo.presetRadius * 1.9), 10);
 
       if (offy > bellAlgo.cache.clapperSize) {
-    var realOffx = rx - algo.obj[i].x;
-    var stepInput = bellAlgo.cache.clapperDeflection;
-    stepInput *= algo.progstep;
-    stepInput += algo.twoPi * algo.obj[i].random;
-    var stepPercent = Math.sin(stepInput);
-    realOffx += bellAlgo.cache.clapperSwing * stepPercent;
+        // The bottom
+        var realOffx = rx - algo.obj[i].x;
+        var stepInput = bellAlgo.cache.clapperDeflection;
+        stepInput *= algo.progstep;
+        stepInput += algo.twoPi * algo.obj[i].random;
+        var stepPercent = Math.sin(stepInput);
+        realOffx += bellAlgo.cache.clapperSwing * stepPercent;
         realOffy = offy - bellAlgo.cache.clapperSize;
         distance = Math.sqrt((realOffx * realOffx) + (realOffy * realOffy));
         factor = Math.max(factor, 1 - (distance / (algo.presetRadius / 3 + 1)));
       }
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      // add the object color to the algo.mapped location
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     };
 
     var candleAlgo = new Object;
@@ -106,11 +111,13 @@ var testAlgo;
       candleAlgo.cache.sharpness = 1 / algo.presetRadius;
       candleAlgo.cache.presetRadius = algo.presetRadius;
     }
-    candleAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    candleAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (candleAlgo.cache.presetRadius != algo.presetRadius) {
         candleAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt((offx * offx) + (offy * offy));
@@ -130,35 +137,43 @@ var testAlgo;
 
       var factor = util.blindoutPercent(1 - distPercent, candleAlgo.cache.sharpness);
 
+      // Blindout the bottom
       realOffy = offy + algo.presetRadius;
       factor *= util.blindoutPercent(1 - Math.abs(realOffy) / candleAlgo.cache.blindoutPercent, 10);
 
       if (offy > candleAlgo.cache.bottomHeight) {
+        // The bottom:
+        // offx remains the same.
+        // offy is 0
         distance = Math.sqrt((offx * offx) + 1);
         factor = Math.max(factor, 1 - (distance / candleAlgo.cache.bottomWidth));
       }
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      // add the object color to the algo.mapped location
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var circleAlgo = new Object;
-    circleAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    circleAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
       var distPercent = distance / algo.presetRadius;
 
+      // circle
       var factor = util.blindoutPercent(1 - distPercent, 0.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var diamondAlgo = new Object;
-    diamondAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    diamondAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var percentX = offx / algo.presetRadius;
@@ -169,13 +184,14 @@ var testAlgo;
               + Math.sqrt(percentY * percentY / saturation);
       factor = 1 - Math.max(0, Math.min(1, factor));
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var diskAlgo = new Object;
-    diskAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    diskAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -185,10 +201,13 @@ var testAlgo;
       angle -= (algo.twoPi) * ((algo.progstep / 64) % 1);
       angle = (angle + algo.twoPi) % (algo.twoPi);
 
+      // Rotating shadow
       var factor = 0.5 * (Math.abs(Math.cos(angle)) + 1);
 
+      // circle
       factor *= util.blindoutPercent(1 - distPercent, 0.5);
 
+      // inner hole
       var inner = 0.2;
       if (algo.presetSize < 7) {
           inner = 0.5;
@@ -196,8 +215,7 @@ var testAlgo;
       distPercent = distance / (algo.presetRadius * inner);
       factor -= util.blindoutPercent(1 - distPercent, 0.3);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var eyeAlgo = new Object;
@@ -211,11 +229,13 @@ var testAlgo;
       eyeAlgo.cache.targetDistanceInner = algo.presetRadius / 8;
       eyeAlgo.cache.presetRadius = algo.presetRadius;
     }
-    eyeAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    eyeAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (eyeAlgo.cache.presetRadius != algo.presetRadius) {
         eyeAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -230,15 +250,14 @@ var testAlgo;
       offx = rx - turn * algo.obj[i].xDirection - algo.obj[i].x;
       offy = ry - turn * algo.obj[i].yDirection- algo.obj[i].y;
       distance = Math.sqrt(offx * offx + offy * offy);
-      
+
       distPercent = distance / (eyeAlgo.cache.targetDistanceOuter);
       factor -= util.blindoutPercent(1 - distPercent, 0.5);
 
       distPercent = distance / (eyeAlgo.cache.targetDistanceInner);
       factor += util.blindoutPercent(1 - distPercent, 0.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var flowerAlgo = new Object;
@@ -250,11 +269,13 @@ var testAlgo;
       flowerAlgo.cache.innerCircle = 0.3 * algo.presetRadius;
       flowerAlgo.cache.presetRadius = algo.presetRadius;
     }
-    flowerAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    flowerAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (flowerAlgo.cache.presetRadius != algo.presetRadius) {
         flowerAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -269,7 +290,9 @@ var testAlgo;
           leafs = 4;
       }
 
+      // Turn each object by a random angle
       angle += algo.obj[i].random * algo.twoPi;
+      // Repeat and normalize the pattern
       angle = angle * leafs;
       angle = (angle + algo.twoPi) % (algo.twoPi);
 
@@ -278,10 +301,10 @@ var testAlgo;
       factor = util.blindoutPercent(1 - percent, 0.4);
       factor = (baseIntensity + (1 - baseIntensity) * distPercent) * factor;
 
+      // Draw a center
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentInner, 3));
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var heartAlgo = new Object;
@@ -294,11 +317,13 @@ var testAlgo;
       heartAlgo.cache.circleOffset = algo.presetSize / 5;
       heartAlgo.cache.presetRadius = algo.presetRadius;
     }
-    heartAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    heartAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (heartAlgo.cache.presetRadius != algo.presetRadius) {
         heartAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       // top left
       var offx = rx + heartAlgo.cache.circleOffset - algo.obj[i].x;
       var offy = ry + algo.halfRadius - algo.obj[i].y;
@@ -318,21 +343,22 @@ var testAlgo;
       // triangle
       offx = rx - algo.obj[i].x;
       offy = ry - algo.obj[i].y;
-      var tips = 3; 
+      var tips = 3;
       distance = Math.sqrt(offx * offx + offy * offy);
       angle = geometryCalc.getAngle(offx, offy);
       targetDistance = geometryCalc.getTargetDistance(angle, tips);
       distPercent = distance / targetDistance;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercent, 2));
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var hexagonAlgo = new Object;
-    hexagonAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    hexagonAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var tips = 6;
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -341,8 +367,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var maskAlgo = new Object;
@@ -355,11 +380,13 @@ var testAlgo;
       maskAlgo.cache.openingOffset = algo.presetSize / 5;
       maskAlgo.cache.presetRadius = algo.presetRadius;
     }
-    maskAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    maskAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (maskAlgo.cache.presetRadius != algo.presetRadius) {
         maskAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -381,14 +408,15 @@ var testAlgo;
       distPercent = distance / maskAlgo.cache.targetDistanceOpening;
       factor -= util.blindoutPercent(1 - distPercent, 3);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var pentagonAlgo = new Object;
-    pentagonAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    pentagonAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var tips = 5;
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -397,13 +425,14 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 1.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var ringAlgo = new Object;
-    ringAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    ringAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -418,8 +447,7 @@ var testAlgo;
       distPercent = distance / (algo.presetRadius * inner);
       factor -= util.blindoutPercent(1 - distPercent, 0.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var snowflakeAlgo = new Object;
@@ -434,19 +462,25 @@ var testAlgo;
       snowflakeAlgo.cache.cWidthMain = 1.5 * algo.presetRadius;
       snowflakeAlgo.cache.presetRadius = algo.presetRadius;
     }
-    snowflakeAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    snowflakeAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (snowflakeAlgo.cache.presetRadius != algo.presetRadius) {
           snowflakeAlgo.updateCache();
       }
       var lines = 3;
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
       var factor = 0;
+      // anti kathete
       var a = 0;
+      // kathete
       var c = 0;
+      // line width
       var aWidth = snowflakeAlgo.cache.lineWidth;
+      // line length
       var cWidth = 0;
 
       var intersect = snowflakeAlgo.cache.intersect;
@@ -489,8 +523,7 @@ var testAlgo;
       c = c / cWidth;
       factor = Math.max(factor, 1 - (a * a) + 1 - (c * c) - 1);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var snowmanAlgo = new Object;
@@ -507,13 +540,15 @@ var testAlgo;
       snowmanAlgo.cache.yOffset3 = 0.75 * snowmanAlgo.cache.size3 - algo.presetRadius;
       snowmanAlgo.cache.presetRadius = algo.presetRadius;
     }
-    snowmanAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    snowmanAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (snowmanAlgo.cache.presetRadius != algo.presetRadius) {
         snowmanAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
- 
+
       // Ball 1
       var offy = ry - algo.obj[i].y + snowmanAlgo.cache.yOffset1;
       var factor1 = Math.max(0, Math.min(1, 1 - (Math.sqrt((offx * offx) + (1.5 * offy * offy)) / (snowmanAlgo.cache.size1 + 1))));
@@ -526,17 +561,19 @@ var testAlgo;
       offy = ry - algo.obj[i].y + snowmanAlgo.cache.yOffset3;
       var factor3 = Math.max(0, Math.min(1, 1 - (Math.sqrt((offx * offx) + (1.5 * offy * offy)) / (snowmanAlgo.cache.size3 + 1))));
 
+      // Merge the balls
       var factor = Math.max(factor1, factor2);
       factor = Math.max(factor, factor3);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var squareAlgo = new Object;
-    squareAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    squareAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var tips = 4;
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -549,8 +586,7 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 2.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var starAlgo = new Object;
@@ -564,11 +600,13 @@ var testAlgo;
       starAlgo.cache.sharpness = 0.3 + algo.presetSize / 18;
       starAlgo.cache.presetRadius = algo.presetRadius;
     }
-    starAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    starAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (starAlgo.cache.presetRadius != algo.presetRadius) {
         starAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var baseIntensity = 0.3;
       var tips = 5;
       var offx = rx - algo.obj[i].x;
@@ -589,10 +627,12 @@ var testAlgo;
         c = c / cWidth;
         factor = Math.max(0, 1 - (a * a) + 1 - (c * c) - 1);
       } else {
+        // Repeat and normalize the pattern
         angle = geometryCalc.getAngle(offx, offy) + Math.PI;
         var colorAngle = tips * angle;
         colorAngle = (colorAngle + (Math.PI)) % (algo.twoPi);
 
+        // Calculate color pixel positions, base color
         var distPercent = distance / algo.presetRadius;
         factor = baseIntensity + (1 - baseIntensity)
           * (Math.abs(colorAngle - Math.PI) / algo.twoPi
@@ -608,8 +648,7 @@ var testAlgo;
         factor = factor * util.blindoutPercent(1 - distPercent, starAlgo.cache.sharpness);
       }
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var steeringwheelAlgo = new Object;
@@ -626,15 +665,19 @@ var testAlgo;
         steeringwheelAlgo.cache.innerCircle = 0.65 * algo.presetRadius;
       }
       steeringwheelAlgo.cache.centerCircle = 0.2 * algo.presetRadius;
+      // line width
       steeringwheelAlgo.cache.lineWidth = 0.9 + 0.06 * algo.presetRadius;
+      // line length
       steeringwheelAlgo.cache.lineLength = 1.4 * algo.presetRadius;
       steeringwheelAlgo.cache.presetRadius = algo.presetRadius;
     }
-    steeringwheelAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    steeringwheelAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (steeringwheelAlgo.cache.presetRadius != algo.presetRadius) {
         steeringwheelAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -642,6 +685,7 @@ var testAlgo;
       var lines = 3;
       var factor = 0;
 
+      // Draw handles
       var angle = geometryCalc.getAngle(offx, offy) * lines;
       var a = Math.abs(Math.sin(angle) * distance);
       a = a / steeringwheelAlgo.cache.lineWidth / lines;
@@ -649,16 +693,17 @@ var testAlgo;
       c = c / steeringwheelAlgo.cache.lineLength;
       factor = 1 - (a * a) - (c * c);
 
+      // Draw a ring
       var distPercent = distance / steeringwheelAlgo.cache.outerCircle;
       var ringFactor = Math.max(factor, util.blindoutPercent(1 - distPercent, 3));
       distPercent = distance / steeringwheelAlgo.cache.innerCircle;
       ringFactor -= util.blindoutPercent(1 - distPercent, 5);
       factor = Math.max(factor, ringFactor);
 
+      // Draw a center
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var tornadoAlgo = new Object;
@@ -670,38 +715,46 @@ var testAlgo;
       tornadoAlgo.cache.centerCircle = 0.15 * algo.presetRadius;
       tornadoAlgo.cache.presetRadius = algo.presetRadius;
     }
-    tornadoAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    tornadoAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (tornadoAlgo.cache.presetRadius != algo.presetRadius) {
         tornadoAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
       var angle = geometryCalc.getAngle(offx, offy);
       var percent = 0;
       var factor = 0;
-      
+
+      // Repeat the pattern
       var fanblades = 3;
       if (algo.presetSize >= 9) {
           fanblades = 5;
       }
-      
+
       angle -= (distance / (algo.presetRadius)) * algo.halfPi;
+      // Repeat the pattern
       angle = fanblades * angle;
+      // Turn along the distance
       angle += (algo.twoPi) * (algo.progstep / 8 % 1);
+      // Normalize the angle
       angle = (angle + algo.twoPi) % (algo.twoPi);
 
+      // Blind along the edges
       factor = Math.cos(angle);
 
+      // Blind out the outside edges
       percent = Math.max(0, 1 - (distance / algo.presetRadius));
       factor *= util.blindoutPercent(percent, 1)
-      
+
+      // Draw a center
       var distPercentCenter = distance / tornadoAlgo.cache.centerCircle;
       factor = Math.max(factor, util.blindoutPercent(1 - distPercentCenter, 3));
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var treeAlgo = new Object;
@@ -717,11 +770,13 @@ var testAlgo;
       treeAlgo.cache.sharpness = 0.025 * algo.presetRadius;
       treeAlgo.cache.presetRadius = algo.presetRadius;
     }
-    treeAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    treeAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       if (treeAlgo.cache.presetRadius != algo.presetRadius) {
         treeAlgo.updateCache();
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var factor = 0;
@@ -739,43 +794,52 @@ var testAlgo;
       var distPercent = realDistance / targetDistance;
       factor = util.blindoutPercent(1 - distPercent, treeAlgo.cache.sharpness);
 
+      // blind out the bottom
       factor *= util.blindoutPercent(1 - Math.abs(offy) / treeAlgo.cache.blindoutPercent, 10);
 
       if (offy > treeAlgo.cache.bottomHeight) {
+        // The bottom
         realOffy = offy - treeAlgo.cache.bottomHeight;
         var distance = Math.sqrt((offx * offx) + 1);
         factor = Math.max(factor, 1 - (distance / treeAlgo.cache.bottomWidth));
       }
-    
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+
+      // add the object color to the algo.mapped location
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
-    treeAlgo.unused = function(i, rx, ry, h, s, v)
+    treeAlgo.unused = function(i, rx, ry, r, g, b)
     {
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var factor = 0;
 
+      // Calculate color intensity
       if (ry === Math.floor(algo.obj[i].y) + algo.boxRadius + 1) {
+        // The tree foot
         offy = 0;
       } else {
+        // Offset to bottom
         offy += (algo.presetRadius) + 0.7;
       }
       factor = ((1 - (Math.sqrt((offx * offx * 1.8) + (offy * offy * 1.4)))) * 2.5) + offy * 3;
       factor = factor / 3.27;
- 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+
+      // add the object color to the algo.mapped location
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     };
 
     var triangleAlgo = new Object;
-    triangleAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    triangleAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var tips = 3;
       var rotation = algo.twoPi * algo.obj[i].random;
       if (algo.presetSize < 10) {
           rotation = Math.PI;
       }
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
@@ -784,22 +848,23 @@ var testAlgo;
       var distPercent = distance / targetDistance;
       var factor = util.blindoutPercent(1 - distPercent, 3);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var ufoAlgo = new Object;
-    ufoAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    ufoAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var offx = rx - algo.obj[i].x;
- 
+
       var size = algo.presetSize * 2 / 5;
       var offy1 = ry - algo.obj[i].y;
 
       var factor1 = 1 - (Math.sqrt((offx * offx) + (offy1 * offy1)) / ((size / 2) + 1));
+      // Set a bit towards background by dimming.
       if (factor1 < 0) {
         factor1 = 0;
       }
+       // factor1 = 0;
 
       var factor2 = 0;
       var offy2 = ry - algo.obj[i].y - size / 4;
@@ -816,21 +881,24 @@ var testAlgo;
         factor = 1;
       }
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     var ventilatorAlgo = new Object;
-    ventilatorAlgo.drawPixel = function(i, rx, ry, h, s, v)
+    ventilatorAlgo.getMapPixelColor = function(i, rx, ry, r, g, b)
     {
       var factor = 1.0;
+      // calculate the offset difference of algo.map location to the float
+      // location of the object
       var offx = rx - algo.obj[i].x;
       var offy = ry - algo.obj[i].y;
       var distance = Math.sqrt(offx * offx + offy * offy);
       var angle = geometryCalc.getAngle(offx, offy);
+      // Optimize multiple calculations
       var baseIntensity = 0.1;
       var percent = 0;
 
+      // Repeat the pattern
       var fanblades = 3;
       if (algo.presetSize >= 10) {
           fanblades = 5;
@@ -839,21 +907,28 @@ var testAlgo;
       angle -= (algo.twoPi) * (algo.progstep / 16 % 1);
       angle = (angle + algo.twoPi) % (algo.twoPi);
 
+      // Draw a center cover
+      // asec consumes values > 1. asec(x) = acos(1/x)
       percent = Math.max(0, 1 - (distance / (0.2 * algo.presetRadius)));
+      // apply a scale factor for the percent / input in the asec function
       var factorC = algo.halfPi * Math.acos(1 / (2.5 * percent + 1)) / (algo.halfPi);
 
+      // Calculate intensity by angle
       factor = Math.max(0, (1.0 + baseIntensity) * angle / (algo.twoPi) - baseIntensity);
 
+      // Blind out the inner edges
       percent = Math.max(0, 1 - (angle / algo.twoPi));
+      // apply a scale factor for the percent / input in the asec function
       factor *= (1.0 - baseIntensity) * (Math.acos(1 / (2.5 * percent + 1)) / (algo.halfPi)) + baseIntensity;
 
+      // Blind out the outside edges
       percent = Math.max(0, 1 - (distance / (algo.presetRadius)));
+      // apply a scale factor for the percent / input in the asec function
       factor *= algo.halfPi * Math.acos(1 / (2.5 * percent + 1)) / (algo.halfPi);
-      
+
       factor = Math.max(factorC, factor * 1.5);
 
-      var idx = (ry * algo.mapWidth + rx) * 3;
-      util.addPixel(idx, h, s, HSVUtil.clamp01(factor) * v);
+      return util.getColor(r * factor, g * factor, b * factor, algo.map[ry][rx]);
     }
 
     // Algorithm registration and methods ------------------------
@@ -937,6 +1012,7 @@ var testAlgo;
     algo.realsize = 1;
     algo.progstep = 0;
     algo.totalSteps = 1024;
+    // Optimize multiple calculations
     algo.twoPi = 2 * Math.PI;
     algo.halfPi = Math.PI / 2;
 
@@ -1020,7 +1096,7 @@ var testAlgo;
           0.866 * algo.presetRadius;
       } else if (tips === 5) {
         geometryCalc.cache.innerRadius =
-          0.688 * algo.presetRadius / 0.851; 
+          0.688 * algo.presetRadius / 0.851;
       } else if (tips === 4) {
         geometryCalc.cache.innerRadius =
           algo.presetRadius * 0.707;
@@ -1039,7 +1115,7 @@ var testAlgo;
         geometryCalc.cache.tips != tips) {
         geometryCalc.updateCache(tips);
       }
-      
+
       var anglePart = (angle + geometryCalc.cache.r) % (algo.twoPi / tips)
         - geometryCalc.cache.r;
       var targetDistance = geometryCalc.cache.innerRadius /
@@ -1052,7 +1128,9 @@ var testAlgo;
     geometryCalc.getAngle = function(offx, offy)
     {
       var angle = 0;
+      // catch offx == 0
       if (offx == 0) {
+        // This where the asymptote goes
         if (offy < 0) {
           angle = -1 * Math.PI / 2;
         } else {
@@ -1064,11 +1142,11 @@ var testAlgo;
       }
       angle += Math.PI / 2;
       if (offx < 0) {
-        angle += Math.PI;  
+        angle += Math.PI;
       }
       return angle;
     }
-    
+
     // Utility functions --------------------------
 
     util.initialize = function(width, height)
@@ -1077,10 +1155,16 @@ var testAlgo;
 
       for (var i = 0; i < algo.presetNumber; i++) {
         algo.obj[i] = {
+          // set random start locations for objects
           x: Math.random() * (width - 1),
           y: Math.random() * (height - 1),
+          // General-purpose random number per object
           random: Math.random(),
         };
+        // For DEVELOPMENT align objects centered.
+        //algo.obj[i].x = width / 2;
+        //algo.obj[i].y = height / 2;
+        // set random directions
         do {
           do {
             algo.obj[i].xDirection = (Math.random() * 2) - 1;
@@ -1089,12 +1173,16 @@ var testAlgo;
             algo.obj[i].yDirection = (Math.random() * 2) - 1;
           } while (Math.abs(algo.obj[i].yDirection) < 0.1);
         } while (Math.abs(algo.obj[i].xDirection + algo.obj[i].yDirection) < 0.3);
-        // Random HSV colour for each object
-        algo.obj[i].h = Math.random();
-        algo.obj[i].s = 0.7 + Math.random() * 0.3;
-        algo.obj[i].v = 0.7 + Math.random() * 0.3;
+        do {
+          // Chose random colour for each object
+          algo.obj[i].r = Math.round(Math.random() * 255);
+          algo.obj[i].g = Math.round(Math.random() * 255);
+          algo.obj[i].b = Math.round(Math.random() * 255);
+          // try again if it is too dim
+        } while ((algo.obj[i].r + algo.obj[i].g + algo.obj[i].b) < 125);
       }
 
+      // area size to draw object
       algo.boxRadius = Math.round(algo.presetRadius);
       algo.realsize = Math.floor(algo.presetRadius) * 2 + 1;
 
@@ -1102,24 +1190,37 @@ var testAlgo;
       return;
     };
 
-    // Additive HSV pixel blending
-    util.addPixel = function(idx, h, s, v)
+    // Combine RGB color from color channels
+    util.mergeRgb = function(r, g, b)
     {
-      v = Math.max(0, Math.min(1, v));
-      if (v <= 0) return;
-      var existV = algo.map[idx + 2];
-      if (existV <= 0) {
-        algo.map[idx] = h;
-        algo.map[idx + 1] = s;
-        algo.map[idx + 2] = v;
-      } else {
-        if (v > existV) {
-          algo.map[idx] = h;
-          algo.map[idx + 1] = s;
-        }
-        algo.map[idx + 2] = Math.min(1, existV + v);
-      }
-    };
+      // Stay within boundaries for the final color
+      r = Math.max(0, Math.min(255, Math.round(r)));
+      g = Math.max(0, Math.min(255, Math.round(g)));
+      b = Math.max(0, Math.min(255, Math.round(b)));
+
+      return ((r << 16) + (g << 8) + b);
+    }
+
+    util.getColor = function(r, g, b, mRgb)
+    {
+      // Stay within boundaries for the input values (do not overshoot in calculation)
+      r = Math.max(0, Math.min(255, Math.round(r)));
+      g = Math.max(0, Math.min(255, Math.round(g)));
+      b = Math.max(0, Math.min(255, Math.round(b)));
+
+      // split rgb in to components
+      var pointr = (mRgb >> 16) & 0x00FF;
+      var pointg = (mRgb >> 8) & 0x00FF;
+      var pointb = mRgb & 0x00FF;
+
+      // add the color to the algo.mapped location
+      pointr += r;
+      pointg += g;
+      pointb += b;
+
+      // set algo.mapped point
+      return util.mergeRgb(pointr, pointg, pointb);
+    }
 
     // Blind out towards 0 percent
     util.blindoutPercent = function(percent, sharpness)
@@ -1130,7 +1231,9 @@ var testAlgo;
       if (percent < 0) {
         return 0;
       }
+      // Normalize input
       percent = Math.min(1, percent);
+      // asec consumes values > 1. asec(x) = acos(1/x)
       var factor = Math.min(1, Math.acos(1 /
         (Math.sqrt(sharpness * percent * percent) + 1)
       ) * algo.halfPi);
@@ -1145,39 +1248,59 @@ var testAlgo;
       }
       algo.progstep = progstep;
 
-      algo.map = HSVUtil.createMap(width, height);
-      algo.mapWidth = width;
-      algo.mapHeight = height;
+      // Clear algo.map data
+      algo.map = new Array(height);
+      for (var y = 0; y < height; y++) {
+        algo.map[y] = new Array();
+        for (var x = 0; x < width; x++) {
+          algo.map[y][x] = 0;
+        }
+      }
 
       var shape = shapes.getAlgoObject(algo.selectedAlgo);
+      // for each object displayed
       for (var i = 0; i < algo.presetNumber; i++) {
+        // workout closest map location for object
         var mx = Math.floor(algo.obj[i].x);
         var my = Math.floor(algo.obj[i].y);
 
-        var h = algo.obj[i].h;
-        var s = algo.obj[i].s;
-        var v = algo.obj[i].v;
+        // split colour
+        var r = algo.obj[i].r;
+        var g = algo.obj[i].g;
+        var b = algo.obj[i].b;
         if (algo.presetRandom != 0) {
-          h = algo.colors[0].h;
-          s = algo.colors[0].s;
-          v = algo.colors[0].v;
+          r = (rgb >> 16) & 0x00FF;
+          g = (rgb >> 8) & 0x00FF;
+          b = rgb & 0x00FF;
         }
 
         for (var ry = my - algo.boxRadius; ry < my + algo.boxRadius + 2; ry++) {
           for (var rx = mx - algo.boxRadius; rx < mx + algo.boxRadius + 2; rx++) {
+            // Draw only if edges are on the map
             if (rx < width && rx > -1 && ry < height && ry > -1) {
-              shape.drawPixel(i, rx, ry, h, s, v);
+              // DEVELOPMENT: Draw a box for debugging.
+              //algo.map[ry][rx] = util.getColor(0, 0, 80, algo.map[ry][rx]);
+
+              // add the object color to the mapped location
+              algo.map[ry][rx] = shape.getMapPixelColor(i, rx, ry, r, g, b);
             }
           }
         }
 
+        // if collision detection is on
         if (algo.presetCollision === 0) {
+          // object collision detection
+          // check all objects
           for (var ti = 0; ti < algo.presetNumber; ti++) {
+            // but not the current one
             if (ti !== i) {
+              // calculate distance to current object
               var disx = (algo.obj[i].x + algo.obj[i].xDirection) - algo.obj[ti].x;
               var disy = (algo.obj[i].y + algo.obj[i].yDirection) - algo.obj[ti].y;
               var dish = Math.sqrt((disx * disx) + (disy * disy));
+              // if to close
               if (dish < (1.414) * (algo.presetRadius)) {
+                // swap speed / direction of current object
                 var stepx = algo.obj[i].xDirection;
                 var stepy = algo.obj[i].yDirection;
                 algo.obj[i].xDirection = algo.obj[ti].xDirection;
@@ -1189,18 +1312,24 @@ var testAlgo;
           }
         }
 
+        // edge collision detection
         if (algo.obj[i].y <= 0 && algo.obj[i].yDirection < 0) {
+          // top edge and moving up
           algo.obj[i].yDirection *= -1;
         } else if (algo.obj[i].y >= height - 1 && algo.obj[i].yDirection > 0) {
+          // bottom edge and moving down
           algo.obj[i].yDirection *= -1;
         }
 
         if (algo.obj[i].x <= 0 && algo.obj[i].xDirection < 0) {
+          // left edge and moving left
           algo.obj[i].xDirection *= -1;
         } else if (algo.obj[i].x >= width - 1 && algo.obj[i].xDirection > 0) {
+          // right edge and moving right
           algo.obj[i].xDirection *= -1;
         }
 
+        // set object's next location
         algo.obj[i].x += algo.obj[i].xDirection;
         algo.obj[i].y += algo.obj[i].yDirection;
       }
@@ -1210,6 +1339,7 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(width, height)
     {
+      // This make no difference to the script, except for fading the colors
       return algo.totalSteps;
     };
 

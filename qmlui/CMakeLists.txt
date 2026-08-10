@@ -53,6 +53,7 @@ set(SRC_FILES
     palettemanager.cpp palettemanager.h
     previewcontext.cpp previewcontext.h
     rgbmatrixeditor.cpp rgbmatrixeditor.h
+    huematrixeditor.cpp huematrixeditor.h
     sceneeditor.cpp sceneeditor.h
     scripteditor.cpp scripteditor.h
     showmanager.cpp showmanager.h

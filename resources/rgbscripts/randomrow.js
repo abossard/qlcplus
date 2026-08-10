@@ -27,7 +27,6 @@ var testAlgo;
         algo.apiVersion = 1;
         algo.name = "Random Row";
         algo.author = "David Garyga";
-        algo.acceptColors = 2;
         algo.width = 0;
         algo.height = 0;
 
@@ -47,22 +46,28 @@ var testAlgo;
             var map = new Array(length);
             for (var i = 0; i < length; i++)
             {
-                map[i] = (si === i) ? 1 : 0;
+                if (si === i) {
+                    map[i] = 1;
+                } else {
+                    map[i] = 0;
+                }
             }
 
             return map;
         };
 
-        util.createStepHsv = function(width, height, step)
+        util.createStepRgb = function(width, height, step, rgb)
         {
-            var map = HSVUtil.createMap(width, height);
-            var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+            var map = new Array(height);
             for (var y = 0; y < height; y++)
             {
+                map[y] = new Array(width);
                 for (var x = 0; x < width; x++)
                 {
                     if (step[y] !== 0) {
-                        HSVUtil.setPixel(map, width, x, y, h, s, v);
+                        map[y][x] = rgb;
+                    } else {
+                        map[y][x] = 0;
                     }
                 }
             }
@@ -91,7 +96,7 @@ var testAlgo;
                 algo.height = height;
             }
 
-            return util.createStepHsv(width, height, algo.steps[step]);
+            return util.createStepRgb(width, height, algo.steps[step], rgb);
         };
 
         algo.rgbMapStepCount = function(width, height)

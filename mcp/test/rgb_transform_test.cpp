@@ -19,7 +19,7 @@
 
 #include <QtTest>
 #include "rgb_transform_test.h"
-#include "rgbmatrix.h"
+#include "huematrix.h"
 #include "doc.h"
 
 // Helper to create a test map with unique values per pixel
@@ -47,7 +47,7 @@ void RGBTransform_Test::rotation0_identity()
     QSize srcSize(4, 2);
     QSize dstSize(4, 2);
 
-    RGBMatrix::applyTransforms(map, srcSize, dstSize, 0, 0, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, srcSize, dstSize, 0, 0, HUEMatrix::MirrorFlip);
 
     QCOMPARE(map.size(), 2);
     QCOMPARE(map[0].size(), (uint)4);
@@ -69,7 +69,7 @@ void RGBTransform_Test::rotation90_nonSquare()
     QSize srcSize(2, 4);  // what the algorithm got
     QSize dstSize(4, 2);  // physical grid
 
-    RGBMatrix::applyTransforms(src, srcSize, dstSize, 1, 0, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(src, srcSize, dstSize, 1, 0, HUEMatrix::MirrorFlip);
 
     // After 90° CW: dst(dx,dy) = src(dy, sh-1-dx) where sh=4
     // dst[0][0] = src(0, 3) = src[3][0] = 401
@@ -100,7 +100,7 @@ void RGBTransform_Test::rotation180_nonSquare()
     QSize srcSize(4, 2);
     QSize dstSize(4, 2);
 
-    RGBMatrix::applyTransforms(map, srcSize, dstSize, 2, 0, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, srcSize, dstSize, 2, 0, HUEMatrix::MirrorFlip);
 
     // 180°: dst(dx,dy) = src(W-1-dx, H-1-dy)
     // dst[0][0] = src[1][3] = 204
@@ -120,7 +120,7 @@ void RGBTransform_Test::rotation270_nonSquare()
     QSize srcSize(2, 4);
     QSize dstSize(4, 2);
 
-    RGBMatrix::applyTransforms(src, srcSize, dstSize, 3, 0, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(src, srcSize, dstSize, 3, 0, HUEMatrix::MirrorFlip);
 
     // 270° CW: dst(dx,dy) = src(sw-1-dy, dx) where sw=2
     // dst[0][0] = src(1, 0) = src[0][1] = 102
@@ -157,8 +157,8 @@ void RGBTransform_Test::rotation_roundTrip()
     // Actually, in the engine flow, each rotation pass swaps dims.
     // 4 consecutive 90° rotations = identity.
     // Let's just do 180+180 = identity on the same map:
-    RGBMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, RGBMatrix::MirrorFlip);
-    RGBMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, HUEMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, QSize(4, 2), QSize(4, 2), 2, 0, HUEMatrix::MirrorFlip);
 
     for (int y = 0; y < 2; y++)
         for (int x = 0; x < 4; x++)
@@ -170,7 +170,7 @@ void RGBTransform_Test::mirrorHorizontal_flip()
     RGBMap map = makeTestMap(4, 2);
     QSize s(4, 2);
 
-    RGBMatrix::applyTransforms(map, s, s, 0, 1, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, s, s, 0, 1, HUEMatrix::MirrorFlip);
 
     // Flip: left half copied to right (top-left is source quadrant)
     // map[0] was {101, 102, 103, 104} → left half: 101, 102
@@ -186,7 +186,7 @@ void RGBTransform_Test::mirrorVertical_flip()
     RGBMap map = makeTestMap(4, 2);
     QSize s(4, 2);
 
-    RGBMatrix::applyTransforms(map, s, s, 0, 2, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(map, s, s, 0, 2, HUEMatrix::MirrorFlip);
 
     // Vertical flip: top half copied to bottom
     // With H=2: only 1 row in top half (y < 2/2 = 1), bottom row gets top row
@@ -209,7 +209,7 @@ void RGBTransform_Test::mirrorHorizontal_max()
     map[0][3] = 0x0000FF; // Blue right
     QSize s(4, 1);
 
-    RGBMatrix::applyTransforms(map, s, s, 0, 1, RGBMatrix::MirrorMax);
+    HUEMatrix::applyTransforms(map, s, s, 0, 1, HUEMatrix::MirrorMax);
 
     // Max blend: each pair gets max per channel
     // (0,0)+(0,3): max(FF,00)=FF, max(00,00)=00, max(00,FF)=FF → 0xFF00FF
@@ -229,7 +229,7 @@ void RGBTransform_Test::mirrorVertical_max()
     map[1][0] = 0x0000FF; // Blue bottom
     QSize s(1, 2);
 
-    RGBMatrix::applyTransforms(map, s, s, 0, 2, RGBMatrix::MirrorMax);
+    HUEMatrix::applyTransforms(map, s, s, 0, 2, HUEMatrix::MirrorMax);
 
     QCOMPARE(map[0][0], 0xFF00FFu);
     QCOMPARE(map[1][0], 0xFF00FFu);
@@ -242,8 +242,8 @@ void RGBTransform_Test::mirrorHorizontalAndVertical_differ()
     RGBMap mapV = makeTestMap(4, 3);
     QSize s(4, 3);
 
-    RGBMatrix::applyTransforms(mapH, s, s, 0, 1, RGBMatrix::MirrorFlip);
-    RGBMatrix::applyTransforms(mapV, s, s, 0, 2, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(mapH, s, s, 0, 1, HUEMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(mapV, s, s, 0, 2, HUEMatrix::MirrorFlip);
 
     // They should differ: H mirrors columns, V mirrors rows
     bool differ = false;
@@ -261,7 +261,7 @@ void RGBTransform_Test::rotation90_withMirror()
     QSize srcSize(2, 4);
     QSize dstSize(4, 2);
 
-    RGBMatrix::applyTransforms(src, srcSize, dstSize, 1, 1, RGBMatrix::MirrorFlip);
+    HUEMatrix::applyTransforms(src, srcSize, dstSize, 1, 1, HUEMatrix::MirrorFlip);
 
     // After 90° CW, the map is 4 wide × 2 tall
     QCOMPARE(src.size(), 2);
@@ -280,7 +280,7 @@ void RGBTransform_Test::settersClamping()
 {
     // Test that setters clamp values properly
     Doc doc(nullptr);
-    RGBMatrix matrix(&doc);
+    HUEMatrix matrix(&doc);
 
     matrix.setRotation(5);
     QCOMPARE(matrix.rotation(), 1); // 5 & 3 = 1
@@ -291,22 +291,22 @@ void RGBTransform_Test::settersClamping()
     matrix.setMirror(7);
     QCOMPARE(matrix.mirror(), 3); // 7 & 3 = 3
 
-    matrix.setMirrorBlend(RGBMatrix::MirrorBlend(99));
-    QCOMPARE(matrix.mirrorBlend(), RGBMatrix::MirrorFlip); // out of range → default
+    matrix.setMirrorBlend(HUEMatrix::MirrorBlend(99));
+    QCOMPARE(matrix.mirrorBlend(), HUEMatrix::MirrorFlip); // out of range → default
 }
 
 void RGBTransform_Test::mirrorBlend_stringConversion()
 {
-    QCOMPARE(RGBMatrix::mirrorBlendToString(RGBMatrix::MirrorFlip), QStringLiteral("Flip"));
-    QCOMPARE(RGBMatrix::mirrorBlendToString(RGBMatrix::MirrorMax), QStringLiteral("Max"));
-    QCOMPARE(RGBMatrix::mirrorBlendToString(RGBMatrix::MirrorAverage), QStringLiteral("Average"));
-    QCOMPARE(RGBMatrix::mirrorBlendToString(RGBMatrix::MirrorAdditive), QStringLiteral("Additive"));
+    QCOMPARE(HUEMatrix::mirrorBlendToString(HUEMatrix::MirrorFlip), QStringLiteral("Flip"));
+    QCOMPARE(HUEMatrix::mirrorBlendToString(HUEMatrix::MirrorMax), QStringLiteral("Max"));
+    QCOMPARE(HUEMatrix::mirrorBlendToString(HUEMatrix::MirrorAverage), QStringLiteral("Average"));
+    QCOMPARE(HUEMatrix::mirrorBlendToString(HUEMatrix::MirrorAdditive), QStringLiteral("Additive"));
 
-    QCOMPARE(RGBMatrix::stringToMirrorBlend("Flip"), RGBMatrix::MirrorFlip);
-    QCOMPARE(RGBMatrix::stringToMirrorBlend("Max"), RGBMatrix::MirrorMax);
-    QCOMPARE(RGBMatrix::stringToMirrorBlend("Average"), RGBMatrix::MirrorAverage);
-    QCOMPARE(RGBMatrix::stringToMirrorBlend("Additive"), RGBMatrix::MirrorAdditive);
-    QCOMPARE(RGBMatrix::stringToMirrorBlend("Unknown"), RGBMatrix::MirrorFlip);
+    QCOMPARE(HUEMatrix::stringToMirrorBlend("Flip"), HUEMatrix::MirrorFlip);
+    QCOMPARE(HUEMatrix::stringToMirrorBlend("Max"), HUEMatrix::MirrorMax);
+    QCOMPARE(HUEMatrix::stringToMirrorBlend("Average"), HUEMatrix::MirrorAverage);
+    QCOMPARE(HUEMatrix::stringToMirrorBlend("Additive"), HUEMatrix::MirrorAdditive);
+    QCOMPARE(HUEMatrix::stringToMirrorBlend("Unknown"), HUEMatrix::MirrorFlip);
 }
 
 QTEST_MAIN(RGBTransform_Test)

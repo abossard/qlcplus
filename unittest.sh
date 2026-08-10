@@ -20,6 +20,7 @@ cp -r $SOURCE_DIR/resources/gobos $DEST_DIR/resources
 cp -r $SOURCE_DIR/resources/icons $DEST_DIR/resources
 cp -r $SOURCE_DIR/resources/inputprofiles $DEST_DIR/resources
 cp -r $SOURCE_DIR/resources/rgbscripts $DEST_DIR/resources
+cp -r $SOURCE_DIR/resources/huescripts $DEST_DIR/resources
 cp -r $SOURCE_DIR/resources/schemas $DEST_DIR/resources
 
 # Find all files necessary for tests recursively in the source directory and copy to destination directory

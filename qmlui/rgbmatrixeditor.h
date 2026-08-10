@@ -44,18 +44,6 @@ class RGBMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int blendMode READ blendMode WRITE setBlendMode NOTIFY blendModeChanged)
     Q_PROPERTY(int controlMode READ controlMode WRITE setControlMode NOTIFY controlModeChanged)
 
-    Q_PROPERTY(int rotation READ rotation WRITE setRotation NOTIFY rotationChanged)
-    Q_PROPERTY(int mirror READ mirror WRITE setMirror NOTIFY mirrorChanged)
-    Q_PROPERTY(int mirrorBlend READ mirrorBlend WRITE setMirrorBlend NOTIFY mirrorBlendChanged)
-    Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness NOTIFY brightnessChanged)
-
-    Q_PROPERTY(int beatEffect READ beatEffect WRITE setBeatEffect NOTIFY beatEffectChanged)
-    Q_PROPERTY(int beatSelection READ beatSelection WRITE setBeatSelection NOTIFY beatSelectionChanged)
-    Q_PROPERTY(int beatOrientation READ beatOrientation WRITE setBeatOrientation NOTIFY beatOrientationChanged)
-
-    Q_PROPERTY(bool algorithmUsesAudio READ algorithmUsesAudio NOTIFY algorithmIndexChanged)
-    Q_PROPERTY(QStringList audioInputCategories READ audioInputCategories NOTIFY algorithmIndexChanged)
-
     // Text Algorithm specific properties
     Q_PROPERTY(QString algoText READ algoText WRITE setAlgoText NOTIFY algoTextChanged)
     Q_PROPERTY(QFont algoTextFont READ algoTextFont WRITE setAlgoTextFont NOTIFY algoTextFontChanged)
@@ -173,53 +161,6 @@ public:
 
 signals:
     void controlModeChanged();
-
-    /************************************************************************
-     * Rotation & Mirror
-     ************************************************************************/
-public:
-    int rotation() const;
-    void setRotation(int r);
-
-    int mirror() const;
-    void setMirror(int m);
-
-    int mirrorBlend() const;
-    void setMirrorBlend(int b);
-
-    qreal brightness() const;
-    void setBrightness(qreal b);
-
-signals:
-    void rotationChanged();
-    void mirrorChanged();
-    void mirrorBlendChanged();
-    void brightnessChanged();
-
-    /************************************************************************
-     * Beat Transform
-     ************************************************************************/
-public:
-    int beatEffect() const;
-    void setBeatEffect(int e);
-
-    int beatSelection() const;
-    void setBeatSelection(int s);
-
-    int beatOrientation() const;
-    void setBeatOrientation(int o);
-
-signals:
-    void beatEffectChanged();
-    void beatSelectionChanged();
-    void beatOrientationChanged();
-
-    /************************************************************************
-     * Audio Routing
-     ************************************************************************/
-public:
-    bool algorithmUsesAudio() const;
-    QStringList audioInputCategories() const;
 
     /************************************************************************
      * Preview

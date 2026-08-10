@@ -71,7 +71,13 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = HSVUtil.createMap(width, height);
+      var map = new Array(height);
+      for (var y = 0; y < height; y++)
+      {
+          map[y] = new Array();
+          for (var x = 0; x < width; x++)
+            map[y][x] = 0;
+      }
 
       var stepsHeight = algo.orientation === 0 ? height : width;
       var stepsWidth = algo.orientation === 0 ? width : height;
@@ -92,9 +98,9 @@ var testAlgo;
           sinPos--;
 
         if (algo.orientation === 0)
-          HSVUtil.setPixel(map, width, cStep, sinPos, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+          map[sinPos][cStep] = rgb;
         else
-          HSVUtil.setPixel(map, width, sinPos, cStep, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+          map[cStep][sinPos] = rgb;
 
         // fill the previous column/row
         // to create continuous painting
@@ -108,9 +114,9 @@ var testAlgo;
             for (var f = startY; f < stopY; f++)
             {
               if (algo.orientation === 0)
-                HSVUtil.setPixel(map, width, col, f, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                map[f][col] = rgb;
               else
-                HSVUtil.setPixel(map, width, f, col, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                map[col][f] = rgb;
             }
           }
         }

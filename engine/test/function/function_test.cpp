@@ -287,6 +287,7 @@ void Function_Test::typeToString()
     QVERIFY(Function::typeToString(Function::EFXType) == "EFX");
     QVERIFY(Function::typeToString(Function::CollectionType) == "Collection");
     QVERIFY(Function::typeToString(Function::RGBMatrixType) == "RGBMatrix");
+    QVERIFY(Function::typeToString(Function::HUEMatrixType) == "HUEMatrix");
     QVERIFY(Function::typeToString(Function::ScriptType) == "Script");
     QVERIFY(Function::typeToString(Function::SequenceType) == "Sequence");
     QVERIFY(Function::typeToString(Function::ShowType) == "Show");
@@ -305,6 +306,8 @@ void Function_Test::stringToType()
     QVERIFY(Function::stringToType("EFX") == Function::EFXType);
     QVERIFY(Function::stringToType("Collection") == Function::CollectionType);
     QVERIFY(Function::stringToType("RGBMatrix") == Function::RGBMatrixType);
+    QVERIFY(Function::stringToType("HUEMatrix") == Function::HUEMatrixType);
+    QVERIFY(Function::stringToType("HUEMatrixx") == Function::Undefined);
     QVERIFY(Function::stringToType("Script") == Function::ScriptType);
     QVERIFY(Function::stringToType("Sequence") == Function::SequenceType);
     QVERIFY(Function::stringToType("Show") == Function::ShowType);

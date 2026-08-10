@@ -60,6 +60,7 @@ class FunctionManager final : public QObject
     Q_PROPERTY(int efxCount READ efxCount NOTIFY efxCountChanged)
     Q_PROPERTY(int collectionCount READ collectionCount NOTIFY collectionCountChanged)
     Q_PROPERTY(int rgbMatrixCount READ rgbMatrixCount NOTIFY rgbMatrixCountChanged)
+    Q_PROPERTY(int hueMatrixCount READ hueMatrixCount NOTIFY hueMatrixCountChanged)
     Q_PROPERTY(int scriptCount READ scriptCount NOTIFY scriptCountChanged)
     Q_PROPERTY(int showCount READ showCount NOTIFY showCountChanged)
     Q_PROPERTY(int audioCount READ audioCount NOTIFY audioCountChanged)
@@ -198,6 +199,7 @@ public:
     int efxCount() const { return m_efxCount; }
     int collectionCount() const { return m_collectionCount; }
     int rgbMatrixCount() const { return m_rgbMatrixCount; }
+    int hueMatrixCount() const { return m_hueMatrixCount; }
     int scriptCount() const { return m_scriptCount; }
     int showCount() const { return m_showCount; }
     int audioCount() const { return m_audioCount; }
@@ -232,6 +234,7 @@ signals:
     void efxCountChanged();
     void collectionCountChanged();
     void rgbMatrixCountChanged();
+    void hueMatrixCountChanged();
     void scriptCountChanged();
     void showCountChanged();
     void audioCountChanged();
@@ -277,7 +280,7 @@ private:
     QString m_searchFilter;
 
     int m_sceneCount, m_chaserCount, m_sequenceCount, m_efxCount;
-    int m_collectionCount, m_rgbMatrixCount, m_scriptCount;
+    int m_collectionCount, m_rgbMatrixCount, m_hueMatrixCount, m_scriptCount;
     int m_showCount, m_audioCount, m_videoCount;
 
     /** Running functions tracking */

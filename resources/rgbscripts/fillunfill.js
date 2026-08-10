@@ -27,7 +27,6 @@ var testAlgo;
     algo.apiVersion = 2;
     algo.name = "Fill Unfill";
     algo.author = "Massimo Callegari";
-    algo.acceptColors = 2;
 
     algo.orientation = 0;
     algo.properties = new Array();
@@ -47,26 +46,49 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step)
     {
-      var map = HSVUtil.createMap(width, height);
-      var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+      var map = new Array(height);
       for (var y = 0; y < height; y++)
       {
+        map[y] = new Array();
         for (var x = 0; x < width; x++)
         {
-          var lit = false;
           if (algo.orientation === 1)
           {
-            if (step < height) { lit = (y <= step); }
-            else { lit = (y > step - height); }
+            if (step < height)
+            {
+              if (y <= step) {
+                  map[y][x] = rgb;
+              } else {
+                  map[y][x] = 0;
+              }
+            }
+            else
+            {
+              if (y > step - height) {
+                  map[y][x] = rgb;
+              } else {
+                  map[y][x] = 0;
+              }
+            }
           }
           else
           {
-            if (step < width) { lit = (x <= step); }
-            else { lit = (x > step - width); }
-          }
-
-          if (lit) {
-            HSVUtil.setPixel(map, width, x, y, h, s, v);
+            if (step < width)
+            {
+              if (x <= step) {
+                  map[y][x] = rgb;
+              } else {
+                  map[y][x] = 0;
+              }
+            }
+            else
+            {
+              if (x > step - width) {
+                  map[y][x] = rgb;
+              } else {
+                  map[y][x] = 0;
+              }
+            }
           }
         }
       }

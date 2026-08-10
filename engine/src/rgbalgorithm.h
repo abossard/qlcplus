@@ -22,7 +22,6 @@
 #define RGBALGORITHM_H
 
 #include <QString>
-#include <QStringList>
 #include <QVector>
 #include <QColor>
 #include <QSize>
@@ -106,16 +105,22 @@ public:
      */
     virtual int acceptColors() const = 0;
 
-    /** Return whether this algorithm uses audio input data.
-     *  When true, the host should provide audio spectrum data before rendering. */
+    /************************************************************************
+     * Additive fork-only hooks (see HUEMatrix / HUEScript)
+     *
+     * Defaults keep every upstream algorithm behaving exactly as before.
+     ************************************************************************/
+public:
+    /** Whether the algorithm consumes live audio input.
+     *  The built-in RGBAudio spectrum algorithm is audio-driven by definition,
+     *  so the default keys off the algorithm type rather than being hard false. */
     virtual bool usesAudio() const { return type() == Audio; }
 
-    /** Return the top-level audio input categories this algorithm reads
-     *  (e.g. "power", "spectrum", "beat"). Empty if not audio-aware. */
-    virtual QStringList audioInputCategories() const { return {}; }
+    /** Audio input categories the algorithm requests */
+    virtual QStringList audioInputCategories() const { return QStringList(); }
 
-    /** Set the physical display size for algorithms rendered through transformed geometry. */
-    virtual void setDisplaySize(const QSize &size) { Q_UNUSED(size); }
+    /** Inform the algorithm of the display size it renders into */
+    virtual void setDisplaySize(const QSize &size) { Q_UNUSED(size) }
 
     /************************************************************************
      * RGB Colors

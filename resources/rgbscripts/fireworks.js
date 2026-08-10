@@ -129,31 +129,19 @@ var testAlgo;
       return algo.particleSteps;
     };
 
-    function addPixel(map, idx, h, s, v) {
-      v = Math.max(0, Math.min(1, v));
-      if (v <= 0) return;
-      var existV = map[idx + 2];
-      if (existV <= 0) {
-        map[idx] = h; map[idx + 1] = s; map[idx + 2] = v;
-      } else {
-        if (v > existV) { map[idx] = h; map[idx + 1] = s; }
-        map[idx + 2] = Math.min(1, existV + v);
-      }
-    }
 
     algo.rgbMap = function(width, height, rgb, progstep)
     {
       if (algo.initialized === false ||
-          util.mapWidth != width ||
-          util.mapHeight != height) {
+          util.map.length != height ||
+          util.map[0].length != width) {
         util.initialize(width, height);
       }
 
-      // Dim current map data (decay V channel)
+      // Dim current map data
       for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x ++) {
-          var idx = (y * width + x) * 3;
-          util.map[idx + 2] *= 0.8;
+          util.map[y][x] = util.dimColor(util.map[y][x], 0.8);
         }
       }
 
@@ -167,7 +155,7 @@ var testAlgo;
         // Initialize the rocket
         if (!algo.rockets[i].initialized ||
             algo.rockets[i].particle.length < algo.particleCount) {
-          util.initializeRocket(i, width, height);
+          util.initializeRocket(i, width, height, rgb);
         }
 
         // Trigger the rocket
@@ -192,7 +180,7 @@ var testAlgo;
           // Draw the rocket
           util.drawObject(algo.rockets[i].x, algo.rockets[i].y,
             width, height,
-            algo.rockets[i].h, algo.rockets[i].s, algo.rockets[i].v);
+            algo.rockets[i].r, algo.rockets[i].g, algo.rockets[i].b);
         } else {
           // Countdown particle steps
           algo.rockets[i].particleSteps--;
@@ -206,7 +194,7 @@ var testAlgo;
             util.drawObject(algo.rockets[i].particle[j].x,
               algo.rockets[i].particle[j].y,
               width, height,
-              algo.rockets[i].h, algo.rockets[i].s, algo.rockets[i].v);
+              algo.rockets[i].r, algo.rockets[i].g, algo.rockets[i].b);
           }
         }
 
@@ -235,10 +223,50 @@ var testAlgo;
 
     // random position function for new rocket
     util.getNewNumberRange = function(minVal, maxVal) {
+      // Search in the range of min to max + 1
+      // which will be reduced by random() excluding 1
+      // and floor() reducing to lower number.
       return Math.floor(Math.random() * (maxVal + 1 - minVal)) + minVal;
     }
 
-    util.drawObject = function(x, y, w, h, oh, os, ov) {
+    // Combine RGB color from color channels
+    util.mergeRgb = function(r, g, b) {
+      r = Math.min(255, Math.round(r));
+      g = Math.min(255, Math.round(g));
+      b = Math.min(255, Math.round(b));
+      return ((r << 16) + (g << 8) + b);
+    }
+
+    util.getColor = function(r, g, b, mRgb) {
+      // split rgb in to components
+      var pointr = (mRgb >> 16) & 0x00FF;
+      var pointg = (mRgb >> 8) & 0x00FF;
+      var pointb = mRgb & 0x00FF;
+      // add the color to the mapped location
+      pointr += r;
+      pointg += g;
+      pointb += b;
+      // set mapped point
+      return util.mergeRgb(pointr, pointg, pointb);
+    }
+
+    util.dimColor = function(mRgb, factor) {
+      if (mRgb < 1) {
+        return 0;
+      }
+      // split rgb into components
+      var pointr = (mRgb >> 16) & 0x00FF;
+      var pointg = (mRgb >> 8) & 0x00FF;
+      var pointb = mRgb & 0x00FF;
+      // add the color to the mapped location
+      pointr *= factor;
+      pointg *= factor;
+      pointb *= factor;
+      // set mapped point
+      return util.mergeRgb(pointr, pointg, pointb);
+    }
+
+    util.drawObject = function(x, y, w, h, r, g, b) {
       // workout closest map location for rocket
       var mx = Math.floor(x);
       var my = Math.floor(y);
@@ -246,18 +274,21 @@ var testAlgo;
         for (var rx = mx; rx < mx + 2; rx++) {
           // Draw only if edges are on the map
           if (rx < w && rx > -1 && ry < h && ry > -1) {
+            // Draw the box for debugging.
+            //util.map[ry][rx] = util.getColor(45, 45, 45, 0);
             var offx = rx - x;
             var offy = ry - y;
             var hyp = Math.max(0, 1 - Math.abs(Math.sqrt( (offx * offx) + (offy * offy))));
-            var newV = ov * hyp;
-            var idx = (ry * w + rx) * 3;
-            addPixel(util.map, idx, oh, os, newV);
+            var pointr = Math.round(r * hyp);
+            var pointg = Math.round(g * hyp);
+            var pointb = Math.round(b * hyp);
+            util.map[ry][rx] = util.getColor(pointr, pointg, pointb, util.map[ry][rx]);
           }
         }
       }
     }
 
-    util.initializeRocket = function(i, w, h) {
+    util.initializeRocket = function(i, w, h, rgb) {
       // reset height and set a start x location
       algo.rockets[i].x = util.getNewNumberRange(Math.round(w / 5), Math.round(4 * w / 5));
       algo.rockets[i].y = h;
@@ -275,14 +306,16 @@ var testAlgo;
       // initialize the rocket color
       if (algo.randomColor === 0) {
         do {
-          algo.rockets[i].h = Math.random();
-          algo.rockets[i].s = 0.7 + Math.random() * 0.3;
-          algo.rockets[i].v = 0.7 + Math.random() * 0.3;
-        } while (algo.rockets[i].v < 0.5);
+          // Chose random colour for each rocket
+          algo.rockets[i].r = Math.round(Math.random() * 255);
+          algo.rockets[i].g = Math.round(Math.random() * 255);
+          algo.rockets[i].b = Math.round(Math.random() * 255);
+          // try again if it is too dim
+        } while ((algo.rockets[i].r + algo.rockets[i].g + algo.rockets[i].b) < 125);
       } else {
-        algo.rockets[i].h = algo.colors[0].h;
-        algo.rockets[i].s = algo.colors[0].s;
-        algo.rockets[i].v = algo.colors[0].v;
+        algo.rockets[i].r = (rgb >> 16) & 0x00FF;
+        algo.rockets[i].g = (rgb >> 8) & 0x00FF;
+        algo.rockets[i].b = rgb & 0x00FF;
       }
       // initialize particles
       algo.rockets[i].particle = new Array();
@@ -311,10 +344,14 @@ var testAlgo;
         algo.rockets[i].initialized = false;
       }
 
-      // Clear map data (Float32Array HSV, row-major)
-      util.map = HSVUtil.createMap(width, height);
-      util.mapWidth = width;
-      util.mapHeight = height;
+      // Clear map data
+      util.map = new Array(height);
+      for (var y = 0; y < height; y++) {
+        util.map[y] = new Array();
+        for (var x = 0; x < width; x++) {
+          util.map[y][x] = 0;
+        }
+      }
 
       for (var i = 0; i < algo.rocketsCount; i++) {
         algo.rockets[i] = {
@@ -324,9 +361,9 @@ var testAlgo;
           yDirection: height,
           triggerPoint: 0,
           triggered: false,
-          h: 0,
-          s: 0,
-          v: 0,
+          r: 0,
+          g: 0,
+          b: 0,
         };
       }
 

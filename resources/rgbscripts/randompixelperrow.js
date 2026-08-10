@@ -38,11 +38,17 @@ var testAlgo;
           * @return A two-dimensional array[height][width].
           */
         algo.rgbMap = function (width, height, rgb, step) {
-            var map = HSVUtil.createMap(width, height);
-            var h = algo.colors[0].h, s = algo.colors[0].s, v = algo.colors[0].v;
+            var map = new Array(height);
             for (var y = 0; y < height; y++) {
+                map[y] = [];
                 var index = Math.floor(Math.random() * (width));
-                HSVUtil.setPixel(map, width, index, y, h, s, v);
+                for (var x = 0; x < width; x++) {
+                    if (x === index) {
+                        map[y][x] = rgb;
+                    } else {
+                        map[y][x] = 0;
+                    }
+                }
             }
 
             return map;

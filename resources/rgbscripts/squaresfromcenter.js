@@ -51,26 +51,31 @@ var testAlgo;
             var isWidthEven = (width % 2 === 0);
             var isHeightEven = (height % 2 === 0);
 
-            var map = HSVUtil.createMap(width, height);
+            var map = new Array(height);
             for (var y = 0; y < height; y++)
             {
+                map[y] = new Array();
                 for (var x = 0; x < width; x++)
                 {
                     if (algo.fillSquares === 1)
                     {
                         if ((x <= widthCenter + step + (isWidthEven ? 1 : 0 ) && x >= widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                                HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                                map[y][x] = rgb;
+                        } else {
+                            map[y][x] = 0;
                         }
                     }
                     else
                     {
                         if ((x === widthCenter + step + (isWidthEven ? 1 : 0 ) || x === widthCenter - step) &&
                             (y <= heightCenter + step + (isHeightEven ? 1 : 0) && y >= heightCenter - step)) {
-                            HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                            map[y][x] = rgb;
                         } else if ((y === heightCenter + step + (isHeightEven ? 1 : 0 ) || y === heightCenter - step) &&
                                    (x <= widthCenter + step + (isWidthEven ? 1 : 0) && x >= widthCenter - step)) {
-                            HSVUtil.setPixel(map, width, x, y, algo.colors[0].h, algo.colors[0].s, algo.colors[0].v);
+                            map[y][x] = rgb;
+                        } else {
+                            map[y][x] = 0;
                         }
                     }
                 }
