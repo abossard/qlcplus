@@ -4,21 +4,31 @@ on: ["push", "pull_request"]
 
 jobs:
   build-linux:
-    if: false
-    continue-on-error: true
-    runs-on: ubuntu-22.04
-    name: QLCplus Linux ${{matrix.task}}
+    runs-on: ${{ matrix.runner }}
+    name: QLCplus Linux ${{matrix.task}} (${{matrix.appimage_arch}})
     strategy:
-      #fail-fast: false
+      fail-fast: false
       matrix:
-        task: [build-v4, build-v5, build-v5-mcp, coverage-build-v4]
+        include:
+          - task: build-v5-mcp
+            runner: ubuntu-24.04
+            appimage_arch: x86_64
+            qt_dir_name: gcc_64
+            qt_arch: linux_gcc_64
+          - task: build-v5-mcp
+            runner: ubuntu-24.04-arm
+            appimage_arch: aarch64
+            qt_dir_name: gcc_arm64
+            qt_arch: linux_gcc_arm64
     env:
       CI_REPO_SLUG: ${{ github.repository }}
       CI_BRANCH: ${{ github.head_ref }}
       CI_PULL_REQUEST: ${{ github.event.number }}
       CC: gcc
       CXX: g++
-      PACKAGES_BASE:
+      QT_VERSION: "6.10.2"
+      # libfuse2 does not exist on Ubuntu 24.04; libfuse2t64 provides libfuse.so.2
+      PACKAGES_ALL:
         gdb
         libasound2-dev
         libusb-1.0-0-dev
@@ -33,12 +43,9 @@ jobs:
         libxml2-utils
         xvfb
         chrpath
-        libfuse2
+        libfuse2t64
         wget
-      PACKAGES_V5_BASE:
         libpulse-dev
-      PACKAGES_COVERAGE_BASE:
-        lcov
 
     defaults:
       run:
@@ -52,10 +59,6 @@ jobs:
 
       - name: Set General ENV variables
         run: |
-          echo "PACKAGES_V4=$(echo ${PACKAGES_BASE})" >> $GITHUB_ENV
-          echo "PACKAGES_V5=$(echo ${PACKAGES_BASE} ${PACKAGES_V5_BASE})" >> $GITHUB_ENV
-          echo "PACKAGES_COVERAGE=$(echo ${PACKAGES_BASE} ${PACKAGES_V4_BASE} ${PACKAGES_COVERAGE_BASE})" >> $GITHUB_ENV
-          echo "PACKAGES_ALL=$(echo ${PACKAGES_BASE} ${PACKAGES_V5_BASE} ${PACKAGES_COVERAGE_BASE})" >> $GITHUB_ENV
           echo "CI_BRANCH=$(echo $GITHUB_REF | cut -d '/' -f 3)" >> $GITHUB_ENV
           echo "CI_SECURE_ENV_VARS=$(if [ -z '${{ secrets.something }}' ]; then echo 'false'; else echo 'true'; fi)" >> $GITHUB_ENV
           echo "CI_EVENT_TYPE=$(if [ 'schedule' == '${{ github.event_name }}' ]; then echo 'cron'; else echo '${{ github.event_name }}'; fi)" >> $GITHUB_ENV
@@ -65,21 +68,11 @@ jobs:
           echo "BUILD_DATE=`date -u '+%Y%m%d'`" >> $GITHUB_ENV
           echo "GIT_REV=`git rev-parse --short HEAD`" >> $GITHUB_ENV
 
-      - name: Set Qt ENV variables (v4)
-        if: ${{ endsWith( matrix.task, 'v4') }}
+      - name: Set Qt ENV variables
         run: |
-          echo "QT=${QT:-$(echo '${{matrix.task}}' | cut -d '-' -f 2)}" >> $GITHUB_ENV
+          echo "QT=$(echo '${{matrix.task}}' | cut -d '-' -f 2)" >> $GITHUB_ENV
           echo "QT_INSTALL_DIR=/opt" >> $GITHUB_ENV
-          echo "QT_VERSION=6.9.3" >> $GITHUB_ENV
-          source $GITHUB_ENV && echo "QTDIR=${QT_INSTALL_DIR}/Qt/${QT_VERSION}/gcc_64" >> $GITHUB_ENV
-
-      - name: Set Qt ENV variables (v5)
-        if: ${{ endsWith( matrix.task, 'v5') || matrix.task == 'build-v5-mcp' }}
-        run: |
-          echo "QT=${QT:-$(echo '${{matrix.task}}' | cut -d '-' -f 2)}" >> $GITHUB_ENV
-          echo "QT_INSTALL_DIR=/opt" >> $GITHUB_ENV
-          echo "QT_VERSION=6.10.2" >> $GITHUB_ENV
-          source $GITHUB_ENV && echo "QTDIR=${QT_INSTALL_DIR}/Qt/${QT_VERSION}/gcc_64" >> $GITHUB_ENV
+          echo "QTDIR=/opt/Qt/${QT_VERSION}/${{ matrix.qt_dir_name }}" >> $GITHUB_ENV
 
       - name: Print ENV vars
         run: |
@@ -88,23 +81,24 @@ jobs:
           echo "CI_REPO_SLUG: ${CI_REPO_SLUG}"
           echo "CI_EVENT_TYPE: ${CI_EVENT_TYPE}"
           echo "CI_SECURE_ENV_VARS: ${CI_SECURE_ENV_VARS}"
-          echo "PACKAGES_V4: ${PACKAGES_V4}"
-          echo "PACKAGES_V5: ${PACKAGES_V5}"
-          echo "PACKAGES_COVERAGE: ${PACKAGES_COVERAGE}"
+          echo "PACKAGES_ALL: ${PACKAGES_ALL}"
           echo "TASK: ${TASK}"
           echo "QT: ${QT}"
+          echo "QTDIR: ${QTDIR}"
+          echo "ARCH: ${{ matrix.appimage_arch }} / $(uname -m)"
           echo "NPROC: ${NPROC}"
 
       - name: Download, cache and install packages
         uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: ${{env.PACKAGES_ALL}}
-          version: ${{runner.os}}-apt
+          version: ${{runner.os}}-${{matrix.appimage_arch}}-apt
 
       - name: Install Qt through aqt (and python)
         uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
+          arch: ${{ matrix.qt_arch }}
           cache: true
           dir: ${{ env.QT_INSTALL_DIR }}
           modules: 'qt3d qtimageformats qtmultimedia qtserialport qtwebsockets'
@@ -115,17 +109,13 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2.23
         with:
-          key: ${{ github.job }}-${{ matrix.task }}
+          key: ${{ github.job }}-${{ matrix.task }}-${{ matrix.appimage_arch }}
 
       - name: Setup ruby cache
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '2.7'
           bundler-cache: true
-
-      - name: Install coveralls-lcov
-        if: ${{ startsWith( matrix.task, 'coverage') }}
-        run: sudo gem install coveralls-lcov
 
       - name: Print program versions and username
         run: |
@@ -136,25 +126,20 @@ jobs:
           echo "WHOAMI:"
           whoami
 
-      - name: Configure for v4 build
-        if: ${{ matrix.task == 'build-v4' }}
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake/" -Dappimage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webaccess/web-dmx/package-lock.json
 
-      - name: Configure for v5 build
-        if: ${{ matrix.task == 'build-v5' }}
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake/" -Dqmlui=ON -Dappimage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build web-dmx web app
+        run: npm ci && npm run build
+        working-directory: webaccess/web-dmx
 
       - name: Configure for v5 MCP build
-        if: ${{ matrix.task == 'build-v5-mcp' }}
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake/" -Dqmlui=ON -Dmcp_server=ON -Dappimage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-
-      - name: Configure for coverage build
-        if: ${{ matrix.task == 'coverage-build-v4' }}
-        run: |
-          cmake -DCMAKE_PREFIX_PATH="/opt/Qt/$QT_VERSION/gcc_64/lib/cmake" -Dcoverage=ON -DINSTALL_ROOT=${INSTALL_ROOT} -B build
 
       - name: Build
         run: |
@@ -162,23 +147,9 @@ jobs:
           cmake --build build --parallel `nproc`
 
       - name: Test
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
         run: cmake --build build --target check
 
-      - name: Test with Coverage
-        if: ${{ startsWith( matrix.task, 'coverage') }}
-        run: cmake --build build --target lcov
-
-      - name: Coveralls
-        if: ${{ startsWith( matrix.task, 'coverage') }}
-        uses: coverallsapp/github-action@v2
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: coverage/coverage.info
-          format: lcov
-
       - name: Install
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
         run: |
           cmake --build build --target install
           cp -v resources/icons/svg/qlcplus.svg ${INSTALL_ROOT}
@@ -186,44 +157,28 @@ jobs:
           cp -v $QTDIR/translations/qtbase_* ${INSTALL_ROOT}/share/qlcplus/translations/
 
       - name: Set APPVERSION
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
         run: |
           APPVERSION=$(awk -F\" '/^#define APPVERSION/ {gsub(/ /,"-",$2); print $2}' engine/src/qlcconfig.h)
           echo "APPVERSION=$APPVERSION" >> $GITHUB_ENV
 
-      - name: Adapt qlcplus for AppImage (v4)
-        if: ${{ matrix.task == 'build-v4' }}
+      - name: Verify web-dmx SPA is bundled
         run: |
-          chrpath -r "../lib" ${INSTALL_ROOT}/usr/bin/qlcplus
+          test -f "${INSTALL_ROOT}/share/qlcplus/web/web-dmx/index.html" \
+            || { echo "web-dmx/index.html missing from install root"; \
+                 find ${INSTALL_ROOT} -name 'index.html'; exit 1; }
+          echo "OK: web-dmx SPA present"
 
       - name: Adapt qlcplus for AppImage (v5)
-        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
           chrpath -r "../lib" ${INSTALL_ROOT}/usr/bin/qlcplus-qml
           sed -i -e 's/Exec=qlcplus --open %f/Exec=qlcplus-qml/g' ${INSTALL_ROOT}/qlcplus.desktop
 
-      - name: Store original install artifacts before stripping and AppImage
-        # Activate for debugging
-        if: ${{ false && ! startsWith( matrix.task, 'coverage') }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.task }}-files
-          path: ${{ env.INSTALL_ROOT }}
-
-      - name: Strip Binaries (v4)
-        if: ${{ matrix.task == 'build-v4' }}
-        run: |
-          strip -v ${INSTALL_ROOT}/usr/bin/qlcplus
-          find ${INSTALL_ROOT}/usr/lib/ -name libqlcplusengine.so.1.0.0 -exec strip -v {} \;
-
       - name: Strip Binaries (v5)
-        if: ${{ matrix.task == 'build-v5' || matrix.task == 'build-v5-mcp' }}
         run: |
           strip -v ${INSTALL_ROOT}/usr/bin/qlcplus-qml
           find ${INSTALL_ROOT}/usr/lib/ -name libqlcplusengine.so.1.0.0 -exec strip -v {} \;
 
       - name: Delete unused files for AppImage
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
         run: |
           find ${INSTALL_ROOT}/usr/bin/ -name plugins.qmltypes -type f -delete
           find ${INSTALL_ROOT}/usr/bin -name *.qmlc -type f -delete
@@ -233,26 +188,55 @@ jobs:
           rm -rf ${INSTALL_ROOT}/usr/bin/QtQuick/Controls.2/Imagine QtQuick/Controls.2/Scene2D
 
       - name: Build AppImage
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
+        env:
+          ARCH: ${{ matrix.appimage_arch }}
+          APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
-          wget -c https://github.com/AppImage/AppImageKit/releases/download/continuous/AppRun-x86_64 -O ${INSTALL_ROOT}/AppRun
+          wget -c https://github.com/AppImage/AppImageKit/releases/download/continuous/AppRun-${ARCH} -O ${INSTALL_ROOT}/AppRun
           chmod a+x ${INSTALL_ROOT}/AppRun
-          wget -c https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O ./appimagetool-x86_64.AppImage
-          chmod a+x ./appimagetool-x86_64.AppImage
-          ./appimagetool-x86_64.AppImage -v ${INSTALL_ROOT}
-          mv -v Q_Light_Controller_Plus_-_QLC+-x86_64.AppImage qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage
+          wget -c https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${ARCH}.AppImage -O ./appimagetool.AppImage
+          chmod a+x ./appimagetool.AppImage
+          ./appimagetool.AppImage -v ${INSTALL_ROOT}
+          mv -v "Q_Light_Controller_Plus_-_QLC+-${ARCH}.AppImage" qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage
+
+      - name: Verify AppImage payload architecture
+        env:
+          ARCH: ${{ matrix.appimage_arch }}
+        run: |
+          ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage --appimage-extract > /dev/null
+          file squashfs-root/usr/bin/qlcplus-qml
+          case "${ARCH}" in
+            x86_64)  file squashfs-root/usr/bin/qlcplus-qml | grep -q 'ELF 64-bit.*x86-64' ;;
+            aarch64) file squashfs-root/usr/bin/qlcplus-qml | grep -q 'ELF 64-bit.*aarch64' ;;
+          esac
+          test -f squashfs-root/share/qlcplus/web/web-dmx/index.html
+          echo "OK: payload is ${ARCH} and web-dmx is bundled"
+
+      - name: Verify glibc baseline (Raspberry Pi OS Trixie compat)
+        if: ${{ matrix.appimage_arch == 'aarch64' }}
+        run: |
+          MAX_ALLOWED=2.39
+          MAX_FOUND=$(find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
+            | xargs -0 -r -n1 objdump -T 2>/dev/null \
+            | grep -oE 'GLIBC_2\.[0-9]+' | sed 's/GLIBC_//' | sort -uV | tail -1)
+          echo "max GLIBC required: ${MAX_FOUND} (allowed: ${MAX_ALLOWED})"
+          test -n "${MAX_FOUND}"
+          printf '%s\n%s\n' "${MAX_FOUND}" "${MAX_ALLOWED}" | sort -VC \
+            || { echo "FAIL: needs glibc ${MAX_FOUND} > ${MAX_ALLOWED}"; exit 1; }
+          echo "OK: runs on Raspberry Pi OS Trixie (glibc 2.41)"
 
       - name: Test Load AppImage
-        if: ${{ matrix.task == 'build-v5' }}
+        env:
+          ARCH: ${{ matrix.appimage_arch }}
         run: |
-          ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage --platform offscreen --version
+          rm -rf squashfs-root
+          ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage --platform offscreen --version
 
       - name: Store AppImage artifacts
-        if: ${{ ! startsWith( matrix.task, 'coverage') }}
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.task }}-AppImage
-          path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}.AppImage
+          name: ${{ matrix.task }}-AppImage-${{ matrix.appimage_arch }}
+          path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${{matrix.appimage_arch}}.AppImage
 
   build-windows:
     continue-on-error: true
@@ -692,7 +676,7 @@ jobs:
 
   release-mcp:
     if: github.event_name == 'push' && github.ref == 'refs/heads/mcp-server'
-    needs: [build-macos]
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     name: Release MCP builds
     permissions:
