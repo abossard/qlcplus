@@ -88,11 +88,15 @@ jobs:
           echo "ARCH: ${{ matrix.appimage_arch }} / $(uname -m)"
           echo "NPROC: ${NPROC}"
 
-      - name: Download, cache and install packages
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: ${{env.PACKAGES_ALL}}
-          version: ${{runner.os}}-${{matrix.appimage_arch}}-apt
+      # Plain apt-get instead of a caching action: the cache action pins exact
+      # versions from a possibly-stale index and, worse, reports success even
+      # when every package fails to install.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${PACKAGES_ALL}
+          pkg-config --exists libftdi1 libusb-1.0
+          echo "OK: libftdi1 $(pkg-config --modversion libftdi1), libusb-1.0 $(pkg-config --modversion libusb-1.0)"
 
       - name: Install Qt through aqt (and python)
         uses: jurplel/install-qt-action@v4
