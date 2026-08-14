@@ -190,6 +190,11 @@ jobs:
           rm -rf ${INSTALL_ROOT}/usr/bin/QtQuick/Controls.2/designer QtQuick/Controls.2/Material
           rm -rf ${INSTALL_ROOT}/usr/bin/QtQuick/Controls.2/Universal QtQuick/Controls.2/Fusion
           rm -rf ${INSTALL_ROOT}/usr/bin/QtQuick/Controls.2/Imagine QtQuick/Controls.2/Scene2D
+          # Qt's QML modules install relocatable .o build artifacts (~1 MB). They are
+          # dead weight, and objdump -T rejects them, so they would break the ABI scan
+          # if their mode ever gained +x.
+          find ${INSTALL_ROOT} -type d -name 'objects-*' -prune -exec rm -rf {} +
+          find ${INSTALL_ROOT} -name '*.o' -type f -delete
 
       - name: Build AppImage
         env:
@@ -269,6 +274,8 @@ jobs:
           echo "${out}"
           # APPVERSION has spaces replaced by dashes; the banner prints them as spaces.
           expected=$(echo "${APPVERSION}" | tr '-' ' ')
+          # Without this guard an empty APPVERSION would make the grep below match anything.
+          test -n "${expected}" || { echo "FAIL: APPVERSION is empty; assertion would be vacuous"; exit 1; }
           echo "${out}" | grep -qF "${expected}" \
             || { echo "FAIL: banner does not contain '${expected}'"; exit 1; }
           echo "OK: ran standalone with host Qt hidden and printed '${expected}'"
