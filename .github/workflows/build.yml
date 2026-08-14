@@ -216,25 +216,40 @@ jobs:
           test -f squashfs-root/share/qlcplus/web/web-dmx/index.html
           echo "OK: payload is ${ARCH} and web-dmx is bundled"
 
-      - name: Verify glibc baseline (Raspberry Pi OS Trixie compat)
+      # Two ABI axes matter, not one: glibc and libstdc++. Neither is bundled.
+      # Ceilings are what the target actually provides (Raspberry Pi OS Trixie /
+      # Debian 13: glibc 2.41, GCC 14 -> GLIBCXX_3.4.33, per the GCC ABI table).
+      # This checks symbol-version floors only; it does not check the ~29
+      # unbundled host libraries (libGL, xcb, dbus, ...) the app also needs.
+      - name: Verify ABI floors against Raspberry Pi OS Trixie
         if: ${{ matrix.appimage_arch == 'aarch64' }}
         run: |
-          MAX_ALLOWED=2.39
-          MAX_FOUND=$(find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
-            | xargs -0 -r -n1 objdump -T 2>/dev/null \
-            | grep -oE 'GLIBC_2\.[0-9]+' | sed 's/GLIBC_//' | sort -uV | tail -1)
-          echo "max GLIBC required: ${MAX_FOUND} (allowed: ${MAX_ALLOWED})"
-          test -n "${MAX_FOUND}"
-          printf '%s\n%s\n' "${MAX_FOUND}" "${MAX_ALLOWED}" | sort -VC \
-            || { echo "FAIL: needs glibc ${MAX_FOUND} > ${MAX_ALLOWED}"; exit 1; }
-          echo "OK: runs on Raspberry Pi OS Trixie (glibc 2.41)"
+          check_abi() {
+            prefix="$1"; allowed="$2"
+            found=$(find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
+              | xargs -0 -r -n1 objdump -T 2>/dev/null \
+              | grep -oE "${prefix}_[0-9]+(\.[0-9]+)+" | sed "s/${prefix}_//" | sort -uV | tail -1 || true)
+            echo "max ${prefix} required: ${found:-<none>} (Trixie provides: ${allowed})"
+            test -n "${found}" || { echo "FAIL: no ${prefix} symbols found; scan is broken"; exit 1; }
+            printf '%s\n%s\n' "${found}" "${allowed}" | sort -VC \
+              || { echo "FAIL: needs ${prefix} ${found} > ${allowed} available on Trixie"; exit 1; }
+          }
+          check_abi GLIBC 2.41
+          check_abi GLIBCXX 3.4.33
+          echo "OK: glibc and libstdc++ symbol floors fit Raspberry Pi OS Trixie"
 
       - name: Test Load AppImage
         env:
           ARCH: ${{ matrix.appimage_arch }}
         run: |
           rm -rf squashfs-root
-          ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage --platform offscreen --version
+          # Hide the build host's Qt so this proves the AppImage is self-contained
+          # rather than silently linking against /opt/Qt. Use 'minimal', which is
+          # bundled; 'offscreen' is not shipped and would only resolve via host Qt.
+          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH \
+              -u QT_ROOT_DIR -u QT_QPA_PLATFORM_PLUGIN_PATH \
+            ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage \
+              --platform minimal --version
 
       - name: Store AppImage artifacts
         uses: actions/upload-artifact@v7
