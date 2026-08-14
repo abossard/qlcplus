@@ -224,10 +224,17 @@ jobs:
       - name: Verify ABI floors against Raspberry Pi OS Trixie
         if: ${{ matrix.appimage_arch == 'aarch64' }}
         run: |
+          # Scan once, and let a failing objdump/find fail the step. A blanket
+          # '|| true' on this pipeline would let a PARTIAL scan failure report an
+          # under-measured maximum and pass.
+          syms=$(find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
+            | xargs -0 -r -n1 objdump -T 2>/dev/null) \
+            || { echo "FAIL: symbol scan failed; some file could not be read"; exit 1; }
           check_abi() {
             prefix="$1"; allowed="$2"
-            found=$(find squashfs-root -type f \( -name '*.so*' -o -perm -u+x \) -print0 \
-              | xargs -0 -r -n1 objdump -T 2>/dev/null \
+            # '|| true' here only absorbs "grep matched nothing", which the
+            # explicit test -n below then reports.
+            found=$(printf '%s\n' "${syms}" \
               | grep -oE "${prefix}_[0-9]+(\.[0-9]+)+" | sed "s/${prefix}_//" | sort -uV | tail -1 || true)
             echo "max ${prefix} required: ${found:-<none>} (Trixie provides: ${allowed})"
             test -n "${found}" || { echo "FAIL: no ${prefix} symbols found; scan is broken"; exit 1; }
@@ -246,10 +253,25 @@ jobs:
           # Hide the build host's Qt so this proves the AppImage is self-contained
           # rather than silently linking against /opt/Qt. Use 'minimal', which is
           # bundled; 'offscreen' is not shipped and would only resolve via host Qt.
-          env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH \
-              -u QT_ROOT_DIR -u QT_QPA_PLATFORM_PLUGIN_PATH \
+          # QML_IMPORT_PATH is the Qt6 spelling of QML2_IMPORT_PATH; clear both.
+          clean_env() {
+            env -u LD_LIBRARY_PATH -u QT_PLUGIN_PATH -u QML2_IMPORT_PATH -u QML_IMPORT_PATH \
+                -u QT_ROOT_DIR -u QT_QPA_PLATFORM_PLUGIN_PATH -u QT_QPA_PLATFORM -u QTDIR "$@"
+          }
+          echo "Qt-related variables as the child sees them:"
+          clean_env sh -c 'for v in LD_LIBRARY_PATH QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH \
+                                    QT_ROOT_DIR QT_QPA_PLATFORM_PLUGIN_PATH QT_QPA_PLATFORM QTDIR; do
+                             eval "val=\${$v-<unset>}"; echo "  $v=$val"
+                           done'
+          out=$(clean_env \
             ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage \
-              --platform minimal --version
+              --platform minimal --version 2>&1)
+          echo "${out}"
+          # APPVERSION has spaces replaced by dashes; the banner prints them as spaces.
+          expected=$(echo "${APPVERSION}" | tr '-' ' ')
+          echo "${out}" | grep -qF "${expected}" \
+            || { echo "FAIL: banner does not contain '${expected}'"; exit 1; }
+          echo "OK: ran standalone with host Qt hidden and printed '${expected}'"
 
       - name: Store AppImage artifacts
         uses: actions/upload-artifact@v7
