@@ -83,3 +83,8 @@ test-reports/
 .codex
 .claude
 .agents
+
+# In-source CMake output (never commit: it embeds absolute machine paths)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
