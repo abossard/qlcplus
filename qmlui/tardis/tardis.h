@@ -78,22 +78,23 @@ public:
         GenericItemSetRotation,
         GenericItemSetScale,
 
-        IOAddUniverse = 0x0090,
+        /* Input/Output mapping actions */
+        IOAddUniverse = 0x0100,
         IORemoveUniverse,
 
         /* Fixture editing actions */
-        FixtureCreate = 0x0100,
+        FixtureCreate = 0x0200,
         FixtureDelete,
         FixtureMove,
         FixtureSetName,
         FixtureSetChannelModifier,
 
         /* Fixture group editing actions */
-        FixtureGroupCreate,
+        FixtureGroupCreate = 0x0300,
         FixtureGroupDelete,
 
         /* Function editing actions */
-        FunctionCreate = 0x0200,
+        FunctionCreate = 0x1000,
         FunctionDelete,
         FunctionSetName,
         FunctionSetPath,
@@ -104,7 +105,8 @@ public:
         FunctionSetFadeOut,
         FunctionSetDuration,
 
-        SceneSetChannelValue,
+        /* Scene editing actions */
+        SceneSetChannelValue = 0x1100,
         SceneUnsetChannelValue,
         SceneAddFixture,
         SceneRemoveFixture,
@@ -113,7 +115,8 @@ public:
         SceneAddPalette,
         SceneRemovePalette,
 
-        ChaserAddStep,
+        /* Chaser editing actions */
+        ChaserAddStep = 0x1200,
         ChaserRemoveStep,
         ChaserMoveStep,
         ChaserSetStepFadeIn,
@@ -121,7 +124,8 @@ public:
         ChaserSetStepFadeOut,
         ChaserSetStepDuration,
 
-        EFXAddFixture,
+        /* EFX editing actions */
+        EFXAddFixture = 0x1300,
         EFXRemoveFixture,
         EFXFixturePropagation,
         EFXSetAlgorithmIndex,
@@ -137,10 +141,12 @@ public:
         EFXSetXPhase,
         EFXSetYPhase,
 
-        CollectionAddFunction,
+        /* Collection editing actions */
+        CollectionAddFunction = 0x1400,
         CollectionRemoveFunction,
 
-        RGBMatrixSetFixtureGroup,
+        /* RGB Matrix editing actions */
+        RGBMatrixSetFixtureGroup = 0x1500,
         RGBMatrixSetAlgorithmIndex,
         RGBMatrixSetColor1,
         RGBMatrixSetColor2,
@@ -156,10 +162,12 @@ public:
         RGBMatrixSetOffset,
         RGBMatrixSetAnimationStyle,
 
-        AudioSetSource,
+        /* Audio editing actions */
+        AudioSetSource = 0x1600,
         AudioSetVolume,
 
-        VideoSetSource,
+        /* Video editing actions */
+        VideoSetSource = 0x1700,
         VideoSetScreenIndex,
         VideoSetFullscreen,
         VideoSetGeometry,
@@ -194,12 +202,12 @@ public:
         VCWidgetPage,
         VCWidgetZIndex,
 
-        VCButtonSetActionType,
+        VCButtonSetActionType = 0xE100,
         VCButtonSetFunctionID,
         VCButtonEnableStartupIntensity,
         VCButtonSetStartupIntensity,
 
-        VCSliderSetMode,
+        VCSliderSetMode = 0xE200,
         VCSliderSetWidgetStyle,
         VCSliderSetDisplayStyle,
         VCSliderSetInverted,
@@ -208,7 +216,7 @@ public:
         VCSliderSetLowLimit,
         VCSliderSetHighLimit,
 
-        VCCueListSetChaserID,
+        VCCueListSetChaserID = 0xE300,
 
         VCFrameLayoutMode,
         VCFrameGridColumns,
@@ -218,27 +226,37 @@ public:
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,
         FixtureResetDumpValues,
-        FunctionStart,
+
+        FunctionStart = LIVE_ACTIONS_START_CODE + 0x100,
         FunctionStop,
-        VCButtonSetPressed,
-        VCSliderSetValue,
+
+        VCButtonSetPressed = LIVE_ACTIONS_START_CODE + 0x200,
+
+        VCSliderSetValue = LIVE_ACTIONS_START_CODE + 0x300,
         VCSliderButtonPress,
-        VCCueListPlayClicked,
+
+        VCCueListPlayClicked = LIVE_ACTIONS_START_CODE + 0x400,
         VCCueListStopClicked,
         VCCueListNextClicked,
         VCCueListPreviousClicked,
         VCCueListSetIndex,
-        VCSpeedDialSetTime,
+
+        VCSpeedDialSetTime = LIVE_ACTIONS_START_CODE + 0x500,
         VCSpeedDialSetFactor,
         VCSpeedDialApply,
-        VCXYPadSetPosition,
+
+        VCXYPadSetPosition = LIVE_ACTIONS_START_CODE + 0x600,
         VCXYPadSetGeometry,
         VCXYPadActivatePreset,
-        VCAudioTriggersSetCaptureEnabled,
+        VCXYPadSetFloorPosition,
+
+        VCAudioTriggersSetCaptureEnabled = LIVE_ACTIONS_START_CODE + 0x700,
         VCAudioTriggersSetLevel,
-        VCClockSetEnabled,
+
+        VCClockSetEnabled = LIVE_ACTIONS_START_CODE + 0x800,
         VCClockReset,
-        VCAnimationSetFaderLevel,
+
+        VCAnimationSetFaderLevel = LIVE_ACTIONS_START_CODE + 0x900,
         VCAnimationSetAlgorithmIndex,
         VCAnimationSetColor1,
         VCAnimationSetColor2,
@@ -254,7 +272,10 @@ public:
         NetAuthenticationReply,
         NetPoll,
         NetPollReply,
-        NetProjectTransfer
+        NetProjectTransfer,
+        NetProjectChanging,
+        NetProjectLoaded,
+        NetProjectRequest
     };
 
     Q_ENUM(ActionCodes)
@@ -301,8 +322,10 @@ public:
     /** @reimp */
     void run() override; // thread run function
 
+    /** Return the symbolic name of an action code, for logging purposes */
+    static QString actionToString(int action);
+
 protected:
-    QString actionToString(int action);
     bool processBufferedAction(int action, quint32 objID, QVariant &value);
 
 protected slots:

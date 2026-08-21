@@ -123,10 +123,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 
-if(APPLE AND qmlui)
-    # Static archives cannot be code-signed and are not needed at runtime
-    # in the app bundle (already linked into the executable at build time)
-else()
+# For qmlui this is a static library linked into the qlcplus5 executable,
+# so there is nothing to install and nothing that could clash with QLC+ 4
+if(NOT qmlui)
     install(TARGETS ${module_name}
         ARCHIVE DESTINATION ${INSTALLROOT}/${LIBSDIR}
         LIBRARY DESTINATION ${INSTALLROOT}/${LIBSDIR}

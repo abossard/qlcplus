@@ -1,4 +1,4 @@
-set(module_name "qlcplus-qml")
+set(module_name "qlcplus5")
 
 set(TS_FILES
     qlcplus_ca_ES.ts
@@ -97,6 +97,12 @@ set(SRC_FILES
     virtualconsole/virtualconsole.cpp virtualconsole/virtualconsole.h
     virtualconsole/vclayoutadapter.cpp virtualconsole/vclayoutadapter.h
     flowconsole/flowconsole.cpp flowconsole/flowconsole.h
+    stagewizard/stagewizard.cpp stagewizard/stagewizard.h
+    stagewizard/stagewizard_placement.cpp
+    stagewizard/stagewizard_functions.cpp
+    stagewizard/stagewizard_colors.cpp
+    stagewizard/stagewizard_vc.cpp
+    stagewizard/stagewizard_controller.cpp
 )
 
 # This is most of the Android deployment code
@@ -139,6 +145,7 @@ target_include_directories(${module_name} PRIVATE
     tardis
     virtualconsole
     flowconsole
+    stagewizard
 )
 target_include_directories(${module_name} PUBLIC ${FFTW3_INCLUDE_DIRS})
 
@@ -250,6 +257,7 @@ if(lupdate_only)
         qml/inputoutput/*.qml
         qml/popup/*.qml
         qml/showmanager/*.qml
+        qml/stagewizard/*.qml
         qml/virtualconsole/*.qml
     )
 endif()

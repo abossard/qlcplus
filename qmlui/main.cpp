@@ -144,6 +144,13 @@ int main(int argc, char *argv[])
 #ifdef HAS_MCP_SERVER
     mcpAddOptions(parser);
 #endif
+    QCommandLineOption remoteOption(QStringList() << "s" << "server",
+                                      "Enable the native network server");
+    parser.addOption(remoteOption);
+
+    QCommandLineOption allowAllNativeOption(QStringList() << "sa" << "server-allow-all",
+        "Automatically grant full access to every native TCP client (unsafe on untrusted networks)");
+    parser.addOption(allowAllNativeOption);
 
     parser.process(app);
 
@@ -151,6 +158,8 @@ int main(int argc, char *argv[])
     bool enableWebAuth = parser.isSet(webAuthOption);
     int webAccessPort = parser.value(webPortOption).toInt();
     QString webAccessPasswordFile = parser.value(webAuthFileOption);
+    bool allowAllNative = parser.isSet(allowAllNativeOption);
+    bool enableNativeServer = parser.isSet(remoteOption) || allowAllNative;
 
 #if !defined Q_OS_ANDROID
     // 3D enablement
@@ -248,14 +257,28 @@ int main(int argc, char *argv[])
     if (filename.isEmpty())
         qlcplusApp.loadLastWorkspace();
 
-    if (enableWebAccess && qlcplusApp.networkManager() != nullptr)
+    if ((enableWebAccess || enableNativeServer) && qlcplusApp.networkManager() != nullptr)
     {
-        qlcplusApp.networkManager()->setWebServerConfiguration(webAccessPort, enableWebAuth,
-                                                               webAccessPasswordFile);
-        qlcplusApp.networkManager()->setForceWebServerMode(true);
-        qlcplusApp.networkManager()->setServerType(NetworkManager::WebServer);
-        if (qlcplusApp.networkManager()->serverStarted() == false)
-            qlcplusApp.networkManager()->startServer();
+        NetworkManager *netMgr = qlcplusApp.networkManager();
+        netMgr->setAllowAllNative(allowAllNative);
+        if (allowAllNative)
+        {
+            qCritical().noquote()
+                << "WARNING: --server-allow-all grants full QLC+ control to every native client, including LAN clients. Keep TCP port 9998 firewalled or use only a trusted network.";
+        }
+        int forcedTypes = NetworkManager::NoServer;
+
+        if (enableWebAccess)
+        {
+            netMgr->setWebServerConfiguration(webAccessPort, enableWebAuth, webAccessPasswordFile);
+            forcedTypes |= NetworkManager::WebServer;
+        }
+
+        if (enableNativeServer)
+            forcedTypes |= NetworkManager::NativeServer;
+
+        netMgr->setForcedServerTypes(forcedTypes);
+        netMgr->startServer();
     }
 
     // fullscreen mode

@@ -87,6 +87,12 @@ typedef struct
     /** Reference to the texture used to render the
      *  currently selected gobo picture */
     GoboTextureImage *m_goboTexture;
+    /** The scene generation this item was created in. Mesh loading is
+     *  asynchronous, so a SceneLoader callback can arrive after the scene
+     *  has been reset (e.g. on project load). Callbacks carrying a stale
+     *  generation must be discarded, otherwise they would resurrect
+     *  already deleted entities */
+    quint32 m_generation;
 } SceneItem;
 
 class MainView3D final : public PreviewContext
@@ -176,6 +182,10 @@ private:
     QQmlComponent *m_fillGBufferLayer;
     int m_createItemCount;
 
+    /** Incremented on every scene reset. Used to detect and drop
+     *  asynchronous mesh loading callbacks belonging to a previous scene */
+    quint32 m_sceneGeneration;
+
     QVector3D m_cameraPosition;
     QVector3D m_cameraUpVector;
     QVector3D m_cameraViewCenter;
@@ -251,6 +261,48 @@ public:
     /** Update the scale of a Fixture with the provided $itemID */
     void updateFixtureScale(quint32 itemID, QVector3D origSize);
 
+    /** Loaded mesh bounding-box extents (in metres) for the item with $itemID,
+     *  or a zero vector if the item is not (yet) present in the 3D scene. */
+    QVector3D fixtureExtents(quint32 itemID) const;
+
+    /** Full path of the generic mesh this view uses to draw $fixture, or an
+     *  empty string for fixture types drawn without a mesh (LED bars). The file
+     *  name comes from FixtureUtils::fixtureLightResource(). */
+    QString fixtureMeshPath(const Fixture *fixture) const;
+
+    /** Bounding-box extents (metres) of the mesh file at $meshPath, parsed
+     *  straight from the geometry. Results are cached per path. Returns a zero
+     *  vector when the file cannot be read or holds no vertex data. */
+    QVector3D meshFileExtents(const QString &meshPath) const;
+
+    /** Half-thickness (metres) of the truss bars of the current stage.
+     *
+     *  Read from the live stage entity's `trussHalfSize` QML property, so it
+     *  tracks whatever the stage model declares instead of being duplicated in
+     *  C++. Returns 0 when the current stage has no trusses (or the 3D view has
+     *  never been created), which callers must treat as "no truss to snap to".
+     */
+    Q_INVOKABLE qreal trussHalfSize() const;
+
+    /** Vertical span (metres, monitor space) of the truss bars: the underside
+     *  and the top face. The bars sit ABOVE the environment box, so the
+     *  underside is the grid height and the top is one bar-thickness higher.
+     *  Both are 0 when the current stage has no trusses. */
+    void trussVerticalSpan(qreal &bottomY, qreal &topY) const;
+
+    /** Size (metres) $fixture will actually be DRAWN at.
+     *
+     *  Mirrors what createFixtureItem() + updateFixtureScale() do: the generic
+     *  per-type mesh is fitted into the fixture's declared physical box with a
+     *  single uniform scale, so it keeps its aspect ratio. Callers that need to
+     *  position a fixture against real geometry (the Stage Wizard snapping to a
+     *  truss) must use this, not the declared size — the two differ whenever the
+     *  mesh aspect does not match the declared box.
+     *
+     *  Falls back to the live scene item's extents when the mesh is already
+     *  loaded, and to the declared physical size when there is no mesh at all. */
+    Q_INVOKABLE QVector3D fixtureDrawnSize(quint32 fixtureID) const;
+
     /** Remove a Fixture item with the provided $itemID from the preview */
     void removeFixtureItem(quint32 itemID);
 
@@ -302,6 +354,11 @@ private:
 
     /** Cache of the loaded models against bounding volumes */
     QMap<QUrl, BoundingVolume> m_boundingVolumesMap;
+
+    /** Bounding extents (metres) parsed from a mesh FILE, keyed by path. Filled
+     *  lazily by meshFileExtents() so the geometry can be queried even when the
+     *  3D view has never been shown and no scene item exists. */
+    mutable QHash<QString, QVector3D> m_meshFileExtents;
 
     /*********************************************************************
      * Generic items

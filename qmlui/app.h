@@ -47,6 +47,7 @@ class NetworkManager;
 class VideoProvider;
 class FixtureEditor;
 class FlowConsole;
+class StageWizard;
 class Tardis;
 class VdjBridge;
 class DjManager;
@@ -211,7 +212,13 @@ protected slots:
     void slotSceneGraphInitialized();
     void slotScreenChanged(QScreen *screen);
     void slotClosing();
-    void slotClientAccessRequest(QString name);
+    void slotClientAccessRequest(QString sessionId, QString name,
+                                 QString peerAddress, quint16 peerPort);
+    void slotClientAccessRequestCancelled(QString sessionId);
+
+    /** Serve the current workspace to a client that requested it */
+    void slotClientProjectRequest(QString sessionId);
+
     void slotAccessMaskChanged(int mask);
     void slotDocAutosave();
 
@@ -249,6 +256,7 @@ private:
     VideoProvider *m_videoProvider;
     NetworkManager *m_networkManager;
     UiManager *m_uiManager;
+    StageWizard *m_stageWizard;
     Tardis *m_tardis;
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
@@ -391,6 +399,11 @@ signals:
 
 public slots:
     void slotLoadDocFromMemory(QByteArray &xmlData);
+
+    /** Clear the whole workspace on request of the connected server, which
+     *  is about to replace its own project */
+    void slotClearDocFromNetwork();
+
     void slotSaveAutostart(QString fileName);
 
 private:

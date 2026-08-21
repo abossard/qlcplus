@@ -20,10 +20,15 @@
 #include <QXmlStreamWriter>
 #include <QNetworkInterface>
 #include <QtCore/qbuffer.h>
+#include <QCryptographicHash>
+#include <QSettings>
+#include <QUuid>
+#include <QTimer>
 #include <QFile>
 #include <QDateTime>
 
 #include "networkmanager.h"
+#include "app.h"
 #include "networkpacketizer.h"
 #include "simplecrypt.h"
 #include "tardis.h"
@@ -36,6 +41,8 @@
 
 #define WORKSPACE_CHUNK_SIZE    8 * 1024
 #define ECHO_GUARD_WINDOW_MS    15000
+
+#define SETTINGS_SERVER_KEY     QStringLiteral("network/serverkey")
 
 static const quint64 defaultKey = 0x5131632B4E33744B; // this is "Q1c+N3tK"
 
@@ -53,13 +60,23 @@ NetworkManager::NetworkManager(QObject *parent, Doc *doc, VirtualConsole *vc, Si
     , m_webServerAuth(false)
     , m_webServerPasswordFile(QString())
     , m_tcpServer(nullptr)
-    , m_serverStarted(false)
+    , m_serverStartedMask(NoServer)
     , m_tcpSocket(nullptr)
     , m_clientStatus(Disconnected)
 {
     m_hostType = UnknownHostType;
     m_crypt = new SimpleCrypt(defaultKey);
     m_packetizer = new NetworkPacketizer();
+
+    // restore the encryption key saved in the global QLC+ settings
+    QSettings settings;
+    QVariant storedKey = settings.value(SETTINGS_SERVER_KEY);
+    if (storedKey.isValid())
+    {
+        SimpleCrypt masterCrypt(defaultKey);
+        m_serverPassword = masterCrypt.decryptToString(storedKey.toString());
+    }
+    applyEncryptionKey();
 
     if (m_doc != nullptr)
     {
@@ -110,29 +127,66 @@ int NetworkManager::serverType() const
     return m_serverType;
 }
 
-void NetworkManager::setServerType(int type)
+void NetworkManager::setServerType(int typeMask)
+{
+    typeMask = (typeMask & (NativeServer | WebServer)) | m_forcedServerTypes;
+
+    if (m_serverType == typeMask)
+        return;
+
+    // stop the servers that are being disabled
+    int toStop = m_serverType & ~typeMask;
+    if (toStop & NativeServer)
+        stopServerType(NativeServer);
+    if (toStop & WebServer)
+        stopServerType(WebServer);
+
+    m_serverType = typeMask;
+    if (m_doc != nullptr && m_doc->inputOutputMap() != nullptr)
+    {
+        int ioMask = InputOutputMap::NoServer;
+        if (typeMask & NativeServer)
+            ioMask |= InputOutputMap::NativeServer;
+        if (typeMask & WebServer)
+            ioMask |= InputOutputMap::WebServer;
+        m_doc->inputOutputMap()->setNetworkServerType(ioMask);
+    }
+
+    emit serverTypeChanged(m_serverType);
+}
+
+void NetworkManager::enableServerType(int type, bool enable)
 {
     if (type != NativeServer && type != WebServer)
         return;
 
-    if (m_serverType == type)
-        return;
+    // if some server is already running, follow the user
+    // intention and start/stop the requested type as well
+    bool applyToRuntime = serverStarted();
 
-    bool wasStarted = serverStarted();
-    if (wasStarted)
-        stopServer();
+    setServerType(enable ? (m_serverType | type) : (m_serverType & ~type));
 
-    m_serverType = type;
-    if (m_doc != nullptr && m_doc->inputOutputMap() != nullptr)
+    if (applyToRuntime && enable && (m_serverType & type))
+        startServerType(type);
+}
+
+bool NetworkManager::toggleServerType(int type)
+{
+    if (type != NativeServer && type != WebServer)
+        return false;
+
+    // stopping: disabling the type stops it as well, so that
+    // an autostart won't bring it up again on the next load
+    if (m_serverStartedMask & type)
     {
-        m_doc->inputOutputMap()->setNetworkServerType(
-            type == WebServer ? InputOutputMap::WebServer : InputOutputMap::NativeServer);
+        setServerType(m_serverType & ~type);
+        return false;
     }
 
-    emit serverTypeChanged(m_serverType);
+    // starting: make sure the type is enabled before running it
+    setServerType(m_serverType | type);
 
-    if (wasStarted)
-        startServer();
+    return startServerType(type);
 }
 
 bool NetworkManager::startAutomatically() const
@@ -162,9 +216,65 @@ void NetworkManager::setServerPassword(QString password)
         return;
 
     m_serverPassword = password;
-    if (m_doc != nullptr && m_doc->inputOutputMap() != nullptr)
-        m_doc->inputOutputMap()->setNetworkServerPassword(password);
     emit serverPasswordChanged(m_serverPassword);
+}
+
+quint64 NetworkManager::sessionKey() const
+{
+    // an empty key means "no custom key": fall back to
+    // the QLC+ master key, so that a default setup still works
+    if (m_serverPassword.isEmpty())
+        return defaultKey;
+
+    // fold the user key into the 64 bits SimpleCrypt expects. A hash is
+    // used so that keys sharing a prefix don't end up being equivalent
+    QByteArray digest = QCryptographicHash::hash(m_serverPassword.toUtf8(),
+                                                 QCryptographicHash::Sha256);
+    quint64 key = 0;
+    for (int i = 0; i < 8; i++)
+        key = (key << 8) | quint8(digest.at(i));
+
+    return key;
+}
+
+void NetworkManager::applyEncryptionKey()
+{
+    m_crypt->setKey(sessionKey());
+}
+
+bool NetworkManager::saveEncryptionKey(QString key)
+{
+    setServerPassword(key);
+
+    // store the key in the global QLC+ settings, encrypted with the master key
+    QSettings settings;
+    if (key.isEmpty())
+    {
+        settings.remove(SETTINGS_SERVER_KEY);
+    }
+    else
+    {
+        SimpleCrypt masterCrypt(defaultKey);
+        settings.setValue(SETTINGS_SERVER_KEY, masterCrypt.encryptToString(key));
+    }
+
+    // the key is the shared secret of the whole session: restart
+    // the running servers so peers negotiate with the new one
+    int runningMask = m_serverStartedMask;
+
+    if (runningMask & NativeServer)
+        stopServerType(NativeServer);
+    if (runningMask & WebServer)
+        stopServerType(WebServer);
+
+    applyEncryptionKey();
+
+    if (runningMask & NativeServer)
+        startServerType(NativeServer);
+    if (runningMask & WebServer)
+        startServerType(WebServer);
+
+    return true;
 }
 
 void NetworkManager::setWebServerConfiguration(int portNumber, bool enableAuth, const QString &passwordFile)
@@ -182,9 +292,25 @@ int NetworkManager::webAccessPort() const
     return m_webServerPort;
 }
 
-void NetworkManager::setForceWebServerMode(bool force)
+void NetworkManager::setForcedServerTypes(int typeMask)
 {
-    m_forceWebServerMode = force;
+    m_forcedServerTypes = typeMask & (NativeServer | WebServer);
+
+    // the command line defines the enabled types exactly: only the
+    // requested ones must run, no matter what the default or the
+    // workspace settings ask for
+    if (m_forcedServerTypes != NoServer)
+        setServerType(m_forcedServerTypes);
+}
+
+void NetworkManager::setAllowAllNative(bool allow)
+{
+    m_allowAllNative = allow;
+}
+
+bool NetworkManager::allowAllNative() const
+{
+    return m_allowAllNative;
 }
 
 int NetworkManager::connectionsCount() const
@@ -243,7 +369,8 @@ void NetworkManager::sendAction(int code, TardisAction action)
                 ++i;
                 continue;
             }
-            sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
+            if (host != nullptr && host->isAuthenticated)
+                sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
             ++i;
         }
     }
@@ -309,11 +436,8 @@ bool NetworkManager::sendTCPPacket(QTcpSocket *socket, QByteArray &packet, bool 
 
         if (socket->state() == QAbstractSocket::UnconnectedState)
         {
-            // remove this host from the connected hosts map
+            // The disconnected signal owns session removal and deferred socket deletion.
             qDebug() << "Host disconnected";
-            socket->close();
-            delete socket;
-            socket = nullptr;
             return false;
         }
     }
@@ -373,10 +497,36 @@ bool NetworkManager::shouldSkipEcho(const QTcpSocket *socket, int code, quint32 
 
 bool NetworkManager::startServer()
 {
-    if (serverStarted() == true)
+    bool result = false;
+
+    if (m_serverType & NativeServer)
+        result |= startServerType(NativeServer);
+
+    if (m_serverType & WebServer)
+        result |= startServerType(WebServer);
+
+    return result;
+}
+
+bool NetworkManager::stopServer()
+{
+    bool result = false;
+
+    if (m_serverStartedMask & NativeServer)
+        result |= stopServerType(NativeServer);
+
+    if (m_serverStartedMask & WebServer)
+        result |= stopServerType(WebServer);
+
+    return result;
+}
+
+bool NetworkManager::startServerType(int type)
+{
+    if (m_serverStartedMask & type)
         return false;
 
-    if (m_serverType == WebServer)
+    if (type == WebServer)
     {
         if (m_doc == nullptr || m_virtualConsole == nullptr || m_simpleDesk == nullptr)
             return false;
@@ -391,15 +541,20 @@ bool NetworkManager::startServer()
         });
         connect(m_webAccess, &WebAccessQml::storeAutostartProject,
                 this, &NetworkManager::storeAutostartProject);
-        setServerStarted(true);
+        setServerStartedMask(m_serverStartedMask | WebServer);
         return true;
     }
+
+    if (type != NativeServer)
+        return false;
 
     m_udpSocket = new QUdpSocket(this);
 
     if (m_udpSocket->bind(DEFAULT_UDP_PORT, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint) == false)
     {
         qDebug() << Q_FUNC_INFO << "Error in binding UDP socket on" << DEFAULT_UDP_PORT;
+        delete m_udpSocket;
+        m_udpSocket = nullptr;
         return false;
     }
     qDebug() << "UDP socket opened";
@@ -411,30 +566,42 @@ bool NetworkManager::startServer()
     if (m_tcpServer->listen(QHostAddress::Any, DEFAULT_TCP_PORT) == false)
     {
         qDebug() << Q_FUNC_INFO << "Error listening TCP socket on" << DEFAULT_TCP_PORT;
+        disconnect(m_udpSocket, &QUdpSocket::readyRead, this, &NetworkManager::slotProcessUDPPackets);
+        m_udpSocket->close();
+        delete m_udpSocket;
+        m_udpSocket = nullptr;
+        delete m_tcpServer;
+        m_tcpServer = nullptr;
         return false;
     }
     connect(m_tcpServer, &QTcpServer::newConnection, this, &NetworkManager::slotProcessNewTCPConnection);
 
     m_hostType = ServerHostType;
 
-    setServerStarted(true);
+    setServerStartedMask(m_serverStartedMask | NativeServer);
 
     return true;
 }
 
-bool NetworkManager::stopServer()
+bool NetworkManager::stopServerType(int type)
 {
-    if (serverStarted() == false)
+    if ((m_serverStartedMask & type) == 0)
         return false;
 
-    if (m_webAccess != nullptr)
+    if (type == WebServer)
     {
-        m_webAccess->closeServer();
-        m_webAccess->deleteLater();
-        m_webAccess = nullptr;
-        setServerStarted(false);
+        if (m_webAccess != nullptr)
+        {
+            m_webAccess->closeServer();
+            m_webAccess->deleteLater();
+            m_webAccess = nullptr;
+        }
+        setServerStartedMask(m_serverStartedMask & ~WebServer);
         return true;
     }
+
+    if (type != NativeServer)
+        return false;
 
     disconnect(m_udpSocket, &QUdpSocket::readyRead, this, &NetworkManager::slotProcessUDPPackets);
     disconnect(m_tcpServer, &QTcpServer::newConnection, this, &NetworkManager::slotProcessNewTCPConnection);
@@ -442,7 +609,28 @@ bool NetworkManager::stopServer()
     m_udpSocket->close();
     m_tcpServer->close();
 
-    setServerStarted(false);
+    const QString activeRequest = m_activeAccessRequest.sessionId;
+    m_activeAccessRequest = NativeAccessRequest();
+    m_pendingAccessRequests.clear();
+    if (!activeRequest.isEmpty())
+        emit clientAccessRequestCancelled(activeRequest);
+    for (NetworkHost *host : std::as_const(m_hostsMap))
+    {
+        if (host->tcpSocket)
+        {
+            disconnect(host->tcpSocket, nullptr, this, nullptr);
+            host->tcpSocket->close();
+            host->tcpSocket->deleteLater();
+        }
+        delete host;
+    }
+    m_hostsMap.clear();
+    emit connectionsCountChanged();
+
+    if (m_hostType == ServerHostType)
+        m_hostType = UnknownHostType;
+
+    setServerStartedMask(m_serverStartedMask & ~NativeServer);
 
     delete m_udpSocket;
     delete m_tcpServer;
@@ -453,117 +641,247 @@ bool NetworkManager::stopServer()
     return true;
 }
 
-bool NetworkManager::setClientAccess(QString hostName, bool allow, int accessMask)
+bool NetworkManager::setClientAccess(QString sessionId, bool allow, int accessMask)
 {
-    QHostAddress clientAddress = getHostFromName(hostName);
-    NetworkHost *host = m_hostsMap.value(clientAddress, nullptr);
-
-    if (host == nullptr || clientAddress.isNull())
+    NetworkHost *host = m_hostsMap.value(sessionId, nullptr);
+    if (host == nullptr || host->tcpSocket.isNull())
+        return false;
+    if (!m_allowAllNative && m_activeAccessRequest.sessionId != sessionId)
         return false;
 
-    if (!allow)
-        host->isAuthenticated = false;
+    host->isAuthenticated = allow;
+    host->accessMask = allow ? accessMask : 0;
 
     QByteArray reply;
     m_packetizer->initializePacket(reply, Tardis::NetAuthenticationReply);
-
+    m_packetizer->addSection(reply, QVariant(allow ? "Success" : "Failed"));
     if (allow)
-    {
-        m_packetizer->addSection(reply, QVariant("Success"));
         m_packetizer->addSection(reply, QVariant(accessMask));
-    }
-    else
+    bool sent = sendTCPPacket(host->tcpSocket, reply, m_encryptPackets);
+
+    if (!m_allowAllNative)
     {
-        m_packetizer->addSection(reply, QVariant("Failed"));
+        m_activeAccessRequest = NativeAccessRequest();
+        QTimer::singleShot(0, this, &NetworkManager::showNextAccessRequest);
     }
-
-    sendTCPPacket(host->tcpSocket, reply, m_encryptPackets);
-
-    return true;
+    return sent;
 }
 
-bool NetworkManager::sendWorkspaceToClient(QString hostName, QString filename)
+void NetworkManager::notifyProjectChanging()
+{
+    if (m_hostType != ServerHostType || m_hostsMap.isEmpty())
+    {
+        qDebug() << "[TCP] Not notifying project change. Host type:" << m_hostType
+                 << "hosts:" << m_hostsMap.count();
+        return;
+    }
+
+    QByteArray packet;
+    m_packetizer->initializePacket(packet, Tardis::NetProjectChanging);
+
+    for (NetworkHost *host : std::as_const(m_hostsMap))
+    {
+        if (host == nullptr || host->tcpSocket.isNull() || !host->isAuthenticated)
+            continue;
+
+        qDebug() << "[TCP] Notifying project change to" << host->hostName;
+        sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
+    }
+}
+
+void NetworkManager::notifyProjectLoaded()
+{
+    if (m_hostType != ServerHostType || m_hostsMap.isEmpty())
+    {
+        qDebug() << "[TCP] Not notifying project loaded. Host type:" << m_hostType
+                 << "hosts:" << m_hostsMap.count();
+        return;
+    }
+
+    QByteArray packet;
+    m_packetizer->initializePacket(packet, Tardis::NetProjectLoaded);
+
+    for (NetworkHost *host : std::as_const(m_hostsMap))
+    {
+        if (host == nullptr || host->tcpSocket.isNull() || !host->isAuthenticated)
+            continue;
+
+        qDebug() << "[TCP] Notifying project loaded to" << host->hostName;
+        sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
+    }
+}
+
+bool NetworkManager::requestProjectFromServer()
+{
+    if (m_hostType != ClientHostType || m_tcpSocket == nullptr)
+        return false;
+
+    qDebug() << "[TCP] Requesting project to the server";
+
+    QByteArray packet;
+    m_packetizer->initializePacket(packet, Tardis::NetProjectRequest);
+
+    setClientStatus(DownloadingProject);
+
+    return sendTCPPacket(m_tcpSocket, packet, m_encryptPackets);
+}
+
+bool NetworkManager::sendWorkspaceToClient(QString sessionId, QString filename)
 {
     QByteArray packet;
     int pktCounter = 0;
     QFile workspace(filename);
-    QHostAddress clientAddress = getHostFromName(hostName);
-    NetworkHost *host = m_hostsMap.value(clientAddress, nullptr);
+    NetworkHost *host = m_hostsMap.value(sessionId, nullptr);
 
-    if (host == nullptr || clientAddress.isNull())
-        return false;
-
-    if (workspace.exists() == false)
+    if (host == nullptr || host->tcpSocket.isNull() || !host->isAuthenticated)
     {
+        qWarning() << "[TCP] Cannot send workspace: session" << sessionId
+                   << "not found or not authenticated";
+        return false;
+    }
+
+    if (!workspace.exists())
+    {
+        qWarning() << "[TCP] Cannot send workspace:" << filename << "does not exist";
         m_packetizer->initializePacket(packet, Tardis::NetProjectTransfer);
         m_packetizer->addSection(packet, QVariant(0));
         m_packetizer->addSection(packet, QVariant(0));
         sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
         return false;
     }
-
     if (!workspace.open(QIODevice::ReadOnly))
+    {
+        qWarning() << "[TCP] Cannot open workspace" << filename << ":" << workspace.errorString();
         return false;
+    }
+
+    qDebug() << "[TCP] Sending workspace" << filename << "(" << workspace.size()
+             << "bytes ) to session" << sessionId << "client" << host->hostName;
 
     while (!workspace.atEnd())
     {
         QByteArray data = workspace.read(WORKSPACE_CHUNK_SIZE);
         m_packetizer->initializePacket(packet, Tardis::NetProjectTransfer);
-
-        qDebug() << "Data read:" << data.length();
-
         if (pktCounter == 0)
         {
             m_packetizer->addSection(packet, QVariant(0));
             m_packetizer->addSection(packet, QVariant((int)workspace.size()));
-
         }
         else if (data.length() < WORKSPACE_CHUNK_SIZE)
-        {
             m_packetizer->addSection(packet, QVariant(2));
-        }
         else
-        {
             m_packetizer->addSection(packet, QVariant(1));
-        }
-
         m_packetizer->addSection(packet, QVariant(data));
-
-        sendTCPPacket(host->tcpSocket, packet, m_encryptPackets);
-
+        if (!sendTCPPacket(host->tcpSocket, packet, m_encryptPackets))
+            return false;
         pktCounter++;
     }
-
     return true;
 }
 
 bool NetworkManager::serverStarted() const
 {
-    return m_serverStarted;
+    return m_serverStartedMask != NoServer;
 }
 
-void NetworkManager::setServerStarted(bool serverStarted)
+bool NetworkManager::nativeServerStarted() const
 {
-    if (m_serverStarted == serverStarted)
+    return (m_serverStartedMask & NativeServer) ? true : false;
+}
+
+bool NetworkManager::webServerStarted() const
+{
+    return (m_serverStartedMask & WebServer) ? true : false;
+}
+
+void NetworkManager::setServerStartedMask(int mask)
+{
+    if (m_serverStartedMask == mask)
         return;
 
-    m_serverStarted = serverStarted;
-    emit serverStartedChanged(m_serverStarted);
+    m_serverStartedMask = mask;
+    emit serverStartedChanged(serverStarted());
+    emit connectionsCountChanged();
 }
 
-QHostAddress NetworkManager::getHostFromName(QString name) const
+NetworkHost *NetworkManager::hostForSocket(const QTcpSocket *socket) const
 {
-    auto i = m_hostsMap.constBegin();
-    while (i != m_hostsMap.constEnd())
+    for (NetworkHost *host : m_hostsMap)
+        if (host != nullptr && host->tcpSocket == socket)
+            return host;
+    return nullptr;
+}
+
+int NetworkManager::requiredAccessMask(int actionCode) const
+{
+    /* Tardis action codes are grouped by editing area, each group starting
+     * at a known enum value. Map every group to the access right the client
+     * must hold to be allowed to perform it */
+    if (actionCode >= Tardis::IOAddUniverse && actionCode < Tardis::FixtureCreate)
+        return App::AC_InputOutput;
+
+    /* Preview settings, fixtures and fixture groups */
+    if ((actionCode >= Tardis::EnvironmentSetSize && actionCode < Tardis::IOAddUniverse) ||
+        (actionCode >= Tardis::FixtureCreate && actionCode < Tardis::FunctionCreate))
+        return App::AC_FixtureEditing;
+
+    /* Every function type: scenes, chasers, EFX, collections, matrices, ... */
+    if (actionCode >= Tardis::FunctionCreate && actionCode < Tardis::ShowManagerAddTrack)
+        return App::AC_FunctionEditing;
+
+    if (actionCode >= Tardis::ShowManagerAddTrack && actionCode < Tardis::SimpleDeskSetChannel)
+        return App::AC_ShowManager;
+
+    if (actionCode >= Tardis::SimpleDeskSetChannel && actionCode < Tardis::VCWidgetCreate)
+        return App::AC_SimpleDesk;
+
+    if (actionCode >= Tardis::VCWidgetCreate && actionCode < LIVE_ACTIONS_START_CODE)
+        return App::AC_VCEditing;
+
+    /* Live actions: dumping values to Simple Desk, then everything that
+     * controls a running show from the Virtual Console */
+    if (actionCode >= Tardis::FixtureSetDumpValue && actionCode < Tardis::FunctionStart)
+        return App::AC_SimpleDesk;
+
+    if (actionCode >= Tardis::FunctionStart && actionCode < Tardis::NetAnnounce)
+        return App::AC_VCControl;
+
+    return 0;
+}
+
+void NetworkManager::queueAccessRequest(NetworkHost *host)
+{
+    if (host == nullptr || host->tcpSocket.isNull() ||
+        m_activeAccessRequest.sessionId == host->sessionId)
+        return;
+    for (const NativeAccessRequest &request : std::as_const(m_pendingAccessRequests))
+        if (request.sessionId == host->sessionId)
+            return;
+    NativeAccessRequest request;
+    request.sessionId = host->sessionId;
+    request.clientName = host->hostName;
+    request.peerAddress = host->peerAddress;
+    request.peerPort = host->peerPort;
+    request.socket = host->tcpSocket;
+    m_pendingAccessRequests.append(request);
+    showNextAccessRequest();
+}
+
+void NetworkManager::showNextAccessRequest()
+{
+    if (!m_activeAccessRequest.sessionId.isEmpty())
+        return;
+    while (!m_pendingAccessRequests.isEmpty())
     {
-        NetworkHost *host = i.value();
-        if (host->hostName == name)
-            return i.key();
-
-        ++i;
+        const NativeAccessRequest request = m_pendingAccessRequests.takeFirst();
+        NetworkHost *host = m_hostsMap.value(request.sessionId, nullptr);
+        if (host == nullptr || request.socket.isNull() || host->tcpSocket != request.socket)
+            continue;
+        m_activeAccessRequest = request;
+        emit clientAccessRequest(request.sessionId, request.clientName,
+                                 request.peerAddress.toString(), request.peerPort);
+        return;
     }
-
-    return QHostAddress();
 }
 
 /*********************************************************************
@@ -578,6 +896,7 @@ bool NetworkManager::initializeClient()
     {
         m_udpSocket->close();
         delete m_udpSocket;
+        m_udpSocket = nullptr;
     }
 
     m_udpSocket = new QUdpSocket(this);
@@ -622,8 +941,10 @@ bool NetworkManager::connectClient(QString ipAddress)
 
     if (m_tcpSocket != nullptr)
     {
+        m_rxBuffers.remove(m_tcpSocket);
         m_tcpSocket->close();
         delete m_tcpSocket;
+        m_tcpSocket = nullptr;
     }
 
     m_tcpSocket = new QTcpSocket();
@@ -641,7 +962,7 @@ bool NetworkManager::connectClient(QString ipAddress)
 
     QByteArray packet;
     m_packetizer->initializePacket(packet, Tardis::NetAuthentication);
-    m_packetizer->addSection(packet, QVariant(QString::number(defaultKey, 16).toUtf8()));
+    m_packetizer->addSection(packet, QVariant(QString::number(sessionKey(), 16).toUtf8()));
     m_packetizer->addSection(packet, QVariant(hostName()));
 
     setClientStatus(WaitAuthentication);
@@ -655,7 +976,22 @@ bool NetworkManager::disconnectClient()
     {
         m_udpSocket->close();
         delete m_udpSocket;
+        m_udpSocket = nullptr;
     }
+
+    /* Tear down the connection to the server as well, otherwise the socket
+     * would keep signalling on a session the user has just terminated */
+    if (m_tcpSocket != nullptr)
+    {
+        m_rxBuffers.remove(m_tcpSocket);
+        m_tcpSocket->disconnect(this);
+        m_tcpSocket->close();
+        m_tcpSocket->deleteLater();
+        m_tcpSocket = nullptr;
+    }
+
+    m_serverList.clear();
+    emit serverListChanged();
 
     setClientStatus(Disconnected);
 
@@ -750,37 +1086,43 @@ void NetworkManager::slotProcessTCPPackets()
         return;
 
     QHostAddress senderAddress = socket->peerAddress();
+    NetworkHost *session = hostForSocket(socket);
     qint64 bytesProcessed = 0;
-    qint64 bytesAvailable = 0;
-    QByteArray wholeData;
 
+    /* Append to whatever was left over from the previous reads on this
+     * socket: a single packet may well be split across several of them */
+    QByteArray &wholeData = m_rxBuffers[socket];
     wholeData.append(socket->readAll());
-    bytesAvailable = wholeData.length();
 
-    qDebug() << "[TCP] Received" << bytesAvailable << "bytes from" << senderAddress.toString();
+    qDebug() << "[TCP] Received" << wholeData.length() << "bytes from" << senderAddress.toString();
 
-    while (bytesAvailable)
+    while (bytesProcessed < wholeData.length())
     {
         int actionCode = 0;
         QVariantList paramsList;
         QByteArray datagram = wholeData.mid(bytesProcessed);
         int read = m_packetizer->decodePacket(datagram, actionCode, paramsList, m_crypt);
 
-        qDebug() << "Bytes processed" << read << "action" << QString::number(actionCode, 16) << "params" << paramsList.count();
-
+        /* Incomplete packet: keep the remainder and wait for the next read */
         if (read < 0)
         {
-            /* if more data is needed, get it from the socket */
-            QByteArray moreData = socket->readAll();
-            if (moreData.length() == 0)
-                return;
-            wholeData.append(moreData);
-            bytesAvailable = wholeData.length();
-            continue;
+            qDebug() << "[TCP] Incomplete packet:" << (wholeData.length() - bytesProcessed)
+                     << "bytes buffered, waiting for more data";
+            break;
         }
 
+        /* Undecodable data: there's no way to resync, drop the whole buffer */
         if (read == 0)
+        {
+            qWarning() << "[TCP] Undecodable data. Dropping"
+                       << (wholeData.length() - bytesProcessed) << "bytes";
+            bytesProcessed = wholeData.length();
             break;
+        }
+
+        qDebug() << "[TCP] Action" << Tardis::actionToString(actionCode)
+                 << QString("(0x%1)").arg(actionCode, 4, 16, QChar('0'))
+                 << "params:" << paramsList.count() << "packet bytes:" << read;
 
         switch (actionCode)
         {
@@ -791,20 +1133,35 @@ void NetworkManager::slotProcessTCPPackets()
                 if (!paramsList.isEmpty())
                 {
                     QByteArray decrPayload = paramsList.at(0).toByteArray();
-                    if (QString::fromUtf8(decrPayload) == QString::number(defaultKey, 16))
+                    if (QString::fromUtf8(decrPayload) == QString::number(sessionKey(), 16))
                     {
                         qDebug() << "Key matches!";
                         success = true;
                     }
                 }
 
-                NetworkHost *host = m_hostsMap[senderAddress];
+                NetworkHost *host = session;
+                if (m_hostType == ServerHostType && host == nullptr)
+                    break;
                 if (success == true && paramsList.count() > 1)
                 {
-                    host->isAuthenticated = true;
+                    host->isAuthenticated = false;
+                    host->accessMask = 0;
                     host->hostName = paramsList.at(1).toString();
-                    // emit a signal to acquire the host permissions
-                    emit clientAccessRequest(host->hostName);
+                    if (m_allowAllNative)
+                    {
+                        constexpr int fullAccessMask = 0x7f;
+                        if (setClientAccess(host->sessionId, true, fullAccessMask))
+                        {
+                            qWarning().noquote() << "Automatically authorized native session"
+                                << host->sessionId << "client" << host->hostName
+                                << "peer" << QString("%1:%2").arg(host->peerAddress.toString()).arg(host->peerPort)
+                                << "access mask" << QString("0x%1").arg(fullAccessMask, 0, 16);
+                            emit clientAutoAuthorized(host->sessionId);
+                        }
+                    }
+                    else
+                        queueAccessRequest(host);
                 }
                 else
                 {
@@ -828,6 +1185,51 @@ void NetworkManager::slotProcessTCPPackets()
                 {
                     disconnectClient();
                 }
+            }
+            break;
+            case Tardis::NetProjectChanging:
+            {
+                if (m_hostType != ClientHostType)
+                    break;
+
+                qDebug() << "[TCP] Server is changing project. Clearing contents";
+
+                /* Drop any partially received project as well: what is being
+                 * transferred now belongs to the workspace being replaced */
+                m_projectData.clear();
+                m_projectSize = 0;
+                setClientStatus(DownloadingProject);
+
+                emit requestProjectClear();
+            }
+            break;
+            case Tardis::NetProjectLoaded:
+            {
+                if (m_hostType != ClientHostType)
+                    break;
+
+                qDebug() << "[TCP] Server finished loading a project. Requesting it";
+                requestProjectFromServer();
+            }
+            break;
+            case Tardis::NetProjectRequest:
+            {
+                if (m_hostType != ServerHostType)
+                    break;
+
+                /* The requester is identified by the socket it is talking on,
+                 * so a session cannot ask for the project on behalf of another */
+                if (session == nullptr || !session->isAuthenticated)
+                {
+                    qWarning() << "[TCP] Dropping project request from an"
+                               << "unauthenticated native session";
+                    break;
+                }
+
+                qDebug() << "[TCP] Project requested by session" << session->sessionId
+                         << "client" << session->hostName;
+
+                emit clientProjectRequest(session->sessionId);
             }
             break;
             case Tardis::NetProjectTransfer:
@@ -856,6 +1258,20 @@ void NetworkManager::slotProcessTCPPackets()
 
                 if (seqType == 2 || m_projectData.length() == m_projectSize)
                 {
+                    /* Never load a partial project: doing so silently drops
+                     * whole sections (Monitor, Virtual Console, ...) and looks
+                     * like data corruption to the user */
+                    if (m_projectData.length() != m_projectSize)
+                    {
+                        qWarning() << "[TCP] Incomplete project transfer:"
+                                   << m_projectData.length() << "of" << m_projectSize
+                                   << "bytes received. Project discarded";
+                        m_projectData.clear();
+                        setClientStatus(Connected);
+                        emit connectionsCountChanged();
+                        break;
+                    }
+
                     emit requestProjectLoad(m_projectData);
                     m_projectData.clear();
                     setClientStatus(Connected);
@@ -866,6 +1282,21 @@ void NetworkManager::slotProcessTCPPackets()
 
             default:
             {
+                if (m_hostType == ServerHostType)
+                {
+                    if (session == nullptr || !session->isAuthenticated)
+                    {
+                        qWarning() << "Dropping action from unauthenticated native session";
+                        break;
+                    }
+                    int required = requiredAccessMask(actionCode);
+                    if (required == 0 || (session->accessMask & required) == 0)
+                    {
+                        qWarning() << "Dropping unauthorized native action" << actionCode
+                                   << "from session" << session->sessionId;
+                        break;
+                    }
+                }
                 if (paramsList.isEmpty())
                 {
                     qWarning() << "[TCP] Dropping packet with empty params list. action"
@@ -891,8 +1322,16 @@ void NetworkManager::slotProcessTCPPackets()
         }
 
         bytesProcessed += read;
-        bytesAvailable -= read;
+
+        /* Handling a packet may tear the connection down (and with it this
+         * socket's buffer): stop touching it as soon as that happens */
+        if (m_rxBuffers.contains(socket) == false)
+            return;
     }
+
+    /* Drop what has been consumed, keep any partial packet for the next read */
+    if (bytesProcessed > 0)
+        m_rxBuffers[socket].remove(0, bytesProcessed);
 }
 
 void NetworkManager::slotDocLoaded()
@@ -900,72 +1339,98 @@ void NetworkManager::slotDocLoaded()
     if (m_doc == nullptr || m_doc->inputOutputMap() == nullptr)
         return;
 
-    if (m_forceWebServerMode)
+    InputOutputMap *ioMap = m_doc->inputOutputMap();
+    int typeMask = NoServer;
+
+    if (ioMap->networkServerType() & InputOutputMap::NativeServer)
+        typeMask |= NativeServer;
+    if (ioMap->networkServerType() & InputOutputMap::WebServer)
+        typeMask |= WebServer;
+
+    // the types requested from the command line always win: when they
+    // are set they replace the workspace ones, so that a project can't
+    // bring up a server that was not asked for
+    setServerType(m_forcedServerTypes != NoServer ? m_forcedServerTypes : typeMask);
+    setStartAutomatically(ioMap->networkServerAutoStart());
+    // NOTE: the encryption key is deliberately not taken from the project.
+    // It is a machine-wide setting stored in the global QLC+ configuration
+
+    /* A client identifies itself to the server with its host name: keep the
+     * local one, or loading a project received over the network would rename
+     * this instance after the server and break any further request */
+    if (m_hostType != ClientHostType)
     {
-        setServerType(WebServer);
-
-        if (m_hostType != ClientHostType && serverStarted() == false)
-            startServer();
-
-        return;
+        QString name = ioMap->networkServerName();
+        if (name.isEmpty())
+            name = defaultName();
+        setHostName(name);
     }
 
-    InputOutputMap *ioMap = m_doc->inputOutputMap();
-
-    // If web server was started from CLI (-w flag), don't let workspace override it
-    if (!m_cliWebServer)
-        setServerType(ioMap->networkServerType() == InputOutputMap::WebServer ? WebServer : NativeServer);
-    setStartAutomatically(ioMap->networkServerAutoStart());
-    setServerPassword(ioMap->networkServerPassword());
-
-    QString name = ioMap->networkServerName();
-    if (name.isEmpty())
-        name = defaultName();
-    setHostName(name);
-
     if (m_hostType != ClientHostType &&
-        m_startAutomatically &&
-        serverStarted() == false)
+        (m_startAutomatically || m_forcedServerTypes != NoServer))
         startServer();
 }
 
 void NetworkManager::slotProcessNewTCPConnection()
 {
-    qDebug() << Q_FUNC_INFO;
     QTcpSocket *clientConnection = m_tcpServer->nextPendingConnection();
     if (clientConnection == nullptr)
         return;
 
-    QHostAddress senderAddress = clientConnection->peerAddress();
-    if (m_hostsMap.contains(senderAddress) == true)
-    {
-        NetworkHost *host = m_hostsMap[senderAddress];
-        host->isAuthenticated = false;
-        host->tcpSocket = clientConnection;
-    }
-    else
-    {
-        qDebug() << "[slotProcessNewTCPConnection] Adding a new host to map:" << senderAddress.toString();
-        NetworkHost *newHost = new NetworkHost;
-        newHost->isAuthenticated = false;
-        newHost->tcpSocket = clientConnection;
-        m_hostsMap[senderAddress] = newHost;
-        emit connectionsCountChanged();
-    }
-    connect(clientConnection, SIGNAL(readyRead()),
-            this, SLOT(slotProcessTCPPackets()));
+    NetworkHost *host = new NetworkHost;
+    host->sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    host->isAuthenticated = false;
+    host->accessMask = 0;
+    host->peerAddress = clientConnection->peerAddress();
+    host->peerPort = clientConnection->peerPort();
+    host->tcpSocket = clientConnection;
+    m_hostsMap.insert(host->sessionId, host);
+    qDebug() << "Adding native session" << host->sessionId << "from"
+             << host->peerAddress.toString() << host->peerPort;
+    emit connectionsCountChanged();
+    connect(clientConnection, &QTcpSocket::readyRead,
+            this, &NetworkManager::slotProcessTCPPackets);
+    connect(clientConnection, &QTcpSocket::disconnected,
+            this, &NetworkManager::slotHostDisconnected);
 }
 
 void NetworkManager::slotHostDisconnected()
 {
-    QTcpSocket *socket = (QTcpSocket *)sender();
-    QHostAddress senderAddress = socket->peerAddress();
-    qDebug() << "Host with address" << senderAddress.toString() << "disconnected!";
+    QTcpSocket *socket = qobject_cast<QTcpSocket *>(sender());
+    if (socket == nullptr)
+        return;
 
-    if (m_hostsMap.contains(senderAddress) == true)
+    m_rxBuffers.remove(socket);
+
+    /* On a client, m_hostsMap holds the servers discovered on the network:
+     * losing the connection must not remove them from the list */
+    if (m_hostType == ClientHostType)
     {
-        NetworkHost *host = m_hostsMap.take(senderAddress);
+        setClientStatus(Disconnected);
+        return;
+    }
+
+    NetworkHost *host = hostForSocket(socket);
+    if (host != nullptr)
+    {
+        const QString sessionId = host->sessionId;
+        qDebug() << "Native session" << sessionId << "disconnected";
+        m_hostsMap.remove(sessionId);
+        for (auto it = m_pendingAccessRequests.begin(); it != m_pendingAccessRequests.end(); )
+        {
+            if (it->sessionId == sessionId)
+                it = m_pendingAccessRequests.erase(it);
+            else
+                ++it;
+        }
+        if (m_activeAccessRequest.sessionId == sessionId)
+        {
+            m_activeAccessRequest = NativeAccessRequest();
+            emit clientAccessRequestCancelled(sessionId);
+            QTimer::singleShot(0, this, &NetworkManager::showNextAccessRequest);
+        }
         delete host;
         emit connectionsCountChanged();
     }
+    socket->deleteLater();
 }

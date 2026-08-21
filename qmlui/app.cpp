@@ -37,6 +37,7 @@
 #include <QPainter>
 #include <QScreen>
 #include <QFileInfo>
+#include <QDir>
 #include <unistd.h>
 
 #include "app.h"
@@ -64,6 +65,7 @@
 #include "flowconsole.h"
 #include "vdjbridge.h"
 #include "djmanager.h"
+#include "stagewizard.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
@@ -101,6 +103,7 @@ App::App()
     , m_videoProvider(nullptr)
     , m_networkManager(nullptr)
     , m_uiManager(nullptr)
+    , m_stageWizard(nullptr)
     , m_flowConsole(nullptr)
     , m_vdjBridge(nullptr)
     , m_doc(nullptr)
@@ -208,8 +211,17 @@ void App::startup()
     rootContext()->setContextProperty("networkManager", m_networkManager);
 
     connect(m_networkManager, &NetworkManager::clientAccessRequest, this, &App::slotClientAccessRequest);
+    connect(m_networkManager, &NetworkManager::clientAccessRequestCancelled,
+            this, &App::slotClientAccessRequestCancelled);
+    connect(m_networkManager, &NetworkManager::clientAutoAuthorized, this,
+            [this](const QString &sessionId)
+    {
+        m_networkManager->sendWorkspaceToClient(sessionId, fileName());
+    });
     connect(m_networkManager, &NetworkManager::accessMaskChanged, this, &App::setAccessMask);
     connect(m_networkManager, &NetworkManager::requestProjectLoad, this, &App::slotLoadDocFromMemory);
+    connect(m_networkManager, &NetworkManager::requestProjectClear, this, &App::slotClearDocFromNetwork);
+    connect(m_networkManager, &NetworkManager::clientProjectRequest, this, &App::slotClientProjectRequest);
     connect(m_networkManager, &NetworkManager::storeAutostartProject,
             this, &App::slotSaveAutostart);
 
@@ -271,6 +283,9 @@ void App::startup()
                 [this, performFsm]() { m_showManager->setReadOnly(performFsm->readOnly()); });
         m_showManager->setReadOnly(performFsm->readOnly());
     }
+    m_stageWizard = new StageWizard(m_doc, m_fixtureManager, m_functionManager,
+                                    m_virtualConsole, m_contextManager, this);
+    rootContext()->setContextProperty("stageWizard", m_stageWizard);
 
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);
@@ -596,10 +611,41 @@ void App::slotClosing()
     //QTimer::singleShot(2000, []() { QCoreApplication::exit(0); });
 }
 
-void App::slotClientAccessRequest(QString name)
+void App::slotClientAccessRequest(QString sessionId, QString name,
+                                  QString peerAddress, quint16 peerPort)
 {
     QMetaObject::invokeMethod(rootObject(), "openAccessRequest",
-                              Q_ARG(QVariant, name));
+                              Q_ARG(QVariant, sessionId), Q_ARG(QVariant, name),
+                              Q_ARG(QVariant, peerAddress), Q_ARG(QVariant, peerPort));
+}
+
+void App::slotClientAccessRequestCancelled(QString sessionId)
+{
+    QMetaObject::invokeMethod(rootObject(), "closeAccessRequest",
+                              Q_ARG(QVariant, sessionId));
+}
+
+void App::slotClientProjectRequest(QString sessionId)
+{
+    /* The workspace is served from a file. If the current project has never
+     * been saved, or has pending changes, dump it to a temporary file first,
+     * otherwise the client would get a stale (or missing) project */
+    QString fileName = m_fileName;
+
+    if (fileName.isEmpty() || m_doc->isModified())
+    {
+        fileName = QString("%1/%2").arg(QDir::tempPath()).arg("qlcplus_netproject.qxw");
+        if (saveXML(fileName, true) != QFile::NoError)
+        {
+            qWarning() << Q_FUNC_INFO << "Unable to serve the project to" << sessionId;
+            return;
+        }
+    }
+
+    qDebug() << Q_FUNC_INFO << "Serving" << fileName << "to session" << sessionId;
+
+    if (m_networkManager->sendWorkspaceToClient(sessionId, fileName) == false)
+        qWarning() << Q_FUNC_INFO << "Failed to send the workspace to session" << sessionId;
 }
 
 void App::slotAccessMaskChanged(int mask)
@@ -734,6 +780,10 @@ void App::clearDocument()
     m_showManager->resetContents();
     m_virtualConsole->resetContents();
     m_flowConsole->resetContents();
+
+    // Drop the preview items *before* the Doc is emptied: they hold references
+    // to fixtures that clearContents() is about to delete
+    m_contextManager->resetViewItems();
 
     m_doc->masterTimer()->stop();
     m_doc->clearContents();
@@ -957,15 +1007,25 @@ void App::setWorkingPath(QString workingPath)
 
 bool App::newWorkspace()
 {
+    /* Warn the connected clients before dropping everything */
+    m_networkManager->notifyProjectChanging();
+
     clearDocument();
     m_fixtureManager->slotDocLoaded();
     m_functionManager->slotDocLoaded();
     m_contextManager->resetContexts();
+
+    /* Let the connected clients pick up the empty workspace */
+    m_networkManager->notifyProjectLoaded();
+
     return true;
 }
 
 bool App::loadWorkspace(const QString &fileName)
 {
+    /* Warn the connected clients before dropping everything */
+    m_networkManager->notifyProjectChanging();
+
     m_contextManager->resetContexts();
 
     /* Clear existing document data */
@@ -1004,6 +1064,9 @@ bool App::loadWorkspace(const QString &fileName)
 
         m_doc->inputOutputMap()->startUniverses();
 
+        /* The workspace is complete: let the connected clients request it */
+        m_networkManager->notifyProjectLoaded();
+
         return true;
     }
     return false;
@@ -1013,6 +1076,8 @@ void App::slotLoadDocFromMemory(QByteArray &xmlData)
 {
     if (xmlData.isEmpty())
         return;
+
+    m_contextManager->resetContexts();
 
     /* Clear existing document data */
     clearDocument();
@@ -1044,13 +1109,29 @@ void App::slotLoadDocFromMemory(QByteArray &xmlData)
 
     if (doc.dtdName() == KXMLQLCWorkspace)
     {
-        loadXML(doc, true, true);
+        /* Do not force the Virtual Console: honour the context saved in the
+         * received project. Clients restricted to VC control only are still
+         * switched to it by loadXML itself */
+        loadXML(doc, false, true);
         setDocLoaded(true);
         m_doc->resetModified();
         m_doc->inputOutputMap()->startUniverses();
+        m_contextManager->resetContexts();
     }
     else
         qDebug() << "XML doesn't have a Workspace tag";
+}
+
+void App::slotClearDocFromNetwork()
+{
+    qDebug() << Q_FUNC_INFO << "Clearing workspace on server request";
+
+    /* Same teardown performed before loading a project: drop the view items
+     * and the Virtual Console contents while the Doc is still populated,
+     * so nothing keeps a reference to what is about to be deleted */
+    m_contextManager->resetContexts();
+    clearDocument();
+    setDocLoaded(false);
 }
 
 void App::slotSaveAutostart(QString fileName)

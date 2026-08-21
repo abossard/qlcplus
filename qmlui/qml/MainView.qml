@@ -50,6 +50,9 @@ Rectangle
     }
     onWidthChanged: UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
 
+    property bool showWizardVisible: false
+    function openShowWizard() { mainView.showWizardVisible = true }
+
     function enableContext(ctx, setChecked)
     {
         var item = null
@@ -108,10 +111,20 @@ Rectangle
         dimScreen.visible = enable
     }
 
-    function openAccessRequest(clientName)
+    function openAccessRequest(sessionId, clientName, peerAddress, peerPort)
     {
+        clientAccessPopup.deciding = false
+        clientAccessPopup.sessionId = sessionId
         clientAccessPopup.clientName = clientName
+        clientAccessPopup.peerAddress = peerAddress
+        clientAccessPopup.peerPort = peerPort
         clientAccessPopup.open()
+    }
+
+    function closeAccessRequest(sessionId)
+    {
+        if (clientAccessPopup.sessionId === sessionId)
+            clientAccessPopup.close()
     }
 
     function saveProject()
@@ -671,6 +684,16 @@ Rectangle
 
         } // end of RowLayout
     } // end of mainToolbar
+
+    Loader
+    {
+        id: showWizardOverlay
+        width: parent.width
+        height: parent.height
+        source: parent.showWizardVisible ? "qrc:/ShowWizard.qml" : ""
+        z: 100
+        onLoaded: if (item) { item.closeRequested.connect(function() { mainView.showWizardVisible = false }); item.open() }
+    }
 
     // Persistent Fixtures & Functions view — survives context switches
     Loader
