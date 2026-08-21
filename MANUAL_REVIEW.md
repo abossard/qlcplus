@@ -176,6 +176,8 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 ## 4B. Page-Dependent External Input Mappings
 
 > **Automated coverage:** `mcp_vcpage_input_mode_test` covers string conversion round-trips, XML save/load contract, backward compatibility (missing tag defaults to Normal), and PageInfo struct field. The items below require a running app with MIDI hardware (or virtual MIDI) and multiple VC pages.
+>
+> **Changed Aug 2026:** upstream reassigned the Left/Right pads in ten shipped input profiles to Previous/Next Page, and fixed VC button flashing across frame pages plus page-shortcut renames. Run §24.6 and §24.7 alongside this section.
 
 ### 4B.1 Normal mode (default) — existing behaviour preserved [MIDI]
 
@@ -285,6 +287,7 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 - **Do:** Send pan/tilt values via the Web DMX panel.
 - **Verify:** The 3D ball reorients in real time and matches the commanded angles.
 - **Why manual:** 3D rendering correctness.
+- **Changed Aug 2026:** the mesh choice now lives in `FixtureUtils::fixtureLightResource()`, not `mainview3d.cpp` — the Stage Wizard resolves geometry through the same function. See §24.5.
 
 ## 6. Script Fader Cleanup
 
@@ -297,6 +300,7 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 - **Verify:** All channels the script was writing return to **zero** (or to whatever other functions are driving them). No residual "stuck" values.
 - **Do:** Check in Simple Desk or via MCP `read_dmx_values` — the channels should not hold leftover script values.
 - **Why manual:** The fix zeros the universe buffer on script stop. Previously, values persisted after stop, requiring a restart to clear.
+- **Changed Aug 2026:** upstream reworked Script/ScriptRunner teardown and `stopOnExit(false)` handling. Pair this with §24.4.
 
 ---
 
@@ -797,6 +801,8 @@ Both surfaces write the same `XYPadFixture` min/max/reverse fields; the QML edit
 - ☐ Set a range in the QML editor → query the widget via MCP → normalized values match
 - ☐ Remove a head via MCP `removeXYPadFixture` → the QML fixture list updates; no stale rows
 
+> **Superseded in part, Aug 2026:** upstream rewrote `vcxypad.cpp` again, adding fixture-group support and a floor/tracking mode. These checks still apply; run §24.2 straight after them.
+
 ### 17.2 EFX dimmer control [DMX] [MEDIUM RISK]
 
 New upstream feature: EFX functions can now drive a dimmer level with fade handling.
@@ -1116,3 +1122,142 @@ the intended hardware.
 | RGBMatrix upstream parity | | | | §23.2 |
 | HUEMatrix audio on hardware | | | | §23.3 |
 | Legacy workspace migration | | | | §23.4 |
+
+---
+
+## 24. August 2026 upstream merge — Stage Wizard, XYPad rework, independent servers
+
+> **Context:** Merged 38 upstream commits (`18cf9da99..4db9faa57`). Build is clean
+> under `-Werror`, all 16 `mcp/test` binaries and the 44 manual-review TS tests
+> pass, and the merged `qlcplus5 --help` shows both surfaces' CLI options intact.
+> The items below are the judgments automation cannot make — **plus** the places
+> where a conflict resolution chose one side over the other and only a human can
+> confirm the choice was right.
+>
+> Four of these exist *because* of a resolution, not because upstream is suspect:
+> §24.2 (XYPad), §24.3 (network manager), §24.4 (Script runner) and §24.5 (Beam
+> Ball mesh). Treat them as verifying **our merge**, not upstream's work.
+>
+> **Out of scope:** the DMX-dump-over-4-universes fix (`ui/`, v4 only — covered by
+> `dmxdumpfactoryproperties_test`) and the fixture-editor "no modes" warning
+> (`fixtureeditor/`, v4 only). This fork ships v5.
+
+### 24.1 Stage Wizard vs fork-managed VC pages [HIGH RISK]
+
+Brand new upstream feature (~10 commits, `qmlui/stagewizard/`). Reached from the **yellow wizard-hat icon** in the Fixtures & Functions right panel (visible only with `AC_FunctionEditing`). `generate()` writes fixtures, groups, Scenes, EFX, chasers, palettes, VC widgets and external-controller mappings into the same `Doc` the MCP server manipulates.
+
+`StageWizard::pickTargetPage()` reuses **the first VC page that has no widgets**, or appends a new one. That is the collision risk: it does not know which pages `build_show_page` or the DJ Manager own.
+
+- ☐ Open a workspace where MCP `build_show_page` has already built pages, then run the wizard → it does not overwrite a populated page; anything it appends is clearly separate from the MCP-built pages
+- ☐ Run the wizard on an **empty** workspace → generated frames, solo frames, buttons, sliders and XY pads are laid out legibly, captions readable, no overlap (same bar as §2.1)
+- ☐ Run the wizard twice in a row → the second run does not duplicate functions, groups or palettes on top of the first, or if it does, the duplication is obvious rather than silent
+- ☐ With the wizard's generated content in place, query the VC over MCP → widget tree, types and IDs come back coherent; nothing the wizard made is invisible to the MCP surface
+- ☐ Save, reload, and re-query → wizard-generated content survives the XML round-trip
+- ☐ **Layering check (our merge):** the wizard overlay is a separate `Loader` (`z: 100`) sitting alongside this fork's persistent `fixAndFuncLoader` / `otherViewLoader` split — upstream had a single `mainViewLoader`. Confirm the overlay covers the whole window, sits above the persistent view, and that closing it returns to the previous context with no stale panel underneath
+- **Why manual:** "laid out sensibly" and "obviously separate" are visual judgments; the collision only shows on a workspace with existing history.
+
+### 24.2 XYPad groups + floor tracking vs the MCP XYPad surface [HIGH RISK]
+
+Upstream rewrote `vcxypad.cpp` (~1100 lines) to add fixture-**group** support (`groupsTreeModel`, `searchFilter`) and a **floor/tracking mode** (`floorControl`, `floorPosition`, `floorSize`, `floorRangeArea`) where the pad aims at a point on the stage floor instead of driving raw pan/tilt. `vcxypadpreset` changed too. The fork's MCP bridge (`addXYPadEx`, `setXYPadPosition`, `setXYPadDisplayMode`, `addXYPadFixture`, `removeXYPadFixture`, `setXYPadPresets`) auto-merged against all of it — it compiles, which proves signatures match, **not** that semantics still line up.
+
+This extends §17.1; run that section's checks first, then:
+
+- ☐ Create an XY pad over MCP, then open its properties in QML → the fixture list shows what MCP added, and the new group tree does not show it as an empty/ghost group
+- ☐ Add a fixture **group** to a pad in QML, then query the widget over MCP → group members are reported (or their absence is at least consistent and non-crashing), and `removeXYPadFixture` on a group member behaves predictably
+- ☐ Enable floor/tracking mode on a pad, then set position over MCP `setXYPadPosition` → the pad interprets the 0.0–1.0 values in the mode it is actually in; confirm which coordinate space wins and that it is the sane one
+- ☐ Set presets over MCP `setXYPadPresets` → they render on the pad face and recall correctly after the preset-struct change
+- ☐ Save/reload a workspace containing both an MCP-created pad and a QML group/tracking pad → both survive the round-trip [DMX]
+- **Why manual:** cross-surface coordinate-space agreement; a unit test on the structs cannot see the pad aim a real head at the wrong place.
+
+### 24.3 Independent web + native servers, and the dropped project password [HIGH RISK]
+
+`ServerType` is now a **bitmask** (`NativeServer = 1<<0`, `WebServer = 1<<1`) — web and native can run **at the same time**, where before they were either/or. Our `m_cliWebServer` flag was dropped in favour of upstream's `m_forcedServerTypes`, and upstream **deliberately stopped taking the session key from the project file** (it is now machine-wide config), so `setServerPassword(ioMap->networkServerPassword())` is gone from the load path.
+
+New CLI: `-s`/`--server` and `--sa`/`--server-allow-all`.
+
+- ☐ Start with no flags → web server still comes up on **9999** by default and http://localhost:9999/vc/ loads (the whole of §3 depends on this)
+- ☐ Start with `-w` → web access still forced on, and a workspace that requests a *different* server type does not override the CLI
+- ☐ Start with `-s` → native server comes up **without** killing the web server; both reachable simultaneously
+- ☐ **Behaviour change:** load a workspace that stored a server password → confirm the password is no longer applied from the project, and that this is acceptable for how you use it. If any saved workspace relied on a project-stored password, it now needs the machine-wide setting instead
+- ☐ `--sa` grants every native client full access without prompting → confirm the warning is understood and that this is never left on for a venue network
+- ☐ Connect two native clients concurrently → both get their own session, the access-request prompt names the right host, and disconnecting one does not drop the other or leak the socket
+- **Why manual:** flag interactions and "is this new default acceptable for my rig" are judgment calls.
+
+### 24.4 Script stopOnExit and runner teardown [MEDIUM RISK]
+
+Upstream removed `Script::slotRunnerFinished()`, moved runner teardown into `postRun()` (`deleteLater()`), and made `write()` keep running until the function queue drains so commands issued just before the script falls off the end are not lost. The fork's `ScriptRunner(doc, this, m_data)` signature was kept — `m_script` backs the script-introspection helpers — and the now-dangling `finished()` connect was dropped.
+
+Re-run §6.1 in full, then:
+
+- ☐ A script that calls `stopOnExit(false)` and ends on its own → the fixtures it set **stay** set after the script's last line; the function shows as stopped without yanking the values [DMX]
+- ☐ A script that issues several commands immediately before its final line → all of them take effect (the queue drains); none are lost to the runner exiting early
+- ☐ Start and stop a script repeatedly (10+ cycles) → no crash on teardown, no runaway threads, no growth in the running-function count
+- ☐ Scripts using the fork's introspection helpers (`m_script`-backed: function id, elapsed, override duration / fade in / fade out) still return live values
+- **Why manual:** thread-teardown races surface under repetition, not in a single unit-test run.
+
+### 24.5 Beam Ball mesh after the mesh-resolution refactor [MEDIUM RISK]
+
+Upstream centralised 3D mesh-file selection into `FixtureUtils::fixtureLightResource()` so the Stage Wizard can resolve a fixture's geometry without a live scene. Taking upstream verbatim would have silently dropped this fork's Beam Ball case, so it was **moved into that function** rather than left in `mainview3d.cpp`.
+
+Re-run §5.2, then:
+
+- ☐ The Stairville Beam Ball still renders as a **ball/sphere**, not the default moving-head mesh
+- ☐ Place a Beam Ball via the **Stage Wizard** (which now snaps fixtures to trusses using the same function) → it snaps against ball geometry, consistent with what the 3D view draws
+- ☐ Other moving heads are unaffected → still the standard moving-head mesh
+- **Why manual:** 3D rendering correctness; the two call sites must agree visually.
+
+### 24.6 Launchpad input profile — Left/Right pads reassigned [MIDI] [MEDIUM RISK]
+
+Upstream changed channel **106 (Left)** and **107 (Right)** in ten shipped input profiles — including `Novation-Launchpad.qxi`, `LaunchpadMK2`, `LaunchpadPro`, `LaunchPadMiniMK3`, the Akai APC family and the KORG nanoKONTROL2 — from `Type: Button` to `Previous Page` / `Next Page`.
+
+The fork's `configure_launchpad` assigns the profile matching the connected model, so this lands automatically on anyone who runs it.
+
+- ☐ Load an existing fork workspace that bound the Left/Right pads to a **widget** → confirm whether those bindings still fire, or are now swallowed as page navigation; if swallowed, rebind to different pads
+- ☐ Run `configure_launchpad` fresh (§2.2) → Left/Right now page the Virtual Console; LED feedback still lights the expected pads
+- ☐ Re-run §4B.6 (page-activation bindings are mode-independent) → prev/next-page channel types behave the same across Normal / Override / Inherit pages
+- **Why manual:** needs the hardware, and the regression only shows on a workspace with pre-existing bindings.
+
+### 24.7 VC frame pages — button flashing and shortcut rename [MEDIUM RISK]
+
+Two upstream fixes in the code §4B extends: VC buttons no longer flash across frame pages, and renaming a page shortcut now updates its external control entry.
+
+- ☐ A frame with several pages, buttons bound on more than one → flashing a button on page 2 does not visibly flash its counterpart on page 1 [MIDI]
+- ☐ Rename a frame page shortcut → the external control mapping follows the rename; the old name is gone from the input mapping list
+- ☐ The page-shortcut dropdown is wide enough to read the full names
+- ☐ Re-run §4B.1–4B.3 (Normal / Override / Inherit) → no regression from either fix [MIDI]
+
+### 24.8 Scene Editor input control and pan & tilt adjust [DMX] [MIDI] [LOW RISK]
+
+New upstream feature: the Scene Editor gains input control and a pan/tilt adjust surface.
+
+- ☐ Open a Scene with moving heads → the pan/tilt adjust control appears and nudges heads live, matching the 3D view [DMX]
+- ☐ Bind an external input to a Scene Editor control → it responds, and does not steal input from VC widgets on the active page [MIDI]
+
+### 24.9 3D scene reset [LOW RISK]
+
+Third upstream pass at 3D scene reset; extends §20.4.
+
+- ☐ Load workspaces with different stage types in succession, including one with Beam Balls → the scene fully resets each time, no fixtures or stage mesh retained from the previous workspace
+
+### 24.10 Binary rename fallout [LOW RISK]
+
+Upstream renamed the executable `qlcplus-qml` → **`qlcplus5`** to avoid colliding with QLC+ 4 on Linux. Every reference in this fork was swept: CI, `Makefile`, docs, the `qlcplus-dev` / `qlcplus-control` canvas extensions, the MCP python harnesses, the web-dmx e2e preambles, and §1.1 above.
+
+- ☐ The `qlcplus-control` canvas extension's **Rebuild** and **Start** both work, and its "already running" detection finds an app you started by hand (its `pgrep` patterns now look for `qmlui/qlcplus5`)
+- ☐ On Linux, install the AppImage alongside a QLC+ 4 install → both launchers appear with distinct names and neither overwrites the other's binary
+- ☐ Any personal scripts, aliases, shell history or launcher entries outside this repo still pointing at `qlcplus-qml` → update them; the old binary is gone
+
+### 24.11 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Stage Wizard vs MCP-owned VC pages | | | | §24.1 |
+| XYPad groups / tracking ↔ MCP | | | | §24.2 |
+| Independent servers + dropped project password | | | | §24.3 |
+| Script stopOnExit / runner teardown | | | | §24.4 |
+| Beam Ball mesh after refactor | | | | §24.5 |
+| Launchpad profile page reassignment | | | | §24.6 |
+| VC frame pages | | | | §24.7 |
+| Scene Editor input / pan-tilt | | | | §24.8 |
+| 3D scene reset | | | | §24.9 |
+| Binary rename fallout | | | | §24.10 |
