@@ -1,12 +1,12 @@
 # QLC+ Dev Control (canvas extension)
 
 A Copilot CLI **canvas** that builds, runs, and monitors the QLC+ QML app
-(`build/qmlui/qlcplus-qml`) from a side panel — and exposes the same operations
+(`build/qmlui/qlcplus5`) from a side panel — and exposes the same operations
 as agent-callable actions.
 
 ## What it does
 
-- **Rebuild** — runs `cmake --build . --target qlcplus-qml -j8`, auto-running
+- **Rebuild** — runs `cmake --build . --target qlcplus5 -j8`, auto-running
   `cmake .. -Dqmlui=ON` first if the `build/` dir isn't configured yet. Output
   streams live into the **Build output** tab.
 - **Start / Stop / Restart** — launches the binary and terminates it (SIGTERM).
@@ -60,5 +60,5 @@ $COPILOT_HOME/extensions/qlcplus-control/artifacts/
 
 - Builds and runs require the usual toolchain on `PATH` (CMake, Qt 6, a C++
   compiler). Failures are surfaced verbatim in the Build output tab.
-- The binary is expected at `build/qmlui/qlcplus-qml` (the dev layout — no
+- The binary is expected at `build/qmlui/qlcplus5` (the dev layout — no
   `.app` bundle).

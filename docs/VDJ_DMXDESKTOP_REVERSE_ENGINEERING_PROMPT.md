@@ -64,7 +64,7 @@ second backend that feeds the same `VdjBridge` facade — so consumers
 - DMXDesktop installed and configured to talk to VDJ
 - Wireshark, tcpdump, or equivalent
 - A few audio tracks loaded into VDJ
-- This repo built (`cd build && cmake --build . --target qlcplus-qml -j8`)
+- This repo built (`cd build && cmake --build . --target qlcplus5 -j8`)
 
 ---
 
@@ -161,7 +161,7 @@ second backend that feeds the same `VdjBridge` facade — so consumers
 >   user wants OS2L to stay strictly conformant.
 > - Keep everything additive: existing Shows / playback / VC behaviour
 >   must not change.
-> - One commit per step. Build (`cmake --build build --target qlcplus-qml`)
+> - One commit per step. Build (`cmake --build build --target qlcplus5`)
 >   and run `vdjbridge_test` between commits.
 
 ## Notes for future-me

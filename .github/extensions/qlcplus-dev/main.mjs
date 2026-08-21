@@ -5,7 +5,7 @@ import { CopilotWebview } from "./lib/copilot-webview.js";
 
 const REPO = process.cwd();
 const BUILD_DIR = join(REPO, "build");
-const BINARY = join(BUILD_DIR, "qmlui", "qlcplus-qml");
+const BINARY = join(BUILD_DIR, "qmlui", "qlcplus5");
 
 let buildProc = null;
 let appPid = null;

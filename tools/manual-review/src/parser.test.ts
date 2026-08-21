@@ -17,7 +17,7 @@ This checklist contains ONLY items that require human judgment.
 
 \`\`\`bash
 cd build
-./qmlui/qlcplus-qml -d
+./qmlui/qlcplus5 -d
 \`\`\`
 
 Flags:

@@ -6,7 +6,7 @@ QLC+ is a cross-platform lighting control application built with C++/Qt. The cod
 - **v4** (`ui/`): Classic Qt Widgets UI (`APPVERSION 4.x`)
 - **v5** (`qmlui/`): Modern QML UI (`APPVERSION 5.x`, built when `-Dqmlui=ON`)
 
-The active development target is v5 (QML). The build produces `qlcplus-qml`.
+The active development target is v5 (QML). The build produces `qlcplus5`.
 
 ## Build System
 
@@ -23,7 +23,7 @@ cmake .. -Dqmlui=ON
 cd build && cmake --build . -j8
 
 # Build specific target
-cmake --build . --target qlcplus-qml -j8
+cmake --build . --target qlcplus5 -j8
 cmake --build . --target qlcplusmcp -j8
 cmake --build . --target mcp_vc_query_filter_test -j8
 ```
@@ -34,14 +34,14 @@ After making code changes, rebuild the specific library/target that changed, the
 
 ```bash
 # 1. Rebuild (from build/ directory)
-cmake --build . --target qlcplus-qml -j8
+cmake --build . --target qlcplus5 -j8
 
 # 2. Kill the running instance (find PID first)
-ps aux | grep qlcplus-qml | grep -v grep
+ps aux | grep qlcplus5 | grep -v grep
 kill <PID>
 
 # 3. Restart
-cd build && nohup ./qmlui/qlcplus-qml -d > /dev/null 2>&1 &
+cd build && nohup ./qmlui/qlcplus5 -d > /dev/null 2>&1 &
 ```
 
 **Important:** Do NOT kill/restart QLC+ automatically without being asked. The user may have unsaved state.
@@ -126,7 +126,7 @@ Known types (case-sensitive strings used in MCP): `button`, `slider`, `xypad`, `
 ## Platform Notes
 
 - **macOS Tahoe (26.x)**: Ad-hoc codesigning with `--options runtime` causes dyld Team ID mismatch crashes. Do NOT use `--options runtime` for ad-hoc signed dev builds.
-- The app binary is at `build/qmlui/qlcplus-qml` (no `.app` bundle in dev builds).
+- The app binary is at `build/qmlui/qlcplus5` (no `.app` bundle in dev builds).
 - Use `-d` flag for debug output when running.
 
 

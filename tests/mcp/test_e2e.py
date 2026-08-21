@@ -12,7 +12,7 @@ import time
 import urllib.request
 import urllib.error
 
-QLCPLUS_BIN = os.environ.get("QLCPLUS_BIN", "./build-mcp/qmlui/qlcplus-qml")
+QLCPLUS_BIN = os.environ.get("QLCPLUS_BIN", "./build-mcp/qmlui/qlcplus5")
 MCP_PORT = int(os.environ.get("MCP_PORT", "9696"))
 MCP_URL = f"http://127.0.0.1:{MCP_PORT}/mcp"
 

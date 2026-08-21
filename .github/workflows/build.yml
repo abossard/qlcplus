@@ -233,10 +233,10 @@ jobs:
           ARCH: ${{ matrix.appimage_arch }}
         run: |
           ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage --appimage-extract > /dev/null
-          file squashfs-root/usr/bin/qlcplus-qml
+          file squashfs-root/usr/bin/qlcplus5
           case "${ARCH}" in
-            x86_64)  file squashfs-root/usr/bin/qlcplus-qml | grep -q 'ELF 64-bit.*x86-64' ;;
-            aarch64) file squashfs-root/usr/bin/qlcplus-qml | grep -q 'ELF 64-bit.*aarch64' ;;
+            x86_64)  file squashfs-root/usr/bin/qlcplus5 | grep -q 'ELF 64-bit.*x86-64' ;;
+            aarch64) file squashfs-root/usr/bin/qlcplus5 | grep -q 'ELF 64-bit.*aarch64' ;;
           esac
           test -f squashfs-root/share/qlcplus/web/web-dmx/index.html
           echo "OK: payload is ${ARCH} and web-dmx is bundled"

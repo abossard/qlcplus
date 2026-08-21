@@ -2,7 +2,7 @@
 // Verifies that DMX channel changes in one browser tab are reflected in another
 // via the WebSocket DMX_SUB/DMX_DELTA push mechanism.
 //
-// Requires QLC+ running with: ./qlcplus-qml -w -o GARAGE.qxw
+// Requires QLC+ running with: ./qlcplus5 -w -o GARAGE.qxw
 
 import { test, expect, type Page, type BrowserContext } from '@playwright/test';
 

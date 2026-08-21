@@ -5,7 +5,7 @@
 product
 
 ## Users
-Lighting designers, DJs, and stage/club operators running live shows with QLC+ (this fork: `qlcplus-qml`, the v5 QML UI). They work at a desk or laptop, often in dim venues, frequently driving the rig from a hardware **MIDI controller** rather than the screen. Their context is time-pressured and live: a mistake is visible on the rig in real time. The fork adds DJ/VDJ integration, beat-synced shows, and AI/MCP tooling.
+Lighting designers, DJs, and stage/club operators running live shows with QLC+ (this fork: `qlcplus5`, the v5 QML UI). They work at a desk or laptop, often in dim venues, frequently driving the rig from a hardware **MIDI controller** rather than the screen. Their context is time-pressured and live: a mistake is visible on the rig in real time. The fork adds DJ/VDJ integration, beat-synced shows, and AI/MCP tooling.
 
 ## Product Purpose
 QLC+ controls lighting fixtures over DMX (Art-Net, sACN, USB-DMX, etc.). The new **Scene Workbench** lets an operator load an existing Scene, adjust it live via MIDI and/or on-screen DMX controls, and then **Update** the Scene or **Save as New** — so building and tweaking a show stays in the flow of performance, not buried in editor dialogs. Success = an operator can re-shape a look with their hands on a controller and commit it in seconds, never losing track of which fixtures/channels they're touching.

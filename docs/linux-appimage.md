@@ -61,5 +61,5 @@ Or unpack it and use the launcher, which sets up the bundled library paths:
 ./squashfs-root/AppRun
 ```
 
-Start `squashfs-root/AppRun` rather than `squashfs-root/usr/bin/qlcplus-qml`; the
+Start `squashfs-root/AppRun` rather than `squashfs-root/usr/bin/qlcplus5`; the
 binary resolves its bundled Qt relative to the working directory that `AppRun` sets.

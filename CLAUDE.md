@@ -19,7 +19,7 @@ cmake .. -Dqmlui=ON
 cd build && cmake --build . -j8
 
 # Build specific targets
-cmake --build . --target qlcplus-qml -j8
+cmake --build . --target qlcplus5 -j8
 cmake --build . --target qlcplusmcp -j8
 
 # Reconfigure after adding new source files or CMakeLists.txt changes
@@ -30,7 +30,7 @@ cd build && cmake ..
 
 ```bash
 # Run from build directory
-cd build && ./qmlui/qlcplus-qml -d   # -d for debug output
+cd build && ./qmlui/qlcplus5 -d   # -d for debug output
 
 # Or via cmake target
 cd build && cmake --build . --target run
@@ -127,12 +127,12 @@ Quick preference order: `codegraph_context` (start here) → `codegraph_files` (
 
 ## Build Flags
 
-- `-Dqmlui=ON` — Build v5 QML UI (produces `qlcplus-qml`)
+- `-Dqmlui=ON` — Build v5 QML UI (produces `qlcplus5`)
 - `-Dmcp_server=ON` — Build MCP server (auto-enabled when qmlui is ON in this fork)
 - Compiler flags: `-Werror -Wextra -Wall` (non-iOS Unix builds)
 
 ## Platform Notes
 
 - **macOS**: Ad-hoc codesigning with `--options runtime` causes dyld crashes on Tahoe (26.x). Don't use `--options runtime` for dev builds.
-- App binary is at `build/qmlui/qlcplus-qml` (no `.app` bundle in dev builds).
+- App binary is at `build/qmlui/qlcplus5` (no `.app` bundle in dev builds).
 - Workspace files use `.qxw` extension (XML format).

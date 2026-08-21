@@ -4,7 +4,7 @@ JOBS ?= 8
 QMLUI ?= ON
 MCP ?= ON
 
-APP_TARGET ?= qlcplus-qml
+APP_TARGET ?= qlcplus5
 MCP_TARGET ?= qlcplusmcp
 
 .DEFAULT_GOAL := help
@@ -102,7 +102,7 @@ dmg:
 		platforms/macos/fix_dylib_deps.sh "$$BIN_DIR/qlcplus"; \
 		platforms/macos/fix_dylib_deps.sh "$$BIN_DIR/qlcplus-fixtureeditor"; \
 	else \
-		platforms/macos/fix_dylib_deps.sh "$$BIN_DIR/qlcplus-qml"; \
+		platforms/macos/fix_dylib_deps.sh "$$BIN_DIR/qlcplus5"; \
 	fi; \
 	echo "Run macdeployqt..."; \
 	"$$QTDIR/bin/macdeployqt" "$$APP_DIR" -qmldir=qmlui/qml; \
@@ -129,7 +129,7 @@ dmg:
 			codesign --force --sign "$$SIGNATURE" --timestamp --entitlements $$ENTITLEMENTS --options runtime "$$BIN_DIR/qlcplus"; \
 			codesign --force --sign "$$SIGNATURE" --timestamp --entitlements $$ENTITLEMENTS --options runtime "$$BIN_DIR/qlcplus-launcher"; \
 		else \
-			codesign --force --sign "$$SIGNATURE" --timestamp --entitlements $$ENTITLEMENTS --options runtime "$$BIN_DIR/qlcplus-qml"; \
+			codesign --force --sign "$$SIGNATURE" --timestamp --entitlements $$ENTITLEMENTS --options runtime "$$BIN_DIR/qlcplus5"; \
 		fi; \
 	fi; \
 	OUTDIR="$$PWD"; \

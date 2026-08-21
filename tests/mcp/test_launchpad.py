@@ -86,7 +86,7 @@ def main():
     })
     if "error" in r:
         print(f"  ❌ Cannot connect to MCP: {r['error']}")
-        print(f"  Start QLC+ with: ./build-mcp/qmlui/qlcplus-qml --mcp-http 9696")
+        print(f"  Start QLC+ with: ./build-mcp/qmlui/qlcplus5 --mcp-http 9696")
         return
     print(f"  ✅ Connected: {r.get('result', {}).get('serverInfo', {})}")
 

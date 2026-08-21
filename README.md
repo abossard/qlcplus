@@ -441,7 +441,7 @@
 > cmake --build . -j$(sysctl -n hw.ncpu)
 >
 > # Run (MCP auto-starts on port 9696)
-> ./qmlui/qlcplus-qml
+> ./qmlui/qlcplus5
 > ```
 >
 > **Runtime flags:**
@@ -455,7 +455,7 @@
 > **Dev cycle** — after code changes:
 > ```bash
 > # Rebuild only what changed
-> cd build && cmake --build . --target qlcplus-qml -j$(sysctl -n hw.ncpu)
+> cd build && cmake --build . --target qlcplus5 -j$(sysctl -n hw.ncpu)
 >
 > # If only MCP server code changed:
 > cmake --build . --target qlcplusmcp -j$(sysctl -n hw.ncpu)

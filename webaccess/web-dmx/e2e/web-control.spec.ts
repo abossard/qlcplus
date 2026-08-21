@@ -1,5 +1,5 @@
 // E2E tests for the web-based DMX Control Panel.
-// Requires QLC+ running with: ./qlcplus-qml -w -o GARAGE.qxw
+// Requires QLC+ running with: ./qlcplus5 -w -o GARAGE.qxw
 
 import { test, expect, type Page } from '@playwright/test';
 

@@ -1,6 +1,6 @@
 // Extension: qlcplus-control
 // A Copilot CLI canvas that builds, starts, stops, and monitors the QLC+ QML
-// app (`build/qmlui/qlcplus-qml`). It streams the app's stdout/stderr and build
+// app (`build/qmlui/qlcplus5`). It streams the app's stdout/stderr and build
 // output to a log viewer and samples CPU/memory via `ps`.
 //
 // Design notes:
@@ -49,7 +49,7 @@ function resolveRepoRoot() {
 
 const REPO_ROOT = resolveRepoRoot();
 const BUILD_DIR = join(REPO_ROOT, "build");
-const BINARY = join(BUILD_DIR, "qmlui", "qlcplus-qml");
+const BINARY = join(BUILD_DIR, "qmlui", "qlcplus5");
 
 const COPILOT_HOME = process.env.COPILOT_HOME || join(homedir(), ".copilot");
 const ARTIFACTS = join(COPILOT_HOME, "extensions", "qlcplus-control", "artifacts");
@@ -114,19 +114,19 @@ function alive(pid) {
     try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 }
 
-// Find a qlcplus-qml app process we did NOT start (e.g. user launched it, or it
+// Find a qlcplus5 app process we did NOT start (e.g. user launched it, or it
 // predates this extension). Excludes compiler/build invocations that mention
 // the binary name.
 function findExternalPid() {
     try {
-        const out = execFileSync("pgrep", ["-f", "qmlui/qlcplus-qml"], { encoding: "utf8", timeout: 3000 }).trim();
+        const out = execFileSync("pgrep", ["-f", "qmlui/qlcplus5"], { encoding: "utf8", timeout: 3000 }).trim();
         if (!out) return null;
         const pids = out.split(/\s+/).map((s) => parseInt(s, 10)).filter(Boolean);
         for (const pid of pids) {
             if (pid === process.pid) continue;
             let cmd = "";
             try { cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8", timeout: 2000 }).trim(); } catch (e) { continue; }
-            if (!cmd.includes("/qmlui/qlcplus-qml")) continue;
+            if (!cmd.includes("/qmlui/qlcplus5")) continue;
             if (/cmake|ninja|clang|\bld\b|c\+\+|\bcc\b|\bmake\b/.test(cmd)) continue;
             return pid;
         }
@@ -336,7 +336,7 @@ async function startBuild() {
                 code = await runStep("cmake", ["..", "-Dqmlui=ON"], BUILD_DIR);
             }
             if (code === 0) {
-                code = await runStep("cmake", ["--build", ".", "--target", "qlcplus-qml", "-j8"], BUILD_DIR);
+                code = await runStep("cmake", ["--build", ".", "--target", "qlcplus5", "-j8"], BUILD_DIR);
             }
         } catch (e) {
             broadcast({ type: "log", stream: "build", line: "exception: " + e.message, err: true });
@@ -371,7 +371,7 @@ function parseExtraArgs(s) {
 function startApp({ debug, extraArgs }) {
     const snap = procSnapshot();
     if (snap.running) throw new CanvasError("already_running", "QLC+ is already running (pid " + snap.pid + ").");
-    if (!existsSync(BINARY)) throw new CanvasError("not_built", "Binary not found at build/qmlui/qlcplus-qml — run Rebuild first.");
+    if (!existsSync(BINARY)) throw new CanvasError("not_built", "Binary not found at build/qmlui/qlcplus5 — run Rebuild first.");
 
     const args = [];
     if (debug) args.push("-d");
@@ -412,7 +412,7 @@ function startApp({ debug, extraArgs }) {
     attachAppTail(logFile);
     appTail.offset = 0; // fresh file: stream from the very beginning
     appTail.partial = "";
-    broadcast({ type: "log", stream: "app", line: "=== Started pid " + child.pid + " : qlcplus-qml " + args.join(" ") + " ===" });
+    broadcast({ type: "log", stream: "app", line: "=== Started pid " + child.pid + " : qlcplus5 " + args.join(" ") + " ===" });
     broadcastState();
     log("Started QLC+ (pid " + child.pid + ") args: " + args.join(" "));
     return { pid: child.pid, args, logFile };
@@ -602,7 +602,7 @@ function buildCanvas() {
             },
             {
                 name: "rebuild",
-                description: "Rebuild qlcplus-qml (configures the build dir first if needed). Returns immediately; build runs async — poll 'status' or read 'tail_log' type=build.",
+                description: "Rebuild qlcplus5 (configures the build dir first if needed). Returns immediately; build runs async — poll 'status' or read 'tail_log' type=build.",
                 handler: async () => startBuild(),
             },
             {

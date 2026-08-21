@@ -26,7 +26,7 @@
 #include "vcbridge.h"
 
 // Re-implement the conversion functions locally to test the contract
-// without linking to qlcplus-qml. These must match vcpage.cpp exactly.
+// without linking to qlcplus5. These must match vcpage.cpp exactly.
 namespace InputMode {
     enum Mode { Normal = 0, Override, Inherit };
 
