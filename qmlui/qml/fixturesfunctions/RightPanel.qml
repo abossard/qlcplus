@@ -145,12 +145,6 @@ SidePanel
             functionManager.cloneFunctions()
     }
 
-    function requestFunctionWizard()
-    {
-        if (qlcplus.accessMask & App.AC_FunctionEditing)
-            functionWizardPopup.open()
-    }
-
     Shortcut
     {
         sequence: "Delete"
@@ -173,16 +167,6 @@ SidePanel
                  && functionManager.selectedFunctionCount > 0
                  && !functionManager.isEditing
         onActivated: rightSidePanel.requestCloneSelectedFunctions()
-    }
-
-    Shortcut
-    {
-        sequence: "Ctrl+W"
-        enabled: mainView.currentContext === "FIXANDFUNC"
-                 && !rightSidePanel.inShowManager
-                 && !mainView.shortcutsBlocked()
-                 && (qlcplus.accessMask & App.AC_FunctionEditing)
-        onActivated: rightSidePanel.requestFunctionWizard()
     }
 
     onContentLoaded: (item, ID) =>
@@ -360,23 +344,6 @@ SidePanel
                         createFunctionAndEditor(fType)
                     }
                     onClosed: addFunction.checked = false
-                }
-            }
-            IconButton
-            {
-                id: functionWizardBtn
-                visible: qlcplus.accessMask & App.AC_FunctionEditing
-                z: 2
-                width: iconSize
-                height: iconSize
-                faSource: FontAwesome.fa_hat_wizard
-                faColor: "orange"
-                tooltip: ShortcutUtils.withShortcut(qsTr("Function Wizard"), "Ctrl+W")
-                onClicked: rightSidePanel.requestFunctionWizard()
-
-                PopupFunctionWizard
-                {
-                    id: functionWizardPopup
                 }
             }
             IconButton

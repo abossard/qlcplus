@@ -39,7 +39,6 @@ set(SRC_FILES
     folderbrowser.cpp folderbrowser.h
     functioneditor.cpp functioneditor.h
     functionmanager.cpp functionmanager.h
-    functionwizardmanager.cpp functionwizardmanager.h
     palettegenerator.cpp palettegenerator.h
     importmanager.cpp importmanager.h
     inputoutputmanager.cpp inputoutputmanager.h

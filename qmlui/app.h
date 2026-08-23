@@ -37,7 +37,6 @@ class PaletteManager;
 class ContextManager;
 class VirtualConsole;
 class FunctionManager;
-class FunctionWizardManager;
 class QXmlStreamReader;
 class FixtureGroupEditor;
 class FixtureRemapManager;
@@ -250,7 +249,6 @@ private:
     InputOutputManager *m_ioManager;
     VirtualConsole *m_virtualConsole;
     ShowManager *m_showManager;
-    FunctionWizardManager *m_functionWizardManager;
     SimpleDesk *m_simpleDesk;
     ActionManager *m_actionManager;
     VideoProvider *m_videoProvider;

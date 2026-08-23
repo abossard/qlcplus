@@ -21,7 +21,7 @@
 > - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 252 unit tests
 > - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
 > - `autolight/` directory: Iterative LED effect research loop (Python)
-> - **Enhanced Function Wizard** — rainbow/warm/cool palettes, beat-synced chasers, movement patterns, prism/focus/zoom detection, per-fixture VC pages, QLCPalette generation
+> - **Stage Wizard additions** — warm/cool colour themes, prism macros, Focus/Zoom faders, optional beat-synced chasers
 > - Launchpad controller integration support
 > - Audio capture / BPM detection for scripts
 > - **41 audio-reactive HSV scripts** (LedFX-ported atmospheric effects, strobes, motion, EQ visualizers) — in `resources/huescripts/`, offered to **HUE Matrix** only
@@ -86,7 +86,7 @@
 > |----------|-----------|
 > | Global | Ctrl+N/O/S, Ctrl+Z/Shift+Z, Ctrl+Shift+Esc (Panic), F11 |
 > | Navigation | Alt+1–6 (views), Ctrl+PgUp/PgDown (cycle), Ctrl+[/] (drawers) |
-> | Function Manager | Delete, Ctrl+C (Clone), Ctrl+W (Wizard) |
+> | Function Manager | Delete, Ctrl+C (Clone) |
 > | Show Manager | Space (Play), Ctrl+Space (Stop), Ctrl+C/V, Delete |
 >
 > - Guards: disabled during text editing, popups, kiosk mode
@@ -174,34 +174,30 @@
 >
 > The dashboard auto-polls at 500ms and is gated behind debug mode (not exposed in production).
 >
-> #### Enhanced Function Wizard
-> The Function Wizard now generates richer output with beat-synced timing,
-> thematic color palettes, movement patterns, and per-fixture VC pages.
+> #### Stage Wizard additions
+> The fork's separate Function Wizard has been retired; its remaining
+> capabilities were ported into upstream's Stage Wizard, which covers the
+> rest of what it did.
 >
-> **New palette types:**
+> **New effects (step 4):**
 >
-> | Type | What it creates |
-> |------|----------------|
-> | Rainbow Chase | 8 spectral color scenes (R→O→Y→G→C→B→P→M) with beat-synced chaser |
-> | Warm Colours | 5 warm tones (Red→Orange→Amber→Yellow→WarmWhite) with PingPong chaser |
-> | Cool Colours | 5 cool tones (Blue→Cyan→Indigo→Purple→CoolWhite) with PingPong chaser |
-> | Prism Effects | Per-capability scenes from prism channel (Off, On, CW/CCW rotation) |
+> | Effect | What it creates |
+> |--------|----------------|
+> | Warm Colors | 5 warm tones (Red→Orange→Amber→Yellow→WarmWhite) with a PingPong chaser |
+> | Cool Colors | 5 cool tones (Blue→Cyan→Indigo→Purple→CoolWhite) with a PingPong chaser |
+> | Prism Effects | One scene per prism macro, plus a chaser and a Virtual Console swatch strip |
 >
-> **Beat-synced chasers:** All generated chasers now default to beat-based
-> tempo (syncs with OS2L beat events). Per-type timing profiles:
-> colors = 4-beat hold / 2-beat fade, gobos = 8-beat, movement = 4-beat.
+> Upstream's Color Rainbow gained the fork's eighth colour (Purple), making
+> it the full R→O→Y→G→C→B→P→M spectrum.
 >
-> **Movement chasers (Pan/Tilt):** In addition to 9 static position presets,
-> the wizard now generates 4 movement chasers: Pan Sweep (Loop), Tilt Sweep
-> (Loop), Nod (PingPong), and Shake (PingPong fast).
+> **Beat-synced chasers:** an opt-in step 4 option that builds every
+> generated chaser on the beat clock rather than in milliseconds, so its
+> step timing follows the global BPM and the tap tempo. Pre-selected for
+> Club Night and Concert shows.
 >
-> **QLCPalette generation:** Alongside scenes and chasers, the wizard now
-> creates reusable QLC+ Palette objects for Color, Position, Dimmer, Gobo,
-> and Shutter presets.
->
-> **Per-fixture pages:** When multiple fixtures are selected, each fixture
-> gets its own Virtual Console page (caption = fixture name) with all
-> widgets scoped to that fixture.
+> **Focus / Zoom faders:** groups whose fixtures carry beam focus or zoom
+> channels get a fader for each on their Virtual Console page, beside the
+> Intensity fader. Fine channels are excluded.
 >
 > **SoloFrame grouping:** Color, gobo, and prism scene buttons are wrapped
 > in VCSoloFrame so only one can be active at a time.

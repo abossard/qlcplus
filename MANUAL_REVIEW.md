@@ -440,7 +440,6 @@ Navigate to Fixtures & Functions → Function Manager:
 |----------|----------|--------|
 | Select function(s), press Delete | Opens delete confirmation popup | ☐ Same behavior as minus button |
 | Select function(s), press Ctrl+C | Clones selected functions | ☐ Clone appears in list |
-| Ctrl+W | Opens Function Wizard | ☐ Wizard popup opens |
 | Ctrl+[ | Toggles Fixtures & Functions left panel | ☐ Left panel opens/closes |
 | Ctrl+] | Toggles Fixtures & Functions right panel | ☐ Right panel opens/closes |
 
