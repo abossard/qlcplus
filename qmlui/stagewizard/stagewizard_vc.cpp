@@ -61,6 +61,7 @@
 #include "qlcfixturedef.h"
 
 #include <QtMath>
+#include <QPair>
 #include <QSet>
 #include <QDebug>
 
@@ -505,41 +506,72 @@ void StageWizard::createVCLayout()
         int colStartX  = pad;                   // content left edge, past the fader
         int soloY      = bodyTop;               // top of the next strip in the row
         {
-            // Provisional height; the fader is stretched to the row's real
-            // height once the strips beside it have been placed, so it always
-            // spans the row exactly however many lines they end up taking.
+            // Provisional height; the faders are stretched to the row's real
+            // height once the strips beside them have been placed, so they
+            // always span the row exactly however many lines those take.
             int slH = btnH * 2 + pad;
-            int slW = 0;
-            VCSlider *rowSlider = nullptr;
+            const int slW = kSlW * pd;
+            int slX = pad;                  // running left edge of the fader band
+            QList<VCSlider *> rowSliders;
+
+            // One Level fader spanning the row, driving every (fixture, channel)
+            // in $channels. Does nothing when the list is empty, so a group
+            // without the capability gets no fader rather than a dead one.
+            auto addRowSlider = [&](const QString &caption,
+                                    const QList<QPair<quint32, quint32> > &channels)
+            {
+                if (channels.isEmpty())
+                    return;
+
+                VCSlider *slider = qobject_cast<VCSlider *>(
+                    frame->addWidget(nullptr, "Slider", QPoint(slX, bodyTop)));
+                if (!slider)
+                    return;
+
+                slider->setCaption(caption);
+                slider->setGeometry(QRectF(slX, bodyTop, slW, slH));
+                slider->setSliderMode(VCSlider::Level);
+                for (const QPair<quint32, quint32> &c : channels)
+                    slider->addLevelChannel(c.first, c.second);
+
+                mapFader(slider, kSliderLevelID);
+                rowSliders.append(slider);
+                slX += slW + pad;
+                colStartX = slX;            // swatches start right of the faders
+                row2Bottom = qMax(row2Bottom, bodyTop + slH);
+            };
 
             if (grp.hasDimmer || grp.hasRGB || grp.hasCMY)
             {
-                int w = kSlW * pd;
-                VCSlider *slider = qobject_cast<VCSlider *>(
-                    frame->addWidget(nullptr, "Slider", QPoint(pad, bodyTop)));
-                if (slider)
+                QList<QPair<quint32, quint32> > dimmer;
+                for (quint32 fxID : grp.fixtureIDs)
                 {
-                    rowSlider = slider;
-                    slW = w;
-                    slider->setCaption(tr("Intensity"));
-                    slider->setGeometry(QRectF(pad, bodyTop, w, slH));
-                    slider->setSliderMode(VCSlider::Level);
-                    for (quint32 fxID : grp.fixtureIDs)
+                    Fixture *fx = m_doc->fixture(fxID);
+                    if (!fx) continue;
+                    for (quint32 ch = 0; ch < fx->channels(); ++ch)
                     {
-                        Fixture *fx = m_doc->fixture(fxID);
-                        if (!fx) continue;
-                        for (quint32 ch = 0; ch < fx->channels(); ++ch)
-                        {
-                            const QLCChannel *cc = fx->channel(ch);
-                            if (cc && cc->group() == QLCChannel::Intensity &&
-                                cc->colour() == QLCChannel::NoColour)
-                                slider->addLevelChannel(fxID, ch);
-                        }
+                        const QLCChannel *cc = fx->channel(ch);
+                        if (cc && cc->group() == QLCChannel::Intensity &&
+                            cc->colour() == QLCChannel::NoColour)
+                            dimmer.append(qMakePair(fxID, ch));
                     }
-                    colStartX = pad + w + pad;  // colours start right of the fader
-                    mapFader(slider, kSliderLevelID);
-                    row2Bottom = bodyTop + slH;
                 }
+                addRowSlider(tr("Intensity"), dimmer);
+            }
+
+            // ── Focus / Zoom ────────────────────────────────────────────────
+            // Beam-shaping channels get a fader each, beside the Intensity one.
+            // Aggregated per group rather than per fixture: a page for eight
+            // movers would otherwise carry sixteen near-identical faders, and
+            // focus and zoom are things you set for a whole group at once. Fine
+            // channels are excluded — they are the low byte of the coarse
+            // channel next to them, so a fader of their own only jitters.
+            if (grp.hasBeam)
+            {
+                QList<QPair<quint32, quint32> > focus, zoom;
+                groupBeamChannels(grp, focus, zoom);
+                addRowSlider(tr("Focus"), focus);
+                addRowSlider(tr("Zoom"), zoom);
             }
 
             // ── Swatch strips, in solo frames ────────────────────────────────
@@ -785,11 +817,16 @@ void StageWizard::createVCLayout()
             // "Lamp On" scene, so this button appears on those pages only.
             addShutterBtn(tr("%1 – Lamp On").arg(grp.name), tr("Lamp On"));
 
-            // Stretch the fader to whatever height the row actually came to.
-            if (rowSlider)
+            // Stretch the faders to whatever height the row actually came to.
+            if (!rowSliders.isEmpty())
             {
                 slH = qMax(slH, row2Bottom - bodyTop);
-                rowSlider->setGeometry(QRectF(pad, bodyTop, slW, slH));
+                int x = pad;
+                for (VCSlider *s : rowSliders)
+                {
+                    s->setGeometry(QRectF(x, bodyTop, slW, slH));
+                    x += slW + pad;
+                }
                 row2Bottom = qMax(row2Bottom, bodyTop + slH);
             }
         }

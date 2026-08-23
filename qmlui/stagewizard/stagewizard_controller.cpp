@@ -241,6 +241,14 @@ QString StageWizard::controllerMappingPreview() const
     {
         if (grp.hasDimmer || grp.hasRGB || grp.hasCMY)
             faders++;                       // Intensity slider
+        if (grp.hasBeam)
+        {
+            // Focus / Zoom faders, one per set the group actually has.
+            QList<QPair<quint32, quint32> > focus, zoom;
+            groupBeamChannels(grp, focus, zoom);
+            if (!focus.isEmpty()) faders++;
+            if (!zoom.isEmpty())  faders++;
+        }
         if (grp.hasMovement)
         {
             faders  += 2;                   // XY pad pan + tilt

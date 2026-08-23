@@ -212,7 +212,7 @@ void StageWizard::loadExistingGroups()
         e.selected = false;
         e.role     = RoleKey;
         e.roleUserSet = false;
-        e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = false;
+        e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
 
         for (quint32 fxID : grp->fixtureList())
         {
@@ -237,7 +237,7 @@ int StageWizard::addGroup()
     e.selected = false;
     e.role     = RoleKey;
     e.roleUserSet = false;
-    e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = false;
+    e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
     m_groups.append(e);
 
     emit groupsModelChanged();
@@ -379,7 +379,7 @@ void StageWizard::slotFixtureAdded(quint32 fixtureID)
 void StageWizard::detectGroupCapabilities(FixtureGroupEntry &e) const
 {
     e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = false;
-    e.hasGobo = e.hasShutter = e.hasDimmer = false;
+    e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
 
     for (quint32 fxID : e.fixtureIDs)
     {
@@ -408,6 +408,18 @@ void StageWizard::detectGroupCapabilities(FixtureGroupEntry &e) const
                 case QLCChannel::Shutter:
                     if (channel->capabilities().size() > 1) e.hasShutter = true;
                     break;
+                case QLCChannel::Beam:
+                {
+                    // Only the coarse focus/zoom channels. A fine channel is the
+                    // low byte of the one beside it, so putting it on its own
+                    // fader gives a control that jitters the beam instead of
+                    // moving it.
+                    QLCChannel::Preset p = channel->preset();
+                    if (p == QLCChannel::BeamFocusNearFar || p == QLCChannel::BeamFocusFarNear ||
+                        p == QLCChannel::BeamZoomSmallBig  || p == QLCChannel::BeamZoomBigSmall)
+                        e.hasBeam = true;
+                    break;
+                }
                 case QLCChannel::Intensity:
                     switch (channel->colour())
                     {
@@ -428,6 +440,39 @@ void StageWizard::detectGroupCapabilities(FixtureGroupEntry &e) const
         if (hasPan && hasTilt)    e.hasMovement = true;
         if (hasR && hasG && hasB) e.hasRGB      = true;
         if (hasC && hasM && hasY) e.hasCMY      = true;
+    }
+}
+
+void StageWizard::groupBeamChannels(const FixtureGroupEntry &grp,
+                                    QList<QPair<quint32, quint32> > &focus,
+                                    QList<QPair<quint32, quint32> > &zoom) const
+{
+    for (quint32 fxID : grp.fixtureIDs)
+    {
+        Fixture *fx = m_doc->fixture(fxID);
+        if (fx == nullptr)
+            continue;
+
+        for (quint32 ch = 0; ch < fx->channels(); ++ch)
+        {
+            const QLCChannel *c = fx->channel(ch);
+            if (c == nullptr || c->group() != QLCChannel::Beam)
+                continue;
+
+            switch (c->preset())
+            {
+                case QLCChannel::BeamFocusNearFar:
+                case QLCChannel::BeamFocusFarNear:
+                    focus.append(qMakePair(fxID, ch));
+                    break;
+                case QLCChannel::BeamZoomSmallBig:
+                case QLCChannel::BeamZoomBigSmall:
+                    zoom.append(qMakePair(fxID, ch));
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 }
 
@@ -1172,6 +1217,7 @@ void StageWizard::createFixtureGroups()
         m_allGroups.hasGobo       |= grp.hasGobo;
         m_allGroups.hasShutter    |= grp.hasShutter;
         m_allGroups.hasDimmer     |= grp.hasDimmer;
+        m_allGroups.hasBeam       |= grp.hasBeam;
     }
 
     if (!m_allGroups.fixtureIDs.isEmpty())

@@ -23,6 +23,7 @@
 #include <QObject>
 #include <QVariant>
 #include <QHash>
+#include <QPair>
 #include <QVector3D>
 #include <QColor>
 
@@ -320,6 +321,9 @@ private:
         bool        hasGobo;
         bool        hasShutter;
         bool        hasDimmer;
+        /** Has a Beam channel carrying a focus or zoom preset (fine channels
+         *  excluded). Drives the Focus / Zoom faders on the group's VC page. */
+        bool        hasBeam;
         /** True only for the synthetic "All Groups" aggregate. It spans every
          *  selected fixture, so anything whose DMX values are read off a single
          *  sample fixture (gobo wheel, colour wheel) would be wrong for every
@@ -340,6 +344,15 @@ private:
     // Step 2 helpers
     void loadExistingGroups();              ///< Populate boxes from existing Doc FixtureGroups
     void detectGroupCapabilities(FixtureGroupEntry &e) const;
+
+    /** Split $grp's beam-shaping channels into the focus and the zoom set, as
+     *  (fixture id, channel) pairs. Fine channels are left out: they are the low
+     *  byte of the coarse channel beside them, so a fader of their own only
+     *  jitters the beam. Shared by the VC layout and the controller estimate so
+     *  the two cannot disagree about how many faders the page needs. */
+    void groupBeamChannels(const FixtureGroupEntry &grp,
+                           QList<QPair<quint32, quint32> > &focus,
+                           QList<QPair<quint32, quint32> > &zoom) const;
     void rebuildRoleModel();                ///< Recompute roles/caps for selected boxes
     QString capabilityGroupName(const Fixture *fx) const;
 
