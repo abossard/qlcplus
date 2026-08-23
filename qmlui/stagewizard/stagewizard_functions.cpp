@@ -714,6 +714,86 @@ void StageWizard::generateGoboPalette(const FixtureGroupEntry &grp, const QStrin
     m_generatedFunctionIDs.append(ch->id());
 }
 
+void StageWizard::generatePrismEffects(const FixtureGroupEntry &grp, const QString &prefix)
+{
+    // Capability names and DMX ranges are read off one sample fixture, so this
+    // only means anything within a single model -- same constraint as the gobo
+    // wheel, and the reason the aggregate page is skipped by the caller.
+    Fixture *sample = nullptr;
+    for (quint32 id : grp.fixtureIDs)
+    {
+        sample = m_doc->fixture(id);
+        if (sample) break;
+    }
+    if (!sample) return;
+
+    const QLCChannel *prismCh = nullptr;
+    for (quint32 ch = 0; ch < sample->channels(); ++ch)
+    {
+        const QLCChannel *c = sample->channel(ch);
+        if (c && c->group() == QLCChannel::Prism)
+        {
+            prismCh = c;
+            break;      // first prism channel only
+        }
+    }
+    if (!prismCh) return;
+
+    // Own subfolder, so createVCLayout() can find this group's prism scenes by
+    // path and give the page a prism strip.
+    const QString path = wizardPath(prefix + "/" + tr("Prism"));
+
+    // Each fixture is addressed on ITS OWN prism channel: the group may hold
+    // models whose prism sits at a different offset, and writing the sample's
+    // channel index to all of them would land on some other attribute.
+    QList<QPair<quint32, quint32> > targets;
+    for (quint32 fxID : grp.fixtureIDs)
+    {
+        Fixture *fx = m_doc->fixture(fxID);
+        if (!fx) continue;
+        for (quint32 ch = 0; ch < fx->channels(); ++ch)
+        {
+            const QLCChannel *c = fx->channel(ch);
+            if (c && c->group() == QLCChannel::Prism)
+            {
+                targets.append(qMakePair(fxID, ch));
+                break;
+            }
+        }
+    }
+    if (targets.isEmpty()) return;
+
+    QList<Scene *> scenes;
+    QStringList seen;
+    for (const QLCCapability *cap : prismCh->capabilities())
+    {
+        // A prism channel commonly repeats a label across several ranges
+        // (one per rotation speed); one button per distinct macro is enough.
+        if (seen.contains(cap->name()))
+            continue;
+        seen.append(cap->name());
+
+        Scene *s = new Scene(m_doc);
+        s->setName(tr("%1 – %2").arg(prefix).arg(cap->name()));
+        s->addFixtureGroup(grp.groupId);
+        quint8 midVal = (cap->min() + cap->max()) / 2;
+        for (const QPair<quint32, quint32> &t : targets)
+            s->setValue(SceneValue(t.first, t.second, midVal));
+        s->setPath(path);
+        scenes.append(s);
+        if (scenes.count() >= 16) break;
+    }
+
+    if (scenes.isEmpty()) return;
+
+    Chaser *ch = makeChaserFromScenes(scenes,
+                                      tr("%1 – Prism Effects").arg(prefix),
+                                      0, 4000);
+    m_doc->addFunction(ch);
+    ch->setPath(path);
+    m_generatedFunctionIDs.append(ch->id());
+}
+
 void StageWizard::generateShutterEffects(const FixtureGroupEntry &grp, const QString &prefix)
 {
     Fixture *sample = nullptr;

@@ -212,7 +212,7 @@ void StageWizard::loadExistingGroups()
         e.selected = false;
         e.role     = RoleKey;
         e.roleUserSet = false;
-        e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
+        e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = e.hasPrism = false;
 
         for (quint32 fxID : grp->fixtureList())
         {
@@ -237,7 +237,7 @@ int StageWizard::addGroup()
     e.selected = false;
     e.role     = RoleKey;
     e.roleUserSet = false;
-    e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
+    e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = e.hasPrism = false;
     m_groups.append(e);
 
     emit groupsModelChanged();
@@ -379,7 +379,7 @@ void StageWizard::slotFixtureAdded(quint32 fixtureID)
 void StageWizard::detectGroupCapabilities(FixtureGroupEntry &e) const
 {
     e.hasMovement = e.hasRGB = e.hasCMY = e.hasColorWheel = false;
-    e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = false;
+    e.hasGobo = e.hasShutter = e.hasDimmer = e.hasBeam = e.hasPrism = false;
 
     for (quint32 fxID : e.fixtureIDs)
     {
@@ -407,6 +407,9 @@ void StageWizard::detectGroupCapabilities(FixtureGroupEntry &e) const
                     break;
                 case QLCChannel::Shutter:
                     if (channel->capabilities().size() > 1) e.hasShutter = true;
+                    break;
+                case QLCChannel::Prism:
+                    if (channel->capabilities().size() > 1) e.hasPrism = true;
                     break;
                 case QLCChannel::Beam:
                 {
@@ -710,7 +713,7 @@ void StageWizard::buildEffectsModel()
 {
     // Determine which capabilities exist across all groups
     bool anyMovement = false, anyRGB = false, anyGobo = false;
-    bool anyShutter = false, anyDimmer = false;
+    bool anyShutter = false, anyDimmer = false, anyPrism = false;
     // Colour mixing on units that DON'T move. A slow background wash belongs on
     // static washes/bars; running it on movers just parks them somewhere and
     // holds a colour, which is not what an ambient look is for.
@@ -722,6 +725,7 @@ void StageWizard::buildEffectsModel()
         if (g.hasGobo)    anyGobo    = true;
         if (g.hasShutter) anyShutter = true;
         if (g.hasDimmer)  anyDimmer  = true;
+        if (g.hasPrism)   anyPrism   = true;
         if ((g.hasRGB || g.hasCMY) && !g.hasMovement) anyStaticRGB = true;
     }
 
@@ -746,6 +750,7 @@ void StageWizard::buildEffectsModel()
     addEffect(EffectWarmColors,     tr("Warm Colors"),      tr("Color"),     anyRGB);
     addEffect(EffectCoolColors,     tr("Cool Colors"),      tr("Color"),     anyRGB);
     addEffect(EffectGoboPalette,    tr("Gobo Palette"),     tr("Color"),     anyGobo);
+    addEffect(EffectPrism,          tr("Prism Effects"),    tr("Color"),     anyPrism);
 
     // Intensity / Strobe family
     addEffect(EffectShutter,        tr("Shutter Effects"),  tr("Intensity"), anyShutter);
@@ -823,6 +828,7 @@ void StageWizard::applyShowTypeDefaults()
             enable(EffectColorPalette);
             enable(EffectColorRainbow);
             enable(EffectGoboPalette);
+            enable(EffectPrism);
             enable(EffectBlinderHit);
             enable(EffectStrobeChase);
             enable(EffectPositionPreset);
@@ -840,6 +846,7 @@ void StageWizard::applyShowTypeDefaults()
             enable(EffectColorPalette);
             enable(EffectPositionPreset);
             enable(EffectGoboPalette);
+            enable(EffectPrism);
             enable(EffectAmbientLoop);
             break;
 
@@ -932,6 +939,8 @@ QString StageWizard::effectPreview(int effectFlag) const
             return tr("%1 scenes + %2 chasers").arg(7 * allGroups).arg(allGroups);
         case EffectGoboPalette:
             return tr("scenes + 1 chaser per group");
+        case EffectPrism:
+            return tr("prism scenes + chaser per group");
         case EffectShutter:
             return tr("shutter scenes + chaser per group");
         case EffectColorRainbow:
@@ -1223,6 +1232,7 @@ void StageWizard::createFixtureGroups()
         m_allGroups.hasShutter    |= grp.hasShutter;
         m_allGroups.hasDimmer     |= grp.hasDimmer;
         m_allGroups.hasBeam       |= grp.hasBeam;
+        m_allGroups.hasPrism      |= grp.hasPrism;
     }
 
     if (!m_allGroups.fixtureIDs.isEmpty())
@@ -1371,6 +1381,13 @@ void StageWizard::generateGroupFunctions(const FixtureGroupEntry &grp)
                 // positions at every other model in the rig.
                 if (grp.hasGobo && !grp.isAggregate)
                     generateGoboPalette(grp, prefix);
+                break;
+            case EffectPrism:
+                // Same constraint as the gobo wheel: the macro DMX ranges come
+                // off one sample fixture, so they only mean anything within a
+                // single model and the aggregate page is skipped.
+                if (grp.hasPrism && !grp.isAggregate)
+                    generatePrismEffects(grp, prefix);
                 break;
             case EffectFlyOut:
                 if (grp.hasMovement)

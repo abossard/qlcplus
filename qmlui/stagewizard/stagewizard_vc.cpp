@@ -764,6 +764,10 @@ void StageWizard::createVCLayout()
             buildSwatchSolo({ tr("Colors"), tr("Color Wheel") }, tr("Colors"),
                             CtrlRoleColor, false);
             buildSwatchSolo({ tr("Gobos") }, tr("Gobos"), CtrlRoleEffect, true);
+            // Prism macros are mutually exclusive on their own channel, so they
+            // get their own solo frame rather than joining the gobo one: a spot
+            // can hold a gobo AND a prism at the same time.
+            buildSwatchSolo({ tr("Prism") }, tr("Prism"), CtrlRoleEffect, false);
 
             // The shutter buttons tuck in directly under the colour swatches,
             // beside whatever taller strip shares the line with them.

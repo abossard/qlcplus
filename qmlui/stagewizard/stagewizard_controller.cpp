@@ -258,9 +258,9 @@ QString StageWizard::controllerMappingPreview() const
             buttons += 3;                   // Open / Strobe Slow / Strobe Fast
 
         // Colour buttons: one per generated colour scene for this group.
-        // Gobo scenes exist only where the fixtures declare gobo macros, so a
-        // group without them costs nothing here.
-        int colors = 0, gobos = 0;
+        // Gobo and prism scenes exist only where the fixtures declare those
+        // macros, so a group without them costs nothing here.
+        int colors = 0, macros = 0;
         for (quint32 id : m_generatedFunctionIDs)
         {
             Function *f = m_doc->function(id);
@@ -268,12 +268,13 @@ QString StageWizard::controllerMappingPreview() const
                 continue;
             if (f->path().contains(grp.name + "/" + tr("Colors")))
                 colors++;
-            else if (f->path().contains(grp.name + "/" + tr("Gobos")))
-                gobos++;
+            else if (f->path().contains(grp.name + "/" + tr("Gobos")) ||
+                     f->path().contains(grp.name + "/" + tr("Prism")))
+                macros++;
             else if (f->name() == tr("%1 – Lamp On").arg(grp.name))
                 buttons++;
         }
-        buttons  += colors + gobos;
+        buttons  += colors + macros;
         maxColors = qMax(maxColors, colors);
     };
 

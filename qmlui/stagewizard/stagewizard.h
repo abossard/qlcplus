@@ -136,6 +136,7 @@ public:
         EffectMarquee       = 1 << 18,
         EffectWarmColors    = 1 << 19,
         EffectCoolColors    = 1 << 20,
+        EffectPrism         = 1 << 21,
         EffectAmbientLoop   = 1 << 22
     };
     Q_ENUM(EffectFlag)
@@ -326,6 +327,7 @@ private:
         /** Has a Beam channel carrying a focus or zoom preset (fine channels
          *  excluded). Drives the Focus / Zoom faders on the group's VC page. */
         bool        hasBeam;
+        bool        hasPrism;   ///< Has a Prism channel with selectable macros
         /** True only for the synthetic "All Groups" aggregate. It spans every
          *  selected fixture, so anything whose DMX values are read off a single
          *  sample fixture (gobo wheel, colour wheel) would be wrong for every
@@ -407,6 +409,11 @@ private:
                               const QList<quint32> &fixtureIDs) const;
     void generateColorPalette(const FixtureGroupEntry &grp, const QString &prefix);
     void generateGoboPalette(const FixtureGroupEntry &grp, const QString &prefix);
+
+    /** One scene per prism macro on the group's prism channel, plus a chaser
+     *  cycling them. Filed under the group's "Prism" folder so the VC layout can
+     *  find them and give the page a prism strip. */
+    void generatePrismEffects(const FixtureGroupEntry &grp, const QString &prefix);
     /** Lamp-strike scene for groups whose fixtures declare a LampOn capability.
      *  Filed with the shutter scenes; no scene (and so no button) otherwise. */
     void generateLampOnScene(const FixtureGroupEntry &grp, const QString &prefix);
