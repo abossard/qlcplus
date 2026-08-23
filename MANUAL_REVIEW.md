@@ -1175,8 +1175,14 @@ This extends §17.1; run that section's checks first, then:
 
 New CLI: `-s`/`--server` and `--sa`/`--server-allow-all`.
 
-- ☐ Start with no flags → web server still comes up on **9999** by default and http://localhost:9999/vc/ loads (the whole of §3 depends on this)
-- ☐ Start with `-w` → web access still forced on, and a workspace that requests a *different* server type does not override the CLI
+**Since fixed:** the fork used to call `setForcedServerTypes(WebServer)` on every
+launch, which broke two things now repaired in `main.cpp` — re-test both:
+
+- ☐ Start with no flags → web server comes up on **9999** and http://localhost:9999/vc/ loads (the whole of §3 depends on this), **and `lsof -i :9998` shows nothing** — the native server must not open on a default launch
+- ☐ Start with no flags, then press **Stop** on the web server in the network dialog → it actually stops and the label flips to Start. This was previously a no-op
+- ☐ Enable the native server + autostart in the dialog, save, restart with no flags → the native server **comes back**. The project's setting was previously discarded on load
+- ☐ Start with `--no-web` while the loaded workspace has the web bit set with autostart → web still does **not** start; the CLI wins
+- ☐ Start with `-w` → web access forced on, and a workspace that requests a *different* server type does not override the CLI
 - ☐ Start with `-s` → native server comes up **without** killing the web server; both reachable simultaneously
 - ☐ **Behaviour change:** load a workspace that stored a server password → confirm the password is no longer applied from the project, and that this is acceptable for how you use it. If any saved workspace relied on a project-stored password, it now needs the machine-wide setting instead
 - ☐ `--sa` grants every native client full access without prompting → confirm the warning is understood and that this is never left on for a venue network
