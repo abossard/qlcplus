@@ -134,6 +134,10 @@ public:
      *  regardless of the workspace network settings.
      *  This is used by the command line options */
     void setForcedServerTypes(int typeMask);
+
+    /** Force the given server types OFF regardless of what the workspace asks
+     *  for (--no-web). Applied after the forced-on mask, so a disable wins */
+    void setForcedOffServerTypes(int typeMask);
     void setAllowAllNative(bool allow);
     bool allowAllNative() const;
 
@@ -304,6 +308,9 @@ private:
     /** Mask of the server types forced from the command line, kept
      *  enabled regardless of the workspace network settings */
     int m_forcedServerTypes = NoServer;
+    /** Mask of server types forced OFF from the command line (--no-web).
+     *  Applied after the forced-on mask, so an explicit disable always wins */
+    int m_forcedOffTypes = NoServer;
 
     /*********************************************************************
      * Client

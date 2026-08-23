@@ -154,6 +154,12 @@ int main(int argc, char *argv[])
 
     parser.process(app);
 
+    // The fork runs the web server by default; upstream requires an explicit -w.
+    // Keep the two apart: only an EXPLICIT request may force the workspace's own
+    // server settings aside. Forcing on every launch is what discarded them, and
+    // what made the Stop button in the network dialog a no-op.
+    bool webExplicit = parser.isSet(webAccessOption) || parser.isSet(webPortOption)
+                       || parser.isSet(webAuthOption) || parser.isSet(webAuthFileOption);
     bool enableWebAccess = !parser.isSet(noWebOption);  // on by default, --no-web disables
     bool enableWebAuth = parser.isSet(webAuthOption);
     int webAccessPort = parser.value(webPortOption).toInt();
@@ -239,6 +245,41 @@ int main(int argc, char *argv[])
         }
     }
 
+    /* Configure the servers BEFORE any workspace loads. slotDocLoaded() consults
+     * these masks, so --no-web has to be in place by then or a project carrying
+     * the web bit with autoStart would bring the server up anyway. */
+    if (qlcplusApp.networkManager() != nullptr)
+    {
+        NetworkManager *netMgr = qlcplusApp.networkManager();
+        netMgr->setAllowAllNative(allowAllNative);
+        if (allowAllNative)
+        {
+            qCritical().noquote()
+                << "WARNING: --server-allow-all grants full QLC+ control to every native client, including LAN clients. Keep TCP port 9998 firewalled or use only a trusted network.";
+        }
+
+        int forcedTypes = NetworkManager::NoServer;
+
+        if (enableWebAccess)
+        {
+            netMgr->setWebServerConfiguration(webAccessPort, enableWebAuth, webAccessPasswordFile);
+            /* Only an EXPLICIT -w/-wp/-wa/-a overrides the workspace. The fork's
+             * on-by-default policy must not force, or it would discard the project's
+             * own server choice and make the dialog's Stop button a no-op. */
+            if (webExplicit)
+                forcedTypes |= NetworkManager::WebServer;
+        }
+        else
+        {
+            netMgr->setForcedOffServerTypes(NetworkManager::WebServer);
+        }
+
+        if (enableNativeServer)
+            forcedTypes |= NetworkManager::NativeServer;
+
+        netMgr->setForcedServerTypes(forcedTypes);
+    }
+
     // open file
     QString filename;
     QStringList posArgs = parser.positionalArguments();
@@ -257,28 +298,26 @@ int main(int argc, char *argv[])
     if (filename.isEmpty())
         qlcplusApp.loadLastWorkspace();
 
-    if ((enableWebAccess || enableNativeServer) && qlcplusApp.networkManager() != nullptr)
+    /* Enabling and starting happens AFTER the workspace load: slotDocLoaded() has
+     * already applied the project's own mask by now, so the servers we start here
+     * are not stopped by it. Start types BY NAME -- startServer() would start
+     * everything currently enabled, and a fresh workspace carries NativeServer,
+     * so it would open TCP 9998 on a default launch. */
+    if (qlcplusApp.networkManager() != nullptr)
     {
         NetworkManager *netMgr = qlcplusApp.networkManager();
-        netMgr->setAllowAllNative(allowAllNative);
-        if (allowAllNative)
-        {
-            qCritical().noquote()
-                << "WARNING: --server-allow-all grants full QLC+ control to every native client, including LAN clients. Keep TCP port 9998 firewalled or use only a trusted network.";
-        }
-        int forcedTypes = NetworkManager::NoServer;
 
         if (enableWebAccess)
         {
-            netMgr->setWebServerConfiguration(webAccessPort, enableWebAuth, webAccessPasswordFile);
-            forcedTypes |= NetworkManager::WebServer;
+            netMgr->setServerType(netMgr->serverType() | NetworkManager::WebServer);
+            netMgr->startServerType(NetworkManager::WebServer);
         }
 
         if (enableNativeServer)
-            forcedTypes |= NetworkManager::NativeServer;
-
-        netMgr->setForcedServerTypes(forcedTypes);
-        netMgr->startServer();
+        {
+            netMgr->setServerType(netMgr->serverType() | NetworkManager::NativeServer);
+            netMgr->startServerType(NetworkManager::NativeServer);
+        }
     }
 
     // fullscreen mode

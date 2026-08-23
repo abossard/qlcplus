@@ -129,7 +129,7 @@ int NetworkManager::serverType() const
 
 void NetworkManager::setServerType(int typeMask)
 {
-    typeMask = (typeMask & (NativeServer | WebServer)) | m_forcedServerTypes;
+    typeMask = ((typeMask & (NativeServer | WebServer)) | m_forcedServerTypes) & ~m_forcedOffTypes;
 
     if (m_serverType == typeMask)
         return;
@@ -300,6 +300,11 @@ void NetworkManager::setForcedServerTypes(int typeMask)
     // workspace settings ask for
     if (m_forcedServerTypes != NoServer)
         setServerType(m_forcedServerTypes);
+}
+
+void NetworkManager::setForcedOffServerTypes(int typeMask)
+{
+    m_forcedOffTypes = typeMask & (NativeServer | WebServer);
 }
 
 void NetworkManager::setAllowAllNative(bool allow)
