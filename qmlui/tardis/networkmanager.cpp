@@ -283,7 +283,6 @@ void NetworkManager::setWebServerConfiguration(int portNumber, bool enableAuth, 
     m_webServerPort = portNumber > 0 ? portNumber : 9999;
     m_webServerAuth = enableAuth;
     m_webServerPasswordFile = passwordFile;
-    m_cliWebServer = true;
     emit webAccessPortChanged();
 }
 
