@@ -70,6 +70,7 @@ class StageWizard : public QObject
 
     // ── Step 4 – Effects ─────────────────────────────────────────────────────
     Q_PROPERTY(QVariant effectsModel READ effectsModel NOTIFY effectsModelChanged)
+    Q_PROPERTY(bool beatSyncChasers READ beatSyncChasers WRITE setBeatSyncChasers NOTIFY beatSyncChasersChanged)
 
     // ── Step 5 – External controller ─────────────────────────────────────────
     Q_PROPERTY(QVariant controllersModel READ controllersModel NOTIFY controllersModelChanged)
@@ -232,6 +233,11 @@ public:
     /** Returns a human-readable preview string, e.g. "3 scenes + 1 chaser". */
     Q_INVOKABLE QString effectPreview(int effectFlag) const;
 
+    /** Generate every chaser with Function::Beats tempo instead of Function::Time,
+     *  so its step timing follows the global BPM / tap tempo. */
+    bool beatSyncChasers() const { return m_beatSyncChasers; }
+    void setBeatSyncChasers(bool enable);
+
     // ── Step 5 – External controller ─────────────────────────────────────────
     /** Universes that carry an input patch, as a list of
      *  { universe, universeName, plugin, line, lineName, profile, hasProfile,
@@ -285,6 +291,7 @@ signals:
     void stageTypeChanged(int type);
     void envSizeChanged();
     void effectsModelChanged();
+    void beatSyncChasersChanged();
     void controllersModelChanged();
     void controllerChanged();
     void canGoNextChanged();
@@ -695,6 +702,9 @@ private:
 
     QList<FixtureGroupEntry> m_groups;
     QList<EffectEntry>       m_effects;
+
+    /// Step 4 option: build chasers on the beat clock rather than in milliseconds.
+    bool m_beatSyncChasers = false;
 
     // ── Step 5 state ────────────────────────────────────────────────────────
     int  m_ctrlUniverse = -1;      ///< Patched input universe to map to, -1 = none

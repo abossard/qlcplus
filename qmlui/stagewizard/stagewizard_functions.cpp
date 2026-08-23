@@ -97,14 +97,37 @@ Chaser *StageWizard::makeChaserFromScenes(const QList<Scene *> &scenes,
     ch->setFadeOutSpeed(fadeMs);
     ch->setDuration(holdMs);
 
+    // Beat sync, when the user asked for it in step 4. setTempoType() converts
+    // the speeds just set from milliseconds into beats (quantised to 1/16 of a
+    // beat) against the master timer's current BPM, so the chaser keeps the
+    // timing chosen above and gains the ability to follow the tap tempo. It has
+    // to run AFTER the speeds are set, or the millisecond values would be
+    // stored as raw beat counts.
+    //
+    // Safe with no beat source patched: ChaserRunner advances a step by
+    // comparing wall-clock elapsed time against beatsToTime(duration,
+    // MasterTimer::beatTimeDuration()), and beatTimeDuration() is valid
+    // (60000 / BPM, 500 ms by default) whatever the beat source is set to. The
+    // chaser runs at the internal tempo rather than stalling.
+    if (m_beatSyncChasers)
+        ch->setTempoType(Function::Beats);
+
+    // Read the speeds back off the chaser: with Beats they are now beat counts,
+    // and the step records have to carry the same unit as the chaser they
+    // belong to (they become visible the moment a user switches a chaser to
+    // per-step speeds).
+    const uint stepFade  = ch->fadeInSpeed();
+    const uint stepHold  = ch->duration();
+    const uint stepOut   = ch->fadeOutSpeed();
+
     for (Scene *s : scenes)
     {
         m_doc->addFunction(s);
         m_generatedFunctionIDs.append(s->id());
         ChaserStep step(s->id());
-        step.fadeIn  = fadeMs;
-        step.hold    = holdMs;
-        step.fadeOut = fadeMs;
+        step.fadeIn  = stepFade;
+        step.hold    = stepHold;
+        step.fadeOut = stepOut;
         ch->addStep(step);
     }
     return ch;

@@ -266,6 +266,16 @@ Item
                     }
                 }
             }
+
+            // Timing option, applied to every chaser the wizard builds.
+            WizardOptionRow
+            {
+                width: parent.width
+                checked: stageWizard ? stageWizard.beatSyncChasers : false
+                title: qsTr("Sync chasers to the beat")
+                body: qsTr("Build the generated chasers on the beat clock instead of in milliseconds, so their step timing follows the global BPM and the tap tempo. Pre-selected for Club Night and Concert shows.")
+                onToggled: function(value) { stageWizard.beatSyncChasers = value }
+            }
         }
     }
 }

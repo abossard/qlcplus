@@ -730,11 +730,25 @@ void StageWizard::buildEffectsModel()
     addEffect(EffectAmbientLoop,    tr("Ambient Loop"),     tr("Show Cues"), anyStaticRGB);
 }
 
+void StageWizard::setBeatSyncChasers(bool enable)
+{
+    if (m_beatSyncChasers == enable)
+        return;
+
+    m_beatSyncChasers = enable;
+    emit beatSyncChasersChanged();
+}
+
 void StageWizard::applyShowTypeDefaults()
 {
     // Default all off, then turn on show-type presets
     for (EffectEntry &e : m_effects)
         e.enabled = false;
+
+    // Beat sync follows the show type: a club or concert rig is driven by the
+    // music, so its chasers should ride the tap tempo. A theatrical or
+    // architectural cue was timed in seconds and must stay there.
+    setBeatSyncChasers(m_showType == ClubNight || m_showType == Concert);
 
     auto enable = [&](int flag)
     {
@@ -993,8 +1007,10 @@ void StageWizard::reset()
     m_ctrlMap      = true;
     m_ctrlFeedback = true;
     m_ctrlColors   = true;
+    m_beatSyncChasers = false;
     buildEffectsModel();
 
+    emit beatSyncChasersChanged();
     emit controllersModelChanged();
     emit controllerChanged();
     emit currentStepChanged(m_currentStep);
