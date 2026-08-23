@@ -1111,9 +1111,11 @@ Chaser *StageWizard::generateStrobeChase(const FixtureGroupEntry &grp, const QSt
         }
     }
 
-    return makeChaserFromScenes({ open, closed },
-                                tr("%1 – Strobe Chase").arg(prefix),
-                                0, 80);
+    Chaser *ch = makeChaserFromScenes({ open, closed },
+                                      tr("%1 – Strobe Chase").arg(prefix),
+                                      0, 80);
+    m_doc->addFunction(ch);
+    return ch;
 }
 
 Chaser *StageWizard::generateHeartbeat(const FixtureGroupEntry &grp, const QString &prefix)
@@ -1196,9 +1198,11 @@ Chaser *StageWizard::generateColorRainbow(const FixtureGroupEntry &grp, const QS
         scenes.append(s);
     }
 
-    return makeChaserFromScenes(scenes,
-                                tr("%1 – Color Rainbow").arg(prefix),
-                                500, 1000);
+    Chaser *ch = makeChaserFromScenes(scenes,
+                                      tr("%1 – Color Rainbow").arg(prefix),
+                                      500, 1000);
+    m_doc->addFunction(ch);
+    return ch;
 }
 
 Chaser *StageWizard::generateSplitColor(const FixtureGroupEntry &grp, const QString &prefix)
@@ -1238,9 +1242,11 @@ Chaser *StageWizard::generateSplitColor(const FixtureGroupEntry &grp, const QStr
     Scene *s1 = makeScene(tr("%1 – Split A").arg(prefix), false);
     Scene *s2 = makeScene(tr("%1 – Split B").arg(prefix), true);
 
-    return makeChaserFromScenes({ s1, s2 },
-                                tr("%1 – Split Color").arg(prefix),
-                                200, 500);
+    Chaser *ch = makeChaserFromScenes({ s1, s2 },
+                                      tr("%1 – Split Color").arg(prefix),
+                                      200, 500);
+    m_doc->addFunction(ch);
+    return ch;
 }
 
 Scene *StageWizard::generateBlinderHit(const FixtureGroupEntry &grp, const QString &prefix)
