@@ -457,6 +457,77 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     )
     .set_annotations(mcp::kAnnotIdempotent));
 
+    // delete_fixtures — unpatch fixtures by ID
+    tm.register_tool(Tool(
+        "delete_fixtures",
+        Json{{"type", "object"}, {"properties", {
+            {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                     {"description", "Fixture IDs to delete"}}}
+        }}, {"required", {"ids"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"ids"});
+            if (!err.empty()) return err;
+            if (!args.contains("ids") || !args.at("ids").is_array())
+                return Json({{"error", "ids must be an array of integers"}}).dump();
+
+            Json results = Json::array();
+            for (auto &v : args.at("ids"))
+            {
+                if (!v.is_number_integer())
+                {
+                    results.push_back({{"error", "ids must be an array of integers"}});
+                    continue;
+                }
+                quint32 id = v.get<quint32>();
+                Fixture *fixture = doc->fixture(id);
+                if (fixture == NULL)
+                {
+                    results.push_back({{"id", (int)id}, {"status", "not found"}});
+                    continue;
+                }
+                const std::string name = fixture->name().toStdString();
+
+                // Doc::deleteFixture frees the address range, drops the monitor
+                // entry and signals fixtureRemoved, which Scene, EFX, Sequence,
+                // FixtureGroup and ChannelsGroup each scrub themselves on.
+                if (doc->deleteFixture(id))
+                    results.push_back({{"id", (int)id}, {"name", name}, {"status", "deleted"}});
+                else
+                    results.push_back({{"id", (int)id}, {"error", "could not delete fixture"}});
+            }
+
+            // Drop groups the removal left empty, matching FixtureManager: a
+            // stale empty group lingers in the project and blocks creating a new
+            // group with the same name (see #2063).
+            Json emptied = Json::array();
+            for (FixtureGroup *group : doc->fixtureGroups())
+            {
+                if (group != NULL && group->fixtureList().isEmpty())
+                    emptied.push_back({{"id", (int)group->id()},
+                                       {"name", group->name().toStdString()}});
+            }
+            for (auto &entry : emptied)
+                doc->deleteFixtureGroup((quint32)entry.at("id").get<int>());
+
+            if (!emptied.empty())
+                results.push_back({{"removedEmptyGroups", emptied}});
+
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete (unpatch) fixtures by ID. Batch: wrap entries in {\"ids\": [...]}. "
+                     "Frees the DMX address range and removes the fixture's channels from every "
+                     "scene, EFX, sequence, fixture group and channel group that referenced it, "
+                     "then drops any group left empty (reported as removedEmptyGroups). "
+                     "Virtual Console widgets bound to the fixture (slider level channels, XY pad "
+                     "fixtures) are NOT scrubbed — re-check them with vc_query_widgets."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotDestructive));
+
     // query_functions — list existing functions
     tm.register_tool(Tool(
         "query_functions",

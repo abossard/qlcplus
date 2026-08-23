@@ -109,6 +109,64 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
     )
     .set_annotations(mcp::kAnnotDestructive));
 
+    // vc_delete_pages — remove whole VC pages and everything on them
+    tm.register_tool(Tool(
+        "vc_delete_pages",
+        Json{{"type", "object"}, {"properties", {
+            {"pageIndexes", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                             {"description", "Zero-based page indexes to delete. Deleting a page "
+                                             "also deletes every widget on it."}}}
+        }}, {"required", {"pageIndexes"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"pageIndexes"});
+            if (!err.empty()) return err;
+            if (!args.contains("pageIndexes") || !args.at("pageIndexes").is_array())
+                return Json({{"error", "pageIndexes must be an array of integers"}}).dump();
+
+            // Highest index first, so the remaining indexes stay valid as pages
+            // shift down after each removal.
+            std::vector<int> indexes;
+            for (auto &v : args.at("pageIndexes"))
+            {
+                if (!v.is_number_integer())
+                    return Json({{"error", "pageIndexes must be an array of integers"}}).dump();
+                indexes.push_back(v.get<int>());
+            }
+            std::sort(indexes.begin(), indexes.end(), [](int a, int b) { return a > b; });
+            indexes.erase(std::unique(indexes.begin(), indexes.end()), indexes.end());
+
+            Json results = Json::array();
+            for (int idx : indexes)
+            {
+                if (idx < 0 || idx >= vcBridge->pagesCount())
+                {
+                    results.push_back({{"pageIndex", idx}, {"status", "not found"}});
+                    continue;
+                }
+                if (vcBridge->pagesCount() == 1)
+                {
+                    results.push_back({{"pageIndex", idx},
+                                       {"error", "cannot delete the last remaining page"}});
+                    continue;
+                }
+                if (vcBridge->deletePage(idx))
+                    results.push_back({{"pageIndex", idx}, {"status", "deleted"}});
+                else
+                    results.push_back({{"pageIndex", idx}, {"error", "could not delete page"}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete Virtual Console pages by zero-based index, together with every widget "
+                     "on them. Batch: {\"pageIndexes\": [...]}. Indexes are applied highest-first so "
+                     "a batch stays consistent. The last remaining page cannot be deleted."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotDestructive));
+
     // vc_detect_overlaps — find overlapping widgets within a frame or page
     tm.register_tool(Tool(
         "vc_detect_overlaps",

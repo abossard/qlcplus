@@ -162,6 +162,7 @@ public:
 
     // Page rename
     bool renamePage(int pageIndex, const QString &name) override;
+    bool deletePage(int pageIndex) override;
 
     // Slider extended
     bool setSliderWidgetStyle(int widgetID, const QString &style) override;

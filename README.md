@@ -18,7 +18,7 @@
 > (Copilot, Claude, Cursor, etc.) design and control lighting shows via natural language.
 >
 > ### What this fork adds
-> - `mcp/` directory: Self-contained MCP server — **47 tools**, 3 prompts, 252 unit tests
+> - `mcp/` directory: Self-contained MCP server — **61 tools**, 3 prompts, 330 unit tests
 > - Streamable HTTP transport on `http://localhost:9696/mcp` (auto-starts with app)
 > - `autolight/` directory: Iterative LED effect research loop (Python)
 > - **Stage Wizard additions** — warm/cool colour themes, prism macros, Focus/Zoom faders, optional beat-synced chasers

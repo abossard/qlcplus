@@ -19,6 +19,7 @@
 
 #include "tool_registry.h"
 #include "doc.h"
+#include "fixture.h"
 #include "inputoutputmap.h"
 #include "inputpatch.h"
 #include "outputpatch.h"
@@ -64,8 +65,42 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 auto err = validateFields(item, {"universeID", "name", "inputPlugin", "inputLine", "outputPlugin", "outputLine", "passthrough", "feedbackEnabled"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
 
+                if (!item.at("universeID").is_number_integer())
+                {
+                    results.push_back({{"error", "universeID must be an integer"}});
+                    continue;
+                }
+
                 int uid = item.at("universeID").get<int>();
+                if (uid < 0 || uid > 127)
+                {
+                    results.push_back({{"universeID", uid}, {"error", "universeID must be from 0 to 127"}});
+                    continue;
+                }
+
                 bool ok = true;
+
+                // Grow the universe list on demand. addUniverse() fills any gap
+                // between the current count and the requested id by itself, so a
+                // single call is enough to make `uid` addressable.
+                int created = 0;
+                if (uid >= (int)ioMap->universesCount())
+                {
+                    int before = (int)ioMap->universesCount();
+                    if (ioMap->addUniverse((quint32)uid) == false)
+                    {
+                        results.push_back({{"universeID", uid}, {"error", "could not create universe"}});
+                        continue;
+                    }
+                    created = (int)ioMap->universesCount() - before;
+
+                    // addUniverse() creates the Universe but never starts its
+                    // writer thread, so a universe added at runtime stays silent
+                    // until the project is reloaded. start() on an already
+                    // running Universe is a no-op.
+                    ioMap->startUniverses();
+                    doc->setModified();
+                }
 
                 if (item.contains("name"))
                 {
@@ -98,17 +133,122 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     }
                 }
 
-                results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
+                Json entry = {{"universeID", uid}, {"status", ok ? "ok" : "failed"}};
+                if (created > 0)
+                    entry["universesCreated"] = created;
+                results.push_back(entry);
             }
             return results.dump();
             });
         },
         std::nullopt,
         std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently. "
+                     "A universeID beyond the current universe count creates the missing universes, "
+                     "so this also serves as \"add universe\"; the reply reports universesCreated."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotOpenWorld));
+
+    // delete_universes — remove trailing universes
+    tm.register_tool(Tool(
+        "delete_universes",
+        Json{{"type", "object"}, {"properties", {
+            {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                     {"description", "Universe IDs to delete. Only trailing universes can be removed — "
+                                     "the engine refuses to leave a gap in the universe list."}}}
+        }}, {"required", {"ids"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"ids"});
+            if (!err.empty()) return err;
+            if (!args.contains("ids") || !args.at("ids").is_array())
+                return Json({{"error", "ids must be an array of integers"}}).dump();
+
+            InputOutputMap *ioMap = doc->inputOutputMap();
+
+            // Highest id first: removing the tail one at a time is the only order
+            // the engine accepts, and it lets a batch like [2,3] succeed.
+            std::vector<int> ids;
+            for (auto &v : args.at("ids"))
+            {
+                if (!v.is_number_integer())
+                    return Json({{"error", "ids must be an array of integers"}}).dump();
+                ids.push_back(v.get<int>());
+            }
+            std::sort(ids.begin(), ids.end(), [](int a, int b) { return a > b; });
+            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+
+            Json results = Json::array();
+            for (int uid : ids)
+            {
+                if (uid < 0 || uid >= (int)ioMap->universesCount())
+                {
+                    results.push_back({{"universeID", uid}, {"status", "not found"}});
+                    continue;
+                }
+                if (ioMap->universesCount() == 1)
+                {
+                    results.push_back({{"universeID", uid},
+                                       {"error", "cannot delete the last remaining universe"}});
+                    continue;
+                }
+
+                // A cross-universe fixture occupies channels past the end of its
+                // own universe, so compare the whole footprint rather than just
+                // Fixture::universe().
+                QList<quint32> patched;
+                for (Fixture *fxi : doc->fixtures())
+                {
+                    if (fxi == NULL)
+                        continue;
+                    const int first = (int)fxi->universe();
+                    const int last = fxi->channels() > 0
+                        ? (int)((fxi->universeAddress() + fxi->channels() - 1) >> 9)
+                        : first;
+                    if (uid >= first && uid <= last)
+                        patched.append(fxi->id());
+                }
+
+                if (!patched.isEmpty())
+                {
+                    Json ids_ = Json::array();
+                    for (quint32 fid : patched) ids_.push_back((int)fid);
+                    results.push_back({{"universeID", uid},
+                                       {"error", "universe has patched fixtures — delete them first"},
+                                       {"fixtureIDs", ids_}});
+                    continue;
+                }
+
+                if (uid != (int)ioMap->universesCount() - 1)
+                {
+                    results.push_back({{"universeID", uid},
+                                       {"error", "only the last universe can be deleted — "
+                                                 "removing this one would leave a gap"}});
+                    continue;
+                }
+
+                if (ioMap->removeUniverse(uid))
+                {
+                    doc->setModified();
+                    results.push_back({{"universeID", uid}, {"status", "deleted"}});
+                }
+                else
+                {
+                    results.push_back({{"universeID", uid}, {"error", "could not delete universe"}});
+                }
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete universes by ID. Batch: {\"ids\": [...]}. Only trailing universes can be "
+                     "removed and a universe holding patched fixtures is refused. The last remaining "
+                     "universe cannot be deleted."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotDestructive));
 
     // query_midi_devices — list connected MIDI input/output ports
     tm.register_tool(Tool(

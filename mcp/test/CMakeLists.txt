@@ -335,3 +335,52 @@ target_link_libraries(mcp_vcrecordpanel_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
 )
+
+# IO Tool tests — universe growth via configure_universes and delete_universes
+add_executable(mcp_io_tools_test WIN32
+    io_tools_test.cpp io_tools_test.h
+)
+
+target_include_directories(mcp_io_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_io_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+# Delete Tool tests — delete_fixtures, delete_fixture_groups, vc_delete_pages
+add_executable(mcp_delete_tools_test WIN32
+    delete_tools_test.cpp delete_tools_test.h
+    functionmanager_stub.cpp
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole/gridlayout.cpp
+)
+
+target_include_directories(mcp_delete_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+    ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+)
+
+target_link_libraries(mcp_delete_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)

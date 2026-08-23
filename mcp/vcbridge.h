@@ -642,6 +642,10 @@ public:
     virtual bool renamePage(int pageIndex, const QString &name)
         { Q_UNUSED(pageIndex); Q_UNUSED(name); return false; }
 
+    // Page delete. Refuses to remove the last remaining page.
+    virtual bool deletePage(int pageIndex)
+        { Q_UNUSED(pageIndex); return false; }
+
     // Slider widget style (slider/knob)
     virtual bool setSliderWidgetStyle(int widgetID, const QString &style)
         { Q_UNUSED(widgetID); Q_UNUSED(style); return false; }

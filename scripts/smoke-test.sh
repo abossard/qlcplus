@@ -121,13 +121,27 @@ else
     fail "2.2 Initialize handshake" "missing result.serverInfo: $init_resp"
 fi
 
-# 2.3 Tool list — expect ≥40 tools
+# 2.3 Tool list — floor bumped whenever a batch of tools lands, so a dropped
+# registration fails here instead of silently shrinking the surface.
+TOOL_COUNT_FLOOR=61
 tools_resp=$(mcp_call '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 tool_count=$(echo "$tools_resp" | jq -r '.result.tools | length // 0')
-if [[ "$tool_count" -ge 40 ]]; then
+if [[ "$tool_count" -ge "$TOOL_COUNT_FLOOR" ]]; then
     pass "2.3 Tool list ($tool_count tools)"
 else
-    fail "2.3 Tool list" "expected ≥40 tools, got $tool_count"
+    fail "2.3 Tool list" "expected ≥$TOOL_COUNT_FLOOR tools, got $tool_count"
+fi
+
+# 2.3b Batch 1 setup/teardown tools are present
+missing_tools=""
+for t in delete_universes delete_fixtures delete_fixture_groups vc_delete_pages; do
+    echo "$tools_resp" | jq -e --arg t "$t" '.result.tools[] | select(.name == $t)' >/dev/null 2>&1 \
+        || missing_tools="$missing_tools $t"
+done
+if [[ -z "$missing_tools" ]]; then
+    pass "2.3b Setup/teardown tools registered"
+else
+    fail "2.3b Setup/teardown tools registered" "missing:$missing_tools"
 fi
 
 # 2.4 query_fixtures — array with id, name

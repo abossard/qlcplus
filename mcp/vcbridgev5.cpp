@@ -1842,6 +1842,15 @@ bool VCBridgeV5::renamePage(int pageIndex, const QString &name)
     return true;
 }
 
+bool VCBridgeV5::deletePage(int pageIndex)
+{
+    // VirtualConsole::deletePage returns void and silently declines an invalid
+    // index or the last remaining page, so the page count is the only signal.
+    const int before = m_vc->pagesCount();
+    m_vc->deletePage(pageIndex);
+    return m_vc->pagesCount() < before;
+}
+
 // --- Slider extended ---
 
 bool VCBridgeV5::setSliderWidgetStyle(int widgetID, const QString &style)

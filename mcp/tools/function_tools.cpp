@@ -1162,6 +1162,79 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
     )
     .set_annotations(mcp::kAnnotIdempotent));
 
+    // delete_fixture_groups — remove groups by ID
+    tm.register_tool(Tool(
+        "delete_fixture_groups",
+        Json{{"type", "object"}, {"properties", {
+            {"ids", {{"type", "array"}, {"items", {{"type", "integer"}}},
+                     {"description", "Fixture group IDs to delete"}}}
+        }}, {"required", {"ids"}}},
+        Json{},
+        [doc](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"ids"});
+            if (!err.empty()) return err;
+            if (!args.contains("ids") || !args.at("ids").is_array())
+                return Json({{"error", "ids must be an array of integers"}}).dump();
+
+            Json results = Json::array();
+            for (auto &v : args.at("ids"))
+            {
+                if (!v.is_number_integer())
+                {
+                    results.push_back({{"error", "ids must be an array of integers"}});
+                    continue;
+                }
+                quint32 id = v.get<quint32>();
+                FixtureGroup *group = doc->fixtureGroup(id);
+                if (group == NULL)
+                {
+                    results.push_back({{"id", (int)id}, {"status", "not found"}});
+                    continue;
+                }
+                const std::string name = group->name().toStdString();
+
+                // Nothing drops an RGBMatrix's reference to its group: a running
+                // one caches it as a raw pointer and only re-fetches when null
+                // (use-after-free on the MasterTimer thread), and a stopped one
+                // keeps a dead group id that is written straight back to the
+                // project file. Refuse either way and name the matrices, rather
+                // than stopping or silently repointing them.
+                Json blockers = Json::array();
+                for (Function *fn : doc->functions())
+                {
+                    RGBMatrix *matrix = qobject_cast<RGBMatrix*>(fn);
+                    if (matrix != NULL && matrix->fixtureGroup() == id)
+                        blockers.push_back({{"id", (int)matrix->id()},
+                                            {"name", matrix->name().toStdString()},
+                                            {"running", matrix->isRunning()}});
+                }
+                if (!blockers.empty())
+                {
+                    results.push_back({{"id", (int)id}, {"name", name},
+                                       {"error", "fixture group is bound to one or more matrices — "
+                                                 "repoint or delete them first"},
+                                       {"boundMatrices", blockers}});
+                    continue;
+                }
+
+                if (doc->deleteFixtureGroup(id))
+                    results.push_back({{"id", (int)id}, {"name", name}, {"status", "deleted"}});
+                else
+                    results.push_back({{"id", (int)id}, {"error", "could not delete fixture group"}});
+            }
+            return results.dump();
+            });
+        },
+        std::nullopt,
+        std::string("Delete fixture groups by ID. Batch: wrap entries in {\"ids\": [...]}. "
+                     "The fixtures themselves are left patched; only the grouping is removed. "
+                     "A group still bound to an RGB matrix is refused — the reply lists the "
+                     "matrices in boundMatrices so they can be repointed or deleted first."),
+        std::nullopt
+    )
+    .set_annotations(mcp::kAnnotDestructive));
+
     // create_scripts (batch) — JavaScript-only
     tm.register_tool(Tool(
         "create_scripts",

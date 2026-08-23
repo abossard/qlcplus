@@ -31,6 +31,8 @@ private slots:
     void dispatchSmoke_unknownField_returnsError();
     void dispatchSmoke_liveControlTools_notRegistered();
     void dispatchSmoke_setupAndDiagnosticsTools_remainRegistered();
+    void dispatchSmoke_deleteTools_registered();
+    void dispatchSmoke_deleteTools_emptyDoc_returnArrays();
 
 private:
     Doc *m_doc = nullptr;

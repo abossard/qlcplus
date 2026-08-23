@@ -179,4 +179,30 @@ void DispatchSmoke_Test::dispatchSmoke_setupAndDiagnosticsTools_remainRegistered
         QVERIFY2(tm.has(name), name);
 }
 
+void DispatchSmoke_Test::dispatchSmoke_deleteTools_registered()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerQueryTools(tm, m_doc, nullptr);
+    registerFunctionTools(tm, m_doc);
+    registerIOTools(tm, m_doc);
+
+    for (const char *name : {"delete_fixtures", "delete_fixture_groups", "delete_universes"})
+        QVERIFY2(tm.has(name), name);
+}
+
+void DispatchSmoke_Test::dispatchSmoke_deleteTools_emptyDoc_returnArrays()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerQueryTools(tm, m_doc, nullptr);
+    registerFunctionTools(tm, m_doc);
+    registerIOTools(tm, m_doc);
+
+    for (const char *name : {"delete_fixtures", "delete_fixture_groups", "delete_universes"})
+    {
+        Json result = parsedToolResult(tm.invoke(name, Json{{"ids", Json::array({7})}}));
+        QVERIFY2(result.is_array(), name);
+        QCOMPARE(result.size(), (size_t)1);
+    }
+}
+
 QTEST_MAIN(DispatchSmoke_Test)
