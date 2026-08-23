@@ -326,7 +326,7 @@ int main(int argc, char *argv[])
 
 #ifdef HAS_MCP_SERVER
     mcpInit(qlcplusApp.doc(), qlcplusApp.virtualConsole(), qlcplusApp.functionManager(),
-            qlcplusApp.flowConsole(), parser);
+            qlcplusApp.flowConsole(), &qlcplusApp, parser);
 #endif
 
     return app.exec();

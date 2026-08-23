@@ -179,6 +179,18 @@ void DispatchSmoke_Test::dispatchSmoke_setupAndDiagnosticsTools_remainRegistered
         QVERIFY2(tm.has(name), name);
 }
 
+void DispatchSmoke_Test::dispatchSmoke_workspaceTools_needBridge()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerWorkspaceTools(tm, m_doc, nullptr);
+
+    // v4 has no workspace bridge, so these must stay absent rather than
+    // register against a null bridge.
+    for (const char *name : {"save_workspace", "load_workspace", "new_workspace",
+                             "query_workspace_file"})
+        QVERIFY2(!tm.has(name), name);
+}
+
 void DispatchSmoke_Test::dispatchSmoke_deleteTools_registered()
 {
     fastmcpp::tools::ToolManager tm;

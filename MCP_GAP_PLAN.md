@@ -26,7 +26,7 @@ Branch: `mcp-config-gap`, off `mcp-server` @ `03d0bcac9`.
 |---|---|---|---|---|---|
 | 0 | Baseline | **done** | 16/16 MCP green | n/a | — |
 | 1 | Universes add/remove + deletes | **done** | 39 new, all green | reviewed, 8 fixed | — |
-| 2 | Workspace save / load / new | not started | — | — | — |
+| 2 | Workspace save / load / new | **done** | 30 new, all green | reviewed, 8 fixed | — |
 | 3 | Monitor properties + channel groups | not started | — | — | — |
 | 4 | Input profile authoring | not started | — | — | — |
 | 5 | Live control (run/GM/blackout/write DMX) | not started | — | — | — |
@@ -195,6 +195,50 @@ plus `path` reported by `query_workspace_summary`.
 workspace → `query_functions` matches baseline. Must leave the app on the original workspace.
 
 **T4** — title bar shows the new filename; no dangling unsaved-changes prompt.
+
+### Result
+
+Tool count 61 → **65**: `save_workspace`, `load_workspace`, `new_workspace`, `query_workspace_file`,
+on a new `WorkspaceBridge` / `WorkspaceBridgeV5` pair wrapping `App`. `query_workspace_summary`
+also reports `modified` now.
+
+Evidence: `mcp_workspace_tools_test` (30 cases) plus a dispatch-smoke registration guard. The
+round trip runs **through the tools** — the fake bridge does real XML read/write, so
+save → new → load is asserted end to end rather than around the code under test.
+
+### Review findings fixed
+
+1. *(critical)* **`load_workspace` could destroy a project with no way back.** `App::loadWorkspace`
+   calls `clearDocument()` *before* it discovers whether the file parses, and returns false with
+   the document already empty — pointing it at a .txt file would have wiped every fixture,
+   function and VC page unrecoverably. The tool now runs App's own acceptance check (readable
+   regular file, XML, DTD `Workspace`) while the project is still intact, and refuses first.
+2. *(major)* **`save_workspace` silently destroyed unrelated projects.** `App::saveXML` removes the
+   target before renaming over it, so saving Gig-A over an existing Gig-B.qxw erased Gig-B. Now
+   requires `overwrite: true` for any existing file that is not the current project.
+3. *(major)* **Both destructive tools blacked out live output.** Clearing or loading stops the
+   MasterTimer and resets the universes mid-cue, and a loaded project's startup function then
+   fires unattended. Both now refuse while functions are running unless `interruptLiveOutput` is
+   set — consistent with the fork's "no live-show actuation" boundary.
+4. *(minor)* Failed saves left `Doc::workspacePath` repointed at a directory that does not exist,
+   breaking relative asset paths. A missing target directory is now rejected up front.
+5. *(minor)* Relative paths silently wrote into the app's working directory; now rejected with an
+   explanation.
+6. *(minor)* `file:` URLs were stripped for the existence check but the raw URL was handed to the
+   bridge, working only because `App` happened to strip it again. The bridge now always receives a
+   plain local path, and a test covers it.
+7. *(nit)* `discardUnsaved` / `overwrite` / `interruptLiveOutput` type validation.
+8. *(nit)* The round-trip test drove `Doc::saveXML` directly and passed with the whole tool file
+   deleted; it now goes through the tools.
+
+### Known limits, not fixed
+
+- **`Doc::isModified()` is an imperfect dirty signal.** `FlowConsole` never calls `setModified()`
+  at all, and `VirtualConsole::deletePage` does not either, so flow edits and VC page deletions
+  can leave `modified: false` and slip past the unsaved guard. Worth a follow-up that marks the
+  document dirty at those mutation points; Batch 1 already did this for universes.
+- `App::newWorkspace` never recreates `m_videoProvider` (only `loadWorkspace` does), so Video
+  functions have no provider after a reset. Pre-existing in `App`, now agent-reachable.
 
 ---
 

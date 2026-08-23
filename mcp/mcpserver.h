@@ -26,6 +26,7 @@
 
 class Doc;
 class VCBridge;
+class WorkspaceBridge;
 class InputOutputMap;
 class FunctionManager;
 class FlowConsole;
@@ -46,7 +47,8 @@ class McpServer : public QObject
 
 public:
     McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr = nullptr,
-              FlowConsole *flowConsole = nullptr, QObject *parent = nullptr);
+              FlowConsole *flowConsole = nullptr, WorkspaceBridge *wsBridge = nullptr,
+              QObject *parent = nullptr);
     ~McpServer();
 
     /** Start MCP server in HTTP mode (non-blocking, runs in background) */
@@ -58,6 +60,7 @@ private:
     VCBridge *m_vcBridge;
     FunctionManager *m_funcMgr;
     FlowConsole *m_flowConsole;
+    WorkspaceBridge *m_wsBridge;
     std::unique_ptr<fastmcpp::tools::ToolManager> m_toolManager;
     std::unique_ptr<fastmcpp::prompts::PromptManager> m_promptManager;
     std::unique_ptr<fastmcpp::resources::ResourceManager> m_resourceManager;

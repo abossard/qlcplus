@@ -35,6 +35,7 @@
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
 class VCBridge;
+class WorkspaceBridge;
 class FunctionManager;
 class FlowConsole;
 
@@ -49,6 +50,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *fc);
+void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, WorkspaceBridge *wsBridge);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge);
 

@@ -30,12 +30,13 @@
 #include <QDebug>
 
 McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr,
-                     FlowConsole *flowConsole, QObject *parent)
+                     FlowConsole *flowConsole, WorkspaceBridge *wsBridge, QObject *parent)
     : QObject(parent)
     , m_doc(doc)
     , m_vcBridge(vcBridge)
     , m_funcMgr(funcMgr)
     , m_flowConsole(flowConsole)
+    , m_wsBridge(wsBridge)
     , m_toolManager(std::make_unique<fastmcpp::tools::ToolManager>())
     , m_promptManager(std::make_unique<fastmcpp::prompts::PromptManager>())
     , m_resourceManager(std::make_unique<fastmcpp::resources::ResourceManager>())
@@ -88,6 +89,7 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr,
     registerChannelTools(*m_toolManager, m_doc);
     registerPaletteTools(*m_toolManager, m_doc);
     registerFlowTools(*m_toolManager, m_doc, m_flowConsole);
+    registerWorkspaceTools(*m_toolManager, m_doc, m_wsBridge);
     registerPrompts(*m_promptManager, m_doc, m_vcBridge);
 }
 

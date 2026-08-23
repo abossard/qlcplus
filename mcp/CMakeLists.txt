@@ -33,7 +33,9 @@ set(CMAKE_CXX_FLAGS "${_saved_cxx_flags}")
 set(MCP_SOURCES
     mcpserver.cpp mcpserver.h
     vcbridge.h
+    workspacebridge.h
     vcbridgev5.cpp vcbridgev5.h
+    workspacebridgev5.cpp workspacebridgev5.h
     mcpinit.cpp mcpinit.h
     tools/tool_registry.h
     tools/vc_query_helpers.h
@@ -48,6 +50,7 @@ set(MCP_SOURCES
     tools/palette_tools.cpp
     tools/prompts.cpp
     tools/flow_tools.cpp
+    tools/workspace_tools.cpp
 )
 
 add_library(qlcplusmcp STATIC ${MCP_SOURCES})

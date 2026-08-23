@@ -32,6 +32,7 @@ private slots:
     void dispatchSmoke_liveControlTools_notRegistered();
     void dispatchSmoke_setupAndDiagnosticsTools_remainRegistered();
     void dispatchSmoke_deleteTools_registered();
+    void dispatchSmoke_workspaceTools_needBridge();
     void dispatchSmoke_deleteTools_emptyDoc_returnArrays();
 
 private:

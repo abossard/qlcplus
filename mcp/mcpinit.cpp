@@ -1,6 +1,7 @@
 #include "mcpinit.h"
 #include "mcpserver.h"
 #include "vcbridgev5.h"
+#include "workspacebridgev5.h"
 
 #include <QCommandLineParser>
 #include <QDebug>
@@ -19,7 +20,7 @@ void mcpAddOptions(QCommandLineParser &parser)
 }
 
 void mcpInit(Doc *doc, VirtualConsole *vc, FunctionManager *funcMgr,
-             FlowConsole *flowConsole, const QCommandLineParser &parser)
+             FlowConsole *flowConsole, App *app, const QCommandLineParser &parser)
 {
     if (parser.isSet(s_noMcpOption))
         return;
@@ -28,7 +29,11 @@ void mcpInit(Doc *doc, VirtualConsole *vc, FunctionManager *funcMgr,
     if (vc)
         vcBridge = new VCBridgeV5(doc, vc);
 
+    WorkspaceBridgeV5 *wsBridge = nullptr;
+    if (app)
+        wsBridge = new WorkspaceBridgeV5(app);
+
     int port = parser.value(s_mcpHttpPortOption).toInt();
-    McpServer *server = new McpServer(doc, vcBridge, funcMgr, flowConsole);
+    McpServer *server = new McpServer(doc, vcBridge, funcMgr, flowConsole, wsBridge);
     server->startHttp(port);
 }

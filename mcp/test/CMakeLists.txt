@@ -384,3 +384,26 @@ target_link_libraries(mcp_delete_tools_test PRIVATE
     qlcplusmcp
     nlohmann_json::nlohmann_json
 )
+
+# Workspace Tool tests — save/load/new project file tools over WorkspaceBridge
+add_executable(mcp_workspace_tools_test WIN32
+    workspace_tools_test.cpp workspace_tools_test.h
+)
+
+target_include_directories(mcp_workspace_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_workspace_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)

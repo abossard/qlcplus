@@ -1120,13 +1120,15 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             result["palettes"] = (int)doc->palettes().size();
             result["vcPages"] = vcPages;
             result["runningFunctions"] = runningFunctions;
+            result["modified"] = doc->isModified();
             return result.dump();
             });
         },
         std::nullopt,
         std::string("Lightweight workspace overview. Returns counts of fixtures, fixture groups, universes, "
                      "functions (grouped by type: scenes, chasers, collections, rgbMatrices, hueMatrices, efx, scripts, "
-                     "shows, sequences, audio, video), palettes, VC pages, and currently running functions. "
+                     "shows, sequences, audio, video), palettes, VC pages, currently running functions, and "
+                     "whether the project has unsaved changes. "
                      "Use as a fast first call before drilling into specific entities."),
         std::nullopt
     )
