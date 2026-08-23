@@ -1178,24 +1178,25 @@ Chaser *StageWizard::generateHeartbeat(const FixtureGroupEntry &grp, const QStri
     return ch;
 }
 
-Chaser *StageWizard::generateColorRainbow(const FixtureGroupEntry &grp, const QString &prefix)
+Chaser *StageWizard::generateColorTheme(const FixtureGroupEntry &grp, const QString &prefix,
+                                       const QString &themeName,
+                                       const ThemeColor *colors, int count,
+                                       Function::RunOrder runOrder,
+                                       uint fadeMs, uint holdMs)
 {
-    struct ColorDef { QString name; quint8 r, g, b; };
-    static const ColorDef colors[] = {
-        { "Red",     255,   0,   0 },
-        { "Orange",  255, 128,   0 },
-        { "Yellow",  255, 255,   0 },
-        { "Green",     0, 255,   0 },
-        { "Cyan",      0, 255, 255 },
-        { "Blue",      0,   0, 255 },
-        { "Magenta", 255,   0, 255 },
-    };
-
     QList<Scene *> scenes;
-    for (const ColorDef &cd : colors)
+    for (int i = 0; i < count; ++i)
     {
+        const ThemeColor &cd = colors[i];
         Scene *s = new Scene(m_doc);
-        s->setName(tr("%1 – Rainbow %2").arg(prefix).arg(cd.name));
+        s->setName(tr("%1 – %2 %3").arg(prefix).arg(themeName).arg(tr(cd.name)));
+
+        // A white emitter carries the colour's common floor: that is exactly the
+        // part of the mix all three primaries share, which is what a white LED
+        // is there to produce. Zero for a saturated colour, so the white channel
+        // is explicitly cleared rather than left holding whatever the previous
+        // scene put there — a scene is an LTP snapshot, and a stale white would
+        // wash the colour out.
         for (quint32 fxID : grp.fixtureIDs)
         {
             Fixture *fx = m_doc->fixture(fxID);
@@ -1213,6 +1214,7 @@ Chaser *StageWizard::generateColorRainbow(const FixtureGroupEntry &grp, const QS
                     case QLCChannel::Cyan:    val = 255 - cd.r; break;
                     case QLCChannel::Magenta: val = 255 - cd.g; break;
                     case QLCChannel::Yellow:  val = 255 - cd.b; break;
+                    case QLCChannel::White:   val = qMin(cd.r, qMin(cd.g, cd.b)); break;
                     default: break;
                 }
                 s->setValue(SceneValue(fxID, ch, val));
@@ -1222,10 +1224,71 @@ Chaser *StageWizard::generateColorRainbow(const FixtureGroupEntry &grp, const QS
     }
 
     Chaser *ch = makeChaserFromScenes(scenes,
-                                      tr("%1 – Color Rainbow").arg(prefix),
-                                      500, 1000);
+                                      tr("%1 – %2").arg(prefix).arg(themeName),
+                                      fadeMs, holdMs);
+    if (ch == nullptr)
+        return nullptr;
+
+    ch->setRunOrder(runOrder);
+
+    // makeChaserFromScenes() registers the STEP scenes but not the chaser, so
+    // the chaser has to be added here or it is never part of the project: its
+    // id stays invalidId(), the caller files nothing, and the object leaks.
+    // Every other generator that hands a chaser back does the same
+    // (generateColorPalette, generateGoboPalette, generateHeartbeat).
     m_doc->addFunction(ch);
     return ch;
+}
+
+Chaser *StageWizard::generateColorRainbow(const FixtureGroupEntry &grp, const QString &prefix)
+{
+    static const ThemeColor colors[] = {
+        { QT_TR_NOOP("Red"),     255,   0,   0 },
+        { QT_TR_NOOP("Orange"),  255, 128,   0 },
+        { QT_TR_NOOP("Yellow"),  255, 255,   0 },
+        { QT_TR_NOOP("Green"),     0, 255,   0 },
+        { QT_TR_NOOP("Cyan"),      0, 255, 255 },
+        { QT_TR_NOOP("Blue"),      0,   0, 255 },
+        { QT_TR_NOOP("Purple"),  127,   0, 255 },
+        { QT_TR_NOOP("Magenta"), 255,   0, 255 },
+    };
+
+    return generateColorTheme(grp, prefix, tr("Color Rainbow"),
+                              colors, int(sizeof(colors) / sizeof(colors[0])),
+                              Function::Loop, 500, 1000);
+}
+
+Chaser *StageWizard::generateWarmColors(const FixtureGroupEntry &grp, const QString &prefix)
+{
+    static const ThemeColor colors[] = {
+        { QT_TR_NOOP("Red"),        255,   0,   0 },
+        { QT_TR_NOOP("Orange"),     255, 100,   0 },
+        { QT_TR_NOOP("Amber"),      255, 180,   0 },
+        { QT_TR_NOOP("Yellow"),     255, 255,   0 },
+        { QT_TR_NOOP("Warm White"), 255, 255, 200 },
+    };
+
+    // PingPong, not Loop: a warm ramp read end to end and then jumped back to
+    // Red is a visible cut. Running it back down through the same shades keeps
+    // the wash continuous, which is the whole point of a warm bed.
+    return generateColorTheme(grp, prefix, tr("Warm Colors"),
+                              colors, int(sizeof(colors) / sizeof(colors[0])),
+                              Function::PingPong, 2000, 4000);
+}
+
+Chaser *StageWizard::generateCoolColors(const FixtureGroupEntry &grp, const QString &prefix)
+{
+    static const ThemeColor colors[] = {
+        { QT_TR_NOOP("Blue"),       0,   0, 255 },
+        { QT_TR_NOOP("Cyan"),       0, 255, 255 },
+        { QT_TR_NOOP("Indigo"),    75,   0, 130 },
+        { QT_TR_NOOP("Purple"),   128,   0, 255 },
+        { QT_TR_NOOP("Cool White"), 200, 220, 255 },
+    };
+
+    return generateColorTheme(grp, prefix, tr("Cool Colors"),
+                              colors, int(sizeof(colors) / sizeof(colors[0])),
+                              Function::PingPong, 2000, 4000);
 }
 
 Chaser *StageWizard::generateSplitColor(const FixtureGroupEntry &grp, const QString &prefix)

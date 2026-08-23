@@ -134,6 +134,8 @@ public:
         EffectFireworks     = 1 << 16,
         EffectPlasma        = 1 << 17,
         EffectMarquee       = 1 << 18,
+        EffectWarmColors    = 1 << 19,
+        EffectCoolColors    = 1 << 20,
         EffectAmbientLoop   = 1 << 22
     };
     Q_ENUM(EffectFlag)
@@ -426,7 +428,23 @@ private:
                            const QString &label);
     Chaser *generateStrobeChase(const FixtureGroupEntry &grp, const QString &prefix);
     Chaser *generateHeartbeat(const FixtureGroupEntry &grp, const QString &prefix);
+    /** One step of a colour-theme chaser: a display name and the colour it
+     *  asks each fixture in the group to produce. */
+    struct ThemeColor { const char *name; quint8 r, g, b; };
+
+    /** Chaser cycling $colors across $grp, one scene per colour. Resolves each
+     *  colour onto whatever the fixture actually has: additive emitters take the
+     *  component directly, subtractive (CMY) mixers take its complement, and a
+     *  white emitter takes the colour's common floor. */
+    Chaser *generateColorTheme(const FixtureGroupEntry &grp, const QString &prefix,
+                               const QString &themeName,
+                               const ThemeColor *colors, int count,
+                               Function::RunOrder runOrder,
+                               uint fadeMs, uint holdMs);
+
     Chaser *generateColorRainbow(const FixtureGroupEntry &grp, const QString &prefix);
+    Chaser *generateWarmColors(const FixtureGroupEntry &grp, const QString &prefix);
+    Chaser *generateCoolColors(const FixtureGroupEntry &grp, const QString &prefix);
     Chaser *generateSplitColor(const FixtureGroupEntry &grp, const QString &prefix);
     Scene  *generateBlinderHit(const FixtureGroupEntry &grp, const QString &prefix);
     /** Show-level scene: all blinder-role fixtures at full, 300 ms fade-out, for

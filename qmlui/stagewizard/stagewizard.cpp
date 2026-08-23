@@ -743,6 +743,8 @@ void StageWizard::buildEffectsModel()
     addEffect(EffectColorPalette,   tr("Color Palette"),    tr("Color"),     anyRGB || anyGobo);
     addEffect(EffectColorRainbow,   tr("Color Rainbow"),    tr("Color"),     anyRGB);
     addEffect(EffectSplitColor,     tr("Split Color"),      tr("Color"),     anyRGB);
+    addEffect(EffectWarmColors,     tr("Warm Colors"),      tr("Color"),     anyRGB);
+    addEffect(EffectCoolColors,     tr("Cool Colors"),      tr("Color"),     anyRGB);
     addEffect(EffectGoboPalette,    tr("Gobo Palette"),     tr("Color"),     anyGobo);
 
     // Intensity / Strobe family
@@ -935,6 +937,9 @@ QString StageWizard::effectPreview(int effectFlag) const
         case EffectColorRainbow:
             return tr("%1 chaser(s)").arg(qMax(1, rgbGroups));
         case EffectSplitColor:
+            return tr("%1 chaser(s)").arg(qMax(1, rgbGroups));
+        case EffectWarmColors:
+        case EffectCoolColors:
             return tr("%1 chaser(s)").arg(qMax(1, rgbGroups));
         case EffectPositionPreset:
             return tr("5 scenes × %1 group(s)").arg(movGroups);
@@ -1398,6 +1403,20 @@ void StageWizard::generateGroupFunctions(const FixtureGroupEntry &grp)
                 if (grp.hasRGB || grp.hasCMY)
                 {
                     Chaser *ch = generateSplitColor(grp, prefix);
+                    if (ch) m_generatedFunctionIDs.append(ch->id());
+                }
+                break;
+            case EffectWarmColors:
+                if (grp.hasRGB || grp.hasCMY)
+                {
+                    Chaser *ch = generateWarmColors(grp, prefix);
+                    if (ch) m_generatedFunctionIDs.append(ch->id());
+                }
+                break;
+            case EffectCoolColors:
+                if (grp.hasRGB || grp.hasCMY)
+                {
+                    Chaser *ch = generateCoolColors(grp, prefix);
                     if (ch) m_generatedFunctionIDs.append(ch->id());
                 }
                 break;
