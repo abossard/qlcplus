@@ -41,6 +41,19 @@ set(SCRIPT_FILES
     waves.js
 )
 
+# The engine tests resolve INTERNAL_SCRIPTDIR / INTERNAL_HUESCRIPTDIR relative to
+# their own build directory ("../../../resources/rgbscripts/"), so the scripts have to
+# exist inside the build tree or rgbscript, rgbmatrix, rgbalgorithm and huematrix
+# all fail in initTestCase. Nothing else populated it, so a fresh clone could not
+# run the suite. rgbscript_test also opens this CMakeLists.txt to check every
+# script is listed for delivery, so copy the file itself too -- and writable,
+# because it opens it ReadWrite.
+set(SCRIPTS_BUILD_DIR "${CMAKE_BINARY_DIR}/resources/rgbscripts")
+file(MAKE_DIRECTORY ${SCRIPTS_BUILD_DIR})
+file(COPY ${SCRIPT_FILES} CMakeLists.txt
+     DESTINATION ${SCRIPTS_BUILD_DIR}
+     FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+
 # Only perform the copy if we're building for Android
 if(ANDROID)
     # Define the destination directory for the script files within the Android package

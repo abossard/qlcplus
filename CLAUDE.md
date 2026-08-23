@@ -128,7 +128,7 @@ Quick preference order: `codegraph_context` (start here) → `codegraph_files` (
 ## Build Flags
 
 - `-Dqmlui=ON` — Build v5 QML UI (produces `qlcplus5`)
-- `-Dmcp_server=ON` — Build MCP server (auto-enabled when qmlui is ON in this fork)
+- `-Dmcp_server=ON` — Build MCP server. Defaults ON whenever `qmlui` is ON; pass `-Dmcp_server=OFF` to opt out
 - Compiler flags: `-Werror -Wextra -Wall` (non-iOS Unix builds)
 
 ## Platform Notes

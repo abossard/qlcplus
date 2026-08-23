@@ -45,6 +45,19 @@ set(SCRIPT_FILES
     hsvutil.js
 )
 
+# The engine tests resolve INTERNAL_SCRIPTDIR / INTERNAL_HUESCRIPTDIR relative to
+# their own build directory ("../../../resources/huescripts/"), so the scripts have to
+# exist inside the build tree or rgbscript, rgbmatrix, rgbalgorithm and huematrix
+# all fail in initTestCase. Nothing else populated it, so a fresh clone could not
+# run the suite. rgbscript_test also opens this CMakeLists.txt to check every
+# script is listed for delivery, so copy the file itself too -- and writable,
+# because it opens it ReadWrite.
+set(SCRIPTS_BUILD_DIR "${CMAKE_BINARY_DIR}/resources/huescripts")
+file(MAKE_DIRECTORY ${SCRIPTS_BUILD_DIR})
+file(COPY ${SCRIPT_FILES} CMakeLists.txt
+     DESTINATION ${SCRIPTS_BUILD_DIR}
+     FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+
 # Only perform the copy if we're building for Android
 if(ANDROID)
     set(SCRIPTS_ASSETS_DIR "${QT_ANDROID_PACKAGE_SOURCE_DIR}/${INSTALLROOT}/${HUESCRIPTDIR}")

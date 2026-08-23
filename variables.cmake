@@ -1,3 +1,4 @@
+include(CheckCXXCompilerFlag)
 if(QT_VERSION_MAJOR GREATER 5)
     set(QT_MAJOR_VERSION 6)
 else(QT_VERSION_MAJOR EQUAL 5)
@@ -593,6 +594,17 @@ elseif(NOT IOS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wextra")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
+
+    # -Wunnecessary-virtual-specifier is new in clang 21 and fires on `virtual`
+    # members of classes marked `final` -- inputoutputmap.h, qlcphysical.h,
+    # qlcfixturemode.h, qlcfixturehead.h and the MIDI plugin's miditemplate.h all
+    # do this deliberately. With -Werror that stops a fresh clone from building at
+    # all on a current toolchain, so demote it to a warning rather than dropping
+    # the `final` markers or the `virtual` keywords across the engine headers.
+    check_cxx_compiler_flag("-Wunnecessary-virtual-specifier" HAVE_W_UNNECESSARY_VIRTUAL_SPECIFIER)
+    if(HAVE_W_UNNECESSARY_VIRTUAL_SPECIFIER)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=unnecessary-virtual-specifier")
+    endif()
 
     # GCC's value range propagation produces a false positive inside Qt's
     # QHash when the hash internals get inlined at -O2 with LTO (as done by

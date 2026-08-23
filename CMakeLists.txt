@@ -2,7 +2,17 @@ cmake_minimum_required(VERSION 3.18)
 project(qlcplus VERSION 4.14.4 LANGUAGES C CXX)
 
 option(qmlui "Build for QLC+ 5 QML UI" OFF)
-option(mcp_server "Build MCP server for AI agent integration" OFF)
+
+# The MCP server is this fork's reason to exist and is wired into the v5 QML UI,
+# so default it ON whenever qmlui is -- otherwise the documented build command
+# (cmake .. -Dqmlui=ON) silently produces a build with no MCP server and skips
+# its 16 test binaries. option() honours an existing cache entry, so an explicit
+# -Dmcp_server=OFF still wins.
+if(qmlui)
+    option(mcp_server "Build MCP server for AI agent integration" ON)
+else()
+    option(mcp_server "Build MCP server for AI agent integration" OFF)
+endif()
 
 # Note: the default CMAKE_BUILD_TYPE is set in variables.cmake, together
 # with the DEVEL flag it follows
