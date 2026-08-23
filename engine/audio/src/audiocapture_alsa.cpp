@@ -117,6 +117,11 @@ bool AudioCaptureAlsa::readAudio(int maxSize)
         return false;
     }
 
+    //qDebug() << "Audio sample #0:" << m_audioBuffer[0] << ", #max:" << m_audioBuffer[m_captureSize - 1];
+#ifdef AUDIO_DEBUG
+    qDebug() << "[ALSA readAudio] " << maxSize << "bytes read";
+#endif
+
     return true;
 }
 

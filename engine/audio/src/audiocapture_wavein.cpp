@@ -161,5 +161,9 @@ bool AudioCaptureWaveIn::readAudio(int maxSize)
 
     m_currentBufferIndex = newBufferIndex;
 
+#ifdef AUDIO_DEBUG
+    qDebug() << "[WAVEIN readAudio] " << maxSize << "bytes read";
+#endif
+
     return true;
 }
