@@ -218,7 +218,10 @@ public:
 
         VCCueListSetChaserID = 0xE300,
 
-        VCFrameLayoutMode,
+        /* Fork-only block, explicitly anchored so upstream can extend its own
+         * groups without colliding. These codes cross the multi-client wire and
+         * are dispatched by numeric range in NetworkManager::requiredAccessMask() */
+        VCFrameLayoutMode = 0xE400,
         VCFrameGridColumns,
         VCFrameGridRowHeight,
         VCFrameGridCompact,
