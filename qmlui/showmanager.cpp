@@ -61,6 +61,11 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
     view->engine()->addImageProvider(QLatin1String("waveform"), m_waveformProvider);
     view->rootContext()->setContextProperty("waveformProvider", m_waveformProvider);
 
+    /* Relay Function changes to the UI, so Show Items can update
+       their preview lines when the referenced Function is edited */
+    connect(m_doc, SIGNAL(functionChanged(quint32)),
+            this, SIGNAL(functionChanged(quint32)));
+
     setContextResource("qrc:/ShowManager.qml");
     setContextTitle(tr("Show Manager"));
 }
