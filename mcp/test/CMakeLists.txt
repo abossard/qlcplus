@@ -407,3 +407,91 @@ target_link_libraries(mcp_workspace_tools_test PRIVATE
     qlcplusmcp
     nlohmann_json::nlohmann_json
 )
+
+add_executable(mcp_stage_tools_test WIN32
+    stage_tools_test.cpp stage_tools_test.h
+)
+
+target_include_directories(mcp_stage_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_stage_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+add_executable(mcp_show_tools_test WIN32
+    show_tools_test.cpp show_tools_test.h
+)
+
+target_include_directories(mcp_show_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_show_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+add_executable(mcp_live_tools_test WIN32
+    live_tools_test.cpp live_tools_test.h
+)
+
+target_include_directories(mcp_live_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_live_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+add_executable(mcp_input_profile_tools_test WIN32
+    input_profile_tools_test.cpp input_profile_tools_test.h
+)
+
+target_include_directories(mcp_input_profile_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_input_profile_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)

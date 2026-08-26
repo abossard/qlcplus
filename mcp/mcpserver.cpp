@@ -90,6 +90,10 @@ McpServer::McpServer(Doc *doc, VCBridge *vcBridge, FunctionManager *funcMgr,
     registerPaletteTools(*m_toolManager, m_doc);
     registerFlowTools(*m_toolManager, m_doc, m_flowConsole);
     registerWorkspaceTools(*m_toolManager, m_doc, m_wsBridge);
+    registerStageTools(*m_toolManager, m_doc);
+    registerInputProfileTools(*m_toolManager, m_doc);
+    registerLiveTools(*m_toolManager, m_doc);
+    registerShowTools(*m_toolManager, m_doc);
     registerPrompts(*m_promptManager, m_doc, m_vcBridge);
 }
 

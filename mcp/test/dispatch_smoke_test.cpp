@@ -156,14 +156,27 @@ void DispatchSmoke_Test::dispatchSmoke_unknownField_returnsError()
              "Unknown fields must produce per-item error");
 }
 
-void DispatchSmoke_Test::dispatchSmoke_liveControlTools_notRegistered()
+void DispatchSmoke_Test::dispatchSmoke_setupToolsTouchingLiveOutput_registered()
 {
     fastmcpp::tools::ToolManager tm;
+    registerLiveTools(tm, m_doc);
     registerFunctionTools(tm, m_doc);
     registerIOTools(tm, m_doc);
+    registerChannelTools(tm, m_doc);
 
-    QVERIFY(!tm.has("set_grand_master"));
-    QVERIFY(!tm.has("update_scene_from_dmx"));
+    // The MCP surface exists for setup and configuration. Some of that cannot
+    // be done without the rig responding — the Grand Master is a desk setting,
+    // and verifying a patch means lighting the lamp — so these are in. What
+    // stays out is show operation: no cue stepping, no timed playback.
+    for (const char *name : {"set_grand_master", "query_grand_master", "set_blackout",
+                             "write_dmx", "run_functions", "query_running_functions"})
+        QVERIFY2(tm.has(name), name);
+
+    // Show-operation shapes stay out. These are the names such tools would most
+    // plausibly take, including the one this fork previously removed.
+    for (const char *name : {"update_scene_from_dmx", "set_function_speed", "step_chaser",
+                             "goto_cue", "fade_function"})
+        QVERIFY2(!tm.has(name), name);
 }
 
 void DispatchSmoke_Test::dispatchSmoke_setupAndDiagnosticsTools_remainRegistered()
@@ -199,6 +212,20 @@ void DispatchSmoke_Test::dispatchSmoke_deleteTools_registered()
     registerIOTools(tm, m_doc);
 
     for (const char *name : {"delete_fixtures", "delete_fixture_groups", "delete_universes"})
+        QVERIFY2(tm.has(name), name);
+}
+
+void DispatchSmoke_Test::dispatchSmoke_setupAndConfigTools_registered()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerStageTools(tm, m_doc);
+    registerInputProfileTools(tm, m_doc);
+    registerShowTools(tm, m_doc);
+
+    for (const char *name : {"set_fixture_placement", "query_fixture_placement", "configure_stage",
+                             "create_channel_groups", "query_channel_groups", "delete_channel_groups",
+                             "create_input_profiles", "query_input_profile_channels",
+                             "create_shows", "query_shows", "add_show_items", "delete_show_items"})
         QVERIFY2(tm.has(name), name);
 }
 

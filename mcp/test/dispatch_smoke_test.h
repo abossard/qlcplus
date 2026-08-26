@@ -29,9 +29,10 @@ private slots:
     void dispatchSmoke_configureChannels_emptyDoc_returnsArray();
     void dispatchSmoke_configureUniverses_validItem_returnsResult();
     void dispatchSmoke_unknownField_returnsError();
-    void dispatchSmoke_liveControlTools_notRegistered();
+    void dispatchSmoke_setupToolsTouchingLiveOutput_registered();
     void dispatchSmoke_setupAndDiagnosticsTools_remainRegistered();
     void dispatchSmoke_deleteTools_registered();
+    void dispatchSmoke_setupAndConfigTools_registered();
     void dispatchSmoke_workspaceTools_needBridge();
     void dispatchSmoke_deleteTools_emptyDoc_returnArrays();
 

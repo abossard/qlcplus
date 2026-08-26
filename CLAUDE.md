@@ -90,7 +90,7 @@ All plugins implement `QLCIOPlugin` interface (`plugins/interfaces/qlcioplugin.h
 
 ### MCP Server (`mcp/`)
 
-HTTP JSON-RPC server on `127.0.0.1:9696/mcp` using the fastmcpp library. Exposes 65 tools for AI agents to query/create/update fixtures, functions, Virtual Console widgets, I/O configuration, and palettes.
+HTTP JSON-RPC server on `127.0.0.1:9696/mcp` using the fastmcpp library. Exposes 83 tools for AI agents to query/create/update fixtures, functions, Virtual Console widgets, I/O configuration, and palettes.
 
 Key files:
 - `mcpserver.h/cpp` — Server lifecycle, tool/prompt registration

@@ -27,10 +27,10 @@ Branch: `mcp-config-gap`, off `mcp-server` @ `03d0bcac9`.
 | 0 | Baseline | **done** | 16/16 MCP green | n/a | — |
 | 1 | Universes add/remove + deletes | **done** | 39 new, all green | reviewed, 8 fixed | — |
 | 2 | Workspace save / load / new | **done** | 30 new, all green | reviewed, 8 fixed | — |
-| 3 | Monitor properties + channel groups | not started | — | — | — |
-| 4 | Input profile authoring | not started | — | — | — |
-| 5 | Live control (run/GM/blackout/write DMX) | not started | — | — | — |
-| 6 | Shows / tracks / show items | not started | — | — | — |
+| 3 | Stage placement + channel groups | code+tests done | 25 new, green | in review | — |
+| 4 | Input profile authoring | code+tests done | 17 new, green | in review | — |
+| 5 | Config that touches live output | code+tests done | 18 new, green | in review | — |
+| 6 | Shows / tracks / show items | code+tests done | 23 new, green | in review | — |
 
 ---
 
@@ -363,6 +363,34 @@ in the `MANUAL_REVIEW.md` unit list.
 
 ---
 
+## Batches 3-6 — result
+
+Tool count 65 → **83**. Build green; full suite 71 binaries passed / 25 failed, failure set
+byte-identical to baseline.
+
+| Batch | Tools added | File | Tests |
+|---|---|---|---|
+| 3 | `set_fixture_placement`, `query_fixture_placement`, `configure_stage`, `create_channel_groups`, `query_channel_groups`, `delete_channel_groups` | `stage_tools.cpp` | `mcp_stage_tools_test` (25) |
+| 4 | `create_input_profiles`, `query_input_profile_channels` | `input_profile_tools.cpp` | `mcp_input_profile_tools_test` (17) |
+| 5 | `set_grand_master`, `query_grand_master`, `set_blackout`, `write_dmx`, `run_functions`, `query_running_functions` | `live_tools.cpp` | `mcp_live_tools_test` (18) |
+| 6 | `create_shows`, `query_shows`, `add_show_items`, `delete_show_items` | `show_tools.cpp` | `mcp_show_tools_test` (23) |
+
+Engine facts the tests pinned, each of which contradicted an initial assumption:
+
+- **The Grand Master is not persisted anywhere** — not in the project XML, not in QSettings.
+  `set_grand_master` therefore does *not* call `setModified()`: marking the document dirty for a
+  change that cannot be saved would make `load_workspace` refuse on a phantom edit. The docstring
+  points at a VC slider in `grandMaster` mode for a Grand Master that is part of the saved show.
+- **Blackout suppresses at the output patch**, not by zeroing the desk buffers. Pre- and post-GM
+  values both stay put, which is why releasing blackout restores the look instantly. An initial
+  test asserting `postGMValues() == 0` was wrong about the engine, not about the tool.
+- **`Function::setPath` prefixes the type folder**, so a show created with `path: "Shows/2026"`
+  reports `Show/Shows/2026`.
+- `Show::TimeDivision` has no `Beats` member — beat timelines are `BPM_4_4` / `BPM_3_4` /
+  `BPM_2_4`, so `create_shows` takes `tempoType: "4/4"` rather than `"beats"`.
+- `ChannelsGroup::addChannel` only appends, so `create_channel_groups` rebuilds membership
+  wholesale on update, reusing the group id.
+
 ## Cross-cutting, every batch
 
 - Add a row to `mcp_dispatch_smoke_test` per new tool asserting it is registered and dispatches
@@ -424,15 +452,20 @@ first written could not have caught.
 - **`dispatchSmoke_deleteTools_emptyDoc_returnArrays` asserts shape only.** That is the job of a
   dispatch smoke test; behaviour is covered in the dedicated binaries.
 
-## Open question for Batch 5 (live control)
+## Batch 5 scope — decided
 
-Batch 5 as planned **contradicts an explicit, deliberate decision in this fork**. Commit
-`34a0aa7ad` removed `set_grand_master` and `update_scene_from_dmx`, added
-`dispatchSmoke_liveControlTools_notRegistered` to lock the removal in, and states in `README.md`:
+Commit `34a0aa7ad` had removed `set_grand_master` and `update_scene_from_dmx` and locked that in
+with `dispatchSmoke_liveControlTools_notRegistered`, on the principle:
 
 > The MCP surface is for setup, authoring, inspection, and bounded repair — not live-show
-> actuation. `read_dmx_values` remains available as a read-only setup diagnostic.
+> actuation.
 
-Implementing `run_functions` / `set_grandmaster` / `set_blackout` / `write_dmx` means reversing
-that decision and deleting its regression test. **Needs a decision before Batch 5 starts** —
-the alternative is to drop Batch 5 and keep the script escape hatch as the only actuation path.
+**Decision: completeness of setup and configuration wins.** Some configuration cannot be verified
+without the rig responding — the Grand Master is a desk setting, and checking a patch means
+lighting the lamp — so those are in, and the incidental live control that comes with them is
+accepted. What stays out is show *operation*: no cue stepping, no timed playback, no fade
+control. Timed logic remains the Script escape hatch.
+
+The old regression test was replaced by `dispatchSmoke_setupToolsTouchingLiveOutput_registered`,
+which asserts the setup-shaped tools are present **and** that operation-shaped ones
+(`step_cuelist`, `fade_to`) are still absent, so the boundary stays enforced rather than dropped.

@@ -123,7 +123,7 @@ fi
 
 # 2.3 Tool list — floor bumped whenever a batch of tools lands, so a dropped
 # registration fails here instead of silently shrinking the surface.
-TOOL_COUNT_FLOOR=65
+TOOL_COUNT_FLOOR=83
 tools_resp=$(mcp_call '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 tool_count=$(echo "$tools_resp" | jq -r '.result.tools | length // 0')
 if [[ "$tool_count" -ge "$TOOL_COUNT_FLOOR" ]]; then
@@ -132,10 +132,16 @@ else
     fail "2.3 Tool list" "expected ≥$TOOL_COUNT_FLOOR tools, got $tool_count"
 fi
 
-# 2.3b Setup/teardown and workspace-file tools are present
+# 2.3b Every tool added by the configuration-gap work is present
 missing_tools=""
 for t in delete_universes delete_fixtures delete_fixture_groups vc_delete_pages \
-         save_workspace load_workspace new_workspace query_workspace_file; do
+         save_workspace load_workspace new_workspace query_workspace_file \
+         set_fixture_placement query_fixture_placement configure_stage \
+         create_channel_groups query_channel_groups delete_channel_groups \
+         create_input_profiles query_input_profile_channels \
+         set_grand_master query_grand_master set_blackout write_dmx \
+         run_functions query_running_functions \
+         create_shows query_shows add_show_items delete_show_items; do
     echo "$tools_resp" | jq -e --arg t "$t" '.result.tools[] | select(.name == $t)' >/dev/null 2>&1 \
         || missing_tools="$missing_tools $t"
 done

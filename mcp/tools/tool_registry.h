@@ -51,6 +51,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *fc);
 void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, WorkspaceBridge *wsBridge);
+void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge);
 
