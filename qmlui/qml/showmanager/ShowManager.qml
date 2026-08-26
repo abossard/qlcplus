@@ -73,8 +73,8 @@ Rectangle
 
     function requestPasteItems()
     {
-        if (canEdit)
-            showManager.pasteFromClipboard()
+        if (canEdit && showManager.pasteFromClipboard() === false)
+            pasteErrorPopup.open()
     }
 
     function centerView()
@@ -359,6 +359,14 @@ Rectangle
                 enabled: canEdit
                 counter: showManager.clipboardItemsCount
                 onClicked: showMgrContainer.requestPasteItems()
+
+                CustomPopupDialog
+                {
+                    id: pasteErrorPopup
+                    title: qsTr("Paste error")
+                    standardButtons: Dialog.Ok
+                    message: qsTr("It is not possible to paste the items on the selected track at the current cursor position")
+                }
             }
 
             // filler
