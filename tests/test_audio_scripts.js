@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
-  Boundary harness for the installed QLC+ audio-reactive RGB scripts.
+  Boundary harness for the installed QLC+ audio-reactive Hue scripts.
   It mirrors the current hsvutil.js, flat audio object, palette, and
   Float32Array HSV contracts used by RGBScript.
 */
@@ -12,7 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const SCRIPTS_DIR = path.join(__dirname, '..', 'resources', 'rgbscripts');
+const SCRIPTS_DIR = path.join(__dirname, '..', 'resources', 'huescripts');
 const HSV_UTIL = fs.readFileSync(path.join(SCRIPTS_DIR, 'hsvutil.js'), 'utf8');
 const EXPECTED_SCRIPTS = [
     'audioaurora.js', 'audiobarcode.js', 'audiobasslaser.js',
