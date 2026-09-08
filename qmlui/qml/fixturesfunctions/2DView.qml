@@ -328,7 +328,14 @@ Rectangle
 
                 onWheel: (wheel)=>
                 {
-                    zoomVelocity += (wheel.angleDelta.y / 120.0) * 0.01
+                    var steps = wheel.angleDelta.y / 120.0
+                    // Pixel-only trackpad events still need a full zoom impulse.
+                    if (steps === 0 && wheel.pixelDelta.y !== 0)
+                        steps = wheel.pixelDelta.y > 0 ? 1 : -1
+                    if (steps === 0)
+                        return
+
+                    zoomVelocity += steps * 0.01
                     zoomVelocity = Math.max(-0.05, Math.min(0.05, zoomVelocity))
                     if (!zoomTimer.running)
                         zoomTimer.start()
