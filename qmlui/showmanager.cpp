@@ -299,6 +299,9 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
     m_currentShow->setTimeDivisionType(division);
     m_currentShow->setTempoType(Show::isTimeBasedDivision(division) ? Function::Time : Function::Beats);
 
+    // Publish the new beat divider before setTimeScale triggers geometry updates.
+    emit beatsDivisionChanged(m_currentShow->beatsDivision());
+
     // invalidate m_timeScale so setTimeScale always recomputes tickSize,
     // even when the restored zoom equals the current value
     m_timeScale = -1.0f;
@@ -306,11 +309,6 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
 
     updateVdjGrid();
 
-    // emit beatsDivision BEFORE timeDivision: ShowItem recomputes its geometry on
-    // timeDivisionChanged, and beatsToSize() divides by beatsDivision, so the new
-    // value (0 for Time, 2/3/4 for BPM) must already be applied to avoid a NaN width
-    // that makes items (e.g. the audio waveform) vanish until the next zoom.
-    emit beatsDivisionChanged(m_currentShow->beatsDivision());
     emit timeDivisionChanged(division);
 }
 

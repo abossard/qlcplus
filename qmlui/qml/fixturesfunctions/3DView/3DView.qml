@@ -25,6 +25,8 @@ import Qt3D.Render
 import Qt3D.Input
 import Qt3D.Extras
 
+import org.qlcplus.classes 1.0
+
 Rectangle
 {
     anchors.fill: parent
@@ -133,6 +135,8 @@ Rectangle
                     for (iHead = 0; iHead < fixtureItem.headsNumber; iHead++)
                     {
                         headEntity = fixtureItem.getHead(iHead)
+                        if (!headEntity)
+                            continue
 
                         component.createObject(frameGraph.myShadowFrameGraphNode,
                         {
@@ -254,11 +258,14 @@ Rectangle
                 for (iHead = 0; iHead < fixtureItem.headsNumber; iHead++)
                 {
                     headEntity = fixtureItem.getHead(iHead)
+                    if (!headEntity)
+                        continue
 
                     component.createObject(frameGraph.myCameraSelector,
                     {
                         "gBuffer": gBufferTarget,
-                        "shadowTex": headEntity.depthTex,
+                        // heads that don't cast shadows have no shadow map at all
+                        "shadowTex": fixtureItem.useShadows ? headEntity.depthTex : null,
                         "useShadows": fixtureItem.useShadows,
                         "spotlightShadingLayer": headEntity.spotlightShadingLayer,
                         "frameTarget": frameTarget
@@ -287,6 +294,8 @@ Rectangle
                 for (iHead = 0; iHead < fixtureItem.headsNumber; iHead++)
                 {
                     headEntity = fixtureItem.getHead(iHead)
+                    if (!headEntity)
+                        continue
 
                     component.createObject(frameGraph.myCameraSelector,
                     {
@@ -300,7 +309,7 @@ Rectangle
                         "frontDepth": depthTarget,
                         "gBuffer": gBufferTarget,
                         "spotlightScatteringLayer": headEntity.spotlightScatteringLayer,
-                        "shadowTex": headEntity.depthTex,
+                        "shadowTex": fixtureItem.useShadows ? headEntity.depthTex : null,
                         "frameTarget": frameTarget,
                         "useShadows": fixtureItem.useShadows
                     });
@@ -375,8 +384,13 @@ Rectangle
 
                 function setZoom(amount)
                 {
-                    if ((amount < 0 && View3D.cameraPosition.z < 1) ||
-                        (amount > 0 && View3D.cameraPosition.z > 30))
+                    // clamp on the actual distance to the view center, not on the
+                    // raw camera Z position, which drifts off-axis after panning
+                    // or rotating and would otherwise block zooming in one direction
+                    var distance = viewCamera.position.minus(viewCamera.viewCenter).length()
+
+                    if ((amount < 0 && distance < 1) ||
+                        (amount > 0 && distance > 30))
                         return
 
                     translate(Qt.vector3d(0, 0, -amount), Camera.DontTranslateViewCenter)
@@ -403,6 +417,10 @@ Rectangle
                 sourceDevice: mDevice
                 onPressed: (mouse) =>
                 {
+                    // mark the preview as the last clicked area, so CTRL+A
+                    // is handled here instead of being stolen from other
+                    // focused widgets like text fields
+                    contextManager.setLastClickedType(App.FixtureDragItem)
                     directionCounter = 0
                     dx = 0
                     dy = 0
@@ -411,6 +429,11 @@ Rectangle
 
                 onClicked: (mouse) =>
                 {
+                    // right button is reserved for camera rotation, so it
+                    // must not be used to select/deselect items in the view
+                    if (mouse.button === Qt.RightButton)
+                        return
+
                     // calculate normalized coordinates
                     // (x, y) screen coords → [-1, 1] range
                     var ndcX = ((2.0 * mouse.x) / scene3d.width) - 1.0
