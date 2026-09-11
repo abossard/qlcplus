@@ -40,6 +40,7 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileName                 QStringLiteral("Name")
 #define KXMLQLCAudioProfileIsDefault            QStringLiteral("IsDefault")
 #define KXMLQLCAudioProfileVersion              QStringLiteral("Version")
+#define KXMLQLCAudioProfileAnalysisContractRevision QStringLiteral("AnalysisContractRevision")
 
 #define KXMLQLCAudioProfileEnvelope             QStringLiteral("Envelope")
 #define KXMLQLCAudioProfileEnvelopeAttack       QStringLiteral("Attack")
@@ -142,6 +143,7 @@ class QXmlStreamWriter;
 #define KXMLQLCAudioProfileAubioMfccPower       QStringLiteral("MfccPower")
 #define KXMLQLCAudioProfileAubioMfccScale       QStringLiteral("MfccScale")
 #define KXMLQLCAudioProfileAubioPitchUnit       QStringLiteral("PitchUnit")
+#define KXMLQLCAudioProfileAubioDiagnosticsEnabled QStringLiteral("DiagnosticsEnabled")
 #define KXMLQLCAudioProfileAubioOnsetOverride   QStringLiteral("OnsetOverride")
 #define KXMLQLCAudioProfileAubioOnsetOverrideMethod      QStringLiteral("Method")
 #define KXMLQLCAudioProfileAubioOnsetOverrideThreshold   QStringLiteral("Threshold")
@@ -169,6 +171,7 @@ class AudioProfile : public QObject
     Q_PROPERTY(bool isDefault READ isDefault WRITE setIsDefault NOTIFY isDefaultChanged)
     Q_PROPERTY(int audioSource READ audioSource WRITE setAudioSource NOTIFY audioSourceChanged)
     Q_PROPERTY(quint16 oscPort READ oscPort WRITE setOscPort NOTIFY oscPortChanged)
+    Q_PROPERTY(QString migrationWarning READ migrationWarning NOTIFY configChanged)
 
 public:
     enum AudioSourceType
@@ -199,6 +202,7 @@ public:
 
     AudioChannelConfig channelConfig() const;
     void setChannelConfig(const AudioChannelConfig &config);
+    QString migrationWarning() const { return m_migrationWarning; }
 
     void bindAnalyzer(AudioAnalyzer *analyzer);
     void releaseAnalyzer();
@@ -225,6 +229,7 @@ private:
     AudioChannel *m_channel = nullptr;
     AudioSourceType m_audioSource = Microphone;
     quint16 m_oscPort = 9999;
+    QString m_migrationWarning;
 };
 
 /** @} */

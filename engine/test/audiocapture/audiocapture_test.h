@@ -18,6 +18,22 @@ private slots:
     void init();
     void cleanup();
 
+    void canonicalSourceCadence_data();
+    void canonicalSourceCadence();
+    void qt6CanonicalPackets_data();
+    void qt6CanonicalPackets();
+    void qt6CanonicalPoisonRecovery_data();
+    void qt6CanonicalPoisonRecovery();
+    void qt6FloatPrecision();
+    void qt6UnavailableRestart();
+    void qt6SlowPartialPackets();
+    void qt6DeviceReselection();
+    void qt6RejectedNegotiation_data();
+    void qt6RejectedNegotiation();
+    void quietBandsRespectConfiguredGate_data();
+    void quietBandsRespectConfiguredGate();
+    void configuredGateStillSuppressesQuietAudio_data();
+    void configuredGateStillSuppressesQuietAudio();
     void negotiatedFormatUpdatesPipeline_data();
     void negotiatedFormatUpdatesPipeline();
     void negotiatedFormatTransitions_data();

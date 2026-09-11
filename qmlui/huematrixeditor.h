@@ -54,6 +54,7 @@ class HUEMatrixEditor final : public FunctionEditor
     Q_PROPERTY(int beatOrientation READ beatOrientation WRITE setBeatOrientation NOTIFY beatOrientationChanged)
 
     Q_PROPERTY(bool algorithmUsesAudio READ algorithmUsesAudio NOTIFY algorithmIndexChanged)
+    Q_PROPERTY(QString algorithmName READ algorithmName NOTIFY algorithmIndexChanged)
     Q_PROPERTY(QStringList audioInputCategories READ audioInputCategories NOTIFY algorithmIndexChanged)
 
     // Text Algorithm specific properties
@@ -95,6 +96,7 @@ public:
     /** Get/set the RGBMatrix algorithm index in the algorithms list */
     int algorithmIndex() const;
     void setAlgorithmIndex(int algoIndex);
+    QString algorithmName() const;
 
     /** Return the accepted colors of the current algorithm */
     int algoColorsCount() const;

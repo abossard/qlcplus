@@ -32,6 +32,11 @@
 
 namespace
 {
+    QString numeric(double value)
+    {
+        return QString::number(value, 'g', 17);
+    }
+
     bool boolFromString(const QString &value, bool defaultValue = false)
     {
         if (value.compare(KXMLQLCTrue, Qt::CaseInsensitive) == 0 ||
@@ -133,6 +138,8 @@ int AudioProfile::audioSource() const
 
 void AudioProfile::setAudioSource(int source)
 {
+    if (source != Microphone && source != OscSynesthesia)
+        return;
     AudioSourceType s = static_cast<AudioSourceType>(source);
     if (m_audioSource == s)
         return;
@@ -167,7 +174,25 @@ AudioChannelConfig AudioProfile::channelConfig() const
 
 void AudioProfile::setChannelConfig(const AudioChannelConfig &config)
 {
+    const QString error = config.validationError();
+    if (!error.isEmpty())
+    {
+        m_migrationWarning = error;
+        qWarning().noquote() << "AudioProfile" << m_id << "configuration rejected:" << error;
+        emit configChanged();
+        return;
+    }
     m_config = config;
+    const auto defaults = AudioChannelConfig::defaults().aubio;
+    if (config.aubio.coastBeats != defaults.coastBeats ||
+        config.aubio.tempoDecayHalfLifeBeats != defaults.tempoDecayHalfLifeBeats ||
+        config.aubio.tempoDecayTargetBpm != defaults.tempoDecayTargetBpm)
+    {
+        m_migrationWarning = QStringLiteral(
+            "Migration conflict: custom tempo coast/decay values are preserved in XML "
+            "but no longer alter the native tempo estimate.");
+        qWarning().noquote() << "AudioProfile" << m_id << m_migrationWarning;
+    }
     if (m_channel != nullptr)
         m_channel->updateConfig(m_config);
     emit configChanged();
@@ -182,9 +207,9 @@ void AudioProfile::bindAnalyzer(AudioAnalyzer *analyzer)
     m_analyzer = analyzer;
     if (m_analyzer != nullptr)
     {
-        m_channel = m_analyzer->createChannel(m_config);
+        m_channel = m_analyzer->createChannel(m_config, m_id);
         // If this profile uses an external OSC source, gate the mic pipeline
-        if (m_audioSource == OscSynesthesia)
+        if (m_channel && m_audioSource == OscSynesthesia)
             m_channel->setExternalSource(true);
     }
 }
@@ -280,7 +305,34 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
     }
     Q_UNUSED(version)
 
-    AudioChannelConfig config = m_config;
+    AudioChannelConfig config = AudioChannelConfig::defaults();
+    const int contractRevision = intAttribute(attrs, KXMLQLCAudioProfileAnalysisContractRevision, 2);
+    m_migrationWarning.clear();
+    if (contractRevision < 3)
+    {
+        config.noiseGate = {-60.0, 120.0};
+        config.kick.beatHistoryLen = 10;
+        config.melPost.powerFactor = 2.0;
+        config.aubio.melBanks.low.post.powerFactor = 2.0;
+        config.aubio.melBanks.mid.post.powerFactor = 2.0;
+        config.aubio.melBanks.high.post.powerFactor = 2.0;
+        config.aubio.pitchUnit = QStringLiteral("Hz");
+        config.aubio.pitchSilenceDb = -40.0;
+        config.aubio.pitchTolerance = 0.7;
+        config.aubio.onsetMethodIndex = 8;
+        std::fill_n(config.aubio.onsetMethodEnabled, 9, true);
+        config.aubio.diagnosticsEnabled = true;
+        m_migrationWarning = QStringLiteral(
+            "Analysis now runs at 30000 Hz with 4096-sample windows. Saved tuning is retained; "
+            "tempo coast/decay settings no longer alter the native tempo estimate.");
+        qWarning().noquote() << "AudioProfile" << m_id << m_migrationWarning;
+    }
+    else if (contractRevision > 3)
+    {
+        qWarning() << "AudioProfile" << m_id << "unsupported analysis contract" << contractRevision;
+        root.skipCurrentElement();
+        return false;
+    }
 
     while (root.readNextStartElement())
     {
@@ -298,8 +350,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileAgc)
         {
-            // Legacy AGC element: input gain is now an OS/hardware concern and
-            // is no longer part of the audio profile. Skip the element.
+            m_migrationWarning += QStringLiteral(" Legacy Agc settings are unsupported; input level belongs to capture.");
+            qWarning().noquote() << "AudioProfile" << m_id << "migration conflict:" << m_migrationWarning;
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileTriggers)
@@ -332,8 +384,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileBands)
         {
-            // Legacy 5-perceptual-band layout has been removed. The element
-            // is silently skipped to avoid blocking older profile loads.
+            m_migrationWarning += QStringLiteral(" Legacy five-band layout is unsupported.");
+            qWarning().noquote() << "AudioProfile" << m_id << "migration conflict:" << m_migrationWarning;
             root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioProfileNoiseGate)
@@ -567,6 +619,8 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             config.aubio.pitchUnit = stringAttribute(childAttrs,
                                                      KXMLQLCAudioProfileAubioPitchUnit,
                                                      config.aubio.pitchUnit);
+            config.aubio.diagnosticsEnabled = intAttribute(childAttrs,
+                KXMLQLCAudioProfileAubioDiagnosticsEnabled, config.aubio.diagnosticsEnabled ? 1 : 0) != 0;
             {
                 static const QStringList kPitchUnits = {
                     QStringLiteral("Hz"), QStringLiteral("midi"),
@@ -675,6 +729,14 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
     }
 
     setChannelConfig(config);
+    if (m_analyzer && m_channel && m_channel->profileId() != m_id)
+    {
+        AudioAnalyzer *analyzer = m_analyzer;
+        releaseAnalyzer();
+        bindAnalyzer(analyzer);
+    }
+    if (m_channel)
+        m_channel->setExternalSource(m_audioSource == OscSynesthesia);
     return true;
 }
 
@@ -687,6 +749,7 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileName, name());
     doc->writeAttribute(KXMLQLCAudioProfileIsDefault, isDefault() ? KXMLQLCTrue : KXMLQLCFalse);
     doc->writeAttribute(KXMLQLCAudioProfileVersion, QStringLiteral("2"));
+    doc->writeAttribute(KXMLQLCAudioProfileAnalysisContractRevision, QStringLiteral("3"));
 
     // Audio source type and OSC port
     if (m_audioSource != Microphone)
@@ -695,8 +758,8 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLQLCAudioProfileOscPort, QString::number(m_oscPort));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileEnvelope);
-    doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, QString::number(m_config.envelope.attackMs));
-    doc->writeAttribute(KXMLQLCAudioProfileEnvelopeRelease, QString::number(m_config.envelope.releaseMs));
+    doc->writeAttribute(KXMLQLCAudioProfileEnvelopeAttack, numeric(m_config.envelope.attackMs));
+    doc->writeAttribute(KXMLQLCAudioProfileEnvelopeRelease, numeric(m_config.envelope.releaseMs));
 
     // Per-band Schmitt triggers: <Triggers><Band Name="..." High=".." Low=".." Hold=".." Cooldown=".."/>...</Triggers>
     doc->writeStartElement(KXMLQLCAudioProfileTriggers);
@@ -710,38 +773,38 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
         {
             doc->writeEmptyElement(KXMLQLCAudioProfileTriggersBand);
             doc->writeAttribute(KXMLQLCAudioProfileTriggersBandName, QString::fromLatin1(bands[i].name));
-            doc->writeAttribute(KXMLQLCAudioProfileTriggersHigh,     QString::number(bands[i].band->highThreshold));
-            doc->writeAttribute(KXMLQLCAudioProfileTriggersLow,      QString::number(bands[i].band->lowThreshold));
-            doc->writeAttribute(KXMLQLCAudioProfileTriggersHold,     QString::number(bands[i].band->holdMs));
-            doc->writeAttribute(KXMLQLCAudioProfileTriggersCooldown, QString::number(bands[i].band->cooldownMs));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersHigh,     numeric(bands[i].band->highThreshold));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersLow,      numeric(bands[i].band->lowThreshold));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersHold,     numeric(bands[i].band->holdMs));
+            doc->writeAttribute(KXMLQLCAudioProfileTriggersCooldown, numeric(bands[i].band->cooldownMs));
         }
     }
     doc->writeEndElement(); // Triggers
 
     doc->writeEmptyElement(KXMLQLCAudioProfileNoiseGate);
-    doc->writeAttribute(KXMLQLCAudioProfileNoiseGateThreshold, QString::number(m_config.noiseGate.thresholdDb));
-    doc->writeAttribute(KXMLQLCAudioProfileNoiseGateHold, QString::number(m_config.noiseGate.holdMs));
+    doc->writeAttribute(KXMLQLCAudioProfileNoiseGateThreshold, numeric(m_config.noiseGate.thresholdDb));
+    doc->writeAttribute(KXMLQLCAudioProfileNoiseGateHold, numeric(m_config.noiseGate.holdMs));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileKick);
     doc->writeAttribute(KXMLQLCAudioProfileKickEnabled, m_config.kick.enabled ? "1" : "0");
-    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMaxHz, QString::number(m_config.kick.beatMaxHz));
-    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinPercentDiff, QString::number(m_config.kick.beatMinPercentDiff));
-    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinAmplitude, QString::number(m_config.kick.beatMinAmplitude));
-    doc->writeAttribute(KXMLQLCAudioProfileKickBeatRefractorySec, QString::number(m_config.kick.beatRefractorySec));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMaxHz, numeric(m_config.kick.beatMaxHz));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinPercentDiff, numeric(m_config.kick.beatMinPercentDiff));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatMinAmplitude, numeric(m_config.kick.beatMinAmplitude));
+    doc->writeAttribute(KXMLQLCAudioProfileKickBeatRefractorySec, numeric(m_config.kick.beatRefractorySec));
     doc->writeAttribute(KXMLQLCAudioProfileKickBeatHistoryLen, QString::number(m_config.kick.beatHistoryLen));
 
     doc->writeEmptyElement(KXMLQLCAudioProfileMelPost);
     doc->writeAttribute(KXMLQLCAudioProfileMelPostEnabled, m_config.melPost.enabled ? "1" : "0");
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   QString::number(m_config.melPost.powerFactor));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, QString::number(m_config.melPost.gaussianSigma));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   QString::number(m_config.melPost.smoothDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    QString::number(m_config.melPost.smoothRise));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   QString::number(m_config.melPost.commonDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    QString::number(m_config.melPost.commonRise));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     QString::number(m_config.melPost.diffDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      QString::number(m_config.melPost.diffRise));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(m_config.melPost.agcDecay));
-    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(m_config.melPost.agcRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   numeric(m_config.melPost.powerFactor));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, numeric(m_config.melPost.gaussianSigma));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   numeric(m_config.melPost.smoothDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    numeric(m_config.melPost.smoothRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   numeric(m_config.melPost.commonDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    numeric(m_config.melPost.commonRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     numeric(m_config.melPost.diffDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      numeric(m_config.melPost.diffRise));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      numeric(m_config.melPost.agcDecay));
+    doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       numeric(m_config.melPost.agcRise));
 
     // Per-band freq_power: <FreqPower><Band Name="..." MaxHz=".." Decay=".." Rise=".."/>...</FreqPower>
     doc->writeStartElement(KXMLQLCAudioProfileFreqPower);
@@ -756,36 +819,37 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
         {
             doc->writeEmptyElement(KXMLQLCAudioProfileFreqPowerBand);
             doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandName,  QString::fromLatin1(bands[i].name));
-            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandMaxHz, QString::number(bands[i].band->maxHz));
-            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandDecay, QString::number(bands[i].band->decay));
-            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandRise,  QString::number(bands[i].band->rise));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandMaxHz, numeric(bands[i].band->maxHz));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandDecay, numeric(bands[i].band->decay));
+            doc->writeAttribute(KXMLQLCAudioProfileFreqPowerBandRise,  numeric(bands[i].band->rise));
         }
     }
     doc->writeEndElement(); // FreqPower
 
     doc->writeEmptyElement(KXMLQLCAudioProfileVolume);
-    doc->writeAttribute(KXMLQLCAudioProfileVolumeSmoothing, QString::number(m_config.volumeSmoothingMs));
-    doc->writeAttribute(KXMLQLCAudioProfileVolumeBrightnessFloor, QString::number(m_config.brightnessFloor));
+    doc->writeAttribute(KXMLQLCAudioProfileVolumeSmoothing, numeric(m_config.volumeSmoothingMs));
+    doc->writeAttribute(KXMLQLCAudioProfileVolumeBrightnessFloor, numeric(m_config.brightnessFloor));
 
     doc->writeStartElement(KXMLQLCAudioProfileAubio);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchMethod, m_config.aubio.pitchMethod);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchUnit, m_config.aubio.pitchUnit);
-    doc->writeAttribute(KXMLQLCAudioProfileAubioPitchSilenceDb, QString::number(m_config.aubio.pitchSilenceDb));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioPitchTolerance, QString::number(m_config.aubio.pitchTolerance));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankNorm, QString::number(m_config.aubio.filterbankNorm));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankPower, QString::number(m_config.aubio.filterbankPower));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoSilenceDb, QString::number(m_config.aubio.tempoSilenceDb));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoThreshold, QString::number(m_config.aubio.tempoThreshold));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioDiagnosticsEnabled, m_config.aubio.diagnosticsEnabled ? "1" : "0");
+    doc->writeAttribute(KXMLQLCAudioProfileAubioPitchSilenceDb, numeric(m_config.aubio.pitchSilenceDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioPitchTolerance, numeric(m_config.aubio.pitchTolerance));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankNorm, numeric(m_config.aubio.filterbankNorm));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioFilterbankPower, numeric(m_config.aubio.filterbankPower));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoSilenceDb, numeric(m_config.aubio.tempoSilenceDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoThreshold, numeric(m_config.aubio.tempoThreshold));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTempoMethod, m_config.aubio.tempoMethod);
-    doc->writeAttribute(KXMLQLCAudioProfileAubioCoastBeats, QString::number(m_config.aubio.coastBeats));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayHalfLifeBeats, QString::number(m_config.aubio.tempoDecayHalfLifeBeats));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayTargetBpm, QString::number(m_config.aubio.tempoDecayTargetBpm));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioCoastBeats, numeric(m_config.aubio.coastBeats));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayHalfLifeBeats, numeric(m_config.aubio.tempoDecayHalfLifeBeats));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDecayTargetBpm, numeric(m_config.aubio.tempoDecayTargetBpm));
     doc->writeAttribute(KXMLQLCAudioProfileAubioTatumSubdivision, QString::number(m_config.aubio.tatumSubdivision));
     doc->writeAttribute(KXMLQLCAudioProfileAubioBeatsPerBar, QString::number(m_config.aubio.beatsPerBar));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPreEmphasisEnabled, m_config.aubio.preEmphasisEnabled ? "1" : "0");
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTssAlpha, QString::number(m_config.aubio.tssAlpha));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTssBeta, QString::number(m_config.aubio.tssBeta));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTssThreshold, QString::number(m_config.aubio.tssThreshold));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTssAlpha, numeric(m_config.aubio.tssAlpha));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTssBeta, numeric(m_config.aubio.tssBeta));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTssThreshold, numeric(m_config.aubio.tssThreshold));
 
     doc->writeAttribute(KXMLQLCAudioProfileAubioWindowType, m_config.aubio.windowType);
     doc->writeAttribute(KXMLQLCAudioProfileAubioMelScale, m_config.aubio.melScale);
@@ -799,12 +863,12 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetMethodIndex,
                         QString::number(std::clamp(m_config.aubio.onsetMethodIndex,
                                                    0, AUBIO_ONSET_METHODS - 1)));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDelayMs, QString::number(m_config.aubio.tempoDelayMs));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteSilenceDb, QString::number(m_config.aubio.noteSilenceDb));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteMinIntervalMs, QString::number(m_config.aubio.noteMinIntervalMs));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteReleaseDropDb, QString::number(m_config.aubio.noteReleaseDropDb));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccPower, QString::number(m_config.aubio.mfccPower));
-    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccScale, QString::number(m_config.aubio.mfccScale));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioTempoDelayMs, numeric(m_config.aubio.tempoDelayMs));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteSilenceDb, numeric(m_config.aubio.noteSilenceDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteMinIntervalMs, numeric(m_config.aubio.noteMinIntervalMs));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioNoteReleaseDropDb, numeric(m_config.aubio.noteReleaseDropDb));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccPower, numeric(m_config.aubio.mfccPower));
+    doc->writeAttribute(KXMLQLCAudioProfileAubioMfccScale, numeric(m_config.aubio.mfccScale));
 
     // Per-method onset overrides. Sentinel values (see audiochannelconfig.h)
     // mean "use aubio default" and are NOT serialized — only real overrides
@@ -825,15 +889,15 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
         doc->writeEmptyElement(KXMLQLCAudioProfileAubioOnsetOverride);
         doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMethod, QString::fromLatin1(kMethodNames[i]));
         if (ov.threshold >= 0.0)
-            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideThreshold, QString::number(ov.threshold));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideThreshold, numeric(ov.threshold));
         if (ov.silenceDb > -900.0)
-            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideSilence, QString::number(ov.silenceDb));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideSilence, numeric(ov.silenceDb));
         if (ov.minioiMs >= 0.0)
-            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMinioi, QString::number(ov.minioiMs));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideMinioi, numeric(ov.minioiMs));
         if (ov.delayMs > -9000.0)
-            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideDelay, QString::number(ov.delayMs));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideDelay, numeric(ov.delayMs));
         if (ov.compression >= 0.0)
-            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideCompression, QString::number(ov.compression));
+            doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideCompression, numeric(ov.compression));
         if (ov.awhitening >= 0)
             doc->writeAttribute(KXMLQLCAudioProfileAubioOnsetOverrideAwhitening, ov.awhitening ? KXMLQLCTrue : KXMLQLCFalse);
     }
@@ -852,22 +916,22 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankRole,
                                 QString::fromLatin1(banks[i].role));
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankMinHz,
-                                QString::number(banks[i].bank->minHz));
+                                numeric(banks[i].bank->minHz));
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankMaxHz,
-                                QString::number(banks[i].bank->maxHz));
+                                numeric(banks[i].bank->maxHz));
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankBands,
                                 QString::number(banks[i].bank->bands));
             const MelPostConfig &p = banks[i].bank->post;
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   QString::number(p.powerFactor));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, QString::number(p.gaussianSigma));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   QString::number(p.smoothDecay));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    QString::number(p.smoothRise));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   QString::number(p.commonDecay));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    QString::number(p.commonRise));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     QString::number(p.diffDecay));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      QString::number(p.diffRise));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      QString::number(p.agcDecay));
-            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       QString::number(p.agcRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankPowerFactor,   numeric(p.powerFactor));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankGaussianSigma, numeric(p.gaussianSigma));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothDecay,   numeric(p.smoothDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankSmoothRise,    numeric(p.smoothRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonDecay,   numeric(p.commonDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankCommonRise,    numeric(p.commonRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffDecay,     numeric(p.diffDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankDiffRise,      numeric(p.diffRise));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcDecay,      numeric(p.agcDecay));
+            doc->writeAttribute(KXMLQLCAudioProfileMelBankAgcRise,       numeric(p.agcRise));
             doc->writeAttribute(KXMLQLCAudioProfileMelBankEnabled,       p.enabled ? "1" : "0");
             doc->writeAttribute(KXMLQLCAudioProfileAubioMelBankPreset, mb.preset);
         }

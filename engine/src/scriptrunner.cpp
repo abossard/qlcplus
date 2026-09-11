@@ -31,6 +31,7 @@
 #include "fadechannel.h"
 #include "mastertimer.h"
 #include "audiocapture.h"
+#include "audiosnapshot.h"
 #include "universe.h"
 #include "scriptv4.h"
 
@@ -58,13 +59,14 @@ void ScriptRunner::execute()
         return;
 
     m_running = true;
+    m_audioCursor.reset();
 
     start();
 }
 
 void ScriptRunner::stop()
 {
-    if (m_running == false)
+    if (m_running == false && m_registeredBands.isEmpty())
         return;
 
     if (m_engine)
@@ -332,6 +334,8 @@ void ScriptRunner::run()
     // Signal write() that the JS code is done. Note that this must not stop
     // the Script right away: pending queued operations are dispatched by
     // write() on the MasterTimer thread and have to be flushed first
+    delete m_engine;
+    m_engine = nullptr;
     m_running = false;
 }
 
@@ -661,13 +665,7 @@ int ScriptRunner::getAudioLevel()
     if (m_running == false)
         return 0;
 
-    QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
-    if (capture.isNull())
-        return 0;
-
-    // Scale from 0-32767 to 0-255
-    quint32 power = capture->signalPower();
-    return qBound(0, (int)(power * 255 / 32767), 255);
+    return qBound(0, int(resolveAudio().rawRms * 255), 255);
 }
 
 int ScriptRunner::getAudioFrequency(int bandIndex, int numBands)
@@ -678,25 +676,29 @@ int ScriptRunner::getAudioFrequency(int bandIndex, int numBands)
     if (numBands <= 0 || bandIndex < 0 || bandIndex >= numBands)
         return 0;
 
-    QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
-    if (capture.isNull())
-        return 0;
+    return int(audioFrequency(resolveAudio(), bandIndex, numBands) * 255);
+}
 
-    // Register this band count if not yet registered
-    if (!m_registeredBands.contains(numBands))
+AudioRenderView ScriptRunner::resolveAudio()
+{
+    if (m_running && m_registeredBands.isEmpty())
     {
-        capture->registerBandsNumber(numBands);
-        m_registeredBands.insert(numBands);
+        const auto capture = m_doc->audioInputCapture();
+        if (!capture.isNull())
+        {
+            capture->registerBandsNumber(1);
+            m_registeredBands.insert(1);
+        }
     }
+    return AudioRenderView::fromSnapshot(
+        m_running ? m_doc->audioSnapshot() : AudioSnapshot(), AudioRenderView::nowNs());
+}
 
-    double magnitude = capture->bandMagnitude(bandIndex, numBands);
-    double maxMag = capture->bandMaxMagnitude(numBands);
-
-    if (maxMag <= 0.0)
-        return 0;
-
-    // Normalize to 0-255 relative to the max magnitude across bands
-    return qBound(0, (int)(magnitude * 255.0 / maxMag), 255);
+QVariantMap ScriptRunner::getAudioSnapshot()
+{
+    auto view = resolveAudio();
+    m_audioCursor.advance(view);
+    return audioViewToVariant(view);
 }
 
 int ScriptRunner::getOwnID()

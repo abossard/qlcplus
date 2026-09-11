@@ -16,19 +16,24 @@
 #include <QMutex>
 
 #include <deque>
+#include <memory>
 
 struct AudioFrame;
+class AubioProcessor;
 
 class AudioChannel
 {
 public:
-    explicit AudioChannel(const AudioChannelConfig &config);
+    explicit AudioChannel(const AudioChannelConfig &config, uint32_t profileId = UINT_MAX);
     ~AudioChannel();
 
     void update(const AudioFrame &frame, double audioDtMs);
     AudioSnapshot snapshot() const;
     void updateConfig(const AudioChannelConfig &config);
     AudioChannelConfig config() const;
+    uint32_t profileId() const { return m_profileId; }
+    void invalidate(uint64_t sourceEpoch);
+    AubioResults aubioResults() const;
 
     /**
      * Inject a pre-built snapshot from an external source (e.g., Synesthesia
@@ -41,6 +46,14 @@ public:
     void setExternalSource(bool external);
 
 private:
+    const uint32_t m_profileId;
+    std::unique_ptr<AubioProcessor> m_processor;
+    uint64_t m_sourceEpoch = 0;
+    uint64_t m_frameSequence = 0;
+    uint64_t m_configRevision = 1;
+    uint64_t m_pendingRevision = 1;
+    AudioSnapshot::Events m_events;
+    void resetState();
     AudioChannelConfig m_config;
     AudioChannelConfig m_pendingConfig;
     bool m_hasPendingConfig = false;
@@ -73,18 +86,9 @@ private:
     double m_volumeNormalized = 0.0;
     double m_noiseGateHeldMs = 0.0;
     bool m_noiseGateClosed = false;
-    // LedFx audio.py:41 — volume_filter ExpFilter alpha (rise=decay=0.99).
-    // Smooths rmsDb before gate comparison so per-hop noise doesn't chatter
-    // the gate near threshold. Initialized very low so the gate starts closed.
     static constexpr double kGateVolumeAlpha = 0.99;
-    double m_gateVolumeSmoothed = -100.0;
-    // LedFx audio.py:409 — default min_volume = 0.2 in the 0..1 normalized
-    // domain (volume = 1 + db_spl/100). NOT yet wired into the gate; the
-    // dB-domain smoothed gate (Fix 3) is working well. Kept here so future
-    // work can swap the comparison to:
-    //     m_gateVolumeSmoothedNorm < kLedFxMinVolume
-    // with the threshold expressed in LedFx-portable units.
-    static constexpr double kLedFxMinVolume = 0.2;
+    double m_gateVolumeSmoothed = -90.0;
+    double m_freqPowerRaw[4] = {};
     bool m_currentBeat = false;
     bool m_externalSource = false;
 
@@ -98,31 +102,14 @@ private:
 
     // LedFx audio.py:1159 — freq_power_filter initialized to zeros
     double m_freqPower[4] = {};  // beat, bass, mids, highs
-    bool m_prevDownbeat = false;
 
     // Mel post-processing — legacy 40-band path.
     MelPostProcessor m_melPost;
     double m_melProcessed[AUBIO_MEL_BANDS] = {};
     double m_melNovelty[AUBIO_MEL_BANDS] = {};
 
-    // Per-bank post-processors for the 3 multi-resolution mel banks.
-    // Each owns its own AGC / smoothing / novelty state — matches LedFx's
-    // per-bank ExpFilter chain. Sized for AudioSnapshot::kMelBankBandsMax (32).
-    //
-    // Consumers:
-    //  - `m_melLowProcessed`  → kick detector beat-power loop AND
-    //                           `audio.spectrum.low.{values,mean,max}` JS API
-    //  - `m_melMidProcessed`  → 4-band VC widget `raw[2]` AND
-    //                           `audio.spectrum.mid.{values,mean,max}` JS API
-    //  - `m_melHighProcessed` → 4-band VC widget `raw[0..3]` AND
-    //                           `audio.spectrum.high.{values,mean,max}` JS API
-    //  - `m_mel*Novelty`      → `audio.spectrum.novelty.{mean,max}` JS API
-    //                           (sum/max accumulated across all 3 banks)
-    //
-    // Note: the SINGLE master `m_melPost` (40-band) drives the VC widget's
-    // beat/bass/mids/highs Hz-cutoff slicing. The per-bank processors here
-    // are independent and feed the JS spectrum API plus the kick detector's
-    // own slicing logic.
+    // Independent AGC/smoothing for each cumulative bank. Scalar powers use
+    // the full-range high bank, while kick detection uses the low bank.
     MelPostProcessor m_melPostLow;
     MelPostProcessor m_melPostMid;
     MelPostProcessor m_melPostHigh;

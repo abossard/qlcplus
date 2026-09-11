@@ -101,12 +101,12 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.dt * 60.0 / audio.bpm;
+        var dt = audio.timing ? audio.timing.deltaSeconds : audio.dt * 60.0 / audio.bpm;
 
         var trigger = false;
         var intensity = 1.0;
         if (algo.presetTrigger === "Kick") {
-            trigger = audio.beatFired;
+            trigger = audio.version >= 6 ? audio.kickFired : audio.beatFired;
             intensity = audio.onsetIntensity;
         } else if (algo.presetTrigger === "Beat") {
             trigger = audio.beatFired;
@@ -116,10 +116,13 @@ var testAlgo;
             intensity = audio.onsetIntensity;
         }
 
-        algo.spawnAccumMs += (audio.dt * 60000 / audio.bpm);
+        var eventName = algo.presetTrigger === "Kick" ? "kick" :
+            algo.presetTrigger === "Beat" ? "beat" : "onset";
+        var count = audio.events ? audio.events.delta[eventName] : (trigger ? 1 : 0);
+        algo.spawnAccumMs += dt * 1000;
         var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
-        if (trigger && canSpawn) {
+        for (var spawn = 0; canSpawn && spawn < Math.min(count, algo.presetMaxRipples); spawn++) {
             var gradient = (algo.colors && algo.colors.length > 0)
                 ? algo.colors : DEFAULT_GRADIENT;
             // Hue cycles by ripple index
@@ -154,7 +157,7 @@ var testAlgo;
         for (var i = algo.ripples.length - 1; i >= 0; i--) {
             var r = algo.ripples[i];
             r.radius += algo.presetExpansionSpeed * dt;
-            r.age += (audio.dt * 60000 / audio.bpm);
+            r.age += dt * 1000;
             if (r.age >= r.lifeMs || r.radius > r.maxRadius) {
                 algo.ripples.splice(i, 1);
             }

@@ -58,7 +58,7 @@ class VCAnimation : public VCWidget
     Q_PROPERTY(int colorCount READ colorCount NOTIFY algorithmIndexChanged FINAL)
     Q_PROPERTY(QVariantList colors READ colors NOTIFY colorsChanged FINAL)
 
-    Q_PROPERTY(QStringList algorithms READ algorithms CONSTANT)
+    Q_PROPERTY(QStringList algorithms READ algorithms NOTIFY functionIDChanged)
     Q_PROPERTY(int algorithmIndex READ algorithmIndex WRITE setAlgorithmIndex NOTIFY algorithmIndexChanged FINAL)
 
     Q_PROPERTY(QVariantList presetsList READ presetsList NOTIFY presetsListChanged FINAL)
@@ -199,6 +199,8 @@ public:
     /** Get/Set the algorithm index to run */
     int algorithmIndex() const;
     void setAlgorithmIndex(int index);
+    void setRuntimeAlgorithmIndex(int index);
+    QStringList runtimeAlgorithms() const;
 
 signals:
     void color1Changed();

@@ -37,6 +37,7 @@
 #include "mastertimer.h"
 #include "qlcpalette.h"
 #include "audioprofile.h"
+#include "audiosnapshot.h"
 #include "function.h"
 #include "fixture.h"
 
@@ -158,12 +159,14 @@ public:
 
     /** Get the audio analyzer used by audio input profiles */
     AudioAnalyzer *audioAnalyzer() const;
+    AudioSnapshot audioSnapshot(quint32 profileId = UINT_MAX) const;
 
     /** Get or create the OSC audio source for Synesthesia integration */
     OscAudioSource *oscAudioSource() const;
 
     /** Destroy a previously created audio capture instance */
     void destroyAudioCapture();
+    void restartAudioCapture();
 
     /** Connect/disconnect the OSC audio source for a profile based on its audioSource setting */
     void updateOscAudioSourceForProfile(AudioProfile *profile);
@@ -175,11 +178,11 @@ private:
     HUEScriptsCache *m_hueScriptsCache;
     IOPluginCache *m_ioPluginCache;
     AudioPluginCache *m_audioPluginCache;
+    AudioAnalyzer *m_audioAnalyzer;
     MasterTimer *m_masterTimer;
     InputOutputMap *m_ioMap;
     mutable QSharedPointer<AudioCapture> m_inputCapture;
-    AudioAnalyzer *m_audioAnalyzer = nullptr;
-    mutable OscAudioSource *m_oscAudioSource = nullptr;
+    mutable QMap<quint16, OscAudioSource *> m_oscAudioSources;
     MonitorProperties *m_monitorProps;
 
     /*********************************************************************
@@ -518,17 +521,17 @@ public:
     /** Ensure a default audio profile exists and return it */
     AudioProfile* ensureDefaultAudioProfile();
 
-    /** Currently active audio profile ID. Drives runtime AubioConfig
-     *  forwarded to the AudioCapture/AubioProcessor pipeline. */
+    /** The active profile supplies unqualified audio and the global Audio clock. */
     quint32 activeAudioProfileId() const;
     void setActiveAudioProfileId(quint32 id);
 
 signals:
     void activeAudioProfileIdChanged(quint32 id);
+    void audioProfilesChanged();
 
 private:
-    /** Forward the active profile's AubioConfig to AudioCapture (if any). */
-    void pushActiveAubioConfigToCapture();
+    void resolveActiveAudioProfile();
+    void detachOscAudioProfile(AudioProfile *profile);
 
 private:
     /** Audio profiles */

@@ -33,7 +33,11 @@
 #include "treemodelitem.h"
 #include "fixtureutils.h"
 #include "audiocapture.h"
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#include "audiocapture_qt6.h"
+#endif
 #include "audiochannel.h"
+#include "audioview.h"
 #include "aubioresults.h"
 #include "genericfader.h"
 #include "fadechannel.h"
@@ -131,6 +135,8 @@ static QString bandSourceColor(VCAudioTriggers::BandSource s)
     }
 }
 
+static QVariantList bankConfigurationValues(const AudioChannelConfig &config);
+
 VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
     : VCWidget(doc, parent)
     , m_vc(vc)
@@ -147,7 +153,7 @@ VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
     registerExternalControl(INPUT_ENABLE_CAPTURE, tr("Enable Capture"), true);
     registerExternalControl(INPUT_VOLUME_CONTROL, tr("Volume Control"), false);
 
-    QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
+    QSharedPointer<AudioCapture> capture(m_doc ? m_doc->audioInputCapture() : nullptr);
     m_inputCapture = capture.data();
 
     // Fixed 6 source mappings (Low, Mid, High, Volume, Beat, Kick)
@@ -164,10 +170,34 @@ VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
     m_beatTimer->setSingleShot(true);
     m_beatTimer->setInterval(200); // beat flash duration
     connect(m_beatTimer, &QTimer::timeout, this, &VCAudioTriggers::slotBeatTimeout);
+    m_snapshotTimer = new QTimer(this);
+    m_snapshotTimer->setInterval(16);
+    connect(m_snapshotTimer, &QTimer::timeout, this, &VCAudioTriggers::processAudioSnapshot);
+    if (m_doc)
+    {
+        connect(m_doc, &Doc::audioProfilesChanged, this, [this]() {
+            if (resolvedAudioProfile() != m_connectedProfile.data()
+                || (m_audioProfileId != AudioProfile::invalidId() && !resolvedAudioProfile()))
+                refreshProfile();
+        });
+        connect(m_doc, &Doc::activeAudioProfileIdChanged, this, [this]() {
+            if (m_audioProfileId == AudioProfile::invalidId())
+                refreshProfile();
+        });
+    }
+    if (m_inputCapture)
+        connect(m_inputCapture, &AudioCapture::statusChanged, this, [this]() {
+            processAudioSnapshot();
+            emit audioSnapshotChanged();
+        });
+    refreshProfile();
+    m_snapshotTimer->start();
 }
 
 VCAudioTriggers::~VCAudioTriggers()
 {
+    if (m_captureEnabled)
+        setCaptureEnabled(false);
     if (m_item)
         delete m_item;
 }
@@ -240,14 +270,14 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
     if (enable == m_captureEnabled)
         return;
 
-    Tardis::instance()->enqueueAction(Tardis::VCAudioTriggersSetCaptureEnabled, id(), m_captureEnabled, enable);
+    if (!m_doc || !m_inputCapture)
+        return;
+    enqueueTardisAction(Tardis::VCAudioTriggersSetCaptureEnabled, m_captureEnabled, enable);
 
     m_captureEnabled = enable;
+    resetEventCursor();
 
-    // in case the audio input device has been changed in the meantime...
-    QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
-    bool captureIsNew = m_inputCapture != capture.data();
-    m_inputCapture = capture.data();
+    updateCaptureSubscription();
     updateAudioProfileSnapshotPowers();
 
     if (AudioProfile *p = resolvedAudioProfile())
@@ -255,20 +285,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
 
     if (enable == true)
     {
-        connect(m_inputCapture, &AudioCapture::aubioDataReady,
-                this, &VCAudioTriggers::slotAubioDataReady);
         connect(m_inputCapture, SIGNAL(volumeChanged(int)),
                 this, SIGNAL(volumeLevelChanged()));
-        connect(m_inputCapture, &AudioCapture::beatDetected,
-                this, &VCAudioTriggers::slotBeatDetected);
-        m_inputCapture->registerBandsNumber(BandSourceCount - 1);
-
-        // Push current profile's aubio config to the global processor
-        m_inputCapture->setAubioConfig(profileChannelConfig().aubio);
-
-        // Invalid ID: Stop every other widget
-        emit functionStarting(this, Function::invalidId());
-
         for (BandMapping &bm : m_bandMappings)
         {
             if (bm.type == VCAudioTriggers::BarType::DMXBar)
@@ -280,16 +298,8 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
     }
     else
     {
-        if (!captureIsNew)
-        {
-            m_inputCapture->unregisterBandsNumber(BandSourceCount - 1);
-            disconnect(m_inputCapture, &AudioCapture::aubioDataReady,
-                       this, &VCAudioTriggers::slotAubioDataReady);
-            disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
-                       this, SIGNAL(volumeLevelChanged()));
-            disconnect(m_inputCapture, &AudioCapture::beatDetected,
-                       this, &VCAudioTriggers::slotBeatDetected);
-        }
+        disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
+                   this, SIGNAL(volumeLevelChanged()));
 
         m_doc->masterTimer()->unregisterDMXSource(this);
 
@@ -318,11 +328,12 @@ void VCAudioTriggers::setVolumeLevel(uchar level)
 
     m_volumeLevel = level;
 
-    m_doc->audioInputCapture()->setVolume(intensity() * qreal(level) / 100.0);
+    if (m_doc)
+        m_doc->audioInputCapture()->setVolume(intensity() * qreal(level) / 100.0);
 
     emit volumeLevelChanged();
 
-    Tardis::instance()->enqueueAction(Tardis::VCAudioTriggersSetLevel, id(), previousLevel, level);
+    enqueueTardisAction(Tardis::VCAudioTriggersSetLevel, previousLevel, level);
 }
 
 int VCAudioTriggers::barsNumber() const
@@ -373,30 +384,46 @@ void VCAudioTriggers::setAudioProfileId(quint32 id)
     if (id == m_audioProfileId)
         return;
 
-    if (m_doc)
-    {
-        AudioProfile *oldProfile = resolvedAudioProfile();
-        if (oldProfile)
-            disconnect(oldProfile, &AudioProfile::configChanged, this, &VCAudioTriggers::configChanged);
-    }
-
     m_audioProfileId = id;
+    refreshProfile();
+}
 
-    if (m_doc)
+void VCAudioTriggers::refreshProfile()
+{
+    if (m_connectedProfile)
+        disconnect(m_connectedProfile, nullptr, this, nullptr);
+    m_connectedProfile = resolvedAudioProfile();
+    if (m_connectedProfile)
     {
-        if (AudioProfile *p = resolvedAudioProfile())
-            connect(p, &AudioProfile::configChanged, this, &VCAudioTriggers::configChanged, Qt::UniqueConnection);
+        connect(m_connectedProfile, &AudioProfile::configChanged, this, &VCAudioTriggers::configChanged);
+        connect(m_connectedProfile, &AudioProfile::audioSourceChanged, this, [this]() {
+            resetEventCursor();
+            updateCaptureSubscription();
+            emit audioSourceChanged();
+        });
+        connect(m_connectedProfile, &AudioProfile::oscPortChanged, this, &VCAudioTriggers::oscPortChanged);
     }
-
+    resetEventCursor();
+    updateCaptureSubscription();
     updateAudioProfileSnapshotPowers();
-
-    // Push the resolved profile's aubio config to the global processor
-    if (m_inputCapture)
-        m_inputCapture->setAubioConfig(profileChannelConfig().aubio);
-
     emit audioProfileIdChanged();
     emit configChanged();
+    emit audioSourceChanged();
+    emit oscPortChanged();
     emit audioLevelsChanged();
+}
+
+void VCAudioTriggers::updateCaptureSubscription()
+{
+    const bool subscribe = m_captureEnabled && resolvedAudioProfile()
+                           && audioSource() == AudioProfile::Microphone;
+    if (!m_inputCapture || subscribe == m_captureRegistered)
+        return;
+    m_captureRegistered = subscribe;
+    if (subscribe)
+        m_inputCapture->registerBandsNumber(BandSourceCount - 1);
+    else
+        m_inputCapture->unregisterBandsNumber(BandSourceCount - 1);
 }
 
 int VCAudioTriggers::audioSource() const
@@ -414,21 +441,7 @@ void VCAudioTriggers::setAudioSource(int source)
 
     p->setAudioSource(source);
     m_doc->updateOscAudioSourceForProfile(p);
-
-    // When switching to OSC, connect the snapshot signal for driving updates
-    OscAudioSource *osc = m_doc->oscAudioSource();
-    if (source == AudioProfile::OscSynesthesia)
-    {
-        connect(osc, &OscAudioSource::snapshotInjected,
-                this, &VCAudioTriggers::slotOscSnapshotInjected,
-                Qt::UniqueConnection);
-    }
-    else
-    {
-        disconnect(osc, &OscAudioSource::snapshotInjected,
-                   this, &VCAudioTriggers::slotOscSnapshotInjected);
-    }
-
+    setDocModified();
     emit audioSourceChanged();
 }
 
@@ -451,14 +464,13 @@ void VCAudioTriggers::setOscPort(quint16 port)
     if (p->audioSource() == AudioProfile::OscSynesthesia)
         m_doc->updateOscAudioSourceForProfile(p);
 
+    setDocModified();
     emit oscPortChanged();
 }
 
 void VCAudioTriggers::slotOscSnapshotInjected()
 {
-    // Drive the same update logic that slotAubioDataReady uses,
-    // but source the snapshot from the OSC-injected channel
-    updateAudioProfileSnapshotPowers(true);
+    processAudioSnapshot();
 }
 
 // Canonical lows/mids/highs come from AudioChannel::buildSnapshot() via the
@@ -471,13 +483,12 @@ double VCAudioTriggers::lowsPower() const
 
 int VCAudioTriggers::sampleRateValue() const
 {
-    return m_inputCapture ? int(m_inputCapture->sampleRate()) : 44100;
+    return 30000;
 }
 
 int VCAudioTriggers::framesPerSecond() const
 {
-    // Hop size is fixed at 512; aubio emits one result per hop.
-    return m_inputCapture ? int(m_inputCapture->sampleRate() / 512) : (44100 / 512);
+    return sampleRateValue() / hopSizeConst();
 }
 
 // LedFx ref: audio.py:1306 get_freq_power(i, filtered=True).
@@ -1340,13 +1351,13 @@ namespace
 int VCAudioTriggers::melCrossLowMid() const
 {
     const auto &cfg = profileChannelConfig().aubio.melBanks.low;
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     return qBound(1, int(cfg.maxHz / nyquist * AUBIO_MEL_BANDS + 0.5), AUBIO_MEL_BANDS - 1);
 }
 int VCAudioTriggers::melCrossMid() const
 {
     const auto &cfg = profileChannelConfig().aubio.melBanks.mid;
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     return qBound(1, int(cfg.maxHz / nyquist * AUBIO_MEL_BANDS + 0.5), AUBIO_MEL_BANDS - 1);
 }
 
@@ -1367,13 +1378,12 @@ namespace
 
 void VCAudioTriggers::setBeatCutoffHz(double hz)
 {
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     const double next = clampHz(hz, 10.0, nyquist);
-    if (next >= m_bassCutoffHz)
+    if (!std::isfinite(hz) || next >= bassCutoffHz())
         return;
-    if (qFuzzyCompare(m_beatCutoffHz + 1.0, next + 1.0))
+    if (qFuzzyCompare(beatCutoffHz() + 1.0, next + 1.0))
         return;
-    m_beatCutoffHz = next;
     AudioChannelConfig config = profileChannelConfig();
     config.freqPower.beat.maxHz = next;
     applyChannelConfig(config);
@@ -1383,13 +1393,12 @@ void VCAudioTriggers::setBeatCutoffHz(double hz)
 
 void VCAudioTriggers::setBassCutoffHz(double hz)
 {
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     const double next = clampHz(hz, 10.0, nyquist);
-    if (next <= m_beatCutoffHz || next >= m_midsCutoffHz)
+    if (!std::isfinite(hz) || next <= beatCutoffHz() || next >= midsCutoffHz())
         return;
-    if (qFuzzyCompare(m_bassCutoffHz + 1.0, next + 1.0))
+    if (qFuzzyCompare(bassCutoffHz() + 1.0, next + 1.0))
         return;
-    m_bassCutoffHz = next;
     AudioChannelConfig config = profileChannelConfig();
     config.freqPower.bass.maxHz = next;
     applyChannelConfig(config);
@@ -1399,13 +1408,12 @@ void VCAudioTriggers::setBassCutoffHz(double hz)
 
 void VCAudioTriggers::setMidsCutoffHz(double hz)
 {
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     const double next = clampHz(hz, 10.0, nyquist);
-    if (next <= m_bassCutoffHz || next >= m_highsCutoffHz)
+    if (!std::isfinite(hz) || next <= bassCutoffHz() || next >= highsCutoffHz())
         return;
-    if (qFuzzyCompare(m_midsCutoffHz + 1.0, next + 1.0))
+    if (qFuzzyCompare(midsCutoffHz() + 1.0, next + 1.0))
         return;
-    m_midsCutoffHz = next;
     AudioChannelConfig config = profileChannelConfig();
     config.freqPower.mids.maxHz = next;
     applyChannelConfig(config);
@@ -1415,13 +1423,12 @@ void VCAudioTriggers::setMidsCutoffHz(double hz)
 
 void VCAudioTriggers::setHighsCutoffHz(double hz)
 {
-    const double nyquist = m_inputCapture ? double(m_inputCapture->sampleRate()) / 2.0 : 22050.0;
+    const double nyquist = sampleRateValue() / 2.0;
     const double next = clampHz(hz, 10.0, nyquist);
-    if (next <= m_midsCutoffHz)
+    if (!std::isfinite(hz) || next <= midsCutoffHz())
         return;
-    if (qFuzzyCompare(m_highsCutoffHz + 1.0, next + 1.0))
+    if (qFuzzyCompare(highsCutoffHz() + 1.0, next + 1.0))
         return;
-    m_highsCutoffHz = next;
     AudioChannelConfig config = profileChannelConfig();
     config.freqPower.high.maxHz = next;
     applyChannelConfig(config);
@@ -1434,7 +1441,7 @@ void VCAudioTriggers::setHighsCutoffHz(double hz)
 // re-deriving anything from mfccPower / mfccScale.
 double VCAudioTriggers::mfccDisplayScale() const
 {
-    const auto &a = profileChannelConfig().aubio;
+    const auto &a = m_cachedSnapshot.config.aubio;
     // Heuristic: aubio MFCC magnitudes typically land in [0..30] for normal
     // music when (mfccPower=1, mfccScale=1). Inverse-scale by mfccScale and
     // by max(mfccPower, 1) to keep peaks near full deflection across the
@@ -1673,6 +1680,20 @@ void VCAudioTriggers::setMfccPower(double power)
     applyChannelConfig(config);
 }
 
+bool VCAudioTriggers::diagnosticsEnabled() const
+{
+    return profileChannelConfig().aubio.diagnosticsEnabled;
+}
+
+void VCAudioTriggers::setDiagnosticsEnabled(bool enabled)
+{
+    auto config = profileChannelConfig();
+    if (config.aubio.diagnosticsEnabled == enabled)
+        return;
+    config.aubio.diagnosticsEnabled = enabled;
+    applyChannelConfig(config);
+}
+
 void VCAudioTriggers::setMfccScale(double scale)
 {
     AudioChannelConfig config = profileChannelConfig();
@@ -1818,7 +1839,7 @@ void VCAudioTriggers::renameCurrentProfile(const QString &name)
 void VCAudioTriggers::duplicateCurrentProfile(const QString &name)
 {
     AudioProfile *source = resolvedAudioProfile();
-    if (!source)
+    if (!m_doc)
         return;
 
     quint32 newId = 0;
@@ -1826,8 +1847,13 @@ void VCAudioTriggers::duplicateCurrentProfile(const QString &name)
         if (p->id() >= newId) newId = p->id() + 1;
 
     AudioProfile *dup = new AudioProfile(newId, m_doc);
-    dup->setName(name.isEmpty() ? source->name() + QStringLiteral(" Copy") : name);
-    dup->setChannelConfig(source->channelConfig());
+    dup->setName(name.isEmpty() ? (source ? source->name() + QStringLiteral(" Copy") : tr("Audio profile")) : name);
+    if (source)
+    {
+        dup->setChannelConfig(source->channelConfig());
+        dup->setAudioSource(source->audioSource());
+        dup->setOscPort(source->oscPort());
+    }
 
     if (m_doc->addAudioProfile(dup))
     {
@@ -1855,6 +1881,8 @@ AudioProfileListModel* VCAudioTriggers::profileListModel()
 AudioProfileListModel::AudioProfileListModel(Doc *doc, QObject *parent)
     : QAbstractListModel(parent), m_doc(doc)
 {
+    if (m_doc)
+        connect(m_doc, &Doc::audioProfilesChanged, this, &AudioProfileListModel::refresh);
     refresh();
 }
 
@@ -1865,22 +1893,20 @@ void AudioProfileListModel::refresh()
     if (m_doc)
     {
         for (AudioProfile *p : m_doc->audioProfiles())
+        {
             m_entries.append({p->id(), p->name(), p->isDefault()});
-    }
-    if (m_entries.isEmpty())
-    {
-        AudioProfile *def = m_doc ? m_doc->ensureDefaultAudioProfile() : nullptr;
-        if (def)
-            m_entries.append({def->id(), def->name(), true});
+            connect(p, &AudioProfile::nameChanged, this, &AudioProfileListModel::refresh, Qt::UniqueConnection);
+            connect(p, &AudioProfile::isDefaultChanged, this, &AudioProfileListModel::refresh, Qt::UniqueConnection);
+        }
     }
     endResetModel();
 }
 
-int AudioProfileListModel::rowCount(const QModelIndex &) const { return m_entries.count(); }
+int AudioProfileListModel::rowCount(const QModelIndex &parent) const { return parent.isValid() ? 0 : m_entries.count(); }
 
 QVariant AudioProfileListModel::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid() || index.row() >= m_entries.count())
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_entries.count())
         return QVariant();
     const Entry &e = m_entries[index.row()];
     switch (role) {
@@ -1941,11 +1967,10 @@ AudioProfile *VCAudioTriggers::resolvedAudioProfile() const
         return nullptr;
 
     if (m_audioProfileId != AudioProfile::invalidId())
-    {
-        if (AudioProfile *profile = m_doc->audioProfile(m_audioProfileId))
-            return profile;
-    }
+        return m_doc->audioProfile(m_audioProfileId);
 
+    if (AudioProfile *active = m_doc->audioProfile(m_doc->activeAudioProfileId()))
+        return active;
     return m_doc->defaultAudioProfile();
 }
 
@@ -1954,13 +1979,148 @@ AudioProfile *VCAudioTriggers::editableAudioProfile() const
     if (AudioProfile *profile = resolvedAudioProfile())
         return profile;
 
-    return m_doc ? m_doc->ensureDefaultAudioProfile() : nullptr;
+    return m_doc && m_audioProfileId == AudioProfile::invalidId() ? m_doc->ensureDefaultAudioProfile() : nullptr;
 }
 
 AudioChannelConfig VCAudioTriggers::profileChannelConfig() const
 {
     AudioProfile *profile = resolvedAudioProfile();
     return profile ? profile->channelConfig() : AudioChannelConfig::defaults();
+}
+
+quint32 VCAudioTriggers::resolvedProfileId() const
+{
+    auto *profile = resolvedAudioProfile();
+    return profile ? profile->id() : AudioProfile::invalidId();
+}
+
+QString VCAudioTriggers::analysisStatus() const
+{
+    if (!resolvedAudioProfile())
+        return tr("Selected profile is unavailable");
+    if (analysisAvailable())
+        return tr("Available");
+    if (audioSource() == AudioProfile::OscSynesthesia)
+        return tr("Waiting for OSC audio");
+    return m_inputCapture ? m_inputCapture->statusMessage() : tr("Audio capture unavailable");
+}
+
+QVariantMap VCAudioTriggers::appliedAudio() const
+{
+    QVariantList banks;
+    for (const auto *bank : {&m_cachedSnapshot.melLow, &m_cachedSnapshot.melMid, &m_cachedSnapshot.melHigh})
+    {
+        QVariantList centers;
+        for (int i = 0; i < qBound(0, bank->count, AudioSnapshot::kMelBankBandsMax); ++i)
+            centers.append(bank->centersHz[i]);
+        banks.append(QVariantMap{{"count", bank->count}, {"minHz", bank->minHz},
+                                 {"maxHz", bank->maxHz}, {"centersHz", centers}});
+    }
+    QVariantMap result{{"profileId", m_cachedSnapshot.profileId},
+                       {"sourceId", QVariant::fromValue(m_cachedSnapshot.sourceId)},
+                       {"revision", QVariant::fromValue(quint64(m_cachedSnapshot.configRevision))},
+                       {"banks", banks}, {"analysisFormat", tr("30000 Hz mono, 500 samples")},
+                       {"device", QString()}, {"captureFormat", QString()}};
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    if (const auto *capture = qobject_cast<const AudioCaptureQt6 *>(m_inputCapture))
+    {
+        result["device"] = capture->appliedDevice();
+        const auto format = capture->captureFormat();
+        result["captureFormat"] = tr("%1 Hz, %2 channels, %3")
+            .arg(format.sampleRate()).arg(format.channelCount())
+            .arg(format.sampleFormat() == QAudioFormat::Float ? QStringLiteral("Float32") :
+                 format.sampleFormat() == QAudioFormat::Int16 ? QStringLiteral("Int16") : tr("unavailable"));
+    }
+#endif
+    result["tempoValid"] = m_cachedSnapshot.music.valid;
+    result["beatInBar"] = m_cachedSnapshot.music.beatInBar;
+    result["beatsPerBar"] = m_cachedSnapshot.music.beatsPerBar;
+    result["configuration"] = bankConfigurationValues(m_cachedSnapshot.config);
+    result["noiseFloor"] = m_cachedSnapshot.config.noiseGate.thresholdDb;
+    result["diagnosticsEnabled"] = m_cachedSnapshot.config.aubio.diagnosticsEnabled;
+    return result;
+}
+
+static QVariantList bankConfigurationValues(const AudioChannelConfig &config)
+{
+    const MelBankConfig::Bank *banks[] = {&config.aubio.melBanks.low, &config.aubio.melBanks.mid, &config.aubio.melBanks.high};
+    const TriggerConfig *triggers[] = {&config.triggers.low, &config.triggers.mid, &config.triggers.high};
+    QVariantList result;
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto &b = *banks[i];
+        const auto &p = b.post;
+        const auto &t = *triggers[i];
+        result.append(QVariantMap{
+            {"minHz", b.minHz}, {"maxHz", b.maxHz}, {"bands", b.bands},
+            {"enabled", p.enabled}, {"powerFactor", p.powerFactor}, {"gaussianSigma", p.gaussianSigma},
+            {"agcDecay", p.agcDecay}, {"agcRise", p.agcRise},
+            {"smoothDecay", p.smoothDecay}, {"smoothRise", p.smoothRise},
+            {"commonDecay", p.commonDecay}, {"commonRise", p.commonRise},
+            {"diffDecay", p.diffDecay}, {"diffRise", p.diffRise},
+            {"trigHigh", t.highThreshold}, {"trigLow", t.lowThreshold},
+            {"trigHold", t.holdMs}, {"trigCooldown", t.cooldownMs}});
+    }
+    return result;
+}
+
+QVariantList VCAudioTriggers::bankConfiguration() const
+{
+    return bankConfigurationValues(profileChannelConfig());
+}
+
+bool VCAudioTriggers::updateBank(int bankIndex, const QVariantMap &changes)
+{
+    if (bankIndex < 0 || bankIndex >= 3 || changes.isEmpty() || !editableAudioProfile())
+        return false;
+    auto config = profileChannelConfig();
+    auto &bank = bankIndex == 0 ? config.aubio.melBanks.low :
+                 bankIndex == 1 ? config.aubio.melBanks.mid : config.aubio.melBanks.high;
+    auto &trigger = bankIndex == 0 ? config.triggers.low :
+                    bankIndex == 1 ? config.triggers.mid : config.triggers.high;
+    struct Field { const char *name; double *value; double min; double max; };
+    const Field fields[] = {
+        {"minHz", &bank.minHz, 0, 15000}, {"maxHz", &bank.maxHz, 1, 15000},
+        {"powerFactor", &bank.post.powerFactor, 0.1, 10}, {"gaussianSigma", &bank.post.gaussianSigma, 0.1, 10},
+        {"agcDecay", &bank.post.agcDecay, 0, 1}, {"agcRise", &bank.post.agcRise, 0, 1},
+        {"smoothDecay", &bank.post.smoothDecay, 0, 1}, {"smoothRise", &bank.post.smoothRise, 0, 1},
+        {"commonDecay", &bank.post.commonDecay, 0, 1}, {"commonRise", &bank.post.commonRise, 0, 1},
+        {"diffDecay", &bank.post.diffDecay, 0, 1}, {"diffRise", &bank.post.diffRise, 0, 1},
+        {"trigHigh", &trigger.highThreshold, 0, 1}, {"trigLow", &trigger.lowThreshold, 0, 1},
+        {"trigHold", &trigger.holdMs, 0, 10000}, {"trigCooldown", &trigger.cooldownMs, 0, 10000}
+    };
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+    {
+        if (it.key() == QLatin1String("enabled"))
+        {
+            if (it.value().metaType().id() != QMetaType::Bool)
+                return false;
+            bank.post.enabled = it.value().toBool();
+            continue;
+        }
+        bool ok = false;
+        const double value = it.value().toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+            return false;
+        if (it.key() == QLatin1String("bands"))
+        {
+            if (value < 4 || value > AudioSnapshot::kMelBankBandsMax || std::floor(value) != value)
+                return false;
+            bank.bands = int(value);
+            continue;
+        }
+        const auto *field = std::find_if(std::begin(fields), std::end(fields), [&it](const Field &f) {
+            return it.key() == QLatin1String(f.name);
+        });
+        if (field == std::end(fields) || value < field->min || value > field->max)
+            return false;
+        *field->value = value;
+    }
+    if (bank.minHz >= bank.maxHz || trigger.lowThreshold >= trigger.highThreshold)
+        return false;
+    config.aubio.melBanks.preset = QStringLiteral("Custom");
+    applyChannelConfig(config);
+    return true;
 }
 
 void VCAudioTriggers::applyChannelConfig(const AudioChannelConfig &config)
@@ -1972,8 +2132,6 @@ void VCAudioTriggers::applyChannelConfig(const AudioChannelConfig &config)
     profile->setChannelConfig(config);
     if (m_doc != nullptr)
         m_doc->setModified();
-    if (m_inputCapture != nullptr)
-        m_inputCapture->setAubioConfig(config.aubio);
     updateAudioProfileSnapshotPowers();
     emit configChanged();
     emit audioLevelsChanged();
@@ -1987,27 +2145,48 @@ void VCAudioTriggers::updateAudioProfileSnapshotPowers(bool emitVisuals)
     if (channel)
     {
         m_cachedSnapshot = channel->snapshot();
-
-        // Sticky kick lamp latch — updated every hop (this function is
-        // called per-hop), not just on visual frames. Without this, short
-        // kicks (default holdMs=50) can fall entirely between two ~40ms QML
-        // refreshes and never light the lamp.
-        const auto &kt = m_cachedSnapshot.kickTrigger;
-        if (kt.active || kt.firedThisFrame)
-            m_kickLampHoldRemainingMs = kKickLampHoldMs;
-        else
-            m_kickLampHoldRemainingMs = std::max(0.0,
-                m_kickLampHoldRemainingMs - m_cachedSnapshot.audioDtMs);
+        if (!audioSnapshotAvailable(m_cachedSnapshot, AudioRenderView::nowNs()))
+        {
+            const auto unavailable = m_cachedSnapshot;
+            m_cachedSnapshot = AudioSnapshot{};
+            m_cachedSnapshot.profileId = unavailable.profileId;
+            m_cachedSnapshot.sourceId = unavailable.sourceId;
+            m_cachedSnapshot.sourceEpoch = unavailable.sourceEpoch;
+            m_cachedSnapshot.frameSequence = unavailable.frameSequence;
+            m_cachedSnapshot.configRevision = unavailable.configRevision;
+            m_cachedSnapshot.config = unavailable.config;
+            m_cachedSnapshot.status = unavailable.available ? QStringLiteral("stale") : unavailable.status;
+            m_cachedSnapshot.events = unavailable.events;
+            auto retainBankMetadata = [](auto &target, const auto &source) {
+                target.count = source.count;
+                target.minHz = source.minHz;
+                target.maxHz = source.maxHz;
+                std::copy(std::begin(source.centersHz), std::end(source.centersHz),
+                          std::begin(target.centersHz));
+            };
+            retainBankMetadata(m_cachedSnapshot.melLow, unavailable.melLow);
+            retainBankMetadata(m_cachedSnapshot.melMid, unavailable.melMid);
+            retainBankMetadata(m_cachedSnapshot.melHigh, unavailable.melHigh);
+            m_cachedSnapshot.noiseGateClosed = true;
+            m_kickLampHoldRemainingMs = 0;
+        }
     }
     else
     {
         m_cachedSnapshot = AudioSnapshot{};
+        m_cachedSnapshot.noiseGateClosed = true;
         m_kickLampHoldRemainingMs = 0.0;
     }
+    m_outputAvailable.store(m_cachedSnapshot.available, std::memory_order_relaxed);
 
     if (!emitVisuals)
         return;
 
+    rebuildAudioSnapshotViews();
+}
+
+void VCAudioTriggers::rebuildAudioSnapshotViews()
+{
     // Rebuild trigger states cache for reactive QML bindings (3 mel banks).
     m_triggerStatesCache.clear();
     m_triggerStatesCache.reserve(3);
@@ -2520,27 +2699,90 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
 {
     Q_UNUSED(results)
     Q_UNUSED(power)
+    processAudioSnapshot();
+}
 
-    // Time-based throttle for QML visual updates (~30 Hz, every ~33ms).
-    // DMX/function/widget trigger processing still runs at the full hop rate
-    // (~86 Hz at 44100 Hz / 512 hop), but emitting audioSnapshotChanged on
-    // every hop triggers full QML binding re-evaluation across dozens of
-    // visualizers — costing ~49% of CPU. Throttling here keeps the UI smooth
-    // without affecting DMX accuracy (m_cachedSnapshot still updates each hop).
+void VCAudioTriggers::resetEventCursor()
+{
+    m_eventCursorReady = false;
+    m_beatUntilMs.store(0, std::memory_order_relaxed);
+    m_kickLampHoldRemainingMs = 0;
+    if (m_beatTimer)
+        m_beatTimer->stop();
+    slotBeatTimeout();
+    QMutexLocker locker(&m_mappingsMutex);
+    for (int i = 0; i < m_bandMappings.size(); ++i)
+    {
+        auto &bm = m_bandMappings[i];
+        if (m_mappingActive[i])
+        {
+            TriggerState released;
+            released.releasedThisFrame = true;
+            if (bm.type == FunctionBar && m_doc)
+                if (auto *function = m_doc->function(bm.functionId))
+                    function->stop(functionParent());
+            if (bm.type == VCWidgetBar)
+                checkWidgetFunctionality(bm, released);
+        }
+        m_mappingActive[i] = false;
+        bm.lastNorm = 0;
+        bm.m_value = 0;
+        bm.tapped = false;
+        bm.skippedBeats = 0;
+    }
+    m_audioLevels.clear();
+    for (int i = 0; i < BandSourceCount; ++i)
+        m_audioLevels.append(0);
+}
+
+void VCAudioTriggers::processAudioSnapshot()
+{
+    const bool wasAvailable = m_cachedSnapshot.available;
+    updateAudioProfileSnapshotPowers(false);
+    const auto &snapshot = m_cachedSnapshot;
+    const bool reset = !m_eventCursorReady || m_eventEpoch != snapshot.sourceEpoch
+                       || m_eventProfileId != snapshot.profileId
+                       || snapshot.frameSequence < m_eventFrame
+                       || snapshot.events.onset < m_eventOnset || snapshot.events.beat < m_eventBeat
+                       || snapshot.events.kick < m_eventKick || snapshot.events.bar < m_eventBar;
+    const bool changed = reset || snapshot.frameSequence != m_eventFrame || wasAvailable != snapshot.available;
+    if (!changed)
+        return;
+    const double elapsedMs = reset ? 0.0 : snapshot.audioDtMs * double(snapshot.frameSequence - m_eventFrame);
+    quint64 onset = 0, beats = 0, kicks = 0, bars = 0;
+    if (!reset && wasAvailable && snapshot.available)
+    {
+        onset = snapshot.events.onset - m_eventOnset;
+        beats = snapshot.events.beat - m_eventBeat;
+        kicks = snapshot.events.kick - m_eventKick;
+        bars = snapshot.events.bar - m_eventBar;
+    }
+    if (reset || !snapshot.available)
+        resetEventCursor();
+    m_eventCursorReady = true;
+    m_eventEpoch = snapshot.sourceEpoch;
+    m_eventProfileId = snapshot.profileId;
+    m_eventFrame = snapshot.frameSequence;
+    m_eventOnset = snapshot.events.onset;
+    m_eventBeat = snapshot.events.beat;
+    m_eventKick = snapshot.events.kick;
+    m_eventBar = snapshot.events.bar;
+    if (onset || beats || kicks || bars)
+        emit audioEvents(onset, beats, kicks, bars);
+    if (beats)
+        slotBeatDetected();
+    if (kicks || snapshot.kickTrigger.active)
+        m_kickLampHoldRemainingMs = kKickLampHoldMs;
+    else
+        m_kickLampHoldRemainingMs = std::max(0.0, m_kickLampHoldRemainingMs - elapsedMs);
+
+    // A timer polls one bounded publication. Counters recover edges after skipped frames.
     if (!m_uiThrottleTimer.isValid())
         m_uiThrottleTimer.start();
-    const bool updateVisuals = (m_uiThrottleTimer.elapsed() >= kUiUpdateIntervalMs);
+    const bool updateVisuals = reset || wasAvailable != snapshot.available
+                              || m_uiThrottleTimer.elapsed() >= kUiUpdateIntervalMs;
     if (updateVisuals)
         m_uiThrottleTimer.restart();
-
-    // Pull the latest snapshot (built on the capture thread by the analyzer
-    // immediately before this signal was emitted). m_cachedSnapshot is always
-    // refreshed; the QVariantList caches, timeline append, and
-    // audioSnapshotChanged emit are gated by updateVisuals to keep QML smooth.
-    updateAudioProfileSnapshotPowers(updateVisuals);
-
-        // Three mel banks map straight onto the snapshot's triggers[0..2]; volume
-    // and beat live in their own trigger states; kick has its own state too.
     auto sourceNorm = [&](BandSource s) -> double {
         switch (s)
         {
@@ -2548,7 +2790,7 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
             case BandMid:    return m_cachedSnapshot.triggers[1].value;
             case BandHigh:   return m_cachedSnapshot.triggers[2].value;
             case BandVolume: return m_cachedSnapshot.volume.normalized;
-            case BandBeat:   return m_cachedSnapshot.music.beat ? 1.0 : 0.0;
+            case BandBeat:   return beats ? 1.0 : 0.0;
             case BandKick:   return m_cachedSnapshot.kickTrigger.value;
             default: return 0.0;
         }
@@ -2583,34 +2825,58 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
         bm.m_value = uchar(qBound(0.0, double(bm.lastNorm) * 255.0, 255.0));
         m_audioLevels.append(int(bm.m_value));
 
-        const TriggerState &ts = trigState(bm.source);
-
-        switch (bm.type)
-        {
-            case BarType::FunctionBar:
+        TriggerState ts = trigState(bm.source);
+        const bool pulse = bm.source == BandBeat || bm.source == BandKick;
+        const quint64 count = bm.source == BandBeat ? beats : bm.source == BandKick ? kicks : 0;
+        ts.firedThisFrame = !reset && ts.active && !m_mappingActive[idx];
+        ts.releasedThisFrame = !ts.active && m_mappingActive[idx];
+        auto dispatch = [&]() {
+            switch (bm.type)
             {
-                if (!bm.function && bm.functionId != Function::invalidId())
-                    bm.function = m_doc->function(bm.functionId);
-                if (bm.function)
-                {
-                    if (ts.firedThisFrame)
-                        bm.function->start(m_doc->masterTimer(), functionParent());
-                    else if (ts.releasedThisFrame)
-                        bm.function->stop(functionParent());
-                }
-                break;
+                case BarType::FunctionBar:
+                    bm.function = m_doc ? m_doc->function(bm.functionId) : nullptr;
+                    if (bm.function)
+                    {
+                        if (ts.firedThisFrame)
+                            bm.function->start(m_doc->masterTimer(), functionParent());
+                        if (ts.releasedThisFrame)
+                            bm.function->stop(functionParent());
+                    }
+                    break;
+                case BarType::VCWidgetBar:
+                    checkWidgetFunctionality(bm, ts);
+                    break;
+                default:
+                    break;
             }
-            case BarType::VCWidgetBar:
-                checkWidgetFunctionality(bm, ts);
-                break;
-            case BarType::DMXBar:
-                if (bm.source == BandBeat && m_cachedSnapshot.music.beat)
-                    beatLatchUntil = qMax(beatLatchUntil, nowMs + bm.beatHoldMs);
-                break;
-            case BarType::None:
-            default:
-                break;
+        };
+        if (m_captureEnabled && pulse)
+        {
+            // Recovered pulse counts retain order, not their original timestamps.
+            for (quint64 event = 0; event < count; ++event)
+            {
+                ts.firedThisFrame = false;
+                ts.releasedThisFrame = true;
+                dispatch();
+                ts.firedThisFrame = true;
+                ts.releasedThisFrame = false;
+                dispatch();
+            }
+            if (!count && m_mappingActive[idx])
+            {
+                ts.firedThisFrame = false;
+                ts.releasedThisFrame = true;
+                dispatch();
+            }
+            m_mappingActive[idx] = count > 0;
         }
+        else if (m_captureEnabled)
+        {
+            dispatch();
+            m_mappingActive[idx] = ts.active;
+        }
+        if (m_captureEnabled && bm.type == DMXBar && bm.source == BandBeat && beats)
+            beatLatchUntil = qMax(beatLatchUntil, nowMs + bm.beatHoldMs);
     }
     } // QMutexLocker scope
 
@@ -2619,7 +2885,10 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
 
     // Gate QML signal to visual frame rate — DMX mappings above already ran at full hop rate.
     if (updateVisuals)
+    {
+        rebuildAudioSnapshotViews();
         emit audioLevelsChanged();
+    }
 }
 /*********************************************************************
  * Fixture tree methods
@@ -2825,6 +3094,7 @@ void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 beatUntil = m_beatUntilMs.load(std::memory_order_relaxed);
+    const bool available = m_outputAvailable.load(std::memory_order_relaxed);
 
     quint32 lastUniverse = Universe::invalid();
     QSharedPointer<GenericFader> fader;
@@ -2843,6 +3113,8 @@ void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
         uchar dmx = uchar(qBound(0.0, norm * 255.0, 255.0));
         if (dmx < bm.dmxFloor)
             dmx = bm.dmxFloor;
+        if (!available)
+            dmx = 0;
 
         for (int absAddress : bm.absDmxChannels)
         {
@@ -2895,13 +3167,17 @@ bool VCAudioTriggers::loadBarXML(QXmlStreamReader &root)
     QXmlStreamAttributes attrs = root.attributes();
 
     if (!attrs.hasAttribute(KXMLQLCAudioMappingSource))
+    {
+        root.skipCurrentElement();
         return false;
+    }
 
     bool keyOk = false;
     int srcInt = bandSourceFromKey(attrs.value(KXMLQLCAudioMappingSource).toString(), &keyOk);
     if (!keyOk || srcInt < 0 || srcInt >= BandSourceCount)
     {
         qWarning() << Q_FUNC_INFO << "Unknown band source:" << attrs.value(KXMLQLCAudioMappingSource).toString();
+        root.skipCurrentElement();
         return false;
     }
 
@@ -2943,43 +3219,28 @@ bool VCAudioTriggers::loadBarXML(QXmlStreamReader &root)
             }
         }
         break;
-        case VCAudioTriggers::BarType::DMXBar:
-        {
-            QXmlStreamReader::TokenType tType = root.readNext();
-
-            if (tType == QXmlStreamReader::EndElement)
-            {
-                root.readNext();
-                return true;
-            }
-
-            if (tType == QXmlStreamReader::Characters)
-                root.readNext();
-
-            if (root.name() == KXMLQLCAudioBarDMXChannels)
-            {
-                QString dmxValues = root.readElementText();
-                if (!dmxValues.isEmpty())
-                {
-                    QList<SceneValue> channels;
-                    QStringList varray = dmxValues.split(",");
-                    for (int i = 0; i + 1 < varray.count(); i += 2)
-                    {
-                        channels.append(SceneValue(QString(varray.at(i)).toUInt(),
-                                                   QString(varray.at(i + 1)).toUInt(), 0));
-                    }
-                    selectBarForEditing(srcInt);
-                    setBarDmxChannels(channels);
-                    selectBarForEditing(-1);
-                }
-            }
-        }
-        break;
         default:
         break;
     }
 
-    return true;
+    while (root.readNextStartElement())
+    {
+        if (bm.type == BarType::DMXBar && root.name() == KXMLQLCAudioBarDMXChannels)
+        {
+            QList<SceneValue> channels;
+            const QStringList values = root.readElementText().split(",");
+            for (int i = 0; i + 1 < values.count(); i += 2)
+                channels.append(SceneValue(values.at(i).toUInt(), values.at(i + 1).toUInt(), 0));
+            bm.dmxChannels = channels;
+            rebuildBarAbsDmxChannels(bm);
+        }
+        else
+        {
+            root.skipCurrentElement();
+        }
+    }
+
+    return !root.hasError();
 }
 
 bool VCAudioTriggers::saveBarXML(QXmlStreamWriter *doc, int index) const
@@ -3073,7 +3334,6 @@ bool VCAudioTriggers::loadXML(QXmlStreamReader &root)
         else if (root.name() == KXMLQLCAudioMapping)
         {
             loadBarXML(root);
-            root.skipCurrentElement();
         }
         else if (root.name() == KXMLQLCAudioTriggerBar ||
                  root.name() == KXMLQLCVolumeBar ||

@@ -1,10 +1,31 @@
 set(module_name "qlcplusaudio")
 
+# Keep dependency options local to avoid changing QLC+'s tests or library types.
+function(qlc_add_samplerate)
+    include(FetchContent)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
+    set(BUILD_SHARED_LIBS OFF)
+    set(BUILD_TESTING OFF)
+    set(LIBSAMPLERATE_EXAMPLES OFF)
+    set(LIBSAMPLERATE_INSTALL OFF)
+    FetchContent_Declare(qlc_samplerate
+        GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git
+        GIT_TAG c96f5e3de9c4488f4e6c97f59f5245f22fda22f7
+    )
+    FetchContent_MakeAvailable(qlc_samplerate)
+    set_property(TARGET samplerate PROPERTY POSITION_INDEPENDENT_CODE ON)
+    install(FILES "${qlc_samplerate_SOURCE_DIR}/COPYING"
+        DESTINATION share/qlcplus/licenses RENAME libsamplerate-COPYING)
+endfunction()
+qlc_add_samplerate()
+
 add_library(${module_name}
     STATIC
     audiochannel.cpp audiochannel.h
     audiochannelconfig.cpp audiochannelconfig.h
     audioanalyzer.cpp audioanalyzer.h
+    ../../src/audioview.cpp ../../src/audioview.h
     audio.cpp audio.h
     audiocapture.cpp audiocapture.h
     beattracker.cpp beattracker.h
@@ -31,6 +52,7 @@ target_link_libraries(${module_name} PUBLIC
     Qt${QT_MAJOR_VERSION}::Multimedia
     Qt${QT_MAJOR_VERSION}::Network
     qlcplusaubio
+    SampleRate::samplerate
 )
 
 if(APPLE)

@@ -22,6 +22,19 @@
 #include <QtTest>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
+#include <QUdpSocket>
+#include <QtEndian>
+#include <QScopeGuard>
+#include <thread>
+#include <atomic>
+#include <cstring>
+#include <cmath>
+#include "audio_test_capture.h"
+#include "audioanalyzer.h"
+#include "audiochannel.h"
+#include "audioframe.h"
+#include "oscaudiosource.h"
+#include "audioview.h"
 
 #define protected public
 #define private public
@@ -1207,4 +1220,212 @@ void Doc_Test::createBusNode(QXmlStreamWriter &doc, quint32 id, quint32 val)
     doc.writeEndElement();
 }
 
-QTEST_APPLESS_MAIN(Doc_Test)
+void Doc_Test::audioProfileLifetime()
+{
+    auto *first = new AudioProfile(7, m_doc);
+    auto *second = new AudioProfile(29, m_doc);
+    auto config = AudioChannelConfig::defaults();
+    config.noiseGate.thresholdDb = -65;
+    config.aubio.melBanks.high.bands = 17;
+    first->setChannelConfig(config);
+    QSignalSpy changes(m_doc, &Doc::audioProfilesChanged);
+    QVERIFY(m_doc->addAudioProfile(first));
+    QVERIFY(m_doc->addAudioProfile(second));
+    QCOMPARE(changes.count(), 2);
+    m_doc->setActiveAudioProfileId(29);
+    QVERIFY(!m_doc->audioSnapshot().available);
+
+    AubioResults result;
+    result.bpm = 111.5;
+    result.tempoValid = true;
+    result.beat = true;
+    result.melHighCount = 24;
+    for (int i = 0; i < 24; ++i)
+        result.melHigh[i] = 0.01 * (i + 1);
+    AudioFrame frame;
+    frame.rms = std::pow(10.0, -70.0 / 20.0);
+    frame.volumeNorm = 0.3;
+    frame.rmsDb = -70;
+    frame.sourceEpoch = 8;
+    frame.frameIndex = 1;
+    frame.aubio = &result;
+    m_doc->audioAnalyzer()->processFrame(frame);
+    frame.aubio = &result;
+    ++frame.frameIndex;
+    m_doc->audioAnalyzer()->processFrame(frame);
+    const auto retained = m_doc->audioSnapshot(29);
+    QVERIFY(retained.available);
+    QCOMPARE(m_doc->audioSnapshot().profileId, quint32(29));
+    QCOMPARE(m_doc->audioSnapshot(7).config.noiseGate.thresholdDb, -65.0);
+    QCOMPARE(m_doc->audioSnapshot(7).config.aubio.melBanks.high.bands, 17);
+    QCOMPARE(retained.melHigh.count, 24);
+    QCOMPARE(retained.events.beat, uint64_t(2));
+    const auto capture = m_doc->audioInputCapture();
+    QVERIFY(capture->bandMagnitude(1, 3) > 0);
+    QCOMPARE(capture->bandMagnitude(1, 3), audioFrequency(
+        AudioRenderView::fromSnapshot(retained, AudioRenderView::nowNs()), 1, 3));
+    QCOMPARE(capture->bandMaxMagnitude(3), 1.0);
+    m_doc->setActiveAudioProfileId(7);
+    QVERIFY(!m_doc->audioSnapshot().available);
+    QCOMPARE(capture->bandMagnitude(1, 3), 0.0);
+    frame.aubio = &result;
+    ++frame.frameIndex;
+    m_doc->audioAnalyzer()->processFrame(frame);
+    QCOMPARE(capture->bandMagnitude(1, 3), 0.0);
+    m_doc->setActiveAudioProfileId(29);
+
+    std::atomic<bool> readOnce {false}, stop {false}, wrongId {false};
+    std::thread reader([&]() {
+        while (!stop.load())
+        {
+            const auto value = m_doc->audioSnapshot(29);
+            if (value.profileId != 29)
+                wrongId = true;
+            readOnce = true;
+        }
+    });
+    while (!readOnce.load())
+        std::this_thread::yield();
+    const bool removed = m_doc->removeAudioProfile(29);
+    stop = true;
+    reader.join();
+    QVERIFY(removed);
+    QVERIFY(!wrongId);
+    QCOMPARE(changes.count(), 3);
+    QCOMPARE(m_doc->activeAudioProfileId(), quint32(7));
+    QVERIFY(!m_doc->audioSnapshot(29).available);
+    QVERIFY(!m_doc->audioSnapshot().available);
+    QCOMPARE(retained.profileId, quint32(29));
+    QCOMPARE(retained.events.beat, uint64_t(2));
+    QCOMPARE(retained.melHigh.count, 24);
+
+    const auto *analyzer = m_doc->audioAnalyzer();
+    m_doc->clearContents();
+    QCOMPARE(m_doc->audioAnalyzer(), analyzer);
+    QVERIFY(!m_doc->audioSnapshot(7).available);
+}
+
+void Doc_Test::audioCaptureRestart()
+{
+    auto capture = QSharedPointer<AudioTestCapture>::create(true);
+    m_doc->m_inputCapture = capture;
+    capture->setAnalyzer(m_doc->audioAnalyzer());
+    QVERIFY(m_doc->addAudioProfile(new AudioProfile(7, m_doc)));
+    QVERIFY(m_doc->addAudioProfile(new AudioProfile(29, m_doc)));
+    const auto subscriber1 = m_doc->audioInputCapture();
+    const auto subscriber2 = m_doc->audioInputCapture();
+    capture->registerBandsNumber(3);
+    capture->registerBandsNumber(16);
+    const auto stopCapture = qScopeGuard([&]() {
+        capture->unregisterBandsNumber(16);
+        capture->unregisterBandsNumber(3);
+        capture->wait();
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(m_doc->audioSnapshot(7).available, 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(m_doc->audioSnapshot(29).available, 1000);
+    const auto epoch = capture->sourceEpoch();
+    capture->missing = true;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (m_doc->audioSnapshot(7).available && elapsed.elapsed() < 250)
+        QTest::qWait(5);
+    QVERIFY(!m_doc->audioSnapshot(7).available);
+    QVERIFY(elapsed.elapsed() <= 250);
+    QVERIFY(!m_doc->audioSnapshot(29).available);
+    QCOMPARE(m_doc->audioSnapshot(29).volume.raw, 0.0);
+    QVERIFY(capture->sourceEpoch() > epoch);
+    const auto lostEpoch = capture->sourceEpoch();
+    m_doc->restartAudioCapture();
+    capture->missing = false;
+    QTRY_VERIFY_WITH_TIMEOUT(m_doc->audioSnapshot(7).available, 1000);
+    QVERIFY(capture->sourceEpoch() > lostEpoch);
+    QCOMPARE(subscriber1.data(), m_doc->audioInputCapture().data());
+    QCOMPARE(subscriber2.data(), subscriber1.data());
+}
+
+static QByteArray oscFloatMessage(const QByteArray &address, float value)
+{
+    QByteArray packet = address;
+    packet.append('\0');
+    while (packet.size() % 4)
+        packet.append('\0');
+    packet.append(",f\0\0", 4);
+    quint32 bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    bits = qToBigEndian(bits);
+    packet.append(reinterpret_cast<const char *>(&bits), sizeof(bits));
+    return packet;
+}
+
+void Doc_Test::oscPacketLoss()
+{
+    for (quint32 id : {7u, 29u})
+    {
+        auto *profile = new AudioProfile(id, m_doc);
+        profile->setOscPort(0);
+        profile->setAudioSource(AudioProfile::OscSynesthesia);
+        QVERIFY(m_doc->addAudioProfile(profile));
+    }
+    auto *source = m_doc->m_oscAudioSources.value(0);
+    QVERIFY(source);
+    QVERIFY(source->isRunning());
+    const auto sockets = source->findChildren<QUdpSocket *>();
+    QCOMPARE(sockets.size(), 1);
+    const auto port = sockets.first()->localPort();
+    QUdpSocket sender;
+    const auto send = [&](const char *address, float value) {
+        return sender.writeDatagram(oscFloatMessage(address, value), QHostAddress::LocalHost, port) > 0;
+    };
+    QVERIFY(send("/audio/level/all", 0.7f));
+    QVERIFY(send("/audio/level/bass", 0.3f));
+    QVERIFY(send("/audio/level/mid", 0.8f));
+    QVERIFY(send("/audio/bpm", 110.0f));
+    QVERIFY(send("/audio/beat/onbeat", 1.0f));
+    QTRY_VERIFY_WITH_TIMEOUT(m_doc->audioSnapshot(7).available, 150);
+    AudioEventCursor first, second;
+    auto view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(7), AudioRenderView::nowNs());
+    auto secondView = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(29), AudioRenderView::nowNs());
+    first.advance(view);
+    second.advance(secondView);
+    for (int i = 0; i < 2; ++i)
+    {
+        QVERIFY(send("/audio/beat/onbeat", 0.0f));
+        QVERIFY(send("/audio/beat/onbeat", 1.0f));
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(m_doc->audioSnapshot(7).events.beat, uint64_t(3), 150);
+    auto shared = m_doc->audioSnapshot(29);
+    QCOMPARE(shared.events.beat, uint64_t(3));
+    view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(7), AudioRenderView::nowNs());
+    first.advance(view);
+    QCOMPARE(view.deltas[1], uint64_t(2));
+    secondView = AudioRenderView::fromSnapshot(shared, AudioRenderView::nowNs());
+    second.advance(secondView);
+    QCOMPARE(secondView.deltas[1], uint64_t(2));
+    first.advance(view);
+    QCOMPARE(view.deltas[1], uint64_t(0));
+    QVERIFY(m_doc->removeAudioProfile(29));
+    QVERIFY(source->isRunning());
+    QVERIFY(!m_doc->audioSnapshot(29).available);
+    const auto beforeLoss = m_doc->audioSnapshot(7);
+    QTest::qWait(60);
+    QCOMPARE(m_doc->audioSnapshot(7).frameSequence, beforeLoss.frameSequence);
+    QTRY_VERIFY_WITH_TIMEOUT(!m_doc->audioSnapshot(7).available, 190);
+    auto lost = m_doc->audioSnapshot(7);
+    QCOMPARE(lost.volume.raw, 0.0);
+    QVERIFY(lost.sourceEpoch > beforeLoss.sourceEpoch);
+    view = AudioRenderView::fromSnapshot(lost, AudioRenderView::nowNs());
+    first.advance(view);
+    QCOMPARE(view.deltas[1], uint64_t(0));
+    QVERIFY(send("/audio/level/all", 0.6f));
+    QVERIFY(send("/audio/beat/onbeat", 1.0f));
+    QTRY_VERIFY_WITH_TIMEOUT(m_doc->audioSnapshot(7).available, 150);
+    view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(7), AudioRenderView::nowNs());
+    first.advance(view);
+    QCOMPARE(view.deltas[1], uint64_t(0));
+    QVERIFY(m_doc->removeAudioProfile(7));
+    QVERIFY(!source->hasTargets());
+    QVERIFY(!source->isRunning());
+    QCOMPARE(shared.events.beat, uint64_t(3));
+}
+
+QTEST_GUILESS_MAIN(Doc_Test)

@@ -62,6 +62,7 @@ class InputOutputManager final : public PreviewContext
 
 public:
     InputOutputManager(QQuickView *view, Doc *doc, QObject *parent = 0);
+    ~InputOutputManager() override;
 
 protected slots:
     void slotDocLoaded();
@@ -148,11 +149,12 @@ signals:
     void audioInputLevelChanged();
 
 protected slots:
-    void slotAudioInputLevelChanged(double *spectrumBands, int size, double maxMagnitude, quint32 power);
+    void slotAudioInputLevelChanged(int power);
 
 private:
     AudioCapture *m_inputCapture;
     int m_audioInputLevel;
+    bool m_audioInputPreview = false;
 
     /*********************************************************************
      * IO Patches

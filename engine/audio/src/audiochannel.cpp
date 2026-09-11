@@ -11,6 +11,7 @@
 
 #include "audioframe.h"
 #include "aubioresults.h"
+#include "aubioprocessor.h"
 
 #include <aubio/aubio.h>
 
@@ -19,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 
 namespace
 {
@@ -60,8 +62,14 @@ namespace
         const double mmax = hzToMattMel(bank.maxHz);
         if (mmax <= mmin)
             return 0;
-        const double frac = (hzToMattMel(hz) - mmin) / (mmax - mmin);
-        return std::clamp(int(std::ceil(frac * double(n + 1))) - 1, 0, n);
+        for (int i = 0; i < n; ++i)
+        {
+            const double center = std::floor(double(float(mattMelToHz(
+                mmin + (mmax - mmin) * double(i + 1) / double(n + 1)))));
+            if (center > hz)
+                return i;
+        }
+        return n;
     }
 
     int lowMelBeatEndBin(double beatMaxHz, const MelBankConfig::Bank &bank)
@@ -74,7 +82,7 @@ namespace
         for (int i = 0; i < n; ++i)
         {
             const double t = double(i + 1) / double(n + 1);
-            const double hz = mattMelToHz(minMel + (maxMel - minMel) * t);
+            const double hz = std::floor(double(float(mattMelToHz(minMel + (maxMel - minMel) * t))));
             // LedFx audio.py:1185-1192 — beat_max_mel_index uses i - 1 for
             // the first low-bank centre frequency above beatMaxHz.
             if (hz > beatMaxHz)
@@ -83,70 +91,68 @@ namespace
         return n;
     }
 
-    MelPostProcessor::Config melPostConfigFrom(const MelPostConfig &cfg)
-    {
-        MelPostProcessor::Config mp;
-        mp.powerFactor = cfg.powerFactor;
-        mp.gaussianSigma = cfg.gaussianSigma;
-        mp.smoothDecay = cfg.smoothDecay;
-        mp.smoothRise = cfg.smoothRise;
-        mp.commonDecay = cfg.commonDecay;
-        mp.commonRise = cfg.commonRise;
-        mp.diffDecay = cfg.diffDecay;
-        mp.diffRise = cfg.diffRise;
-        mp.agcDecay = cfg.agcDecay;
-        mp.agcRise = cfg.agcRise;
-        mp.enabled = cfg.enabled;
-        return mp;
-    }
 }
 
-AudioChannel::AudioChannel(const AudioChannelConfig &config)
-    : m_config(config)
+AudioChannel::AudioChannel(const AudioChannelConfig &config, uint32_t profileId)
+    : m_profileId(profileId)
+    , m_config(config)
     , m_pendingConfig(config)
 {
     // Master 40-band post-processor — drives snap.melProcessed[] and the
     // spectral-flatness display. The 3 visualization banks each own their
     // own MelPostConfig (LedFx melbank.py:374-378 — every bank has its own
     // ExpFilter chain), so AGC/smoothing can be tuned independently.
-    m_melPost.setConfig(melPostConfigFrom(config.melPost));
-    m_melPostLow.setConfig(melPostConfigFrom(config.aubio.melBanks.low.post));
-    m_melPostMid.setConfig(melPostConfigFrom(config.aubio.melBanks.mid.post));
-    m_melPostHigh.setConfig(melPostConfigFrom(config.aubio.melBanks.high.post));
+    resetState();
+    m_snapshot.profileId = profileId;
 }
 
 AudioChannel::~AudioChannel()
 {
 }
 
-void AudioChannel::update(const AudioFrame &frame, double audioDtMs)
+void AudioChannel::update(const AudioFrame &input, double audioDtMs)
 {
-    // When an external source (e.g. OSC) is active, skip the mic-driven
-    // pipeline entirely so injectSnapshot() values are not overwritten.
+    QMutexLocker locker(&m_mutex);
     if (m_externalSource)
         return;
 
+    if (m_sourceEpoch != input.sourceEpoch)
     {
-        QMutexLocker locker(&m_mutex);
-        if (m_hasPendingConfig)
+        m_sourceEpoch = input.sourceEpoch;
+        m_frameSequence = 0;
+        m_events = {};
+        resetState();
+    }
+    if (m_hasPendingConfig)
+    {
+        m_config = m_pendingConfig;
+        m_configRevision = m_pendingRevision;
+        m_hasPendingConfig = false;
+        resetState();
+    }
+    AudioFrame frame = input;
+    updateNoiseGateState(frame, audioDtMs);
+    if (frame.samples)
+    {
+        if (!m_processor)
         {
-            m_config = m_pendingConfig;
-            m_hasPendingConfig = false;
-
-            MelPostProcessor::Config mp = melPostConfigFrom(m_config.melPost);
-            m_melPost.setConfig(mp);
-            m_melPostLow.setConfig(melPostConfigFrom(m_config.aubio.melBanks.low.post));
-            m_melPostMid.setConfig(melPostConfigFrom(m_config.aubio.melBanks.mid.post));
-            m_melPostHigh.setConfig(melPostConfigFrom(m_config.aubio.melBanks.high.post));
+            m_processor = std::make_unique<AubioProcessor>();
+            m_processor->setPendingConfig(m_config.aubio);
+            m_processor->initialize(30000);
+        }
+        if (m_processor->isInitialized())
+        {
+            m_processor->process(frame.samples, int(frame.sampleCount), !m_noiseGateClosed);
+            frame.aubio = &m_processor->results();
+            frame.beatDetected = frame.aubio->beat;
+        }
+        else
+        {
+            frame.aubio = nullptr;
+            frame.beatDetected = false;
         }
     }
-
     m_currentBeat = frame.beatDetected;
-
-    // Compute noise gate state FIRST (needed by mel post-processor to
-    // skip processing when gated, preventing post-silence amplification
-    // spikes — see updateMelPost / MelPostProcessor::process).
-    updateNoiseGateState(frame, audioDtMs);
 
     updateMelPost(frame);
     updateFreqPower(frame);
@@ -155,6 +161,57 @@ void AudioChannel::update(const AudioFrame &frame, double audioDtMs)
     updateTriggers(audioDtMs);
     updateKickDetector(frame, audioDtMs);
     buildSnapshot(frame, audioDtMs);
+}
+
+void AudioChannel::resetState()
+{
+    m_processor.reset();
+    m_melPost.setConfig(m_config.melPost);
+    m_melPostLow.setConfig(m_config.aubio.melBanks.low.post);
+    m_melPostMid.setConfig(m_config.aubio.melBanks.mid.post);
+    m_melPostHigh.setConfig(m_config.aubio.melBanks.high.post);
+    for (auto *post : {&m_melPost, &m_melPostLow, &m_melPostMid, &m_melPostHigh})
+        post->reset();
+    std::fill_n(m_freqPower, 4, 0.0);
+    std::fill_n(m_freqPowerRaw, 4, 0.0);
+    std::fill_n(m_envSmoothed, kBandCount, 0.0);
+    std::fill_n(m_bandValues, kBandCount, 0.0);
+    std::fill_n(m_triggerValues, kTriggerCount, 0.0);
+    std::fill_n(m_triggerState, kTriggerCount, TriggerInternal{});
+    std::fill_n(m_triggerFired, kTriggerCount, false);
+    std::fill_n(m_triggerReleased, kTriggerCount, false);
+    m_volumeRaw = m_volumeSmoothed = m_volumeNormalized = 0.0;
+    m_noiseGateHeldMs = 0.0;
+    m_gateVolumeSmoothed = -90.0;
+    m_noiseGateClosed = true;
+    m_currentBeat = false;
+    m_kickState = {};
+    m_kickFired = m_kickReleased = false;
+    m_kickSpike = m_timeSinceLastBeatSec = 0.0;
+    m_beatPowerHistory.clear();
+}
+
+void AudioChannel::invalidate(uint64_t sourceEpoch)
+{
+    QMutexLocker locker(&m_mutex);
+    resetState();
+    m_sourceEpoch = sourceEpoch;
+    m_frameSequence = 0;
+    m_events = {};
+    m_snapshot = {};
+    m_snapshot.profileId = m_profileId;
+    m_snapshot.sourceEpoch = sourceEpoch;
+    m_snapshot.configRevision = m_configRevision;
+    m_snapshot.config = m_config;
+    m_snapshot.noiseGateClosed = true;
+    m_snapshot.publishTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+AubioResults AudioChannel::aubioResults() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_processor ? m_processor->results() : AubioResults{};
 }
 
 AudioSnapshot AudioChannel::snapshot() const
@@ -166,24 +223,66 @@ AudioSnapshot AudioChannel::snapshot() const
 void AudioChannel::injectSnapshot(const AudioSnapshot &snap)
 {
     QMutexLocker locker(&m_mutex);
+    if (m_hasPendingConfig)
+    {
+        m_config = m_pendingConfig;
+        m_configRevision = m_pendingRevision;
+        m_hasPendingConfig = false;
+    }
     m_snapshot = snap;
+    m_snapshot.profileId = m_profileId;
+    m_snapshot.configRevision = m_configRevision;
+    m_snapshot.config = m_config;
+    if (snap.sourceId.isEmpty())
+    {
+        m_snapshot.sourceId = QStringLiteral("osc");
+        m_snapshot.sourceEpoch = m_sourceEpoch;
+        m_snapshot.frameSequence = ++m_frameSequence;
+        m_snapshot.available = true;
+        m_snapshot.status = QStringLiteral("available");
+        m_snapshot.music.valid = snap.music.bpm > 0.0;
+        m_events.beat += snap.music.beat ? 1 : 0;
+        m_events.onset += snap.onsets.hfc ? 1 : 0;
+        m_events.kick += snap.kickTrigger.firedThisFrame ? 1 : 0;
+        m_events.bar += snap.downbeatFired ? 1 : 0;
+        m_snapshot.events = m_events;
+        m_snapshot.publishTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
 }
 
 bool AudioChannel::hasExternalSource() const
 {
+    QMutexLocker locker(&m_mutex);
     return m_externalSource;
 }
 
 void AudioChannel::setExternalSource(bool external)
 {
+    QMutexLocker locker(&m_mutex);
+    if (m_externalSource == external)
+        return;
     m_externalSource = external;
+    resetState();
+    m_events = {};
+    m_frameSequence = 0;
+    m_snapshot = {};
+    m_snapshot.profileId = m_profileId;
+    m_snapshot.sourceEpoch = ++m_sourceEpoch;
 }
 
 void AudioChannel::updateConfig(const AudioChannelConfig &config)
 {
+    const QString error = config.validationError();
+    if (!error.isEmpty())
+    {
+        qWarning().noquote() << "AudioChannel configuration rejected:" << error;
+        return;
+    }
     QMutexLocker locker(&m_mutex);
     m_pendingConfig = config;
     m_hasPendingConfig = true;
+    ++m_pendingRevision;
 }
 
 AudioChannelConfig AudioChannel::config() const
@@ -194,36 +293,13 @@ AudioChannelConfig AudioChannel::config() const
 
 void AudioChannel::updateNoiseGateState(const AudioFrame &frame, double dtMs)
 {
-    bool wasClosed = m_noiseGateClosed;
-
-    // LedFx audio.py:1023 — volume_filter.update(volume), α=0.99.
-    // One-pole low-pass on rmsDb (symmetric rise/decay) so the gate compares
-    // against a stable envelope instead of raw per-hop dB. Prevents gate
-    // chatter near threshold which (combined with Fix 1's running mel filters)
-    // would otherwise let normalized noise through on each reopen.
-    m_gateVolumeSmoothed = kGateVolumeAlpha * m_gateVolumeSmoothed
-                         + (1.0 - kGateVolumeAlpha) * frame.rmsDb;
-
-    // holdMs remains as a release guard: once the smoothed volume drops below
-    // threshold, require sustained quiet before closing the gate.
-    m_noiseGateHeldMs = (m_gateVolumeSmoothed < m_config.noiseGate.thresholdDb) ?
-        (m_noiseGateHeldMs + dtMs) : 0.0;
-
-    // frame.silent is an immediate gate-close override (true silence from the
-    // capture layer should not have to wait on the smoother).
-    m_noiseGateClosed = frame.silent || m_noiseGateHeldMs >= m_config.noiseGate.holdMs;
-
-    // Diagnostic: log gate transitions
-    if (wasClosed && !m_noiseGateClosed)
-    {
-#ifdef AUDIO_DEBUG
-        qDebug() << "[GATE_OPEN] rmsDb=" << frame.rmsDb
-                 << "smoothedDb=" << m_gateVolumeSmoothed
-                 << "threshold=" << m_config.noiseGate.thresholdDb
-                 << "rms=" << frame.rms
-                 << "heldMs=" << m_noiseGateHeldMs;
-#endif
-    }
+    m_gateVolumeSmoothed = kGateVolumeAlpha * frame.volumeNorm
+                         + (1.0 - kGateVolumeAlpha) * m_gateVolumeSmoothed;
+    const double threshold = std::clamp(1.0 + m_config.noiseGate.thresholdDb / 100.0, 0.0, 1.0);
+    const bool below = m_gateVolumeSmoothed <= threshold;
+    m_noiseGateHeldMs = below ? m_noiseGateHeldMs + dtMs : 0.0;
+    m_noiseGateClosed = frame.silent ||
+        (below && m_noiseGateHeldMs >= m_config.noiseGate.holdMs);
 }
 
 void AudioChannel::updateFreqPower(const AudioFrame &frame)
@@ -231,10 +307,7 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     if (frame.aubio == nullptr)
         return;
 
-    // All power bands read from high bank (20-15kHz), matching LedFx.
-    // The high bank's AGC normalizes across the full spectrum.
-    // Mids from mid bank for independent AGC on mids.
-    const int nMid  = frame.aubio->melMidCount;
+    // Scalar powers share the full-range bank's normalization.
     const int nHigh = frame.aubio->melHighCount;
 
     if (nHigh <= 0)
@@ -243,26 +316,16 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     const auto &fp = m_config.freqPower;
     const auto &banks = m_config.aubio.melBanks;
 
-    int beatEnd  = hzToBankBin(fp.beat.maxHz, banks.high);
-    int bassEnd  = hzToBankBin(fp.bass.maxHz, banks.high);
-    int midEnd   = hzToBankBin(fp.mids.maxHz, banks.high);
-    int highEnd  = hzToBankBin(fp.high.maxHz, banks.high);
+    int beatEnd  = std::min(nHigh, hzToBankBin(fp.beat.maxHz, banks.high));
+    int bassEnd  = std::min(nHigh, hzToBankBin(fp.bass.maxHz, banks.high));
+    int midEnd   = std::min(nHigh, hzToBankBin(fp.mids.maxHz, banks.high));
+    int highEnd  = std::min(nHigh, hzToBankBin(fp.high.maxHz, banks.high));
 
     double raw[4] = {};
     raw[0] = averageMel(m_melHighProcessed, 0, beatEnd);
     raw[1] = averageMel(m_melHighProcessed, beatEnd, bassEnd);
 
-    // Mids from mid bank if available, otherwise from high bank
-    if (nMid > 0)
-    {
-        int mStart = hzToBankBin(fp.bass.maxHz, banks.mid);
-        int mEnd   = hzToBankBin(fp.mids.maxHz, banks.mid);
-        raw[2] = averageMel(m_melMidProcessed, mStart, mEnd);
-    }
-    else
-    {
-        raw[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
-    }
+    raw[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
 
     raw[3] = averageMel(m_melHighProcessed, midEnd, highEnd);
 
@@ -270,6 +333,8 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     const FreqPowerBandConfig *cfg[4] = { &fp.beat, &fp.bass, &fp.mids, &fp.high };
     for (int i = 0; i < 4; i++)
     {
+        raw[i] = std::clamp(raw[i], 0.0, 1.0);
+        m_freqPowerRaw[i] = raw[i];
         double a = (raw[i] > m_freqPower[i]) ? cfg[i]->rise : cfg[i]->decay;
         m_freqPower[i] = a * raw[i] + (1.0 - a) * m_freqPower[i];
     }
@@ -420,6 +485,7 @@ void AudioChannel::updateMelPost(const AudioFrame &frame)
                       double *processed, double *novelty,
                       int maxBands)
     {
+        count = std::clamp(count, 0, maxBands);
         if (count <= 0)
         {
             std::fill(processed, processed + maxBands, 0.0);
@@ -522,6 +588,17 @@ void AudioChannel::updateKickDetector(const AudioFrame &frame, double dtMs)
 void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
 {
     AudioSnapshot snap;
+    snap.sourceId = QStringLiteral("microphone");
+    snap.profileId = m_profileId;
+    snap.sourceEpoch = m_sourceEpoch;
+    snap.frameSequence = ++m_frameSequence;
+    snap.configRevision = m_configRevision;
+    snap.config = m_config;
+    snap.sampleTime = frame.sampleTime;
+    snap.publishTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    snap.available = frame.aubio != nullptr;
+    snap.status = snap.available ? QStringLiteral("available") : QStringLiteral("unavailable");
 
     if (frame.aubio != nullptr)
     {
@@ -549,6 +626,10 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
                 dst.raw[i] = raw[i];
                 dst.processed[i] = processed[i];
                 dst.novelty[i] = novelty[i];
+                const double step = double(i + 1) / double(n + 1);
+                dst.centersHz[i] = std::floor(double(float(mattMelToHz(
+                    hzToMattMel(cfg.minHz) +
+                    (hzToMattMel(cfg.maxHz) - hzToMattMel(cfg.minHz)) * step))));
             }
             // Tail is already zero-initialized in MelBankSnapshot's defaults,
             // but explicit zero here protects against carry-over from a
@@ -569,18 +650,25 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         fillBank(snap.melHigh, a.melHigh, a.melHighCount,
                  m_melHighProcessed, m_melHighNovelty,
                  m_config.aubio.melBanks.high);
+        snap.melLow.gain = m_melPostLow.melGain();
+        snap.melMid.gain = m_melPostMid.melGain();
+        snap.melHigh.gain = m_melPostHigh.melGain();
 
         snap.music.bpm = a.bpm;
         snap.music.beatConfidence = a.beatConfidence;
         snap.music.tatum = a.tatum;
         snap.music.beatPhase = a.beatPhase;
-        snap.music.barPhase = a.barPhase;
-        constexpr double kDownbeatWindow = 0.25;
-        const int barBeat = int(std::floor(a.barPhase));
-        const double barFract = a.barPhase - std::floor(a.barPhase);
-        const bool downbeat = barBeat == 0 && barFract < kDownbeatWindow;
-        snap.downbeatFired = downbeat && !m_prevDownbeat;
-        m_prevDownbeat = downbeat;
+        snap.music.valid = a.tempoValid;
+        snap.music.beatInBar = a.beatInBar;
+        snap.music.beatsPerBar = std::clamp(m_config.aubio.beatsPerBar, 1, 8);
+        snap.music.barPhase = std::clamp(a.barPhase / snap.music.beatsPerBar, 0.0, 1.0);
+        snap.downbeatFired = a.barWrap;
+        const bool onsets[] = {a.onsets.energy, a.onsets.hfc, a.onsets.complex,
+            a.onsets.phase, a.onsets.wphase, a.onsets.specdiff, a.onsets.kl,
+            a.onsets.mkl, a.onsets.specflux};
+        m_events.onset += onsets[std::clamp(m_config.aubio.onsetMethodIndex, 0, 8)] ? 1 : 0;
+        m_events.beat += a.beat ? 1 : 0;
+        m_events.bar += a.barWrap ? 1 : 0;
 
         const int n = std::min<int>(a.tssBinCount, AubioResults::kMaxTssBins);
         snap.tss.binCount = n;
@@ -612,6 +700,8 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
         }
 
         snap.pitch.hz = a.pitchHz;
+        snap.pitch.value = a.pitchValue;
+        snap.pitch.unit = m_config.aubio.pitchUnit;
         snap.pitch.confidence = a.pitchConfidence;
 
         snap.note.midi = a.noteMidi;
@@ -626,6 +716,7 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
     snap.lows = std::min(1.0, (m_freqPower[0] + m_freqPower[1]) * 0.5);
     snap.mids = std::min(1.0, m_freqPower[2]);
     snap.highs = std::min(1.0, m_freqPower[3]);
+    std::copy_n(m_freqPowerRaw, 4, snap.powersRaw);
 
     for (int i = 0; i < kBandCount; i++)
     {
@@ -671,9 +762,8 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
     snap.volume.raw = m_volumeRaw;
     snap.volume.smoothed = m_volumeSmoothed;
     snap.volume.normalized = m_volumeNormalized;
-    // LedFx audio.py:1021 — passthrough of the AudioFrame normalized volume.
-    // Gated to 0 while the noise gate is closed, matching m_volumeNormalized.
-    snap.volume.volumeNorm = m_noiseGateClosed ? 0.0 : frame.volumeNorm;
+    // The gate meter remains observable below threshold.
+    snap.volume.volumeNorm = m_gateVolumeSmoothed;
 
     snap.music.beat = frame.beatDetected;
     snap.features.rmsDb = frame.rmsDb;
@@ -715,7 +805,8 @@ void AudioChannel::buildSnapshot(const AudioFrame &frame, double dtMs)
     snap.brightnessFloor = m_config.brightnessFloor;
     snap.noiseGateClosed = m_noiseGateClosed;
 
-    QMutexLocker locker(&m_mutex);
+    m_events.kick += m_kickFired ? 1 : 0;
+    snap.events = m_events;
     m_snapshot = snap;
 }
 

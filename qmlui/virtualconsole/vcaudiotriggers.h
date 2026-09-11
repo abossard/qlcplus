@@ -78,7 +78,18 @@ private:
 class VCAudioTriggers : public VCWidget, public DMXSource
 {
     Q_OBJECT
+    friend class VCAudioTriggers_Test;
 
+    Q_PROPERTY(QVariantList bankConfiguration READ bankConfiguration NOTIFY configChanged)
+    Q_PROPERTY(QString reactionPreset READ reactionPreset NOTIFY configChanged)
+    Q_PROPERTY(quint32 resolvedProfileId READ resolvedProfileId NOTIFY audioProfileIdChanged)
+    Q_PROPERTY(bool analysisAvailable READ analysisAvailable NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QString analysisStatus READ analysisStatus NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantMap appliedAudio READ appliedAudio NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(quint64 sourceEpoch READ sourceEpoch NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(quint64 frameSequence READ frameSequence NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(quint64 beatCount READ beatCount NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(quint64 kickCount READ kickCount NOTIFY audioSnapshotChanged)
     Q_PROPERTY(bool captureEnabled READ captureEnabled WRITE setCaptureEnabled NOTIFY captureEnabledChanged)
     Q_PROPERTY(uchar volumeLevel READ volumeLevel WRITE setVolumeLevel NOTIFY volumeLevelChanged FINAL)
     Q_PROPERTY(int barsNumber READ barsNumber WRITE setBarsNumber NOTIFY barsNumberChanged FINAL)
@@ -165,6 +176,7 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(double noteMinIntervalMs READ noteMinIntervalMs NOTIFY configChanged)
     Q_PROPERTY(double noteReleaseDropDb READ noteReleaseDropDb NOTIFY configChanged)
     Q_PROPERTY(double mfccPower READ mfccPower NOTIFY configChanged)
+    Q_PROPERTY(bool diagnosticsEnabled READ diagnosticsEnabled NOTIFY configChanged)
     Q_PROPERTY(double mfccScale READ mfccScale NOTIFY configChanged)
     Q_PROPERTY(QVariantList onsetMethodsEnabled READ onsetMethodsEnabled NOTIFY configChanged)
     // Per-method onset parameter overrides. Each entry is a JS object with
@@ -380,7 +392,7 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     /// widget. The QML applies: barHeight = clamp(sectionH/2,
     /// |mfccCoeffs[i]| * mfccDisplayScale * (parent.height/2)).
     /// Owned by C++ so QML stays math-free; recomputed on configChanged.
-    Q_PROPERTY(double mfccDisplayScale READ mfccDisplayScale NOTIFY configChanged)
+    Q_PROPERTY(double mfccDisplayScale READ mfccDisplayScale NOTIFY audioSnapshotChanged)
 
     /// TSS scalar levels (mean of per-bin transient / steady cvec norms in
     /// the current snapshot, clamped 0..1). Sparklines use these — the raw
@@ -405,6 +417,17 @@ public:
     VCAudioTriggers(Doc* doc = nullptr, VirtualConsole *vc = nullptr, QObject *parent = nullptr);
     virtual ~VCAudioTriggers();
 
+    QVariantList bankConfiguration() const;
+    Q_INVOKABLE bool updateBank(int bankIndex, const QVariantMap &changes);
+    QString reactionPreset() const { return profileChannelConfig().aubio.melBanks.preset; }
+    quint32 resolvedProfileId() const;
+    bool analysisAvailable() const { return m_cachedSnapshot.available; }
+    QString analysisStatus() const;
+    QVariantMap appliedAudio() const;
+    quint64 sourceEpoch() const { return m_cachedSnapshot.sourceEpoch; }
+    quint64 frameSequence() const { return m_cachedSnapshot.frameSequence; }
+    quint64 beatCount() const { return m_cachedSnapshot.events.beat; }
+    quint64 kickCount() const { return m_cachedSnapshot.events.kick; }
     /** @reimp */
     QString defaultCaption() const override;
 
@@ -478,10 +501,10 @@ public:
     double tssTransientLevel() const { return m_tssTransientLevel; }
     double tssSteadyLevel() const    { return m_tssSteadyLevel;    }
 
-    double beatCutoffHz()  const { return m_beatCutoffHz;  }
-    double bassCutoffHz()  const { return m_bassCutoffHz;  }
-    double midsCutoffHz()  const { return m_midsCutoffHz;  }
-    double highsCutoffHz() const { return m_highsCutoffHz; }
+    double beatCutoffHz()  const { return profileChannelConfig().freqPower.beat.maxHz; }
+    double bassCutoffHz()  const { return profileChannelConfig().freqPower.bass.maxHz; }
+    double midsCutoffHz()  const { return profileChannelConfig().freqPower.mids.maxHz; }
+    double highsCutoffHz() const { return profileChannelConfig().freqPower.high.maxHz; }
 
     /// Power-bar Hz crossover setters. Each call clamps the new value to
     /// keep the sequence strictly increasing (`beat < bass < mids < highs`)
@@ -561,12 +584,14 @@ public:
     double noteMinIntervalMs() const;
     double noteReleaseDropDb() const;
     double mfccPower() const;
+    bool diagnosticsEnabled() const;
+    Q_INVOKABLE void setDiagnosticsEnabled(bool enabled);
     double mfccScale() const;
     QVariantList onsetMethodsEnabled() const;
     QVariantList onsetMethodOverrides() const;
 
-    int windowSizeConst() const { return 1024; }
-    int hopSizeConst() const { return 512; }
+    int windowSizeConst() const { return 4096; }
+    int hopSizeConst() const { return 500; }
     int sampleRateValue() const;
     int framesPerSecond() const;
     int onsetHistorySeconds() const { return m_onsetHistorySeconds; }
@@ -814,6 +839,7 @@ public:
     QVariantList triggerStates() const;
 
 signals:
+    void audioEvents(quint64 onset, quint64 beat, quint64 kick, quint64 bar);
     void captureEnabledChanged();
     void volumeLevelChanged();
     void barsNumberChanged();
@@ -830,6 +856,8 @@ private slots:
     void slotBeatDetected();
     void slotBeatTimeout();
     void slotOscSnapshotInjected();
+    void processAudioSnapshot();
+    void refreshProfile();
 
 protected:
     /** @reimp */
@@ -842,11 +870,15 @@ private:
     AudioChannelConfig profileChannelConfig() const;
     void applyChannelConfig(const AudioChannelConfig &config);
     void updateAudioProfileSnapshotPowers(bool emitVisuals = true);
+    void rebuildAudioSnapshotViews();
+    void resetEventCursor();
+    void updateCaptureSubscription();
 
 private:
     VirtualConsole *m_vc;
-    AudioCapture *m_inputCapture;
+    AudioCapture *m_inputCapture = nullptr;
     bool m_captureEnabled;
+    bool m_captureRegistered = false;
     uchar m_volumeLevel;
 
     QVariantList m_audioLevels;
@@ -856,6 +888,14 @@ private:
     QTimer *m_beatTimer = nullptr;
 
     AudioSnapshot m_cachedSnapshot;
+    bool m_eventCursorReady = false;
+    quint64 m_eventEpoch = 0;
+    quint32 m_eventProfileId = AudioProfile::invalidId();
+    quint64 m_eventFrame = 0;
+    quint64 m_eventOnset = 0, m_eventBeat = 0, m_eventKick = 0, m_eventBar = 0;
+    bool m_mappingActive[6] = {};
+    QPointer<AudioProfile> m_connectedProfile;
+    QTimer *m_snapshotTimer = nullptr;
     // Sticky kick lamp state. Refreshed on every audio hop in
     // updateAudioProfileSnapshotPowers — when kick is active or fired we
     // bump m_kickLampHoldRemainingMs to kKickLampHoldMs; otherwise we
@@ -905,13 +945,6 @@ private:
     static constexpr double kFluxPeakDecay = 0.995;
     static constexpr double kFluxPeakFloor = 0.001;
     double m_fluxPeak = kFluxPeakFloor;
-
-    // Power-bar crossover defaults match LedFx audio.py:1107-1112
-    // freq_max_mels = [100, 250, 3000, 10000].
-    double m_beatCutoffHz  = 100.0;
-    double m_bassCutoffHz  = 250.0;
-    double m_midsCutoffHz  = 3000.0;
-    double m_highsCutoffHz = 10000.0;
 
     static constexpr int kTimelineCapacity = 2064; // ~24s at 86Hz (44100/512)
     QVector<TimelineFrame> m_timeline;
@@ -1018,6 +1051,7 @@ private:
      *  Beat source DMX strobe. Set on the audio thread when a beat fires,
      *  read on the MasterTimer thread inside writeDMX(). */
     std::atomic<qint64> m_beatUntilMs { 0 };
+    std::atomic<bool> m_outputAvailable { false };
 
     /** Index of the bar currently being edited.
      *  This is needed to simplify the widget editing */

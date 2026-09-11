@@ -34,7 +34,7 @@
 
 /** Mix a synthetic kick drum (150->45 Hz sweep, exponential decay)
  *  into the buffer at the given start frame */
-static void addKick(std::vector<int16_t> &buffer, int startFrame)
+static void addKick(std::vector<int16_t> &buffer, int startFrame, double gain = 1.0)
 {
     const int length = int(0.09 * SAMPLE_RATE);
     double phase = 0.0;
@@ -47,7 +47,7 @@ static void addKick(std::vector<int16_t> &buffer, int startFrame)
         double freq = 150.0 * std::exp(-t * 25.0) + 45.0;
         phase += 2.0 * M_PI * freq / SAMPLE_RATE;
         double v = std::sin(phase) * std::exp(-t * 30.0) * 0.9;
-        int sample = int(buffer[pos]) + int(v * 20000.0);
+        int sample = int(buffer[pos]) + int(v * 20000.0 * gain);
         if (sample > 32767) sample = 32767;
         if (sample < -32768) sample = -32768;
         buffer[pos] = int16_t(sample);
@@ -72,7 +72,8 @@ static std::vector<int16_t> makeKickTrack(double bpm, double seconds)
 static std::vector<int> runTracker(BeatTracker &tracker,
                                    const std::vector<int16_t> &audio,
                                    int blockFrames,
-                                   int channels = 1)
+                                   int channels = 1,
+                                   std::vector<double> *beatBpms = nullptr)
 {
     std::vector<int> beatBlocks;
     const int blockSamples = blockFrames * channels;
@@ -86,9 +87,28 @@ static std::vector<int> runTracker(BeatTracker &tracker,
                 block[i * channels + c] = audio[start + i];
 
         if (tracker.processAudio(block.data(), blockSamples))
+        {
             beatBlocks.push_back(blockIndex);
+            if (beatBpms)
+                beatBpms->push_back(tracker.bpm());
+        }
     }
     return beatBlocks;
+}
+
+static std::vector<double> makeOnsetTrack(double bpm, double seconds,
+                                         double offbeat = 0.0)
+{
+    const double rate = double(SAMPLE_RATE) / CAPTURE_BLOCK_FRAMES;
+    std::vector<double> onsets(size_t(seconds * rate), 0.0);
+    for (int pulse = 0; ; ++pulse)
+    {
+        const size_t frame = size_t(std::lround(pulse * rate * 30.0 / bpm));
+        if (frame >= onsets.size())
+            break;
+        onsets[frame] = pulse % 2 ? offbeat : 1.0;
+    }
+    return onsets;
 }
 
 void BeatTracker_Test::detectsSteadyTempo_data()
@@ -99,10 +119,12 @@ void BeatTracker_Test::detectsSteadyTempo_data()
     QTest::newRow("120 BPM, 2048 frames") << 120.0 << REFERENCE_BLOCK_FRAMES;
     QTest::newRow("140 BPM, 2048 frames") << 140.0 << REFERENCE_BLOCK_FRAMES;
     QTest::newRow("174 BPM, 2048 frames") << 174.0 << REFERENCE_BLOCK_FRAMES;
+    QTest::newRow("220 BPM, 2048 frames") << 220.0 << REFERENCE_BLOCK_FRAMES;
     QTest::newRow("90 BPM, 512 frames") << 90.0 << CAPTURE_BLOCK_FRAMES;
     QTest::newRow("120 BPM, 512 frames") << 120.0 << CAPTURE_BLOCK_FRAMES;
     QTest::newRow("140 BPM, 512 frames") << 140.0 << CAPTURE_BLOCK_FRAMES;
     QTest::newRow("174 BPM, 512 frames") << 174.0 << CAPTURE_BLOCK_FRAMES;
+    QTest::newRow("220 BPM, 512 frames") << 220.0 << CAPTURE_BLOCK_FRAMES;
 }
 
 void BeatTracker_Test::detectsSteadyTempo()
@@ -210,6 +232,158 @@ void BeatTracker_Test::stereoMatchesMono()
 
     QVERIFY(mono.bpm() > 0.0);
     QCOMPARE(stereo.bpm(), mono.bpm());
+}
+
+void BeatTracker_Test::subdivisionsPreserveEstablishedTempo_data()
+{
+    QTest::addColumn<double>("bpm");
+    QTest::addColumn<double>("offbeat");
+    QTest::newRow("110 BPM weak offbeats") << 110.0 << 0.3;
+    QTest::newRow("110 BPM strong offbeats") << 110.0 << 0.8;
+    QTest::newRow("112 BPM strong offbeats") << 112.0 << 0.8;
+}
+
+void BeatTracker_Test::subdivisionsPreserveEstablishedTempo()
+{
+    QFETCH(double, bpm);
+    QFETCH(double, offbeat);
+
+    const double rate = double(SAMPLE_RATE) / CAPTURE_BLOCK_FRAMES;
+    AutoBpmDetector detector(rate);
+    const auto onsets = makeOnsetTrack(bpm, 60.0, offbeat);
+    for (size_t frame = 0; frame < onsets.size(); ++frame)
+    {
+        const double time = frame / rate;
+        const double onset = onsets[frame] == offbeat && (time < 20.0 || time >= 40.0)
+            ? 0.0 : onsets[frame];
+        detector.pushOnset(onset);
+        if (time < 8.0)
+            continue;
+        QVERIFY2(std::abs(detector.bpm() - bpm) / bpm < 0.02,
+                 qPrintable(QString("at %1 s: detected %2, expected %3")
+                            .arg(time).arg(detector.bpm()).arg(bpm)));
+        QVERIFY2(std::abs(detector.beatPeriodFrames() - rate * 60.0 / bpm)
+                     / (rate * 60.0 / bpm) < 0.02,
+                 qPrintable(QString("at %1 s: beat grid diverged from %2 BPM")
+                            .arg(time).arg(bpm)));
+    }
+}
+
+void BeatTracker_Test::subdivisionsPreserveBeatSpacing_data()
+{
+    QTest::addColumn<double>("bpm");
+    QTest::addColumn<int>("blockFrames");
+    QTest::newRow("110 BPM, 512 frames") << 110.0 << CAPTURE_BLOCK_FRAMES;
+    QTest::newRow("112 BPM, 2048 frames") << 112.0 << REFERENCE_BLOCK_FRAMES;
+}
+
+void BeatTracker_Test::subdivisionsPreserveBeatSpacing()
+{
+    QFETCH(double, bpm);
+    QFETCH(int, blockFrames);
+
+    const double period = 60.0 / bpm;
+    auto audio = makeKickTrack(bpm, 60.0);
+    for (double offbeat = period / 2.0; offbeat < 40.0; offbeat += period)
+        if (offbeat >= 20.0)
+            addKick(audio, int(offbeat * SAMPLE_RATE), 0.8);
+
+    BeatTracker tracker(SAMPLE_RATE, 1);
+    std::vector<double> beatBpms;
+    const auto beats = runTracker(tracker, audio, blockFrames, 1, &beatBpms);
+
+    const double blockSeconds = double(blockFrames) / SAMPLE_RATE;
+    int counts[3] = {};
+    double sums[3] = {};
+    double previous = -1.0;
+    for (size_t i = 0; i < beats.size(); ++i)
+    {
+        const double time = beats[i] * blockSeconds;
+        if (time < 8.0)
+            continue;
+        QVERIFY2(std::abs(beatBpms[i] - bpm) / bpm < 0.02,
+                 qPrintable(QString("at %1 s: emitted %2 BPM, expected %3")
+                            .arg(time).arg(beatBpms[i]).arg(bpm)));
+        if (previous >= 0.0)
+        {
+            const double interval = time - previous;
+            QVERIFY2(interval >= 0.75 * period,
+                     qPrintable(QString("at %1 s: beat interval %2 s, expected %3")
+                                .arg(time).arg(interval).arg(period)));
+            const int phase = int(time / 20.0);
+            if (int(previous / 20.0) == phase)
+            {
+                ++counts[phase];
+                sums[phase] += interval;
+            }
+        }
+        previous = time;
+    }
+    for (int phase = 0; phase < 3; ++phase)
+    {
+        const double seconds = phase == 0 ? 12.0 : 20.0;
+        QVERIFY2(counts[phase] >= int(seconds / period) - 2,
+                 qPrintable(QString("phase %1: only %2 beat intervals")
+                            .arg(phase).arg(counts[phase])));
+        QVERIFY(std::abs(sums[phase] / counts[phase] - period) / period < 0.02);
+    }
+}
+
+void BeatTracker_Test::resetClearsTempoPreference_data()
+{
+    QTest::addColumn<double>("bpm");
+    QTest::newRow("110 to 220 BPM") << 110.0;
+    QTest::newRow("112 to 224 BPM") << 112.0;
+}
+
+void BeatTracker_Test::resetClearsTempoPreference()
+{
+    QFETCH(double, bpm);
+
+    const double rate = double(SAMPLE_RATE) / CAPTURE_BLOCK_FRAMES;
+    AutoBpmDetector detector(rate);
+    for (double onset : makeOnsetTrack(bpm, 20.0))
+        detector.pushOnset(onset);
+    QVERIFY(std::abs(detector.bpm() - bpm) / bpm < 0.02);
+
+    detector.reset();
+    for (double onset : makeOnsetTrack(bpm * 2.0, 20.0))
+        detector.pushOnset(onset);
+    QVERIFY(std::abs(detector.bpm() - bpm * 2.0) / (bpm * 2.0) < 0.02);
+}
+
+void BeatTracker_Test::tempoChangesRemainDetectable_data()
+{
+    QTest::addColumn<double>("initialBpm");
+    QTest::addColumn<double>("newBpm");
+    QTest::newRow("110 to 140 BPM") << 110.0 << 140.0;
+    QTest::newRow("112 to 174 BPM") << 112.0 << 174.0;
+    QTest::newRow("140 to 110 BPM") << 140.0 << 110.0;
+}
+
+void BeatTracker_Test::tempoChangesRemainDetectable()
+{
+    QFETCH(double, initialBpm);
+    QFETCH(double, newBpm);
+
+    const double rate = double(SAMPLE_RATE) / CAPTURE_BLOCK_FRAMES;
+    AutoBpmDetector detector(rate);
+    for (double onset : makeOnsetTrack(initialBpm, 20.0))
+        detector.pushOnset(onset);
+    QVERIFY(std::abs(detector.bpm() - initialBpm) / initialBpm < 0.02);
+
+    const auto onsets = makeOnsetTrack(newBpm, 28.0);
+    for (size_t frame = 0; frame < onsets.size(); ++frame)
+    {
+        detector.pushOnset(onsets[frame]);
+        if (frame < size_t(20.0 * rate))
+            continue;
+        QVERIFY2(std::abs(detector.bpm() - newBpm) / newBpm < 0.02,
+                 qPrintable(QString("detected %1, expected new tempo %2")
+                            .arg(detector.bpm()).arg(newBpm)));
+        QVERIFY(std::abs(detector.beatPeriodFrames() - rate * 60.0 / newBpm)
+                    / (rate * 60.0 / newBpm) < 0.02);
+    }
 }
 
 QTEST_GUILESS_MAIN(BeatTracker_Test)

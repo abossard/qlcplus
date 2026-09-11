@@ -28,6 +28,7 @@
 #include "qlcpalette.h"
 #include "scene.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
 #include "rgbalgorithm.h"
 #include "rgbscriptv4.h"
 #include "rgbtext.h"
@@ -836,16 +837,18 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
     tm.register_tool(Tool(
         "query_rgb_algorithms",
         Json{{"type", "object"}, {"properties", {
+            {"matrixType", {{"type", "string"}, {"enum", {"RGBMatrix", "HUEMatrix"}}, {"description", "Filter by matrix type. Defaults to RGBMatrix (stock algorithms); HUEMatrix offers HSV-contract scripts."}}},
             {"type", {{"type", "string"}, {"enum", {"Script", "Text", "Image", "Audio", "Plain"}}, {"description", "Filter by type: Script, Text, Image, Audio, Plain"}}},
             {"name", {{"type", "string"}, {"description", "Filter by name (substring, case-insensitive)"}}}
         }}},
         Json{},
         [doc](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
-            auto err = validateFields(args, {"type", "name"});
+            auto err = validateFields(args, {"matrixType", "type", "name"});
             if (!err.empty()) return err;
 
             static const Json kEnums = {
+                {"matrixType", {{"enum", {"RGBMatrix", "HUEMatrix"}}}},
                 {"type", {{"enum", {"Script", "Text", "Image", "Audio", "Plain"}}}}
             };
             err = validateEnums(args, kEnums);
@@ -855,12 +858,15 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 ? QString::fromStdString(args.at("type").get<std::string>()) : "";
             QString nameFilter = args.contains("name")
                 ? QString::fromStdString(args.at("name").get<std::string>()).toLower() : "";
+            const bool wantHue = QString::fromStdString(args.value("matrixType", std::string("RGBMatrix")))
+                .compare("HUEMatrix", Qt::CaseInsensitive) == 0;
 
             Json results = Json::array();
-            QStringList algoNames = RGBAlgorithm::algorithms(doc);
+            QStringList algoNames = wantHue ? HUEMatrix::availableAlgorithms(doc) : RGBAlgorithm::algorithms(doc);
             for (const QString &algoName : algoNames)
             {
-                RGBAlgorithm *algo = RGBAlgorithm::algorithm(doc, algoName);
+                RGBAlgorithm *algo = wantHue ? HUEMatrix::createAlgorithm(doc, algoName)
+                                            : RGBAlgorithm::algorithm(doc, algoName);
                 if (!algo) continue;
 
                 std::string typeStr = mcp::rgbAlgorithmTypeToString(algo->type());
@@ -935,6 +941,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::nullopt,
         std::string("List available RGB algorithms (Plain, Script, Text, Image, Audio) with their types, "
                      "accepted color count, audio-reactivity flag, and configurable properties (for scripts). "
+                     "matrixType selects RGBMatrix (default, stock) or HUEMatrix (HSV scripts); type filters algorithm kind. "
                      "Use to discover algorithms before creating RGB matrices. "
                      "Beat durations supported: 1/8, 1/4, 1/2, 1, 2, 3, 4 beats."),
         std::nullopt

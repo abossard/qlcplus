@@ -4,12 +4,25 @@ project(test)
 # They referenced removed AudioSnapshot/AudioChannelConfig/AudioFrame APIs
 # (bands, agc, fftSize, samples, binCount, PerceptualBands, etc.).
 # add_subdirectory(audioframe)
-# add_subdirectory(audioanalyzer)
-# add_subdirectory(audiochannel)
-# add_subdirectory(audioprofile)
 # add_subdirectory(audioslice)
 # add_subdirectory(vcaudiotriggers)
 add_subdirectory(audiocapture)
+foreach(audio_suite audioanalyzer audiochannel audioprofile audioconsumers)
+    add_executable(${audio_suite}_test
+        ${audio_suite}/${audio_suite}_test.cpp
+        ${audio_suite}/${audio_suite}_test.h
+    )
+    target_include_directories(${audio_suite}_test PRIVATE
+        ../src ../audio/src ../../plugins/interfaces
+    )
+    target_link_libraries(${audio_suite}_test PRIVATE
+        qlcplusengine qlcplusaudio Qt${QT_MAJOR_VERSION}::Test Qt${QT_MAJOR_VERSION}::Qml
+    )
+    set_target_properties(${audio_suite}_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/${audio_suite}")
+    add_test(NAME ${audio_suite}_test COMMAND ${audio_suite}_test)
+    set_tests_properties(${audio_suite}_test PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endforeach()
 add_subdirectory(beatquantize)
 add_subdirectory(beattracker)
 add_subdirectory(beattrackerbench)

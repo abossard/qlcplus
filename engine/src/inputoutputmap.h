@@ -22,6 +22,8 @@
 
 #include <QSharedPointer>
 #include <QObject>
+#include <QTimer>
+#include "audioview.h"
 #include <QMutex>
 #include <QDir>
 
@@ -624,6 +626,9 @@ protected slots:
      *  beat signals. */
     void slotProcessBeat(int bpm = 0);
     void slotProcessAubioData(const AubioResults &results, quint32 power);
+    void slotPollAudio();
+    void slotAudioTick();
+    void updateAudioCaptureSubscription();
 
 signals:
     void beatGeneratorTypeChanged();
@@ -631,11 +636,15 @@ signals:
     void beat();
 
 private:
-    BeatGeneratorType m_beatGeneratorType;
+    BeatGeneratorType m_beatGeneratorType = Disabled;
     int m_currentBPM;
     bool m_externalBpmLock = false;     //!< when true, skip timing-derived BPM
     QElapsedTimer *m_beatTime;
-    AudioCapture *m_inputCapture;
+    QSharedPointer<AudioCapture> m_inputCapture;
+    QTimer m_audioPollTimer;
+    AudioEventCursor m_audioBeatCursor;
+    QMutex m_audioBeatMutex;
+    uint64_t m_pendingAudioBeats = 0;
 
     /*********************************************************************
      * Network server

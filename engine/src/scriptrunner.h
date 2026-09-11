@@ -26,6 +26,7 @@
 #include <QMap>
 #include <QSet>
 #include "function.h"
+#include "audioview.h"
 
 class GenericFader;
 class MasterTimer;
@@ -255,13 +256,16 @@ public slots:
     int getAudioLevel();
 
     /**
-     * Get the magnitude of a frequency band from audio input FFT
+     * Get a frequency value from the current published analysis
      *
      * @param bandIndex which band (0 to numBands-1)
-     * @param numBands total number of log-spaced bands (e.g. 3 for bass/mid/high, 16 for detailed)
+     * @param numBands 3 maps lows/mids/highs; other positive counts interpolate the processed full bank
      * @return magnitude scaled to 0-255, or 0 if no audio capture or out of range
      */
     int getAudioFrequency(int bandIndex, int numBands);
+
+    /** Audio API 6, identical to the HUE fifth argument. Event cursor is local to this runner. */
+    QVariantMap getAudioSnapshot();
 
     /**
      * Get this script's own function ID
@@ -308,6 +312,7 @@ protected:
 private:
     /** Common code to check if script is running and if function exists */
     Function* getFunctionIfRunning(quint32 fID) const;
+    AudioRenderView resolveAudio();
 
     /** ScriptRunner function operations enum to handle start/stop/wait commands */
     enum FunctionOperation
@@ -345,6 +350,7 @@ private:
     QMap<quint32, QSharedPointer<GenericFader> > m_fadersMap;
     // Track which band counts we registered with AudioCapture
     QSet<int> m_registeredBands;
+    AudioEventCursor m_audioCursor;
 };
 
 #endif

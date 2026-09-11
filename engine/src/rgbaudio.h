@@ -24,6 +24,7 @@
 #include <QMutex>
 
 #include "rgbalgorithm.h"
+#include "audioview.h"
 
 /** @addtogroup engine_functions Functions
  * @{
@@ -46,21 +47,11 @@ public:
     RGBAlgorithm* clone() const override;
 
 private:
-    void setAudioCapture(AudioCapture* cap);
-
-protected slots:
-    void slotAudioBarsChanged(double *spectrumBands, int size, double maxMagnitude, quint32 power);
-
-private:
     void calculateColors(int barsHeight = 0);
 
 protected:
     AudioCapture *m_audioInput;
-    int m_bandsNumber;
     QMutex m_mutex;
-    QVector<double>m_spectrumValues;
-    double m_maxMagnitude;
-    quint32 m_volumePower;
     QList<uint> m_barColors;
 
     /************************************************************************
@@ -78,6 +69,9 @@ public:
 
     /** @reimp */
     void rgbMap(const QSize& size, uint rgb, int step, RGBMap &map) override;
+    void rgbMapWithAudio(const QSize &size, uint rgb, RGBMap &map, const AudioRenderView &audio);
+    AudioRenderView resolveAudio();
+    bool usesAudio() const override { return true; }
 
     /** @reimp */
     virtual void postRun() override;

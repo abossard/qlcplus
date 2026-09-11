@@ -22,8 +22,10 @@
 
 #include <QStringList>
 #include <functional>
+#include <atomic>
 
 #include "rgbscriptv4.h"
+#include "audioview.h"
 
 class AudioCapture;
 class RGBMatrix;
@@ -73,6 +75,12 @@ public:
     /** @reimp */
     void rgbMap(const QSize &size, uint rgb, int step, RGBMap &map) override;
 
+    /** Commit one render against the caller's resolved publication and clock. */
+    void rgbMapWithAudio(const QSize &size, uint rgb, int step, RGBMap &map,
+                         AudioRenderView audio, const QSize &displaySize = QSize());
+    AudioRenderView resolveAudio();
+    static int pendingAudioRenders() { return s_pendingAudioRenders.load(); }
+
     /** @reimp */
     void rgbMapSetColors(const QVector<uint> &colors) override;
 
@@ -112,7 +120,9 @@ protected:
     void teardownAudioCapture();
 
     /** Build the JS object passed as the 5th rgbMap() argument */
-    QJSValue buildAudioDataObject();
+    QJSValue buildAudioDataObject(AudioRenderView &audio);
+    void renderMap(const QSize &size, uint rgb, int step, RGBMap &map,
+                   AudioRenderView *audio, const QSize &displaySize = QSize());
 
     /**
      * Inject the matrix colour palette as algo.colors (array of {h,s,v}) and
@@ -130,6 +140,8 @@ protected:
     AudioCapture *m_audioInput;
     bool m_audioRegistered;
     bool m_hsvContractValidated;        //! Skip type checks after first frame
+    AudioEventCursor m_audioCursor;
+    static std::atomic<int> s_pendingAudioRenders;
 };
 
 /** @} */

@@ -20,6 +20,10 @@ private slots:
     void palettes_createQueryRoundTrip();
     void palettes_createInvalidTypeReturnsError();
     void queryRgbAlgorithms_invalidTypeReturnsError();
+    void queryRgbAlgorithms_matrixTypeSchema();
+    void queryRgbAlgorithms_matrixType_data();
+    void queryRgbAlgorithms_matrixType();
+    void queryRgbAlgorithms_invalidMatrixTypeReturnsError();
     void queryWorkspaceSummary_returnsExpectedCounts();
     void queryWorkspaceSummary_populatedDoc_returnsExactCounts();
     void queryFixtures_legacyShapeAndFilters();

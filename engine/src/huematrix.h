@@ -25,6 +25,7 @@
 #include <QSize>
 
 #include "rgbmatrix.h"
+#include "audioview.h"
 
 /** @addtogroup engine Engine
  * @{
@@ -41,7 +42,7 @@
  *  - the RGBW and RGBW-brighter control modes
  *  - a pre-resolved pixel plan and async rgbMap pre-computation
  *
- * RGBMatrix itself is kept byte-identical to upstream, so write() is fully
+ * rgbmatrix.cpp is kept byte-identical to upstream, so write() is fully
  * overridden here rather than hooked into the base implementation. Roughly
  * 35 lines of the write() preamble are therefore duplicated by design.
  */
@@ -60,11 +61,11 @@ public:
     /** @reimp */
     QIcon getIcon() const override;
 
-    /**
-     * Names of every algorithm a HUEMatrix can run: the built-in ones, the
-     * upstream RGB scripts and the HSV-contract HUE scripts.
-     */
+    /** Names of the HSV-contract HUE scripts offered as patterns. */
     static QStringList availableAlgorithms(Doc *doc);
+
+    /** Stable stock prefix for saved controls, followed by offered HUE patterns. */
+    static QStringList runtimeAlgorithms(Doc *doc);
 
     /** Instantiate an algorithm by name. Returns NULL when $name is unknown. */
     static RGBAlgorithm *createAlgorithm(Doc *doc, const QString &name);
@@ -101,10 +102,17 @@ public:
     /** Set the algorithm and invalidate the pixel plan / precomputed map */
     void setAlgorithm(RGBAlgorithm *algo) override;
 
+    int algorithmIndex() const override;
+    void setProperty(QString propName, QString value) override;
+
     /** @reimp */
     void previewMap(int step, RGBMatrixStep *handler) override;
 
 protected:
+    void applyPatternAttribute(qreal patternIndex) override;
+    QList<RGBScriptProperty> scriptPropertyAttributes() const override;
+    void applyScriptPropertyAttribute(int attrIndex, qreal value) override;
+
     /** @reimp */
     int algorithmStepsCount() override;
 
@@ -147,13 +155,14 @@ protected:
       * $prevElapsed so the caller can detect the first tick of a step.
       * Returns true if the step actually advanced.
       * Assumes m_algorithmMutex is held. */
-    bool advanceStep(MasterTimer *timer, quint32 &prevElapsed);
+    bool advanceStep(MasterTimer *timer, quint32 &prevElapsed, const AudioRenderView *audio = nullptr);
 
     /** Track the position within the musical bar (m_currentBeat) and latch a
       * new random segment on beat changes. Returns the number of beats per bar
       * to use for the beat transform. No-op when the beat effect is off.
       * Assumes m_algorithmMutex is held. */
-    int updateBeatPhase(MasterTimer *timer);
+    int updateBeatPhase(MasterTimer *timer, const AudioRenderView &audio);
+    AudioEventCursor m_audioClock;
 
     /** Try to move a matching pre-computed frame into m_stepHandler->m_map.
       * A frame only matches if it was produced for the same generation,

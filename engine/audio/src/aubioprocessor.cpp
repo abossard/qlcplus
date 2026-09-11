@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <array>
 #include <QStringList>
 #include <QDebug>
 
@@ -54,7 +55,7 @@ inline double mattMelToHz(double mat)
 // fvec input internally, so we free `freqs` immediately after the call.
 void setMattMelBands(aubio_filterbank_t *fb,
                      double fmin, double fmax,
-                     int nBands, uint32_t sampleRate)
+                     int nBands, uint32_t sampleRate, double *centers = nullptr)
 {
     if (!fb || nBands <= 0)
         return;
@@ -68,6 +69,8 @@ void setMattMelBands(aubio_filterbank_t *fb,
         const double t   = double(i) / double(nBands + 1);
         const double mat = mattMin + (mattMax - mattMin) * t;
         freqs->data[i] = smpl_t(mattMelToHz(mat));
+        if (centers && i > 0 && i <= nBands)
+            centers[i - 1] = std::floor(double(freqs->data[i]));
     }
     aubio_filterbank_set_triangle_bands(fb, freqs, smpl_t(sampleRate));
     del_fvec(freqs);
@@ -106,6 +109,7 @@ AubioProcessor::~AubioProcessor()
 void AubioProcessor::initialize(uint32_t sampleRate)
 {
     release();
+    applyPendingConfig();
     m_sampleRate = sampleRate;
 
     const uint_t win = windowSize();
@@ -144,7 +148,7 @@ void AubioProcessor::initialize(uint32_t sampleRate)
         aubio_pitch_set_tolerance(m_pitch, m_config.pitchTolerance);
     }
 
-    m_notes = new_aubio_notes("default", win, hop, sampleRate);
+    m_notes = m_config.diagnosticsEnabled ? new_aubio_notes("default", win, hop, sampleRate) : nullptr;
     if (m_notes)
     {
         aubio_notes_set_silence(m_notes, smpl_t(m_config.noteSilenceDb));
@@ -165,7 +169,8 @@ void AubioProcessor::initialize(uint32_t sampleRate)
         applyOnsetOverride(m_onsets[i], m_config.onsetOverrides[i]);
     }
 
-    m_mfcc = new_aubio_mfcc(win, AUBIO_MEL_BANDS, AUBIO_MFCC_COEFFS, sampleRate);
+    m_mfcc = m_config.diagnosticsEnabled
+        ? new_aubio_mfcc(win, AUBIO_MEL_BANDS, AUBIO_MFCC_COEFFS, sampleRate) : nullptr;
     if (m_mfcc)
     {
         aubio_mfcc_set_power(m_mfcc, smpl_t(m_config.mfccPower));
@@ -206,30 +211,34 @@ void AubioProcessor::initialize(uint32_t sampleRate)
     // 3 banks are always built — there is no enable toggle.
     {
         auto buildBank = [&](aubio_filterbank_t **fb, fvec_t **out,
-                             const MelBankConfig::Bank &bank)
+                             const MelBankConfig::Bank &bank, double *centers)
         {
             const int n = std::clamp(bank.bands, 1, MelBankConfig::kMaxBandsPerBank);
             *fb = new_aubio_filterbank(uint_t(n), win);
             if (*fb)
             {
                 aubio_filterbank_set_norm(*fb, smpl_t(m_config.filterbankNorm));
-                setMattMelBands(*fb, bank.minHz, bank.maxHz, n, sampleRate);
+                setMattMelBands(*fb, bank.minHz, std::min(bank.maxHz, sampleRate * 0.5),
+                                n, sampleRate, centers);
                 aubio_filterbank_set_power(*fb, smpl_t(m_config.filterbankPower));
             }
             *out = new_fvec(uint_t(n));
         };
-        buildBank(&m_filterbankLow,  &m_melLowOut,  m_config.melBanks.low);
-        buildBank(&m_filterbankMid,  &m_melMidOut,  m_config.melBanks.mid);
-        buildBank(&m_filterbankHigh, &m_melHighOut, m_config.melBanks.high);
+        buildBank(&m_filterbankLow,  &m_melLowOut,  m_config.melBanks.low, m_bankCenters[0]);
+        buildBank(&m_filterbankMid,  &m_melMidOut,  m_config.melBanks.mid, m_bankCenters[1]);
+        buildBank(&m_filterbankHigh, &m_melHighOut, m_config.melBanks.high, m_bankCenters[2]);
     }
 
-    m_descCentroid = new_aubio_specdesc("centroid", win);
-    m_descSpread = new_aubio_specdesc("spread", win);
-    m_descRolloff = new_aubio_specdesc("rolloff", win);
-    m_descFlux = new_aubio_specdesc("specflux", win);
-    m_descHfc = new_aubio_specdesc("hfc", win);
+    if (m_config.diagnosticsEnabled)
+    {
+        m_descCentroid = new_aubio_specdesc("centroid", win);
+        m_descSpread = new_aubio_specdesc("spread", win);
+        m_descRolloff = new_aubio_specdesc("rolloff", win);
+        m_descFlux = new_aubio_specdesc("specflux", win);
+        m_descHfc = new_aubio_specdesc("hfc", win);
+    }
 
-    m_tss = new_aubio_tss(win, hop);
+    m_tss = m_config.diagnosticsEnabled ? new_aubio_tss(win, hop) : nullptr;
     if (m_tss)
     {
         aubio_tss_set_alpha(m_tss, m_config.tssAlpha);
@@ -238,6 +247,7 @@ void AubioProcessor::initialize(uint32_t sampleRate)
     }
 
     m_hopBuffer = new_fvec(hop);
+    m_rawHopBuffer = new_fvec(hop);
     m_fftGrain = new_cvec(win);
     m_onsetOut = new_fvec(1);
     m_tempoOut = new_fvec(2);
@@ -250,21 +260,19 @@ void AubioProcessor::initialize(uint32_t sampleRate)
     m_steadGrain = new_cvec(win);
 
     // Beat phase state — reset only here (and in release()), per RD review.
-    m_beatPeriodS = 0.0;
+    m_beatPeriodS = 2.0;
     m_lastBeatTimeS = 0.0;
     m_processedSamples = 0;
-    m_hopsSinceBeat = 0;
-    m_barBeatCount = -1;
+    m_barBeatCount = 0;
     m_beatsPerBar = std::clamp(m_config.beatsPerBar, 1, 8);
 
     // Required-allocation gate. Optional algorithms (tempo/pitch/notes/onsets/
     // descriptors/mel banks) keep their existing per-call nil guards, but
     // these ones are dereferenced unconditionally in process()/processHop().
     const bool ok =
-        m_pvoc && m_hopBuffer && m_fftGrain &&
+        m_pvoc && m_hopBuffer && m_rawHopBuffer && m_fftGrain &&
         m_filterbank && m_melOut &&
-        m_mfcc && m_mfccOut &&
-        m_descOut && m_tss && m_transGrain && m_steadGrain &&
+        m_mfccOut && m_descOut && m_transGrain && m_steadGrain &&
         m_onsetOut && m_tempoOut && m_pitchOut && m_notesOut;
     if (!ok)
     {
@@ -300,6 +308,7 @@ void AubioProcessor::release()
     if (m_descHfc) { del_aubio_specdesc(m_descHfc); m_descHfc = nullptr; }
 
     if (m_hopBuffer) { del_fvec(m_hopBuffer); m_hopBuffer = nullptr; }
+    if (m_rawHopBuffer) { del_fvec(m_rawHopBuffer); m_rawHopBuffer = nullptr; }
     if (m_fftGrain) { del_cvec(m_fftGrain); m_fftGrain = nullptr; }
     if (m_onsetOut) { del_fvec(m_onsetOut); m_onsetOut = nullptr; }
     if (m_tempoOut) { del_fvec(m_tempoOut); m_tempoOut = nullptr; }
@@ -314,11 +323,10 @@ void AubioProcessor::release()
     if (m_transGrain) { del_cvec(m_transGrain); m_transGrain = nullptr; }
     if (m_steadGrain) { del_cvec(m_steadGrain); m_steadGrain = nullptr; }
 
-    m_beatPeriodS = 0.0;
+    m_beatPeriodS = 2.0;
     m_lastBeatTimeS = 0.0;
     m_processedSamples = 0;
-    m_hopsSinceBeat = 0;
-    m_barBeatCount = -1;
+    m_barBeatCount = 0;
     m_beatsPerBar = 4;
 
     m_initialized = false;
@@ -346,6 +354,7 @@ bool AubioProcessor::needsFullRebuild(const AubioConfig &o, const AubioConfig &n
     if (o.filterbankNorm != n.filterbankNorm) return true;
     if (o.windowType != n.windowType) return true;
     if (o.melScale != n.melScale) return true;
+    if (o.diagnosticsEnabled != n.diagnosticsEnabled) return true;
     // MelBankConfig is baked into the 3 matt_mel filterbanks at init time —
     // any change to enabled / minHz / maxHz / bands per bank requires a full
     // rebuild. Filterbank power is handled in applyParamUpdates().
@@ -454,7 +463,7 @@ void AubioProcessor::applyParamUpdates(const AubioConfig &oldCfg, const AubioCon
 
     m_beatsPerBar = std::clamp(cfg.beatsPerBar, 1, 8);
     if (m_barBeatCount >= m_beatsPerBar)
-        m_barBeatCount = -1;
+        m_barBeatCount = 0;
 }
 
 void AubioProcessor::applyPendingConfig()
@@ -492,67 +501,34 @@ void AubioProcessor::applyPendingConfig()
 
 void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
 {
+    if (!monoSamples || bufferSize < int(hopSize()))
+        return;
+    std::array<float, hopSize()> samples;
+    for (size_t i = 0; i < samples.size(); ++i)
+        samples[i] = monoSamples[i] / 32768.0f;
+    process(samples.data(), int(samples.size()));
+}
+
+void AubioProcessor::process(const float *monoSamples, int bufferSize, bool spectrumEnabled)
+{
     applyPendingConfig();
-
-    if (!m_initialized || !monoSamples || bufferSize <= 0)
+    if (!m_initialized || !monoSamples || bufferSize != int(hopSize()))
         return;
-
-    const int hop = int(hopSize());
-    if (bufferSize < hop)
-        return;
+    for (int i = 0; i < bufferSize; ++i)
+    {
+        if (!std::isfinite(monoSamples[i]))
+            return;
+    }
 
     resetResults();
-
-    // One hop in, one process call out — exactly as aubio's own examples do
-    // (examples/utils.c -> process_func per aubio_source_do). No batching,
-    // no aggregation: aubio's algorithms are stateful and expect to be fed
-    // hop-by-hop.
-    // PCM input: int16 -> float type conversion only, then optional LedFx-style
-    // pre-emphasis below. No gain, no DC removal, no clipping.
-    for (int i = 0; i < hop; i++)
-        m_hopBuffer->data[i] = float(monoSamples[i]) / 32768.0f;
-
-    if (m_config.preEmphasisEnabled && m_preEmphasis)
-        aubio_filter_do(m_preEmphasis, m_hopBuffer);
-
-    processHop();
-
-    if (m_tempo)
+    std::copy_n(monoSamples, hopSize(), m_rawHopBuffer->data);
+    if (spectrumEnabled)
     {
-        m_results.bpm = double(aubio_tempo_get_bpm(m_tempo));
-        m_results.beatConfidence = double(aubio_tempo_get_confidence(m_tempo));
-
-        // BPM decay on silence: once coasting beyond the coast window, decay
-        // BPM exponentially toward the configured target.
-        if (m_beatPeriodS > 0.0 && m_results.bpm > 0.0)
-        {
-            const double coastB = std::max(0.0, m_config.coastBeats);
-            const double hopsPerBeat = m_beatPeriodS * double(m_sampleRate) / double(hopSize());
-            const uint32_t coastHops = uint32_t(coastB * hopsPerBeat);
-
-            if (m_hopsSinceBeat > coastHops && hopsPerBeat > 0.0)
-            {
-                m_wasDecaying = true;
-                const double beatsIntoDecay =
-                    double(m_hopsSinceBeat - coastHops) / hopsPerBeat;
-                const double halfLife = std::max(0.1, m_config.tempoDecayHalfLifeBeats);
-                const double target = std::max(1.0, m_config.tempoDecayTargetBpm);
-                const double factor = std::exp2(-beatsIntoDecay / halfLife);
-                m_results.bpm = target + (m_results.bpm - target) * factor;
-                if (std::abs(m_results.bpm - target) < 0.5)
-                    m_results.bpm = target;
-            }
-        }
-
-        // Resume hold: override aubio's re-locking BPM with the last known
-        // good BPM for ~2 beats so consumers see an instant snap-back.
-        if (m_resumeHopsLeft > 0)
-        {
-            --m_resumeHopsLeft;
-            if (m_lastActiveBpm > 0.0)
-                m_results.bpm = m_lastActiveBpm;
-        }
+        std::copy_n(monoSamples, hopSize(), m_hopBuffer->data);
+        if (m_config.preEmphasisEnabled && m_preEmphasis)
+            aubio_filter_do(m_preEmphasis, m_hopBuffer);
     }
+    processHop(spectrumEnabled);
 
 #ifdef AUDIO_DEBUG
     static int _aubioDbg = 0;
@@ -609,15 +585,31 @@ void AubioProcessor::process(const int16_t *monoSamples, int bufferSize)
 #endif
 }
 
-void AubioProcessor::processHop()
+void AubioProcessor::processHop(bool spectrumEnabled)
 {
-    // 1. Phase vocoder → spectral frame
-    if (!m_pvoc)
-        return;
-    aubio_pvoc_do(m_pvoc, m_hopBuffer, m_fftGrain);
+    m_results.melLowCount = m_melLowOut ? int(m_melLowOut->length) : 0;
+    m_results.melMidCount = m_melMidOut ? int(m_melMidOut->length) : 0;
+    m_results.melHighCount = m_melHighOut ? int(m_melHighOut->length) : 0;
+    std::copy_n(m_bankCenters[0], AUBIO_MELBANK_MAX, m_results.melLowCenters);
+    std::copy_n(m_bankCenters[1], AUBIO_MELBANK_MAX, m_results.melMidCenters);
+    std::copy_n(m_bankCenters[2], AUBIO_MELBANK_MAX, m_results.melHighCenters);
+    if (spectrumEnabled)
+    {
+        aubio_pvoc_do(m_pvoc, m_hopBuffer, m_fftGrain);
+    }
+    if (m_config.diagnosticsEnabled)
+    {
+        m_results.preEmphasis.resize(hopSize(), 0.0);
+        m_results.spectrum.resize(windowSize() / 2 + 1, 0.0);
+        if (spectrumEnabled)
+        {
+            std::copy_n(m_hopBuffer->data, hopSize(), m_results.preEmphasis.begin());
+            std::copy_n(m_fftGrain->norm, m_fftGrain->length, m_results.spectrum.begin());
+        }
+    }
 
     // 2. Mel filterbank
-    if (m_filterbank)
+    if (spectrumEnabled && m_filterbank)
     {
         aubio_filterbank_do(m_filterbank, m_fftGrain, m_melOut);
         for (int i = 0; i < AUBIO_MEL_BANDS; i++)
@@ -637,6 +629,8 @@ void AubioProcessor::processHop()
             count = 0;
             return;
         }
+        if (!spectrumEnabled)
+            return;
         aubio_filterbank_do(fb, m_fftGrain, out);
         const int n = std::min<int>(int(out->length), AUBIO_MELBANK_MAX);
         for (int i = 0; i < n; ++i)
@@ -651,7 +645,7 @@ void AubioProcessor::processHop()
             m_results.melHigh, m_results.melHighCount);
 
     // 3. MFCC
-    if (m_mfcc)
+    if (spectrumEnabled && m_mfcc)
     {
         aubio_mfcc_do(m_mfcc, m_fftGrain, m_mfccOut);
         for (int i = 0; i < AUBIO_MFCC_COEFFS; i++)
@@ -659,27 +653,27 @@ void AubioProcessor::processHop()
     }
 
     // 4. Spectral descriptors
-    if (m_descCentroid)
+    if (spectrumEnabled && m_descCentroid)
     {
         aubio_specdesc_do(m_descCentroid, m_fftGrain, m_descOut);
         m_results.centroidHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
     }
-    if (m_descSpread)
+    if (spectrumEnabled && m_descSpread)
     {
         aubio_specdesc_do(m_descSpread, m_fftGrain, m_descOut);
         m_results.spread = double(m_descOut->data[0]);
     }
-    if (m_descRolloff)
+    if (spectrumEnabled && m_descRolloff)
     {
         aubio_specdesc_do(m_descRolloff, m_fftGrain, m_descOut);
         m_results.rolloffHz = aubio_bintofreq(double(m_descOut->data[0]), m_sampleRate, windowSize());
     }
-    if (m_descFlux)
+    if (spectrumEnabled && m_descFlux)
     {
         aubio_specdesc_do(m_descFlux, m_fftGrain, m_descOut);
         m_results.flux = double(m_descOut->data[0]);
     }
-    if (m_descHfc)
+    if (spectrumEnabled && m_descHfc)
     {
         aubio_specdesc_do(m_descHfc, m_fftGrain, m_descOut);
         m_results.hfc = double(m_descOut->data[0]);
@@ -688,86 +682,45 @@ void AubioProcessor::processHop()
     // 5. Tempo / beat
     if (m_tempo)
     {
-        aubio_tempo_do(m_tempo, m_hopBuffer, m_tempoOut);
+        aubio_tempo_do(m_tempo, m_rawHopBuffer, m_tempoOut);
         m_results.beat = (m_tempoOut->data[0] != 0.0f);
         m_results.tatum = aubio_tempo_was_tatum(m_tempo);
-
-        // --- Beat phase (LedFx-style 0→1 ramp synced to BPM) ---
-        // Use the processed-sample counter as our stream clock; aubio reports
-        // beat timestamps in the same stream-time domain via get_last_s().
-        const double currentTimeS =
-            double(m_processedSamples) / double(m_sampleRate);
+        m_results.bpm = double(aubio_tempo_get_bpm(m_tempo));
+        m_results.beatConfidence = double(aubio_tempo_get_confidence(m_tempo));
+        const double currentTimeS = double(m_processedSamples + hopSize()) / double(m_sampleRate);
 
         if (m_results.beat)
         {
             m_beatPeriodS  = double(aubio_tempo_get_period_s(m_tempo));
-            m_lastBeatTimeS = double(aubio_tempo_get_last_s(m_tempo));
-            m_hopsSinceBeat = 0;
-            m_decayPhaseAccum = 0.0;
+            m_lastBeatTimeS = currentTimeS;
             m_barBeatCount = (m_barBeatCount + 1) % std::max(1, m_beatsPerBar);
-
-            // On resume after decay: hold last active BPM for ~2 beats
-            // while aubio re-locks to the new tempo.
-            if (m_wasDecaying)
-            {
-                const double hopsPerBeat = m_beatPeriodS > 0.0
-                    ? m_beatPeriodS * double(m_sampleRate) / double(hopSize()) : 0.0;
-                m_resumeHopsLeft = int(2.0 * hopsPerBeat);
-                m_wasDecaying = false;
-            }
-
-            // Track last known good BPM during active playback
-            if (m_results.bpm > 0.0 && m_resumeHopsLeft <= 0)
-                m_lastActiveBpm = m_results.bpm;
+            m_results.barWrap = m_barBeatCount == 0;
         }
-        else
+        m_results.tempoValid = m_results.bpm > 0.0;
+        if (m_beatPeriodS > 0.0)
         {
-            ++m_hopsSinceBeat;
-        }
-
-        // Phase coast and decay: advance beatPhase using the last known period
-        // during coast, then slow it down using decayed period during BPM decay.
-        // m_beatPeriodS is only updated on real beats, so it reflects the
-        // pre-silence tempo — that's intentional.
-        const double coastB = std::max(0.0, m_config.coastBeats);
-        const uint32_t coastHopLimit =
-            (m_beatPeriodS > 0.0)
-                ? uint32_t(coastB * m_beatPeriodS * double(m_sampleRate) / double(hopSize()))
-                : 0u;
-
-        if (m_beatPeriodS > 0.0 && m_hopsSinceBeat <= coastHopLimit)
-        {
-            // Within coast window: phase advances at original tempo
-            const double elapsed = currentTimeS - m_lastBeatTimeS;
-            const double phase = elapsed / m_beatPeriodS;
+            const double phase = (currentTimeS - m_lastBeatTimeS) / m_beatPeriodS;
             m_results.beatPhase = phase - std::floor(phase);
+            m_results.barPhase = std::fmod(m_barBeatCount + phase, double(m_beatsPerBar));
+            m_results.beatInBar = int(std::floor(m_results.barPhase));
         }
-        else if (m_results.bpm > 0.0)
-        {
-            // Past coast window but BPM still decaying: advance phase at
-            // decayed rate using hop duration as time step
-            const double decayedPeriodS = 60.0 / m_results.bpm;
-            const double hopDurationS = double(hopSize()) / double(m_sampleRate);
-            m_decayPhaseAccum += hopDurationS / decayedPeriodS;
-            if (m_decayPhaseAccum >= 1.0)
-            {
-                m_decayPhaseAccum -= 1.0;
-                m_barBeatCount = (m_barBeatCount + 1) % std::max(1, m_beatsPerBar);
-            }
-            m_results.beatPhase = m_decayPhaseAccum;
-        }
-        else
-        {
-            m_results.beatPhase = 0.0;
-        }
-        m_results.barPhase = double(m_barBeatCount) + m_results.beatPhase;
     }
 
     // 6. Pitch
     if (m_pitch)
     {
-        aubio_pitch_do(m_pitch, m_hopBuffer, m_pitchOut);
-        m_results.pitchHz = double(m_pitchOut->data[0]);
+        aubio_pitch_do(m_pitch, m_rawHopBuffer, m_pitchOut);
+        m_results.pitchValue = double(m_pitchOut->data[0]);
+        m_results.pitchHz = m_results.pitchValue;
+        if (m_results.pitchValue > 0.0)
+        {
+            if (m_config.pitchUnit == QStringLiteral("midi"))
+                m_results.pitchHz = aubio_miditofreq(m_results.pitchValue);
+            else if (m_config.pitchUnit == QStringLiteral("cent"))
+                m_results.pitchHz = aubio_miditofreq(m_results.pitchValue / 100.0);
+            else if (m_config.pitchUnit == QStringLiteral("bin"))
+                m_results.pitchHz = aubio_bintofreq(m_results.pitchValue, m_sampleRate, windowSize());
+        }
         m_results.pitchConfidence = double(aubio_pitch_get_confidence(m_pitch));
     }
 
@@ -777,7 +730,7 @@ void AubioProcessor::processHop()
     {
         if (!m_onsets[i])
             continue;
-        aubio_onset_do(m_onsets[i], m_hopBuffer, m_onsetOut);
+        aubio_onset_do(m_onsets[i], m_rawHopBuffer, m_onsetOut);
         const bool fired = (m_onsetOut->data[0] != 0.0f);
         switch (i) {
         case 0: m_results.onsets.energy = fired; break;
@@ -798,7 +751,7 @@ void AubioProcessor::processHop()
     // 8. Notes
     if (m_notes)
     {
-        aubio_notes_do(m_notes, m_hopBuffer, m_notesOut);
+        aubio_notes_do(m_notes, m_rawHopBuffer, m_notesOut);
         const bool noteOnHop = (m_notesOut->data[0] != 0.0f);
         m_results.noteOn = noteOnHop;
         if (noteOnHop)
@@ -812,7 +765,7 @@ void AubioProcessor::processHop()
     // 9. TSS (transient/steady split). aubio's per-bin cvec norms passed
     // straight through. Bin i maps to aubio_bintofreq(i, sampleRate, winSize);
     // consumers do their own derivations.
-    if (m_tss)
+    if (spectrumEnabled && m_tss)
     {
         aubio_tss_do(m_tss, m_fftGrain, m_transGrain, m_steadGrain);
         const int binCount = std::min<int>(int(m_transGrain->length),
@@ -832,6 +785,19 @@ void AubioProcessor::processHop()
 void AubioProcessor::resetResults()
 {
     m_results = AubioResults{};
+}
+
+std::vector<std::vector<double>> AubioProcessor::bankCoefficients(int bank) const
+{
+    const aubio_filterbank_t *banks[] = {m_filterbankLow, m_filterbankMid, m_filterbankHigh};
+    if (bank < 0 || bank >= 3 || !banks[bank])
+        return {};
+    const fmat_t *coefficients = aubio_filterbank_get_coeffs(banks[bank]);
+    std::vector<std::vector<double>> result;
+    result.reserve(coefficients->height);
+    for (uint_t row = 0; row < coefficients->height; ++row)
+        result.emplace_back(coefficients->data[row], coefficients->data[row] + coefficients->length);
+    return result;
 }
 
 OnsetMethodOverride readAubioOnsetDefaults(int methodIndex, uint32_t sampleRate)

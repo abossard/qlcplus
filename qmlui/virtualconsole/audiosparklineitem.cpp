@@ -204,8 +204,7 @@ void AudioSparklineItem::resetHistory()
     m_nextWrite   = 0;
     m_paintTo     = 0;
     m_sampleCount = 0;
-    m_prevBeat    = false;
-    m_prevKick    = false;
+    m_cursorReady = false;
     m_needsFullRepaint = true;
     update();
 }
@@ -302,6 +301,32 @@ void AudioSparklineItem::onSnapshot()
 {
     if (!m_source || m_capacity <= 0) return;
 
+    if (!m_source->analysisAvailable())
+    {
+        resetHistory();
+        return;
+    }
+
+    const quint64 epoch = m_source->sourceEpoch();
+    const quint32 profileId = m_source->resolvedProfileId();
+    const quint64 frame = m_source->frameSequence();
+    const quint64 beats = m_source->beatCount();
+    const quint64 kicks = m_source->kickCount();
+    const bool reset = !m_cursorReady || m_epoch != epoch || m_profileId != profileId || frame < m_frame
+                       || beats < m_beats || kicks < m_kicks;
+    if (!reset && frame == m_frame)
+        return;
+    if (reset)
+        resetHistory();
+    const bool beatEdge = !reset && beats > m_beats;
+    const bool kickEdge = !reset && kicks > m_kicks;
+    m_cursorReady = true;
+    m_epoch = epoch;
+    m_profileId = profileId;
+    m_frame = frame;
+    m_beats = beats;
+    m_kicks = kicks;
+
     const int pos = m_nextWrite;
 
     // Channels 0..8 — onset descriptor display values (0..1).
@@ -325,13 +350,9 @@ void AudioSparklineItem::onSnapshot()
     m_history[size_t(15) * size_t(m_capacity) + size_t(pos)] = clamp01(m_source->tssSteadyLevel());
 
     // Beat / kick edge-triggered storage
-    const bool bNow = m_source->beatActive();
-    const bool kNow = m_source->kickFired();
-    m_beatHistory[pos] = (bNow && !m_prevBeat) ? 1 : 0;
+    m_beatHistory[pos] = beatEdge ? 1 : 0;
     double kv = clamp01(m_source->kickValue());
-    m_kickHistory[pos] = (kNow && !m_prevKick) ? uint8_t(std::lround(255.0 * kv)) : 0;
-    m_prevBeat = bNow;
-    m_prevKick = kNow;
+    m_kickHistory[pos] = kickEdge ? uint8_t(std::lround(255.0 * kv)) : 0;
 
     m_nextWrite = (pos + 1) % m_capacity;
     if (m_sampleCount < m_capacity) ++m_sampleCount;

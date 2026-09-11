@@ -3,6 +3,7 @@
 #include "audiochannelconfig.h"  // for kMaxMelBands
 
 #include <cstdint>
+#include <vector>
 #include <QMetaType>
 
 static constexpr int AUBIO_MEL_BANDS = 40;
@@ -37,6 +38,12 @@ struct AubioResults
     int    melLowCount  = 0;
     int    melMidCount  = 0;
     int    melHighCount = 0;
+    double melLowCenters[AUBIO_MELBANK_MAX] = {};
+    double melMidCenters[AUBIO_MELBANK_MAX] = {};
+    double melHighCenters[AUBIO_MELBANK_MAX] = {};
+    // Populated only for an explicitly requested diagnostic frame.
+    std::vector<double> preEmphasis;
+    std::vector<double> spectrum;
 
     // MFCC — last hop, raw aubio_mfcc_do output.
     double mfcc[AUBIO_MFCC_COEFFS] = {};
@@ -50,6 +57,7 @@ struct AubioResults
 
     // Pitch — last hop, raw aubio_pitch_do output.
     double pitchHz = 0.0;
+    double pitchValue = 0.0;
     double pitchConfidence = 0.0;
 
     // Tempo / beat — raw aubio_tempo_get_*() output.
@@ -59,6 +67,9 @@ struct AubioResults
     bool tatum = false;
     double beatPhase = 0.0;  // 0→1 sawtooth ramp synced to BPM (computed in AubioProcessor).
     double barPhase = 0.0;   // 0→beatsPerBar ramp: beat index in bar + beatPhase.
+    int beatInBar = 0;
+    bool tempoValid = false;
+    bool barWrap = false;
 
     // Onset detection (9 methods) — last hop, raw aubio_onset_do output.
     // OR-aggregated across all hops in a process() pass: if any hop fires the
@@ -90,7 +101,7 @@ struct AubioResults
     // Transient/Steady separation — raw aubio_tss_do cvec norm arrays from the
     // last hop. Sized win/2+1; `tssBinCount` reports how many entries are
     // valid. Frequency of bin i = aubio_bintofreq(i, sampleRate, winSize).
-    static constexpr int kMaxTssBins = 1025; // covers up to win=2048
+    static constexpr int kMaxTssBins = 2049;
     double tssTransientNorm[kMaxTssBins] = {};
     double tssSteadyNorm[kMaxTssBins] = {};
     int tssBinCount = 0;

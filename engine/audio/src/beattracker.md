@@ -88,7 +88,16 @@ testable) over an 8 s window of the onset stream:
    score bonus were both tried and rejected on measurements: the prior
    systematically halves everything ≥ 190 BPM, the bonus locks in early
    wrong estimates.)
-6. **Reporting**: `bpm()` returns the median of the last 3 analyses,
+6. **Established meter**: after three estimates agree within 0.06 octaves
+   and confidence is at least 0.15, a proposed 2x/3x change in either
+   direction must compete with the strongest candidate within 2 BPM of
+   the previous estimate. Keep that nearby candidate if its comb score
+   remains at least 0.15 and at least 0.90 of the proposed score. This
+   comparison follows the octave walk, so it also catches metrical jumps
+   originating in the belief filter. The selected tempo drives both the
+   reported BPM and the beat grid. Unrelated tempo changes and acquisition
+   without stable history retain the existing selection behavior.
+7. **Reporting**: `bpm()` returns the median of the last 3 analyses,
    gated on comb confidence ≥ 0.15 (real music scores ~0.2–0.5,
    aperiodic noise stays well under 0.1 — silence and noise never
    report).
@@ -113,9 +122,13 @@ onsets — is what makes the beat output steady on syncopated material.
 - **Re-lock after a live tempo change**: ~12–16 s. This is the deliberate
   price of the belief filter + median-of-3 stability (without them,
   single-analysis errors flap the reported BPM).
-- **Known limit**: material genuinely dominated by 8th-note energy can
-  read an octave up — this is evidence-driven (the subdivision really
-  does carry the energy), not a systematic bias.
+- **Subdivisions**: adding strong eighth-note energy preserves an
+  established quarter-note tempo while that tempo retains comparable
+  evidence. Initial acquisition can still choose a different metrical
+  level on ambiguous material.
+- **Known limit**: equally spaced faster pulses cannot establish whether
+  the intended tempo doubled or subdivisions appeared. A supported
+  established meter wins that ambiguity. Reset clears this preference.
 - **Silence**: onset stream goes to zero, confidence collapses below the
   gate, no beats are emitted and no BPM is reported.
 - **Format**: any sample rate (all time constants derive from it) and
@@ -123,10 +136,11 @@ onsets — is what makes the beat output steady on syncopated material.
 
 ## Validation
 
-- The C++ port was verified hop-for-hop against the Python reference:
+- The original C++ port, before the established-meter preference, was
+  verified hop-for-hop against the Python reference:
   identical gated BPM decisions on every hop, onset values matching to
   ~1e-7 (float32 rounding).
-- Synthetic audio suite (8 scenarios × 8 tempi, 50–240 BPM: four-on-floor,
+- Historical synthetic audio suite (8 scenarios × 8 tempi, 50–240 BPM: four-on-floor,
   8th hats, kick/snare backbeat, 8th-note bassline, swung hats, ±3% drift,
   2.5 s dropout, +30% tempo step; rendered percussion as int16 PCM):
   **64/64 correct** (4% tolerance). When it was selected, faithful ports of
@@ -144,9 +158,14 @@ onsets — is what makes the beat output steady on syncopated material.
 - Issue #1881's reference video (a 100 BPM metronome): reads 100.00 BPM
   with 0.600 s beat intervals; a 140 BPM rock drum-track video reads
   139.75. Both confirmed in a live microphone test.
-- Unit test: `engine/test/beattracker` (tempo accuracy at
-  90/120/140/174 BPM, beat spacing regularity, silence gating,
-  stereo/mono equivalence).
+- Unit test: `engine/test/beattracker` covers tempo accuracy at
+  90/120/140/174/220 BPM, beat spacing regularity, silence gating,
+  stereo/mono equivalence, subdivision appearance/removal at 110/112 BPM,
+  beat-grid stability, fast acquisition after reset, and sustained
+  non-octave tempo changes.
+- The established-meter change passes the existing quick percussion
+  benchmark (16/16). Historical full-suite and real-song figures above
+  have not been remeasured for that change.
 
 The benchmark harness (including the Python ports of the existing QLC+
 trackers used for the head-to-head numbers) is part of varghele's

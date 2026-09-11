@@ -39,91 +39,164 @@ bool isConvertibleSampleFormat(QAudioFormat::SampleFormat format)
     return format == QAudioFormat::Int16 || format == QAudioFormat::Float;
 }
 
+class QtInputBackend final : public AudioCaptureQt6::InputBackend
+{
+public:
+    QList<AudioCaptureQt6::Device> devices() const override
+    {
+        QList<AudioCaptureQt6::Device> result;
+        for (const QAudioDevice &device : QMediaDevices::audioInputs())
+            result.append({device.id(), device.description(), device.isDefault()});
+        return result;
+    }
+
+    QIODevice *open(const QByteArray &id, int rate, int channels, QAudioFormat &format) override
+    {
+        for (const QAudioDevice &device : QMediaDevices::audioInputs())
+        {
+            if (device.id() != id)
+                continue;
+            format = AudioCaptureQt6::selectCaptureFormat(device, rate, channels);
+            if (!format.isValid())
+                return nullptr;
+            m_source = std::make_unique<QAudioSource>(device, format);
+            QIODevice *input = m_source->start();
+            if (!input || m_source->state() == QAudio::StoppedState)
+            {
+                close();
+                return nullptr;
+            }
+            return input;
+        }
+        return nullptr;
+    }
+
+    bool failed() const override
+    {
+        return !m_source || m_source->error() != QAudio::NoError
+            || m_source->state() == QAudio::StoppedState;
+    }
+    void close() override
+    {
+        if (m_source)
+            m_source->stop();
+        m_source.reset();
+    }
+    void setVolume(qreal volume) override
+    {
+        if (m_source)
+            m_source->setVolume(volume);
+    }
+
+private:
+    std::unique_ptr<QAudioSource> m_source;
+};
+
+template<typename Sample>
+bool readBlock(QIODevice *input, QByteArray &pending, const QAudioFormat &format,
+               int sampleCount, Sample *output)
+{
+    if (!input || !output || !format.isValid() || sampleCount <= 0
+        || format.channelCount() <= 0 || sampleCount % format.channelCount() != 0
+        || !isConvertibleSampleFormat(format.sampleFormat())
+        || sampleCount > std::numeric_limits<int>::max() / format.bytesPerSample())
+        return false;
+
+    const int requiredBytes = sampleCount * format.bytesPerSample();
+    if (pending.size() < requiredBytes)
+        pending.append(input->read(requiredBytes - pending.size()));
+    if (pending.size() < requiredBytes)
+        return false;
+    const bool valid = AudioCaptureQt6::convertSamples(
+        QByteArrayView(pending.constData(), requiredBytes), format, sampleCount, output);
+    pending.remove(0, requiredBytes);
+    return valid;
+}
+
 }
 
 AudioCaptureQt6::AudioCaptureQt6(QObject * parent)
+    : AudioCaptureQt6(std::make_unique<QtInputBackend>(), parent)
+{
+    auto *devices = new QMediaDevices(this);
+    connect(devices, &QMediaDevices::audioInputsChanged, this, &AudioCapture::restart);
+}
+
+AudioCaptureQt6::AudioCaptureQt6(std::unique_ptr<InputBackend> backend, QObject *parent)
     : AudioCapture(parent)
-    , m_audioSource(NULL)
-    , m_input(NULL)
+    , m_backend(std::move(backend))
 {
 }
 
 AudioCaptureQt6::~AudioCaptureQt6()
 {
     stop();
-    Q_ASSERT(m_audioSource == NULL);
+    Q_ASSERT(m_input == nullptr);
 }
 
 bool AudioCaptureQt6::initialize()
 {
     QSettings settings;
-    QString devName = "";
-    QAudioDevice audioDevice = QMediaDevices::defaultAudioInput();
-
-    QVariant var = settings.value(SETTINGS_AUDIO_INPUT_DEVICE);
-    if (var.isValid() == true)
+    QString selection;
     {
-        devName = var.toString();
-        foreach (const QAudioDevice &deviceInfo, QMediaDevices::audioInputs())
+        QMutexLocker locker(&m_mutex);
+        if (!m_selectionOverride)
+            m_selection = settings.value(SETTINGS_AUDIO_INPUT_DEVICE).toString();
+        selection = m_selection;
+    }
+    const QList<Device> devices = m_backend->devices();
+    Device selected;
+    for (const Device &device : devices)
+    {
+        const bool match = selection.isEmpty() ? device.isDefault
+            : selection.startsWith(QStringLiteral("id:"))
+                ? device.id == QByteArray::fromBase64(selection.mid(3).toLatin1())
+                : device.description == selection;
+        if (match)
         {
-            if (deviceInfo.description() == devName)
-            {
-                audioDevice = deviceInfo;
-                break;
-            }
+            selected = device;
+            break;
         }
     }
-
-    QAudioFormat requestedFormat;
-    requestedFormat.setSampleRate(m_sampleRate);
-    requestedFormat.setChannelCount(m_channels);
-    requestedFormat.setSampleFormat(QAudioFormat::Int16);
-    m_format = selectCaptureFormat(audioDevice, m_sampleRate, m_channels);
-    if (!m_format.isValid())
+    if (selected.id.isEmpty())
     {
-        qWarning() << "No supported audio capture format for device"
-                   << audioDevice.description();
+        setStatus(Unavailable, selection.isEmpty() ? QStringLiteral("No default audio input")
+                  : QStringLiteral("Selected input is unavailable: ") + selection);
         return false;
     }
-    if (m_format != requestedFormat)
-        qWarning() << "Requested format not supported - using" << m_format;
-
-    m_channels = m_format.channelCount();
-    m_sampleRate = m_format.sampleRate();
-
-    Q_ASSERT(m_audioSource == NULL);
-
-    m_audioSource = new QAudioSource(audioDevice, m_format);
-
-    if (m_audioSource == NULL)
+    QAudioFormat format;
+    m_input = m_backend->open(selected.id,
+        settings.value(SETTINGS_AUDIO_INPUT_SRATE, AUDIO_DEFAULT_SAMPLE_RATE).toInt(),
+        settings.value(SETTINGS_AUDIO_INPUT_CHANNELS, AUDIO_DEFAULT_CHANNELS).toInt(), format);
+    if (!m_input || !format.isValid() || !isConvertibleSampleFormat(format.sampleFormat()))
     {
-        qWarning() << "Cannot open audio input stream from device" << audioDevice.description();
+        m_backend->close();
+        m_input = nullptr;
+        setStatus(Error, QStringLiteral("Cannot open supported PCM on ") + selected.description);
         return false;
     }
-
-    m_input = m_audioSource->start();
-
-    if (m_audioSource->state() == QAudio::StoppedState)
     {
-        qWarning() << "Could not start input capture on device" << audioDevice.description();
-        delete m_audioSource;
-        m_audioSource = NULL;
-        m_input = NULL;
-        return false;
+        QMutexLocker locker(&m_mutex);
+        m_format = format;
+        m_appliedDevice = QStringLiteral("id:") + QString::fromLatin1(selected.id.toBase64());
     }
-
+    m_channels = format.channelCount();
+    m_sampleRate = format.sampleRate();
+    m_floatInput = true;
+    m_appliedVolume = m_volume;
+    m_backend->setVolume(m_appliedVolume);
     m_currentReadBuffer.clear();
-
     return true;
 }
 
 void AudioCaptureQt6::uninitialize()
 {
-    Q_ASSERT(m_audioSource != NULL);
-
-    m_audioSource->stop();
-    delete m_audioSource;
-    m_audioSource = NULL;
+    m_backend->close();
+    m_input = nullptr;
+    m_currentReadBuffer.clear();
+    QMutexLocker locker(&m_mutex);
+    m_appliedDevice.clear();
+    m_format = {};
 }
 
 qint64 AudioCaptureQt6::latency() const
@@ -133,14 +206,39 @@ qint64 AudioCaptureQt6::latency() const
 
 void AudioCaptureQt6::setVolume(qreal volume)
 {
-    if (volume == m_volume)
+    if (!std::isfinite(volume))
         return;
-
-    m_volume = volume;
-    if (m_audioSource != NULL)
-        m_audioSource->setVolume(volume);
+    m_volume = std::clamp(volume, 0.0, 1.0);
 
     emit volumeChanged(volume * 100.0);
+}
+
+void AudioCaptureQt6::setInputDevice(const QString &selection)
+{
+    {
+        QMutexLocker locker(&m_mutex);
+        m_selection = selection;
+        m_selectionOverride = true;
+    }
+    restart();
+}
+
+QString AudioCaptureQt6::inputDevice() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_selection;
+}
+
+QString AudioCaptureQt6::appliedDevice() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_appliedDevice;
+}
+
+QAudioFormat AudioCaptureQt6::captureFormat() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_format;
 }
 
 void AudioCaptureQt6::suspend()
@@ -153,11 +251,29 @@ void AudioCaptureQt6::resume()
 
 bool AudioCaptureQt6::readAudio(int maxSize)
 {
-    if (m_audioSource == NULL || m_input == NULL)
+    if (!m_input)
         return false;
+    if (m_appliedVolume != m_volume)
+    {
+        m_appliedVolume = m_volume;
+        m_backend->setVolume(m_appliedVolume);
+    }
+    const int bytesPerFrame = m_format.bytesPerFrame();
+    const int maximumBytes = maxSize * m_format.bytesPerSample();
+    m_currentReadBuffer.append(m_input->read(maximumBytes - m_currentReadBuffer.size()));
+    m_readFrames = unsigned(m_currentReadBuffer.size() / bytesPerFrame);
+    if (!m_readFrames)
+        return false;
+    const int completeBytes = int(m_readFrames) * bytesPerFrame;
+    const bool valid = convertSamples(QByteArrayView(m_currentReadBuffer.constData(), completeBytes),
+                                     m_format, int(m_readFrames * m_channels), m_floatBuffer.data());
+    m_currentReadBuffer.remove(0, completeBytes);
+    return valid;
+}
 
-    return readConvertedSamples(m_input, m_currentReadBuffer, m_format,
-                                maxSize, m_audioBuffer);
+bool AudioCaptureQt6::sourceFailed() const
+{
+    return m_backend->failed();
 }
 
 QAudioFormat AudioCaptureQt6::selectCaptureFormat(const QAudioDevice &device,
@@ -180,7 +296,8 @@ QAudioFormat AudioCaptureQt6::selectCaptureFormat(const QAudioDevice &device,
     if (device.isFormatSupported(preferredInt16))
         return preferredInt16;
 
-    if (preferred.isValid() && isConvertibleSampleFormat(preferred.sampleFormat()))
+    if (preferred.isValid() && isConvertibleSampleFormat(preferred.sampleFormat())
+        && device.isFormatSupported(preferred))
         return preferred;
 
     return {};
@@ -235,29 +352,48 @@ bool AudioCaptureQt6::readConvertedSamples(QIODevice *input,
                                            int sampleCount,
                                            int16_t *output)
 {
-    if (input == nullptr || output == nullptr || !format.isValid()
-        || sampleCount <= 0 || format.channelCount() <= 0
-        || sampleCount % format.channelCount() != 0
-        || !isConvertibleSampleFormat(format.sampleFormat()))
+    return readBlock(input, pending, format, sampleCount, output);
+}
+
+bool AudioCaptureQt6::convertSamples(QByteArrayView input, const QAudioFormat &format,
+                                     int sampleCount, float *output)
+{
+    if (!output || !format.isValid() || sampleCount <= 0
+        || !isConvertibleSampleFormat(format.sampleFormat())
+        || qint64(sampleCount) * format.bytesPerSample() != input.size())
+        return false;
+    if (format.sampleFormat() == QAudioFormat::Float)
     {
-        return false;
+        // Validate the complete block before touching the destination.
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            float value;
+            std::memcpy(&value, input.data() + size_t(i) * sizeof(float), sizeof(value));
+            if (!std::isfinite(value))
+                return false;
+        }
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            float value;
+            std::memcpy(&value, input.data() + size_t(i) * sizeof(float), sizeof(value));
+            output[i] = std::clamp(value, -1.0f, 1.0f);
+        }
     }
-
-    const int frames = sampleCount / format.channelCount();
-    const int requiredBytes = format.bytesForFrames(frames);
-    if (requiredBytes <= 0
-        || qint64(requiredBytes)
-            != qint64(sampleCount) * format.bytesPerSample())
+    else
     {
-        return false;
+        for (int i = 0; i < sampleCount; ++i)
+        {
+            int16_t value;
+            std::memcpy(&value, input.data() + size_t(i) * sizeof(int16_t), sizeof(value));
+            output[i] = float(value) / 32768.0f;
+        }
     }
+    return true;
+}
 
-    pending.append(input->readAll());
-    if (pending.size() < requiredBytes)
-        return false;
-
-    const QByteArrayView block(pending.constData(), requiredBytes);
-    const bool converted = convertSamples(block, format, sampleCount, output);
-    pending.remove(0, requiredBytes);
-    return converted;
+bool AudioCaptureQt6::readConvertedSamples(QIODevice *input, QByteArray &pending,
+                                           const QAudioFormat &format, int sampleCount,
+                                           float *output)
+{
+    return readBlock(input, pending, format, sampleCount, output);
 }

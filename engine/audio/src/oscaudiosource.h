@@ -23,6 +23,8 @@
 
 #include <QHostAddress>
 #include <QObject>
+#include <QElapsedTimer>
+#include <QVector>
 
 #include <atomic>
 
@@ -125,6 +127,9 @@ public:
 
     void setTargetChannel(AudioChannel *channel);
     AudioChannel *targetChannel() const;
+    void addTargetChannel(AudioChannel *channel);
+    void removeTargetChannel(AudioChannel *channel);
+    bool hasTargets() const { return !m_targetChannels.isEmpty(); }
 
     quint16 port() const;
     void setPort(quint16 port);
@@ -150,10 +155,12 @@ private:
     void parseOscMessage(const QByteArray &data);
     void parseOscFloat(const QString &address, float value);
     AudioSnapshot buildSnapshot(double dtMs);
+    void resetSource();
+    void invalidateTargets(const QString &status);
 
     QUdpSocket *m_socket = nullptr;
     QTimer *m_injectTimer = nullptr;
-    AudioChannel *m_targetChannel = nullptr;
+    QVector<AudioChannel *> m_targetChannels;
     quint16 m_port = 9999;
     bool m_running = false;
 
@@ -180,4 +187,12 @@ private:
     OscSchmittTrigger m_kickTrigger { 0.45, 0.25, 60.0, 100.0 };
 
     std::atomic<bool> m_hasNewData { false };
+    QElapsedTimer m_packetAge;
+    QElapsedTimer m_publishAge;
+    uint64_t m_sourceEpoch = 0;
+    uint64_t m_frameSequence = 0;
+    uint64_t m_beatCount = 0, m_onsetCount = 0, m_barCount = 0, m_kickCount = 0;
+    uint64_t m_publishedBeatCount = 0, m_publishedOnsetCount = 0, m_publishedBarCount = 0;
+    bool m_stale = true;
+    double m_prevHit = 0;
 };

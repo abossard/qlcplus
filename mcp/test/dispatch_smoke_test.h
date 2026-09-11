@@ -25,6 +25,11 @@ private slots:
 
     void dispatchSmoke_queryFixtures_emptyDoc_returnsArray();
     void dispatchSmoke_createScenes_validItem_createsInDoc();
+    void dispatchSmoke_createRgbMatrices_typeSchema();
+    void dispatchSmoke_createRgbMatrices_type_data();
+    void dispatchSmoke_createRgbMatrices_type();
+    void dispatchSmoke_createRgbMatrices_rejectedBeforeMutation_data();
+    void dispatchSmoke_createRgbMatrices_rejectedBeforeMutation();
     void dispatchSmoke_createPalettes_validItem_exists();
     void dispatchSmoke_configureChannels_emptyDoc_returnsArray();
     void dispatchSmoke_configureUniverses_validItem_returnsResult();

@@ -23,6 +23,9 @@
 
 #include "doc.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
+#include "huescript.h"
+#include "huescriptscache.h"
 #include "rgbtext.h"
 #include "rgbscriptscache.h"
 #include "vcanimation.h"
@@ -428,11 +431,13 @@ int VCAnimation::colorCount() const
     if (m_doc == nullptr || m_localAlgorithmIndex < 0)
         return 0;
 
-    QStringList algoList = algorithms();
+    QStringList algoList = runtimeAlgorithms();
     if (m_localAlgorithmIndex >= algoList.count())
         return 0;
 
-    RGBAlgorithm *algorithm = RGBAlgorithm::algorithm(m_doc, algoList.at(m_localAlgorithmIndex));
+    RGBAlgorithm *algorithm = qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr ?
+                HUEMatrix::createAlgorithm(m_doc, algoList.at(m_localAlgorithmIndex)) :
+                RGBAlgorithm::algorithm(m_doc, algoList.at(m_localAlgorithmIndex));
     if (algorithm == nullptr)
         return 0;
 
@@ -488,18 +493,37 @@ void VCAnimation::setColorAt(int index, QColor color)
 
 QStringList VCAnimation::algorithms() const
 {
+    if (qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr)
+        return HUEMatrix::availableAlgorithms(m_doc);
+    return RGBAlgorithm::algorithms(m_doc);
+}
+
+QStringList VCAnimation::runtimeAlgorithms() const
+{
+    if (qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr)
+        return HUEMatrix::runtimeAlgorithms(m_doc);
     return RGBAlgorithm::algorithms(m_doc);
 }
 
 int VCAnimation::algorithmIndex() const
 {
-    return m_localAlgorithmIndex;
+    const QStringList names = runtimeAlgorithms();
+    if (m_localAlgorithmIndex < 0 || m_localAlgorithmIndex >= names.count())
+        return -1;
+    return algorithms().indexOf(names.at(m_localAlgorithmIndex));
 }
 
 void VCAnimation::setAlgorithmIndex(int index)
 {
-    QStringList algoList = algorithms();
-    if (index < 0 || index >= algoList.count() || m_localAlgorithmIndex == index)
+    const QStringList algoList = algorithms();
+    if (index < 0 || index >= algoList.count())
+        return;
+    setRuntimeAlgorithmIndex(runtimeAlgorithms().indexOf(algoList.at(index)));
+}
+
+void VCAnimation::setRuntimeAlgorithmIndex(int index)
+{
+    if (index < -1 || index >= runtimeAlgorithms().count() || m_localAlgorithmIndex == index)
         return;
 
     Tardis::instance()->enqueueAction(Tardis::VCAnimationSetAlgorithmIndex, id(), m_localAlgorithmIndex, index);
@@ -681,6 +705,9 @@ int VCAnimation::addTextPreset(QString text)
 
 QStringList VCAnimation::scriptAlgorithms() const
 {
+    if (qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr)
+        return HUEMatrix::availableAlgorithms(m_doc);
+
     QStringList scripts;
 
     for (const QString &algoName : algorithms())
@@ -701,7 +728,9 @@ QVariantList VCAnimation::algorithmProperties(QString algoName) const
 {
     QVariantList list;
 
-    RGBScript *script = m_doc->rgbScriptsCache()->script(algoName);
+    RGBScript *script = qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr ?
+                m_doc->hueScriptsCache()->script(algoName) :
+                m_doc->rgbScriptsCache()->script(algoName);
     if (script == nullptr)
         return list;
 
@@ -854,23 +883,13 @@ void VCAnimation::applyPreset(quint8 presetId)
         break;
 
     case VCAnimationPreset::Animation:
-    {
-        QStringList algoList = algorithms();
-        int algoIndex = algoList.indexOf(control->m_resource);
-        if (algoIndex >= 0)
-            setAlgorithmIndex(algoIndex);
-
-        if (m_faderLevel > 0)
-            applyAlgorithmContent(currentMatrix(), control);
-        break;
-    }
-
     case VCAnimationPreset::Text:
     {
-        QStringList algoList = algorithms();
-        int algoIndex = algoList.indexOf("Text");
-        if (algoIndex >= 0)
-            setAlgorithmIndex(algoIndex);
+        const QString resource = control->m_type == VCAnimationPreset::Text ? "Text" : control->m_resource;
+        const int algoIndex = runtimeAlgorithms().indexOf(resource);
+        if (algoIndex < 0)
+            return;
+        setRuntimeAlgorithmIndex(algoIndex);
 
         if (m_faderLevel > 0)
             applyAlgorithmContent(currentMatrix(), control);

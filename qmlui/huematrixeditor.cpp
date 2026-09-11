@@ -125,34 +125,29 @@ int HUEMatrixEditor::algorithmIndex() const
     return algoList.indexOf(m_matrix->algorithm()->name());
 }
 
+QString HUEMatrixEditor::algorithmName() const
+{
+    return m_matrix == nullptr || m_matrix->algorithm() == nullptr ?
+                QString() : m_matrix->algorithm()->name();
+}
+
 void HUEMatrixEditor::setAlgorithmIndex(int algoIndex)
 {
-    qDebug() << "Set algorithm:" << algoIndex;
-    QStringList algoList = algorithms();
-    if (algoIndex < 0 || algoIndex >= algorithms().count())
+    const QStringList algoList = algorithms();
+    if (m_matrix == nullptr || algoIndex < 0 || algoIndex >= algoList.count())
+        return;
+    const QString name = algoList.at(algoIndex);
+    if (algorithmName() == name)
         return;
 
-    RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, algoList.at(algoIndex));
-    if (algo != nullptr)
-    {
-        /** if we're setting the same algorithm, then there's nothing to do */
-        if (m_matrix->algorithm() != nullptr && m_matrix->algorithm()->name() == algo->name())
-            return;
+    RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
+    if (algo == nullptr)
+        return;
 
-        updateColors();
+    updateColors();
+    algo->setColors(m_matrix->getColors());
 
-        Q_ASSERT(5 == RGBAlgorithmColorDisplayCount);
-        QVector<QColor> colors = {
-                m_matrix->getColor(0),
-                m_matrix->getColor(1),
-                m_matrix->getColor(2),
-                m_matrix->getColor(3),
-                m_matrix->getColor(4)
-        };
-        algo->setColors(colors);
-    }
-
-    Tardis::instance()->enqueueAction(Tardis::RGBMatrixSetAlgorithmIndex, m_matrix->id(), algorithmIndex(), algoIndex);
+    Tardis::instance()->enqueueAction(Tardis::RGBMatrixSetAlgorithmIndex, m_matrix->id(), algorithmName(), name);
     m_matrix->setAlgorithm(algo);
 
     initPreviewData();
@@ -1007,18 +1002,23 @@ void HUEMatrixEditor::slotPreviewTimeout()
             effectiveDuration = MasterTimer::tick();
     }
 
-    if (m_previewElapsed >= effectiveDuration)
+    const bool stepDue = m_previewElapsed >= effectiveDuration;
+    const bool audioReactive = m_matrix->algorithm() != nullptr && m_matrix->algorithm()->usesAudio();
+    if (stepDue || audioReactive)
     {
         QMutexLocker locker(&m_previewMutex);
 
-        m_previewStepHandler->checkNextStep(m_matrix->runOrder(), m_matrix->getColor(0),
-                                            m_matrix->getColor(1), m_matrix->stepsCount());
+        if (stepDue)
+        {
+            m_previewStepHandler->checkNextStep(m_matrix->runOrder(), m_matrix->getColor(0),
+                                                m_matrix->getColor(1), m_matrix->stepsCount());
+            m_previewElapsed %= effectiveDuration;
+        }
 
         m_matrix->previewMap(m_previewStepHandler->currentStepIndex(), m_previewStepHandler);
 
         //qDebug() << "Step changing. Index:" << m_previewStepHandler->currentStepIndex() << ", map size:" << map.size();
 
-        m_previewElapsed = 0;
 /*
         for (int y = 0; y < map.size(); y++)
         {

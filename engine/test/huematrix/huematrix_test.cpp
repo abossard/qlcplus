@@ -22,7 +22,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QScopeGuard>
 #include <cmath>
+#include <limits>
 
 #define private public
 #define protected public
@@ -118,14 +120,17 @@ void HUEMatrix_Test::hueMatrixOffersAllAudioScripts()
     QStringList hueNames = HUEMatrix::availableAlgorithms(m_doc);
     QStringList rgbNames = RGBAlgorithm::algorithms(m_doc);
 
-    // Strict superset of the RGBMatrix list
     foreach (QString name, rgbNames)
-        QVERIFY2(hueNames.contains(name), qPrintable(name));
-    QVERIFY(hueNames.count() > rgbNames.count());
+        QVERIFY2(hueNames.contains(name) == false, qPrintable(name));
 
     // All 41 relocated audio scripts are present and instantiable
     QStringList hsv = m_doc->hueScriptsCache()->hsvNames();
     QCOMPARE(hsv.count(), 41);
+    QCOMPARE(hueNames, hsv);
+    QVERIFY(hueNames.contains("Audio Spectrum Bars"));
+    QVERIFY(!hueNames.contains("Audio Spectrum"));
+    QVERIFY(rgbNames.contains("Audio Spectrum"));
+    QVERIFY(rgbNames.contains("Stripes"));
     foreach (QString name, hsv)
     {
         QVERIFY2(hueNames.contains(name), qPrintable(name));
@@ -133,6 +138,425 @@ void HUEMatrix_Test::hueMatrixOffersAllAudioScripts()
         QVERIFY2(algo != NULL, qPrintable(name));
         QCOMPARE(algo->name(), name);
         delete algo;
+    }
+}
+
+void HUEMatrix_Test::defaultPattern_data()
+{
+    QTest::addColumn<bool>("loadHsv");
+    QTest::newRow("startup-cache") << true;
+    QTest::newRow("stock-only-cache") << false;
+}
+
+void HUEMatrix_Test::defaultPattern()
+{
+    QFETCH(bool, loadHsv);
+    Doc doc(this);
+    QVERIFY(doc.rgbScriptsCache()->load(QDir(INTERNAL_SCRIPTDIR)));
+    QVERIFY(doc.hueScriptsCache()->load(QDir(INTERNAL_SCRIPTDIR), false));
+    if (loadHsv)
+        QVERIFY(doc.hueScriptsCache()->load(QDir(INTERNAL_HUESCRIPTDIR), true));
+    HUEMatrix matrix(&doc);
+    const QStringList offered = HUEMatrix::availableAlgorithms(&doc);
+    if (loadHsv)
+    {
+        QCOMPARE(offered.count(), 41);
+        QVERIFY(matrix.algorithm() != nullptr);
+        QCOMPARE(matrix.algorithm()->name(), QString("Audio Aurora"));
+        QVERIFY(offered.contains(matrix.algorithm()->name()));
+        QVERIFY(dynamic_cast<HUEScript *>(matrix.algorithm()) != nullptr);
+    }
+    else
+    {
+        QVERIFY(offered.isEmpty());
+        QVERIFY(matrix.algorithm() == nullptr);
+    }
+}
+
+void HUEMatrix_Test::nonAudioHsvContract()
+{
+    const QString fixtureDir = QDir::current().filePath("hue-contract-fixture");
+    QVERIFY(QDir().mkpath(fixtureDir));
+    const auto cleanup = qScopeGuard([&]() { QDir(fixtureDir).removeRecursively(); });
+    QFile file(fixtureDir + "/still.js");
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray source =
+        "var testAlgo;\n(function () {\nvar algo = {};\n"
+        "algo.name = \"Still HSV\";\n"
+        "algo.apiVersion = 3;\nalgo.usesAudio = false;\nalgo.acceptColors = 0;\n"
+        "algo.rgbMapStepCount = function(w,h) { return 1; };\n"
+        "algo.rgbMap = function(w,h,r,s) { return new Float32Array(w*h*3); };\n"
+        "testAlgo = algo;\nreturn algo;\n})();\n";
+    QCOMPARE(file.write(source), qint64(source.size()));
+    file.close();
+    Doc doc(this);
+    QVERIFY(doc.hueScriptsCache()->load(QDir(fixtureDir), true));
+    HUEMatrix matrix(&doc);
+    QCOMPARE(HUEMatrix::availableAlgorithms(&doc), QStringList{"Still HSV"});
+    QVERIFY(matrix.algorithm() != nullptr);
+    QCOMPARE(matrix.algorithm()->name(), QString("Still HSV"));
+    QVERIFY(!matrix.algorithm()->usesAudio());
+    QVERIFY(!RGBAlgorithm::algorithms(&doc).contains("Still HSV"));
+    QVERIFY(file.remove());
+    QVERIFY(QDir().rmdir(fixtureDir));
+}
+
+void HUEMatrix_Test::patternSelection_data()
+{
+    QTest::addColumn<QString>("baseName");
+    QTest::addColumn<QString>("selectedName");
+    QTest::newRow("first-hue") << "Stripes" << "Audio Aurora";
+    QTest::newRow("last-hue") << "Audio Spectrum" << "Audio Water";
+    QTest::newRow("hue-to-hue") << "Audio Fire" << "Audio Spectrum Bars";
+    QTest::newRow("unconfigured-base") << "" << "Audio Fire";
+    QTest::newRow("legacy-script-preset") << "Audio Fire" << "Stripes";
+    QTest::newRow("legacy-text-preset") << "Audio Fire" << "Text";
+}
+
+void HUEMatrix_Test::patternSelection()
+{
+    QFETCH(QString, baseName);
+    QFETCH(QString, selectedName);
+    HUEMatrix matrix(m_doc);
+    matrix.setAlgorithm(baseName.isEmpty() ? nullptr : HUEMatrix::createAlgorithm(m_doc, baseName));
+    QStringList runtime = RGBAlgorithm::algorithms(m_doc);
+    runtime.append(HUEMatrix::availableAlgorithms(m_doc));
+    RGBMatrix *base = &matrix;
+    QCOMPARE(base->algorithmIndex(), runtime.indexOf(baseName));
+    QCOMPARE(matrix.attributes().at(RGBMatrix::PatternAttr).m_max, qreal(runtime.count() - 1));
+    const int selected = runtime.indexOf(selectedName);
+    QVERIFY(selected >= 0);
+    if (selectedName == "Stripes" || selectedName == "Text")
+        QVERIFY(!HUEMatrix::availableAlgorithms(m_doc).contains(selectedName));
+    else
+        QVERIFY(selected >= RGBAlgorithm::algorithms(m_doc).count());
+    const int overrideID = base->requestAttributeOverride(RGBMatrix::PatternAttr, selected);
+    QVERIFY(overrideID != Function::invalidAttributeId());
+    QCOMPARE(base->algorithm()->name(), selectedName);
+    if (selectedName == "Text")
+        QVERIFY(dynamic_cast<RGBText *>(base->algorithm()) != nullptr);
+    else
+        QVERIFY(dynamic_cast<HUEScript *>(base->algorithm()) != nullptr);
+    RGBAlgorithm *unchanged = base->algorithm();
+    base->adjustAttribute(selected, overrideID);
+    QCOMPARE(base->algorithm(), unchanged);
+    for (qreal invalid : {qreal(-2), qreal(-1), qreal(-0.25), qreal(runtime.count()),
+                          std::numeric_limits<qreal>::infinity(),
+                          std::numeric_limits<qreal>::quiet_NaN()})
+    {
+        base->adjustAttribute(invalid, overrideID);
+        QCOMPARE(base->algorithm(), unchanged);
+    }
+    base->releaseAttributeOverride(overrideID);
+    base->applyStyleAttributes();
+    if (baseName.isEmpty())
+        QVERIFY(base->algorithm() == nullptr);
+    else
+        QCOMPARE(base->algorithm()->name(), baseName);
+    QCOMPARE(base->algorithmIndex(), runtime.indexOf(baseName));
+    QCOMPARE(base->getAttributeValue(RGBMatrix::PatternAttr), qreal(runtime.indexOf(baseName)));
+    RGBAlgorithm *replayed = HUEMatrix::createAlgorithm(m_doc, selectedName);
+    QVERIFY(replayed != nullptr);
+    base->setAlgorithm(replayed);
+    QCOMPARE(base->algorithm()->name(), selectedName);
+    QVERIFY(HUEMatrix::createAlgorithm(m_doc, "Stale pattern") == nullptr);
+    QCOMPARE(base->algorithm(), replayed);
+}
+
+void HUEMatrix_Test::legacyAlgorithmRoundTrip_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QString>("propertyName");
+    QTest::addColumn<QString>("propertyValue");
+    QTest::newRow("legacy-rgb-script") << "Stripes" << "Script" << "orientation" << "Vertical";
+    QTest::newRow("legacy-built-in-audio") << "Audio Spectrum" << "Audio" << "" << "";
+    QTest::newRow("hsv-script") << "Audio Fire" << "Script" << "intensity" << "19";
+}
+
+void HUEMatrix_Test::legacyAlgorithmRoundTrip()
+{
+    QFETCH(QString, name);
+    QFETCH(QString, type);
+    QFETCH(QString, propertyName);
+    QFETCH(QString, propertyValue);
+    Doc doc(this);
+    QVERIFY(doc.rgbScriptsCache()->load(QDir(INTERNAL_SCRIPTDIR)));
+    QVERIFY(doc.hueScriptsCache()->load(QDir(INTERNAL_HUESCRIPTDIR), true));
+    QVERIFY(doc.hueScriptsCache()->load(QDir(INTERNAL_SCRIPTDIR), false));
+    const QString xml = QString(
+        "<Function ID=\"45\" Type=\"HUEMatrix\" Name=\"Legacy\">"
+        "<Speed FadeIn=\"125\" FadeOut=\"275\" Duration=\"320\"/>"
+        "<Algorithm Type=\"%1\">%2</Algorithm>"
+        "<Property Name=\"%3\" Value=\"%4\"/>"
+        "<Brightness>0.375</Brightness><Rotation>90</Rotation>"
+        "</Function>").arg(type, name, propertyName, propertyValue);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(Function::loader(reader, &doc));
+    HUEMatrix *matrix = qobject_cast<HUEMatrix *>(doc.function(45));
+    QVERIFY(matrix != nullptr);
+    QVERIFY(matrix->algorithm() != nullptr);
+    QCOMPARE(matrix->algorithm()->name(), name);
+    QCOMPARE(matrix->algorithm()->type(), type == "Audio" ? RGBAlgorithm::Audio : RGBAlgorithm::Script);
+    if (type == "Audio")
+        QVERIFY(dynamic_cast<RGBAudio *>(matrix->algorithm()) != nullptr);
+    else
+        QVERIFY(dynamic_cast<HUEScript *>(matrix->algorithm()) != nullptr);
+    if (name != "Audio Fire")
+        QVERIFY(!HUEMatrix::availableAlgorithms(&doc).contains(name));
+
+    QString saved;
+    QXmlStreamWriter writer(&saved);
+    QVERIFY(matrix->saveXML(&writer));
+    QVERIFY(saved.contains("Type=\"HUEMatrix\""));
+    QVERIFY(saved.contains(type == "Audio" ? "Type=\"Audio\"" : name));
+    doc.deleteFunction(45);
+    QXmlStreamReader reload(saved);
+    QVERIFY(reload.readNextStartElement());
+    QVERIFY(Function::loader(reload, &doc));
+    matrix = qobject_cast<HUEMatrix *>(doc.function(45));
+    QVERIFY(matrix != nullptr);
+    QCOMPARE(matrix->algorithm()->name(), name);
+    QCOMPARE(matrix->brightness(), qreal(0.375));
+    QCOMPARE(matrix->duration(), quint32(320));
+    QCOMPARE(matrix->fadeInSpeed(), quint32(125));
+    if (!propertyName.isEmpty())
+    {
+        QCOMPARE(matrix->property(propertyName), propertyValue);
+        matrix->applyStyleAttributes();
+        QCOMPARE(matrix->property(propertyName), propertyValue);
+        QCOMPARE(static_cast<RGBScript *>(matrix->algorithm())->property(propertyName), propertyValue);
+    }
+}
+
+void HUEMatrix_Test::createCopyPreservesHue_data()
+{
+    QTest::addColumn<bool>("crossDocument");
+    QTest::addColumn<QString>("algorithmName");
+    QTest::newRow("duplicate") << false << "Audio Fire";
+    QTest::newRow("import") << true << "Audio Fire";
+    QTest::newRow("import-built-in") << true << "Text";
+    QTest::newRow("unconfigured") << false << "";
+}
+
+void HUEMatrix_Test::createCopyPreservesHue()
+{
+    QFETCH(bool, crossDocument);
+    QFETCH(QString, algorithmName);
+    const bool hasAlgorithm = !algorithmName.isEmpty();
+    Doc target(this);
+    HUEMatrix original(m_doc);
+    original.setAlgorithm(hasAlgorithm ? HUEMatrix::createAlgorithm(m_doc, algorithmName) : nullptr);
+    if (algorithmName == "Text")
+        static_cast<RGBText *>(original.algorithm())->setText("Imported text");
+    original.setProperty("intensity", "19");
+    original.setProperty("speed", "0.23");
+    original.setRotation(1);
+    original.setMirror(2);
+    original.setMirrorBlend(HUEMatrix::MirrorAdditive);
+    original.setBrightness(0.625);
+    original.setBeatEffect(HUEMatrix::BeatEffectMirror);
+    original.setBeatSelection(HUEMatrix::BeatSelWalk);
+    original.setBeatOrientation(HUEMatrix::BeatOrientColumns);
+    original.setControlMode(RGBMatrix::ControlModeRgbw);
+    original.setDuration(640);
+    original.setColor(0, QColor("#12ab34"));
+    Function *function = &original;
+    Function *copy = function->createCopy(crossDocument ? &target : m_doc, crossDocument);
+    QVERIFY(copy != nullptr);
+    HUEMatrix *matrix = qobject_cast<HUEMatrix *>(copy);
+    QVERIFY(matrix != nullptr);
+    QCOMPARE(copy->type(), Function::HUEMatrixType);
+    QCOMPARE(matrix->rotation(), 1);
+    QCOMPARE(matrix->mirror(), 2);
+    QCOMPARE(matrix->mirrorBlend(), HUEMatrix::MirrorAdditive);
+    QCOMPARE(matrix->brightness(), qreal(0.625));
+    QCOMPARE(matrix->beatEffect(), HUEMatrix::BeatEffectMirror);
+    QCOMPARE(matrix->beatSelection(), HUEMatrix::BeatSelWalk);
+    QCOMPARE(matrix->beatOrientation(), HUEMatrix::BeatOrientColumns);
+    QCOMPARE(matrix->controlMode(), RGBMatrix::ControlModeRgbw);
+    QCOMPARE(matrix->duration(), quint32(640));
+    QCOMPARE(matrix->getColor(0), QColor("#12ab34"));
+    QCOMPARE(crossDocument ? target.function(copy->id()) : nullptr, crossDocument ? copy : nullptr);
+    if (hasAlgorithm)
+    {
+        QVERIFY(matrix->algorithm() != original.algorithm());
+        QCOMPARE(matrix->algorithm()->doc(), crossDocument ? &target : m_doc);
+        QCOMPARE(matrix->algorithm()->name(), algorithmName);
+        if (algorithmName == "Text")
+            QCOMPARE(static_cast<RGBText *>(matrix->algorithm())->text(), QString("Imported text"));
+        QCOMPARE(matrix->property("intensity"), QString("19"));
+        QCOMPARE(matrix->property("speed"), QString("0.23"));
+        RGBMap map;
+        matrix->algorithm()->rgbMap(QSize(5, 3), 0xff00ff, 0, map);
+        QCOMPARE(map.size(), 3);
+        for (const auto &row : map)
+            QCOMPARE(row.size(), 5);
+        matrix->setProperty("intensity", "7");
+        QCOMPARE(original.property("intensity"), QString("19"));
+        QString saved;
+        QXmlStreamWriter writer(&saved);
+        QVERIFY(matrix->saveXML(&writer));
+        QVERIFY(saved.contains("Type=\"HUEMatrix\""));
+        QVERIFY(saved.contains("Value=\"0.23\""));
+    }
+    else
+        QVERIFY(matrix->algorithm() == nullptr);
+    if (!crossDocument)
+        delete copy;
+}
+
+void HUEMatrix_Test::scriptAttributeLifecycle()
+{
+    HUEMatrix matrix(m_doc);
+    matrix.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, "Audio Fire"));
+    QCOMPARE(matrix.attributes().count(), int(RGBMatrix::ScriptPropertyAttr) + matrix.scriptPropertyAttributes().count());
+    const auto properties = matrix.scriptPropertyAttributes();
+    for (int i = 0; i < properties.count(); ++i)
+    {
+        QCOMPARE(matrix.attributes().at(RGBMatrix::ScriptPropertyAttr + i).m_name,
+                 RGBMatrix::scriptPropertyAttributeName(properties.at(i)));
+        if (properties.at(i).m_name == "intensity")
+        {
+            QCOMPARE(matrix.adjustAttribute(19, RGBMatrix::ScriptPropertyAttr + i), RGBMatrix::ScriptPropertyAttr + i);
+            QCOMPARE(matrix.property("intensity"), QString("19"));
+            QCOMPARE(matrix.getAttributeValue(Function::Intensity), qreal(1));
+        }
+    }
+    matrix.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, "Stripes"));
+    QCOMPARE(matrix.attributes().count(), int(RGBMatrix::ScriptPropertyAttr) + matrix.scriptPropertyAttributes().count());
+    RGBMatrix *base = &matrix;
+    base->setProperty("orientation", "Vertical");
+    const int orientation = base->getAttributeIndex("Orientation");
+    QVERIFY(orientation >= RGBMatrix::ScriptPropertyAttr);
+    QCOMPARE(base->getAttributeValue(orientation), qreal(1));
+    const int overrideId = base->requestAttributeOverride(orientation, 0);
+    QCOMPARE(base->property("orientation"), QString("Horizontal"));
+    base->releaseAttributeOverride(overrideId);
+    base->applyStyleAttributes();
+    QCOMPARE(base->property("orientation"), QString("Vertical"));
+    matrix.setAlgorithm(nullptr);
+    QCOMPARE(matrix.attributes().count(), int(RGBMatrix::ScriptPropertyAttr));
+}
+
+void HUEMatrix_Test::authoredPropertiesSurviveStyleRelease_data()
+{
+    QTest::addColumn<bool>("fromXml");
+    QTest::addColumn<QString>("overrideKind");
+    QTest::newRow("setter-color") << false << "color";
+    QTest::newRow("xml-color") << true << "color";
+    QTest::newRow("setter-pattern") << false << "pattern";
+    QTest::newRow("xml-pattern") << true << "pattern";
+    QTest::newRow("setter-property") << false << "property";
+    QTest::newRow("xml-property") << true << "property";
+    QTest::newRow("setter-during-property-override") << false << "edit";
+}
+
+void HUEMatrix_Test::authoredPropertiesSurviveStyleRelease()
+{
+    QFETCH(bool, fromXml);
+    QFETCH(QString, overrideKind);
+    HUEMatrix matrix(m_doc);
+    RGBMatrix *base = &matrix;
+    if (fromXml)
+    {
+        QXmlStreamReader reader(QStringLiteral(
+            "<Function ID=\"45\" Type=\"HUEMatrix\" Name=\"Authored\">"
+            "<Algorithm Type=\"Script\">Audio Fire</Algorithm>"
+            "<Property Name=\"intensity\" Value=\"19\"/>"
+            "<Property Name=\"speed\" Value=\"0.23\"/>"
+            "</Function>"));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(base->loadXML(reader));
+    }
+    else
+    {
+        base->setAlgorithm(HUEMatrix::createAlgorithm(m_doc, "Audio Fire"));
+        base->setProperty("intensity", "19");
+        base->setProperty("speed", "0.23");
+    }
+    QCOMPARE(base->property("intensity"), QString("19"));
+    QCOMPARE(base->property("speed"), QString("0.23"));
+    const int intensityAttr = base->getAttributeIndex("Script Intensity");
+    const int speedAttr = base->getAttributeIndex("Speed");
+    QVERIFY(intensityAttr >= RGBMatrix::ScriptPropertyAttr);
+    QVERIFY(speedAttr >= RGBMatrix::ScriptPropertyAttr);
+    QCOMPARE(base->attributes().at(intensityAttr).m_min, qreal(1));
+    QCOMPARE(base->attributes().at(intensityAttr).m_max, qreal(64));
+    QCOMPARE(base->attributes().at(intensityAttr).m_value, qreal(19));
+    QCOMPARE(base->attributes().at(speedAttr).m_value, qreal(0.23));
+
+    int attribute = RGBMatrix::Color1Attr;
+    qreal value = 0x123456;
+    if (overrideKind == "pattern")
+    {
+        attribute = RGBMatrix::PatternAttr;
+        value = HUEMatrix::runtimeAlgorithms(m_doc).indexOf("Audio Aurora");
+    }
+    else if (overrideKind == "property" || overrideKind == "edit")
+    {
+        attribute = intensityAttr;
+        value = 27;
+    }
+    const int overrideId = base->requestAttributeOverride(attribute, value);
+    QVERIFY(overrideId != Function::invalidAttributeId());
+    QString expectedIntensity = "19";
+    if (attribute == intensityAttr)
+    {
+        QCOMPARE(base->property("intensity"), QString("27"));
+        QCOMPARE(base->attributes().at(intensityAttr).m_value, qreal(19));
+        if (overrideKind == "edit")
+        {
+            base->setProperty("intensity", "21");
+            expectedIntensity = "21";
+            QCOMPARE(base->property("intensity"), QString("27"));
+            QCOMPARE(base->attributes().at(intensityAttr).m_value, qreal(21));
+        }
+    }
+    base->releaseAttributeOverride(overrideId);
+    base->applyStyleAttributes();
+    QCOMPARE(base->algorithm()->name(), QString("Audio Fire"));
+    QCOMPARE(base->property("intensity"), expectedIntensity);
+    QCOMPARE(base->property("speed"), QString("0.23"));
+    RGBScript *script = static_cast<RGBScript *>(base->algorithm());
+    QCOMPARE(script->property("intensity"), expectedIntensity);
+    QCOMPARE(script->property("speed"), QString("0.23"));
+    QCOMPARE(base->getAttributeValue(Function::Intensity), qreal(1));
+
+    const int attributeCount = base->attributes().count();
+    base->setProperty("not-a-script-property", "not-numeric");
+    QCOMPARE(base->attributes().count(), attributeCount);
+    QCOMPARE(base->getAttributeValue(speedAttr), qreal(0.23));
+    QCOMPARE(base->getAttributeValue(intensityAttr), expectedIntensity.toDouble());
+}
+
+void HUEMatrix_Test::hueUiRoutesNames()
+{
+    struct Binding { const char *path; const char *source; };
+    static const Binding bindings[] = {
+        {"qmlui/huematrixeditor.cpp", "return HUEMatrix::availableAlgorithms(m_doc);"},
+        {"qmlui/rgbmatrixeditor.cpp", "return RGBAlgorithm::algorithms(m_doc);"},
+        {"qmlui/huematrixeditor.cpp", "algorithmName(), name"},
+        {"qmlui/huematrixeditor.cpp", "m_matrix == nullptr || algoIndex < 0"},
+        {"qmlui/qml/fixturesfunctions/HUEMatrixEditor.qml", "onActivated: function(index)"},
+        {"qmlui/qml/fixturesfunctions/HUEMatrixEditor.qml", "property string algorithmName: hueMatrixEditor.algorithmName"},
+        {"qmlui/tardis/tardis.cpp", "HUEMatrix::createAlgorithm(m_doc, name)"},
+        {"qmlui/tardis/tardis.cpp", "animation->setRuntimeAlgorithmIndex(value->toInt());"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "runtimeAlgorithms().indexOf(algoList.at(index))"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "HUEMatrix::availableAlgorithms(m_doc)"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "HUEMatrix::createAlgorithm(m_doc, algoList.at(m_localAlgorithmIndex))"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "m_doc->hueScriptsCache()->script(algoName)"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "const int algoIndex = runtimeAlgorithms().indexOf(resource);"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "if (algoIndex < 0)\n            return;\n        setRuntimeAlgorithmIndex(algoIndex);"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "control->m_type == VCAnimationPreset::Text ? \"Text\" : control->m_resource"},
+        {"qmlui/virtualconsole/vcanimation.h", "algorithms READ algorithms NOTIFY functionIDChanged"},
+    };
+    for (const Binding &binding : bindings)
+    {
+        QFile file(QStringLiteral(QLCPLUS_SOURCE_DIR) + "/" + binding.path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), binding.path);
+        QVERIFY2(file.readAll().contains(binding.source), binding.source);
     }
 }
 
@@ -622,7 +1046,7 @@ void HUEMatrix_Test::builtInAudioAlgorithmReportsUsesAudio()
 /****************************************************************************
  * AC14: the HUE cache must be populated the way the app startup path does it,
  * so that HUEMatrixEditor::algorithms() - which returns exactly this list -
- * shows the audio scripts instead of the stock-only RGB list.
+ * shows only the HSV scripts.
  ****************************************************************************/
 
 void HUEMatrix_Test::hueCacheOffersAudioScriptsAfterStartupStyleLoad()
@@ -637,21 +1061,9 @@ void HUEMatrix_Test::hueCacheOffersAudioScriptsAfterStartupStyleLoad()
     QStringList hueList = HUEMatrix::availableAlgorithms(&fresh);
     QStringList rgbList = RGBAlgorithm::algorithms(&fresh);
 
-    // This is the regression AC14 names: before the editor was re-pointed it
-    // returned rgbList, which carries no audio script at all.
-    QStringList audioOnly;
-    foreach (QString name, fresh.hueScriptsCache()->hsvNames())
-    {
-        QVERIFY2(hueList.contains(name), qPrintable(name));
-        if (rgbList.contains(name) == false)
-            audioOnly << name;
-    }
-    QVERIFY2(audioOnly.isEmpty() == false,
-             "the two lists are identical - re-pointing the editor would be a no-op");
-
-    // ...and the stock scripts stay available to HUEMatrix too.
-    foreach (QString name, fresh.rgbScriptsCache()->names())
-        QVERIFY2(hueList.contains(name), qPrintable(name));
+    QCOMPARE(hueList, fresh.hueScriptsCache()->hsvNames());
+    foreach (QString name, rgbList)
+        QVERIFY2(hueList.contains(name) == false, qPrintable(name));
 }
 
 /****************************************************************************
@@ -918,8 +1330,8 @@ void HUEMatrix_Test::builtInAudioIsReachableByNameOnHueMatrix()
     const QString builtInName = RGBAudio(m_doc).name();
     QCOMPARE(builtInName, QString("Audio Spectrum"));
 
-    // The editor offers this name, so createAlgorithm() must resolve it.
-    QVERIFY(HUEMatrix::availableAlgorithms(m_doc).contains(builtInName));
+    // Existing functions can still use built-ins without offering them as patterns.
+    QVERIFY(HUEMatrix::availableAlgorithms(m_doc).contains(builtInName) == false);
 
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, builtInName);
     QVERIFY(algo != NULL);
@@ -1036,7 +1448,7 @@ static bool waitForPrecomputeDrain(HUEMatrix *mtx, int timeoutMs = 60000)
 
 void HUEMatrix_Test::asyncPrecomputeProducesAConsumableMap()
 {
-    const QString name = m_doc->hueScriptsCache()->hsvNames().first();
+    const QString name = "Stripes";
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
     QVERIFY2(algo != NULL, qPrintable(name));
     QCOMPARE(algo->type(), RGBAlgorithm::Script);
@@ -1079,7 +1491,7 @@ void HUEMatrix_Test::asyncPrecomputeProducesAConsumableMap()
 
 void HUEMatrix_Test::asyncPrecomputeIsThrottledToOneTaskInFlight()
 {
-    const QString name = m_doc->hueScriptsCache()->hsvNames().first();
+    const QString name = "Stripes";
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
     QVERIFY(algo != NULL);
 
@@ -1128,7 +1540,7 @@ void HUEMatrix_Test::asyncPrecomputeIsSkippedForNonScriptAlgorithms()
 
 void HUEMatrix_Test::precomputedMapIsRejectedWhenTheGenerationMoved()
 {
-    const QString name = m_doc->hueScriptsCache()->hsvNames().first();
+    const QString name = "Stripes";
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
     QVERIFY(algo != NULL);
 
@@ -1169,7 +1581,7 @@ void HUEMatrix_Test::precomputedMapIsRejectedWhenTheGenerationMoved()
 
 void HUEMatrix_Test::inFlightPrecomputeIsDiscardedWhenInvalidatedMidFlight()
 {
-    const QString name = m_doc->hueScriptsCache()->hsvNames().first();
+    const QString name = "Stripes";
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
     QVERIFY(algo != NULL);
 
@@ -1311,6 +1723,42 @@ void HUEMatrix_Test::audioAlgorithmRecomputesTheMapEveryTick()
     QVERIFY2(Driver::mapWasRecomputed(plainMtx, &timer, universes, sentinel) == false,
              "non-audio algorithm recomputed on a mid-step tick");
     plainMtx.postRun(&timer, universes);
+}
+
+void HUEMatrix_Test::asyncPrecomputeIsSkippedForAudioScripts()
+{
+    HUEMatrix matrix(m_doc);
+    auto script = HUEMatrix::createAlgorithm(m_doc, "Audio Spectrum Bars");
+    QVERIFY(script != nullptr);
+    QVERIFY(script->usesAudio());
+    matrix.setAlgorithm(script);
+    matrix.m_runAlgorithm = script;
+    matrix.kickAsyncRgbMap(script, QSize(37, 1), 0xffffff, 0,
+                          matrix.m_currentGeneration.loadAcquire());
+    QCOMPARE(matrix.m_precomputedInFlight.loadAcquire(), 0);
+    QCOMPARE(matrix.m_precomputedReady.loadAcquire(), 0);
+    matrix.m_runAlgorithm = nullptr;
+}
+
+void HUEMatrix_Test::audioPreviewReusesCommittedFrame()
+{
+    auto group = new FixtureGroup(m_doc);
+    group->setSize(QSize(3, 1));
+    m_doc->addFixtureGroup(group);
+    HUEMatrix matrix(m_doc);
+    matrix.setFixtureGroup(group->id());
+    matrix.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, "Audio Spectrum Bars"));
+    QVERIFY(matrix.algorithm() != nullptr);
+    const RGBMap committed{QVector<uint>{0x12ab34, 0x5612ef, 0xbc7823}};
+    matrix.m_stepHandler->m_map = committed;
+    MasterTimer timer(m_doc);
+    matrix.Function::preRun(&timer);
+    RGBMatrixStep preview;
+    matrix.previewMap(0, &preview);
+    QCOMPARE(preview.m_map, committed);
+    matrix.previewMap(1, &preview);
+    QCOMPARE(preview.m_map, committed);
+    matrix.Function::postRun(&timer, {});
 }
 
 QTEST_MAIN(HUEMatrix_Test)

@@ -55,6 +55,9 @@ private slots:
     void palettes();
 
     void monitorProperties();
+    void audioProfileLifetime();
+    void audioCaptureRestart();
+    void oscPacketLoss();
 
     void addFunction();
     void deleteFunction();

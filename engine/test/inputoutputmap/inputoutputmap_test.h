@@ -55,10 +55,13 @@ private slots:
     void blackout();
     void grandMaster();
     void beatSourceBpmAndExternalLock();
+    void canonicalAudioClock();
+    void canonicalPcmClock();
+    void canonicalAudioOwnership_data();
+    void canonicalAudioOwnership();
 
 private:
     Doc* m_doc;
 };
 
 #endif
-

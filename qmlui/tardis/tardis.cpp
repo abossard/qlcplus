@@ -34,6 +34,7 @@
 #include "simpledesk.h"
 #include "collection.h"
 #include "rgbmatrix.h"
+#include "huematrix.h"
 #include "vccuelist.h"
 #include "rgbimage.h"
 #include "vcwidget.h"
@@ -1125,9 +1126,29 @@ int Tardis::processAction(TardisAction &action, bool undo)
         break;
         case RGBMatrixSetAlgorithmIndex:
         {
-            QStringList algoList = RGBAlgorithm::algorithms(m_doc);
-            RGBAlgorithm* algo = RGBAlgorithm::algorithm(m_doc, algoList.at(value->toInt()));
             RGBMatrix *matrix = qobject_cast<RGBMatrix *>(m_doc->function(action.m_objID));
+            if (matrix == nullptr)
+                break;
+            const bool hue = matrix->type() == Function::HUEMatrixType;
+            QString name;
+            if (hue)
+                name = value->toString();
+            else
+            {
+                const QStringList names = RGBAlgorithm::algorithms(m_doc);
+                const int index = value->toInt();
+                if (index < 0 || index >= names.count())
+                    break;
+                name = names.at(index);
+            }
+            if (matrix->algorithm() != nullptr && matrix->algorithm()->name() == name)
+                break;
+            RGBAlgorithm *algo = hue ? HUEMatrix::createAlgorithm(m_doc, name) :
+                                       RGBAlgorithm::algorithm(m_doc, name);
+            if (algo == nullptr && !name.isEmpty())
+                break;
+            if (hue && algo != nullptr)
+                algo->setColors(matrix->getColors());
             matrix->setAlgorithm(algo);
         }
         break;
@@ -1710,7 +1731,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
         {
             VCAnimation *animation = qobject_cast<VCAnimation *>(m_virtualConsole->widget(action.m_objID));
             if (animation)
-                animation->setAlgorithmIndex(value->toInt());
+                animation->setRuntimeAlgorithmIndex(value->toInt());
         }
         break;
         case VCAnimationSetColor1:

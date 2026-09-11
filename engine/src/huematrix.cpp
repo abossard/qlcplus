@@ -33,8 +33,7 @@
 #include "huescriptscache.h"
 #include "rgbscriptscache.h"
 #include "qlcfixturehead.h"
-#include "audiochannel.h"
-#include "audioprofile.h"
+#include "audiosnapshot.h"
 #include "fixturegroup.h"
 #include "genericfader.h"
 #include "fadechannel.h"
@@ -111,6 +110,10 @@ HUEMatrix::HUEMatrix(Doc *doc)
     // first updateMapChannels() call. Connect to Doc signals so that fixture
     // address/mode changes and group membership changes invalidate the cache.
     m_pixelPlanDirty.storeRelease(1);
+    const QStringList patterns = availableAlgorithms(doc);
+    registerAttribute(tr("Pattern"), LastWins | Single, -1,
+                      runtimeAlgorithms(doc).count() - 1, -1);
+    setAlgorithm(patterns.isEmpty() ? nullptr : createAlgorithm(doc, patterns.first()));
     if (doc != NULL)
     {
         connect(doc, &Doc::fixtureChanged,
@@ -149,13 +152,110 @@ HUEMatrix::~HUEMatrix()
 
 QStringList HUEMatrix::availableAlgorithms(Doc *doc)
 {
-    QStringList list = RGBAlgorithm::algorithms(doc);
-    foreach (QString name, doc->hueScriptsCache()->hsvNames())
+    return doc->hueScriptsCache()->hsvNames();
+}
+
+QStringList HUEMatrix::runtimeAlgorithms(Doc *doc)
+{
+    QStringList names = RGBAlgorithm::algorithms(doc);
+    for (const QString &name : availableAlgorithms(doc))
     {
-        if (list.contains(name) == false)
-            list << name;
+        if (!names.contains(name))
+            names.append(name);
     }
-    return list;
+    return names;
+}
+
+int HUEMatrix::algorithmIndex() const
+{
+    return m_algorithm == nullptr ? -1 : runtimeAlgorithms(doc()).indexOf(m_algorithm->name());
+}
+
+void HUEMatrix::applyPatternAttribute(qreal patternIndex)
+{
+    if (patternIndex == -1 && !attributes().at(PatternAttr).m_isOverridden)
+    {
+        if (m_algorithm != nullptr)
+        {
+            const bool previous = m_applyingStyleAttributes;
+            m_applyingStyleAttributes = true;
+            setAlgorithm(nullptr);
+            m_applyingStyleAttributes = previous;
+        }
+        return;
+    }
+    const QStringList names = runtimeAlgorithms(doc());
+    if (!std::isfinite(patternIndex) || patternIndex < 0 || patternIndex >= names.count())
+        return;
+    const int index = qRound(patternIndex);
+    if (index >= names.count() ||
+        (m_algorithm != nullptr && m_algorithm->name() == names.at(index)))
+        return;
+    RGBAlgorithm *algo = createAlgorithm(doc(), names.at(index));
+    if (algo == nullptr)
+        return;
+    algo->setColors(getColors());
+    const bool previous = m_applyingStyleAttributes;
+    m_applyingStyleAttributes = true;
+    setAlgorithm(algo);
+    m_applyingStyleAttributes = previous;
+}
+
+QList<RGBScriptProperty> HUEMatrix::scriptPropertyAttributes() const
+{
+    QList<RGBScriptProperty> properties = RGBMatrix::scriptPropertyAttributes();
+    const auto fixed = attributes().mid(0, ScriptPropertyAttr);
+    for (RGBScriptProperty &property : properties)
+    {
+        for (const Attribute &attribute : fixed)
+        {
+            if (scriptPropertyAttributeName(property) == attribute.m_name)
+            {
+                property.m_displayName = tr("Script %1").arg(scriptPropertyAttributeName(property));
+                break;
+            }
+        }
+    }
+    return properties;
+}
+
+void HUEMatrix::setProperty(QString propName, QString value)
+{
+    QMutexLocker algorithmLocker(&m_algorithmMutex);
+    RGBMatrix::setProperty(propName, value);
+    if (m_applyingStyleAttributes)
+        return;
+
+    const auto properties = scriptPropertyAttributes();
+    for (int i = 0; i < properties.count(); ++i)
+    {
+        const RGBScriptProperty &property = properties.at(i);
+        if (property.m_name != propName)
+            continue;
+
+        const QString current = static_cast<RGBScript *>(m_algorithm)->property(propName);
+        bool valid = true;
+        const qreal attributeValue = property.m_type == RGBScriptProperty::List ?
+            property.m_listValues.indexOf(current) : current.toDouble(&valid);
+        if (!valid || !std::isfinite(attributeValue) ||
+            (property.m_type == RGBScriptProperty::List && attributeValue < 0))
+            return;
+
+        const int index = ScriptPropertyAttr + i;
+        Function::adjustAttribute(attributeValue, index);
+        if (attributes().at(index).m_isOverridden)
+            applyScriptPropertyAttribute(i, getAttributeValue(index));
+        return;
+    }
+}
+
+void HUEMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
+{
+    // Effective overrides must not replace the authored attribute value.
+    const bool previous = m_applyingStyleAttributes;
+    m_applyingStyleAttributes = true;
+    RGBMatrix::applyScriptPropertyAttribute(attrIndex, value);
+    m_applyingStyleAttributes = previous;
 }
 
 /** Names of the built-in (non-script) algorithms. A HUE script that declares
@@ -185,7 +285,7 @@ RGBAlgorithm *HUEMatrix::createAlgorithm(Doc *doc, const QString &name)
 
     // The upstream factory returns an empty RGBScript for an unknown name.
     // Reject unknown names here so that callers can detect them.
-    if (availableAlgorithms(doc).contains(name) == false)
+    if (RGBAlgorithm::algorithms(doc).contains(name) == false)
         return NULL;
 
     return RGBAlgorithm::algorithm(doc, name);
@@ -248,13 +348,13 @@ Function* HUEMatrix::createCopy(Doc* doc, bool addToDoc)
 {
     Q_ASSERT(doc != NULL);
 
-    Function *copy = new RGBMatrix(doc);
+    Function *copy = new HUEMatrix(doc);
     if (copy->copyFrom(this) == false)
     {
         delete copy;
         copy = NULL;
     }
-    if (addToDoc == true && doc->addFunction(copy) == false)
+    if (copy != NULL && addToDoc == true && doc->addFunction(copy) == false)
     {
         delete copy;
         copy = NULL;
@@ -269,19 +369,35 @@ bool HUEMatrix::copyFrom(const Function* function)
     if (mtx == NULL)
         return false;
 
-    setDimmerControl(mtx->dimmerControl());
-    setFixtureGroup(mtx->fixtureGroup());
-
-    m_rgbColors.clear();
-    foreach (QColor col, mtx->getColors())
-        m_rgbColors.append(col);
-
-    if (mtx->algorithm() != NULL)
-        setAlgorithm(mtx->algorithm()->clone());
-    else
-        setAlgorithm(NULL);
-
-    setControlMode(mtx->controlMode());
+    m_properties = mtx->m_properties;
+    if (!RGBMatrix::copyFrom(function))
+        return false;
+    if (m_algorithm != nullptr && m_algorithm->doc() != doc())
+    {
+        // Upstream clone() retains its source Doc; imports must not keep it.
+        RGBAlgorithm *copy = nullptr;
+        if (m_algorithm->type() == RGBAlgorithm::Script)
+        {
+            const HUEScript *source = dynamic_cast<const HUEScript *>(m_algorithm);
+            HUEScript *script = new HUEScript(doc());
+            script->setHsvContract(source != nullptr && source->hsvContract());
+            script->RGBScript::operator=(*static_cast<RGBScript *>(m_algorithm));
+            copy = script;
+        }
+        else
+        {
+            QString xml;
+            QXmlStreamWriter writer(&xml);
+            m_algorithm->saveXML(&writer);
+            QXmlStreamReader reader(xml);
+            reader.readNextStartElement();
+            copy = algorithmLoader(doc(), reader);
+        }
+        if (copy == nullptr)
+            return false;
+        copy->setColors(getColors());
+        setAlgorithm(copy);
+    }
     setRotation(mtx->rotation());
     setMirror(mtx->mirror());
     setMirrorBlend(mtx->mirrorBlend());
@@ -290,7 +406,7 @@ bool HUEMatrix::copyFrom(const Function* function)
     setBeatSelection(mtx->beatSelection());
     setBeatOrientation(mtx->beatOrientation());
 
-    return Function::copyFrom(function);
+    return true;
 }
 
 void HUEMatrix::setFixtureGroup(quint32 id)
@@ -312,6 +428,7 @@ void HUEMatrix::setAlgorithm(RGBAlgorithm *algo)
     RGBAlgorithm *oldAlgo = nullptr;
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
+        unregisterScriptPropertyAttributes();
         oldAlgo = m_algorithm;
         m_algorithm = algo;
 
@@ -333,11 +450,13 @@ void HUEMatrix::setAlgorithm(RGBAlgorithm *algo)
             while (it.hasNext())
             {
                 it.next();
-                if (script->setProperty(it.key(), it.value()) == false)
+                if (script->setProperty(it.key(), it.value()) == false &&
+                    !m_applyingStyleAttributes)
                 {
                     /** If the new algorithm doesn't expose a property,
                      *  then remove it from the cached list, otherwise
-                     *  it would be carried around forever (and saved on XML) */
+                     *  it would be carried around forever (and saved on XML).
+                     *  Temporary Pattern overrides must retain the base properties. */
                     m_properties.take(it.key());
                 }
             }
@@ -351,6 +470,7 @@ void HUEMatrix::setAlgorithm(RGBAlgorithm *algo)
     // JSThread (FIFO), avoiding use-after-free in the async path.
     deferDeleteAlgorithm(oldAlgo);
     m_stepsCount = algorithmStepsCount();
+    registerScriptPropertyAttributes();
 
     if (m_applyingStyleAttributes == false)
         Function::adjustAttribute(algorithmIndex(), PatternAttr);
@@ -383,6 +503,13 @@ void HUEMatrix::previewMap(int step, RGBMatrixStep *handler)
 
     if (m_group != NULL)
     {
+        // Preview observes live audio pixels rather than advancing the same
+        // stateful JS instance and consuming its event cursor a second time.
+        if (isRunning() && m_algorithm->usesAudio())
+        {
+            handler->m_map = m_stepHandler->m_map;
+            return;
+        }
         QSize algoSize = effectiveAlgorithmSize(m_group);
         if (m_algorithm->usesAudio())
             m_algorithm->setDisplaySize(m_group->size());
@@ -631,6 +758,7 @@ void HUEMatrix::preRun(MasterTimer *timer)
 
     m_roundTime.restart();
 
+    m_audioClock.reset();
     // The resolved fixture group may have changed since last preRun; force the
     // PixelPlan to be rebuilt on the first updateMapChannels() call.
     m_pixelPlanDirty.storeRelease(1);
@@ -642,11 +770,13 @@ void HUEMatrix::preRun(MasterTimer *timer)
     Function::preRun(timer);
 }
 
-bool HUEMatrix::advanceStep(MasterTimer *timer, quint32 &prevElapsed)
+bool HUEMatrix::advanceStep(MasterTimer *timer, quint32 &prevElapsed, const AudioRenderView *audio)
 {
+    const int beatDuration = audio ? qRound(60000.0 / (audio->tempoValid ? audio->bpm : 120.0))
+                                   : timer->beatTimeDuration();
     // Refresh beat duration before any beat checks
     if (tempoType() == Beats)
-        m_stepBeatDuration = beatsToTime(duration(), timer->beatTimeDuration());
+        m_stepBeatDuration = beatsToTime(duration(), beatDuration);
 
     prevElapsed = elapsed();
     incrementElapsed();
@@ -657,44 +787,37 @@ bool HUEMatrix::advanceStep(MasterTimer *timer, quint32 &prevElapsed)
     if (tempoType() != Beats)
         return false;
 
-    if (timer->isBeat())
+    const uint64_t beats = audio ? audio->deltas[1] : (timer->isBeat() ? 1 : 0);
+    bool changed = false;
+    for (uint64_t i = 0; i < beats; ++i)
     {
         incrementElapsedBeats();
         if (elapsedBeats() % duration() != 0)
-            return false;
+            continue;
 
-        bool stepChanged = roundCheckLocked();
+        changed |= roundCheckLocked();
         resetElapsed();
-        return stepChanged;
     }
+    if (beats)
+        return changed;
 
-    if (elapsed() >= m_stepBeatDuration && (uint)timer->timeToNextBeat() > m_stepBeatDuration / 16)
+    const uint nextBeat = audio ? uint((1.0 - audio->phase) * beatDuration) : uint(timer->timeToNextBeat());
+    if (elapsed() >= m_stepBeatDuration && nextBeat > m_stepBeatDuration / 16)
         return roundCheckLocked();
 
     return false;
 }
 
-int HUEMatrix::updateBeatPhase(MasterTimer *timer)
+int HUEMatrix::updateBeatPhase(MasterTimer *timer, const AudioRenderView &audio)
 {
     int beatsPerBar = 4;
 
     if (m_beatEffect == BeatEffectOff)
         return beatsPerBar;
 
-    AudioProfile *profile = doc()->audioProfile(doc()->activeAudioProfileId());
-    if (profile == NULL)
-        profile = doc()->defaultAudioProfile();
-    AudioChannel *channel = (profile != NULL) ? profile->channel() : NULL;
-    if (profile != NULL)
-        beatsPerBar = std::clamp(profile->channelConfig().aubio.beatsPerBar, 1, 8);
-
-    // Prefer the analysed bar phase, fall back to counting timer beats
-    AudioSnapshot snap;
-    if (channel != NULL)
-        snap = channel->snapshot();
-
-    if (channel != NULL && snap.music.barPhase > 0)
-        m_currentBeat = int(snap.music.barPhase) % beatsPerBar;
+    beatsPerBar = audio.beatsPerBar;
+    if (audio.available && audio.tempoValid)
+        m_currentBeat = audio.beatInBar % beatsPerBar;
     else if (timer->isBeat())
         m_currentBeat = (m_currentBeat + 1) % beatsPerBar;
 
@@ -759,9 +882,23 @@ void HUEMatrix::write(MasterTimer *timer, QList<Universe *> universes)
     if (isPaused())
         return;
 
+    HUEScript *audioScript = m_runAlgorithm->usesAudio()
+        ? dynamic_cast<HUEScript *>(m_runAlgorithm) : nullptr;
+    RGBAudio *audioBuiltin = dynamic_cast<RGBAudio *>(m_runAlgorithm);
+    AudioRenderView audio;
+    if (audioScript != nullptr)
+        audio = audioScript->resolveAudio();
+    else if (audioBuiltin != nullptr)
+        audio = audioBuiltin->resolveAudio();
+    else if (m_beatEffect != BeatEffectOff)
+        audio = AudioRenderView::fromSnapshot(doc()->audioSnapshot(), AudioRenderView::nowNs());
+    m_audioClock.advance(audio);
+    const bool audioClock = (audioScript != nullptr || audioBuiltin != nullptr)
+        && doc()->inputOutputMap()->beatGeneratorType() == InputOutputMap::Audio;
+
     quint32 prevElapsed = 0;
-    bool stepChanged = advanceStep(timer, prevElapsed);
-    int beatsPerBar = updateBeatPhase(timer);
+    bool stepChanged = advanceStep(timer, prevElapsed, audioClock ? &audio : nullptr);
+    int beatsPerBar = updateBeatPhase(timer, audio);
 
     // Recompute when: step just changed, first tick of a step, audio-reactive,
     // or beat transform active. Otherwise the previous map still holds.
@@ -780,11 +917,18 @@ void HUEMatrix::write(MasterTimer *timer, QList<Universe *> universes)
     // A pre-computed frame already has rotation/mirror applied (those are
     // stable across ticks). The beat transform is never pre-computed because
     // m_currentBeat is only known on this thread, at this tick.
-    if (consumePrecomputedMap(algoSize, stepColor, stepIndex, generation) == false)
+    if (m_runAlgorithm->usesAudio()
+        || consumePrecomputedMap(algoSize, stepColor, stepIndex, generation) == false)
     {
-        if (m_runAlgorithm->usesAudio())
+        if (m_runAlgorithm->usesAudio() && audioScript == nullptr)
             m_runAlgorithm->setDisplaySize(m_group->size());
-        m_runAlgorithm->rgbMap(algoSize, stepColor, stepIndex, m_stepHandler->m_map);
+        if (audioScript != nullptr)
+            audioScript->rgbMapWithAudio(algoSize, stepColor, stepIndex, m_stepHandler->m_map,
+                                        audio, m_group->size());
+        else if (audioBuiltin != nullptr)
+            audioBuiltin->rgbMapWithAudio(algoSize, stepColor, m_stepHandler->m_map, audio);
+        else
+            m_runAlgorithm->rgbMap(algoSize, stepColor, stepIndex, m_stepHandler->m_map);
         if (m_rotation || m_mirror)
             applyTransforms(m_stepHandler->m_map, algoSize, m_group->size(),
                             m_rotation, m_mirror, m_mirrorBlend);
@@ -793,7 +937,9 @@ void HUEMatrix::write(MasterTimer *timer, QList<Universe *> universes)
     if (m_beatEffect != BeatEffectOff)
         applyBeatTransform(m_stepHandler->m_map, m_currentBeat, beatsPerBar);
 
-    updateMapChannels(m_stepHandler->m_map, m_group, universes, timer->beatTimeDuration());
+    const int beatDuration = audioClock ? qRound(60000.0 / (audio.tempoValid ? audio.bpm : 120.0))
+                                        : timer->beatTimeDuration();
+    updateMapChannels(m_stepHandler->m_map, m_group, universes, beatDuration);
 
     // Kick off pre-computation for the NEXT tick, assuming it will use the
     // same step and colour (true for most ticks). If that assumption is wrong,
@@ -939,7 +1085,7 @@ void HUEMatrix::kickAsyncRgbMap(RGBAlgorithm *algo, const QSize &algoSize,
 
     // Only Script algorithms benefit — others (Image, PlainColor, Text, Audio)
     // run inline on this thread already and are fast.
-    if (algo->type() != RGBAlgorithm::Script)
+    if (algo->type() != RGBAlgorithm::Script || algo->usesAudio())
         return;
 
     // Throttle: at most one async task in flight per matrix. If a previous

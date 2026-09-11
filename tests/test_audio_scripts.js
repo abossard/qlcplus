@@ -125,7 +125,7 @@ function seededRandom(seed) {
     };
 }
 
-function loadScript(scriptFile, seed = 0x5eed) {
+function loadScript(scriptFile, seed = 0x5eed, directory = SCRIPTS_DIR) {
     const math = Object.create(Math);
     Object.defineProperty(math, 'random', { value: seededRandom(seed) });
     const sandbox = {
@@ -138,7 +138,7 @@ function loadScript(scriptFile, seed = 0x5eed) {
     vm.createContext(sandbox);
     vm.runInContext(HSV_UTIL, sandbox, { filename: 'hsvutil.js' });
     vm.runInContext(
-        fs.readFileSync(path.join(SCRIPTS_DIR, scriptFile), 'utf8'),
+        fs.readFileSync(path.join(directory, scriptFile), 'utf8'),
         sandbox,
         { filename: scriptFile }
     );
@@ -526,6 +526,187 @@ function assertScript(scriptFile) {
     return { activeStimulus, contrast: shape.contrast, peak: shape.peak };
 }
 
+async function compareReferenceEffects() {
+    const zlib = require('zlib');
+    const readline = require('readline');
+    const directory = process.argv[process.argv.indexOf('--reference-effects') + 1];
+    const requested = process.argv.includes('--only')
+        ? process.argv[process.argv.indexOf('--only') + 1].split(',') : null;
+    const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, 'audio_reference_manifest.json')));
+    const scripts = ['audiospectrum.js', 'audioenergy.js', 'audiobarcode.js',
+        'audioenergy2.js', 'audiostrobe.js'];
+    const reports = [];
+    for (const file of fs.readdirSync(directory).filter(f => f.endsWith('.jsonl.gz'))) {
+        if (requested && !requested.includes(file.replace('.jsonl.gz', ''))) continue;
+        const lines = readline.createInterface({
+            input: fs.createReadStream(path.join(directory, file)).pipe(zlib.createGunzip())
+        });
+        let header, algorithms, previous = {}, frames = 0;
+        const statistics = {};
+        for await (const line of lines) {
+            const record = JSON.parse(line);
+            if (!header) {
+                header = record;
+                if (!header.effects.length) break;
+                algorithms = header.effects.map(definition => {
+                    const algo = loadScript(scripts[manifest.effects.indexOf(definition.name)]);
+                    assert.strictEqual(typeof algo.setMode, 'function',
+                        `${definition.name}: explicit faithful mode missing`);
+                    algo.setMode('Reference');
+                    if (definition.name === 'strobe') algo.setReferenceClock('Extrapolated');
+                    algo.referenceDiagnostics = true;
+                    algo.setReferenceBlur(definition.config.blur);
+                    algo.setReferenceMirror(definition.config.mirror ? 'On' : 'Off');
+                    algo.setReferenceBrightness(definition.config.brightness);
+                    if (definition.palette && algo.setReferencePalette) algo.setReferencePalette(definition.palette.join(','));
+                    return algo;
+                });
+                continue;
+            }
+            const events = {};
+            for (const [output, input] of Object.entries({onset: 'onset', beat: 'tempo', kick: 'kick', bar: 'bar_wrap'}))
+                events[output] = record.events[input] - (previous[input] || 0);
+            const frame = audio({
+                version: 6, low: (record.powers[0] + record.powers[1]) / 2,
+                mid: record.powers[2], high: record.powers[3], bpm: record.tempo_bpm || 120,
+                phase: record.beat_phase, barPhase: record.bar_phase,
+                timing: {deltaSeconds: frames ? 1 / 60 : 0},
+                sourceEpoch: 1, frameSequence: frames + 1,
+                tempo: {valid: record.tempo_bpm > 0, bpm: record.tempo_bpm,
+                    beatPhase: record.beat_phase, barPhase: record.bar_phase},
+                events: {delta: events},
+                banks: {full: {count: 24, processed: record.banks[2].processed,
+                    novelty: record.banks[2].novelty}}
+            });
+            record.effects.forEach((reference, index) => {
+                const algo = algorithms[index];
+                const map = algo.rgbMap(reference.width, reference.height, algo.color, 0, frame);
+                assertMapContract(scripts[index >> 2], map, reference.width, reference.height, 'reference replay');
+                const segment = header.segments.find(s => frames >= s.start_frame && frames < s.end_frame);
+                for (const boundary of ['pre', 'transformed', 'final']) {
+                    const actual = boundary === 'final' ? hsvPixels(map) : algo.referenceFrame[boundary];
+                    assert.strictEqual(actual.length, reference[boundary].length);
+                    const key = `${segment.start_frame}:${segment.end_frame}/${reference.name}/${reference.width}x${reference.height}/${boundary}`;
+                    const stat = statistics[key] ||= {square: 0, errors: []};
+                    actual.forEach((pixel, p) => pixel.forEach((channel, c) => {
+                        const error = Math.abs(channel - reference[boundary][p][c]);
+                        stat.errors.push(error);
+                        stat.square += error * error;
+                    }));
+                }
+            });
+            previous = record.events;
+            frames++;
+        }
+        if (!frames) continue;
+        assert.strictEqual(frames, header.frame_count);
+        const metrics = Object.entries(statistics).map(([key, stat]) => {
+            stat.errors.sort((a, b) => a - b);
+            const rmse = Math.sqrt(stat.square / stat.errors.length);
+            const p99 = stat.errors[Math.floor((stat.errors.length - 1) * .99)];
+            return {key, rmse, p99, max: stat.errors[stat.errors.length - 1],
+                passed: rmse <= manifest.tolerances.linear_rgb_rmse && p99 <= manifest.tolerances.linear_rgb_p99};
+        });
+        const result = {fixture: header.fixture, frames, passed: metrics.every(m => m.passed), metrics};
+        reports.push(result);
+        console.log(JSON.stringify({...result, metrics: undefined,
+            failures: metrics.filter(m => !m.passed).slice(0, 6)}));
+    }
+    assert(reports.length > 0, 'No real reference effects compared');
+    const report = {producer: 'actual-hue-javascript-node', nativeQtVerified: false,
+        passed: reports.every(r => r.passed), fixtures: reports.length, results: reports};
+    if (process.argv.includes('--report'))
+        fs.writeFileSync(process.argv[process.argv.indexOf('--report') + 1], JSON.stringify(report, null, 2) + '\n');
+    if (!report.passed) process.exitCode = 1;
+}
+
+function hsvPixels(map) {
+    const result = [];
+    for (let i = 0; i < map.length; i += 3) {
+        const h = map[i] * 6, s = map[i + 1], v = map[i + 2];
+        const c = v * s, x = c * (1 - Math.abs(h % 2 - 1)), m = v - c;
+        const rgb = [[c,x,0], [x,c,0], [0,c,x], [0,x,c], [x,0,c], [c,0,x]][Math.floor(h) % 6];
+        result.push(rgb.map(channel => channel + m));
+    }
+    return result;
+}
+
+function assertReferenceCadence() {
+    const scripts = ['audiospectrum.js', 'audioenergy.js', 'audiobarcode.js',
+        'audioenergy2.js', 'audiostrobe.js'];
+    const fresh = file => {
+        const algo = loadScript(file);
+        assert.strictEqual(algo.getMode(), 'Artistic', `${file}: saved default changed`);
+        algo.setMode('Reference');
+        algo.setReferenceBlur(0);
+        algo.setReferenceMirror('Off');
+        algo.setReferenceBrightness(1);
+        algo.referenceDiagnostics = true;
+        return algo;
+    };
+    const frame = (seconds, level, sequence) => audio({
+        version: 6, sourceEpoch: 1, frameSequence: sequence,
+        timing: {deltaSeconds: seconds}, banks: {full: {
+            count: 24, processed: new Array(24).fill(level), novelty: new Array(24).fill(level * .2)
+        }}, tempo: {bpm: 120, valid: true, beatPhase: .2, barPhase: .6}
+    });
+    for (const file of scripts) {
+        const output = [30, 50, 60].map(hz => {
+            const algo = fresh(file);
+            algo.rgbMap(1000, 1, algo.color, 0, frame(0, .8, 1));
+            let map, input;
+            for (let n = 1; n <= hz / 5; n++) {
+                input = frame(1 / hz, file === 'audioenergy2.js' ? .3 : 0, n + 1);
+                input.tempo.beatPhase = n * 2 / hz;
+                input.tempo.barPhase = n / (2 * hz);
+                map = algo.rgbMap(1000, 1, algo.color, 0, input);
+            }
+            const pre = algo.referenceFrame.pre;
+            // Trail position and brightness are distinct physical observations.
+            const brightness = pre.map(p => Math.max(...p));
+            const occupied = brightness.map((v, i) => v > 1e-9 ? i : -1).filter(i => i >= 0);
+            const result = {amplitude: Math.max(...brightness), position: occupied.length ? occupied[0] : 0};
+            input.timing.deltaSeconds = 0;
+            const repeated = algo.rgbMap(1000, 1, algo.color, 0, input);
+            assert.deepStrictEqual(Array.from(repeated), Array.from(map), `${file}: repeated read advances state`);
+            assert(result.amplitude > 0, `${file}: cadence oracle must observe real energy`);
+            return result;
+        });
+        for (const metric of ['amplitude', 'position']) {
+            const values = output.map(o => o[metric]), largest = Math.max(...values), smallest = Math.min(...values);
+            assert(largest === 0 || (largest - smallest) / largest <= .05,
+                `${file}: ${metric} differs across 30/50/60Hz: ${values}`);
+        }
+        console.log(`REFERENCE_CADENCE ${file} ${JSON.stringify(output)}`);
+    }
+    const strobe = fresh('audiostrobe.js'), unclocked = frame(1 / 60, .8, 1);
+    unclocked.tempo.valid = false;
+    const dark = strobe.rgbMap(24, 1, strobe.color, 0, unclocked);
+    assert(hsvPixels(dark).every(pixel => pixel.every(channel => channel === 0)),
+        'Reference strobe must not treat fallback BPM as detected tempo');
+    strobe.setReferenceClock('Extrapolated');
+    assert(hsvPixels(strobe.rgbMap(24, 1, strobe.color, 0, unclocked)).some(pixel => pixel.some(channel => channel > 0)),
+        'Explicit extrapolated reference clock must be exercised');
+    if (process.argv.includes('--artistic-entry')) {
+        const directory = process.argv[process.argv.indexOf('--artistic-entry') + 1];
+        for (const file of scripts) {
+            const before = loadScript(file, 0x5eed, directory), after = loadScript(file);
+            for (const dimensions of DIMENSIONS)
+                for (const stimulus of Object.values(STIMULI)) {
+                    const input = audio(stimulus);
+                    const left = before.rgbMap(...dimensions, before.color, 0, input);
+                    const right = after.rgbMap(...dimensions, after.color, 0, input);
+                    assert.deepStrictEqual(Array.from(left), Array.from(right),
+                        `${file}: artistic output differs from scoped entry`);
+                }
+        }
+        console.log('ARTISTIC_ENTRY: 5 exact preserved scripts across dimensions and unequal stimuli');
+    }
+}
+
+if (process.argv.includes('--reference-effects')) {
+    compareReferenceEffects().catch(error => { console.error(error); process.exitCode = 1; });
+} else {
 const installed = fs.readdirSync(SCRIPTS_DIR)
     .filter(file => /^audio.*\.js$/.test(file))
     .sort();
@@ -541,6 +722,114 @@ assert.throws(
     /Float32Array/
 );
 assertWaterBandCoverage();
+
+function assertPublishedAudio() {
+    for (const [width, height] of [[24, 1], [37, 1], [1, 9], [7, 11]]) {
+        const maps = [3, 18].map(peak => {
+            const values = Array(24).fill(0);
+            values[peak] = 0.8;
+            return render(loadScript('audiospectrum.js'), 'audiospectrum.js',
+                width, height, audio({
+                    version: 6, dt: 1 / 30,
+                    timing: { deltaSeconds: 1 / 60 },
+                    banks: { full: { count: 24, processed: values,
+                        novelty: values.map(x => x * 0.3) } }
+                }), 'real full-bank sweep');
+        });
+        const brightest = map => {
+            let peak = 0;
+            for (let i = 1; i < map.length / 3; ++i)
+                if (map[i * 3 + 2] > map[peak * 3 + 2]) peak = i;
+            return peak;
+        };
+        assert(brightest(maps[1]) > brightest(maps[0]),
+            `spectrum ${width}x${height}: must read actual bank bins, not scalar powers`);
+        assert(Math.max(...maps[0].filter((_, i) => i % 3 === 2)) > 0.1);
+    }
+    // The same physical interval, not the same number of JS invocations.
+    const powers = [25, 30, 50, 60].map(hz => {
+        const algo = loadScript('audioenergy.js');
+        let map;
+        for (let n = 0; n < hz; ++n)
+            map = render(algo, 'audioenergy.js', 1000, 1,
+                audio({ low: n < hz / 5 ? 0.8 : 0, dt: 2 / hz,
+                    timing: { deltaSeconds: 1 / hz } }), 'physical decay', n);
+        return map.filter((v, i) => i % 3 === 2 && v > 0).length;
+    });
+    assert(Math.max(...powers) - Math.min(...powers) <= 2,
+        `energy decay depends on render rate: ${powers}`);
+
+    const particles = [25, 30, 50, 60].map(hz => {
+        const algo = loadScript('audiofireworks.js');
+        render(algo, 'audiofireworks.js', 24, 1, audio(), 'initialize particles');
+        algo.particles.push({ x: 5, y: 2, vx: 0.2, vy: -0.1,
+            color: PALETTE[0], life: 100, maxLife: 100 });
+        for (let n = 0; n < hz * 0.4; ++n)
+            render(algo, 'audiofireworks.js', 24, 1,
+                audio({ dt: 2 / hz, timing: { deltaSeconds: 1 / hz } }),
+                'physical particle travel');
+        return algo.particles[0];
+    });
+    for (const key of ['x', 'y', 'vy', 'life'])
+        assert(Math.max(...particles.map(p => p[key])) - Math.min(...particles.map(p => p[key])) < 1e-8,
+            `fireworks ${key} depends on render rate: ${particles.map(p => p[key])}`);
+
+    const burst = count => {
+        const algo = loadScript('audiofireworks.js');
+        algo.setTriggerMode('Beat');
+        algo.setMaxParticles(500);
+        render(algo, 'audiofireworks.js', 24, 1, audio({
+            beatFired: true, events: { delta: { beat: count, onset: 0, kick: 0, bar: 0 } },
+            timing: { deltaSeconds: 0 }
+        }), 'counter catch-up');
+        return algo.particles.length;
+    };
+    assert(burst(3) > burst(1) * 2, 'fireworks drops coalesced beat events');
+
+    for (const [file, state] of [['audiopuddles.js', 'ripples'],
+        ['audiobarcode.js', 'lines'], ['audioshockwave.js', 'waves']]) {
+        const algo = loadScript(file);
+        if (algo.setMinSpawnMs) algo.setMinSpawnMs(0);
+        if (algo.setTrigger) algo.setTrigger('Onset');
+        const frame = audio({ version: 6, onset: true, onsetIntensity: 0.8,
+            events: { delta: { onset: 3, beat: 0, kick: 0, bar: 0 } },
+            timing: { deltaSeconds: 0 } });
+        render(algo, file, 7, 11, frame, 'three coalesced events');
+        assert.strictEqual(algo[state].length, 3, `${file}: coalesced onset count`);
+        frame.events.delta.onset = 0;
+        render(algo, file, 7, 11, frame, 'repeat publication');
+        assert.strictEqual(algo[state].length, 3, `${file}: replayed an old event`);
+    }
+    const strobe = loadScript('audiostrobe.js');
+    strobe.setBassTrigger('Kick');
+    const kicked = render(strobe, 'audiostrobe.js', 7, 1,
+        audio({ version: 6, dt: 1, kickFired: true,
+            timing: { deltaSeconds: 0.5 } }), 'kick without tempo');
+    assert(kicked.some((value, i) => i % 3 === 2 && value > 0),
+        'strobe Kick option must not require a tempo beat');
+
+    const shotBrightness = [25, 30, 50, 60].map(hz => {
+        const algo = loadScript('audioshot.js');
+        render(algo, 'audioshot.js', 24, 9, audio({
+            onset: true, onsetIntensity: 0.8, timing: { deltaSeconds: 0 },
+            events: { delta: { onset: 1, beat: 0, kick: 0, bar: 0 } }
+        }), 'initial shot');
+        let map;
+        for (let n = 0; n < hz * 0.4; ++n)
+            map = render(algo, 'audioshot.js', 24, 9, audio({
+                timing: { deltaSeconds: 1 / hz }, dt: 2 / hz,
+                events: { delta: { onset: 0, beat: 0, kick: 0, bar: 0 } }
+            }), 'physical shot decay');
+        return Math.max(...map.filter((_, i) => i % 3 === 2));
+    });
+    assert(Math.max(...shotBrightness) - Math.min(...shotBrightness) < 1e-6,
+        `shot decay depends on render rate: ${shotBrightness}`);
+    console.log('AUDIO_API6: real-bank sweep=4 layouts; physical decay/travel=25/30/50/60Hz; ' +
+        'coalesced onsets=3 consumers; burst catch-up=3 beats; kick independent of tempo');
+}
+
+assertPublishedAudio();
+assertReferenceCadence();
 
 let passed = 0;
 for (const scriptFile of EXPECTED_SCRIPTS) {
@@ -566,3 +855,4 @@ console.log(
     `deterministic=${totals.deterministicChecks} resize=${totals.resizeChecks} ` +
     `waterBands=${totals.waterBandCases}`
 );
+}

@@ -14,8 +14,6 @@
 
 namespace
 {
-    constexpr double kAgcEpsilon = 1e-4;
-
     void gaussianBlur1D(const double *in, double *out, int n,
                         const double *kernel, int kernelSize)
     {
@@ -57,10 +55,13 @@ void MelPostProcessor::reset()
     std::fill(m_smoothed.begin(), m_smoothed.end(), 0.0);
     std::fill(m_common.begin(), m_common.end(), 0.0);
     std::fill(m_diff.begin(), m_diff.end(), 0.0);
-    m_melGain = 1e-10;
+    m_melGain = 0.0;
+    m_gainInitialized = false;
     m_smoothInitialized = false;
     m_commonInitialized = false;
     m_diffInitialized = false;
+    m_gainInitialized = false;
+    rebuildKernel();
 }
 
 void MelPostProcessor::ensureSize(int count)
@@ -82,8 +83,8 @@ void MelPostProcessor::rebuildKernel()
 {
     const double sigma = std::max(0.01, m_config.gaussianSigma);
     int radius = std::max(1, int(std::round(4.0 * sigma)));
-    // Cap radius so kernel fits comfortably inside a 40-band mel array.
-    radius = std::min(radius, 19);
+    if (!m_smoothed.empty())
+        radius = std::min(radius, (int(m_smoothed.size()) - 1) / 2);
 
     m_kernelSize = 2 * radius + 1;
     m_gaussianKernel.assign(m_kernelSize, 0.0);
@@ -120,6 +121,14 @@ void MelPostProcessor::process(const double *rawMel, int count,
         return;
     }
 
+    if (noiseGateClosed)
+    {
+        std::fill_n(processedMel, count, 0.0);
+        if (noveltyMel)
+            std::fill_n(noveltyMel, count, 0.0);
+        return;
+    }
+
     if (!m_config.enabled)
     {
         // Bypass: copy raw -> processed, zero novelty for predictable output.
@@ -133,21 +142,7 @@ void MelPostProcessor::process(const double *rawMel, int count,
     if (m_kernelSigma < 0.0)
         rebuildKernel();
 
-    // LedFx audio.py:1027-1041 — when the gate is closed, zero the FFT input
-    // but still run the full filter chain (LedFx melbank.py:380-403 updates
-    // common/diff filters every frame regardless of input). This lets
-    // m_smoothed, m_common and m_diff decay naturally toward zero and
-    // m_melGain decay toward kAgcEpsilon, instead of being frozen at their
-    // last live values. Fix 3's smoothed gate prevents the gate from
-    // reopening on noise while m_melGain divisor is small.
-
-    // 1. Power scaling — peak isolation.
-    // When gate is closed, fill m_powered with zeros directly (no heap alloc).
-    if (noiseGateClosed)
-    {
-        std::fill(m_powered.begin(), m_powered.begin() + count, 0.0);
-    }
-    else if (std::abs(m_config.powerFactor - 1.0) < 1e-9)
+    if (std::abs(m_config.powerFactor - 1.0) < 1e-9)
     {
         std::copy(rawMel, rawMel + count, m_powered.data());
     }
@@ -167,8 +162,6 @@ void MelPostProcessor::process(const double *rawMel, int count,
     double currentPeak = 0.0;
     for (int i = 0; i < count; i++)
         if (m_blurred[i] > currentPeak) currentPeak = m_blurred[i];
-    if (currentPeak < kAgcEpsilon)
-        currentPeak = kAgcEpsilon;
 
     // 3. Temporal mel_gain (LedFx ExpFilter — alphas now from config).
     // Slow decay holds gain high during quiet passages so soft bands still
@@ -178,9 +171,9 @@ void MelPostProcessor::process(const double *rawMel, int count,
     const double agcRise = std::clamp(m_config.agcRise, 0.0, 1.0);
     const double agcDecay = std::clamp(m_config.agcDecay, 0.0, 1.0);
     const double melGainAlpha = (currentPeak > m_melGain) ? agcRise : agcDecay;
-    m_melGain = melGainAlpha * currentPeak + (1.0 - melGainAlpha) * m_melGain;
-    if (m_melGain < kAgcEpsilon)
-        m_melGain = kAgcEpsilon;
+    m_melGain = m_gainInitialized
+        ? melGainAlpha * currentPeak + (1.0 - melGainAlpha) * m_melGain : currentPeak;
+    m_gainInitialized = true;
 
     // 4. Per-band asymmetric ExpFilter smoothing on AGC-normalized values.
     const double aRise = std::clamp(m_config.smoothRise, 0.0, 1.0);
@@ -188,7 +181,7 @@ void MelPostProcessor::process(const double *rawMel, int count,
 
     for (int i = 0; i < count; i++)
     {
-        double v = m_powered[i] / m_melGain;
+        double v = m_melGain > 0.0 ? m_powered[i] / m_melGain : 0.0;
         if (!std::isfinite(v))
             v = 0.0;
 

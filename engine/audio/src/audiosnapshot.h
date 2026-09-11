@@ -10,6 +10,8 @@
 #pragma once
 
 #include "aubioresults.h"
+#include <QString>
+#include <climits>
 
 struct TriggerState
 {
@@ -21,12 +23,28 @@ struct TriggerState
     double cooldownRemainingMs = 0.0;
 };
 
-/**
- * v3 audio snapshot, sourced from AubioProcessor + AudioChannel envelopes.
- * No more legacy 32-bin FFT spectrum or AGC fields.
- */
+/** Coherent profile publication. Legacy fields remain alongside source,
+ * configuration, bank metadata and cumulative event counters. */
 struct AudioSnapshot
 {
+    QString sourceId;
+    uint32_t profileId = UINT_MAX;
+    uint64_t sourceEpoch = 0;
+    uint64_t frameSequence = 0;
+    uint64_t configRevision = 0;
+    AudioChannelConfig config;
+    uint64_t sampleTime = 0;
+    int64_t publishTimeNs = 0;
+    bool available = false;
+    QString status = QStringLiteral("unavailable");
+    struct Events
+    {
+        uint64_t onset = 0;
+        uint64_t beat = 0;
+        uint64_t kick = 0;
+        uint64_t bar = 0;
+    } events;
+
     // Mel spectrum (40 bands from aubio filterbank)
     double mel[AUBIO_MEL_BANDS] = {};
 
@@ -38,22 +56,19 @@ struct AudioSnapshot
     // post-processor is disabled.
     double melNovelty[AUBIO_MEL_BANDS] = {};
 
-    /**
-     * Multi-resolution mel banks (Phase 3+4 placeholder; populated by Phase
-     * 1+2). Each bank carries its own raw / processed / novelty triple,
-     * matching the LedFx "each bank has its own ExpFilter chain" guarantee.
-     * `count` is 0 when the bank is unconfigured/disabled — consumers must
-     * treat that as "no data" and fall back to the legacy 40-band `mel`.
-     */
+    /** Each bank has independent normalization and a valid prefix of count
+     * bins. Centers describe the same applied configuration as its values. */
     static constexpr int kMelBankBandsMax = kMaxMelBands;
     struct MelBankSnapshot
     {
         double raw      [kMelBankBandsMax] = {};
         double processed[kMelBankBandsMax] = {};
         double novelty  [kMelBankBandsMax] = {};
+        double centersHz[kMelBankBandsMax] = {};
         int    count = 0;
         double minHz = 0.0;
         double maxHz = 0.0;
+        double gain = 0.0;
     };
     MelBankSnapshot melLow;
     MelBankSnapshot melMid;
@@ -70,6 +85,7 @@ struct AudioSnapshot
     double lows  = 0.0;   // (beat + bass) / 2
     double mids  = 0.0;   // freq_power_filter[2], 250-3000 Hz
     double highs = 0.0;   // freq_power_filter[3], 3000-10000 Hz
+    double powersRaw[4] = {};
 
     // 3 mel-bank Schmitt triggers ([0]=low, [1]=mid, [2]=high) plus
     // volume / beat / kick = 6 triggers total.
@@ -94,6 +110,9 @@ struct AudioSnapshot
 
     struct
     {
+        bool valid = false;
+        int beatInBar = 0;
+        int beatsPerBar = 4;
         bool beat = false;
         double bpm = 0.0;
         double beatPhase = 0.0;
@@ -144,6 +163,8 @@ struct AudioSnapshot
     struct
     {
         double hz = 0.0;
+        double value = 0.0;
+        QString unit = QStringLiteral("Hz");
         double confidence = 0.0;
     } pitch;
 

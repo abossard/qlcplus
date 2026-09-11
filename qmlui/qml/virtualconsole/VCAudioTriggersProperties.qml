@@ -104,35 +104,145 @@ Rectangle
                         label: qsTr("Profile")
                     }
 
-                    CustomComboBox
+                    ComboBox
                     {
+                        id: profileSelector
+                        objectName: "audioProfileSelector"
+                        property bool setupControl: true
                         Layout.fillWidth: true
                         height: gridItemsHeight
                         model: widgetRef ? widgetRef.profileListModel : null
                         textRole: "profileName"
+                        valueRole: "profileId"
+                        enabled: widgetRef !== null
+                        function selectProfile() {
+                            currentIndex = widgetRef ? indexOfValue(widgetRef.resolvedProfileId) : -1
+                        }
+                        onActivated: function(index) {
+                            if (widgetRef)
+                                widgetRef.audioProfileId = valueAt(index)
+                        }
+                        onCountChanged: selectProfile()
+                        onModelChanged: selectProfile()
+                        Component.onCompleted: selectProfile()
+                        Connections {
+                            target: widgetRef
+                            function onAudioProfileIdChanged() { profileSelector.selectProfile() }
+                        }
+                        Connections {
+                            target: widgetRef ? widgetRef.profileListModel : null
+                            function onModelReset() { Qt.callLater(profileSelector.selectProfile) }
+                        }
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Source / device") }
+                    ComboBox
+                    {
+                        id: sourceSelector
+                        objectName: "audioSourceSelector"
+                        property bool setupControl: true
+                        Layout.fillWidth: true
+                        height: gridItemsHeight
+                        textRole: "mLabel"
+                        valueRole: "privateName"
+                        enabled: widgetRef !== null && typeof ioManager !== "undefined"
+                        model: {
+                            var inputs = typeof ioManager !== "undefined" ? ioManager.audioInputSources : []
+                            return inputs.concat([{ mLabel: qsTr("OSC / Synesthesia"), privateName: "osc" }])
+                        }
                         currentIndex: {
-                            if (!widgetRef || !widgetRef.profileListModel) return 0
-                            var m = widgetRef.profileListModel
-                            for (var i = 0; i < m.rowCount(); i++) {
-                                if (m.data(m.index(i, 0), 0x101) === widgetRef.audioProfileId)
-                                    return i
-                            }
-                            return 0
+                            if (!widgetRef) return -1
+                            var device = typeof ioManager !== "undefined" ? ioManager.audioInputDevice : null
+                            var selected = widgetRef.audioSource === 1 ? "osc" : (device ? device.privateName : "")
+                            return indexOfValue(selected)
                         }
-                        onActivated: {
-                            if (widgetRef && widgetRef.profileListModel) {
-                                var m = widgetRef.profileListModel
-                                var id = m.data(m.index(currentIndex, 0), 0x101)
-                                widgetRef.audioProfileId = id
-                            }
+                        onActivated: function(index) {
+                            if (!widgetRef) return
+                            var source = valueAt(index)
+                            widgetRef.audioSource = source === "osc" ? 1 : 0
+                            if (source !== "osc") ioManager.setAudioInput(source)
                         }
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Input level") }
+                    Slider
+                    {
+                        objectName: "audioInputLevel"
+                        property bool setupControl: true
+                        Layout.fillWidth: true
+                        from: 0; to: 100; stepSize: 1
+                        enabled: widgetRef !== null
+                        value: widgetRef ? widgetRef.volumeLevel : 100
+                        onMoved: if (widgetRef) widgetRef.volumeLevel = Math.round(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Noise floor") }
+                    CustomSpinBox
+                    {
+                        objectName: "audioNoiseFloor"
+                        property bool setupControl: true
+                        Layout.fillWidth: true
+                        from: -120; to: 0; suffix: " dB"
+                        enabled: widgetRef !== null
+                        value: widgetRef ? Math.round(widgetRef.noiseGateThreshold) : -80
+                        onValueModified: if (widgetRef) widgetRef.setNoiseGateThreshold(value)
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Reaction preset") }
+                    ComboBox
+                    {
+                        objectName: "audioReactionPreset"
+                        property bool setupControl: true
+                        Layout.fillWidth: true
+                        model: ["Custom", "EDM", "Live", "Acoustic", "Speech"]
+                        enabled: widgetRef !== null
+                        currentIndex: widgetRef ? Math.max(0, model.indexOf(widgetRef.reactionPreset)) : 0
+                        onActivated: function(index) { if (widgetRef) widgetRef.applyMelBankPreset(model[index]) }
+                    }
+
+                    RobotoText { height: gridItemsHeight; label: qsTr("Beat source") }
+                    ComboBox
+                    {
+                        objectName: "audioBeatSource"
+                        property bool setupControl: true
+                        Layout.fillWidth: true
+                        property var sources: ["OFF", "INTERNAL", "PLUGIN", "AUDIO"]
+                        model: [qsTr("Disabled"), qsTr("Internal"), qsTr("Plugin"), qsTr("Audio profile")]
+                        enabled: widgetRef !== null && typeof ioManager !== "undefined"
+                        currentIndex: typeof ioManager !== "undefined" ? sources.indexOf(ioManager.beatType) : 0
+                        onActivated: function(index) { ioManager.beatType = sources[index] }
                     }
 
                     RobotoText
                     {
+                        objectName: "audioStatus"
                         Layout.columnSpan: 2
                         height: gridItemsHeight
-                        fontSize: UISettings.textSizeSmall
+                        label: widgetRef ? widgetRef.analysisStatus + " | " +
+                               widgetRef.rmsDb.toFixed(1) + " dB | " +
+                               (widgetRef.peakDb >= -0.1 ? qsTr("CLIP") + " | " : "") +
+                               (widgetRef.noiseGateOpen ? qsTr("Gate open") : qsTr("Gate closed")) :
+                               qsTr("No widget selected")
+                    }
+                    RobotoText
+                    {
+                        Layout.columnSpan: 2
+                        height: gridItemsHeight
+                        label: widgetRef ? qsTr("Applied: %1 | Profile %2 | revision %3")
+                               .arg(widgetRef.appliedAudio.device || widgetRef.appliedAudio.sourceId)
+                               .arg(widgetRef.appliedAudio.profileId).arg(widgetRef.appliedAudio.revision) : ""
+                    }
+                    RobotoText
+                    {
+                        Layout.columnSpan: 2
+                        height: gridItemsHeight
+                        label: widgetRef ? widgetRef.appliedAudio.captureFormat + " → " + widgetRef.appliedAudio.analysisFormat : ""
+                    }
+                    RobotoText
+                    {
+                        Layout.columnSpan: 2
+                        height: gridItemsHeight
+                        fontSize: UISettings.textSizeDefault
                         label: qsTr("Changes affect all users of this profile")
                         labelColor: "#888888"
                     }
@@ -146,16 +256,18 @@ Rectangle
 
                         GenericButton
                         {
+                            objectName: "audioResetDefaults"
                             width: (parent.width - 12) / 4
                             height: gridItemsHeight
-                            label: qsTr("Reset")
+                            label: qsTr("LedFx defaults")
+                            tooltip: qsTr("Reset this profile's analysis tuning to LedFx defaults. Saved custom tuning is replaced; other profiles and source selection are unchanged.")
                             onClicked: if (widgetRef) widgetRef.resetProfileToDefaults()
                         }
                         GenericButton
                         {
                             width: (parent.width - 12) / 4
                             height: gridItemsHeight
-                            label: qsTr("Duplicate")
+                            label: widgetRef && widgetRef.resolvedProfileId !== 4294967295 ? qsTr("Duplicate") : qsTr("New")
                             onClicked: {
                                 if (widgetRef)
                                     widgetRef.duplicateCurrentProfile("")
@@ -182,6 +294,45 @@ Rectangle
                 }
         }
 
+        SectionBox
+        {
+            objectName: "audioAdvanced"
+            sectionLabel: qsTr("Advanced analysis")
+            isExpanded: false
+            sectionContents: Column
+            {
+                width: parent.width
+                spacing: 5
+                RowLayout
+                {
+                    width: parent.width
+                    RobotoText { height: gridItemsHeight; label: qsTr("Enable diagnostic processing") }
+                    CustomCheckBox
+                    {
+                        objectName: "audioDiagnosticsEnabled"
+                        enabled: widgetRef !== null && widgetRef.audioSource === 0
+                        checked: widgetRef ? widgetRef.diagnosticsEnabled : false
+                        tooltip: qsTr("Compute MFCC, TSS and other advanced diagnostics for this microphone profile.")
+                        onClicked: if (widgetRef) widgetRef.setDiagnosticsEnabled(checked)
+                    }
+                }
+        SectionBox
+        {
+            sectionLabel: qsTr("OSC input")
+            sectionContents: RowLayout
+            {
+                width: parent.width
+                RobotoText { height: gridItemsHeight; label: qsTr("Port") }
+                CustomSpinBox
+                {
+                    Layout.fillWidth: true
+                    from: 1; to: 65535
+                    enabled: widgetRef !== null && widgetRef.audioSource === 1
+                    value: widgetRef ? widgetRef.oscPort : 9999
+                    onValueModified: if (widgetRef) widgetRef.oscPort = value
+                }
+            }
+        }
         SectionBox
         {
             sectionLabel: qsTr("Noise Gate")
@@ -402,7 +553,7 @@ Rectangle
                         onToggled: if (widgetRef) widgetRef.setMelPostEnabled(checked)
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Power factor"); tooltipText: qsTr("Exponent applied to mel magnitudes before AGC (LedFx mel_power). 1.0 = linear, 2.0 = squared (default), >2 = more peaky.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Power factor"); tooltipText: qsTr("Exponent applied to mel magnitudes before AGC. LedFx default: approximately 1.963 (peak isolation 0.4). 1.0 = linear, 2.0 = squared, >2 = more peaky.") }
                     CustomSpinBox
                     {
                         Layout.fillWidth: true
@@ -508,7 +659,7 @@ Rectangle
                         from: 0; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melLowMinHz) : 0
-                        onValueModified: if (widgetRef) widgetRef.setMelBankLow(value, widgetRef.melLowMaxHz, widgetRef.melLowBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(0, { minHz: value })
                     }
                     CustomSpinBox
                     {
@@ -516,7 +667,7 @@ Rectangle
                         from: 1; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melLowMaxHz) : 350
-                        onValueModified: if (widgetRef) widgetRef.setMelBankLow(widgetRef.melLowMinHz, value, widgetRef.melLowBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(0, { maxHz: value })
                     }
                     CustomSpinBox
                     {
@@ -524,7 +675,7 @@ Rectangle
                         from: 4; to: 256; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melLowBands : 24
-                        onValueModified: if (widgetRef) widgetRef.setMelBankLow(widgetRef.melLowMinHz, widgetRef.melLowMaxHz, value)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(0, { bands: value })
                     }
 
                     RobotoText { height: gridItemsHeight; label: qsTr("Mid") }
@@ -534,7 +685,7 @@ Rectangle
                         from: 0; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melMidMinHz) : 20
-                        onValueModified: if (widgetRef) widgetRef.setMelBankMid(value, widgetRef.melMidMaxHz, widgetRef.melMidBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(1, { minHz: value })
                     }
                     CustomSpinBox
                     {
@@ -542,7 +693,7 @@ Rectangle
                         from: 1; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melMidMaxHz) : 2000
-                        onValueModified: if (widgetRef) widgetRef.setMelBankMid(widgetRef.melMidMinHz, value, widgetRef.melMidBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(1, { maxHz: value })
                     }
                     CustomSpinBox
                     {
@@ -550,7 +701,7 @@ Rectangle
                         from: 4; to: 256; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melMidBands : 24
-                        onValueModified: if (widgetRef) widgetRef.setMelBankMid(widgetRef.melMidMinHz, widgetRef.melMidMaxHz, value)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(1, { bands: value })
                     }
 
                     RobotoText { height: gridItemsHeight; label: qsTr("High") }
@@ -560,7 +711,7 @@ Rectangle
                         from: 0; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melHighMinHz) : 20
-                        onValueModified: if (widgetRef) widgetRef.setMelBankHigh(value, widgetRef.melHighMaxHz, widgetRef.melHighBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(2, { minHz: value })
                     }
                     CustomSpinBox
                     {
@@ -568,7 +719,7 @@ Rectangle
                         from: 1; to: 24000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melHighMaxHz) : 15000
-                        onValueModified: if (widgetRef) widgetRef.setMelBankHigh(widgetRef.melHighMinHz, value, widgetRef.melHighBands)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(2, { maxHz: value })
                     }
                     CustomSpinBox
                     {
@@ -576,19 +727,13 @@ Rectangle
                         from: 4; to: 256; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melHighBands : 24
-                        onValueModified: if (widgetRef) widgetRef.setMelBankHigh(widgetRef.melHighMinHz, widgetRef.melHighMaxHz, value)
+                        onValueModified: if (widgetRef) widgetRef.updateBank(2, { bands: value })
                     }
                 }
         }
 
         // -----------------------------------------------------------------
-        // Per-band editor: groups ALL per-band controls (AGC, mel post,
-        // Schmitt triggers) into a single reusable Component. The 3 loaders
-        // below wire up Low / Mid / High banks.
-        //
-        // Trigger thresholds/hold/cooldown live on the AudioProfile
-        // (config.triggers.{low,mid,high}, see vcaudiotriggers.cpp setters)
-        // — NOT on individual RGB matrices.
+        // Bank values are bound before the loader creates its controls.
         // -----------------------------------------------------------------
 
         Component
@@ -599,29 +744,21 @@ Rectangle
                 width: parent.width
                 spacing: 6
 
-                property string bankLabel: ""
-                property color  bankColor: "#cccccc"
-                property int    bankIndex: 0
+                property int bankIndex: parent ? parent.bankIndex : 0
+                property string bankLabel: bankTriggerNames[bankIndex]
+                property color bankColor: bankTriggerColors[bankIndex]
 
-                // wired by Loader.onLoaded ────────────────────────────────
-                // AGC
-                property var getAgcDecay; property var setAgcDecay
-                property var getAgcRise;  property var setAgcRise
-                // Mel Post
-                property var getEnabled;  property var setEnabled
-                property var getPower;    property var setPower
-                property var getSigma;    property var setSigma
-                property var getSmoothDecay; property var setSmoothDecay
-                property var getSmoothRise;  property var setSmoothRise
-                property var getCommonDecay; property var setCommonDecay
-                property var getCommonRise;  property var setCommonRise
-                property var getDiffDecay;   property var setDiffDecay
-                property var getDiffRise;    property var setDiffRise
-                // Triggers
-                property var getTrigHigh;     property var setTrigHigh
-                property var getTrigLow;      property var setTrigLow
-                property var getTrigHold;     property var setTrigHold
-                property var getTrigCooldown; property var setTrigCooldown
+                objectName: "audioBankEditor" + bankIndex
+                property var bank: widgetRef ? widgetRef.bankConfiguration[bankIndex] : ({
+                    agcDecay: 0.01, agcRise: 0.99, enabled: true, powerFactor: 1.9626105055, gaussianSigma: 1,
+                    smoothDecay: 0.7, smoothRise: 0.99, commonDecay: 0.99, commonRise: 0.01,
+                    diffDecay: 0.15, diffRise: 0.99, trigHigh: 0.65, trigLow: 0.45, trigHold: 80, trigCooldown: 120
+                })
+                function updateBankField(field, value) {
+                    var changes = {}
+                    changes[field] = value
+                    if (widgetRef) widgetRef.updateBank(bankIndex, changes)
+                }
 
                 // ── Status lamp + label ──────────────────────────────────
                 RowLayout
@@ -658,7 +795,7 @@ Rectangle
                     width: parent.width
                     height: gridItemsHeight
                     label: qsTr("AGC")
-                    fontSize: UISettings.textSizeSmall
+                    fontSize: UISettings.textSizeDefault
                     labelColor: UISettings.fgLight
                 }
                 GridLayout
@@ -674,8 +811,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getAgcDecay() * 100) : 1
-                        onValueModified: if (widgetRef) setAgcDecay(value / 100)
+                        value: Math.round(bank.agcDecay * 100)
+                        onValueModified: updateBankField("agcDecay", value / 100)
                     }
                     RobotoText { height: gridItemsHeight; label: "agcRise"; tooltipText: qsTr("AGC alpha_rise for this mel bank. Higher = AGC tracks upward faster.") }
                     CustomSpinBox
@@ -683,8 +820,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getAgcRise() * 100) : 99
-                        onValueModified: if (widgetRef) setAgcRise(value / 100)
+                        value: Math.round(bank.agcRise * 100)
+                        onValueModified: updateBankField("agcRise", value / 100)
                     }
                 }
 
@@ -694,7 +831,7 @@ Rectangle
                     width: parent.width
                     height: gridItemsHeight
                     label: qsTr("Mel Post-processing")
-                    fontSize: UISettings.textSizeSmall
+                    fontSize: UISettings.textSizeDefault
                     labelColor: UISettings.fgLight
                 }
                 GridLayout
@@ -709,8 +846,8 @@ Rectangle
                     {
                         Layout.fillWidth: true
                         enabled: widgetRef !== null
-                        checked: widgetRef ? getEnabled() : true
-                        onToggled: if (widgetRef) setEnabled(checked)
+                        checked: bank.enabled
+                        onToggled: updateBankField("enabled", checked)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "powerFactor"; tooltipText: qsTr("Per-bank exponent on mel magnitudes (LedFx mel_power). 200% = squared.") }
@@ -719,8 +856,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 50; to: 500; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getPower() * 100) : 200
-                        onValueModified: if (widgetRef) setPower(value / 100)
+                        value: Math.round(bank.powerFactor * 100)
+                        onValueModified: updateBankField("powerFactor", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "gaussianSigma"; tooltipText: qsTr("Per-bank Gaussian smoothing kernel width (LedFx gaussian_sigma_size).") }
@@ -729,8 +866,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 10; to: 1000; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getSigma() * 100) : 100
-                        onValueModified: if (widgetRef) setSigma(value / 100)
+                        value: Math.round(bank.gaussianSigma * 100)
+                        onValueModified: updateBankField("gaussianSigma", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "smoothDecay"; tooltipText: qsTr("LedFx mel_smoothing alpha_decay for this bank.") }
@@ -739,8 +876,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getSmoothDecay() * 100) : 70
-                        onValueModified: if (widgetRef) setSmoothDecay(value / 100)
+                        value: Math.round(bank.smoothDecay * 100)
+                        onValueModified: updateBankField("smoothDecay", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "smoothRise"; tooltipText: qsTr("LedFx mel_smoothing alpha_rise for this bank.") }
@@ -749,8 +886,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getSmoothRise() * 100) : 99
-                        onValueModified: if (widgetRef) setSmoothRise(value / 100)
+                        value: Math.round(bank.smoothRise * 100)
+                        onValueModified: updateBankField("smoothRise", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "commonDecay"; tooltipText: qsTr("LedFx common_filter alpha_decay for this bank.") }
@@ -759,8 +896,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getCommonDecay() * 100) : 99
-                        onValueModified: if (widgetRef) setCommonDecay(value / 100)
+                        value: Math.round(bank.commonDecay * 100)
+                        onValueModified: updateBankField("commonDecay", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "commonRise"; tooltipText: qsTr("LedFx common_filter alpha_rise for this bank.") }
@@ -769,8 +906,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getCommonRise() * 100) : 1
-                        onValueModified: if (widgetRef) setCommonRise(value / 100)
+                        value: Math.round(bank.commonRise * 100)
+                        onValueModified: updateBankField("commonRise", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "diffDecay"; tooltipText: qsTr("LedFx diff_filter alpha_decay for this bank.") }
@@ -779,8 +916,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getDiffDecay() * 100) : 15
-                        onValueModified: if (widgetRef) setDiffDecay(value / 100)
+                        value: Math.round(bank.diffDecay * 100)
+                        onValueModified: updateBankField("diffDecay", value / 100)
                     }
 
                     RobotoText { height: gridItemsHeight; label: "diffRise"; tooltipText: qsTr("LedFx diff_filter alpha_rise for this bank.") }
@@ -789,8 +926,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getDiffRise() * 100) : 99
-                        onValueModified: if (widgetRef) setDiffRise(value / 100)
+                        value: Math.round(bank.diffRise * 100)
+                        onValueModified: updateBankField("diffRise", value / 100)
                     }
                 }
 
@@ -800,7 +937,7 @@ Rectangle
                     width: parent.width
                     height: gridItemsHeight
                     label: qsTr("Trigger (Schmitt)")
-                    fontSize: UISettings.textSizeSmall
+                    fontSize: UISettings.textSizeDefault
                     labelColor: UISettings.fgLight
                     tooltipText: qsTr("Trigger thresholds/hold/cooldown live on the AudioProfile (config.triggers), shared across all RGB matrices using this profile.")
                 }
@@ -817,8 +954,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getTrigHigh() * 100) : 0
-                        onValueModified: if (widgetRef) setTrigHigh(value / 100)
+                        value: Math.round(bank.trigHigh * 100)
+                        onValueModified: updateBankField("trigHigh", value / 100)
                     }
                     RobotoText { height: gridItemsHeight; label: "lowThreshold"; tooltipText: qsTr("Lower hysteresis threshold (% of band peak). Band must fall below this before another trigger can fire.") }
                     CustomSpinBox
@@ -826,8 +963,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getTrigLow() * 100) : 0
-                        onValueModified: if (widgetRef) setTrigLow(value / 100)
+                        value: Math.round(bank.trigLow * 100)
+                        onValueModified: updateBankField("trigLow", value / 100)
                     }
                     RobotoText { height: gridItemsHeight; label: "holdMs"; tooltipText: qsTr("Minimum time (ms) the trigger stays active once fired, even if the band drops back below threshold.") }
                     CustomSpinBox
@@ -835,8 +972,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 1000; suffix: " ms"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getTrigHold()) : 0
-                        onValueModified: if (widgetRef) setTrigHold(value)
+                        value: Math.round(bank.trigHold)
+                        onValueModified: updateBankField("trigHold", value)
                     }
                     RobotoText { height: gridItemsHeight; label: "cooldownMs"; tooltipText: qsTr("Minimum time (ms) between two consecutive triggers from the same band. Use to avoid retriggering on a sustained note.") }
                     CustomSpinBox
@@ -844,8 +981,8 @@ Rectangle
                         Layout.fillWidth: true
                         from: 0; to: 2000; suffix: " ms"
                         enabled: widgetRef !== null
-                        value: widgetRef ? Math.round(getTrigCooldown()) : 0
-                        onValueModified: if (widgetRef) setTrigCooldown(value)
+                        value: Math.round(bank.trigCooldown)
+                        onValueModified: updateBankField("trigCooldown", value)
                     }
                 }
             }
@@ -857,42 +994,8 @@ Rectangle
             sectionContents: Loader
             {
                 width: parent.width
+                property int bankIndex: 0
                 sourceComponent: perBandEditor
-                onLoaded: {
-                    item.bankLabel = bankTriggerNames[0]
-                    item.bankColor = bankTriggerColors[0]
-                    item.bankIndex = 0
-                    item.getAgcDecay  = function() { return widgetRef.melLowAgcDecay }
-                    item.setAgcDecay  = function(v) { widgetRef.setMelLowAgcDecay(v) }
-                    item.getAgcRise   = function() { return widgetRef.melLowAgcRise }
-                    item.setAgcRise   = function(v) { widgetRef.setMelLowAgcRise(v) }
-                    item.getEnabled   = function() { return widgetRef.melLowEnabled }
-                    item.setEnabled   = function(v) { widgetRef.setMelLowEnabled(v) }
-                    item.getPower     = function() { return widgetRef.melLowPowerFactor }
-                    item.setPower     = function(v) { widgetRef.setMelLowPowerFactor(v) }
-                    item.getSigma     = function() { return widgetRef.melLowGaussianSigma }
-                    item.setSigma     = function(v) { widgetRef.setMelLowGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melLowSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelLowSmoothDecay(v) }
-                    item.getSmoothRise  = function() { return widgetRef.melLowSmoothRise }
-                    item.setSmoothRise  = function(v) { widgetRef.setMelLowSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melLowCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelLowCommonDecay(v) }
-                    item.getCommonRise  = function() { return widgetRef.melLowCommonRise }
-                    item.setCommonRise  = function(v) { widgetRef.setMelLowCommonRise(v) }
-                    item.getDiffDecay   = function() { return widgetRef.melLowDiffDecay }
-                    item.setDiffDecay   = function(v) { widgetRef.setMelLowDiffDecay(v) }
-                    item.getDiffRise    = function() { return widgetRef.melLowDiffRise }
-                    item.setDiffRise    = function(v) { widgetRef.setMelLowDiffRise(v) }
-                    item.getTrigHigh     = function() { return widgetRef.triggerLowHigh }
-                    item.setTrigHigh     = function(v) { widgetRef.setTriggerLowHigh(v) }
-                    item.getTrigLow      = function() { return widgetRef.triggerLowLow }
-                    item.setTrigLow      = function(v) { widgetRef.setTriggerLowLow(v) }
-                    item.getTrigHold     = function() { return widgetRef.triggerLowHold }
-                    item.setTrigHold     = function(v) { widgetRef.setTriggerLowHold(v) }
-                    item.getTrigCooldown = function() { return widgetRef.triggerLowCooldown }
-                    item.setTrigCooldown = function(v) { widgetRef.setTriggerLowCooldown(v) }
-                }
             }
         }
 
@@ -902,42 +1005,8 @@ Rectangle
             sectionContents: Loader
             {
                 width: parent.width
+                property int bankIndex: 1
                 sourceComponent: perBandEditor
-                onLoaded: {
-                    item.bankLabel = bankTriggerNames[1]
-                    item.bankColor = bankTriggerColors[1]
-                    item.bankIndex = 1
-                    item.getAgcDecay  = function() { return widgetRef.melMidAgcDecay }
-                    item.setAgcDecay  = function(v) { widgetRef.setMelMidAgcDecay(v) }
-                    item.getAgcRise   = function() { return widgetRef.melMidAgcRise }
-                    item.setAgcRise   = function(v) { widgetRef.setMelMidAgcRise(v) }
-                    item.getEnabled   = function() { return widgetRef.melMidEnabled }
-                    item.setEnabled   = function(v) { widgetRef.setMelMidEnabled(v) }
-                    item.getPower     = function() { return widgetRef.melMidPowerFactor }
-                    item.setPower     = function(v) { widgetRef.setMelMidPowerFactor(v) }
-                    item.getSigma     = function() { return widgetRef.melMidGaussianSigma }
-                    item.setSigma     = function(v) { widgetRef.setMelMidGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melMidSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelMidSmoothDecay(v) }
-                    item.getSmoothRise  = function() { return widgetRef.melMidSmoothRise }
-                    item.setSmoothRise  = function(v) { widgetRef.setMelMidSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melMidCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelMidCommonDecay(v) }
-                    item.getCommonRise  = function() { return widgetRef.melMidCommonRise }
-                    item.setCommonRise  = function(v) { widgetRef.setMelMidCommonRise(v) }
-                    item.getDiffDecay   = function() { return widgetRef.melMidDiffDecay }
-                    item.setDiffDecay   = function(v) { widgetRef.setMelMidDiffDecay(v) }
-                    item.getDiffRise    = function() { return widgetRef.melMidDiffRise }
-                    item.setDiffRise    = function(v) { widgetRef.setMelMidDiffRise(v) }
-                    item.getTrigHigh     = function() { return widgetRef.triggerMidHigh }
-                    item.setTrigHigh     = function(v) { widgetRef.setTriggerMidHigh(v) }
-                    item.getTrigLow      = function() { return widgetRef.triggerMidLow }
-                    item.setTrigLow      = function(v) { widgetRef.setTriggerMidLow(v) }
-                    item.getTrigHold     = function() { return widgetRef.triggerMidHold }
-                    item.setTrigHold     = function(v) { widgetRef.setTriggerMidHold(v) }
-                    item.getTrigCooldown = function() { return widgetRef.triggerMidCooldown }
-                    item.setTrigCooldown = function(v) { widgetRef.setTriggerMidCooldown(v) }
-                }
             }
         }
 
@@ -947,42 +1016,8 @@ Rectangle
             sectionContents: Loader
             {
                 width: parent.width
+                property int bankIndex: 2
                 sourceComponent: perBandEditor
-                onLoaded: {
-                    item.bankLabel = bankTriggerNames[2]
-                    item.bankColor = bankTriggerColors[2]
-                    item.bankIndex = 2
-                    item.getAgcDecay  = function() { return widgetRef.melHighAgcDecay }
-                    item.setAgcDecay  = function(v) { widgetRef.setMelHighAgcDecay(v) }
-                    item.getAgcRise   = function() { return widgetRef.melHighAgcRise }
-                    item.setAgcRise   = function(v) { widgetRef.setMelHighAgcRise(v) }
-                    item.getEnabled   = function() { return widgetRef.melHighEnabled }
-                    item.setEnabled   = function(v) { widgetRef.setMelHighEnabled(v) }
-                    item.getPower     = function() { return widgetRef.melHighPowerFactor }
-                    item.setPower     = function(v) { widgetRef.setMelHighPowerFactor(v) }
-                    item.getSigma     = function() { return widgetRef.melHighGaussianSigma }
-                    item.setSigma     = function(v) { widgetRef.setMelHighGaussianSigma(v) }
-                    item.getSmoothDecay = function() { return widgetRef.melHighSmoothDecay }
-                    item.setSmoothDecay = function(v) { widgetRef.setMelHighSmoothDecay(v) }
-                    item.getSmoothRise  = function() { return widgetRef.melHighSmoothRise }
-                    item.setSmoothRise  = function(v) { widgetRef.setMelHighSmoothRise(v) }
-                    item.getCommonDecay = function() { return widgetRef.melHighCommonDecay }
-                    item.setCommonDecay = function(v) { widgetRef.setMelHighCommonDecay(v) }
-                    item.getCommonRise  = function() { return widgetRef.melHighCommonRise }
-                    item.setCommonRise  = function(v) { widgetRef.setMelHighCommonRise(v) }
-                    item.getDiffDecay   = function() { return widgetRef.melHighDiffDecay }
-                    item.setDiffDecay   = function(v) { widgetRef.setMelHighDiffDecay(v) }
-                    item.getDiffRise    = function() { return widgetRef.melHighDiffRise }
-                    item.setDiffRise    = function(v) { widgetRef.setMelHighDiffRise(v) }
-                    item.getTrigHigh     = function() { return widgetRef.triggerHighHigh }
-                    item.setTrigHigh     = function(v) { widgetRef.setTriggerHighHigh(v) }
-                    item.getTrigLow      = function() { return widgetRef.triggerHighLow }
-                    item.setTrigLow      = function(v) { widgetRef.setTriggerHighLow(v) }
-                    item.getTrigHold     = function() { return widgetRef.triggerHighHold }
-                    item.setTrigHold     = function(v) { widgetRef.setTriggerHighHold(v) }
-                    item.getTrigCooldown = function() { return widgetRef.triggerHighCooldown }
-                    item.setTrigCooldown = function(v) { widgetRef.setTriggerHighCooldown(v) }
-                }
             }
         }
 
@@ -2091,10 +2126,57 @@ Rectangle
                 } // Column
         }
 
+            }
+        }
+        SectionBox
+        {
+            objectName: "audioDiagnostics"
+            sectionLabel: qsTr("Diagnostics")
+            isExpanded: false
+            sectionContents: Column
+            {
+                width: parent.width
+                spacing: 4
+                RobotoText
+                {
+                    objectName: "audioDiagnosticsStatus"
+                    height: gridItemsHeight
+                    label: widgetRef && widgetRef.audioSource !== 0
+                           ? qsTr("Diagnostic processing disabled for OSC profiles.")
+                           : !widgetRef || !widgetRef.diagnosticsEnabled
+                           ? qsTr("Diagnostic processing disabled. Enable it under Advanced analysis.")
+                           : widgetRef.appliedAudio.diagnosticsEnabled
+                             ? qsTr("Diagnostic processing enabled")
+                             : qsTr("Waiting for diagnostic configuration to be applied")
+                }
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    label: widgetRef ? qsTr("Source epoch %1, frame %2")
+                           .arg(widgetRef.sourceEpoch).arg(widgetRef.frameSequence) : ""
+                }
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    label: widgetRef ? qsTr("Applied noise floor: %1 dB").arg(widgetRef.appliedAudio.noiseFloor) : ""
+                }
+                Repeater
+                {
+                    model: widgetRef ? widgetRef.appliedAudio.banks : []
+                    RobotoText
+                    {
+                        height: gridItemsHeight
+                        label: bankTriggerNames[index] + ": " + modelData.count + " | " +
+                               modelData.minHz + "–" + modelData.maxHz + " Hz"
+                    }
+                }
+            }
+        }
         SectionBox
         {
             id: audioTriggerProp
             sectionLabel: qsTr("Spectrum Bar Mappings")
+            isExpanded: false
 
             sectionContents:
                 GridLayout
@@ -2111,12 +2193,11 @@ Rectangle
                         label: qsTr("Number of bars")
                     }
 
-                    CustomSpinBox
+                    RobotoText
                     {
                         Layout.fillWidth: true
                         height: gridItemsHeight
-                        value: widgetRef ? widgetRef.barsNumber - 1 : 0
-                        onValueModified: if (widgetRef) widgetRef.barsNumber = value + 1
+                        label: widgetRef ? widgetRef.barsNumber.toString() : "6"
                     }
 
                     // row 2

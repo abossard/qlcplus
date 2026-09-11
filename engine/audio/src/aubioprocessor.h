@@ -22,14 +22,13 @@ public:
     /** Release all aubio objects. */
     void release();
 
-    /** Process exactly one hop (hopSize() = 512) of mono int16 PCM samples.
-     *  This matches aubio's own example pattern (one hop in, one report out;
-     *  see aubio examples/utils.c examples_common_process). bufferSize must
-     *  equal hopSize(); extra samples are ignored, fewer is a no-op. */
+    /** Compatibility adapter. Canonical capture uses the Float32 overload. */
     void process(const int16_t *monoSamples, int bufferSize);
+    void process(const float *monoSamples, int bufferSize, bool spectrumEnabled = true);
 
     /** Get the last computed results. Thread-safe for single-writer/single-reader. */
     const AubioResults &results() const { return m_results; }
+    std::vector<std::vector<double>> bankCoefficients(int bank) const;
 
     bool isInitialized() const { return m_initialized; }
 
@@ -39,8 +38,8 @@ public:
      *  when an algorithm string actually changed. */
     void setPendingConfig(const AubioConfig &cfg);
 
-    static constexpr uint32_t hopSize() { return 512; }
-    static constexpr uint32_t windowSize() { return 1024; }
+    static constexpr uint32_t hopSize() { return 500; }
+    static constexpr uint32_t windowSize() { return 4096; }
 
     // Onset detection methods — single source of truth. Indices match the
     // bool/override arrays in AubioConfig and are persisted by audioprofile.cpp
@@ -57,7 +56,7 @@ public:
      *  this header (and thus don't pull in <aubio/aubio.h>). */
 
 private:
-    void processHop();
+    void processHop(bool spectrumEnabled);
     void resetResults();
 
     void applyPendingConfig();
@@ -65,7 +64,7 @@ private:
     bool needsFullRebuild(const AubioConfig &oldCfg, const AubioConfig &newCfg) const;
 
     bool m_initialized = false;
-    uint32_t m_sampleRate = 44100;
+    uint32_t m_sampleRate = 30000;
 
     AubioConfig m_config;
     AubioConfig m_pendingConfig;
@@ -95,6 +94,7 @@ private:
     aubio_specdesc_t *m_descHfc = nullptr;
 
     fvec_t *m_hopBuffer = nullptr;
+    fvec_t *m_rawHopBuffer = nullptr;
     cvec_t *m_fftGrain = nullptr;
     fvec_t *m_onsetOut = nullptr;
     fvec_t *m_tempoOut = nullptr;
@@ -104,6 +104,7 @@ private:
     fvec_t *m_melLowOut  = nullptr;
     fvec_t *m_melMidOut  = nullptr;
     fvec_t *m_melHighOut = nullptr;
+    double m_bankCenters[3][AUBIO_MELBANK_MAX] = {};
     fvec_t *m_mfccOut = nullptr;
     fvec_t *m_descOut = nullptr;
     cvec_t *m_transGrain = nullptr;
@@ -115,11 +116,6 @@ private:
     double m_beatPeriodS = 0.0;        // seconds per beat from aubio_tempo_get_period_s()
     double m_lastBeatTimeS = 0.0;      // stream-time of last detected beat (aubio_tempo_get_last_s())
     uint64_t m_processedSamples = 0;   // total mono samples processed → currentTimeS
-    uint32_t m_hopsSinceBeat = 0;      // gate phase to 0 after N silent hops
-    double m_decayPhaseAccum = 0.0;    // phase accumulator for decay-rate beat synthesis
-    double m_lastActiveBpm = 0.0;      // last BPM seen during active music (for snap-back on resume)
-    bool m_wasDecaying = false;        // true if decay was active on previous hop
-    int m_resumeHopsLeft = 0;          // hops to hold m_lastActiveBpm after resume
-    int m_barBeatCount = -1;
+    int m_barBeatCount = 0;
     int m_beatsPerBar = 4;
 };

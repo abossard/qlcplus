@@ -34,21 +34,14 @@
 #include "huescriptscache.h"
 #include "huematrix.h"
 
-#include "audiochannel.h"
 #include "audiocapture.h"
-#include "audioprofile.h"
 #include "audiosnapshot.h"
-#include "mastertimer.h"
 #include "doc.h"
 
 #include "huecolor.h"
 
 namespace
 {
-    static constexpr int kAudioApiVersion = 5;
-    static constexpr int kBeatsPerBar = 4;
-    static constexpr double kPi = 3.14159265358979323846;
-
     RGBMatrix *owningMatrix(Doc *doc, const RGBScript *script)
     {
         if (doc == NULL || script == NULL)
@@ -64,27 +57,13 @@ namespace
         return NULL;
     }
 
-    bool onsetFiredAt(const AudioSnapshot &snap, int methodIndex)
-    {
-        switch (methodIndex)
-        {
-        case 0: return snap.onsets.energy;
-        case 1: return snap.onsets.hfc;
-        case 2: return snap.onsets.complex_;
-        case 3: return snap.onsets.phase;
-        case 4: return snap.onsets.wphase;
-        case 5: return snap.onsets.specdiff;
-        case 6: return snap.onsets.kl;
-        case 7: return snap.onsets.mkl;
-        case 8: return snap.onsets.specflux;
-        default: return false;
-        }
-    }
 }
 
 /****************************************************************************
  * Initialization
  ****************************************************************************/
+
+std::atomic<int> HUEScript::s_pendingAudioRenders{0};
 
 HUEScript::HUEScript(Doc *doc)
     : RGBScript(doc)
@@ -318,16 +297,45 @@ void HUEScript::rgbMapSetColors(const QVector<uint> &colors)
 
 void HUEScript::rgbMap(const QSize &size, uint rgb, int step, RGBMap &map)
 {
+    if (m_usesAudio)
+        rgbMapWithAudio(size, rgb, step, map, resolveAudio());
+    else
+        renderMap(size, rgb, step, map, nullptr);
+}
+
+AudioRenderView HUEScript::resolveAudio()
+{
+    setupAudioCapture();
+    return AudioRenderView::fromSnapshot(
+        doc() ? doc()->audioSnapshot() : AudioSnapshot(), AudioRenderView::nowNs());
+}
+
+void HUEScript::rgbMapWithAudio(const QSize &size, uint rgb, int step, RGBMap &map,
+                                AudioRenderView audio, const QSize &displaySize)
+{
+    ++s_pendingAudioRenders;
+    renderMap(size, rgb, step, map, &audio, displaySize);
+    --s_pendingAudioRenders;
+}
+
+void HUEScript::renderMap(const QSize &size, uint rgb, int step, RGBMap &map,
+                          AudioRenderView *audio, const QSize &displaySize)
+{
     // Same guard shape as RGBScript::rgbMap(). This is also what protects the
     // live DMX path, where HUEMatrix::write() calls us on the MasterTimer
     // thread whenever the async precompute misses.
     if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
     {
         QMetaObject::invokeMethod(s_jsThread->engine,
-                                  [this, size, rgb, step, &map]{ rgbMap(size, rgb, step, map); },
+                                  [this, size, rgb, step, &map, audio, displaySize]{
+                                      renderMap(size, rgb, step, map, audio, displaySize);
+                                  },
                                   Qt::BlockingQueuedConnection);
         return;
     }
+
+    if (!displaySize.isEmpty())
+        setDisplaySize(displaySize);
 
     if (m_hsvContract == false)
     {
@@ -336,15 +344,12 @@ void HUEScript::rgbMap(const QSize &size, uint rgb, int step, RGBMap &map)
         return;
     }
 
-    if (m_rgbMap.isUndefined() == true)
+    if (m_rgbMap.isUndefined() == true || size.isEmpty())
         return;
 
     RGBMatrix *matrix = owningMatrix(doc(), this);
 
     injectColors(rgb, matrix);
-
-    if (m_usesAudio)
-        setupAudioCapture();
 
     QJSEngine *engine = s_jsThread->engine;
     QJSValueList args;
@@ -353,8 +358,8 @@ void HUEScript::rgbMap(const QSize &size, uint rgb, int step, RGBMap &map)
     args << size.width() << size.height()
          << HUEColor::hsvToJs(engine, HUEColor::rgbToHsv(rgb & 0xFFFFFFu)) << step;
 
-    if (m_usesAudio)
-        args << buildAudioDataObject();
+    if (m_usesAudio && audio != nullptr)
+        args << buildAudioDataObject(*audio);
 
     QJSValue yarray(m_rgbMap.call(args));
     if (yarray.isError())
@@ -470,6 +475,13 @@ void HUEScript::setDisplaySize(const QSize &size)
 
 void HUEScript::postRun()
 {
+    if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
+    {
+        QMetaObject::invokeMethod(s_jsThread->engine, [this]{ postRun(); },
+                                  Qt::BlockingQueuedConnection);
+        return;
+    }
+    m_audioCursor.reset();
     teardownAudioCapture();
 }
 
@@ -492,9 +504,7 @@ void HUEScript::setupAudioCapture()
     teardownAudioCapture();
     m_audioInput = capture.data();
 
-    // The audio object is sourced exclusively from the AudioProfile's
-    // AudioChannel snapshot inside buildAudioDataObject(); we only need the
-    // capture thread to be running.
+    // Doc resolves a safe active-profile publication; capture only owns input.
     m_audioInput->registerBandsNumber(1);
     m_audioRegistered = true;
 }
@@ -547,54 +557,8 @@ void HUEScript::injectColors(uint rgb, RGBMatrix *matrix)
     m_script.setProperty(QStringLiteral("hasUserColors"), QJSValue(anyUserSet));
 }
 
-QJSValue HUEScript::buildAudioDataObject()
+QJSValue HUEScript::buildAudioDataObject(AudioRenderView &audio)
 {
-    QJSEngine *engine = s_jsThread->engine;
-    QJSValue audioObj = engine->newObject();
-    AudioChannel *channel = NULL;
-    AudioChannelConfig config = AudioChannelConfig::defaults();
-    Doc *currentDoc = doc();
-    AudioProfile *profile = NULL;
-    if (currentDoc != NULL)
-    {
-        profile = currentDoc->audioProfile(currentDoc->activeAudioProfileId());
-        if (profile == NULL)
-            profile = currentDoc->defaultAudioProfile();
-    }
-    if (profile != NULL)
-    {
-        channel = profile->channel();
-        config = (channel != NULL) ? channel->config() : profile->channelConfig();
-    }
-
-    AudioSnapshot snap;
-    if (channel != NULL)
-        snap = channel->snapshot();
-
-    const int onsetMethodIndex = std::clamp(config.aubio.onsetMethodIndex,
-                                            0, AUBIO_ONSET_METHODS - 1);
-
-    const bool tempoActive = snap.music.bpm > 0.0;
-    const double bpm = tempoActive ? snap.music.bpm : 120.0;
-    const double beatPhase = snap.music.beatPhase;
-    const double dt = (double(MasterTimer::tick()) / 1000.0) * (bpm / 60.0);
-
-    audioObj.setProperty(QStringLiteral("beat"),           QJSValue(snap.beatPower));
-    audioObj.setProperty(QStringLiteral("bass"),           QJSValue(snap.bassPower));
-    audioObj.setProperty(QStringLiteral("low"),            QJSValue(snap.lows));
-    audioObj.setProperty(QStringLiteral("mid"),            QJSValue(snap.mids));
-    audioObj.setProperty(QStringLiteral("high"),           QJSValue(snap.highs));
-    audioObj.setProperty(QStringLiteral("onset"),          QJSValue(onsetFiredAt(snap, onsetMethodIndex)));
-    audioObj.setProperty(QStringLiteral("onsetIntensity"), QJSValue(snap.onsets.thresholdedDescriptors[onsetMethodIndex]));
-    audioObj.setProperty(QStringLiteral("beatFired"),      QJSValue(snap.beatTrigger.firedThisFrame));
-    audioObj.setProperty(QStringLiteral("downbeat"),       QJSValue(snap.downbeatFired));
-    audioObj.setProperty(QStringLiteral("bpm"),            QJSValue(bpm));
-    audioObj.setProperty(QStringLiteral("phase"),          QJSValue(beatPhase));
-    audioObj.setProperty(QStringLiteral("barPhase"),       QJSValue(snap.music.barPhase / double(kBeatsPerBar)));
-    audioObj.setProperty(QStringLiteral("dt"),             QJSValue(tempoActive ? dt : 0.0));
-    audioObj.setProperty(QStringLiteral("cosPulse"),       QJSValue(tempoActive
-        ? std::max(0.0, std::cos(beatPhase * kPi)) : 0.0));
-    audioObj.setProperty(QStringLiteral("version"),        QJSValue(kAudioApiVersion));
-
-    return audioObj;
+    m_audioCursor.advance(audio);
+    return s_jsThread->engine->toScriptValue(audioViewToVariant(audio));
 }

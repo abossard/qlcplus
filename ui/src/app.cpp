@@ -516,9 +516,8 @@ void App::initDoc()
     m_doc->rgbScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory());
     m_doc->rgbScriptsCache()->load(RGBScriptsCache::userScriptsDirectory());
 
-    /* Load HUE scripts. HUEMatrix offers these plus every stock RGB script,
-       so the stock directories are registered here too, without the HSV
-       contract. */
+    /* Offer HSV scripts as HUE patterns. Load stock scripts without the HSV
+       contract for legacy HUEMatrix playback, not for its picker. */
     m_doc->hueScriptsCache()->load(HUEScriptsCache::systemScriptsDirectory(), true);
     m_doc->hueScriptsCache()->load(HUEScriptsCache::userScriptsDirectory(), true);
     m_doc->hueScriptsCache()->load(RGBScriptsCache::systemScriptsDirectory(), false);

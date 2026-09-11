@@ -9,22 +9,18 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <memory>
+#include <samplerate.h>
 
-#include <QSettings>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <qmath.h>
 
 #include "audiocapture.h"
 #include "audioanalyzer.h"
+#include "../../src/audioview.h"
 #include "audioframe.h"
-#include "audiochannelconfig.h"
-#include "aubioprocessor.h"
 #include "aubioresults.h"
-#include "beattracker.h"
-
-#define M_2PI       6.28318530718
 
 AudioCapture::AudioCapture(QObject* parent)
     : QThread(parent)
@@ -34,10 +30,8 @@ AudioCapture::AudioCapture(QObject* parent)
     , m_sampleRate(0)
     , m_channels(0)
     , m_audioBuffer(nullptr)
-    , m_audioMixdown(nullptr)
     , m_signalPower(0)
     , m_smoothedSignalPower(0.0)
-    , m_aubio(new AubioProcessor)
 {
     qRegisterMetaType<AubioResults>("AubioResults");
 
@@ -45,37 +39,25 @@ AudioCapture::AudioCapture(QObject* parent)
     m_sampleRate = AUDIO_DEFAULT_SAMPLE_RATE;
     m_channels = AUDIO_DEFAULT_CHANNELS;
 
-    QSettings settings;
-    QVariant var = settings.value(SETTINGS_AUDIO_INPUT_SRATE);
-    if (var.isValid())
-        m_sampleRate = var.toInt();
-
-    var = settings.value(SETTINGS_AUDIO_INPUT_CHANNELS);
-    if (var.isValid())
-        m_channels = var.toInt();
-
 #ifdef AUDIO_DEBUG
     qDebug() << "[AudioCapture] initialize" << m_sampleRate << m_channels;
 #endif
 
     m_captureSize = m_bufferSize * m_channels;
     m_audioBuffer = new int16_t[m_captureSize];
-    m_audioMixdown = new int16_t[m_bufferSize];
 
-    m_aubio->initialize(m_sampleRate);
-    m_beatTracker = new BeatTracker(m_sampleRate, m_channels);
-    m_appliedSampleRate = m_sampleRate;
-    m_appliedChannels = m_channels;
+    int error = 0;
+    m_resampler = src_new(SRC_SINC_FASTEST, 1, &error);
+    if (!m_resampler)
+        qWarning() << "[AudioCapture] Cannot create resampler:" << src_strerror(error);
 }
 
 AudioCapture::~AudioCapture()
 {
     Q_ASSERT(!this->isRunning());
 
-    delete m_beatTracker;
     delete[] m_audioBuffer;
-    delete[] m_audioMixdown;
-    delete m_aubio;
+    src_delete(m_resampler);
 }
 
 int AudioCapture::defaultBarsNumber() const
@@ -85,15 +67,17 @@ int AudioCapture::defaultBarsNumber() const
 
 double AudioCapture::bandMagnitude(int bandIndex, int numBands) const
 {
-    Q_UNUSED(bandIndex)
-    Q_UNUSED(numBands)
-    return 0.0;
+    QMutexLocker locker(&m_mutex);
+    const AudioAnalyzer *analyzer = m_analyzer ? m_analyzer : m_fallbackAnalyzer.get();
+    if (!analyzer)
+        return 0.0;
+    return audioFrequency(AudioRenderView::fromSnapshot(
+        analyzer->activeSnapshot(), AudioRenderView::nowNs()), bandIndex, numBands);
 }
 
 double AudioCapture::bandMaxMagnitude(int numBands) const
 {
-    Q_UNUSED(numBands)
-    return 0.0;
+    return numBands > 0 ? 1.0 : 0.0;
 }
 
 void AudioCapture::setAnalyzer(AudioAnalyzer *analyzer)
@@ -104,14 +88,14 @@ void AudioCapture::setAnalyzer(AudioAnalyzer *analyzer)
 
 void AudioCapture::setAubioConfig(const AubioConfig &cfg)
 {
-    if (m_aubio != nullptr)
-        m_aubio->setPendingConfig(cfg);
+    Q_UNUSED(cfg)
 }
 
 bool AudioCapture::applyCaptureFormat(unsigned int sampleRate, unsigned int channels)
 {
-    if (sampleRate == 0 || channels == 0
-        || channels > unsigned(std::numeric_limits<int>::max()) / m_bufferSize)
+    if (sampleRate == 0 || channels == 0 || channels > 64
+        || !src_is_valid_ratio(double(AUDIO_ANALYSIS_SAMPLE_RATE) / sampleRate)
+        || !m_resampler)
     {
         qWarning() << "[AudioCapture] Invalid negotiated format"
                    << sampleRate << "Hz" << channels << "channels";
@@ -119,13 +103,6 @@ bool AudioCapture::applyCaptureFormat(unsigned int sampleRate, unsigned int chan
     }
 
     const unsigned int captureSize = m_bufferSize * channels;
-    if (sampleRate == m_appliedSampleRate
-        && channels == m_appliedChannels
-        && captureSize == m_captureSize)
-    {
-        return true;
-    }
-
     std::unique_ptr<int16_t[]> resizedBuffer;
     if (captureSize != m_captureSize)
         resizedBuffer = std::make_unique<int16_t[]>(captureSize);
@@ -140,11 +117,69 @@ bool AudioCapture::applyCaptureFormat(unsigned int sampleRate, unsigned int chan
 
     m_sampleRate = sampleRate;
     m_channels = channels;
-    m_aubio->initialize(sampleRate);
-    m_beatTracker->setFormat(sampleRate, channels);
     m_appliedSampleRate = sampleRate;
     m_appliedChannels = channels;
+    m_floatBuffer.resize(captureSize);
+    resetStream();
     return true;
+}
+
+QString AudioCapture::statusMessage() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_statusMessage;
+}
+
+void AudioCapture::setStatus(Status status, const QString &message, bool force)
+{
+    {
+        QMutexLocker locker(&m_mutex);
+        if (!force && m_status == status && m_statusMessage == message)
+            return;
+        m_status = status;
+        m_statusMessage = message;
+    }
+    emit statusChanged(status, message, sourceEpoch());
+}
+
+void AudioCapture::resetStream()
+{
+    clearPendingInput();
+    if (m_resampler)
+        src_reset(m_resampler);
+    m_pendingMono.clear();
+    m_frameSamplesUsed = 0;
+    m_sampleTime = 0;
+    m_frameIndex = 0;
+    m_signalPower = 0;
+    m_smoothedSignalPower = 0.0;
+}
+
+void AudioCapture::invalidate(Status status, const QString &message)
+{
+    {
+        QMutexLocker locker(&m_mutex);
+        ++m_sourceEpoch;
+        resetStream();
+        if (m_analyzer)
+            m_analyzer->invalidate(sourceEpoch());
+        if (m_fallbackAnalyzer)
+            m_fallbackAnalyzer->invalidate(sourceEpoch());
+    }
+    emit volumeChanged(0);
+    setStatus(status, message, true);
+}
+
+void AudioCapture::restart()
+{
+    m_restart = true;
+    if (!isRunning())
+    {
+        invalidate(Starting, QStringLiteral("Waiting for input"));
+        QMutexLocker locker(&m_mutex);
+        if (m_registerCount > 0)
+            start();
+    }
 }
 
 int AudioCapture::lowCutBin(int N)
@@ -196,19 +231,75 @@ void AudioCapture::stop()
 #ifdef AUDIO_DEBUG
     qDebug() << "[AudioCapture] stop capture";
 #endif
-    while (this->isRunning())
-    {
-        m_userStop = true;
-        usleep(10000);
-    }
+    m_userStop = true;
+    requestInterruption();
+    wait();
 }
 
-void AudioCapture::processData()
+bool AudioCapture::processData()
 {
-    unsigned int i, j;
-    m_frameIndex++;
+    std::array<float, AUDIO_DEFAULT_BUFFER_SIZE> mono;
+    for (unsigned int i = 0; i < m_readFrames; ++i)
+    {
+        double mixed = 0.0;
+        for (unsigned int channel = 0; channel < m_channels; ++channel)
+        {
+            const size_t index = size_t(i) * m_channels + channel;
+            const float value = m_floatInput ? m_floatBuffer[index]
+                                             : float(m_audioBuffer[index]) / 32768.0f;
+            mixed += value;
+        }
+        mono[i] = float(mixed / m_channels);
+    }
 
-    const double frameSec = (m_sampleRate > 0) ? (double(m_bufferSize) / double(m_sampleRate)) : 0.0;
+    m_pendingMono.insert(m_pendingMono.end(), mono.begin(), mono.begin() + m_readFrames);
+    size_t consumed = 0;
+    while (true)
+    {
+        long generated = 0;
+        long used = 0;
+        if (m_sampleRate == AUDIO_ANALYSIS_SAMPLE_RATE)
+        {
+            used = long(std::min(m_pendingMono.size() - consumed,
+                                m_frameSamples.size() - m_frameSamplesUsed));
+            std::copy_n(m_pendingMono.data() + consumed, used, m_frameSamples.data() + m_frameSamplesUsed);
+            generated = used;
+        }
+        else
+        {
+            SRC_DATA data {};
+            data.data_in = m_pendingMono.data() + consumed;
+            data.input_frames = long(m_pendingMono.size() - consumed);
+            data.data_out = m_frameSamples.data() + m_frameSamplesUsed;
+            data.output_frames = long(m_frameSamples.size() - m_frameSamplesUsed);
+            data.src_ratio = double(AUDIO_ANALYSIS_SAMPLE_RATE) / m_sampleRate;
+            const int error = src_process(m_resampler, &data);
+            if (error)
+            {
+                qWarning() << "[AudioCapture] Resampling failed:" << src_strerror(error);
+                return false;
+            }
+            used = data.input_frames_used;
+            generated = data.output_frames_gen;
+        }
+        consumed += size_t(used);
+        m_frameSamplesUsed += size_t(generated);
+        if (m_frameSamplesUsed == m_frameSamples.size())
+        {
+            publishFrame();
+            m_frameSamplesUsed = 0;
+        }
+        if (used == 0 && generated == 0)
+            break;
+    }
+    m_pendingMono.erase(m_pendingMono.begin(), m_pendingMono.begin() + consumed);
+    return true;
+}
+
+void AudioCapture::publishFrame()
+{
+    ++m_frameIndex;
+    const double frameSec = double(AUDIO_ANALYSIS_HOP_SIZE) / AUDIO_ANALYSIS_SAMPLE_RATE;
     static constexpr double kAttackTauSec = 0.040;
     static constexpr double kReleaseTauSec = 0.200;
     const double attackAlpha = (frameSec > 0.0) ? (1.0 - qExp(-frameSec / kAttackTauSec)) : 1.0;
@@ -223,72 +314,54 @@ void AudioCapture::processData()
         return quint32(qRound(m_smoothedSignalPower));
     };
 
-    // 1) Mix down to mono
-    for (i = 0; i < m_bufferSize; i++)
-    {
-        int32_t mix = 0;
-        for (j = 0; j < m_channels; j++)
-            mix += m_audioBuffer[i * m_channels + j];
-        m_audioMixdown[i] = int16_t(mix / int32_t(m_channels ? m_channels : 1));
-    }
-
-    // 2) DC removal + RMS / peak (silence detection)
-    long long acc = 0;
-    for (i = 0; i < m_bufferSize; ++i)
-        acc += m_audioMixdown[i];
-    const double mean = double(acc) / double(m_bufferSize);
-
     double sumSq = 0.0;
     double peakAbs = 0.0;
-    for (i = 0; i < m_bufferSize; ++i)
+    for (float sample : m_frameSamples)
     {
-        const double x = (double(m_audioMixdown[i]) - mean) / 32768.0;
+        const double x = sample;
         sumSq += x * x;
         peakAbs = std::max(peakAbs, std::abs(x));
     }
-    const double rms = qSqrt(sumSq / double(m_bufferSize));
+    const double rms = qSqrt(sumSq / double(m_frameSamples.size()));
 
-    static constexpr double kSilenceRms = 0.002;
-    const bool silent = (rms < kSilenceRms);
+    const bool silent = (rms == 0.0);
 
-    // 3) Aubio analysis
-    m_aubio->process(m_audioMixdown, int(m_bufferSize));
-    const AubioResults &aubio = m_aubio->results();
-
-    // 4) Smoothed power for legacy volumeChanged consumers
     const double rawPower = silent ? 0.0 : qBound(0.0, rms * 32768.0, 32767.0);
     const quint32 power = smoothPower(rawPower);
     const quint32 prevPower = m_signalPower;
     m_signalPower = power;
 
-    // 5) Build frame & dispatch to analyzer
     AudioFrame frame;
     frame.frameIndex = m_frameIndex;
-    frame.sampleRate = m_sampleRate;
-    frame.sampleCount = m_bufferSize;
+    frame.samples = m_frameSamples.data();
+    frame.sourceEpoch = sourceEpoch();
+    frame.sampleTime = m_sampleTime;
+    frame.sampleRate = AUDIO_ANALYSIS_SAMPLE_RATE;
+    frame.sampleCount = AUDIO_ANALYSIS_HOP_SIZE;
     frame.silent = silent;
-    frame.beatDetected = aubio.beat;
     frame.rms = rms;
     frame.peak = peakAbs;
-    frame.rmsDb = (rms > 0.0) ? (20.0 * std::log10(rms)) : -96.0;
-    frame.peakDb = (peakAbs > 0.0) ? (20.0 * std::log10(peakAbs)) : -96.0;
+    frame.rmsDb = (rms > 0.0) ? (20.0 * std::log10(rms)) : -100.0;
+    frame.peakDb = (peakAbs > 0.0) ? (20.0 * std::log10(peakAbs)) : -100.0;
     frame.crestFactor = (rms > 0.0) ? (peakAbs / rms) : 1.0;
 
-    // LedFx audio.py:1021 — volume = 1 + aubio.db_spl(raw) / 100.
-    // Map rmsDb (≤ 0 for normalized PCM) into 0..1 with the same shape so
-    // downstream consumers (gates / brightness floors) can compare against
-    // LedFx-style thresholds such as min_volume = 0.2 (audio.py:409).
-    // Digital silence (frame.silent) is explicitly zeroed so volumeNorm == 0
-    // is a reliable silence indicator at the AudioFrame level.
     frame.volumeNorm = frame.silent ? 0.0
         : std::clamp(1.0 + frame.rmsDb / 100.0, 0.0, 1.0);
-    frame.aubio = &aubio;
-
     if (m_analyzer)
         m_analyzer->processFrame(frame);
+    else
+    {
+        if (!m_fallbackAnalyzer)
+            m_fallbackAnalyzer = std::make_unique<AudioAnalyzer>();
+        m_fallbackAnalyzer->processFrame(frame);
+    }
 
-    // 6) Emit signals
-    emit aubioDataReady(aubio, power);
+    if (frame.aubio && frame.aubio->beat)
+        emit beatDetected(qRound(frame.aubio->bpm));
+    emit frameReady(frame);
+    const AubioResults emptyResults {};
+    emit aubioDataReady(frame.aubio ? *frame.aubio : emptyResults, power);
+    m_sampleTime += AUDIO_ANALYSIS_HOP_SIZE;
 
     if (power != prevPower)
         emit volumeChanged(int(power));
@@ -302,38 +375,81 @@ void AudioCapture::run()
 #endif
 
     m_userStop = false;
-
-    if (!initialize())
+    m_restart = false;
+    invalidate(Starting, QStringLiteral("Waiting for input"));
+    bool initialized = false;
+    QElapsedTimer lastData;
+    while (!m_userStop && !isInterruptionRequested())
     {
-        qWarning() << "[AudioCapture] Could not initialize audio capture, abandon";
-        return;
-    }
-
-    // Capture backends can replace the requested format with a device-supported
-    // one during initialize(). Synchronize every format-dependent consumer
-    // before the first read.
-    if (!applyCaptureFormat(m_sampleRate, m_channels))
-    {
-        uninitialize();
-        return;
-    }
-
-    while (!m_userStop)
-    {
+        if (m_restart.exchange(false))
+        {
+            if (initialized)
+                uninitialize();
+            initialized = false;
+            invalidate(Starting, QStringLiteral("Restarting input"));
+        }
+        if (!initialized)
+        {
+            if (!initialize())
+            {
+                if (status() == Starting)
+                    setStatus(Unavailable, QStringLiteral("Cannot open selected input"));
+                if (!retrySource())
+                    break;
+                QThread::msleep(50);
+                continue;
+            }
+            if (!applyCaptureFormat(m_sampleRate, m_channels))
+            {
+                uninitialize();
+                setStatus(Error, QStringLiteral("Unsupported input format"));
+                if (!retrySource())
+                    break;
+                QThread::msleep(50);
+                continue;
+            }
+            initialized = true;
+            lastData.start();
+        }
         if (m_pause == false && m_captureSize != 0)
         {
+            m_readFrames = m_bufferSize;
             if (readAudio(m_captureSize) == true)
             {
-                QMutexLocker locker(&m_mutex);
-                processData();
-
-                if (m_beatTracker->processAudio(m_audioBuffer, m_captureSize))
-                    emit beatDetected(qRound(m_beatTracker->bpm()));
+                const uint64_t previousFrame = m_frameIndex;
+                bool processed;
+                {
+                    QMutexLocker locker(&m_mutex);
+                    processed = processData();
+                }
+                if (!processed)
+                {
+                    uninitialize();
+                    initialized = false;
+                    invalidate(Error, QStringLiteral("Audio conversion failed"));
+                    if (!retrySource())
+                        break;
+                }
+                else
+                {
+                    lastData.restart();
+                    if (m_frameIndex != previousFrame)
+                        setStatus(Available, QStringLiteral("Receiving audio"));
+                }
             }
             else
             {
+                if (sourceFailed())
+                {
+                    uninitialize();
+                    initialized = false;
+                    invalidate(Unavailable, QStringLiteral("Selected input disconnected"));
+                }
                 QThread::msleep(5);
             }
+            // Leave time for the subscribed UI/beat timers before the 250 ms deadline.
+            if (lastData.elapsed() >= 150 && status() != Unavailable)
+                invalidate(Unavailable, QStringLiteral("No audio received"));
         }
         else
         {
@@ -343,5 +459,8 @@ void AudioCapture::run()
         QThread::yieldCurrentThread();
     }
 
-    uninitialize();
+    if (initialized)
+        uninitialize();
+    if (m_userStop || isInterruptionRequested())
+        invalidate(Stopped, QStringLiteral("Input stopped"));
 }

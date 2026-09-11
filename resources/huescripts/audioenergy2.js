@@ -3,8 +3,6 @@
   audioenergy2.js
 
   Copyright (c) QLC+ contributors
-  Ported from LedFX "Energy 2" effect (MIT License)
-  Original by LedFX contributors: https://github.com/LedFx/LedFx
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -24,6 +22,88 @@ var testAlgo;
     algo.acceptColors = 0;
     algo.usesAudio = true;
     algo.properties = new Array();
+
+    algo.presetMode = "Artistic";
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Reference|write:setMode|read:getMode");
+    algo.setMode = function(v) { algo.presetMode = v === "Reference" ? v : "Artistic"; };
+    algo.getMode = function() { return algo.presetMode; };
+    algo.referenceBlur = 1.5;
+    algo.referenceMirror = "On";
+    algo.referenceBrightness = 0.7;
+    algo.referencePalette = "#ff0000,#00ff00,#0000ff";
+    algo.properties.push("name:referenceBlur|type:float|display:Reference Blur|write:setReferenceBlur|read:getReferenceBlur");
+    algo.properties.push("name:referenceMirror|type:list|display:Reference Mirror|values:Off,On|write:setReferenceMirror|read:getReferenceMirror");
+    algo.properties.push("name:referenceBrightness|type:float|display:Reference Brightness|write:setReferenceBrightness|read:getReferenceBrightness");
+    algo.properties.push("name:referencePalette|type:string|display:Reference RGB Palette|write:setReferencePalette|read:getReferencePalette");
+    algo.setReferenceBlur = function(v) { algo.referenceBlur = Math.max(0, Math.min(10, parseFloat(v) || 0)); };
+    algo.getReferenceBlur = function() { return algo.referenceBlur; };
+    algo.setReferenceMirror = function(v) { algo.referenceMirror = v === "On" ? "On" : "Off"; };
+    algo.getReferenceMirror = function() { return algo.referenceMirror; };
+    algo.setReferenceBrightness = function(v) { algo.referenceBrightness = HSVUtil.clamp01(parseFloat(v) || 0); };
+    algo.getReferenceBrightness = function() { return algo.referenceBrightness; };
+    algo.setReferencePalette = function(v) { if (/^#[0-9a-f]{6},#[0-9a-f]{6},#[0-9a-f]{6}$/i.test(v)) algo.referencePalette = v; };
+    algo.getReferencePalette = function() { return algo.referencePalette; };
+
+    function referenceOutput(pixels, width, height) {
+        var n = pixels.length, values = pixels;
+        if (algo.referenceMirror === "On") {
+          values = new Array(n);
+          for (var i = 0; i < n; i++) {
+            var a = 2 * i, b = a + 1;
+            a = a < n ? n - 1 - a : a - n;
+            b = b < n ? n - 1 - b : b - n;
+            values[i] = [Math.max(pixels[a][0], pixels[b][0]),
+                         Math.max(pixels[a][1], pixels[b][1]), Math.max(pixels[a][2], pixels[b][2])];
+          }
+        }
+        var sigma = algo.referenceBlur;
+        var radius = sigma > 0 && n > 3 ? Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(4 * sigma))) : 0;
+        var weights = [], sum = 0;
+        for (var d = -radius; d <= radius; d++) {
+            var weight = radius ? Math.exp(-d * d / (2 * sigma * sigma)) : 1;
+            weights.push(weight); sum += weight;
+        }
+        var transformed = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var r = 0, g = 0, b = 0;
+            for (var d = Math.max(-radius, -i); d <= radius && i + d < n; d++) {
+                var pixel = values[i + d], weight = weights[d + radius];
+                r += pixel[0] * weight; g += pixel[1] * weight; b += pixel[2] * weight;
+            }
+            transformed[i] = [r / sum * algo.referenceBrightness,
+                              g / sum * algo.referenceBrightness, b / sum * algo.referenceBrightness];
+        }
+        if (algo.referenceDiagnostics) algo.referenceFrame = {pre: pixels, transformed: transformed};
+        var map = HSVUtil.createMap(width, height);
+        for (var i = 0; i < n; i++) {
+            var pixel = transformed[i];
+            var r = HSVUtil.clamp01(pixel[0]), g = HSVUtil.clamp01(pixel[1]), b = HSVUtil.clamp01(pixel[2]);
+            var max = Math.max(r, g, b), delta = max - Math.min(r, g, b), h = 0;
+            if (delta) h = (max === r ? (g - b) / delta : max === g ? 2 + (b - r) / delta : 4 + (r - g) / delta) / 6;
+            map[i * 3] = HSVUtil.mod1(h); map[i * 3 + 1] = max ? delta / max : 0; map[i * 3 + 2] = max;
+        }
+        return map;
+    }
+
+    function referenceMap(width, height, audio) {
+        var n = width * height, bank = audio && audio.banks && audio.banks.full;
+        var values = HSVUtil.interpolate(bank && bank.count ? bank.novelty : [], n);
+        var colors = algo.referencePalette.split(",").map(function(hex) {
+            return [1, 3, 5].map(function(offset) { return parseInt(hex.substr(offset, 2), 16) / 255; });
+        });
+        var length = Math.max(n, 256), split = Math.floor(length / 2);
+        var pixels = values.map(function(value, i) {
+            var sample = Math.floor((length - 1) * (n > 1 ? i / (n - 1) : 0));
+            var band = sample < split ? 0 : 1;
+            var start = band ? split : 0, count = band ? length - split : split;
+            var t = (sample - start) / Math.max(1, count - 1);
+            var a = Math.pow(t, 1.5), b = Math.pow(1 - t, 1.5), mix = a / (a + b);
+            return colors[band].map(function(channel, c) {
+                return (channel + (colors[band + 1][c] - channel) * mix) * value;
+            });
+        });
+        return referenceOutput(pixels, width, height);
+    }
 
     algo.presetSpeed = 0.075;
     algo.properties.push(
@@ -63,6 +143,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
+        if (algo.presetMode === "Reference") return referenceMap(width, height, audio);
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 

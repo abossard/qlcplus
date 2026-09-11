@@ -772,6 +772,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}}},
+                {"type", {{"type", "string"}, {"enum", {"RGBMatrix", "HUEMatrix"}}, {"default", "HUEMatrix"}, {"description", "HUEMatrix (default) supports HSV scripts and fork transforms. RGBMatrix uses stock algorithms. Discover with query_rgb_algorithms.matrixType."}}},
                 {"path", {{"type", "string"}, {"description", "Folder path (e.g. 'Effects/RGB'). Creates folders implicitly."}}},
                 {"fixtureGroupID", {{"type", "integer"}}},
                 {"algorithm", {{"type", "string"}, {"description", "Algorithm name (use query_rgb_algorithms to discover)"}}},
@@ -813,6 +814,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 static const Json kEnums = {
+                    {"type", {{"enum", {"RGBMatrix", "HUEMatrix"}}}},
                     {"tempoType", {{"enum", {"time", "beats"}}}},
                     {"runOrder", {{"enum", {"Loop", "SingleShot", "PingPong", "Random"}}}},
                     {"direction", {{"enum", {"Forward", "Backward"}}}},
@@ -829,11 +831,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
-                // Default to HUEMatrix: it is a superset of RGBMatrix and the only
-                // type accepting the rotation/mirror/beat fields of this schema.
-                bool wantHue = true;
-                if (item.contains("type"))
-                    wantHue = item.at("type").get<std::string>() != "RGBMatrix";
+                // Preserve default HUE creation and the enum validator's case-insensitive handling.
+                const bool wantHue = QString::fromStdString(item.value("type", std::string("HUEMatrix")))
+                    .compare("HUEMatrix", Qt::CaseInsensitive) == 0;
 
                 static const char *kHueOnly[] = {"rotation", "mirror", "mirrorBlend",
                                                  "beatEffect", "beatSelection", "beatOrientation"};
@@ -850,6 +850,28 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                         }
                     }
                     if (rejected) continue;
+                }
+
+                // Resolve before allocating a matrix or changing an existing one.
+                // The stock factory returns an empty script for unknown names, so
+                // RGB membership must be checked explicitly. HUE's factory also
+                // accepts legacy stock names that its offered list intentionally hides.
+                RGBAlgorithm *algo = nullptr;
+                if (item.contains("algorithm"))
+                {
+                    QString algoName = QString::fromStdString(item.at("algorithm").get<std::string>());
+                    if (!wantHue && !RGBAlgorithm::algorithms(doc).contains(algoName))
+                    {
+                        results.push_back({{"error", "unknown algorithm for RGBMatrix: " + algoName.toStdString()}});
+                        continue;
+                    }
+                    algo = wantHue ? HUEMatrix::createAlgorithm(doc, algoName)
+                                   : RGBAlgorithm::algorithm(doc, algoName);
+                    if (algo == nullptr)
+                    {
+                        results.push_back({{"error", "unknown algorithm: " + algoName.toStdString()}});
+                        continue;
+                    }
                 }
 
                 Function::Type wantType = wantHue ? Function::HUEMatrixType : Function::RGBMatrixType;
@@ -874,19 +896,8 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
                 if (item.contains("fixtureGroupID"))
                     matrix->setFixtureGroup(item.at("fixtureGroupID").get<int>());
 
-                // Algorithm
-                if (item.contains("algorithm"))
-                {
-                    QString algoName = QString::fromStdString(item.at("algorithm").get<std::string>());
-                    RGBAlgorithm *algo = hueMatrix != NULL ? HUEMatrix::createAlgorithm(doc, algoName)
-                                                          : RGBAlgorithm::algorithm(doc, algoName);
-                    if (algo == NULL)
-                    {
-                        results.push_back({{"error", "unknown algorithm: " + algoName.toStdString()}});
-                        continue;
-                    }
+                if (algo != nullptr)
                     matrix->setAlgorithm(algo);
-                }
 
                 // Colors: prefer 'colors' array, fall back to startColor/endColor
                 if (item.contains("colors") && item.at("colors").is_array())

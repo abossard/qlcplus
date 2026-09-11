@@ -239,8 +239,8 @@ var testAlgo;
     }
 
     var SPAWN_TRIGGERS = {
-        0: function(a) { return a.beatFired; },
-        1: function(a) { return a.onset; }
+        0: function(a) { return a.events ? a.events.delta.beat : (a.beatFired ? 1 : 0); },
+        1: function(a) { return a.events ? a.events.delta.onset : (a.onset ? 1 : 0); }
     };
     var KICK_PARTICLE_BUDGET_RATIO = 0.7;
     var AMBIENT_MIN_POWER = 0.1;
@@ -258,11 +258,12 @@ var testAlgo;
         var totalPower = (audio.low + audio.mid + audio.high);
         var onsetIntensity = audio.onsetIntensity;
 
-        if (SPAWN_TRIGGERS[algo.presetTriggerMode](audio))
+        var bursts = Math.min(algo.presetMaxParticles, SPAWN_TRIGGERS[algo.presetTriggerMode](audio));
+        for (var burst = 0; burst < bursts; burst++)
             spawnBurst(width, height, dominantBandType(audio), powers);
 
         // Extra burst on strong kicks
-        if (audio.beatFired && onsetIntensity > algo.presetKickThreshold / 10
+        if ((audio.version >= 6 ? audio.kickFired : audio.beatFired) && onsetIntensity > algo.presetKickThreshold / 10
             && algo.particles.length < algo.presetMaxParticles * KICK_PARTICLE_BUDGET_RATIO)
             spawnBurst(width, height, "low", powers);
 
@@ -270,12 +271,13 @@ var testAlgo;
             spawnAmbient(width, height, powers);
 
         var gravity = algo.presetGravity * 0.02;
+        var frameScale = audio.timing ? audio.timing.deltaSeconds * 50 : 1;
         for (var i = algo.particles.length - 1; i >= 0; i--) {
             var particle = algo.particles[i];
-            particle.x += particle.vx;
-            particle.y += particle.vy;
-            particle.vy += gravity;
-            particle.life--;
+            particle.x += particle.vx * frameScale;
+            particle.y += particle.vy * frameScale + gravity * frameScale * (frameScale - 1) / 2;
+            particle.vy += gravity * frameScale;
+            particle.life -= frameScale;
             if (particle.life <= 0)
                 algo.particles.splice(i, 1);
         }

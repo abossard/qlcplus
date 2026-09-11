@@ -197,17 +197,25 @@ Rectangle
                     textRole: ""
                     model: hueMatrixEditor.algorithms
                     currentIndex: hueMatrixEditor.algorithmIndex
-                    onDisplayTextChanged:
+                    onActivated: function(index)
                     {
-                        hueMatrixEditor.algorithmIndex = currentIndex
+                        hueMatrixEditor.algorithmIndex = index
+                    }
+                    property string algorithmName: hueMatrixEditor.algorithmName
+                    function refreshParameters()
+                    {
                         paramSection.sectionContents = null
-                        if (displayText === "Text")
+                        if (algorithmName === "")
+                            return
+                        if (algorithmName === "Text")
                             paramSection.sectionContents = textAlgoComponent
-                        else if (displayText === "Image")
+                        else if (algorithmName === "Image")
                             paramSection.sectionContents = imageAlgoComponent
                         else
                             paramSection.sectionContents = scriptAlgoComponent
                     }
+                    onAlgorithmNameChanged: refreshParameters()
+                    Component.onCompleted: refreshParameters()
                 }
 
                 Row

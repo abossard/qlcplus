@@ -29,6 +29,8 @@
 #include <QSettings>
 #include <QDebug>
 #include <qmath.h>
+#include <cmath>
+#include <limits>
 
 #include "inputoutputmap.h"
 #include "qlcinputchannel.h"
@@ -60,10 +62,35 @@ InputOutputMap::InputOutputMap(const Doc *doc, quint32 universes)
     connect(doc->ioPluginCache(), SIGNAL(pluginConfigurationChanged(QLCIOPlugin*)),
             this, SLOT(slotPluginConfigurationChanged(QLCIOPlugin*)));
     connect(doc->masterTimer(), SIGNAL(beat()), this, SLOT(slotMasterTimerBeat()));
+    connect(doc->masterTimer(), &MasterTimer::tickReady,
+            this, &InputOutputMap::slotAudioTick, Qt::DirectConnection);
+    m_audioPollTimer.setInterval(16);
+    m_audioPollTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_audioPollTimer, &QTimer::timeout, this, &InputOutputMap::slotPollAudio);
+    connect(doc, &Doc::activeAudioProfileIdChanged, this, [this]() {
+        {
+            QMutexLocker locker(&m_audioBeatMutex);
+            m_pendingAudioBeats = 0;
+        }
+        m_audioBeatCursor.reset();
+        updateAudioCaptureSubscription();
+        slotPollAudio();
+    });
+    connect(doc, &Doc::audioProfilesChanged, this, &InputOutputMap::updateAudioCaptureSubscription);
 }
 
 InputOutputMap::~InputOutputMap()
 {
+    if (m_doc->masterTimer())
+        disconnect(m_doc->masterTimer(), &MasterTimer::tickReady,
+                   this, &InputOutputMap::slotAudioTick);
+    {
+        QMutexLocker locker(&m_audioBeatMutex);
+        m_pendingAudioBeats = 0;
+    }
+    m_audioPollTimer.stop();
+    if (m_inputCapture)
+        m_inputCapture->unregisterBandsNumber(4);
     removeAllUniverses();
     delete m_grandMaster;
     delete m_beatTime;
@@ -1029,8 +1056,15 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
 
     if (m_beatGeneratorType == Audio)
     {
-        m_inputCapture->unregisterBandsNumber(4);
-        disconnect(m_inputCapture, SIGNAL(beatDetected(int)), this, SLOT(slotProcessBeat(int)));
+        {
+            QMutexLocker locker(&m_audioBeatMutex);
+            m_pendingAudioBeats = 0;
+        }
+        m_audioPollTimer.stop();
+        if (m_inputCapture)
+            m_inputCapture->unregisterBandsNumber(4);
+        m_inputCapture.clear();
+        m_audioBeatCursor.reset();
     }
 
     m_beatGeneratorType = type;
@@ -1055,13 +1089,10 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
         case Audio:
         {
             m_doc->masterTimer()->setBeatSourceType(MasterTimer::External);
-            // reset the current BPM number and detect it from the audio input
             setBpmNumber(0);
-            m_beatTime->restart();
-            QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
-            m_inputCapture = capture.data();
-            connect(m_inputCapture, SIGNAL(beatDetected(int)), this, SLOT(slotProcessBeat(int)));
-            m_inputCapture->registerBandsNumber(4);
+            updateAudioCaptureSubscription();
+            slotPollAudio();
+            m_audioPollTimer.start();
         }
         break;
         case Disabled:
@@ -1072,6 +1103,57 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
     }
 
     emit beatGeneratorTypeChanged();
+}
+
+void InputOutputMap::updateAudioCaptureSubscription()
+{
+    const AudioProfile *profile = m_doc->audioProfile(m_doc->activeAudioProfileId());
+    const bool microphone = m_beatGeneratorType == Audio &&
+        (!profile || profile->audioSource() == AudioProfile::Microphone);
+    if (microphone && !m_inputCapture)
+    {
+        m_inputCapture = m_doc->audioInputCapture();
+        m_inputCapture->registerBandsNumber(4);
+    }
+    else if (!microphone && m_inputCapture)
+    {
+        m_inputCapture->unregisterBandsNumber(4);
+        m_inputCapture.clear();
+    }
+}
+
+void InputOutputMap::slotPollAudio()
+{
+    if (m_beatGeneratorType != Audio)
+        return;
+    updateAudioCaptureSubscription();
+    auto view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(), AudioRenderView::nowNs());
+    m_audioBeatCursor.advance(view);
+    if (!view.tempoValid || view.bpm > std::numeric_limits<int>::max())
+    {
+        {
+            QMutexLocker locker(&m_audioBeatMutex);
+            m_pendingAudioBeats = 0;
+        }
+        setBpmNumber(0);
+        return;
+    }
+    setBpmNumber(qRound(view.bpm));
+    QMutexLocker locker(&m_audioBeatMutex);
+    m_pendingAudioBeats += view.deltas[1];
+}
+
+void InputOutputMap::slotAudioTick()
+{
+    QMutexLocker locker(&m_audioBeatMutex);
+    if (m_pendingAudioBeats)
+    {
+        --m_pendingAudioBeats;
+        // MasterTimer's request is a flag, so catch-up pulses need separate ticks.
+        m_doc->masterTimer()->requestBeat();
+        locker.unlock();
+        emit beat();
+    }
 }
 
 InputOutputMap::BeatGeneratorType InputOutputMap::beatGeneratorType() const
@@ -1118,6 +1200,8 @@ void InputOutputMap::setBpmNumber(int bpm)
 
 void InputOutputMap::setExternalBpm(int bpm)
 {
+    if (m_beatGeneratorType == Audio)
+        return;
     m_externalBpmLock = true;
     if (bpm > 0)
         setBpmNumber(bpm);
@@ -1138,6 +1222,8 @@ int InputOutputMap::bpmNumber() const
 
 void InputOutputMap::slotProcessBeat(int bpm)
 {
+    if (m_beatGeneratorType != Plugin)
+        return;
     // process the timer as first thing, to avoid wasting time
     // with the operations below
     qint64 elapsed = m_beatTime->elapsed();
@@ -1154,12 +1240,12 @@ void InputOutputMap::slotProcessBeat(int bpm)
                 setBpmNumber(bpm);
             }
         }
-        else
+        else if (elapsed > 0)
         {
             // no tempo estimate available: derive the BPM number from the
             // wall-clock spacing of the beat signals
             int elapsedBpm = qRound(60000.0 / (float)elapsed);
-            float currBpmTime = 60000.0 / (float)m_currentBPM;
+            float currBpmTime = m_currentBPM > 0 ? 60000.0 / (float)m_currentBPM : 0;
             // here we check if the difference between the current BPM duration
             // and the current time elapsed is within a range of +/-1ms.
             // If it isn't, then the BPM number has really changed, otherwise

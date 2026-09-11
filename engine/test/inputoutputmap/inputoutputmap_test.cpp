@@ -18,6 +18,12 @@
 */
 #include <QSignalSpy>
 #include <QtTest>
+#include <array>
+#include <cmath>
+#include "../doc/audio_test_capture.h"
+#include "audioanalyzer.h"
+#include "audiochannel.h"
+#include "audioframe.h"
 
 #define private public
 #include "iopluginstub.h"
@@ -897,6 +903,188 @@ void InputOutputMap_Test::beatSourceBpmAndExternalLock()
                                       Qt::DirectConnection, Q_ARG(int, 140)));
     QCOMPARE(iom.bpmNumber(), 140);
     QCOMPARE(beatSpy.count(), 5);
+}
+
+void InputOutputMap_Test::canonicalAudioClock()
+{
+    Doc doc(nullptr, 0);
+    auto capture = QSharedPointer<AudioTestCapture>::create();
+    doc.m_inputCapture = capture;
+    capture->setAnalyzer(doc.audioAnalyzer());
+    auto *first = new AudioProfile(7, &doc);
+    auto *second = new AudioProfile(29, &doc);
+    QVERIFY(doc.addAudioProfile(first));
+    QVERIFY(doc.addAudioProfile(second));
+    auto *iom = doc.inputOutputMap();
+    iom->setBeatGeneratorType(InputOutputMap::Audio);
+    iom->m_audioPollTimer.stop();
+    QSignalSpy beats(iom, &InputOutputMap::beat);
+    auto publish = [&](AudioProfile *profile, uint64_t count, double bpm,
+                       uint64_t epoch = 1, bool valid = true) {
+        AudioSnapshot snapshot;
+        snapshot.sourceId = "clock-test";
+        snapshot.sourceEpoch = epoch;
+        snapshot.frameSequence = count + 1;
+        snapshot.available = true;
+        snapshot.status = "available";
+        snapshot.publishTimeNs = AudioRenderView::nowNs();
+        snapshot.music.bpm = bpm;
+        snapshot.music.valid = valid;
+        snapshot.events.beat = count;
+        profile->channel()->injectSnapshot(snapshot);
+    };
+    const auto poll = [&]() {
+        if (!QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection))
+            return false;
+        while (iom->m_pendingAudioBeats)
+            doc.masterTimer()->timerTick();
+        return true;
+    };
+    publish(first, 11, 110.4);
+    QVERIFY(poll());
+    QCOMPARE(iom->bpmNumber(), 110);
+    QCOMPARE(beats.count(), 0);
+    publish(first, 13, 110.4);
+    publish(first, 16, 128.2);
+    QTest::qWait(65);
+    QCOMPARE(beats.count(), 0);
+    QVERIFY(QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection));
+    QCOMPARE(iom->m_pendingAudioBeats, uint64_t(5));
+    QCOMPARE(beats.count(), 0);
+    for (int i = 1; i <= 5; ++i)
+    {
+        doc.masterTimer()->timerTick();
+        QCOMPARE(beats.count(), i);
+        QVERIFY(doc.masterTimer()->isBeat());
+    }
+    QCOMPARE(iom->bpmNumber(), 128);
+    QCOMPARE(beats.count(), 5);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 5);
+    iom->setExternalBpm(200);
+    QCOMPARE(iom->bpmNumber(), 128);
+    publish(first, 17, 145, 1, false);
+    QVERIFY(poll());
+    QCOMPARE(iom->bpmNumber(), 0);
+    QCOMPARE(beats.count(), 5);
+
+    publish(second, 100, 90);
+    doc.setActiveAudioProfileId(29);
+    QVERIFY(!doc.audioSnapshot().available);
+    publish(second, 102, 90);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 5);
+    publish(second, 105, 90);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 8);
+    QCOMPARE(iom->bpmNumber(), 90);
+
+    doc.setActiveAudioProfileId(7);
+    doc.setActiveAudioProfileId(29);
+    publish(second, 120, 91);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 8);
+    publish(second, 1, 91, 2);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 8);
+    publish(second, 2, 91, 2);
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 9);
+    QVERIFY(doc.removeAudioProfile(29));
+    QCOMPARE(doc.activeAudioProfileId(), quint32(7));
+    QVERIFY(poll());
+    QCOMPARE(beats.count(), 9);
+}
+
+void InputOutputMap_Test::canonicalAudioOwnership_data()
+{
+    QTest::addColumn<int>("source");
+    QTest::newRow("internal") << int(InputOutputMap::Internal);
+    QTest::newRow("plugin") << int(InputOutputMap::Plugin);
+}
+
+void InputOutputMap_Test::canonicalAudioOwnership()
+{
+    QFETCH(int, source);
+    Doc doc(nullptr, 0);
+    auto *iom = doc.inputOutputMap();
+    iom->setBeatGeneratorType(InputOutputMap::BeatGeneratorType(source));
+    iom->setExternalBpm(127);
+    QSignalSpy beats(iom, &InputOutputMap::beat);
+    QVERIFY(QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection));
+    QCOMPARE(iom->bpmNumber(), 127);
+    QCOMPARE(beats.count(), 0);
+    QVERIFY(iom->m_externalBpmLock);
+    QVERIFY(QMetaObject::invokeMethod(iom, "slotProcessBeat",
+        Qt::DirectConnection, Q_ARG(int, 145)));
+    QCOMPARE(iom->bpmNumber(), 127);
+    QCOMPARE(beats.count(), source == InputOutputMap::Plugin ? 1 : 0);
+    iom->clearExternalBpm();
+    QVERIFY(!iom->m_externalBpmLock);
+}
+
+void InputOutputMap_Test::canonicalPcmClock()
+{
+    Doc doc(nullptr, 0);
+    auto capture = QSharedPointer<AudioTestCapture>::create();
+    doc.m_inputCapture = capture;
+    capture->setAnalyzer(doc.audioAnalyzer());
+    QVERIFY(doc.addAudioProfile(new AudioProfile(7, &doc)));
+    auto *iom = doc.inputOutputMap();
+    iom->setBeatGeneratorType(InputOutputMap::Audio);
+    iom->m_audioPollTimer.stop();
+    QSignalSpy beats(iom, &InputOutputMap::beat);
+    std::array<float, 500> samples{};
+    AudioFrame frame;
+    frame.samples = samples.data();
+    frame.sourceEpoch = 17;
+    uint64_t previousCount = 0, expectedBeats = 0;
+    int validPolls = 0;
+    bool seeded = false;
+    for (int hop = 0; hop < 2400; ++hop)
+    {
+        double squareSum = 0, peak = 0;
+        for (int i = 0; i < 500; ++i)
+        {
+            const double time = double(hop * 500 + i) / 30000;
+            const double eighth = 60.0 / 110 / 2;
+            const double age = std::fmod(time, eighth);
+            const double amplitude = int(time / eighth) % 2 ? 0.65 : 0.9;
+            samples[i] = float(amplitude * std::exp(-age * 65) *
+                (0.7 * std::sin(2 * 3.141592653589793 * 65 * time) +
+                 0.3 * std::sin(2 * 3.141592653589793 * 1700 * time)));
+            squareSum += samples[i] * samples[i];
+            peak = std::max(peak, std::abs(double(samples[i])));
+        }
+        frame.frameIndex = hop + 1;
+        frame.sampleTime = hop * 500;
+        frame.rms = std::sqrt(squareSum / 500);
+        frame.peak = peak;
+        frame.rmsDb = 20 * std::log10(std::max(frame.rms, 1e-12));
+        frame.peakDb = 20 * std::log10(std::max(peak, 1e-12));
+        frame.volumeNorm = std::clamp(1 + frame.rmsDb / 100, 0.0, 1.0);
+        doc.audioAnalyzer()->processFrame(frame);
+        if (hop % 37 != 0 && hop != 2399)
+            continue;
+        const auto snapshot = doc.audioSnapshot();
+        if (snapshot.music.valid)
+        {
+            ++validPolls;
+            if (seeded)
+                expectedBeats += snapshot.events.beat - previousCount;
+        }
+        previousCount = snapshot.events.beat;
+        seeded = true;
+        QVERIFY(QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection));
+        QCOMPARE(iom->bpmNumber(), snapshot.music.valid ? qRound(snapshot.music.bpm) : 0);
+        while (iom->m_pendingAudioBeats)
+            doc.masterTimer()->timerTick();
+        QCOMPARE(uint64_t(beats.count()), expectedBeats);
+    }
+    QVERIFY(validPolls > 10);
+    QVERIFY(expectedBeats > 10);
+    qInfo() << "Canonical native 110-eighth integration: valid polls" << validPolls
+            << "pulses" << expectedBeats << "final BPM" << iom->bpmNumber();
 }
 
 QTEST_GUILESS_MAIN(InputOutputMap_Test)

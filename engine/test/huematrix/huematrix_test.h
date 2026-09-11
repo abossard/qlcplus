@@ -36,6 +36,19 @@ private slots:
     /* AC5 */
     void audioScriptsAreNotOfferedToRGBMatrix();
     void hueMatrixOffersAllAudioScripts();
+    void defaultPattern_data();
+    void defaultPattern();
+    void nonAudioHsvContract();
+    void patternSelection_data();
+    void patternSelection();
+    void legacyAlgorithmRoundTrip_data();
+    void legacyAlgorithmRoundTrip();
+    void createCopyPreservesHue_data();
+    void createCopyPreservesHue();
+    void scriptAttributeLifecycle();
+    void authoredPropertiesSurviveStyleRelease_data();
+    void authoredPropertiesSurviveStyleRelease();
+    void hueUiRoutesNames();
 
     /* AC4 */
     void hsvScriptProducesFiniteNonUniformMap();
@@ -94,6 +107,8 @@ private slots:
     void asyncPrecomputeProducesAConsumableMap();
     void asyncPrecomputeIsThrottledToOneTaskInFlight();
     void asyncPrecomputeIsSkippedForNonScriptAlgorithms();
+    void asyncPrecomputeIsSkippedForAudioScripts();
+    void audioPreviewReusesCommittedFrame();
     void precomputedMapIsRejectedWhenTheGenerationMoved();
     void inFlightPrecomputeIsDiscardedWhenInvalidatedMidFlight();
 

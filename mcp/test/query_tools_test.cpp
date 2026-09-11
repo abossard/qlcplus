@@ -13,6 +13,8 @@
 #include "chaser.h"
 #include "scriptv4.h"
 #include "qlcpalette.h"
+#include "rgbscriptscache.h"
+#include "huescriptscache.h"
 
 #include <fastmcpp/tools/manager.hpp>
 
@@ -239,6 +241,103 @@ void QueryTools_Test::queryRgbAlgorithms_invalidTypeReturnsError()
     QVERIFY2(result.contains("error"), "Invalid type must return an error");
     QString message = QString::fromStdString(result["error"].get<std::string>());
     QVERIFY2(message.contains(QStringLiteral("'type'")), qPrintable(message));
+}
+
+void QueryTools_Test::queryRgbAlgorithms_matrixTypeSchema()
+{
+    auto tm = makeQueryToolManager(m_doc);
+    const Json schema = tm.input_schema_for("query_rgb_algorithms");
+    const Json &props = schema.at("properties");
+    QVERIFY(props.contains("matrixType"));
+    QVERIFY(props.at("matrixType").at("enum") == Json::array({"RGBMatrix", "HUEMatrix"}));
+    QVERIFY(props.at("type").at("enum") == Json::array({"Script", "Text", "Image", "Audio", "Plain"}));
+    QVERIFY(!schema.contains("required") || schema.at("required").empty());
+}
+
+void QueryTools_Test::queryRgbAlgorithms_matrixType_data()
+{
+    QTest::addColumn<QString>("matrixType");
+    QTest::newRow("default-stock") << QString();
+    QTest::newRow("explicit-stock") << QStringLiteral("RGBMatrix");
+    QTest::newRow("hsv-only") << QStringLiteral("HUEMatrix");
+}
+
+void QueryTools_Test::queryRgbAlgorithms_matrixType()
+{
+    QFETCH(QString, matrixType);
+    const QDir rgbDir(QFINDTESTDATA("../../resources/rgbscripts"));
+    const QDir hueDir(QFINDTESTDATA("../../resources/huescripts"));
+    QVERIFY(m_doc->rgbScriptsCache()->load(rgbDir));
+    QVERIFY(m_doc->hueScriptsCache()->load(rgbDir, false));
+    QVERIFY(m_doc->hueScriptsCache()->load(hueDir, true));
+    auto tm = makeQueryToolManager(m_doc);
+    Json args = Json::object();
+    if (!matrixType.isEmpty())
+        args["matrixType"] = matrixType.toStdString();
+
+    const Json result = parsedToolResult(tm.invoke("query_rgb_algorithms", args));
+    QVERIFY2(result.is_array(), result.dump().c_str());
+    QStringList names;
+    for (const auto &entry : result)
+        names.append(QString::fromStdString(entry.at("name").get<std::string>()));
+
+    const bool hue = matrixType == QStringLiteral("HUEMatrix");
+    QCOMPARE(names.contains("Audio Spectrum Bars"), hue);
+    QCOMPARE(names.contains("Stripes"), !hue);
+    QCOMPARE(names.contains("Audio Spectrum"), !hue);
+    QCOMPARE(names.contains("Audio Fire"), hue);
+    if (hue)
+    {
+        QCOMPARE(result.size(), size_t(41));
+        for (const auto &entry : result)
+            QCOMPARE(entry.at("type").get<std::string>(), std::string("Script"));
+    }
+    else
+    {
+        const Json stock = parsedToolResult(tm.invoke("query_rgb_algorithms", Json::object()));
+        QVERIFY(result == stock);
+    }
+
+    // Kind and case-insensitive name filters still compose with matrixType.
+    args["name"] = "aUdIo SpEcTrUm";
+    args["type"] = hue ? "Script" : "Audio";
+    const Json filtered = parsedToolResult(tm.invoke("query_rgb_algorithms", args));
+    QVERIFY2(filtered.is_array(), filtered.dump().c_str());
+    QCOMPARE(filtered.size(), size_t(1));
+    QCOMPARE(filtered[0].at("name").get<std::string>(),
+             std::string(hue ? "Audio Spectrum Bars" : "Audio Spectrum"));
+    QCOMPARE(filtered[0].at("type").get<std::string>(), std::string(hue ? "Script" : "Audio"));
+    QCOMPARE(filtered[0].at("audioReactive").get<bool>(), true);
+    if (hue)
+    {
+        QVERIFY(filtered[0].contains("properties"));
+        bool found = false;
+        for (const auto &prop : filtered[0].at("properties"))
+        {
+            if (prop.at("name") != "rgb_mix")
+                continue;
+            found = true;
+            QCOMPARE(prop.at("type").get<std::string>(), std::string("range"));
+            QCOMPARE(prop.at("min").get<int>(), 0);
+            QCOMPARE(prop.at("max").get<int>(), 5);
+            QCOMPARE(prop.at("default").get<std::string>(), std::string("0"));
+        }
+        QVERIFY(found);
+    }
+    args["type"] = hue ? "Audio" : "Script";
+    const Json wrongKind = parsedToolResult(tm.invoke("query_rgb_algorithms", args));
+    QVERIFY(wrongKind.is_array());
+    QVERIFY(wrongKind.empty());
+}
+
+void QueryTools_Test::queryRgbAlgorithms_invalidMatrixTypeReturnsError()
+{
+    auto tm = makeQueryToolManager(m_doc);
+    const Json result = parsedToolResult(tm.invoke("query_rgb_algorithms", Json{{"matrixType", "Bogus"}}));
+    QVERIFY(result.is_object());
+    QVERIFY(result.contains("error"));
+    const QString message = QString::fromStdString(result.at("error").get<std::string>());
+    QVERIFY2(message.contains("invalid value for 'matrixType'"), qPrintable(message));
 }
 
 void QueryTools_Test::queryWorkspaceSummary_returnsExpectedCounts()

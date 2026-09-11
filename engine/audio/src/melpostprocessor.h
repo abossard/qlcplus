@@ -36,8 +36,8 @@ class MelPostProcessor
 public:
     struct Config
     {
-        double powerFactor = 1.0;     // 1.0 = bypass (no peak isolation)
-        double gaussianSigma = 5.0;   // blur sigma in mel bands
+        double powerFactor = 1.9626105055051506;
+        double gaussianSigma = 1.0;
         double smoothDecay = 0.7;     // LedFx melbank.py:376
         double smoothRise = 0.99;     // LedFx melbank.py:376
         double commonDecay = 0.99;    // LedFx melbank.py:377
@@ -47,6 +47,17 @@ public:
         double agcDecay = 0.01;       // LedFx melbank.py:375 (mel_gain alpha_decay)
         double agcRise = 0.99;        // LedFx melbank.py:375 (mel_gain alpha_rise)
         bool enabled = true;          // matches MelPostConfig default; LedFx always processes
+
+        bool operator==(const Config &o) const
+        {
+            return powerFactor == o.powerFactor && gaussianSigma == o.gaussianSigma
+                && smoothDecay == o.smoothDecay && smoothRise == o.smoothRise
+                && commonDecay == o.commonDecay && commonRise == o.commonRise
+                && diffDecay == o.diffDecay && diffRise == o.diffRise
+                && agcDecay == o.agcDecay && agcRise == o.agcRise
+                && enabled == o.enabled;
+        }
+        bool operator!=(const Config &o) const { return !(*this == o); }
     };
 
     MelPostProcessor();
@@ -61,13 +72,7 @@ public:
 
     /// Process one mel frame. rawMel/processedMel/noveltyMel are arrays of
     /// length `count`. noveltyMel may be nullptr if novelty is not needed.
-    /// When `noiseGateClosed` is true, the FFT input is zeroed but the full
-    /// filter chain still runs (matches LedFx audio.py:1027-1041 and
-    /// melbank.py:380-403): m_melGain decays toward the kAgcEpsilon floor,
-    /// and m_smoothed / m_common / m_diff decay naturally toward zero. The
-    /// caller (AudioChannel) is responsible for keeping the gate stable
-    /// (Fix 3's smoothed-volume gate) so the gate does not reopen on noise
-    /// while the mel_gain divisor is at its floor.
+    /// A closed gate publishes zeros without advancing any filter state.
     void process(const double *rawMel, int count,
                  double *processedMel, double *noveltyMel,
                  bool noiseGateClosed = false);
@@ -86,7 +91,8 @@ private:
     std::vector<double> m_gaussianKernel;
     int m_kernelSize = 0;
     double m_kernelSigma = -1.0;      // invalidation sentinel
-    double m_melGain = 1e-10;         // temporal AGC tracker (LedFx mel_gain)
+    double m_melGain = 0.0;
+    bool m_gainInitialized = false;
     bool m_smoothInitialized = false;
     bool m_commonInitialized = false;
     bool m_diffInitialized = false;

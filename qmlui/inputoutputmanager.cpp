@@ -20,6 +20,8 @@
 #include <QQmlContext>
 #include <QSettings>
 #include <QDebug>
+#include <QAudioDevice>
+#include <QMediaDevices>
 
 #include "inputoutputmanager.h"
 #include "inputprofileeditor.h"
@@ -67,6 +69,17 @@ InputOutputManager::InputOutputManager(QQuickView *view, Doc *doc, QObject *pare
     connect(m_ioMap, SIGNAL(beat()), this, SIGNAL(beat()), Qt::QueuedConnection);
     connect(m_ioMap, SIGNAL(beatGeneratorTypeChanged()), this, SLOT(slotBeatTypeChanged()));
     connect(m_ioMap, SIGNAL(bpmNumberChanged(int)), this, SIGNAL(bpmNumberChanged(int)));
+    auto *mediaDevices = new QMediaDevices(this);
+    connect(mediaDevices, &QMediaDevices::audioInputsChanged, this, [this]() {
+        emit audioInputSourcesChanged();
+        emit audioInputDeviceChanged();
+    });
+}
+
+InputOutputManager::~InputOutputManager()
+{
+    if (m_audioInputPreview && m_inputCapture)
+        m_inputCapture->unregisterBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
 }
 
 void InputOutputManager::slotDocLoaded()
@@ -258,20 +271,20 @@ QVariant InputOutputManager::audioInputDevice()
         return QVariant::fromValue(devMap);
     }
 
-    QList<AudioDeviceInfo> devList = m_doc->audioPluginCache()->audioDevicesList();
-    foreach (AudioDeviceInfo info, devList)
+    for (const QAudioDevice &device : QMediaDevices::audioInputs())
     {
-        if (info.capabilities & AUDIO_CAP_INPUT &&
-            info.deviceName == devName)
+        const QString id = QStringLiteral("id:") + QString::fromLatin1(device.id().toBase64());
+        if (id == devName || (!devName.startsWith(QStringLiteral("id:")) && device.description() == devName))
         {
             QVariantMap devMap;
-            devMap.insert("name", info.deviceName);
-            devMap.insert("privateName", info.privateName);
+            devMap.insert("name", device.description());
+            devMap.insert("privateName", id);
             return QVariant::fromValue(devMap);
         }
     }
 
-    return QVariant();
+    return QVariantMap{{"name", tr("Missing device: %1").arg(devName)},
+                       {"privateName", devName}, {"available", false}};
 }
 
 QVariant InputOutputManager::audioOutputDevice()
@@ -310,7 +323,6 @@ QVariant InputOutputManager::audioInputSources() const
 {
     QSettings settings;
     QVariantList inputSources;
-    QList<AudioDeviceInfo> devList = m_doc->audioPluginCache()->audioDevicesList();
     QString currDevice = settings.value(SETTINGS_AUDIO_INPUT_DEVICE).toString();
 
     QVariantMap defAudioMap;
@@ -320,21 +332,18 @@ QVariant InputOutputManager::audioInputSources() const
     inputSources.append(defAudioMap);
 
     int i = 0;
-    for (AudioDeviceInfo &info : devList)
+    bool selectedFound = currDevice.isEmpty() || currDevice == "__qlcplusdefault__";
+    for (const QAudioDevice &device : QMediaDevices::audioInputs())
     {
-        if (info.capabilities & AUDIO_CAP_INPUT)
-        {
-            if (info.privateName == currDevice)
-                continue;
-
-            QVariantMap devMap;
-            devMap.insert("mLabel", info.deviceName);
-            devMap.insert("mValue", i);
-            devMap.insert("privateName", info.privateName);
-            inputSources.append(devMap);
-        }
-        i++;
+        const QString id = QStringLiteral("id:") + QString::fromLatin1(device.id().toBase64());
+        if (id == currDevice || (!currDevice.startsWith(QStringLiteral("id:")) && device.description() == currDevice))
+            selectedFound = true;
+        inputSources.append(QVariantMap{{"mLabel", device.description()},
+            {"mValue", i++}, {"privateName", id}});
     }
+    if (!selectedFound)
+        inputSources.append(QVariantMap{{"mLabel", tr("Missing device: %1").arg(currDevice)},
+            {"mValue", i}, {"privateName", currDevice}, {"available", false}});
 
     return QVariant::fromValue(inputSources);
 }
@@ -379,7 +388,7 @@ void InputOutputManager::setAudioInput(QString privateName)
         settings.remove(SETTINGS_AUDIO_INPUT_DEVICE);
     else
         settings.setValue(SETTINGS_AUDIO_INPUT_DEVICE, privateName);
-    m_doc->destroyAudioCapture();
+    m_doc->restartAudioCapture();
     emit audioInputSourcesChanged();
     emit audioInputDeviceChanged();
 }
@@ -412,8 +421,7 @@ void InputOutputManager::setAudioInputSampleRate(int sampleRate)
     else
         settings.setValue(SETTINGS_AUDIO_INPUT_SRATE, sampleRate);
 
-    enableAudioInputPreview(false);
-    m_doc->destroyAudioCapture();
+    m_doc->restartAudioCapture();
     emit audioInputSampleRateChanged();
 }
 
@@ -434,8 +442,7 @@ void InputOutputManager::setAudioInputChannels(int channels)
     else
         settings.setValue(SETTINGS_AUDIO_INPUT_CHANNELS, channels);
 
-    enableAudioInputPreview(false);
-    m_doc->destroyAudioCapture();
+    m_doc->restartAudioCapture();
     emit audioInputChannelsChanged();
 }
 
@@ -466,6 +473,9 @@ int InputOutputManager::audioInputLevel() const
 
 void InputOutputManager::enableAudioInputPreview(bool enable)
 {
+    if (m_audioInputPreview == enable)
+        return;
+    m_audioInputPreview = enable;
     QSharedPointer<AudioCapture> capture(m_doc->audioInputCapture());
     m_inputCapture = capture.data();
 
@@ -474,27 +484,23 @@ void InputOutputManager::enableAudioInputPreview(bool enable)
 
     if (enable == true)
     {
-        connect(m_inputCapture, SIGNAL(dataProcessed(double*,int,double,quint32)),
-                this, SLOT(slotAudioInputLevelChanged(double*,int,double,quint32)));
+        connect(m_inputCapture, &AudioCapture::volumeChanged,
+                this, &InputOutputManager::slotAudioInputLevelChanged, Qt::UniqueConnection);
         m_inputCapture->registerBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
     }
     else
     {
         m_inputCapture->unregisterBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
-        disconnect(m_inputCapture, SIGNAL(dataProcessed(double*,int,double,quint32)),
-                   this, SLOT(slotAudioInputLevelChanged(double*,int,double,quint32)));
+        disconnect(m_inputCapture, &AudioCapture::volumeChanged,
+                   this, &InputOutputManager::slotAudioInputLevelChanged);
 
         m_audioInputLevel = 0;
         emit audioInputLevelChanged();
     }
 }
 
-void InputOutputManager::slotAudioInputLevelChanged(double *spectrumBands, int size, double maxMagnitude, quint32 power)
+void InputOutputManager::slotAudioInputLevelChanged(int power)
 {
-    Q_UNUSED(spectrumBands)
-    Q_UNUSED(size)
-    Q_UNUSED(maxMagnitude)
-
     m_audioInputLevel = int(power);
     emit audioInputLevelChanged();
 }
@@ -1044,4 +1050,3 @@ void InputOutputManager::setBpmNumber(int bpmNumber)
     m_ioMap->setBpmNumber(bpmNumber);
     emit bpmNumberChanged(bpmNumber);
 }
-

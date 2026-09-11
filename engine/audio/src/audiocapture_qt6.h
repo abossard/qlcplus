@@ -35,7 +35,27 @@ class AudioCaptureQt6 final : public AudioCapture
 {
     Q_OBJECT
 public:
+    struct Device
+    {
+        QByteArray id;
+        QString description;
+        bool isDefault = false;
+    };
+
+    class InputBackend
+    {
+    public:
+        virtual ~InputBackend() = default;
+        virtual QList<Device> devices() const = 0;
+        virtual QIODevice *open(const QByteArray &id, int sampleRate, int channels,
+                                QAudioFormat &format) = 0;
+        virtual bool failed() const = 0;
+        virtual void close() = 0;
+        virtual void setVolume(qreal volume) = 0;
+    };
+
     AudioCaptureQt6(QObject * parent = 0);
+    AudioCaptureQt6(std::unique_ptr<InputBackend> backend, QObject *parent = nullptr);
     ~AudioCaptureQt6();
 
     /** @reimpl */
@@ -43,6 +63,12 @@ public:
 
     /** @reimpl */
     void setVolume(qreal volume) override;
+    /** Empty follows the OS default. IDs use "id:" plus base64; descriptions
+     *  remain accepted for existing settings. Does not write settings. */
+    void setInputDevice(const QString &selection);
+    QString inputDevice() const;
+    QString appliedDevice() const;
+    QAudioFormat captureFormat() const;
 
     static QAudioFormat selectCaptureFormat(const QAudioDevice &device,
                                             int sampleRate,
@@ -51,11 +77,16 @@ public:
                                const QAudioFormat &format,
                                int sampleCount,
                                int16_t *output);
+    static bool convertSamples(QByteArrayView input, const QAudioFormat &format,
+                               int sampleCount, float *output);
     static bool readConvertedSamples(QIODevice *input,
                                      QByteArray &pending,
                                      const QAudioFormat &format,
                                      int sampleCount,
                                      int16_t *output);
+    static bool readConvertedSamples(QIODevice *input, QByteArray &pending,
+                                     const QAudioFormat &format, int sampleCount,
+                                     float *output);
 
 protected:
     /** @reimpl */
@@ -72,12 +103,19 @@ protected:
 
     /** @reimpl */
     bool readAudio(int maxSize) override;
+    bool sourceFailed() const override;
+    bool retrySource() const override { return true; }
+    void clearPendingInput() override { m_currentReadBuffer.clear(); }
 
 private:
-    QAudioSource *m_audioSource;
-    QIODevice *m_input;
+    std::unique_ptr<InputBackend> m_backend;
+    QIODevice *m_input = nullptr;
     QAudioFormat m_format;
-    qreal m_volume;
+    std::atomic<qreal> m_volume {1.0};
+    qreal m_appliedVolume = -1.0;
+    QString m_selection;
+    QString m_appliedDevice;
+    bool m_selectionOverride = false;
     QByteArray m_currentReadBuffer;
 };
 

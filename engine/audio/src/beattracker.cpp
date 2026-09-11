@@ -461,6 +461,31 @@ void AutoBpmDetector::analyze()
 
     int best = raiseOctave(argmax(m_belief, 0, gridSize), scores);
 
+    const bool established = m_recentBpms.size() == 3 && m_confidence >= 0.15
+        && std::all_of(m_recentBpms.begin(), m_recentBpms.end(), [this](double recent)
+        {
+            return std::fabs(std::log2(recent / m_currentBpm)) < 0.06;
+        });
+    if (established)
+    {
+        const double ratio = std::max(m_bpmGrid[best], m_currentBpm)
+                           / std::min(m_bpmGrid[best], m_currentBpm);
+        if (std::fabs(std::log2(ratio / 2.0)) < 0.06
+            || std::fabs(std::log2(ratio / 3.0)) < 0.06)
+        {
+            const double step = m_bpmGrid[1] - m_bpmGrid[0];
+            const int center = int(std::lround((m_currentBpm - m_bpmGrid[0]) / step));
+            const int radius = int(std::lround(2.0 / step));
+            const int previous = argmax(scores, std::max(0, center - radius),
+                                        std::min(gridSize, center + radius + 1));
+            // Strong subdivisions can promote either the belief peak or the
+            // octave walk. Keep the established meter while its evidence holds.
+            if (scores[previous] >= 0.15
+                && scores[previous] >= m_octaveRaiseThreshold * scores[best])
+                best = previous;
+        }
+    }
+
     // Confidence is the harmonic score itself: ~1 for a cleanly periodic
     // onset train, near 0 for aperiodic noise
     m_confidence = std::min(1.0, std::max(0.0, scores[best]));

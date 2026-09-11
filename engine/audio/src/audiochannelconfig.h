@@ -11,6 +11,7 @@
 
 #include <QString>
 #include <cstdint>
+#include "melpostprocessor.h"
 
 // Single source of truth for the maximum band count of any one multi-resolution
 // mel bank. Mirrored as aliases by aubioresults.h (AUBIO_MELBANK_MAX),
@@ -55,8 +56,8 @@ struct BandTriggersConfig
 struct NoiseGateConfig
 {
     // In-class defaults are the single source of truth (see EnvelopeConfig).
-    double thresholdDb = -60.0;
-    double holdMs = 120.0;
+    double thresholdDb = -80.0;
+    double holdMs = 0.0;
 };
 
 struct KickConfig
@@ -65,7 +66,7 @@ struct KickConfig
     double beatMinPercentDiff = 0.5; // LedFx audio.py:1196
     double beatMinAmplitude = 0.5;   // LedFx audio.py:1198 (compared to np.max of slice)
     double beatRefractorySec = 0.1;  // LedFx audio.py:1197 (beat_min_time_since)
-    int beatHistoryLen = 10;         // LedFx audio.py:1199 (beat_power_history_len; LedFx uses sample_rate*0.2)
+    int beatHistoryLen = 12;
 
     bool enabled = true;
 };
@@ -77,31 +78,7 @@ struct KickConfig
  * (LedFx melbank.py:374-378 — every bank has its own ExpFilter chain).
  * AGC alphas are now first-class config fields — previously hardcoded.
  */
-struct MelPostConfig
-{
-    double powerFactor = 2.0;       // LedFx default: tan(0.5*pi*(0.4+1)/2) ≈ 2.0
-    double gaussianSigma = 1.0;     // LedFx: fast_blur_array sigma=1.0 for mel_gain
-    double smoothDecay = 0.7;       // LedFx melbank.py:376
-    double smoothRise = 0.99;       // LedFx melbank.py:376
-    double commonDecay = 0.99;      // LedFx melbank.py:377
-    double commonRise = 0.01;       // LedFx melbank.py:377
-    double diffDecay = 0.15;        // LedFx melbank.py:378
-    double diffRise = 0.99;         // LedFx melbank.py:378
-    double agcDecay = 0.01;         // LedFx melbank.py:375 (mel_gain alpha_decay)
-    double agcRise = 0.99;          // LedFx melbank.py:375 (mel_gain alpha_rise)
-    bool enabled = true;            // on by default (LedFx always processes)
-
-    bool operator==(const MelPostConfig &o) const
-    {
-        return powerFactor == o.powerFactor && gaussianSigma == o.gaussianSigma
-            && smoothDecay == o.smoothDecay && smoothRise == o.smoothRise
-            && commonDecay == o.commonDecay && commonRise == o.commonRise
-            && diffDecay == o.diffDecay && diffRise == o.diffRise
-            && agcDecay == o.agcDecay && agcRise == o.agcRise
-            && enabled == o.enabled;
-    }
-    bool operator!=(const MelPostConfig &o) const { return !(*this == o); }
-};
+using MelPostConfig = MelPostProcessor::Config;
 
 /**
  * Per-perceptual-band freq_power configuration (LedFx audio.py:1107-1331).
@@ -230,9 +207,9 @@ struct AubioConfig
 
     // Pitch detection — aubio_pitch_*.
     QString pitchMethod = QStringLiteral("yinfft"); // yin, yinfft, yinfast, schmitt, fcomb, mcomb
-    QString pitchUnit = QStringLiteral("Hz");       // Hz, midi, cent, bin (aubio_pitch_set_unit)
-    double pitchSilenceDb = -40.0;     // aubio_pitch_set_silence
-    double pitchTolerance = 0.7;       // aubio_pitch_set_tolerance
+    QString pitchUnit = QStringLiteral("midi");
+    double pitchSilenceDb = -50.0;
+    double pitchTolerance = 0.8;
 
     // Tempo / beat — aubio_tempo_*.
     QString tempoMethod = QStringLiteral("default");
@@ -272,12 +249,12 @@ struct AubioConfig
     // 0=energy, 1=hfc, 2=complex, 3=phase, 4=wphase,
     // 5=specdiff, 6=kl, 7=mkl, 8=specflux. Toggling triggers a targeted
     // create/destroy of the affected onset detector(s) only.
-    bool onsetMethodEnabled[9] = { true, true, true, true, true, true, true, true, true };
+    bool onsetMethodEnabled[9] = { false, true, false, false, false, false, false, false, false };
 
     // Primary onset method for audio.onset.fired/intensity.
     // 0=energy 1=hfc 2=complex 3=phase 4=wphase 5=specdiff 6=kl 7=mkl 8=specflux
-    // Default: specflux (best general-purpose, pending validation vs hfc).
-    int onsetMethodIndex = 8;
+    int onsetMethodIndex = 1;
+    bool diagnosticsEnabled = false;
 
     // Per-method tuning overrides (sentinel = aubio default). Applied AFTER
     // aubio_onset_set_default_parameters() in initialize() / on enable.
@@ -286,11 +263,8 @@ struct AubioConfig
     // Tempo — aubio_tempo_set_delay_ms.
     double tempoDelayMs = 0.0;
 
-    // Tempo decay on silence — when no beats are detected for coastBeats
-    // beat-periods, BPM decays exponentially toward tempoDecayTargetBpm.
-    // coastBeats: how many beat-periods of silence before decay starts (default 2)
-    // tempoDecayHalfLifeBeats: BPM halves every N beats during decay (default 1.5)
-    // tempoDecayTargetBpm: floor BPM to decay toward (min 1; 0 is not safe for consumers)
+    // Retained XML tuning. Native tempo is no longer synthesized or decayed;
+    // AudioProfile reports a migration conflict for custom values.
     double coastBeats = 4.0;
     double tempoDecayHalfLifeBeats = 0.5;
     double tempoDecayTargetBpm = 1.0;
@@ -325,6 +299,7 @@ struct AudioChannelConfig
     AubioConfig aubio;
 
     static AudioChannelConfig defaults();
+    QString validationError() const;
 };
 
 /**
@@ -342,4 +317,4 @@ struct AudioChannelConfig
  * Out-of-range index returns a default-constructed (sentinel-filled)
  * OnsetMethodOverride.
  */
-OnsetMethodOverride readAubioOnsetDefaults(int methodIndex, uint32_t sampleRate = 44100);
+OnsetMethodOverride readAubioOnsetDefaults(int methodIndex, uint32_t sampleRate = 30000);

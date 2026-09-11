@@ -13,6 +13,10 @@
 #include <stdint.h>
 #include <QThread>
 #include <QMutex>
+#include <array>
+#include <atomic>
+#include <memory>
+#include <vector>
 
 #define SETTINGS_AUDIO_INPUT_DEVICE   "audio/input"
 #define SETTINGS_AUDIO_INPUT_SRATE    "audio/samplerate"
@@ -20,11 +24,10 @@
 
 #define AUDIO_DEFAULT_SAMPLE_RATE     44100
 #define AUDIO_DEFAULT_CHANNELS        1
-// Capture buffer size in mono frames. Sized to match AubioProcessor::hopSize()
-// so each capture cycle feeds aubio exactly one hop, mirroring aubio's own
-// examples (examples/utils.c examples_common_process) where the source reads
-// hop_size samples and immediately calls the per-hop process function.
+// Source block size. Packet and analysis frame boundaries are independent.
 #define AUDIO_DEFAULT_BUFFER_SIZE     512
+#define AUDIO_ANALYSIS_SAMPLE_RATE    30000
+#define AUDIO_ANALYSIS_HOP_SIZE       500
 
 #define FREQ_SUBBANDS_MAX_NUMBER        32
 #define FREQ_SUBBANDS_DEFAULT_NUMBER    16
@@ -32,15 +35,18 @@
 #define SPECTRUM_MAX_FREQUENCY          5000
 
 class AudioAnalyzer;
-class AubioProcessor;
-class BeatTracker;
 struct AubioResults;
 struct AubioConfig;
+struct AudioFrame;
+struct SRC_STATE_tag;
 
 class AudioCapture : public QThread
 {
     Q_OBJECT
 public:
+    enum Status { Stopped, Starting, Available, Unavailable, Error };
+    Q_ENUM(Status)
+
     AudioCapture(QObject* parent = 0);
     ~AudioCapture();
 
@@ -53,13 +59,19 @@ public:
 
     static int minFrequency() { return SPECTRUM_MIN_FREQUENCY; }
     static int maxFrequency() { return SPECTRUM_MAX_FREQUENCY; }
-    unsigned int sampleRate() const { return m_sampleRate; }
+    unsigned int sampleRate() const { return m_appliedSampleRate.load(); }
+    unsigned int channels() const { return m_appliedChannels.load(); }
+    Status status() const { return m_status.load(); }
+    bool available() const { return status() == Available; }
+    QString statusMessage() const;
+    uint64_t sourceEpoch() const { return m_sourceEpoch.load(); }
+    void restart();
 
     /** Compute log-spaced low/high cut bin indices for legacy band splitting. */
     static int lowCutBin(int N);
     static int highCutBin(int N);
 
-    /** Deprecated. Returns 0.0. */
+    /** Compatibility getters over the active profile's published bank values. */
     double bandMagnitude(int bandIndex, int numBands) const;
     double bandMaxMagnitude(int numBands) const;
 
@@ -71,8 +83,7 @@ public:
 
     void setAnalyzer(AudioAnalyzer *analyzer);
 
-    /** Forward an AubioConfig to the underlying AubioProcessor. Thread-safe;
-     *  the new config is applied at the start of the next process() pass. */
+    /** Compatibility entry point. Analysis configuration belongs to profiles. */
     void setAubioConfig(const AubioConfig &cfg);
 
 protected:
@@ -85,47 +96,64 @@ protected:
     void stop();
 
     virtual bool readAudio(int maxSize) = 0;
+    virtual bool sourceFailed() const { return false; }
+    virtual bool retrySource() const { return false; }
+    virtual void clearPendingInput() {}
 
-    void processData();
+    bool processData();
+    void setStatus(Status status, const QString &message, bool force = false);
 
 signals:
+    /** Borrowed PCM. Receivers must use a direct synchronous connection. */
+    void frameReady(const AudioFrame &frame);
+    void statusChanged(AudioCapture::Status status, const QString &message, quint64 sourceEpoch);
     /** Emitted after each capture block once aubio analysis is complete. */
     void aubioDataReady(const AubioResults &results, quint32 power);
     void volumeChanged(int volume);
 
-    /** Emitted on every beat detected by the beat tracker. @a bpm is
-     *  the tracker's own tempo estimate; 0 means "no estimate", in
-     *  which case the receiver has to derive the tempo from the
-     *  spacing of the beat signals. */
+    /** Compatibility signal from the active profile's canonical tempo detector. */
     void beatDetected(int bpm);
 
 protected:
-    QMutex m_mutex;
+    mutable QMutex m_mutex;
 
-    bool m_userStop, m_pause;
+    std::atomic<bool> m_userStop;
+    bool m_pause;
     unsigned int m_bufferSize, m_captureSize, m_sampleRate, m_channels;
+    unsigned int m_readFrames = AUDIO_DEFAULT_BUFFER_SIZE;
 
     int16_t *m_audioBuffer;
-    int16_t *m_audioMixdown;
+    std::vector<float> m_floatBuffer;
+    bool m_floatInput = false;
 
-    quint32 m_signalPower;
+    std::atomic<quint32> m_signalPower;
     double m_smoothedSignalPower;
 
     /** Aggregate count of registered band consumers. Used solely to start/stop the capture thread. */
     int m_registerCount = 0;
 
-    AubioProcessor *m_aubio;
-
     AudioAnalyzer *m_analyzer = nullptr;
 
     uint64_t m_frameIndex = 0;
-    BeatTracker *m_beatTracker;
 
 private:
     bool applyCaptureFormat(unsigned int sampleRate, unsigned int channels);
+    void resetStream();
+    void publishFrame();
+    void invalidate(Status status, const QString &message);
 
-    unsigned int m_appliedSampleRate = 0;
-    unsigned int m_appliedChannels = 0;
+    std::unique_ptr<AudioAnalyzer> m_fallbackAnalyzer;
+    SRC_STATE_tag *m_resampler = nullptr;
+    std::vector<float> m_pendingMono;
+    std::array<float, AUDIO_ANALYSIS_HOP_SIZE> m_frameSamples {};
+    size_t m_frameSamplesUsed = 0;
+    uint64_t m_sampleTime = 0;
+    std::atomic<uint64_t> m_sourceEpoch {0};
+    std::atomic<Status> m_status {Stopped};
+    std::atomic<bool> m_restart {false};
+    QString m_statusMessage;
+    std::atomic<unsigned int> m_appliedSampleRate {AUDIO_DEFAULT_SAMPLE_RATE};
+    std::atomic<unsigned int> m_appliedChannels {AUDIO_DEFAULT_CHANNELS};
 };
 
 #endif // AUDIOCAPTURE_H

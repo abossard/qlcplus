@@ -15,8 +15,11 @@
 
 #include <QElapsedTimer>
 #include <QMutexLocker>
+#include <QDebug>
 
 #include <algorithm>
+#include <cmath>
+#include <chrono>
 
 AudioAnalyzer::AudioAnalyzer()
 {
@@ -33,6 +36,15 @@ AudioAnalyzer::~AudioAnalyzer()
 
 void AudioAnalyzer::processFrame(AudioFrame &frame)
 {
+    if (frame.samples && (frame.sampleRate != 30000 || frame.sampleCount != 500 ||
+        !std::all_of(frame.samples, frame.samples + frame.sampleCount,
+                     [](float sample) { return std::isfinite(sample); })))
+    {
+        invalidate(frame.sourceEpoch);
+        frame.aubio = &m_compatibilityResults;
+        frame.beatDetected = false;
+        return;
+    }
     QElapsedTimer frameTimer;
     frameTimer.start();
 
@@ -44,6 +56,15 @@ void AudioAnalyzer::processFrame(AudioFrame &frame)
         QMutexLocker locker(&m_channelsMutex);
         for (AudioChannel *ch : std::as_const(m_channels))
             ch->update(frame, audioDtMs);
+        // Capture's legacy notification borrows this copy until the next hop.
+        // It must not point into a profile that the UI can retire meanwhile.
+        const AudioChannel *selected = m_defaultChannel;
+        for (const AudioChannel *channel : std::as_const(m_channels))
+            if (channel->profileId() == uint32_t(m_activeSelection.load()))
+                selected = channel;
+        m_compatibilityResults = selected ? selected->aubioResults() : AubioResults{};
+        frame.aubio = &m_compatibilityResults;
+        frame.beatDetected = m_compatibilityResults.beat;
     }
     const double channelUs = double(channelTimer.nsecsElapsed()) / 1000.0;
 
@@ -67,12 +88,75 @@ void AudioAnalyzer::processFrame(AudioFrame &frame)
     }
 }
 
-AudioChannel *AudioAnalyzer::createChannel(const AudioChannelConfig &config)
+AudioChannel *AudioAnalyzer::createChannel(const AudioChannelConfig &config, uint32_t profileId)
 {
-    AudioChannel *ch = new AudioChannel(config);
+    const QString error = config.validationError();
+    if (!error.isEmpty())
+    {
+        qWarning().noquote() << "AudioAnalyzer configuration rejected:" << error;
+        return nullptr;
+    }
+    AudioChannel *ch = new AudioChannel(config, profileId);
     QMutexLocker locker(&m_channelsMutex);
     m_channels.append(ch);
     return ch;
+}
+
+AudioSnapshot AudioAnalyzer::snapshot(uint32_t profileId) const
+{
+    QMutexLocker locker(&m_channelsMutex);
+    for (const AudioChannel *channel : m_channels)
+    {
+        if (channel->profileId() == profileId)
+            return channel->snapshot();
+    }
+    AudioSnapshot missing;
+    missing.profileId = profileId;
+    return missing;
+}
+
+AudioSnapshot AudioAnalyzer::snapshot(const AudioChannel *channel) const
+{
+    QMutexLocker locker(&m_channelsMutex);
+    if (channel && m_channels.contains(const_cast<AudioChannel *>(channel)))
+        return channel->snapshot();
+    return {};
+}
+
+void AudioAnalyzer::setActiveProfileId(uint32_t profileId)
+{
+    const uint64_t previous = m_activeSelection.load();
+    if (uint32_t(previous) == profileId)
+        return;
+    m_selectionTimeNs.store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    m_activeSelection.store((((previous >> 32) + 1) << 32) | profileId);
+}
+
+AudioSnapshot AudioAnalyzer::activeSnapshot() const
+{
+    // Resolve identity before entering the channel registry; never retain a profile pointer.
+    const uint64_t selection = m_activeSelection.load();
+    AudioSnapshot result = snapshot(uint32_t(selection));
+    if (result.publishTimeNs <= m_selectionTimeNs.load())
+    {
+        result = {};
+        result.profileId = uint32_t(selection);
+        result.status = QStringLiteral("reset");
+    }
+    result.sourceEpoch ^= selection & 0xffffffff00000000ULL;
+    return result;
+}
+
+void AudioAnalyzer::invalidate(uint64_t sourceEpoch)
+{
+    QMutexLocker locker(&m_channelsMutex);
+    for (AudioChannel *channel : std::as_const(m_channels))
+    {
+        if (!channel->hasExternalSource())
+            channel->invalidate(sourceEpoch);
+    }
+    m_compatibilityResults = {};
 }
 
 void AudioAnalyzer::destroyChannel(AudioChannel *channel)

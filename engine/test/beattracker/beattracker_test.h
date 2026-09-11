@@ -35,6 +35,14 @@ private slots:
     void silenceGivesNoEstimate();
     void stereoMatchesMono_data();
     void stereoMatchesMono();
+    void subdivisionsPreserveEstablishedTempo_data();
+    void subdivisionsPreserveEstablishedTempo();
+    void subdivisionsPreserveBeatSpacing_data();
+    void subdivisionsPreserveBeatSpacing();
+    void resetClearsTempoPreference_data();
+    void resetClearsTempoPreference();
+    void tempoChangesRemainDetectable_data();
+    void tempoChangesRemainDetectable();
 };
 
 #endif

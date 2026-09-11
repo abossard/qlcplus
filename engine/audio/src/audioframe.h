@@ -14,20 +14,17 @@
 struct AubioResults;
 
 /**
- * One block of analyzed audio. Built once per AudioCapture buffer by the analyzer
- * running on the AudioCapture thread.
- *
- * Spectral / pitch / onset / tempo features come from the attached AubioResults
- * pointer. Time-domain RMS / peak / dB metrics are computed in AudioCapture.
- *
- * The AubioResults pointed to is owned by AudioCapture and is valid only for the
- * duration of the synchronous analyzer callback that receives this frame.
+ * One canonical mono PCM hop. Borrowed samples and optional legacy Aubio results
+ * are valid only during synchronous processing of this frame.
  */
 struct AudioFrame
 {
     uint64_t frameIndex = 0;
-    uint32_t sampleRate = 44100;
-    uint32_t sampleCount = 0;
+    const float *samples = nullptr;
+    uint64_t sourceEpoch = 0;
+    uint64_t sampleTime = 0;
+    uint32_t sampleRate = 30000;
+    uint32_t sampleCount = 500;
     bool silent = false;
     bool beatDetected = false;
 
@@ -37,15 +34,9 @@ struct AudioFrame
     double peakDb = -96.0;
     double crestFactor = 1.0;
 
-    // LedFx audio.py:1021 — volume = 1 + aubio.db_spl(raw) / 100.
-    // Normalized volume in 0..1: 0.0 = silence (≤ -100 dBFS), 1.0 = 0 dBFS.
-    // QLC+ derives this from frame.rmsDb (= 20*log10(rms)), while LedFx uses
-    // aubio.db_spl(raw); the absolute scale may differ by a constant due to
-    // windowing / SPL convention but the formula shape matches. Lets QLC+
-    // gate / brightness thresholds be expressed using LedFx's `min_volume`
-    // convention (audio.py:409, default 0.2).
+    // clamp(1 + raw RMS dBFS / 100, 0, 1), with digital silence at zero.
     double volumeNorm = 0.0;
 
-    /** Aubio analysis results for this frame. Non-owning — borrowed from AudioCapture. */
+    /** Optional borrowed results for legacy consumers without raw PCM. */
     const AubioResults *aubio = nullptr;
 };

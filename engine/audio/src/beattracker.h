@@ -90,8 +90,10 @@ private:
  * = scores^3, transition = gaussian blur + 10% uniform jump) picks the
  * base candidate; an octave-raise walk prefers the fastest 2x/3x
  * candidate holding >= 0.90 of the current score, with +/-0.04
- * hysteresis toward the previous estimate. Reported BPM is the median
- * of the last 3 analyses, gated on comb confidence >= 0.15.
+ * hysteresis toward the previous estimate. Once 3 estimates agree,
+ * octave changes retain that meter while its score remains >= 0.90
+ * of the new candidate and >= 0.15. Reported BPM is the median of the
+ * last 3 analyses, gated on comb confidence >= 0.15.
  */
 class AutoBpmDetector final
 {

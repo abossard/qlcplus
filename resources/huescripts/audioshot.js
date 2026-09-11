@@ -95,14 +95,18 @@ var testAlgo;
 
         var trigger;
         if (algo.presetTrigger === 0) trigger = audio.beatFired;
-        else if (algo.presetTrigger === 1) trigger = audio.beatFired || audio.beatFired;
+        else if (algo.presetTrigger === 1) trigger = audio.version >= 6 ? audio.kickFired : audio.beatFired;
         else if (algo.presetTrigger === 2) trigger = audio.onset;
         else trigger = audio.onset;
         trigger = trigger || audio.onset;
 
-        if (trigger) spawnShot(width, height, audio);
+        var eventName = algo.presetTrigger === 0 ? "beat" : algo.presetTrigger === 1 ? "kick" : "onset";
+        var count = audio.events ? Math.max(audio.events.delta[eventName], audio.events.delta.onset) : (trigger ? 1 : 0);
+        for (var spawn = 0; spawn < Math.min(count, algo.presetMaxShots); spawn++)
+            spawnShot(width, height, audio);
 
-        var decayRate = algo.presetDecay / DECAY_DIVISOR;
+        var decayRate = algo.presetDecay / DECAY_DIVISOR *
+            (audio.timing ? audio.timing.deltaSeconds * 50 : 1);
 
         // Accumulate per-pixel brightness and track dominant shot hue
         // (simulates additive blending by picking brightest contributor's hue)

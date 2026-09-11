@@ -72,6 +72,7 @@ Doc::Doc(QObject* parent, int universes)
     , m_hueScriptsCache(new HUEScriptsCache(this))
     , m_ioPluginCache(new IOPluginCache(this))
     , m_audioPluginCache(new AudioPluginCache(this))
+    , m_audioAnalyzer(new AudioAnalyzer())
     , m_masterTimer(new MasterTimer(this))
     , m_ioMap(new InputOutputMap(this, universes))
     , m_monitorProps(NULL)
@@ -87,6 +88,14 @@ Doc::Doc(QObject* parent, int universes)
     , m_latestFunctionId(0)
     , m_startupFunctionId(Function::invalidId())
 {
+    m_inputCapture = QSharedPointer<AudioCapture>(
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+        new AudioCaptureQt5()
+#else
+        new AudioCaptureQt6()
+#endif
+    );
+    m_inputCapture->setAnalyzer(m_audioAnalyzer);
     Bus::init(this);
     resetModified();
 #if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
@@ -101,24 +110,28 @@ Doc::Doc(QObject* parent, int universes)
 
 Doc::~Doc()
 {
+    m_ioMap->setBeatGeneratorType(InputOutputMap::Disabled);
     delete m_masterTimer;
     m_masterTimer = NULL;
 
     clearContents();
+    delete m_ioMap;
+    m_ioMap = nullptr;
+    m_inputCapture->requestInterruption();
+    m_inputCapture->wait();
+    m_inputCapture->setAnalyzer(nullptr);
+    m_inputCapture.clear();
     delete m_audioAnalyzer;
     m_audioAnalyzer = nullptr;
 
-    delete m_oscAudioSource;
-    m_oscAudioSource = nullptr;
+    qDeleteAll(m_oscAudioSources);
+    m_oscAudioSources.clear();
 
     if (isKiosk() == false)
     {
         // TODO: is this still needed ??
         //m_ioMap->saveDefaults();
     }
-    delete m_ioMap;
-    m_ioMap = NULL;
-
     delete m_ioPluginCache;
     m_ioPluginCache = NULL;
 
@@ -164,6 +177,13 @@ void Doc::clearContents()
         delete palette;
     }
 
+    for (OscAudioSource *source : std::as_const(m_oscAudioSources))
+    {
+        source->stop();
+        source->setTargetChannel(nullptr);
+    }
+    m_activeAudioProfileId = AudioProfile::invalidId();
+    m_audioAnalyzer->setActiveProfileId(AudioProfile::invalidId());
     // Delete all audio profiles
     QListIterator <quint32> audioProfileIt(m_audioProfiles.keys());
     while (audioProfileIt.hasNext() == true)
@@ -173,10 +193,9 @@ void Doc::clearContents()
         delete profile;
     }
 
-    destroyAudioCapture();
-
-    delete m_audioAnalyzer;
-    m_audioAnalyzer = nullptr;
+    emit audioProfilesChanged();
+    emit activeAudioProfileIdChanged(AudioProfile::invalidId());
+    restartAudioCapture();
 
     // Delete all channel groups
     QListIterator <quint32> grpchans(m_channelsGroups.keys());
@@ -308,51 +327,45 @@ MasterTimer* Doc::masterTimer() const
 
 QSharedPointer<AudioCapture> Doc::audioInputCapture() const
 {
-    if (!m_inputCapture)
-    {
-        qDebug() << "Creating new audio capture";
-        m_inputCapture = QSharedPointer<AudioCapture>(
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-            new AudioCaptureQt5()
-#else
-            new AudioCaptureQt6()
-#endif
-            );
-        if (!m_inputCapture.isNull())
-        {
-            m_inputCapture->setAnalyzer(audioAnalyzer());
-
-            // Push current active aubio config (if any profile is selected) so
-            // a freshly created capture is not stuck on hardcoded defaults.
-            const_cast<Doc*>(this)->pushActiveAubioConfigToCapture();
-        }
-    }
     return m_inputCapture;
 }
 
 AudioAnalyzer *Doc::audioAnalyzer() const
 {
-    if (m_audioAnalyzer == nullptr)
-        const_cast<Doc*>(this)->m_audioAnalyzer = new AudioAnalyzer();
-
     return m_audioAnalyzer;
+}
+
+AudioSnapshot Doc::audioSnapshot(quint32 profileId) const
+{
+    return profileId == AudioProfile::invalidId()
+        ? m_audioAnalyzer->activeSnapshot() : m_audioAnalyzer->snapshot(profileId);
 }
 
 void Doc::destroyAudioCapture()
 {
-    if (m_inputCapture.isNull() == false)
-    {
-        qDebug() << "Destroying audio capture";
-        m_inputCapture->setAnalyzer(nullptr);
-        m_inputCapture.clear();
-    }
+    restartAudioCapture();
+}
+
+void Doc::restartAudioCapture()
+{
+    m_inputCapture->restart();
 }
 
 OscAudioSource *Doc::oscAudioSource() const
 {
-    if (m_oscAudioSource == nullptr)
-        const_cast<Doc*>(this)->m_oscAudioSource = new OscAudioSource(const_cast<Doc*>(this));
-    return m_oscAudioSource;
+    if (!m_oscAudioSources.contains(9999))
+        m_oscAudioSources[9999] = new OscAudioSource(const_cast<Doc*>(this));
+    return m_oscAudioSources.value(9999);
+}
+
+void Doc::detachOscAudioProfile(AudioProfile *profile)
+{
+    for (OscAudioSource *source : std::as_const(m_oscAudioSources))
+    {
+        source->removeTargetChannel(profile->channel());
+        if (!source->hasTargets())
+            source->stop();
+    }
 }
 
 void Doc::updateOscAudioSourceForProfile(AudioProfile *profile)
@@ -364,13 +377,18 @@ void Doc::updateOscAudioSourceForProfile(AudioProfile *profile)
     if (ch == nullptr)
         return;
 
-    OscAudioSource *osc = oscAudioSource();
-
+    detachOscAudioProfile(profile);
     if (profile->audioSource() == AudioProfile::OscSynesthesia)
     {
-        osc->setPort(profile->oscPort());
-        osc->setTargetChannel(ch);
+        OscAudioSource *osc = m_oscAudioSources.value(profile->oscPort());
+        if (!osc)
+        {
+            osc = new OscAudioSource(this);
+            osc->setPort(profile->oscPort());
+            m_oscAudioSources.insert(profile->oscPort(), osc);
+        }
         ch->setExternalSource(true);
+        osc->addTargetChannel(ch);
         if (!osc->isRunning())
             osc->start();
         qDebug() << "OSC audio source connected to profile" << profile->name()
@@ -379,18 +397,6 @@ void Doc::updateOscAudioSourceForProfile(AudioProfile *profile)
     else
     {
         ch->setExternalSource(false);
-        // Only stop if no other profile is using OSC
-        bool anyOsc = false;
-        for (auto *p : std::as_const(m_audioProfiles))
-        {
-            if (p != profile && p->audioSource() == AudioProfile::OscSynesthesia)
-            {
-                anyOsc = true;
-                break;
-            }
-        }
-        if (!anyOsc && osc->isRunning())
-            osc->stop();
     }
 }
 
@@ -1119,16 +1125,21 @@ bool Doc::addAudioProfile(AudioProfile *profile)
     profile->setParent(this);
     profile->bindAnalyzer(audioAnalyzer());
     m_audioProfiles[id] = profile;
+    connect(profile, &AudioProfile::isDefaultChanged, this, &Doc::resolveActiveAudioProfile);
 
     // Wire audio source changes so OSC can be connected/disconnected dynamically
     connect(profile, &AudioProfile::audioSourceChanged,
             this, [this, profile](int) { updateOscAudioSourceForProfile(profile); });
+    connect(profile, &AudioProfile::oscPortChanged,
+            this, [this, profile]() { updateOscAudioSourceForProfile(profile); });
 
     // If profile was loaded with OSC source, activate it now
     if (profile->audioSource() == AudioProfile::OscSynesthesia)
         updateOscAudioSourceForProfile(profile);
 
     setModified();
+    resolveActiveAudioProfile();
+    emit audioProfilesChanged();
 
     return true;
 }
@@ -1143,9 +1154,14 @@ bool Doc::removeAudioProfile(quint32 id)
 
     AudioProfile *profile = m_audioProfiles.take(id);
     Q_ASSERT(profile != NULL);
+    detachOscAudioProfile(profile);
+    if (m_activeAudioProfileId == id)
+        m_activeAudioProfileId = AudioProfile::invalidId();
+    resolveActiveAudioProfile();
     profile->releaseAnalyzer();
     setModified();
     delete profile;
+    emit audioProfilesChanged();
 
     return true;
 }
@@ -1196,7 +1212,7 @@ AudioProfile* Doc::ensureDefaultAudioProfile()
 
 quint32 Doc::activeAudioProfileId() const
 {
-    return m_activeAudioProfileId;
+    return m_audioAnalyzer->activeProfileId();
 }
 
 void Doc::setActiveAudioProfileId(quint32 id)
@@ -1205,22 +1221,19 @@ void Doc::setActiveAudioProfileId(quint32 id)
         return;
 
     m_activeAudioProfileId = id;
-    pushActiveAubioConfigToCapture();
-    emit activeAudioProfileIdChanged(id);
+    resolveActiveAudioProfile();
 }
 
-void Doc::pushActiveAubioConfigToCapture()
+void Doc::resolveActiveAudioProfile()
 {
-    if (m_inputCapture.isNull())
-        return;
-
     AudioProfile *profile = audioProfile(m_activeAudioProfileId);
     if (profile == nullptr)
         profile = defaultAudioProfile();
-    if (profile == nullptr)
-        return;
-
-    m_inputCapture->setAubioConfig(profile->channelConfig().aubio);
+    const quint32 id = profile ? profile->id() : AudioProfile::invalidId();
+    const quint32 previous = m_audioAnalyzer->activeProfileId();
+    m_audioAnalyzer->setActiveProfileId(id);
+    if (previous != id)
+        emit activeAudioProfileIdChanged(id);
 }
 
 /*****************************************************************************

@@ -34,6 +34,7 @@ VCWidgetItem
 {
     id: audioTriggerRoot
     property VCAudioTriggers audioTriggerObj: null
+    property bool diagnosticsExpanded: false
 
     // Color zones (red = lows, green = mids, cyan = highs)
     property var perceptualBandColors: [ "#ff6633", "#33cc66", "#33ccff" ]
@@ -87,6 +88,39 @@ VCWidgetItem
 
                 // Cached lists — one C++ getter call per signal instead of N
                 property var mfccCache: audioTriggerObj ? audioTriggerObj.mfccCoeffs : []
+
+                Text
+                {
+                    Layout.fillWidth: true
+                    text: audioTriggerObj ? audioTriggerObj.analysisStatus + " | " +
+                          audioTriggerObj.rmsDb.toFixed(1) + " dB | " +
+                          (audioTriggerObj.noiseGateOpen ? qsTr("Gate open") : qsTr("Gate closed")) : ""
+                    color: audioTriggerObj && audioTriggerObj.analysisAvailable ? "#bbbbbb" : "#ffaa55"
+                    font.pixelSize: 11
+                    elide: Text.ElideRight
+                }
+                Button
+                {
+                    text: qsTr("Diagnostics")
+                    checkable: true
+                    checked: audioTriggerRoot.diagnosticsExpanded
+                    onToggled: audioTriggerRoot.diagnosticsExpanded = checked
+                }
+                Text
+                {
+                    visible: audioTriggerRoot.diagnosticsExpanded
+                    Layout.fillWidth: true
+                    text: audioTriggerObj && audioTriggerObj.audioSource !== 0
+                          ? qsTr("Diagnostic processing disabled for OSC profiles.")
+                          : !audioTriggerObj || !audioTriggerObj.diagnosticsEnabled
+                          ? qsTr("Diagnostic processing disabled. Enable it under Advanced analysis.")
+                          : audioTriggerObj.appliedAudio.diagnosticsEnabled
+                            ? qsTr("Diagnostic processing enabled")
+                            : qsTr("Waiting for diagnostic configuration to be applied")
+                    color: "#bbbbbb"
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
 
                 // ============================================================
                 // §2 — Beat / Bass / Lows / Mids / Highs power bars
@@ -193,6 +227,7 @@ VCWidgetItem
                 Item
                 {
                     id: canvasSection
+                    visible: audioTriggerRoot.diagnosticsExpanded
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     Layout.minimumHeight: 80
@@ -208,7 +243,7 @@ VCWidgetItem
                     {
                         id: sparkline
                         anchors.fill: parent
-                        source: audioTriggerObj
+                        source: audioTriggerRoot.diagnosticsExpanded ? audioTriggerObj : null
                         pixelsPerSample: 3
                         onsetFrac:    canvasSection.onsetFrac
                         pitchFrac:    canvasSection.pitchFrac
@@ -325,7 +360,7 @@ VCWidgetItem
                         Text
                         {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: audioTriggerObj
+                            text: audioTriggerObj && audioTriggerObj.appliedAudio.tempoValid
                                   ? ("\u266A " + Math.round(audioTriggerObj.detectedBpm) + " BPM")
                                   : ""
                             color: "#dddddd"
@@ -362,14 +397,15 @@ VCWidgetItem
                             spacing: 4
                             Repeater
                             {
-                                model: audioTriggerObj ? audioTriggerObj.beatsPerBar : 0
+                                model: audioTriggerObj && audioTriggerObj.appliedAudio.tempoValid
+                                       ? audioTriggerObj.appliedAudio.beatsPerBar : 0
                                 Rectangle
                                 {
                                     width: 7
                                     height: 7
                                     radius: 4
                                     color: (audioTriggerObj &&
-                                            index === Math.floor(audioTriggerObj.barPhase))
+                                            index === audioTriggerObj.appliedAudio.beatInBar)
                                            ? "#ffffff" : "#444444"
                                 }
                             }

@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <chrono>
 
 // --------------------------------------------------------------------------
 // OscSchmittTrigger
@@ -86,12 +87,67 @@ OscAudioSource::~OscAudioSource()
 
 void OscAudioSource::setTargetChannel(AudioChannel *channel)
 {
-    m_targetChannel = channel;
+    const auto previous = m_targetChannels;
+    for (AudioChannel *target : previous)
+        removeTargetChannel(target);
+    addTargetChannel(channel);
 }
 
 AudioChannel *OscAudioSource::targetChannel() const
 {
-    return m_targetChannel;
+    return m_targetChannels.isEmpty() ? nullptr : m_targetChannels.first();
+}
+
+void OscAudioSource::addTargetChannel(AudioChannel *channel)
+{
+    if (!channel || m_targetChannels.contains(channel))
+        return;
+    channel->setExternalSource(true);
+    channel->invalidate(m_sourceEpoch);
+    m_targetChannels.append(channel);
+}
+
+void OscAudioSource::removeTargetChannel(AudioChannel *channel)
+{
+    if (m_targetChannels.removeOne(channel))
+        channel->invalidate(m_sourceEpoch + 1);
+}
+
+void OscAudioSource::resetSource()
+{
+    ++m_sourceEpoch;
+    m_raw = {};
+    m_hasNewData = false;
+    m_packetAge.invalidate();
+    m_publishAge.invalidate();
+    m_frameSequence = 0;
+    m_beatCount = m_onsetCount = m_barCount = m_kickCount = 0;
+    m_publishedBeatCount = m_publishedOnsetCount = m_publishedBarCount = 0;
+    m_prevOnbeat = m_prevHit = m_beatPhaseSec = 0;
+    m_prevBeattimeInt = -1;
+    m_gateSmoothed = m_gateHeldMs = 0;
+    m_gateClosed = true;
+    m_stale = true;
+    for (OscSchmittTrigger *trigger :
+         {&m_lowTrigger, &m_midTrigger, &m_highTrigger, &m_volTrigger, &m_kickTrigger})
+    {
+        trigger->active = trigger->firedThisFrame = trigger->releasedThisFrame = false;
+        trigger->heldMs = trigger->cooldownRemainingMs = 0;
+    }
+}
+
+void OscAudioSource::invalidateTargets(const QString &status)
+{
+    AudioSnapshot snapshot;
+    snapshot.sourceId = QStringLiteral("osc:%1").arg(m_port);
+    snapshot.sourceEpoch = m_sourceEpoch;
+    snapshot.status = status;
+    snapshot.noiseGateClosed = true;
+    snapshot.publishTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    for (AudioChannel *channel : std::as_const(m_targetChannels))
+        channel->injectSnapshot(snapshot);
+    emit snapshotInjected();
 }
 
 quint16 OscAudioSource::port() const
@@ -125,6 +181,8 @@ void OscAudioSource::start()
     if (m_running)
         return;
 
+    resetSource();
+    invalidateTargets(QStringLiteral("starting"));
     m_socket = new QUdpSocket(this);
     if (!m_socket->bind(QHostAddress::AnyIPv4, m_port,
                         QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint))
@@ -133,6 +191,7 @@ void OscAudioSource::start()
                     << m_socket->errorString();
         delete m_socket;
         m_socket = nullptr;
+        invalidateTargets(QStringLiteral("error"));
         return;
     }
 
@@ -148,18 +207,12 @@ void OscAudioSource::start()
     m_injectTimer->start();
 
     m_running = true;
-    m_raw = SynRawState();
-    m_hasNewData.store(false);
-
     qDebug() << "OscAudioSource: started on port" << m_port;
     emit runningChanged();
 }
 
 void OscAudioSource::stop()
 {
-    if (!m_running)
-        return;
-
     if (m_injectTimer)
     {
         m_injectTimer->stop();
@@ -174,10 +227,13 @@ void OscAudioSource::stop()
         m_socket = nullptr;
     }
 
+    const bool wasRunning = m_running;
     m_running = false;
-    m_raw = SynRawState();
+    resetSource();
+    invalidateTargets(QStringLiteral("stopped"));
     qDebug() << "OscAudioSource: stopped";
-    emit runningChanged();
+    if (wasRunning)
+        emit runningChanged();
 }
 
 SynRawState OscAudioSource::rawState() const
@@ -304,9 +360,53 @@ void OscAudioSource::parseOscMessage(const QByteArray &data)
 
 void OscAudioSource::parseOscFloat(const QString &address, float value)
 {
+    if (!std::isfinite(value))
+        return;
+    // Unknown OSC addresses must not keep a lost audio stream alive.
+    static const QStringList addresses = {
+        "/audio/level/bass", "/audio/level/mid", "/audio/level/midhigh",
+        "/audio/level/high", "/audio/level/all", "/audio/level/raw",
+        "/audio/hits/bass", "/audio/hits/mid", "/audio/hits/midhigh",
+        "/audio/hits/high", "/audio/hits/all", "/audio/presence/bass",
+        "/audio/presence/mid", "/audio/presence/midhigh", "/audio/presence/high",
+        "/audio/presence/all", "/audio/beat/onbeat", "/audio/beat/beattime",
+        "/audio/beat/randomonbeat", "/audio/bpm", "/audio/bpm/bpm",
+        "/audio/bpm/bpmconfidence", "/audio/bpm/bpmtri", "/audio/bpm/bpmtri2",
+        "/audio/bpm/bpmtri4", "/audio/bpm/bpmtri8", "/audio/bpm/bpmsin",
+        "/audio/bpm/bpmsin2", "/audio/bpm/bpmsin4", "/audio/bpm/bpmsin8",
+        "/audio/bpm/bpmtwitcher", "/audio/energy/intensity", "/audio/timecode"
+    };
+    if (!addresses.contains(address))
+        return;
+    if (!m_stale && m_packetAge.isValid() && m_packetAge.elapsed() >= 200)
+    {
+        resetSource();
+        invalidateTargets(QStringLiteral("unavailable"));
+    }
     double v = double(value);
     m_raw.hasData = true;
     m_hasNewData.store(true, std::memory_order_relaxed);
+    m_packetAge.restart();
+    m_stale = false;
+    if (address == QLatin1String("/audio/beat/onbeat"))
+    {
+        if (v > 0.5 && m_prevOnbeat <= 0.5)
+            ++m_beatCount;
+        m_prevOnbeat = v;
+    }
+    else if (address == QLatin1String("/audio/beat/beattime"))
+    {
+        const int beat = int(std::clamp(v, 0.0, 7.0));
+        if (beat == 0 && m_prevBeattimeInt > 0)
+            ++m_barCount;
+        m_prevBeattimeInt = beat;
+    }
+    else if (address == QLatin1String("/audio/hits/all"))
+    {
+        if (v > 0.5 && m_prevHit <= 0.5)
+            ++m_onsetCount;
+        m_prevHit = v;
+    }
 
     // Band levels
     if (address == QLatin1String("/audio/level/bass"))       { m_raw.levelBass = v; return; }
@@ -364,15 +464,23 @@ void OscAudioSource::parseOscFloat(const QString &address, float value)
 
 void OscAudioSource::slotInjectSnapshot()
 {
-    if (!m_targetChannel)
+    if (m_targetChannels.isEmpty())
         return;
 
-    // Build a snapshot every tick even without new data so that Schmitt trigger
-    // hold/cooldown timers advance and firedThisFrame resets correctly.
-    constexpr double dtMs = 16.0; // ~60Hz timer interval
+    if (!m_stale && m_packetAge.isValid() && m_packetAge.elapsed() >= 200)
+    {
+        resetSource();
+        invalidateTargets(QStringLiteral("unavailable"));
+        return;
+    }
+    if (!m_hasNewData.exchange(false))
+        return;
+
+    const double dtMs = m_publishAge.isValid() ? double(m_publishAge.elapsed()) : 0.0;
+    m_publishAge.restart();
     AudioSnapshot snap = buildSnapshot(dtMs);
-    m_targetChannel->injectSnapshot(snap);
-    m_hasNewData.store(false, std::memory_order_relaxed);
+    for (AudioChannel *channel : std::as_const(m_targetChannels))
+        channel->injectSnapshot(snap);
     emit snapshotInjected();
 }
 
@@ -380,13 +488,20 @@ AudioSnapshot OscAudioSource::buildSnapshot(double dtMs)
 {
     AudioSnapshot snap;
     const SynRawState &r = m_raw;
+    snap.sourceId = QStringLiteral("osc:%1").arg(m_port);
+    snap.sourceEpoch = m_sourceEpoch;
+    snap.frameSequence = ++m_frameSequence;
+    snap.available = r.hasData;
+    snap.status = QStringLiteral("available");
+    snap.publishTimeNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
 
     // --- Frequency band powers ---
     // Synesthesia bass ≈ 20-200Hz, QLC+ lows = 0-250Hz
     snap.lows = std::clamp(r.levelBass, 0.0, 1.0);
     // Split bass for beatPower (0-100Hz) and bassPower (100-250Hz) — approximate
-    snap.beatPower = std::clamp(r.levelBass * 0.5, 0.0, 1.0);
-    snap.bassPower = std::clamp(r.levelBass * 0.5, 0.0, 1.0);
+    snap.beatPower = snap.lows;
+    snap.bassPower = snap.lows;
 
     // Mids: blend Synesthesia mid (200-2000Hz) + midhigh for QLC+ 250-3000Hz
     snap.mids = std::clamp(0.7 * r.levelMid + 0.3 * r.levelMidHigh, 0.0, 1.0);
@@ -418,11 +533,11 @@ AudioSnapshot OscAudioSource::buildSnapshot(double dtMs)
     snap.volumeTrigger = m_volTrigger.update(snap.volume.normalized, dtMs);
 
     // --- Beat / BPM ---
-    bool onbeatRising = (r.onbeat > 0.5 && m_prevOnbeat <= 0.5);
-    m_prevOnbeat = r.onbeat;
+    const bool onbeatRising = m_beatCount != m_publishedBeatCount;
 
     snap.music.beat = onbeatRising;
     snap.music.bpm = r.bpm;
+    snap.music.valid = r.bpm > 0.0 && std::isfinite(r.bpm);
     snap.music.beatConfidence = r.bpmConfidence;
 
     // Beat phase synthesis: reset on beat, advance at bpm rate
@@ -435,13 +550,14 @@ AudioSnapshot OscAudioSource::buildSnapshot(double dtMs)
     snap.music.beatPhase = std::fmod(m_beatPhaseSec / beatPeriodSec, 1.0);
 
     // Bar phase from beattime (0-7)
-    int beatInt = int(r.beattime);
-    snap.music.barPhase = double(beatInt) + snap.music.beatPhase;
+    int beatInt = int(std::clamp(r.beattime, 0.0, 7.0));
+    snap.music.beatsPerBar = 4;
+    snap.music.beatInBar = beatInt % 4;
+    snap.music.barPhase = (snap.music.beatInBar + snap.music.beatPhase) / 4.0;
 
     // Downbeat detection
-    bool isDownbeat = (beatInt == 0 && m_prevBeattimeInt != 0 && m_prevBeattimeInt >= 0);
+    bool isDownbeat = m_barCount != m_publishedBarCount;
     snap.downbeatFired = isDownbeat;
-    m_prevBeattimeInt = beatInt;
 
     // Beat trigger
     TriggerState beatTs;
@@ -456,6 +572,15 @@ AudioSnapshot OscAudioSource::buildSnapshot(double dtMs)
     if (r.presenceBass > 0.01)
         kickValue = std::clamp(r.levelBass / r.presenceBass - 1.0, 0.0, 1.0);
     snap.kickTrigger = m_kickTrigger.update(kickValue, dtMs);
+    m_kickCount += snap.kickTrigger.firedThisFrame ? 1 : 0;
+    snap.onsets.hfc = m_onsetCount != m_publishedOnsetCount;
+    snap.events.beat = m_beatCount;
+    snap.events.onset = m_onsetCount;
+    snap.events.kick = m_kickCount;
+    snap.events.bar = m_barCount;
+    m_publishedBeatCount = m_beatCount;
+    m_publishedOnsetCount = m_onsetCount;
+    m_publishedBarCount = m_barCount;
 
     // --- Features (approximate where possible, zero otherwise) ---
     snap.features.rmsDb = (r.levelAll > 0.0001) ? 20.0 * std::log10(r.levelAll) : -96.0;

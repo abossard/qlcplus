@@ -133,7 +133,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         updateColors();
-        var dtMs = audio ? (audio.dt * 60000 / audio.bpm) : 40;
+        var dtMs = audio ? (audio.timing ? audio.timing.deltaSeconds * 1000 : audio.dt * 60000 / audio.bpm) : 40;
         var frameScale = dtMs / 40;
         algo.dtAccum += dtMs;
         if (width !== lastW || height !== lastH) {
@@ -168,9 +168,13 @@ var testAlgo;
         var smoothing = algo.presetSmoothing / 10.0;
         var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
         var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        smoothLow += (bass > smoothLow ? riseAlpha : decayAlpha) * (bass - smoothLow);
+        var alpha = bass > smoothLow ? riseAlpha : decayAlpha;
+        if (audio.timing) alpha = 1 - Math.pow(1 - alpha, audio.timing.deltaSeconds * 50);
+        smoothLow += alpha * (bass - smoothLow);
 
-        if (audio.beatFired || audio.onset)
+        var count = audio.events ? Math.max(audio.events.delta.beat, audio.events.delta.onset) :
+            (audio.beatFired || audio.onset ? 1 : 0);
+        for (var spawn = 0; spawn < Math.min(count, algo.presetMaxWaves); spawn++)
             spawnWave(width, height, Math.max(0.5, smoothLow), audio);
 
         if (algo.waves.length < MAX_FILL_WAVES && smoothLow > MIN_BASS_FOR_FILL)

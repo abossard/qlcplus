@@ -129,7 +129,7 @@ public:
                   "RGBMatrix exposes Color1..Color5 compatibility attributes and requires at least 5 colors");
 
     /** Return the index of the currently selected algorithm. */
-    int algorithmIndex() const;
+    virtual int algorithmIndex() const;
 
     /** Re-apply style attributes (colors + pattern) to runtime state. */
     void applyStyleAttributes();
@@ -237,7 +237,7 @@ private:
      ************************************************************************/
 public:
     /** Set the value of the property with the given name */
-    void setProperty(QString propName, QString value);
+    virtual void setProperty(QString propName, QString value);
 
     /** Retrieve the value of the property with the given name */
     QString property(QString propName);
@@ -246,7 +246,7 @@ private:
     /** Return the properties of the currently loaded Script algorithm that
      *  are exposed as Function attributes. Index 0 of the returned list
      *  matches the attribute index $ScriptPropertyAttr */
-    QList<RGBScriptProperty> scriptPropertyAttributes() const;
+    virtual QList<RGBScriptProperty> scriptPropertyAttributes() const;
 
     /** Return the attribute name used to expose the given Script property */
     static QString scriptPropertyAttributeName(const RGBScriptProperty &prop);
@@ -263,7 +263,7 @@ private:
 
     /** Apply the value of a Script property attribute to the algorithm.
      *  $attrIndex is an index of $scriptPropertyAttributes */
-    void applyScriptPropertyAttribute(int attrIndex, qreal value);
+    virtual void applyScriptPropertyAttribute(int attrIndex, qreal value);
 
 private:
     /** A map of the custom properties for this matrix */
@@ -308,7 +308,7 @@ private:
     /** Update FadeChannels when $map has changed since last time */
     void updateMapChannels(const RGBMap& map, const FixtureGroup* grp, QList<Universe *> universes);
     void applyColorAttribute(int colorIndex, qreal packedColor);
-    void applyPatternAttribute(qreal patternIndex);
+    virtual void applyPatternAttribute(qreal patternIndex);
 
 public:
     /** Convert color values to fader value */

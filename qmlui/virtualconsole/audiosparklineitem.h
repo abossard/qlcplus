@@ -61,6 +61,7 @@
 class AudioSparklineItem : public QQuickPaintedItem
 {
     Q_OBJECT
+    friend class VCAudioTriggers_Test;
     Q_PROPERTY(VCAudioTriggers* source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(int pixelsPerSample READ pixelsPerSample WRITE setPixelsPerSample NOTIFY pixelsPerSampleChanged)
     Q_PROPERTY(qreal onsetFrac    READ onsetFrac    WRITE setOnsetFrac    NOTIFY layoutChanged)
@@ -153,8 +154,12 @@ private:
     int m_nextWrite    = 0;     // next column to write
     int m_paintTo      = 0;     // first column not yet painted (== m_nextWrite once flushed)
     int m_sampleCount  = 0;     // number of columns ever filled (saturates at m_capacity)
-    bool m_prevBeat    = false;
-    bool m_prevKick    = false;
+    bool m_cursorReady = false;
+    quint64 m_epoch = 0;
+    quint32 m_profileId = 0;
+    quint64 m_frame = 0;
+    quint64 m_beats = 0;
+    quint64 m_kicks = 0;
 
     std::vector<double>  m_history;       // kChannelCount * m_capacity
     std::vector<uint8_t> m_beatHistory;   // 0/1
