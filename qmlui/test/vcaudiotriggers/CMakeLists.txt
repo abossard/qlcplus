@@ -11,6 +11,11 @@ foreach(source IN LISTS ui_sources)
     if(NOT IS_ABSOLUTE "${source}")
         set(source "${ui_source_dir}/${source}")
     endif()
+    # Generated-source properties are directory-scoped with our CMake policies.
+    get_source_file_property(is_generated "${source}" TARGET_DIRECTORY qlcplus5 GENERATED)
+    if(is_generated)
+        set_source_files_properties("${source}" PROPERTIES GENERATED TRUE)
+    endif()
     list(APPEND test_ui_sources "${source}")
 endforeach()
 
