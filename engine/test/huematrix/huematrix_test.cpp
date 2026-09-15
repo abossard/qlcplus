@@ -209,6 +209,8 @@ void HUEMatrix_Test::patternSelection_data()
     QTest::newRow("last-hue") << "Audio Spectrum" << "Audio Water";
     QTest::newRow("hue-to-hue") << "Audio Fire" << "Audio Spectrum Bars";
     QTest::newRow("unconfigured-base") << "" << "Audio Fire";
+    QTest::newRow("unconfigured-builtin") << "" << "Plain Color";
+    QTest::newRow("unconfigured-legacy-script") << "" << "Stripes";
     QTest::newRow("legacy-script-preset") << "Audio Fire" << "Stripes";
     QTest::newRow("legacy-text-preset") << "Audio Fire" << "Text";
 }
@@ -218,6 +220,11 @@ void HUEMatrix_Test::patternSelection()
     QFETCH(QString, baseName);
     QFETCH(QString, selectedName);
     HUEMatrix matrix(m_doc);
+    FixtureGroup *group = new FixtureGroup(m_doc);
+    group->setSize(QSize(3, 2));
+    QVERIFY(m_doc->addFixtureGroup(group));
+    matrix.setFixtureGroup(group->id());
+    matrix.setDuration(200);
     matrix.setAlgorithm(baseName.isEmpty() ? nullptr : HUEMatrix::createAlgorithm(m_doc, baseName));
     QStringList runtime = RGBAlgorithm::algorithms(m_doc);
     runtime.append(HUEMatrix::availableAlgorithms(m_doc));
@@ -226,7 +233,7 @@ void HUEMatrix_Test::patternSelection()
     QCOMPARE(matrix.attributes().at(RGBMatrix::PatternAttr).m_max, qreal(runtime.count() - 1));
     const int selected = runtime.indexOf(selectedName);
     QVERIFY(selected >= 0);
-    if (selectedName == "Stripes" || selectedName == "Text")
+    if (selectedName == "Stripes" || selectedName == "Text" || selectedName == "Plain Color")
         QVERIFY(!HUEMatrix::availableAlgorithms(m_doc).contains(selectedName));
     else
         QVERIFY(selected >= RGBAlgorithm::algorithms(m_doc).count());
@@ -235,6 +242,8 @@ void HUEMatrix_Test::patternSelection()
     QCOMPARE(base->algorithm()->name(), selectedName);
     if (selectedName == "Text")
         QVERIFY(dynamic_cast<RGBText *>(base->algorithm()) != nullptr);
+    else if (selectedName == "Plain Color")
+        QVERIFY(dynamic_cast<RGBPlain *>(base->algorithm()) != nullptr);
     else
         QVERIFY(dynamic_cast<HUEScript *>(base->algorithm()) != nullptr);
     RGBAlgorithm *unchanged = base->algorithm();
@@ -247,6 +256,11 @@ void HUEMatrix_Test::patternSelection()
         base->adjustAttribute(invalid, overrideID);
         QCOMPARE(base->algorithm(), unchanged);
     }
+    matrix.preRun(m_doc->masterTimer());
+    const auto cleanup = qScopeGuard([&]() { matrix.postRun(m_doc->masterTimer(), {}); });
+    QVERIFY(matrix.isRunning());
+    matrix.write(m_doc->masterTimer(), {});
+    QCOMPARE(matrix.m_runAlgorithm, unchanged);
     base->releaseAttributeOverride(overrideID);
     base->applyStyleAttributes();
     if (baseName.isEmpty())
@@ -255,6 +269,12 @@ void HUEMatrix_Test::patternSelection()
         QCOMPARE(base->algorithm()->name(), baseName);
     QCOMPARE(base->algorithmIndex(), runtime.indexOf(baseName));
     QCOMPARE(base->getAttributeValue(RGBMatrix::PatternAttr), qreal(runtime.indexOf(baseName)));
+    matrix.write(m_doc->masterTimer(), {});
+    QCOMPARE(matrix.m_runAlgorithm, matrix.algorithm());
+    QVERIFY(!matrix.m_requestEngineCreation);
+    matrix.write(m_doc->masterTimer(), {});
+    QCOMPARE(matrix.m_runAlgorithm, matrix.algorithm());
+    QVERIFY(!matrix.m_requestEngineCreation);
     RGBAlgorithm *replayed = HUEMatrix::createAlgorithm(m_doc, selectedName);
     QVERIFY(replayed != nullptr);
     base->setAlgorithm(replayed);
@@ -438,6 +458,75 @@ void HUEMatrix_Test::scriptAttributeLifecycle()
     QCOMPARE(base->property("orientation"), QString("Vertical"));
     matrix.setAlgorithm(nullptr);
     QCOMPARE(matrix.attributes().count(), int(RGBMatrix::ScriptPropertyAttr));
+}
+
+void HUEMatrix_Test::floatPropertyAttributes_data()
+{
+    QTest::addColumn<QString>("propertyName");
+    QTest::addColumn<QString>("propertyValue");
+    QTest::addColumn<qreal>("multiplier");
+    QTest::addColumn<qreal>("blur");
+    QTest::addColumn<bool>("editWhileOverridden");
+    QTest::newRow("defaults") << "" << "" << qreal(1.6) << qreal(1.5) << false;
+    QTest::newRow("authored-blur") << "referenceBlur" << "3" << qreal(1.6) << qreal(3) << false;
+    QTest::newRow("authored-multiplier") << "presetMultiplier" << "2.4" << qreal(2.4) << qreal(1.5) << false;
+    QTest::newRow("edit-overridden-blur") << "referenceBlur" << "3" << qreal(1.6) << qreal(3) << true;
+}
+
+void HUEMatrix_Test::floatPropertyAttributes()
+{
+    QFETCH(QString, propertyName);
+    QFETCH(QString, propertyValue);
+    QFETCH(qreal, multiplier);
+    QFETCH(qreal, blur);
+    QFETCH(bool, editWhileOverridden);
+    HUEMatrix matrix(m_doc);
+    matrix.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, "Audio Energy"));
+    QVERIFY(matrix.algorithm() != nullptr);
+    if (!propertyName.isEmpty() && !editWhileOverridden)
+        matrix.setProperty(propertyName, propertyValue);
+    const int multiplierAttr = matrix.getAttributeIndex("Fill Amount");
+    const int blurAttr = matrix.getAttributeIndex("Reference Blur");
+    const int brightnessAttr = matrix.getAttributeIndex("Reference Brightness");
+    const int smoothingAttr = matrix.getAttributeIndex("Smoothing");
+    QVERIFY(multiplierAttr >= RGBMatrix::ScriptPropertyAttr);
+    QVERIFY(blurAttr >= RGBMatrix::ScriptPropertyAttr);
+    QVERIFY(brightnessAttr >= RGBMatrix::ScriptPropertyAttr);
+    QVERIFY(smoothingAttr >= RGBMatrix::ScriptPropertyAttr);
+    if (editWhileOverridden)
+    {
+        const int overrideId = matrix.requestAttributeOverride(blurAttr, 0.5);
+        matrix.setProperty(propertyName, propertyValue);
+        QCOMPARE(matrix.getAttributeValue(blurAttr), qreal(0.5));
+        QCOMPARE(matrix.attributes().at(blurAttr).m_value, blur);
+        QCOMPARE(matrix.property(propertyName).toDouble(), qreal(0.5));
+        matrix.releaseAttributeOverride(overrideId);
+        matrix.applyStyleAttributes();
+    }
+    QCOMPARE(matrix.getAttributeValue(multiplierAttr), multiplier);
+    QCOMPARE(matrix.getAttributeValue(blurAttr), blur);
+    QString before;
+    QXmlStreamWriter beforeWriter(&before);
+    QVERIFY(matrix.saveXML(&beforeWriter));
+
+    const int colorOverride = matrix.requestAttributeOverride(RGBMatrix::Color1Attr, 0x123456);
+    matrix.releaseAttributeOverride(colorOverride);
+    matrix.applyStyleAttributes();
+
+    auto *script = static_cast<RGBScript *>(matrix.algorithm());
+    QCOMPARE(script->property("presetMultiplier").toDouble(), multiplier);
+    QCOMPARE(script->property("referenceBlur").toDouble(), blur);
+    QCOMPARE(script->property("referenceBrightness").toDouble(), qreal(0.7));
+    QCOMPARE(matrix.getAttributeValue(multiplierAttr), multiplier);
+    QCOMPARE(matrix.getAttributeValue(blurAttr), blur);
+    QCOMPARE(matrix.attributes().at(brightnessAttr).m_min, qreal(0));
+    QCOMPARE(matrix.attributes().at(brightnessAttr).m_max, qreal(1));
+    QCOMPARE(matrix.attributes().at(smoothingAttr).m_min, qreal(1));
+    QCOMPARE(matrix.attributes().at(smoothingAttr).m_max, qreal(10));
+    QString after;
+    QXmlStreamWriter afterWriter(&after);
+    QVERIFY(matrix.saveXML(&afterWriter));
+    QCOMPARE(after, before);
 }
 
 void HUEMatrix_Test::authoredPropertiesSurviveStyleRelease_data()

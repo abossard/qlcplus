@@ -24,7 +24,9 @@
 #include <QQueue>
 #include <QPair>
 #include <QMap>
+#include <QMutex>
 #include <QSet>
+#include <atomic>
 #include "function.h"
 #include "audioview.h"
 
@@ -331,8 +333,10 @@ private:
     Doc *m_doc;
     Script *m_script;
     QString m_content;
-    bool m_running;
+    std::atomic<bool> m_running;
 
+    QMutex m_engineMutex;
+    // Published under m_engineMutex; created and deleted only by run().
     QJSEngine *m_engine;
     // Queue holding the Function IDs to start/stop
     QQueue<QPair<quint32, FunctionOperation>> m_functionQueue;

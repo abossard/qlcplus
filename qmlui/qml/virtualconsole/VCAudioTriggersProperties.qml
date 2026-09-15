@@ -655,24 +655,27 @@ Rectangle
                     RobotoText { height: gridItemsHeight; label: qsTr("Low") }
                     CustomSpinBox
                     {
+                        objectName: "audioBank0_minHz"
                         Layout.fillWidth: true
-                        from: 0; to: 24000; suffix: " Hz"
+                        from: 0; to: 14999; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melLowMinHz) : 0
                         onValueModified: if (widgetRef) widgetRef.updateBank(0, { minHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank0_maxHz"
                         Layout.fillWidth: true
-                        from: 1; to: 24000; suffix: " Hz"
+                        from: 1; to: 15000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melLowMaxHz) : 350
                         onValueModified: if (widgetRef) widgetRef.updateBank(0, { maxHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank0_bands"
                         Layout.fillWidth: true
-                        from: 4; to: 256; suffix: " bands"
+                        from: 4; to: 32; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melLowBands : 24
                         onValueModified: if (widgetRef) widgetRef.updateBank(0, { bands: value })
@@ -681,24 +684,27 @@ Rectangle
                     RobotoText { height: gridItemsHeight; label: qsTr("Mid") }
                     CustomSpinBox
                     {
+                        objectName: "audioBank1_minHz"
                         Layout.fillWidth: true
-                        from: 0; to: 24000; suffix: " Hz"
+                        from: 0; to: 14999; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melMidMinHz) : 20
                         onValueModified: if (widgetRef) widgetRef.updateBank(1, { minHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank1_maxHz"
                         Layout.fillWidth: true
-                        from: 1; to: 24000; suffix: " Hz"
+                        from: 1; to: 15000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melMidMaxHz) : 2000
                         onValueModified: if (widgetRef) widgetRef.updateBank(1, { maxHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank1_bands"
                         Layout.fillWidth: true
-                        from: 4; to: 256; suffix: " bands"
+                        from: 4; to: 32; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melMidBands : 24
                         onValueModified: if (widgetRef) widgetRef.updateBank(1, { bands: value })
@@ -707,24 +713,27 @@ Rectangle
                     RobotoText { height: gridItemsHeight; label: qsTr("High") }
                     CustomSpinBox
                     {
+                        objectName: "audioBank2_minHz"
                         Layout.fillWidth: true
-                        from: 0; to: 24000; suffix: " Hz"
+                        from: 0; to: 14999; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melHighMinHz) : 20
                         onValueModified: if (widgetRef) widgetRef.updateBank(2, { minHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank2_maxHz"
                         Layout.fillWidth: true
-                        from: 1; to: 24000; suffix: " Hz"
+                        from: 1; to: 15000; suffix: " Hz"
                         enabled: widgetRef !== null
                         value: widgetRef ? Math.round(widgetRef.melHighMaxHz) : 15000
                         onValueModified: if (widgetRef) widgetRef.updateBank(2, { maxHz: value })
                     }
                     CustomSpinBox
                     {
+                        objectName: "audioBank2_bands"
                         Layout.fillWidth: true
-                        from: 4; to: 256; suffix: " bands"
+                        from: 4; to: 32; suffix: " bands"
                         enabled: widgetRef !== null
                         value: widgetRef ? widgetRef.melHighBands : 24
                         onValueModified: if (widgetRef) widgetRef.updateBank(2, { bands: value })
@@ -951,6 +960,7 @@ Rectangle
                     RobotoText { height: gridItemsHeight; label: "highThreshold"; tooltipText: qsTr("Upper hysteresis threshold (% of band peak). Band must rise above this to fire a trigger.") }
                     CustomSpinBox
                     {
+                        objectName: "audioBank" + bankIndex + "_trigHigh"
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null
@@ -960,6 +970,7 @@ Rectangle
                     RobotoText { height: gridItemsHeight; label: "lowThreshold"; tooltipText: qsTr("Lower hysteresis threshold (% of band peak). Band must fall below this before another trigger can fire.") }
                     CustomSpinBox
                     {
+                        objectName: "audioBank" + bankIndex + "_trigLow"
                         Layout.fillWidth: true
                         from: 0; to: 100; suffix: "%"
                         enabled: widgetRef !== null

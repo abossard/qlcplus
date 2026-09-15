@@ -996,6 +996,60 @@ void InputOutputMap_Test::canonicalAudioClock()
     QCOMPARE(beats.count(), 9);
 }
 
+void InputOutputMap_Test::audioRestartDropsPendingBeats_data()
+{
+    QTest::addColumn<QString>("source");
+    QTest::addColumn<quint64>("epoch");
+    QTest::newRow("restarted-source") << QString("clock-test") << quint64(2);
+    QTest::newRow("replaced-source") << QString("other-clock") << quint64(1);
+}
+
+void InputOutputMap_Test::audioRestartDropsPendingBeats()
+{
+    QFETCH(QString, source);
+    QFETCH(quint64, epoch);
+    Doc doc(nullptr, 0);
+    auto capture = QSharedPointer<AudioTestCapture>::create();
+    doc.m_inputCapture = capture;
+    capture->setAnalyzer(doc.audioAnalyzer());
+    auto *profile = new AudioProfile(7, &doc);
+    QVERIFY(doc.addAudioProfile(profile));
+    auto *iom = doc.inputOutputMap();
+    iom->setBeatGeneratorType(InputOutputMap::Audio);
+    iom->m_audioPollTimer.stop();
+    QSignalSpy beats(iom, &InputOutputMap::beat);
+    AudioSnapshot snapshot;
+    snapshot.sourceId = "clock-test";
+    snapshot.sourceEpoch = 1;
+    snapshot.available = true;
+    snapshot.music.bpm = 110;
+    snapshot.music.valid = true;
+    const auto publish = [&]() {
+        snapshot.publishTimeNs = AudioRenderView::nowNs();
+        ++snapshot.frameSequence;
+        profile->channel()->injectSnapshot(snapshot);
+        return QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection);
+    };
+    QVERIFY(publish());
+    snapshot.events.beat = 5;
+    QVERIFY(publish());
+    QCOMPARE(iom->m_pendingAudioBeats, uint64_t(5));
+    doc.masterTimer()->timerTick();
+    QCOMPARE(beats.count(), 1);
+
+    snapshot.sourceId = source;
+    snapshot.sourceEpoch = epoch;
+    snapshot.events.beat = 0;
+    QVERIFY(publish());
+    QCOMPARE(iom->m_pendingAudioBeats, uint64_t(0));
+    doc.masterTimer()->timerTick();
+    QCOMPARE(beats.count(), 1);
+    snapshot.events.beat = 1;
+    QVERIFY(publish());
+    doc.masterTimer()->timerTick();
+    QCOMPARE(beats.count(), 2);
+}
+
 void InputOutputMap_Test::canonicalAudioOwnership_data()
 {
     QTest::addColumn<int>("source");

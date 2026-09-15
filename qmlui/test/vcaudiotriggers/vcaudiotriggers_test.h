@@ -13,6 +13,8 @@ private slots:
     void referenceDefaults();
     void bankUpdate_data();
     void bankUpdate();
+    void bankControlBounds_data();
+    void bankControlBounds();
     void coherentPublication();
     void sparklineRecovery_data();
     void sparklineRecovery();

@@ -643,6 +643,8 @@ private:
     QSharedPointer<AudioCapture> m_inputCapture;
     QTimer m_audioPollTimer;
     AudioEventCursor m_audioBeatCursor;
+    QString m_audioBeatSourceId;
+    uint64_t m_audioBeatEpoch = 0;
     QMutex m_audioBeatMutex;
     uint64_t m_pendingAudioBeats = 0;
 

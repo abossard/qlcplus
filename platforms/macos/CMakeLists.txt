@@ -30,8 +30,23 @@ set(APPLE_CODESIGN_ENTITLEMENTS "qlcplus.entitlements")
 #    set(APPLE_CODESIGN_IDENTITY -)
 #endif()
 
+# Use the Qt selected by find_package; Homebrew's plugins are not under its prefix.
+get_target_property(_qt_qmake Qt${QT_MAJOR_VERSION}::qmake IMPORTED_LOCATION)
+foreach(_qt_path LIBS PLUGINS QML)
+    execute_process(
+        COMMAND "${_qt_qmake}" -query QT_INSTALL_${_qt_path}
+        OUTPUT_VARIABLE QT_INSTALL_${_qt_path}
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_VARIABLE _qt_query_error
+        RESULT_VARIABLE _qt_query_result
+    )
+    if(NOT _qt_query_result EQUAL 0 OR NOT IS_DIRECTORY "${QT_INSTALL_${_qt_path}}")
+        message(FATAL_ERROR "Cannot locate Qt ${_qt_path}: ${_qt_query_error}")
+    endif()
+endforeach()
+
 # install Qt library frameworks
-set(QT_FRAMEWORKS_DIR $ENV{QTDIR}/lib)
+set(QT_FRAMEWORKS_DIR "${QT_INSTALL_LIBS}")
 set(QT_FRAMEWORK_NAMES
     "QtCore"
     "QtDBus"
@@ -89,14 +104,15 @@ endif()
 # Loop through each framework and copy it to installation
 foreach(FW_NAME IN LISTS QT_FRAMEWORK_NAMES)
     # install each framework Version file
-    install(DIRECTORY ${QT_FRAMEWORKS_DIR}/${FW_NAME}.framework
+    get_filename_component(_qt_framework "${QT_FRAMEWORKS_DIR}/${FW_NAME}.framework" REALPATH)
+    install(DIRECTORY "${_qt_framework}"
             DESTINATION ${INSTALLROOT}/${LIBSDIR}
             PATTERN "Headers" EXCLUDE)
 endforeach()
 
 # install Qt plugins
-set(QT_PLUGINS_DIR $ENV{QTDIR}/plugins)
-set(QT_QML_DIR $ENV{QTDIR}/qml)
+set(QT_PLUGINS_DIR "${QT_INSTALL_PLUGINS}")
+set(QT_QML_DIR "${QT_INSTALL_QML}")
 
 # imageformats
 install(FILES ${QT_PLUGINS_DIR}/imageformats/libqgif.dylib DESTINATION ${INSTALLROOT}/${PLUGINDIR}/imageformats)

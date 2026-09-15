@@ -11,5 +11,6 @@ target_link_libraries(beattracker_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Test
+    qlcplusaudio
     qlcplusengine
 )

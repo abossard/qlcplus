@@ -577,16 +577,26 @@ void AudioCapture_Test::qt6UnavailableRestart()
     QSignalSpy first(&capture, &AudioCapture::statusChanged);
     QSignalSpy second(&capture, &AudioCapture::statusChanged);
     std::atomic<int> frames {0};
+    QElapsedTimer clock;
+    clock.start();
+    std::atomic<qint64> lastFrameMs {-1}, unavailableMs {-1};
     connect(&capture, &AudioCapture::frameReady, &capture,
-            [&](const AudioFrame &) { ++frames; }, Qt::DirectConnection);
+            [&](const AudioFrame &) {
+                lastFrameMs = clock.elapsed();
+                ++frames;
+            }, Qt::DirectConnection);
+    connect(&capture, &AudioCapture::statusChanged, &capture,
+            [&](AudioCapture::Status status, const QString &, quint64) {
+                if (status == AudioCapture::Unavailable)
+                    unavailableMs = clock.elapsed();
+            }, Qt::DirectConnection);
     capture.registerBandsNumber(3);
     capture.registerBandsNumber(16);
     QTRY_VERIFY_WITH_TIMEOUT(frames.load() > 0, 1000);
     const uint64_t firstEpoch = capture.sourceEpoch();
-    QElapsedTimer timeout;
-    timeout.start();
-    QTRY_COMPARE_WITH_TIMEOUT(capture.status(), AudioCapture::Unavailable, 250);
-    QVERIFY(timeout.elapsed() <= 250);
+    QTRY_VERIFY_WITH_TIMEOUT(unavailableMs.load() >= 0, 1000);
+    QCOMPARE(capture.status(), AudioCapture::Unavailable);
+    QVERIFY(unavailableMs.load() - lastFrameMs.load() <= 250);
     QCOMPARE(capture.signalPower(), 0u);
     QVERIFY(capture.sourceEpoch() > firstEpoch);
     const int stalledFrames = frames;
@@ -594,8 +604,10 @@ void AudioCapture_Test::qt6UnavailableRestart()
     QCOMPARE(frames.load(), stalledFrames);
     QCOMPARE(first.count(), second.count());
     input->disconnected = true;
+    const uint64_t lostEpoch = capture.sourceEpoch();
     capture.restart();
-    QTRY_COMPARE_WITH_TIMEOUT(capture.status(), AudioCapture::Unavailable, 250);
+    QTRY_VERIFY_WITH_TIMEOUT(capture.sourceEpoch() > lostEpoch &&
+                            capture.status() == AudioCapture::Unavailable, 1000);
     const int opensBeforeReconnect = input->opens;
     QTest::qWait(120);
     QCOMPARE(input->opens.load(), opensBeforeReconnect);

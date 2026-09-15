@@ -11,6 +11,8 @@ private slots:
     void eventCadence_data();
     void eventCadence();
     void packedScriptContract();
+    void scriptRunnerStop_data();
+    void scriptRunnerStop();
     void pcmToPixels_data();
     void pcmToPixels();
     void powerEcho_data();

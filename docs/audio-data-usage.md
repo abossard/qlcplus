@@ -16,6 +16,8 @@ diagnostic view reports disabled, pending or enabled processing. Toggling it
 preserves saved tuning and does not enable another profile's diagnostics. Opening the panel
 does not reset a profile. The status display includes raw dB/clip, gate state,
 availability, selected/applied device and negotiated capture format.
+Bank editors accept 4-32 bands and frequencies up to 15,000 Hz. Rejected
+range or trigger-threshold edits restore the applied value and log the reason.
 
 New profiles use LedFx analysis defaults. **LedFx defaults** resets the selected
 profile to those values, including mel normalization, smoothing and noise floor.
@@ -55,6 +57,7 @@ freezing spectral filter state. Loss of callbacks marks the source unavailable
 within 250 ms.
 
 The active profile's canonical tempo supplies global Audio BPM and pulses.
+Restarting or replacing the audio source also clears queued catch-up pulses.
 Internal and Plugin beat sources retain their ownership. The historical
 BeatTracker remains available to its regression tests but no longer processes
 live capture or supplies a second audio clock.

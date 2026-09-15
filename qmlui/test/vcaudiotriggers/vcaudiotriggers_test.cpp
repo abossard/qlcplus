@@ -462,6 +462,78 @@ void VCAudioTriggers_Test::bankUpdate()
     QCOMPARE(seven->channelConfig().aubio.onsetOverrides[2].threshold, 0.37);
 }
 
+void VCAudioTriggers_Test::bankControlBounds_data()
+{
+    QTest::addColumn<int>("bankIndex");
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<double>("initial");
+    QTest::addColumn<double>("scale");
+    QTest::addColumn<int>("key");
+    for (int bank = 0; bank < 3; ++bank)
+    {
+        const QByteArray prefix = QByteArray::number(bank) + '-';
+        QTest::newRow((prefix + "max-frequency").constData())
+            << bank << QString("maxHz") << 15000.0 << 1.0 << int(Qt::Key_Up);
+        QTest::newRow((prefix + "max-bands").constData())
+            << bank << QString("bands") << 32.0 << 1.0 << int(Qt::Key_Up);
+        QTest::newRow((prefix + "crossed-range").constData())
+            << bank << QString("minHz") << 199.0 << 1.0 << int(Qt::Key_Up);
+        QTest::newRow((prefix + "crossed-low-trigger").constData())
+            << bank << QString("trigLow") << 0.49 << 100.0 << int(Qt::Key_Up);
+        QTest::newRow((prefix + "crossed-high-trigger").constData())
+            << bank << QString("trigHigh") << 0.50 << 100.0 << int(Qt::Key_Down);
+    }
+}
+
+void VCAudioTriggers_Test::bankControlBounds()
+{
+    QFETCH(int, bankIndex);
+    QFETCH(QString, field);
+    QFETCH(double, initial);
+    QFETCH(double, scale);
+    QFETCH(int, key);
+    Doc doc(nullptr, 0);
+    QVERIFY(addProfile(doc, 7));
+    VCAudioTriggers widget(&doc);
+    widget.setAudioProfileId(7);
+    QVariantMap setup{{field, initial}};
+    if (field == "minHz")
+        setup["maxHz"] = 200.0;
+    if (field.startsWith("trig"))
+    {
+        setup["trigLow"] = 0.49;
+        setup["trigHigh"] = 0.50;
+    }
+    QVERIFY(widget.updateBank(bankIndex, setup));
+    const QString before = profileXml(doc.audioProfile(7));
+    qmlRegisterType<VCAudioTriggers>("org.qlcplus.classes", 1, 0, "VCAudioTriggers");
+    qmlRegisterUncreatableType<Function>("org.qlcplus.classes", 1, 0, "QLCFunction", "Engine-owned");
+    QQuickView view;
+    view.resize(900, 900);
+    view.rootContext()->setContextProperty("screenPixelDensity", 4.0);
+    view.rootContext()->setContextProperty("mainView", view.contentItem());
+    InputOutputManager ioManager(&view, &doc);
+    FunctionManager functionManager(&view, &doc);
+    QQmlComponent component(view.engine(), QUrl("qrc:/VCAudioTriggersProperties.qml"));
+    std::unique_ptr<QObject> panel(component.createWithInitialProperties({
+        {"width", 780}, {"widgetRef", QVariant::fromValue(&widget)}
+    }));
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    qobject_cast<QQuickItem *>(panel.get())->setParentItem(view.contentItem());
+    auto *advanced = panel->findChild<QObject *>("audioAdvanced");
+    QVERIFY(advanced);
+    advanced->setProperty("isExpanded", true);
+    auto *control = panel->findChild<QQuickItem *>(
+        QString("audioBank%1_%2").arg(bankIndex).arg(field));
+    QVERIFY(control);
+    QCOMPARE(control->property("value").toInt(), qRound(initial * scale));
+    view.show();
+    control->forceActiveFocus();
+    QTest::keyClick(&view, Qt::Key(key));
+    QCOMPARE(control->property("value").toInt(), qRound(initial * scale));
+    QCOMPARE(profileXml(doc.audioProfile(7)), before);
+}
+
 void VCAudioTriggers_Test::coherentPublication()
 {
     Doc doc(nullptr, 1);

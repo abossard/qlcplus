@@ -440,6 +440,14 @@
 > ./qmlui/qlcplus5
 > ```
 >
+> To assemble the local app bundle after building all targets, run `cmake --install .`
+> from `build/`. The default destination is `dist/QLC+.app` in the repository.
+> Qt framework and plugin paths come from the configured Qt installation; `QTDIR`
+> is not required.
+> To match CI with a Qt SDK, set `QTDIR` to that SDK and configure a separate
+> build directory with `-DCMAKE_PREFIX_PATH="$QTDIR/lib/cmake"`. Setting `QTDIR`
+> alone does not replace Qt paths already cached in an existing build.
+>
 > **Runtime flags:**
 > | Flag | Description |
 > |------|-------------|

@@ -25,6 +25,7 @@
 #include <QProcess>
 #endif
 #include <QDebug>
+#include <memory>
 
 #include "scriptrunner.h"
 #include "genericfader.h"
@@ -55,7 +56,8 @@ ScriptRunner::~ScriptRunner()
 
 void ScriptRunner::execute()
 {
-    if (m_running)
+    QMutexLocker engineLocker(&m_engineMutex);
+    if (m_running || isRunning())
         return;
 
     m_running = true;
@@ -66,14 +68,16 @@ void ScriptRunner::execute()
 
 void ScriptRunner::stop()
 {
-    if (m_running == false && m_registeredBands.isEmpty())
-        return;
-
-    if (m_engine)
+    QSet<int> registeredBands;
     {
-        m_engine->setInterrupted(true);
-        m_engine->deleteLater();
-        m_engine = NULL;
+        QMutexLocker engineLocker(&m_engineMutex);
+        if (m_running == false && m_registeredBands.isEmpty())
+            return;
+
+        m_running = false;
+        if (m_engine != nullptr)
+            m_engine->setInterrupted(true);
+        registeredBands.swap(m_registeredBands);
     }
 
     // Stop all functions started by this script
@@ -121,19 +125,16 @@ void ScriptRunner::stop()
     }
     m_fadersMap.clear();
 
-    // Unregister any audio bands we registered
-    if (!m_registeredBands.isEmpty())
+    // Unregister any audio bands we registered without holding the engine lock.
+    if (!registeredBands.isEmpty())
     {
         QSharedPointer<AudioCapture> capture = m_doc->audioInputCapture();
         if (!capture.isNull())
         {
-            for (int bands : m_registeredBands)
+            for (int bands : registeredBands)
                 capture->unregisterBandsNumber(bands);
         }
-        m_registeredBands.clear();
     }
-
-    m_running = false;
 }
 
 QStringList ScriptRunner::collectScriptData()
@@ -307,12 +308,18 @@ void ScriptRunner::run()
 {
     m_waitCount = 0;
 
-    m_engine = new QJSEngine();
-    QJSValue objectValue = m_engine->newQObject(this);
-    m_engine->globalObject().setProperty("Engine", objectValue);
+    auto engine = std::make_unique<QJSEngine>();
+    {
+        QMutexLocker engineLocker(&m_engineMutex);
+        if (!m_running)
+            return;
+        m_engine = engine.get();
+    }
+    QJSValue objectValue = engine->newQObject(this);
+    engine->globalObject().setProperty("Engine", objectValue);
     QQmlEngine::setObjectOwnership(this, QQmlEngine::CppOwnership);
 
-    QJSValue script = m_engine->evaluate("(function run() { " + m_content + " })");
+    QJSValue script = engine->evaluate("(function run() { " + m_content + " })");
 
     if (script.isCallable() == false)
     {
@@ -334,8 +341,13 @@ void ScriptRunner::run()
     // Signal write() that the JS code is done. Note that this must not stop
     // the Script right away: pending queued operations are dispatched by
     // write() on the MasterTimer thread and have to be flushed first
-    delete m_engine;
-    m_engine = nullptr;
+    {
+        QMutexLocker engineLocker(&m_engineMutex);
+        m_engine = nullptr;
+    }
+    // Unpublish before deleting on the runner thread, so stop() cannot
+    // interrupt an engine that is being destroyed.
+    engine.reset();
     m_running = false;
 }
 
@@ -681,6 +693,7 @@ int ScriptRunner::getAudioFrequency(int bandIndex, int numBands)
 
 AudioRenderView ScriptRunner::resolveAudio()
 {
+    QMutexLocker engineLocker(&m_engineMutex);
     if (m_running && m_registeredBands.isEmpty())
     {
         const auto capture = m_doc->audioInputCapture();

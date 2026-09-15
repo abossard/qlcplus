@@ -219,6 +219,42 @@ QList<RGBScriptProperty> HUEMatrix::scriptPropertyAttributes() const
     return properties;
 }
 
+void HUEMatrix::registerScriptPropertyAttributes()
+{
+    QMutexLocker algorithmLocker(&m_algorithmMutex);
+    RGBMatrix::registerScriptPropertyAttributes();
+    const auto properties = scriptPropertyAttributes();
+    for (int i = 0; i < properties.count(); ++i)
+    {
+        if (properties.at(i).m_type != RGBScriptProperty::Float)
+            continue;
+
+        bool valid = false;
+        const qreal value = static_cast<RGBScript *>(m_algorithm)
+            ->property(properties.at(i).m_name).toDouble(&valid);
+        if (!valid || !std::isfinite(value))
+            continue;
+
+        const int index = ScriptPropertyAttr + i;
+        includeFloatAttributeValue(index, value);
+        Function::adjustAttribute(value, index);
+    }
+}
+
+void HUEMatrix::includeFloatAttributeValue(int index, qreal value)
+{
+    const Attribute attribute = attributes().at(index);
+    if (value >= attribute.m_min && value <= attribute.m_max)
+        return;
+
+    // Float metadata has no bounds. Include the value accepted by the
+    // script without widening normalized properties unnecessarily.
+    registerAttribute(attribute.m_name, attribute.m_flags,
+                      qMin(attribute.m_min, value), qMax(attribute.m_max, value),
+                      attribute.m_value);
+    calculateOverrideValue(index);
+}
+
 void HUEMatrix::setProperty(QString propName, QString value)
 {
     QMutexLocker algorithmLocker(&m_algorithmMutex);
@@ -242,6 +278,8 @@ void HUEMatrix::setProperty(QString propName, QString value)
             return;
 
         const int index = ScriptPropertyAttr + i;
+        if (property.m_type == RGBScriptProperty::Float)
+            includeFloatAttributeValue(index, attributeValue);
         Function::adjustAttribute(attributeValue, index);
         if (attributes().at(index).m_isOverridden)
             applyScriptPropertyAttribute(i, getAttributeValue(index));
@@ -431,6 +469,7 @@ void HUEMatrix::setAlgorithm(RGBAlgorithm *algo)
         unregisterScriptPropertyAttributes();
         oldAlgo = m_algorithm;
         m_algorithm = algo;
+        m_runAlgorithm = nullptr;
 
         // Phase 4: invalidate any pending/stored precomputed frame BEFORE
         // releasing the algorithm pointer for deletion. Bumping the generation
@@ -726,10 +765,10 @@ void HUEMatrix::preRun(MasterTimer *timer)
             return;
         }
 
-        if (m_algorithm != NULL)
-        {
-            checkEngineCreation();
+        checkEngineCreation();
 
+        if (m_runAlgorithm != NULL)
+        {
             // Copy direction from parent class direction
             m_stepHandler->initializeDirection(direction(), m_rgbColors[0], m_rgbColors[1], m_stepsCount, m_runAlgorithm);
 
@@ -872,7 +911,7 @@ void HUEMatrix::write(MasterTimer *timer, QList<Universe *> universes)
     if (duration() == 0)
         return;
 
-    if (m_algorithm != NULL && m_requestEngineCreation)
+    if (m_requestEngineCreation)
         checkEngineCreation();
 
     // Invalid/nonexistent script

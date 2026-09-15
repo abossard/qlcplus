@@ -1128,6 +1128,13 @@ void InputOutputMap::slotPollAudio()
         return;
     updateAudioCaptureSubscription();
     auto view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(), AudioRenderView::nowNs());
+    if (view.sourceId != m_audioBeatSourceId || view.sourceEpoch != m_audioBeatEpoch)
+    {
+        QMutexLocker locker(&m_audioBeatMutex);
+        m_pendingAudioBeats = 0;
+        m_audioBeatSourceId = view.sourceId;
+        m_audioBeatEpoch = view.sourceEpoch;
+    }
     m_audioBeatCursor.advance(view);
     if (!view.tempoValid || view.bpm > std::numeric_limits<int>::max())
     {

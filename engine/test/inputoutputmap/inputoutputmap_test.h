@@ -56,6 +56,8 @@ private slots:
     void grandMaster();
     void beatSourceBpmAndExternalLock();
     void canonicalAudioClock();
+    void audioRestartDropsPendingBeats_data();
+    void audioRestartDropsPendingBeats();
     void canonicalPcmClock();
     void canonicalAudioOwnership_data();
     void canonicalAudioOwnership();

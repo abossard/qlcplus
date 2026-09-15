@@ -6,6 +6,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJSEngine>
+#include <QScopeGuard>
 #include <QSemaphore>
 #include <QtEndian>
 
@@ -30,6 +32,10 @@
 #include <chrono>
 #include <thread>
 #include <vector>
+
+#define private public
+#include "scriptrunner.h"
+#undef private
 
 #ifdef Q_OS_MACOS
 #include <mach/mach.h>
@@ -272,6 +278,98 @@ void AudioConsumers_Test::packedScriptContract()
     QCOMPARE(lit[3], 7);
     QCOMPARE(lit[4], 8);
     QCOMPARE(builtin.name(), QString("Audio Spectrum"));
+}
+
+void AudioConsumers_Test::scriptRunnerStop_data()
+{
+    QTest::addColumn<QString>("content");
+    QTest::addColumn<bool>("cancel");
+    QTest::addColumn<bool>("beforePublication");
+    QTest::addColumn<bool>("invalidSyntax");
+    QTest::newRow("natural-finish") << "Engine.objectName = 'running';" << false << false << false;
+    QTest::newRow("cancel-javascript")
+        << "while (true) { Engine.objectName = 'running'; }" << true << false << false;
+    QTest::newRow("cancel-wait")
+        << "Engine.objectName = 'running'; Engine.waitTime(60000);" << true << false << false;
+    QTest::newRow("cancel-before-publication")
+        << "Engine.objectName = 'unexpected';" << true << true << false;
+    QTest::newRow("malformed-javascript") << "var value = ;" << false << false << true;
+}
+
+void AudioConsumers_Test::scriptRunnerStop()
+{
+    QFETCH(QString, content);
+    QFETCH(bool, cancel);
+    QFETCH(bool, beforePublication);
+    QFETCH(bool, invalidSyntax);
+    Doc doc(nullptr);
+    ScriptRunner runner(&doc, nullptr, content);
+    QSemaphore entered, continueScript, destroying, continueDestruction;
+    bool destructionOnRunner = false;
+    bool engineUnpublished = false;
+    const auto cleanup = qScopeGuard([&]() {
+        continueScript.release();
+        continueDestruction.release();
+        runner.stop();
+        runner.wait();
+    });
+    const auto gate = [&]() {
+        entered.release();
+        continueScript.acquire();
+    };
+    if (invalidSyntax)
+    {
+        connect(&runner, &QThread::finished, &runner, [&, gate]() {
+            {
+                QMutexLocker engineLocker(&runner.m_engineMutex);
+                engineUnpublished = runner.m_engine == nullptr;
+            }
+            gate();
+        }, Qt::DirectConnection);
+    }
+    else if (beforePublication)
+        connect(&runner, &QThread::started, &runner, gate, Qt::DirectConnection);
+    else
+        connect(&runner, &QObject::objectNameChanged, &runner, gate, Qt::DirectConnection);
+
+    runner.execute();
+    QVERIFY2(entered.tryAcquire(1, 5000), "runner did not reach the execution gate");
+    if (!beforePublication && !invalidSyntax)
+    {
+        QMutexLocker engineLocker(&runner.m_engineMutex);
+        QVERIFY(runner.m_engine != nullptr);
+        connect(runner.m_engine, &QObject::destroyed, &runner, [&]() {
+            destructionOnRunner = QThread::currentThread() == &runner;
+            {
+                QMutexLocker engineLocker(&runner.m_engineMutex);
+                engineUnpublished = runner.m_engine == nullptr;
+            }
+            destroying.release();
+            continueDestruction.acquire();
+        }, Qt::DirectConnection);
+    }
+
+    if (cancel || invalidSyntax)
+        runner.stop();
+    continueScript.release();
+    if (!beforePublication && !invalidSyntax)
+    {
+        QVERIFY2(destroying.tryAcquire(1, 5000), "runner did not begin engine destruction");
+        // The worker is inside engine destruction while the caller stops it.
+        runner.stop();
+        continueDestruction.release();
+    }
+    QVERIFY2(runner.wait(5000), "runner did not finish after stop");
+    QVERIFY(!runner.m_running);
+    QVERIFY(runner.m_engine == nullptr);
+    if (beforePublication)
+        QVERIFY(runner.objectName().isEmpty());
+    else
+    {
+        if (!invalidSyntax)
+            QVERIFY(destructionOnRunner);
+        QVERIFY(engineUnpublished);
+    }
 }
 
 void AudioConsumers_Test::pcmToPixels_data()

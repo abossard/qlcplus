@@ -2071,8 +2071,13 @@ QVariantList VCAudioTriggers::bankConfiguration() const
 
 bool VCAudioTriggers::updateBank(int bankIndex, const QVariantMap &changes)
 {
-    if (bankIndex < 0 || bankIndex >= 3 || changes.isEmpty() || !editableAudioProfile())
+    const auto reject = [this, bankIndex](const QString &reason) {
+        qWarning().noquote() << "Audio bank" << bankIndex << "update rejected:" << reason;
+        emit configChanged();
         return false;
+    };
+    if (bankIndex < 0 || bankIndex >= 3 || changes.isEmpty() || !editableAudioProfile())
+        return reject(tr("Select an available profile and bank"));
     auto config = profileChannelConfig();
     auto &bank = bankIndex == 0 ? config.aubio.melBanks.low :
                  bankIndex == 1 ? config.aubio.melBanks.mid : config.aubio.melBanks.high;
@@ -2094,18 +2099,19 @@ bool VCAudioTriggers::updateBank(int bankIndex, const QVariantMap &changes)
         if (it.key() == QLatin1String("enabled"))
         {
             if (it.value().metaType().id() != QMetaType::Bool)
-                return false;
+                return reject(tr("Enabled must be a boolean"));
             bank.post.enabled = it.value().toBool();
             continue;
         }
         bool ok = false;
         const double value = it.value().toDouble(&ok);
         if (!ok || !std::isfinite(value))
-            return false;
+            return reject(tr("%1 must be a finite number").arg(it.key()));
         if (it.key() == QLatin1String("bands"))
         {
             if (value < 4 || value > AudioSnapshot::kMelBankBandsMax || std::floor(value) != value)
-                return false;
+                return reject(tr("Band count must be an integer from 4 to %1")
+                              .arg(AudioSnapshot::kMelBankBandsMax));
             bank.bands = int(value);
             continue;
         }
@@ -2113,11 +2119,11 @@ bool VCAudioTriggers::updateBank(int bankIndex, const QVariantMap &changes)
             return it.key() == QLatin1String(f.name);
         });
         if (field == std::end(fields) || value < field->min || value > field->max)
-            return false;
+            return reject(tr("Unknown or out-of-range field: %1").arg(it.key()));
         *field->value = value;
     }
     if (bank.minHz >= bank.maxHz || trigger.lowThreshold >= trigger.highThreshold)
-        return false;
+        return reject(tr("Minimum frequency and low trigger must be below their upper bounds"));
     config.aubio.melBanks.preset = QStringLiteral("Custom");
     applyChannelConfig(config);
     return true;

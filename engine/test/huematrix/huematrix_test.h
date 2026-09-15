@@ -46,6 +46,8 @@ private slots:
     void createCopyPreservesHue_data();
     void createCopyPreservesHue();
     void scriptAttributeLifecycle();
+    void floatPropertyAttributes_data();
+    void floatPropertyAttributes();
     void authoredPropertiesSurviveStyleRelease_data();
     void authoredPropertiesSurviveStyleRelease();
     void hueUiRoutesNames();

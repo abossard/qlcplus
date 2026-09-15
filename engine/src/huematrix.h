@@ -111,6 +111,8 @@ public:
 protected:
     void applyPatternAttribute(qreal patternIndex) override;
     QList<RGBScriptProperty> scriptPropertyAttributes() const override;
+    void registerScriptPropertyAttributes();
+    void includeFloatAttributeValue(int index, qreal value);
     void applyScriptPropertyAttribute(int attrIndex, qreal value) override;
 
     /** @reimp */
