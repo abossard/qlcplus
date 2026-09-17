@@ -30,6 +30,8 @@ var testAlgo;
     algo.properties.push("name:mirror|type:list|display:Mirror|values:Yes,No|write:setMirror|read:getMirror");
     algo.properties.push("name:flipGradient|type:list|display:Flip Gradient|values:Yes,No|write:setFlipGradient|read:getFlipGradient");
     algo.properties.push("name:flipBandOrder|type:list|display:Flip Band Order|values:Yes,No|write:setFlipBandOrder|read:getFlipBandOrder");
+    algo.presetMatrixLayout = "Matrix";
+    algo.properties.push("name:matrixLayout|type:list|display:Layout|values:Matrix,Repeated rows|write:setMatrixLayout|read:getMatrixLayout");
     algo.setBandCount = function(v) { algo.presetBandCount = Math.max(1, Math.min(16, parseInt(v) || 1)); };
     algo.getBandCount = function() { return algo.presetBandCount; };
     algo.setMirror = function(v) { algo.presetMirror = v === "Yes" ? "Yes" : "No"; };
@@ -38,13 +40,15 @@ var testAlgo;
     algo.getFlipGradient = function() { return algo.presetFlipGradient; };
     algo.setFlipBandOrder = function(v) { algo.presetFlipBandOrder = v === "Yes" ? "Yes" : "No"; };
     algo.getFlipBandOrder = function() { return algo.presetFlipBandOrder; };
+    algo.setMatrixLayout = function(v) { algo.presetMatrixLayout = v === "Repeated rows" ? "Repeated rows" : "Matrix"; };
+    algo.getMatrixLayout = function() { return algo.presetMatrixLayout; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo, { display: "" });
 
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.rgbMap = function(width, height, rgb, step, audio) {
+    function renderInternal(width, height, audio) {
         var map = HSVUtil.createMap(width, height);
         var pixelCount = width * height;
         if (pixelCount <= 0)
@@ -135,6 +139,20 @@ var testAlgo;
             }
         }
         return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
+    };
+
+    algo.rgbMap = function(width, height, rgb, step, audio) {
+        var repeatedRows = algo.presetMatrixLayout === "Repeated rows" &&
+            width > 1 && height > 1;
+        if (!repeatedRows)
+            return renderInternal(width, height, audio);
+
+        var row = renderInternal(width, 1, audio);
+        var map = HSVUtil.createMap(width, height);
+        var rowSize = width * 3;
+        for (var y = 0; y < height; y++)
+            map.set(row, y * rowSize);
+        return map;
     };
 
     testAlgo = algo;

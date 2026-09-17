@@ -60,6 +60,10 @@ var testAlgo;
     algo.properties.push(
       "name:presetAxis|type:list|display:Axis|" +
       "values:Horizontal,Vertical|write:setAxis|read:getAxis");
+    algo.presetMatrixLayout = "Matrix";
+    algo.properties.push(
+      "name:matrixLayout|type:list|display:Layout|" +
+      "values:Matrix,Repeated rows|write:setMatrixLayout|read:getMatrixLayout");
     algo.presetSourceMode = "Power";
     algo.properties.push(
       "name:presetSourceMode|type:list|display:Source|" +
@@ -99,6 +103,8 @@ var testAlgo;
     algo.getGradient = function() { return algo.presetGradient; };
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
+    algo.setMatrixLayout = function(_v) { algo.presetMatrixLayout = _v === "Repeated rows" ? "Repeated rows" : "Matrix"; };
+    algo.getMatrixLayout = function() { return algo.presetMatrixLayout; };
     algo.setSourceMode = function(_v) { algo.presetSourceMode = _v === "Melbank" ? "Melbank" : "Power"; };
     algo.getSourceMode = function() { return algo.presetSourceMode; };
     algo.setMelbank = function(_v) { algo.presetMelbank = _v === "Novelty" ? "Novelty" : "Processed"; };
@@ -241,7 +247,7 @@ var testAlgo;
         }
     }
 
-    algo.rgbMap = function(width, height, rgb, step, audio) {
+    function renderInternal(width, height, audio) {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var ledFxMode = algo.presetMode === "LedFx Scan Multi";
@@ -404,6 +410,21 @@ var testAlgo;
                 map[i3] = c2.h; map[i3+1] = c2.s; map[i3+2] = c2.v;
             }
         }
+        return map;
+    };
+
+    algo.rgbMap = function(width, height, rgb, step, audio) {
+        var repeatedRows = algo.presetMode === "LedFx Scan Multi" &&
+            algo.presetMatrixLayout === "Repeated rows" &&
+            width > 1 && height > 1;
+        if (!repeatedRows)
+            return renderInternal(width, height, audio);
+
+        var row = renderInternal(width, 1, audio);
+        var map = HSVUtil.createMap(width, height);
+        var rowSize = width * 3;
+        for (var y = 0; y < height; y++)
+            map.set(row, y * rowSize);
         return map;
     };
 

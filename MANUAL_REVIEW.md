@@ -1367,6 +1367,8 @@ geometry and Artistic-preservation tests.
 - ☐ Scan Multi / LedFx: Axis exchanges travel and lane axes; assess the fractional brightness differences on a shallow matrix.
 - ☐ Bands Matrix: frequency groups and amplitude heights remain readable on 80x4, 32x32 and an odd-sized matrix.
 - ☐ Bands Matrix: Flip Band Order moves each frequency group's fill direction and gradient together, including an even number of groups.
+- ☐ Both effects: switch Layout between Matrix and Repeated rows; the latter repeats the same strip across every row without changing the selected Response.
+- ☐ Save and reopen each Layout choice. Confirm it is retained and that Scan Multi's Artistic appearance is unchanged by either choice.
 - ☐ Confirm that the changed source responses improve the matrix appearance before continuing to Fire and the remaining adaptations.
 - ☐ Confirm Artistic looks remain unchanged. Do not accept similar-looking output in place of the exact preservation checks.
 

@@ -11757,72 +11757,303 @@ function assertMatrixResponseGeometry() {
     console.log('PASS matrix response geometry: literal scan lanes, thin-axis overlap, full-spectrum bars and gradient anchors');
 }
 
-function assertMatrixResponsePreservation() {
-    const option = process.argv.indexOf('--matrix-oracle');
-    if (option < 0) return;
-    const directory = process.argv[option + 1];
-    assert(directory && !directory.startsWith('--'), '--matrix-oracle requires a frozen script directory');
-    assert.strictEqual(fs.readFileSync(path.join(directory, 'hsvutil.js'), 'utf8'), HSV_UTIL,
-        'The frozen helper must match: loadScript shares the current HSV utility');
-    const files = ['audioscanmulti.js', 'audiobandsmatrix.js'];
-    let comparisons = 0;
-    for (const file of files) {
-        for (const [width, height] of [[1, 1], [1, 11], [11, 1], [7, 11], [11, 7], [32, 32], [80, 4]]) {
-            const pair = [loadScript(file), loadScript(file, 0x5eed, directory)];
-            assert.strictEqual(JSON.stringify(pair[0].properties), JSON.stringify(pair[1].properties));
-            for (const property of pair[0].properties.map(parseProperty))
-                assert.strictEqual(JSON.stringify(pair[0][property.read]()), JSON.stringify(pair[1][property.read]()),
-                    `${file} default ${property.name}`);
-            for (const axis of file === 'audioscanmulti.js' ? ['Horizontal', 'Vertical'] : ['Horizontal']) {
-                for (const algo of pair) {
-                    algo.setMirror('No');
-                    if (file === 'audioscanmulti.js') {
-                        algo.setAxis(axis);
-                        algo.setSpeed(23);
-                        algo.setWidth(27);
-                        algo.setAttack(0.37);
-                        algo.setDecay(0.13);
-                        algo.setGradient('Yes');
-                    } else {
-                        algo.setBandCount(5);
-                        algo.setFlipGradient('Yes');
-                        algo.setFlipBandOrder('Yes');
-                    }
+function assertMatrixLayoutChoices() {
+    function assertLayoutDescriptor(file) {
+        const algo = loadScript(file);
+        const layout = algo.properties.map(parseProperty).filter(property => property.name === 'matrixLayout');
+        assert.strictEqual(layout.length, 1, `${file}: expected one matrixLayout descriptor`);
+        const descriptor = layout[0];
+        assert.strictEqual(descriptor.type, 'list', `${file}: matrixLayout must be a list`);
+        assert.strictEqual(descriptor.display, 'Layout', `${file}: matrixLayout display label`);
+        assert.strictEqual(descriptor.values, 'Matrix,Repeated rows', `${file}: matrixLayout values`);
+        assert.strictEqual(typeof algo[descriptor.write], 'function', `${file}: matrixLayout write accessor`);
+        assert.strictEqual(typeof algo[descriptor.read], 'function', `${file}: matrixLayout read accessor`);
+        assert.strictEqual(algo[descriptor.read](), 'Matrix', `${file}: matrixLayout default`);
+        algo[descriptor.write]('Repeated rows');
+        assert.strictEqual(algo[descriptor.read](), 'Repeated rows', `${file}: matrixLayout repeated rows setter`);
+        algo[descriptor.write]('Matrix');
+        assert.strictEqual(algo[descriptor.read](), 'Matrix', `${file}: matrixLayout matrix setter`);
+    }
+
+    function layoutFrame(tick) {
+        const noveltyBase = [0.15, 0.82, 0.37, 0.66, 0.28, 0.74, 0.41, 0.93];
+        const processedBase = [0.71, 0.19, 0.59, 0.31, 0.88, 0.23, 0.47, 0.54];
+        const rotate = (values, amount) =>
+            values.map((_, index) => values[(index + amount) % values.length]);
+        return audio({
+            version: 6,
+            low: [0.12, 0.58, 0.24, 0.83, 0.41, 0.67][tick % 6],
+            mid: [0.21, 0.36, 0.62, 0.27, 0.53, 0.44][tick % 6],
+            high: [0.74, 0.29, 0.61, 0.47, 0.35, 0.78][tick % 6],
+            dt: tick === 2 ? 0 : 0.16,
+            timing: { deltaSeconds: tick === 2 ? 0 : 0.08 },
+            sourceEpoch: tick < 4 ? 1 : 2,
+            banks: {
+                full: {
+                    count: noveltyBase.length,
+                    novelty: rotate(noveltyBase, tick % noveltyBase.length),
+                    processed: rotate(processedBase, (tick * 2) % processedBase.length)
                 }
-                for (let tick = 0; tick < 45; tick++) {
-                    const mode = tick < 8 || tick >= 32 ? 'Artistic' : 'LedFx Scan Multi';
-                    const seconds = tick % 9 ? 0.2 : 0;
-                    const frame = audio({
-                        version: 6, low: (tick % 7) / 8, mid: 0.31, high: 0.67,
-                        dt: seconds * 2, timing: { deltaSeconds: seconds },
-                        sourceEpoch: tick < 24 ? 1 : 2,
-                        banks: { full: { count: 6, novelty: [0.1, 0.9, 0.2, 0.7, 0.3, 0.5],
-                            processed: [0.8, 0.1, 0.4, 0.2, 0.9, 0.3] } }
-                    });
-                    const maps = pair.map(algo => {
-                        if (file === 'audioscanmulti.js') {
-                            algo.setMode(mode);
-                            algo.setBounce(tick < 20 ? 'Yes' : 'No');
-                            algo.setSourceMode(tick < 16 ? 'Power' : 'Melbank');
-                            algo.setMelbank(tick < 28 ? 'Processed' : 'Novelty');
-                        }
-                        return render(algo, file, width, height, frame, 'frozen matrix-preservation oracle');
-                    });
-                    if (width === 1 || height === 1 || (file === 'audioscanmulti.js' && mode === 'Artistic')) {
-                        assert.deepStrictEqual(maps[0], maps[1], `${file} ${width}x${height} ${axis} ${mode} tick ${tick}`);
-                        comparisons++;
-                    }
-                    if (file === 'audioscanmulti.js')
-                        assert.strictEqual(JSON.stringify(pair[0].scans), JSON.stringify(pair[1].scans),
-                            'Matrix drawing must not alter source position or bounce state');
+            },
+            events: { delta: { onset: tick === 3 ? 1 : 0, beat: tick === 4 ? 1 : 0, kick: 0, bar: 0 } }
+        });
+    }
+
+    function configure(file, algo) {
+        if (file === 'audioscanmulti.js') {
+            algo.setMode('LedFx Scan Multi');
+            algo.setAxis('Vertical');
+            algo.setSpeed(27);
+            algo.setWidth(34);
+            algo.setBounce('Yes');
+            algo.setSourceMode('Melbank');
+            algo.setMelbank('Processed');
+            algo.setFilter('On');
+            algo.setAttack(0.35);
+            algo.setDecay(0.14);
+            algo.setGradient('Yes');
+        } else {
+            algo.setBandCount(6);
+            algo.setFlipGradient('Yes');
+            algo.setFlipBandOrder('No');
+        }
+        algo.setFlip('On');
+        algo.setMirror('On');
+        algo.setBackgroundMode('Additive');
+        algo.setBackgroundColor('#224466');
+        algo.setBackgroundBrightness(0.4);
+        algo.setBrightness(0.85);
+        algo.setBlur(1.15);
+    }
+
+    function applyTickControls(file, algo, tick) {
+        if (file === 'audioscanmulti.js') {
+            if (tick === 1) algo.setSourceMode('Power');
+            if (tick === 2) {
+                algo.setSourceMode('Melbank');
+                algo.setMelbank('Novelty');
+            }
+            if (tick === 3) algo.setBounce('No');
+            if (tick === 4) algo.setAxis('Horizontal');
+            if (tick === 5) algo.setFilter('Off');
+        } else {
+            if (tick === 2) algo.setFlipBandOrder('Yes');
+            if (tick === 3) algo.setFlipGradient('No');
+            if (tick === 4) algo.setBandCount(3);
+            if (tick === 5) algo.setMirror('No');
+        }
+    }
+
+    function assertRowsEqualToStrip(matrixMap, stripMap, width, height, label) {
+        const rowSize = width * 3;
+        assert.strictEqual(stripMap.length, rowSize, `${label}: strip map width mismatch`);
+        for (let row = 0; row < height; row++) {
+            const start = row * rowSize;
+            assert.deepStrictEqual(
+                matrixMap.slice(start, start + rowSize),
+                stripMap,
+                `${label}: row ${row} mismatch`
+            );
+        }
+    }
+
+    const files = ['audioscanmulti.js', 'audiobandsmatrix.js'];
+    for (const file of files)
+        assertLayoutDescriptor(file);
+
+    const layoutSequence = ['Matrix', 'Repeated rows', 'Repeated rows', 'Matrix', 'Repeated rows', 'Repeated rows'];
+    for (const file of files) {
+        for (const [width, height] of [[7, 11], [80, 4]]) {
+            const matrixAlgo = loadScript(file, 0x7a11);
+            const oracleAlgo = loadScript(file, 0x7a11);
+            configure(file, matrixAlgo);
+            configure(file, oracleAlgo);
+            for (let tick = 0; tick < layoutSequence.length; tick++) {
+                const layout = layoutSequence[tick];
+                applyTickControls(file, matrixAlgo, tick);
+                applyTickControls(file, oracleAlgo, tick);
+                matrixAlgo.setMatrixLayout(layout);
+                oracleAlgo.setMatrixLayout(layout);
+                const frame = layoutFrame(tick);
+                const matrixMap = render(matrixAlgo, file, width, height, frame,
+                    `${file} ${width}x${height} layout ${layout} tick ${tick}`);
+                if (layout === 'Repeated rows') {
+                    const stripMap = render(oracleAlgo, file, width, 1, frame,
+                        `${file} ${width}x1 strip oracle tick ${tick}`);
+                    assertRowsEqualToStrip(matrixMap, stripMap, width, height,
+                        `${file} ${width}x${height} repeated rows tick ${tick}`);
+                } else {
+                    const expected = render(oracleAlgo, file, width, height, frame,
+                        `${file} ${width}x${height} matrix oracle tick ${tick}`);
+                    assert.deepStrictEqual(matrixMap, expected,
+                        `${file} ${width}x${height} matrix layout tick ${tick}`);
                 }
             }
         }
+        for (const [width, height] of [[1, 1], [1, 11], [11, 1]]) {
+            const matrixAlgo = loadScript(file, 0x5e11);
+            const rowsAlgo = loadScript(file, 0x5e11);
+            configure(file, matrixAlgo);
+            configure(file, rowsAlgo);
+            for (let tick = 0; tick < 6; tick++) {
+                applyTickControls(file, matrixAlgo, tick);
+                applyTickControls(file, rowsAlgo, tick);
+                matrixAlgo.setMatrixLayout('Matrix');
+                rowsAlgo.setMatrixLayout('Repeated rows');
+                const frame = layoutFrame(tick);
+                const matrixMap = render(matrixAlgo, file, width, height, frame,
+                    `${file} strip matrix ${width}x${height} tick ${tick}`);
+                const rowsMap = render(rowsAlgo, file, width, height, frame,
+                    `${file} strip rows ${width}x${height} tick ${tick}`);
+                assert.deepStrictEqual(rowsMap, matrixMap,
+                    `${file} strip geometry must ignore layout ${width}x${height} tick ${tick}`);
+            }
+        }
     }
-    console.log(`PASS matrix preservation: ${comparisons} exact HSV maps, unchanged descriptors/defaults and scan state`);
+    for (const axis of ['Horizontal', 'Vertical']) {
+        const file = 'audioscanmulti.js';
+        const pair = [loadScript(file), loadScript(file)];
+        pair.forEach(algo => configure(file, algo));
+        for (let tick = 0; tick < 6; tick++) {
+            const maps = pair.map((algo, index) => {
+                applyTickControls(file, algo, tick);
+                algo.setMode('Artistic');
+                algo.setAxis(axis);
+                algo.setMatrixLayout(index ? 'Repeated rows' : 'Matrix');
+                return render(algo, file, 7, 11, layoutFrame(tick), 'Artistic ignores Layout');
+            });
+            assert.deepStrictEqual(maps[0], maps[1], `Artistic ignores Layout: ${axis} tick ${tick}`);
+        }
+    }
+    console.log('PASS matrix layout choices: descriptors, repeated-row parity, strip invariance and Artistic exclusion');
 }
 
-if (process.argv.includes('--reference-effects')) {
+function optionalCliValue(flag) {
+    const index = process.argv.indexOf(flag);
+    if (index < 0) return null;
+    const value = process.argv[index + 1];
+    assert(value && !value.startsWith('--'), `${flag} requires a directory path`);
+    return value;
+}
+
+function assertMatrixResponsePreservation() {
+    const layoutDirectory = optionalCliValue('--matrix-layout-before');
+    const baselineDirectory = optionalCliValue('--matrix-baseline') || optionalCliValue('--matrix-oracle');
+    if (!layoutDirectory && !baselineDirectory) return;
+    const files = ['audioscanmulti.js', 'audiobandsmatrix.js'];
+    function assertOnlyMatrixLayoutMetadataDelta(file, oracleDirectory, label) {
+        const current = loadScript(file);
+        const oracle = loadScript(file, 0x5eed, oracleDirectory);
+        const parsedCurrent = current.properties.map(parseProperty);
+        const layoutDescriptors = parsedCurrent.filter(property => property.name === 'matrixLayout');
+        assert.strictEqual(layoutDescriptors.length, 1, `${file} ${label}: missing matrixLayout descriptor`);
+        const layout = layoutDescriptors[0];
+        assert.strictEqual(layout.type, 'list', `${file} ${label}: matrixLayout type`);
+        assert.strictEqual(layout.display, 'Layout', `${file} ${label}: matrixLayout display`);
+        assert.strictEqual(layout.values, 'Matrix,Repeated rows', `${file} ${label}: matrixLayout values`);
+        assert.strictEqual(current[layout.read](), 'Matrix', `${file} ${label}: matrixLayout default`);
+        const stripped = current.properties.filter(descriptor => parseProperty(descriptor).name !== 'matrixLayout');
+        assert.strictEqual(JSON.stringify(stripped), JSON.stringify(oracle.properties),
+            `${file} ${label}: only matrixLayout descriptor may differ`);
+        for (const property of oracle.properties.map(parseProperty))
+            assert.strictEqual(JSON.stringify(current[property.read]()), JSON.stringify(oracle[property.read]()),
+                `${file} ${label}: default ${property.name}`);
+    }
+
+    function compareAgainstOracle(oracleDirectory, label, comparePredicate, layoutChooser) {
+        assert.strictEqual(fs.readFileSync(path.join(oracleDirectory, 'hsvutil.js'), 'utf8'), HSV_UTIL,
+            `${label}: frozen helper must match current hsvutil.js`);
+        for (const file of files)
+            assertOnlyMatrixLayoutMetadataDelta(file, oracleDirectory, label);
+        let comparisons = 0;
+        for (const file of files) {
+            const layoutChoices = layoutChooser(file);
+            for (const layoutChoice of layoutChoices) {
+                for (const [width, height] of [[1, 1], [1, 11], [11, 1], [7, 11], [11, 7], [32, 32], [80, 4]]) {
+                    const pair = [loadScript(file), loadScript(file, 0x5eed, oracleDirectory)];
+                    for (const axis of file === 'audioscanmulti.js' ? ['Horizontal', 'Vertical'] : ['Horizontal']) {
+                        for (const algo of pair) {
+                            algo.setMirror('No');
+                            if (file === 'audioscanmulti.js') {
+                                algo.setAxis(axis);
+                                algo.setSpeed(23);
+                                algo.setWidth(27);
+                                algo.setAttack(0.37);
+                                algo.setDecay(0.13);
+                                algo.setGradient('Yes');
+                            } else {
+                                algo.setBandCount(5);
+                                algo.setFlipGradient('Yes');
+                                algo.setFlipBandOrder('Yes');
+                            }
+                        }
+                        pair[0].setMatrixLayout(layoutChoice);
+                        for (let tick = 0; tick < 45; tick++) {
+                            const mode = tick < 8 || tick >= 32 ? 'Artistic' : 'LedFx Scan Multi';
+                            const seconds = tick % 9 ? 0.2 : 0;
+                            const frame = audio({
+                                version: 6, low: (tick % 7) / 8, mid: 0.31, high: 0.67,
+                                dt: seconds * 2, timing: { deltaSeconds: seconds },
+                                sourceEpoch: tick < 24 ? 1 : 2,
+                                banks: { full: { count: 6, novelty: [0.1, 0.9, 0.2, 0.7, 0.3, 0.5],
+                                    processed: [0.8, 0.1, 0.4, 0.2, 0.9, 0.3] } }
+                            });
+                            const maps = pair.map(algo => {
+                                if (file === 'audioscanmulti.js') {
+                                    algo.setMode(mode);
+                                    algo.setBounce(tick < 20 ? 'Yes' : 'No');
+                                    algo.setSourceMode(tick < 16 ? 'Power' : 'Melbank');
+                                    algo.setMelbank(tick < 28 ? 'Processed' : 'Novelty');
+                                }
+                                return render(algo, file, width, height, frame, `${label} oracle`);
+                            });
+                            if (comparePredicate(file, width, height, mode)) {
+                                assert.deepStrictEqual(
+                                    maps[0], maps[1],
+                                    `${file} ${label} ${layoutChoice} ${width}x${height} ${axis} ${mode} tick ${tick}`
+                                );
+                                comparisons++;
+                            }
+                            if (file === 'audioscanmulti.js' &&
+                                (layoutChoice === 'Matrix' || comparePredicate(file, width, height, mode)))
+                                assert.strictEqual(JSON.stringify(pair[0].scans), JSON.stringify(pair[1].scans),
+                                    `${file} ${label}: source position state changed`);
+                        }
+                    }
+                }
+            }
+        }
+        return comparisons;
+    }
+
+    const summaries = [];
+    if (layoutDirectory) {
+        const matrixComparisons = compareAgainstOracle(
+            layoutDirectory,
+            'layout-before',
+            () => true,
+            () => ['Matrix']
+        );
+        summaries.push(`layout-before=${matrixComparisons}`);
+    }
+    if (baselineDirectory) {
+        const baselineComparisons = compareAgainstOracle(
+            baselineDirectory,
+            'baseline',
+            (file, width, height, mode) =>
+                width === 1 || height === 1 || (file === 'audioscanmulti.js' && mode === 'Artistic'),
+            () => ['Matrix', 'Repeated rows']
+        );
+        summaries.push(`baseline=${baselineComparisons}`);
+    }
+    console.log(`PASS matrix preservation: ${summaries.join(', ')} exact HSV checks; only matrixLayout metadata delta allowed`);
+}
+
+if (process.argv.includes('--matrix-layout-only')) {
+    assertMatrixResponseGeometry();
+    assertMatrixLayoutChoices();
+    assertMatrixResponsePreservation();
+} else if (process.argv.includes('--reference-effects')) {
     compareReferenceEffects().catch(error => { console.error(error); process.exitCode = 1; });
 } else {
 assertScriptIdentityBijection();
@@ -11950,6 +12181,7 @@ assertWaterfallHistory();
 assertDigitalRainMotion();
 assertRainPulseSelection();
 assertMatrixResponseGeometry();
+assertMatrixLayoutChoices();
 assertMatrixResponsePreservation();
 assertScrollPlusFractionalShift();
 assertSharedHueHelperBoundaries();

@@ -261,15 +261,22 @@ a diagnostic without discarding the property or its authored value.
 
 ### Matrix-aware source responses
 
-With both dimensions greater than one, `LedFx Scan Multi` places the three
-frequency scanners in separate lanes. Axis now selects travel direction for
-this response; it was previously ignored. Fractional cell coverage keeps thin
+Scan Multi and Bands Matrix offer a saved **Layout** choice: **Matrix**
+(default) or **Repeated rows**. Repeated rows renders a strip at the matrix's
+width and copies that row over its height. Scan Multi's Artistic response
+ignores Layout; single-row and single-column output is unchanged.
+Changing Layout resets Scan Multi's positions through its existing size-change
+reset behavior.
+
+With Matrix selected and both dimensions greater than one, `LedFx Scan Multi`
+places the three frequency scanners in separate lanes. Axis now selects travel
+direction for this response; it was previously ignored. Fractional cell coverage keeps thin
 matrices usable, but can give lanes different peak brightness. Colors still
 add where footprints overlap; separated lanes reduce that overlap.
 
-Audio Bands Matrix maps frequency groups to columns and amplitude to height.
-Visible groups are capped at the matrix width without dropping any frequency
-range. Uneven column groups use floor boundaries, so spare columns go toward
+In Matrix layout, Audio Bands Matrix maps frequency groups to columns and
+amplitude to height. Visible groups are capped at the matrix width without
+dropping any frequency range. Uneven column groups use floor boundaries, so spare columns go toward
 the last groups rather than the strip renderer's first groups. Alternating
 fill and gradient direction stays attached to its frequency group when
 Flip Band Order is enabled.
