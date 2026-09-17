@@ -1126,6 +1126,8 @@ bool Doc::addAudioProfile(AudioProfile *profile)
     profile->bindAnalyzer(audioAnalyzer());
     m_audioProfiles[id] = profile;
     connect(profile, &AudioProfile::isDefaultChanged, this, &Doc::resolveActiveAudioProfile);
+    connect(profile, &AudioProfile::configChanged, this, &Doc::resolveActiveAudioProfile);
+    connect(profile, &AudioProfile::audioSourceChanged, this, &Doc::resolveActiveAudioProfile);
 
     // Wire audio source changes so OSC can be connected/disconnected dynamically
     connect(profile, &AudioProfile::audioSourceChanged,
@@ -1210,6 +1212,39 @@ AudioProfile* Doc::ensureDefaultAudioProfile()
     return profile;
 }
 
+AudioProfile *Doc::ensureLowLatencyAudioProfile()
+{
+    for (auto *profile : audioProfiles())
+        if (profile->builtInKey() == QStringLiteral("low-latency"))
+            return profile;
+    ensureDefaultAudioProfile();
+    quint32 id = m_audioProfiles.isEmpty() ? 0 : m_audioProfiles.lastKey() + 1;
+    while (id == AudioProfile::invalidId() || m_audioProfiles.contains(id))
+        ++id;
+    QString name = QStringLiteral("Low Latency");
+    int suffix = 2;
+    auto nameUsed = [&]() {
+        for (auto *profile : audioProfiles())
+            if (profile->name() == name)
+                return true;
+        return false;
+    };
+    while (nameUsed())
+        name = QStringLiteral("Low Latency (%1)").arg(suffix++);
+    auto *profile = new AudioProfile(id, this);
+    profile->setName(name);
+    profile->setBuiltInKey(QStringLiteral("low-latency"));
+    profile->setChannelConfig(AudioChannelConfig::lowLatency());
+    // Preserve fallback selection even when ID wraparound fills an earlier hole.
+    const auto active = activeAudioProfileId();
+    if (id < m_audioProfiles.firstKey() && active != AudioProfile::invalidId())
+        m_activeAudioProfileId = active;
+    if (addAudioProfile(profile))
+        return profile;
+    delete profile;
+    return nullptr;
+}
+
 quint32 Doc::activeAudioProfileId() const
 {
     return m_audioAnalyzer->activeProfileId();
@@ -1232,6 +1267,9 @@ void Doc::resolveActiveAudioProfile()
     const quint32 id = profile ? profile->id() : AudioProfile::invalidId();
     const quint32 previous = m_audioAnalyzer->activeProfileId();
     m_audioAnalyzer->setActiveProfileId(id);
+    if (m_inputCapture)
+        m_inputCapture->setGlobalProfileDemand(!profile || profile->audioSource() == AudioProfile::Microphone,
+                                               profile ? profile->channelConfig().captureBufferMs : 0);
     if (previous != id)
         emit activeAudioProfileIdChanged(id);
 }

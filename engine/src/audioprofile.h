@@ -203,6 +203,8 @@ public:
     AudioChannelConfig channelConfig() const;
     void setChannelConfig(const AudioChannelConfig &config);
     QString migrationWarning() const { return m_migrationWarning; }
+    QString builtInKey() const { return m_builtInKey; }
+    void setBuiltInKey(const QString &key) { m_builtInKey = key; }
 
     void bindAnalyzer(AudioAnalyzer *analyzer);
     void releaseAnalyzer();
@@ -230,6 +232,7 @@ private:
     AudioSourceType m_audioSource = Microphone;
     quint16 m_oscPort = 9999;
     QString m_migrationWarning;
+    QString m_builtInKey;
 };
 
 /** @} */

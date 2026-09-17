@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>HUE effects | QLC+ visual booklet</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --paper: #f5f6f8; --card: #fff; --ink: #172330; --muted: #4d5967;
+      --line: #cbd2da; --accent: #14578a; --soft: #e7eef5; --warning: #813c05;
+      --warning-bg: #fff1d8; --error: #a02330; --ok: #216442;
+      font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #11171e; --card: #1a222c; --ink: #eef2f6; --muted: #b6c2cf;
+        --line: #465461; --accent: #92cfff; --soft: #253646; --warning: #ffd290;
+        --warning-bg: #382b1b; --error: #ffadb5; --ok: #a0d7b5;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); }
+    a { color: var(--accent); text-underline-offset: .18em; }
+    button, input, select { font: inherit; }
+    button, select, input[type="search"] {
+      border: 1px solid var(--line); border-radius: .35rem; padding: .45rem .65rem;
+      background: var(--card); color: var(--ink);
+    }
+    button { cursor: pointer; }
+    button:hover:not(:disabled) { background: var(--soft); }
+    button:disabled { opacity: .55; cursor: default; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    [hidden] { display: none !important; }
+    .skip { position: absolute; left: 1rem; top: -5rem; background: var(--card); padding: .6rem; }
+    .skip:focus { top: .5rem; z-index: 5; }
+    .wrap { max-width: 1240px; margin: auto; padding: 1.5rem; }
+    header { border-bottom: 1px solid var(--line); padding-bottom: 1.25rem; }
+    .eyebrow { color: var(--muted); font-size: .8rem; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1.1; margin: .5rem 0 1rem; }
+    h2 { font-size: 1.5rem; line-height: 1.25; }
+    h3 { font-size: 1.08rem; line-height: 1.35; margin: 0; }
+    p { margin: .6rem 0; }
+    .intro { max-width: 80ch; }
+    .muted, .caption { color: var(--muted); }
+    .caption { font-size: .87rem; }
+    .warning { color: var(--warning); background: var(--warning-bg); padding: .7rem .9rem; border-radius: .35rem; }
+    .notice { border-left: 3px solid var(--accent); padding: .7rem 1rem; background: var(--soft); }
+    .error { color: var(--error); }
+    .ok { color: var(--ok); }
+    .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
+    .actions a { margin-right: .65rem; }
+    details { margin-top: .65rem; }
+    summary { cursor: pointer; font-weight: 600; }
+    dl { display: grid; grid-template-columns: minmax(6rem, 10rem) 1fr; gap: .4rem 1rem; font-size: .9rem; }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .83rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: .5rem 0; }
+    .toolbar {
+      position: sticky; top: 0; z-index: 2; background: var(--paper);
+      padding: .9rem 0; border-bottom: 1px solid var(--line);
+    }
+    .filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+    .field { display: flex; flex-direction: column; gap: .2rem; font-size: .88rem; }
+    .search-field { flex: 1 1 16rem; }
+    .check { display: flex; gap: .4rem; align-items: center; min-height: 2.5rem; }
+    .toolbar p { margin-bottom: 0; }
+    .toc { margin: 1.3rem 0; border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
+    .toc ul { columns: 4 13rem; padding: 0; list-style: none; font-size: .88rem; }
+    .toc li { break-inside: avoid; margin: .3rem 0; }
+    .toc a { display: inline-block; }
+    .effect { padding: 1.2rem 0 1.6rem; border-bottom: 1px solid var(--line); scroll-margin-top: 11rem; }
+    .effect-heading { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: baseline; margin-bottom: .9rem; }
+    .effect-heading h2 { margin: 0; }
+    .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 275px), 1fr)); gap: 1rem; }
+    .variant { background: var(--card); border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; min-width: 0; }
+    .card-heading { display: flex; justify-content: space-between; gap: .8rem; align-items: start; }
+    .badge { font-size: .76rem; border: 1px solid var(--line); border-radius: .25rem; padding: .08rem .4rem; white-space: nowrap; }
+    .description { font-size: .93rem; min-height: 2.8em; }
+    figure { margin: .8rem 0; }
+    .preview {
+      position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9;
+      background: #07090d; border-radius: .25rem; overflow: hidden; border: 1px solid var(--line);
+    }
+    .preview img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; position: absolute; }
+    .placeholder { color: #d3dbe4; padding: 1rem; text-align: center; font-size: .9rem; }
+    figcaption { margin-top: .35rem; font-size: .8rem; color: var(--muted); }
+    .play { width: 100%; }
+    .swatches { display: inline-flex; flex-wrap: wrap; gap: .3rem; margin-right: .4rem; vertical-align: middle; }
+    .swatch { width: 1.1rem; height: 1.1rem; border: 1px solid var(--line); border-radius: .15rem; }
+    .variant dl { grid-template-columns: 5rem 1fr; font-size: .82rem; }
+    footer { margin-top: 2rem; color: var(--muted); font-size: .9rem; }
+    @media (max-width: 600px) {
+      .wrap { padding: 1rem; }
+      .toolbar { position: static; }
+      .effect { scroll-margin-top: 1rem; }
+      dl { grid-template-columns: 1fr; gap: .1rem; }
+      dd { margin-bottom: .5rem; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
+    @page { size: A4; margin: 14mm; }
+    @media print {
+      :root { color-scheme: light; --paper: #fff; --card: #fff; --ink: #111; --muted: #444; --line: #aaa; --accent: #111; --soft: #f3f3f3; --warning: #542900; --warning-bg: #fff; --error: #711; --ok: #164b2c; font-size: 10pt; }
+      body, .wrap { background: #fff; }
+      .wrap { max-width: none; padding: 0; }
+      .screen-only, .toolbar, .skip, .animation { display: none !important; }
+      .poster:not([hidden]) { display: block !important; }
+      h1 { font-size: 28pt; }
+      header { break-after: page; }
+      a { color: #111; text-decoration: none; }
+      .toc { break-after: page; }
+      .toc ul { columns: 3; font-size: 8pt; }
+      .toc details > ul { display: block !important; }
+      .effect { break-before: page; padding: 0; border: 0; }
+      .effect-heading { break-after: avoid; }
+      .variants { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8mm; }
+      .variant { break-inside: avoid; border-radius: 0; padding: 3mm; }
+      .variant details { display: none; }
+      #manifest-details details { display: none; }
+      .description { min-height: 0; }
+      .preview { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .warning { border: 1px solid #888; }
+      footer { break-before: page; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#catalog">Skip to effects</a>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">QLC+ / HUE Matrix</div>
+      <h1>HUE effects</h1>
+      <div class="intro">
+        <p>A visual booklet of native-rendered effects and their main mode variants. Compare static posters, then play one preview at a time.</p>
+        <p><strong>Synthetic input.</strong> These offline captures show a specified layout, palette and input sequence. They do not show live fixtures or establish musical preference, hardware output or runtime acceptance.</p>
+        <p class="warning">Some previews contain flashing light. Nothing animates on page load. Flashing previews have a warning beside their Play control.</p>
+        <p class="caption" id="motion-note">Choose Play to animate. Use Stop or Escape to return to a static poster. GIF loops may reset effect history or animation phase.</p>
+      </div>
+      <div class="actions screen-only">
+        <a href="README.md">Reading guide</a>
+        <a href="../audio-data-usage.md">Audio data and modes</a>
+        <button type="button" id="reload">Reload catalog</button>
+        <button type="button" id="print">Print visible effects</button>
+      </div>
+      <section aria-labelledby="capture-heading">
+        <h2 id="capture-heading">Capture record</h2>
+        <p id="load-status" class="notice" role="status">Loading catalog.json…</p>
+        <p id="counts"></p>
+        <p id="asset-errors" class="error" role="status" hidden></p>
+        <details id="provenance">
+          <summary>Source, renderer and input</summary>
+          <p class="caption">HEAD does not identify uncommitted edits. Check the working-tree and native-binary hashes in the capture record; absent hashes leave the complete build unidentified.</p>
+          <dl id="generation"></dl>
+          <p id="manifest-status" class="caption"></p>
+          <div id="manifest-details" hidden>
+            <dl id="binary-hashes"></dl>
+            <a href="media/generation.json">Full capture manifest</a>
+            <details>
+              <summary id="source-hash-count">Captured source-file hashes</summary>
+              <pre id="source-hashes"></pre>
+            </details>
+          </div>
+        </details>
+        <div id="local-help" class="screen-only" hidden>
+          <p>For automatic loading, serve this directory over local HTTP. From the repository root:</p>
+          <pre>python3 -m http.server 8765 --bind 127.0.0.1 --directory docs/hue-effects</pre>
+          <p>Open <code>http://127.0.0.1:8765/</code>. Or select this directory's <code>catalog.json</code> when opening the HTML file directly. Keep <code>media/</code> beside this page.</p>
+          <label class="field">Select catalog.json <input id="catalog-file" type="file" accept=".json,application/json"></label>
+        </div>
+      </section>
+      <details>
+        <summary>Modes and saved configurations</summary>
+        <p>Artistic, Reference and named LedFx modes select built-in behavior variants. To keep several configurations of one script, create separate named HUEMatrix functions.</p>
+        <p>A saved <code>.qxw</code> workspace preserves mode, parameters, palette and timing. Running particles, history buffers and animation phase do not persist.</p>
+      </details>
+    </header>
+
+    <main>
+      <div class="toolbar screen-only" aria-label="Catalog controls">
+        <div class="filters">
+          <label class="field search-field">Search effects
+            <input id="search" type="search" placeholder="Name, mode or description" autocomplete="off">
+          </label>
+          <label class="field">Mode <select id="mode"><option value="">All modes</option></select></label>
+          <label class="field">Capture status
+            <select id="status"><option value="">All statuses</option><option value="ready">Ready</option><option value="pending">Pending</option><option value="error">Error</option></select>
+          </label>
+          <label class="check"><input id="hide-flashing" type="checkbox"> Hide flashing</label>
+          <button id="clear" type="button">Clear filters</button>
+          <button id="stop" type="button" disabled>Stop preview</button>
+        </div>
+        <p class="caption" id="results" role="status"></p>
+        <p class="caption" id="playback" role="status">No preview playing.</p>
+      </div>
+      <nav class="toc" aria-label="Effect contents" hidden>
+        <details open><summary>Contents <span id="toc-count"></span></summary><ul id="toc"></ul></details>
+      </nav>
+      <section id="catalog" aria-label="Effect catalog" tabindex="-1">
+        <p class="muted">The catalog will appear here when capture data is available.</p>
+      </section>
+      <noscript><p class="notice">Enable JavaScript to load the catalog and its static posters. Preview playback still requires a click.</p></noscript>
+    </main>
+    <footer>
+      <h2>Read the comparison</h2>
+      <p>Cards group captures of the same effect. Check layout, palette, settings and input before comparing modes. A different configuration can change the result as much as the mode.</p>
+      <p>Duration and FPS describe the sampled simulation, not application performance. Playback speed 1× is real-time; 0.5× doubles the GIF's playback duration. The GIF already includes this scaling. Screen scaling, GIF color quantization and omitted frames can hide detail or change the appearance of rapid pulses.</p>
+      <p>Print uses static posters and the current filters. Clear filters first for the full booklet. Pending captures and errors remain labeled.</p>
+    </footer>
+  </div>
+  <script>
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    const make = (tag, text, className) => {
+      const element = document.createElement(tag);
+      if (text !== undefined) element.textContent = text;
+      if (className) element.className = className;
+      return element;
+    };
+    const display = (value) => value === undefined || value === null ? "Not recorded" :
+      typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+    const metric = (value, suffix) => Number.isFinite(value) ? `${value}${suffix}` : "Not recorded";
+    const pair = (list, label, value) => {
+      const content = make("dd");
+      if (Array.isArray(value)) {
+        const items = make("ul");
+        for (const item of value) items.append(make("li", display(item)));
+        content.append(items);
+      } else if (value && typeof value === "object") content.append(make("pre", display(value)));
+      else content.textContent = display(value);
+      list.append(make("dt", label), content);
+    };
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let catalog = null;
+    let active = null;
+    const assetFailures = new Set();
+
+    function mediaPath(path, extension) {
+      return typeof path === "string" &&
+        new RegExp(`^media/(?:[a-zA-Z0-9_-]+/)*[a-zA-Z0-9_.-]+\\.${extension}$`).test(path) ? path : null;
+    }
+
+    function stopPreview(announce = true) {
+      if (!active) return;
+      active.animation.remove();
+      active.poster.hidden = active.posterFailed;
+      active.placeholder.hidden = !active.posterFailed;
+      active.button.textContent = active.label;
+      active.button.setAttribute("aria-label", `${active.label}: ${active.name}`);
+      active.button.setAttribute("aria-pressed", "false");
+      active = null;
+      $("stop").disabled = true;
+      if (announce) $("playback").textContent = "Preview stopped. Static posters shown.";
+    }
+
+    function recordFailure(entry, kind, message) {
+      assetFailures.add(`${entry.id}:${kind}`);
+      $("asset-errors").hidden = false;
+      $("asset-errors").textContent = `${assetFailures.size} media asset failure(s) encountered. A Ready label reports the capture manifest, not file availability. See affected cards.`;
+      message.hidden = false;
+      message.textContent = `${kind} unavailable. Check the media file and reload the catalog.`;
+    }
+
+    function createCard(entry) {
+      const card = make("article", undefined, "variant");
+      const name = `${entry.effectName}, ${entry.modeLabel}`;
+      const heading = make("div", undefined, "card-heading");
+      heading.append(make("h3", entry.modeLabel), make("span", entry.status, `badge ${entry.status === "error" ? "error" : entry.status === "ready" ? "ok" : ""}`));
+      card.append(heading, make("p", entry.description, "description"));
+      if (entry.flashing) card.append(make("p", "Flashing light preview", "warning caption"));
+      const figure = make("figure");
+      const preview = make("div", undefined, "preview");
+      const placeholder = make("p", entry.status === "pending" ? "Capture pending" : entry.status === "error" ? "Capture failed" : "Poster not available", "placeholder");
+      const poster = make("img", undefined, "poster");
+      poster.alt = `${name}. Native-rendered static poster on a ${display(entry.layout.columns)} by ${display(entry.layout.rows)} layout.`;
+      poster.loading = "eager";
+      poster.decoding = "async";
+      poster.hidden = true;
+      const posterError = make("p", undefined, "error caption");
+      const animationError = make("p", undefined, "error caption");
+      posterError.hidden = animationError.hidden = true;
+      const label = entry.flashing ? "Play flashing preview" : "Play preview";
+      const button = make("button", label, "play screen-only");
+      button.type = "button";
+      button.setAttribute("aria-label", `${label}: ${name}`);
+      button.setAttribute("aria-pressed", "false");
+      const state = { poster, placeholder, button, label, name, animation: null, posterFailed: false };
+      const posterSource = mediaPath(entry.poster, "png");
+      const animationSource = mediaPath(entry.animation, "gif");
+      button.disabled = entry.status !== "ready" || !animationSource;
+      if (entry.status === "ready") {
+        if (posterSource) {
+          poster.addEventListener("load", () => {
+            poster.hidden = active === state;
+            placeholder.hidden = true;
+          });
+          poster.addEventListener("error", () => {
+            state.posterFailed = true;
+            poster.hidden = true;
+            placeholder.hidden = active === state;
+            recordFailure(entry, "Poster", posterError);
+          });
+          poster.src = posterSource;
+        } else {
+          state.posterFailed = true;
+          recordFailure(entry, "Poster", posterError);
+        }
+        if (!animationSource) recordFailure(entry, "Animation", animationError);
+      }
+      preview.append(placeholder, poster);
+      figure.append(preview, make("figcaption", `${metric(entry.layout.columns, "")} × ${metric(entry.layout.rows, "")} pixels · ${Number.isFinite(entry.durationMs) ? metric(entry.durationMs / 1000, " s simulated") : "Duration not recorded"} · ${metric(entry.fps, " fps sampled")}`));
+      button.addEventListener("click", () => {
+        if (active === state) { stopPreview(); return; }
+        stopPreview(false);
+        const animation = make("img", undefined, "animation");
+        animation.alt = `${name}. Animated native capture.`;
+        animation.addEventListener("error", () => {
+          if (active === state) stopPreview(false);
+          button.disabled = true;
+          recordFailure(entry, "Animation", animationError);
+          $("playback").textContent = `Could not play ${name}.`;
+        });
+        state.animation = animation;
+        active = state;
+        animation.src = animationSource;
+        preview.append(animation);
+        poster.hidden = true;
+        placeholder.hidden = true;
+        button.textContent = "Stop preview";
+        button.setAttribute("aria-label", `Stop preview: ${name}`);
+        button.setAttribute("aria-pressed", "true");
+        $("stop").disabled = false;
+        $("playback").textContent = `Playing ${name}${entry.flashing ? " (flashing)" : ""}.`;
+      });
+      card.append(figure, button, posterError, animationError);
+      if (entry.status !== "ready") card.append(make("p", entry.error || (entry.status === "pending" ? "No completed capture yet." : "No error detail recorded."), entry.status === "error" ? "error caption" : "caption"));
+      const palette = make("p", undefined, "caption");
+      const swatches = make("span", undefined, "swatches");
+      swatches.setAttribute("aria-hidden", "true");
+      for (const color of entry.palette) {
+        if (!/^#[0-9a-f]{6}$/i.test(color)) continue;
+        const swatch = make("span", undefined, "swatch");
+        swatch.style.backgroundColor = color;
+        swatches.append(swatch);
+      }
+      palette.append(swatches, document.createTextNode(`Assigned palette: ${entry.palette.length ? entry.palette.join(", ") : "Not recorded"}`));
+      card.append(palette);
+      const accepted = entry.acceptedColorCount;
+      const acceptance = accepted === undefined ? "Palette acceptance not recorded." :
+        accepted === 0 ? "Script receives no palette colors; it uses built-in or procedural hues." :
+        accepted < entry.palette.length ? `Script receives the first ${accepted} of ${entry.palette.length} assigned colors.` :
+        `Script receives all ${entry.palette.length} assigned colors.`;
+      card.append(make("p", acceptance, "caption"));
+      const details = make("details");
+      const values = make("dl");
+      pair(values, "Input", entry.inputDescription);
+      pair(values, "Speed", metric(entry.playbackScale, "×"));
+      pair(values, "Source", entry.sourcePath);
+      pair(values, "Capture ID", entry.id);
+      details.append(make("summary", "Capture settings"), values, make("pre", display(entry.settings)));
+      card.append(details);
+      return card;
+    }
+
+    async function loadManifest(data) {
+      $("manifest-details").hidden = true;
+      $("manifest-status").className = "caption";
+      $("manifest-status").textContent = "Loading source and native-binary hashes…";
+      try {
+        const response = await fetch("media/generation.json", { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const manifest = await response.json();
+        if (catalog !== data) return;
+        if (manifest.schemaVersion !== 1 ||
+            manifest.generation?.createdAt !== data.generation.createdAt ||
+            manifest.generation?.sourceCommit !== data.generation.sourceCommit)
+          throw new Error("manifest does not match this catalog's generation");
+        const validHashes = (hashes) => hashes && typeof hashes === "object" &&
+          !Array.isArray(hashes) && Object.keys(hashes).length &&
+          Object.values(hashes).every((value) => typeof value === "string" && /^[a-f0-9]{64}$/i.test(value));
+        if (!validHashes(manifest.sourceSha256) || !validHashes(manifest.binarySha256))
+          throw new Error("source or native-binary hashes missing or invalid");
+        $("binary-hashes").replaceChildren();
+        for (const [name, hash] of Object.entries(manifest.binarySha256))
+          pair($("binary-hashes"), `${name} SHA-256`, hash);
+        $("source-hash-count").textContent = `Captured source-file hashes (${Object.keys(manifest.sourceSha256).length})`;
+        $("source-hashes").textContent = JSON.stringify(manifest.sourceSha256, null, 2);
+        $("manifest-status").textContent = "Capture-time hashes from media/generation.json. They identify recorded inputs and binaries; this page does not recheck the current checkout.";
+        $("manifest-details").hidden = false;
+      } catch (error) {
+        if (catalog !== data) return;
+        $("manifest-status").className = "caption error";
+        $("manifest-status").textContent = `Detailed provenance unavailable: ${error.message}. Use local HTTP for file-opened pages, or regenerate a matching manifest.`;
+      }
+    }
+
+    function render() {
+      if (!catalog) return;
+      stopPreview();
+      const search = $("search").value.trim().toLocaleLowerCase();
+      const visible = catalog.entries.filter((entry) =>
+        (!search || `${entry.effectName} ${entry.modeLabel} ${entry.description}`.toLocaleLowerCase().includes(search)) &&
+        (!$("mode").value || entry.modeLabel === $("mode").value) &&
+        (!$("status").value || entry.status === $("status").value) &&
+        (!$("hide-flashing").checked || !entry.flashing));
+      const groups = new Map();
+      for (const entry of visible) {
+        if (!groups.has(entry.effectName)) groups.set(entry.effectName, []);
+        groups.get(entry.effectName).push(entry);
+      }
+      $("catalog").replaceChildren();
+      $("toc").replaceChildren();
+      const alphabetical = (name) => name.replace(/^Audio\s+/i, "");
+      const names = [...groups.keys()].sort((a, b) => alphabetical(a).localeCompare(alphabetical(b)));
+      for (const [index, name] of names.entries()) {
+        const section = make("section", undefined, "effect");
+        section.id = `effect-${index}`;
+        const heading = make("div", undefined, "effect-heading");
+        const title = make("h2", name);
+        title.id = `${section.id}-title`;
+        section.setAttribute("aria-labelledby", title.id);
+        heading.append(title, make("span", `${groups.get(name).length} variant(s)`, "caption"));
+        const cards = make("div", undefined, "variants");
+        for (const entry of groups.get(name)) cards.append(createCard(entry));
+        section.append(heading, cards);
+        $("catalog").append(section);
+        const link = make("a", name);
+        link.href = `#${section.id}`;
+        const item = make("li");
+        item.append(link);
+        $("toc").append(item);
+      }
+      $("results").textContent = `${groups.size} effect(s), ${visible.length} variant(s) shown of ${catalog.entries.length} catalog entries.`;
+      $("toc-count").textContent = `(${groups.size} effects)`;
+      document.querySelector(".toc").hidden = !names.length;
+      if (!visible.length) $("catalog").append(make("p", catalog.entries.length ? "No effects match these filters. Clear filters to show the catalog." : "No captures listed yet.", "notice"));
+    }
+
+    function loadCatalog(data) {
+      if (!data || data.schemaVersion !== 1 || !Array.isArray(data.entries) ||
+          !data.generation || !["sample", "complete", "failed"].includes(data.generation.status))
+        throw new Error("Expected a schemaVersion 1 catalog with generation status and entries.");
+      const ids = new Set();
+      for (const entry of data.entries) {
+        if (!entry || typeof entry.id !== "string" || ids.has(entry.id) ||
+            typeof entry.effectName !== "string" || typeof entry.modeLabel !== "string" ||
+            typeof entry.description !== "string" || typeof entry.flashing !== "boolean" ||
+            !entry.layout || !Array.isArray(entry.palette) || !entry.palette.every((color) => typeof color === "string") ||
+            (entry.acceptedColorCount !== undefined && (!Number.isInteger(entry.acceptedColorCount) || entry.acceptedColorCount < 0)) ||
+            !["pending", "ready", "error"].includes(entry.status))
+          throw new Error("Invalid or duplicate catalog entry. Check IDs, names, layout, palette, acceptedColorCount, flashing and status.");
+        ids.add(entry.id);
+      }
+      stopPreview();
+      catalog = data;
+      assetFailures.clear();
+      $("asset-errors").hidden = true;
+      $("local-help").hidden = true;
+      $("load-status").className = data.generation.status === "failed" ? "notice error" : "notice";
+      $("load-status").textContent = `Generation status: ${data.generation.status}.`;
+      const counts = { ready: 0, pending: 0, error: 0 };
+      for (const entry of data.entries) counts[entry.status]++;
+      const effects = new Set(data.entries.map((entry) => entry.effectName)).size;
+      $("counts").textContent = `${effects} / ${display(data.plannedEffectCount)} planned effects listed. ${data.entries.length} / ${display(data.plannedVariantCount)} planned variants listed. Capture manifest: ${counts.ready} ready, ${counts.pending} pending, ${counts.error} error.`;
+      $("generation").replaceChildren();
+      const generationFields = [["Source commit (HEAD)", "sourceCommit"], ["Created at", "createdAt"], ["Renderer", "renderer"], ["Synthetic input", "inputDescription"], ["Notes", "notes"]];
+      for (const [label, key] of generationFields)
+        pair($("generation"), label, data.generation[key]);
+      const shownFields = new Set(["status", ...generationFields.map(([, key]) => key)]);
+      for (const [key, value] of Object.entries(data.generation))
+        if (!shownFields.has(key)) pair($("generation"), key, value);
+      const selectedMode = $("mode").value;
+      $("mode").replaceChildren(new Option("All modes", ""));
+      for (const mode of [...new Set(data.entries.map((entry) => entry.modeLabel))].sort())
+        $("mode").append(new Option(mode, mode));
+      $("mode").value = [...$("mode").options].some((option) => option.value === selectedMode) ? selectedMode : "";
+      render();
+      loadManifest(data);
+    }
+
+    function loadError(error) {
+      stopPreview();
+      catalog = null;
+      $("load-status").className = "notice error";
+      $("load-status").textContent = `Catalog unavailable: ${error.message}`;
+      $("counts").textContent = "";
+      $("results").textContent = "";
+      $("asset-errors").hidden = true;
+      $("generation").replaceChildren();
+      $("manifest-details").hidden = true;
+      $("manifest-status").textContent = "";
+      $("catalog").replaceChildren(make("p", "No capture data loaded. Pending or failed generation is not a completed gallery.", "notice"));
+      document.querySelector(".toc").hidden = true;
+      $("local-help").hidden = false;
+    }
+
+    async function fetchCatalog() {
+      try {
+        const response = await fetch("catalog.json", { cache: "no-store" });
+        if (!response.ok) throw new Error(`catalog.json returned HTTP ${response.status}.`);
+        loadCatalog(await response.json());
+      } catch (error) { loadError(error); }
+    }
+
+    $("catalog-file").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try { loadCatalog(JSON.parse(await file.text())); } catch (error) { loadError(error); }
+    });
+    $("search").addEventListener("input", render);
+    for (const id of ["mode", "status", "hide-flashing"]) $(id).addEventListener("change", render);
+    $("clear").addEventListener("click", () => {
+      $("search").value = $("mode").value = $("status").value = "";
+      $("hide-flashing").checked = false;
+      render();
+    });
+    $("stop").addEventListener("click", () => stopPreview());
+    $("reload").addEventListener("click", fetchCatalog);
+    $("print").addEventListener("click", async () => {
+      stopPreview();
+      $("print").disabled = true;
+      $("print").textContent = "Loading posters…";
+      await Promise.all([...document.querySelectorAll(".poster[src]")].map((poster) => {
+        poster.loading = "eager";
+        return poster.decode().catch(() => {});
+      }));
+      $("print").disabled = false;
+      $("print").textContent = "Print visible effects";
+      window.print();
+    });
+    let printDetails = [];
+    window.addEventListener("beforeprint", () => {
+      stopPreview();
+      printDetails = [...document.querySelectorAll("#provenance, .toc details")].map((details) => [details, details.open]);
+      for (const [details] of printDetails) details.open = true;
+      document.querySelectorAll(".poster").forEach((poster) => { poster.loading = "eager"; });
+    });
+    window.addEventListener("afterprint", () => {
+      for (const [details, open] of printDetails) details.open = open;
+    });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") stopPreview(); });
+    document.addEventListener("visibilitychange", () => { if (document.hidden) stopPreview(); });
+    function updateMotion() {
+      if (reducedMotion.matches) stopPreview();
+      $("motion-note").textContent = `${reducedMotion.matches ? "Reduced motion is enabled. " : ""}Choose Play to animate. Use Stop or Escape to return to a static poster. GIF loops may reset effect history or animation phase.`;
+    }
+    reducedMotion.addEventListener("change", updateMotion);
+    updateMotion();
+    fetchCatalog();
+  </script>
+</body>
+</html>

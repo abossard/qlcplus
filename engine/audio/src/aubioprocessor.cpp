@@ -229,6 +229,26 @@ void AubioProcessor::initialize(uint32_t sampleRate)
         buildBank(&m_filterbankHigh, &m_melHighOut, m_config.melBanks.high, m_bankCenters[2]);
     }
 
+    if (m_config.powerWindowSize == 2048)
+    {
+        const uint_t powerWin = uint_t(m_config.powerWindowSize);
+        const auto &bank = m_config.melBanks.high;
+        const int n = std::clamp(bank.bands, 1, MelBankConfig::kMaxBandsPerBank);
+        m_powerPvoc = new_aubio_pvoc(powerWin, hop);
+        if (m_powerPvoc)
+            aubio_pvoc_set_window(m_powerPvoc, sanitizedWindowType(m_config.windowType).constData());
+        m_powerGrain = new_cvec(powerWin);
+        m_powerFilterbank = new_aubio_filterbank(uint_t(n), powerWin);
+        if (m_powerFilterbank)
+        {
+            aubio_filterbank_set_norm(m_powerFilterbank, smpl_t(m_config.filterbankNorm));
+            setMattMelBands(m_powerFilterbank, bank.minHz, std::min(bank.maxHz, sampleRate * 0.5),
+                            n, sampleRate);
+            aubio_filterbank_set_power(m_powerFilterbank, smpl_t(m_config.filterbankPower));
+        }
+        m_powerMelOut = new_fvec(uint_t(n));
+    }
+
     if (m_config.diagnosticsEnabled)
     {
         m_descCentroid = new_aubio_specdesc("centroid", win);
@@ -273,7 +293,9 @@ void AubioProcessor::initialize(uint32_t sampleRate)
         m_pvoc && m_hopBuffer && m_rawHopBuffer && m_fftGrain &&
         m_filterbank && m_melOut &&
         m_mfccOut && m_descOut && m_transGrain && m_steadGrain &&
-        m_onsetOut && m_tempoOut && m_pitchOut && m_notesOut;
+        m_onsetOut && m_tempoOut && m_pitchOut && m_notesOut &&
+        (m_config.powerWindowSize != 2048 ||
+         (m_powerPvoc && m_powerGrain && m_powerFilterbank && m_powerMelOut));
     if (!ok)
     {
         qCritical() << "AubioProcessor::initialize: allocation failed; "
@@ -289,6 +311,10 @@ void AubioProcessor::initialize(uint32_t sampleRate)
 void AubioProcessor::release()
 {
     if (m_pvoc) { del_aubio_pvoc(m_pvoc); m_pvoc = nullptr; }
+    if (m_powerPvoc) { del_aubio_pvoc(m_powerPvoc); m_powerPvoc = nullptr; }
+    if (m_powerGrain) { del_cvec(m_powerGrain); m_powerGrain = nullptr; }
+    if (m_powerFilterbank) { del_aubio_filterbank(m_powerFilterbank); m_powerFilterbank = nullptr; }
+    if (m_powerMelOut) { del_fvec(m_powerMelOut); m_powerMelOut = nullptr; }
     if (m_preEmphasis) { del_aubio_filter(m_preEmphasis); m_preEmphasis = nullptr; }
     if (m_tempo) { del_aubio_tempo(m_tempo); m_tempo = nullptr; }
     if (m_pitch) { del_aubio_pitch(m_pitch); m_pitch = nullptr; }
@@ -334,6 +360,11 @@ void AubioProcessor::release()
 
 void AubioProcessor::setPendingConfig(const AubioConfig &cfg)
 {
+    if (cfg.powerWindowSize != 4096 && cfg.powerWindowSize != 2048)
+    {
+        qWarning() << "AubioProcessor configuration rejected: PowerWindowSize must be 4096 or 2048";
+        return;
+    }
     QMutexLocker locker(&m_configMutex);
     m_pendingConfig = cfg;
     m_hasPendingConfig = true;
@@ -353,6 +384,7 @@ bool AubioProcessor::needsFullRebuild(const AubioConfig &o, const AubioConfig &n
     if (o.tempoMethod != n.tempoMethod) return true;
     if (o.filterbankNorm != n.filterbankNorm) return true;
     if (o.windowType != n.windowType) return true;
+    if (o.powerWindowSize != n.powerWindowSize) return true;
     if (o.melScale != n.melScale) return true;
     if (o.diagnosticsEnabled != n.diagnosticsEnabled) return true;
     // MelBankConfig is baked into the 3 matt_mel filterbanks at init time —
@@ -374,6 +406,8 @@ void AubioProcessor::applyParamUpdates(const AubioConfig &oldCfg, const AubioCon
         aubio_filterbank_set_power(m_filterbankMid,  smpl_t(cfg.filterbankPower));
     if (m_filterbankHigh)
         aubio_filterbank_set_power(m_filterbankHigh, smpl_t(cfg.filterbankPower));
+    if (m_powerFilterbank)
+        aubio_filterbank_set_power(m_powerFilterbank, smpl_t(cfg.filterbankPower));
 
     // Targeted onset enable/disable: only create/destroy the detectors whose
     // enabled flag actually changed. Avoids tearing down the rest of the
@@ -587,6 +621,9 @@ void AubioProcessor::process(const float *monoSamples, int bufferSize, bool spec
 
 void AubioProcessor::processHop(bool spectrumEnabled)
 {
+    m_results.powerWindowSize = m_config.powerWindowSize;
+    m_results.powerBinCount = m_powerGrain ? int(m_powerGrain->length) : int(m_fftGrain->length);
+    m_results.powerMelCount = m_powerMelOut ? int(m_powerMelOut->length) : 0;
     m_results.melLowCount = m_melLowOut ? int(m_melLowOut->length) : 0;
     m_results.melMidCount = m_melMidOut ? int(m_melMidOut->length) : 0;
     m_results.melHighCount = m_melHighOut ? int(m_melHighOut->length) : 0;
@@ -643,6 +680,15 @@ void AubioProcessor::processHop(bool spectrumEnabled)
             m_results.melMid,  m_results.melMidCount);
     runBank(m_filterbankHigh, m_melHighOut,
             m_results.melHigh, m_results.melHighCount);
+
+    // The short FFT sees exactly the same gated, pre-emphasized hop. It never
+    // replaces the 4096 FFT used by the public spectrum, banks or diagnostics.
+    if (spectrumEnabled && m_powerPvoc)
+    {
+        aubio_pvoc_do(m_powerPvoc, m_hopBuffer, m_powerGrain);
+        aubio_filterbank_do(m_powerFilterbank, m_powerGrain, m_powerMelOut);
+        std::copy_n(m_powerMelOut->data, m_results.powerMelCount, m_results.powerMel);
+    }
 
     // 3. MFCC
     if (spectrumEnabled && m_mfcc)

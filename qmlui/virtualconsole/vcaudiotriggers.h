@@ -83,8 +83,10 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(QVariantList bankConfiguration READ bankConfiguration NOTIFY configChanged)
     Q_PROPERTY(QString reactionPreset READ reactionPreset NOTIFY configChanged)
     Q_PROPERTY(quint32 resolvedProfileId READ resolvedProfileId NOTIFY audioProfileIdChanged)
+    Q_PROPERTY(int powerWindowSize READ powerWindowSize NOTIFY configChanged)
     Q_PROPERTY(bool analysisAvailable READ analysisAvailable NOTIFY audioSnapshotChanged)
     Q_PROPERTY(QString analysisStatus READ analysisStatus NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QString inputLatencyStatus READ inputLatencyStatus NOTIFY inputLatencyStatusChanged)
     Q_PROPERTY(QVariantMap appliedAudio READ appliedAudio NOTIFY audioSnapshotChanged)
     Q_PROPERTY(quint64 sourceEpoch READ sourceEpoch NOTIFY audioSnapshotChanged)
     Q_PROPERTY(quint64 frameSequence READ frameSequence NOTIFY audioSnapshotChanged)
@@ -96,6 +98,8 @@ class VCAudioTriggers : public VCWidget, public DMXSource
     Q_PROPERTY(int selectedBar READ selectedBar WRITE setSelectedBar NOTIFY selectedBarChanged FINAL)
     Q_PROPERTY(QVariantList audioLevels READ audioLevels NOTIFY audioLevelsChanged)
     Q_PROPERTY(QVariantList barsInfo READ barsInfo NOTIFY barsInfoChanged)
+    Q_PROPERTY(QVariantList spectrumBars READ spectrumBars NOTIFY audioSnapshotChanged)
+    Q_PROPERTY(QVariantList mappingOrder READ mappingOrder CONSTANT)
     Q_PROPERTY(quint32 audioProfileId READ audioProfileId WRITE setAudioProfileId NOTIFY audioProfileIdChanged FINAL)
     Q_PROPERTY(int audioSource READ audioSource WRITE setAudioSource NOTIFY audioSourceChanged)
     Q_PROPERTY(quint16 oscPort READ oscPort WRITE setOscPort NOTIFY oscPortChanged)
@@ -421,8 +425,10 @@ public:
     Q_INVOKABLE bool updateBank(int bankIndex, const QVariantMap &changes);
     QString reactionPreset() const { return profileChannelConfig().aubio.melBanks.preset; }
     quint32 resolvedProfileId() const;
+    int powerWindowSize() const { return profileChannelConfig().aubio.powerWindowSize; }
     bool analysisAvailable() const { return m_cachedSnapshot.available; }
     QString analysisStatus() const;
+    QString inputLatencyStatus() const;
     QVariantMap appliedAudio() const;
     quint64 sourceEpoch() const { return m_cachedSnapshot.sourceEpoch; }
     quint64 frameSequence() const { return m_cachedSnapshot.frameSequence; }
@@ -849,6 +855,7 @@ signals:
     void audioProfileIdChanged();
     void configChanged();
     void audioSnapshotChanged();
+    void inputLatencyStatusChanged();
     void audioSourceChanged();
     void oscPortChanged();
 
@@ -893,7 +900,7 @@ private:
     quint32 m_eventProfileId = AudioProfile::invalidId();
     quint64 m_eventFrame = 0;
     quint64 m_eventOnset = 0, m_eventBeat = 0, m_eventKick = 0, m_eventBar = 0;
-    bool m_mappingActive[6] = {};
+    QVector<bool> m_mappingActive;
     QPointer<AudioProfile> m_connectedProfile;
     QTimer *m_snapshotTimer = nullptr;
     // Sticky kick lamp state. Refreshed on every audio hop in
@@ -953,7 +960,7 @@ private:
     // Engine snapshot/DMX still update every aubio hop; only the QML-facing
     // signal is rate-limited to avoid binding storms.
     QElapsedTimer m_uiThrottleTimer;
-    static constexpr int kUiUpdateIntervalMs = 33; // ~30 Hz
+    QElapsedTimer m_inputLatencyTimer;
     int m_onsetHistorySeconds = 5;
 
     /*********************************************************************
@@ -977,7 +984,12 @@ public:
         BandVolume,
         BandBeat,
         BandKick,
-        BandSourceCount = 6
+        BandKickPower,
+        BandBassPower,
+        BandLowsPower,
+        BandMidsPower,
+        BandHighsPower,
+        BandSourceCount
     };
     Q_ENUM(BandSource)
 
@@ -1014,6 +1026,8 @@ public:
 
     Q_INVOKABLE void selectBarForEditing(int index);
     QVariantList barsInfo() const;
+    QVariantList spectrumBars() const;
+    QVariantList mappingOrder() const;
 
     Q_INVOKABLE void setBarType(BarType type);
     Q_INVOKABLE void setBarThresholds(uchar minThr, uchar maxThr);
@@ -1038,12 +1052,13 @@ signals:
     void searchFilterChanged();
 
 private:
+    double sourceValue(BandSource source, quint64 beats = 0) const;
     void updateBarWidgetReference(BandMapping &bm) const;
     void checkWidgetFunctionality(BandMapping &bm, const TriggerState &ts) const;
     void rebuildBarAbsDmxChannels(BandMapping &bm) const;
 
 private:
-    /** Fixed-size 7-entry array of source -> action mappings. */
+    /** Stable source IDs, independent of display order. */
     QVector<BandMapping> m_bandMappings;
     mutable QMutex m_mappingsMutex;  // protects m_bandMappings access across GUI/MasterTimer threads
 

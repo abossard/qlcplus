@@ -26,6 +26,7 @@
 #include <QAudioSource>
 #include <QAudioFormat>
 #include <QByteArrayView>
+#include <QVariantMap>
 
 /** @addtogroup engine_audio Audio
  * @{
@@ -52,6 +53,12 @@ public:
         virtual bool failed() const = 0;
         virtual void close() = 0;
         virtual void setVolume(qreal volume) = 0;
+        // Optional capability: old backends explicitly report unknown rather
+        // than claiming a requested buffer was applied.
+        virtual void setBufferRequestMs(int ms) { Q_UNUSED(ms) }
+        virtual int appliedBufferRequestMs() const { return -1; }
+        virtual qint64 bufferCapacityBytes() const { return -1; }
+        virtual qint64 queuedBytes() const { return -1; }
     };
 
     AudioCaptureQt6(QObject * parent = 0);
@@ -69,6 +76,7 @@ public:
     QString inputDevice() const;
     QString appliedDevice() const;
     QAudioFormat captureFormat() const;
+    QVariantMap inputDiagnostics() const;
 
     static QAudioFormat selectCaptureFormat(const QAudioDevice &device,
                                             int sampleRate,
@@ -108,6 +116,11 @@ protected:
     void clearPendingInput() override { m_currentReadBuffer.clear(); }
 
 private:
+    void updateInputDiagnostics(bool received);
+    int m_appliedBufferRequestMs = -1;
+    qint64 m_capacityBytes = -1;
+    qint64 m_queuedBytes = -1;
+    qint64 m_lastPcmNs = 0;
     std::unique_ptr<InputBackend> m_backend;
     QIODevice *m_input = nullptr;
     QAudioFormat m_format;

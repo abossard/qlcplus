@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <QThread>
 #include <QMutex>
+#include <QHash>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -56,6 +57,12 @@ public:
      *  Internally only used to track when capture should auto-start/stop. */
     void registerBandsNumber(int number);
     void unregisterBandsNumber(int number);
+    /** Widget/preview identity. Updating an existing identity is idempotent. */
+    void registerSubscriber(const void *subscriber, int bufferMs = 0);
+    void unregisterSubscriber(const void *subscriber);
+    /** Legacy consumers follow Doc's active profile, not every stored profile. */
+    void setGlobalProfileDemand(bool microphone, int bufferMs);
+    int requestedBufferMs() const { return m_requestedBufferMs.load(); }
 
     static int minFrequency() { return SPECTRUM_MIN_FREQUENCY; }
     static int maxFrequency() { return SPECTRUM_MAX_FREQUENCY; }
@@ -121,6 +128,8 @@ protected:
     bool m_pause;
     unsigned int m_bufferSize, m_captureSize, m_sampleRate, m_channels;
     unsigned int m_readFrames = AUDIO_DEFAULT_BUFFER_SIZE;
+    // Capture-thread-only request used for the current open attempt.
+    int m_openBufferRequestMs = 0;
 
     int16_t *m_audioBuffer;
     std::vector<float> m_floatBuffer;
@@ -137,6 +146,13 @@ protected:
     uint64_t m_frameIndex = 0;
 
 private:
+    void reconcileSubscribers();
+    QMutex m_subscriptionMutex;
+    QHash<const void *, int> m_subscribers;
+    int m_globalSubscribers = 0;
+    bool m_globalMicrophone = true;
+    int m_globalBufferMs = 0;
+    std::atomic<int> m_requestedBufferMs {0};
     bool applyCaptureFormat(unsigned int sampleRate, unsigned int channels);
     void resetStream();
     void publishFrame();

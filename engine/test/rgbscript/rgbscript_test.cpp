@@ -34,6 +34,36 @@
 
 #include "../common/resource_paths.h"
 
+namespace
+{
+QString makeFloatPropertyScript(const QString &descriptor, const QString &initialValue)
+{
+    return QStringLiteral(
+               "(function() {\n"
+               " var algo = new Object;\n"
+               " var gain = %1;\n"
+               " algo.apiVersion = 2;\n"
+               " algo.name = 'Float Property Test';\n"
+               " algo.author = 'QLC+ Unit Test';\n"
+               " algo.acceptColors = 0;\n"
+               " algo.properties = ['%2'];\n"
+               " algo.rgbMap = function(width, height, rgb, step) {\n"
+               "   var out = [];\n"
+               "   for (var y = 0; y < height; y++) {\n"
+               "     var row = [];\n"
+               "     for (var x = 0; x < width; x++) row.push(0);\n"
+               "     out.push(row);\n"
+               "   }\n"
+               "   return out;\n"
+               " };\n"
+               " algo.rgbMapStepCount = function(width, height) { return 1; };\n"
+               " algo.setGain = function(value) { gain = parseFloat(value); };\n"
+               " algo.getGain = function() { return gain; };\n"
+               " return algo;\n"
+               "})();").arg(initialValue, descriptor);
+}
+}
+
 void RGBScript_Test::initTestCase()
 {
     m_doc = new Doc(this);
@@ -271,6 +301,78 @@ void RGBScript_Test::rgbMap()
         }
     }
     delete s;
+}
+
+void RGBScript_Test::floatBoundsDescriptor_data()
+{
+    QTest::addColumn<QString>("descriptor");
+    QTest::addColumn<QString>("initialValue");
+    QTest::addColumn<bool>("expectAccepted");
+    QTest::addColumn<bool>("expectBounds");
+    QTest::addColumn<double>("expectedMin");
+    QTest::addColumn<double>("expectedMax");
+    QTest::addColumn<QString>("warningRegex");
+
+    QTest::newRow("valid-negative")
+        << QStringLiteral("name:gain|display:Gain|type:float|values:-1,1|write:setGain|read:getGain")
+        << QStringLiteral("-0.25")
+        << true << true << -1.0 << 1.0 << QString();
+    QTest::newRow("valid-minimum")
+        << QStringLiteral("name:gain|display:Gain|type:float|values:0.00001,1|write:setGain|read:getGain")
+        << QStringLiteral("0.00001")
+        << true << true << 0.00001 << 1.0 << QString();
+    QTest::newRow("invalid-reversed")
+        << QStringLiteral("name:gain|display:Gain|type:float|values:1,0|write:setGain|read:getGain")
+        << QStringLiteral("0.5")
+        << true << false << 0.0 << 0.0
+        << QStringLiteral(".*Float bounds must be ordered as min < max.*");
+    QTest::newRow("invalid-nonfinite")
+        << QStringLiteral("name:gain|display:Gain|type:float|values:nan,1|write:setGain|read:getGain")
+        << QStringLiteral("0.5")
+        << true << false << 0.0 << 0.0
+        << QStringLiteral(".*Float bounds must be finite numbers.*");
+    QTest::newRow("invalid-malformed")
+        << QStringLiteral("name:gain|display:Gain|type:float|values:0.25|write:setGain|read:getGain")
+        << QStringLiteral("0.25")
+        << true << false << 0.0 << 0.0
+        << QStringLiteral(".*Float bounds should be defined as 'min,max'.*");
+}
+
+void RGBScript_Test::floatBoundsDescriptor()
+{
+    QFETCH(QString, descriptor);
+    QFETCH(QString, initialValue);
+    QFETCH(bool, expectAccepted);
+    QFETCH(bool, expectBounds);
+    QFETCH(double, expectedMin);
+    QFETCH(double, expectedMax);
+    QFETCH(QString, warningRegex);
+
+    RGBScript script(m_doc);
+    script.m_fileName = QStringLiteral("inline_float_descriptor_test.js");
+    script.m_contents = makeFloatPropertyScript(descriptor, initialValue);
+    if (!warningRegex.isEmpty())
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression(warningRegex));
+
+    QVERIFY(script.evaluate());
+    const QList<RGBScriptProperty> properties = script.properties();
+    if (expectAccepted)
+    {
+        QCOMPARE(properties.count(), 1);
+        QCOMPARE(properties.first().m_type, RGBScriptProperty::Float);
+        QCOMPARE(properties.first().m_floatHasBounds, expectBounds);
+        if (expectBounds)
+        {
+            QCOMPARE(properties.first().m_floatMinValue, expectedMin);
+            QCOMPARE(properties.first().m_floatMaxValue, expectedMax);
+        }
+        QVERIFY(script.setProperty(QStringLiteral("gain"), QStringLiteral("0.12345")));
+        QCOMPARE(script.property(QStringLiteral("gain")).toDouble(), 0.12345);
+    }
+    else
+    {
+        QVERIFY(properties.isEmpty());
+    }
 }
 
 void RGBScript_Test::runScripts()

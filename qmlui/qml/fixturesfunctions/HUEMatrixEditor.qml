@@ -1131,10 +1131,22 @@ Rectangle
                     console.log("Spin component is not ready !!")
             }
 
-            function addDoubleSpinBox(propName, currentValue)
+            function addDoubleSpinBox(propName, currentValue, minValue, maxValue, stepValue, decimalPlaces, boundedControl)
             {
+                var props = {"propName": propName, "realValue": currentValue}
+                if (minValue !== undefined && minValue !== null && maxValue !== undefined && maxValue !== null)
+                {
+                    props.realFrom = minValue
+                    props.realTo = maxValue
+                }
+                if (stepValue !== undefined && stepValue !== null)
+                    props.realStep = stepValue
+                if (decimalPlaces !== undefined && decimalPlaces !== null)
+                    props.decimals = decimalPlaces
+                if (boundedControl !== undefined && boundedControl !== null)
+                    props.boundedControl = boundedControl
                 doubleSpinComponent.createObject(scriptAlgoGrid,
-                              {"propName": propName, "realValue": currentValue });
+                              props);
                 if (spinComponent.status !== Component.Ready)
                     console.log("Double spin component is not ready !!")
             }

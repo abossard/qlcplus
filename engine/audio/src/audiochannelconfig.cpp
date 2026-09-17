@@ -18,8 +18,23 @@ AudioChannelConfig AudioChannelConfig::defaults()
     return AudioChannelConfig{};
 }
 
+AudioChannelConfig AudioChannelConfig::lowLatency()
+{
+    auto config = defaults();
+    config.aubio.powerWindowSize = 2048;
+    config.visualIntervalMs = 16;
+    config.captureBufferMs = 20;
+    return config;
+}
+
 QString AudioChannelConfig::validationError() const
 {
+    if (aubio.powerWindowSize != 4096 && aubio.powerWindowSize != 2048)
+        return QStringLiteral("PowerWindowSize must be 4096 or 2048");
+    if (visualIntervalMs != 33 && visualIntervalMs != 16)
+        return QStringLiteral("VisualIntervalMs must be 33 or 16");
+    if (captureBufferMs != 0 && captureBufferMs != 20)
+        return QStringLiteral("CaptureBufferMs must be 0 or 20");
     if (!std::isfinite(noiseGate.thresholdDb) || !std::isfinite(noiseGate.holdMs)
         || noiseGate.holdMs < 0.0)
         return QStringLiteral("Noise gate requires finite threshold and nonnegative hold");

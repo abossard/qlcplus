@@ -27,6 +27,7 @@
 #include <QElapsedTimer>
 #include <QMutex>
 #include <QMap>
+#include <QString>
 #include <atomic>
 
 #include "ddppacketizer.h"
@@ -42,7 +43,6 @@ struct DDPUniverseInfo
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
     qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
     qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
-    quint64 frameCount = 0;          // per-universe sequence counter (T7)
 
     // ----- Partial-mode baseline state -----
     // Snapshot of bytes last successfully transmitted (length == lastCoverageLen).
@@ -50,8 +50,8 @@ struct DDPUniverseInfo
     QByteArray lastSentData;
     // Monotonic ms timestamp of the last full-snapshot send (keep-alive anchor).
     qint64 lastFullFrameElapsed = 0;
-    // True only when lastSentData is a faithful copy of what the receiver currently shows
-    // for the identity captured below. Cleared on any identity/config change or send failure.
+    // True when lastSentData records successful local sends for the identity below.
+    // UDP provides no receiver acknowledgement. Cleared on identity/config changes or send failure.
     bool baselineValid = false;
     // Identity snapshot at the moment the baseline was captured. A change to any of these
     // forces the next Partial send to be a full snapshot (mustFull).
@@ -61,7 +61,22 @@ struct DDPUniverseInfo
     quint32      lastDdpOffset = 0;
     int          lastCoverageLen = 0; // bytes of payload covered by the baseline
     int          lastBpp = 0;         // 3 or 4
+
+    // ----- Destination refresh-cycle accounting -----
+    // A universe joins a destination cycle after an eligible callback.
+    // Callbacks that cannot emit (unchanged, throttled) still count as reports.
+    QString refreshDestKey;
+    bool participatesInRefresh = false;
+    quint64 reportedCycle = 0;
+    bool hasPendingReport = false;
+    bool pendingDataChanged = true;
+    QByteArray pendingData;
+    int pendingTotalLen = 0;
+    int pendingBpp = 0;
+    quint8 pendingDataType = DDP_DATATYPE_RGB888;
 };
+
+class DDP_Partial_Test;
 
 class DDPController final : public QObject
 {
@@ -150,15 +165,45 @@ public:
     /** Bypass the FPS throttle entirely. Test-only. */
     void setMaxFpsBypassForTest(bool bypass);
 
+    friend class DDP_Partial_Test;
+
 private:
+    struct DestinationCycleState
+    {
+        quint64 cycle = 1;
+        bool active = false;
+        qint64 startedAt = 0;
+        qint64 lastReportAt = 0;
+        qint64 tickPeriodMs = 20;
+        qint64 activeTickPeriodMs = 20;
+    };
+
+    struct EmitResult
+    {
+        bool emittedPackets = false;
+        bool ok = true;
+    };
+
     // Helpers (definitions in ddpcontroller.cpp)
     void invalidateBaseline(quint32 universe);     // single universe
     void invalidateAllBaselines();                 // all universes (e.g. pixelCount change)
+    QString destinationKey(const DDPUniverseInfo &info) const;
+    QString endpointKey(const DDPUniverseInfo &info) const;
+    quint8 nextEndpointSequence(const DDPUniverseInfo &info);
+    void maybeEmitDestination(const QString &destKey, qint64 now,
+                              qint32 preferredFinalUniverse, bool allowFallback);
+    void emitDestination(const QString &destKey, qint64 now, qint32 preferredFinalUniverse);
+    EmitResult emitUniverse(DDPUniverseInfo &info, qint64 now,
+                            quint8 &seq, bool &seqAssigned, bool allowPush);
+    bool sendPushOnly(const DDPUniverseInfo &info, quint8 seq);
+
     // Wire-level senders. Return true if every datagram was accepted by the kernel.
     bool sendFullSnapshot(DDPUniverseInfo &info, const char *srcData, int totalLen,
-                          int bpp, quint8 dataType, qint64 now);
+                          int bpp, quint8 dataType, qint64 now,
+                          quint8 seq, bool allowPush, bool *emittedPackets);
     bool sendPartialDiff(DDPUniverseInfo &info, const char *srcData, int totalLen,
-                         int bpp, quint8 dataType, qint64 now);
+                         int bpp, quint8 dataType, qint64 now,
+                         quint8 seq, bool allowPush, bool *emittedPackets);
     bool writeChunk(const DDPUniverseInfo &info,
                     const char *srcData, int srcLen,
                     int chunkStart, int chunkLen,
@@ -202,8 +247,11 @@ private:
     // packet. 48 ≈ DDP header (10) + IPv4/UDP overhead (28) per extra packet,
     // and is a multiple of lcm(3,4)=12 so the boundary stays bpp-aligned.
     static constexpr int kPartialMinGapBytes = 48;
+    static constexpr qint64 kFallbackTickPeriods = 2;
     // Test hook: bypass FPS throttle entirely.
     bool m_maxFpsBypassForTest = false;
+    QMap<QString, DestinationCycleState> m_destinationCycles;
+    QMap<QString, quint64> m_endpointFrameCounts;
 };
 
 #endif // DDPCONTROLLER_H

@@ -95,13 +95,17 @@
 > - `GenericButton` and `ContextMenuEntry` now support tooltips
 >
 > #### DDP Multi-Universe Sync Fix
-> The DDP plugin's frame-queue batching caused universes to desync when
-> added/reconfigured incrementally. The queue waited for ALL registered universes
-> before flushing — if one was stale or delayed, frames piled up permanently.
+> The DDP plugin now groups universes by destination (`IP + port + destId`) and
+> emits one destination burst per refresh cycle.
 >
-> **Fix:** Replaced cross-universe frame queue with immediate per-universe send.
-> Each universe's data is sent as soon as it arrives (PUSH flag per universe).
-> Inter-universe gap is sub-millisecond. Matches Art-Net behavior (no sync packet).
+> **Current behavior:**
+> - One shared sequence per emitted burst (1..15 wrap, never 0) scoped to the endpoint (`IP + port`).
+> - One terminal PUSH per burst. If the closing member is clean, QLC+ emits a standalone `len=0` PUSH.
+> - Members are counted from configured destination membership, so the first callback cannot close a cycle early.
+> - No queue or sleeps. If a member stalls, continuing input can close with the latest available member values after a bounded two-tick fallback.
+> - Changing the controller-wide pixel count discards reports prepared with the old count. Fresh callbacks supply the new coverage; shrinking still clears abandoned pixels.
+> - Destination ranges must match the intended layout. A 480-byte RGBW range starting every 320 bytes overlaps the next row by 40 pixels. Its zero tail can overwrite that row during full refreshes. DDP does not truncate configured coverage or arbitrate overlapping rows.
+> - `ddp-race-test` exercises real faders, universes, output patches and the DDP plugin with concurrent callback barriers and per-PUSH pixel checks. Its finite schedules do not prove the absence of all races.
 >
 > #### HUE Matrix Rotation & Mirroring
 > Rotation and mirroring are engine-level properties on `HUEMatrix`, available

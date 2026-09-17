@@ -56,6 +56,8 @@ private slots:
 
     void monitorProperties();
     void audioProfileLifetime();
+    void latencyPreset_data();
+    void latencyPreset();
     void audioCaptureRestart();
     void oscPacketLoss();
 

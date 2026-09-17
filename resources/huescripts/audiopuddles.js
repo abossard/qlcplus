@@ -22,6 +22,10 @@ var testAlgo;
     algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
+    algo.presetMode = "Artistic";
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Rain Pulse|write:setMode|read:getMode");
+    algo.setMode = function(v) { algo.presetMode = v === "Rain Pulse" ? v : "Artistic"; };
+    algo.getMode = function() { return algo.presetMode; };
 
     var DEFAULT_GRADIENT = [
         {h: 0.708, s: 1.0, v: 1.0},
@@ -84,9 +88,98 @@ var testAlgo;
       "values:0,500|write:setMinSpawnMs|read:getMinSpawnMs");
     algo.setMinSpawnMs = function(v) { algo.presetMinSpawnMs = parseFloat(v); };
     algo.getMinSpawnMs = function() { return algo.presetMinSpawnMs; };
+    algo.presetRainBand = "Lows";
+    algo.properties.push(
+      "name:presetRainBand|type:list|display:Rain Pulse Band|" +
+      "values:Lows,Mids,Highs|write:setRainBand|read:getRainBand");
+    algo.setRainBand = function(v) {
+      algo.presetRainBand = v === "Mids" || v === "Highs" ? v : "Lows";
+    };
+    algo.getRainBand = function() { return algo.presetRainBand; };
+    algo.presetRainSensitivity = "Medium";
+    algo.properties.push(
+      "name:presetRainSensitivity|type:list|display:Rain Pulse Sensitivity|" +
+      "values:Low,Medium,High|write:setRainSensitivity|read:getRainSensitivity");
+    algo.setRainSensitivity = function(v) {
+      algo.presetRainSensitivity = v === "Low" || v === "High" ? v : "Medium";
+      if (algo.presetRainSensitivity === "Low") {
+          algo.presetRainLowsSensitivity = 0.08;
+          algo.presetRainMidsSensitivity = 0.08;
+          algo.presetRainHighsSensitivity = 0.08;
+      } else if (algo.presetRainSensitivity === "High") {
+          algo.presetRainLowsSensitivity = 0.22;
+          algo.presetRainMidsSensitivity = 0.22;
+          algo.presetRainHighsSensitivity = 0.22;
+      } else {
+          algo.presetRainLowsSensitivity = 0.14;
+          algo.presetRainMidsSensitivity = 0.14;
+          algo.presetRainHighsSensitivity = 0.14;
+      }
+    };
+    algo.getRainSensitivity = function() { return algo.presetRainSensitivity; };
+    algo.presetRainLowsSensitivity = 0.1;
+    algo.presetRainMidsSensitivity = 0.05;
+    algo.presetRainHighsSensitivity = 0.1;
+    algo.properties.push(
+      "name:presetRainLowsSensitivity|type:float|values:0.03,0.3|display:Lows Sensitivity|" +
+      "write:setRainLowsSensitivity|read:getRainLowsSensitivity");
+    algo.properties.push(
+      "name:presetRainMidsSensitivity|type:float|values:0.03,0.3|display:Mids Sensitivity|" +
+      "write:setRainMidsSensitivity|read:getRainMidsSensitivity");
+    algo.properties.push(
+      "name:presetRainHighsSensitivity|type:float|values:0.03,0.3|display:Highs Sensitivity|" +
+      "write:setRainHighsSensitivity|read:getRainHighsSensitivity");
+    algo.setRainLowsSensitivity = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) return;
+      algo.presetRainLowsSensitivity = Math.max(0.03, Math.min(0.3, value));
+    };
+    algo.getRainLowsSensitivity = function() { return algo.presetRainLowsSensitivity; };
+    algo.setRainMidsSensitivity = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) return;
+      algo.presetRainMidsSensitivity = Math.max(0.03, Math.min(0.3, value));
+    };
+    algo.getRainMidsSensitivity = function() { return algo.presetRainMidsSensitivity; };
+    algo.setRainHighsSensitivity = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) return;
+      algo.presetRainHighsSensitivity = Math.max(0.03, Math.min(0.3, value));
+    };
+    algo.getRainHighsSensitivity = function() { return algo.presetRainHighsSensitivity; };
+    algo.presetRainLowsColor = "#ffffff";
+    algo.presetRainMidsColor = "#ff0000";
+    algo.presetRainHighsColor = "#0000ff";
+    algo.properties.push(
+      "name:presetRainLowsColor|type:string|display:Lows Color (#rrggbb)|" +
+      "write:setRainLowsColor|read:getRainLowsColor");
+    algo.properties.push(
+      "name:presetRainMidsColor|type:string|display:Mids Color (#rrggbb)|" +
+      "write:setRainMidsColor|read:getRainMidsColor");
+    algo.properties.push(
+      "name:presetRainHighsColor|type:string|display:Highs Color (#rrggbb)|" +
+      "write:setRainHighsColor|read:getRainHighsColor");
+    algo.setRainLowsColor = function(v) {
+      if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
+          algo.presetRainLowsColor = v.toLowerCase();
+    };
+    algo.getRainLowsColor = function() { return algo.presetRainLowsColor; };
+    algo.setRainMidsColor = function(v) {
+      if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
+          algo.presetRainMidsColor = v.toLowerCase();
+    };
+    algo.getRainMidsColor = function() { return algo.presetRainMidsColor; };
+    algo.setRainHighsColor = function(v) {
+      if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
+          algo.presetRainHighsColor = v.toLowerCase();
+    };
+    algo.getRainHighsColor = function() { return algo.presetRainHighsColor; };
 
     algo.ripples = [];
     algo.spawnAccumMs = 1e9; // start ready
+    algo.rainPulseStrip = [];
+    algo.rainPulseBaseline = [0, 0, 0];
+    var lastIdentityKey = "";
 
     algo.dominantColor = function(audio) {
         var bands = (algo.colors && algo.colors.length >= 3)
@@ -99,9 +192,112 @@ var testAlgo;
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.rgbMap = function(width, height, rgb, step, audio) {
+    function rainThreshold(index) {
+        if (index === 1) return HSVUtil.clamp01(algo.presetRainMidsSensitivity);
+        if (index === 2) return HSVUtil.clamp01(algo.presetRainHighsSensitivity);
+        return HSVUtil.clamp01(algo.presetRainLowsSensitivity);
+    }
+
+    function rainBandPeaks(audio) {
+        var bank = audio && audio.banks && audio.banks.full;
+        if (!bank || !bank.count || !bank.processed) {
+            return [
+                HSVUtil.clamp01(audio.low || 0),
+                HSVUtil.clamp01(audio.mid || 0),
+                HSVUtil.clamp01(audio.high || 0)
+            ];
+        }
+        var values = bank.processed;
+        var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
+        var peaks = [0, 0, 0];
+        for (var slot = 0; slot < 3; slot++) {
+            for (var i = bounds[slot]; i < bounds[slot + 1]; i++)
+                peaks[slot] = Math.max(peaks[slot], HSVUtil.clamp01(values[i] || 0));
+        }
+        return peaks;
+    }
+
+    function rainBandColor(index) {
+        var explicit = [
+            HSVUtil.parseHexRgb(algo.presetRainLowsColor),
+            HSVUtil.parseHexRgb(algo.presetRainMidsColor),
+            HSVUtil.parseHexRgb(algo.presetRainHighsColor)
+        ];
+        return explicit[index];
+    }
+
+    function renderRainPulse(width, height, dt, audio) {
+        var n = width * height;
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.timing ? audio.timing.deltaSeconds : audio.dt * 60.0 / audio.bpm;
+        if (algo.rainPulseStrip.length !== n) {
+            algo.rainPulseStrip = new Array(n);
+            for (var reset = 0; reset < n; reset++)
+                algo.rainPulseStrip[reset] = [0, 0, 0];
+        }
+        if (!(dt > 0)) {
+            for (var idle = 0; idle < n; idle++) {
+                var idleRgb = algo.rainPulseStrip[idle];
+                var idleHsv = HSVUtil.rgbToHsv(idleRgb[0] / 255, idleRgb[1] / 255, idleRgb[2] / 255);
+                var io = idle * 3;
+                map[io] = idleHsv.h;
+                map[io + 1] = idleHsv.s;
+                map[io + 2] = idleHsv.v;
+            }
+            return map;
+        }
+
+        var slot = algo.presetRainBand === "Mids" ? 1 : (algo.presetRainBand === "Highs" ? 2 : 0);
+        var peaks = rainBandPeaks(audio);
+        if (peaks[slot] - algo.rainPulseBaseline[slot] > rainThreshold(slot)) {
+            var color = rainBandColor(slot);
+            for (var i = 0; i < n; i++) {
+                algo.rainPulseStrip[i][0] = Math.round(255 * HSVUtil.clamp01(color[0]));
+                algo.rainPulseStrip[i][1] = Math.round(255 * HSVUtil.clamp01(color[1]));
+                algo.rainPulseStrip[i][2] = Math.round(255 * HSVUtil.clamp01(color[2]));
+            }
+        }
+
+        for (var b = 0; b < 3; b++) {
+            var coeff = peaks[b] > algo.rainPulseBaseline[b] ? 0.99 : 0.5;
+            algo.rainPulseBaseline[b] += coeff * (peaks[b] - algo.rainPulseBaseline[b]);
+        }
+
+        var decaySteps = dt > 0 ? Math.max(0, Math.round(dt * 50)) : 0;
+        for (var step = 0; step < decaySteps; step++) {
+            for (var d = 0; d < n; d++) {
+                algo.rainPulseStrip[d][0] = Math.floor(algo.rainPulseStrip[d][0] * 0.9);
+                algo.rainPulseStrip[d][1] = Math.floor(algo.rainPulseStrip[d][1] * 0.9);
+                algo.rainPulseStrip[d][2] = Math.floor(algo.rainPulseStrip[d][2] * 0.9);
+            }
+        }
+
+        for (var x = 0; x < n; x++) {
+            var rgb = algo.rainPulseStrip[x];
+            var hsv = HSVUtil.rgbToHsv(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+            var o = x * 3;
+            map[o] = hsv.h;
+            map[o + 1] = hsv.s;
+            map[o + 2] = hsv.v;
+        }
+        return map;
+    }
+
+    algo.rgbMap = function(width, height, rgb, step, audio) {
+        if (!audio)
+            return HSVUtil.createMap(width, height);
+        var identityKey = HSVUtil.audioIdentityKey(audio, lastIdentityKey);
+        var identityChanged = identityKey !== lastIdentityKey;
+        lastIdentityKey = identityKey;
+        if (identityChanged) {
+            algo.ripples = [];
+            algo.spawnAccumMs = 1e9;
+            algo.rainPulseStrip = [];
+            algo.rainPulseBaseline = [0, 0, 0];
+        }
+        var dt = HSVUtil.audioSeconds(audio);
+        if (algo.presetMode === "Rain Pulse")
+            return renderRainPulse(width, height, dt, audio);
+        var map = HSVUtil.createMap(width, height);
 
         var trigger = false;
         var intensity = 1.0;

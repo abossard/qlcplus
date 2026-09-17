@@ -705,6 +705,12 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         {
             Json barEntry;
             barEntry["barIndex"] = bar.barIndex;
+            if (!bar.sourceKey.isEmpty())
+            {
+                barEntry["sourceKey"] = bar.sourceKey.toStdString();
+                barEntry["label"] = bar.label.toStdString();
+                barEntry["color"] = bar.color.toStdString();
+            }
             barEntry["type"] = bar.type.toStdString();
             barEntry["minThreshold"] = bar.minThreshold;
             barEntry["maxThreshold"] = bar.maxThreshold;

@@ -32,6 +32,9 @@ public:
         , m_listValues(QStringList())
         , m_rangeMinValue(0)
         , m_rangeMaxValue(0)
+        , m_floatHasBounds(false)
+        , m_floatMinValue(0.0)
+        , m_floatMaxValue(0.0)
         , m_readMethod(QString())
         , m_writeMethod(QString())
     {
@@ -55,6 +58,9 @@ public:
     QStringList m_listValues;
     int m_rangeMinValue;
     int m_rangeMaxValue;
+    bool m_floatHasBounds;
+    double m_floatMinValue;
+    double m_floatMaxValue;
     QString m_readMethod;
     QString m_writeMethod;
 };

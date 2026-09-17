@@ -1,0 +1,3525 @@
+{
+  "schemaVersion": 1,
+  "generator": "tools/hue-gallery/generate.py",
+  "generation": {
+    "status": "complete",
+    "sourceCommit": "aeb093ad1beec251ee8d08a4e114135c9d9c6087",
+    "createdAt": "2026-09-17T05:50:38.141523+00:00",
+    "renderer": "Production HUEScript/HUEMatrix owner, native Qt QJSEngine, HSV-to-RGB packing. Isolated Doc; no live application.",
+    "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+    "notes": [
+      "Native render previews, not desktop screenshots or hardware validation.",
+      "Every primary mode/presetMode choice is inventoried. Other property cross-products are excluded.",
+      "Unspecified settings use native defaults. Source/helper and native binary hashes are in media/generation.json.",
+      "50 Hz rendering, 4-second warmup, 10 fps sampling over 4 seconds. Script steps advance once per 120 BPM beat.",
+      "80×4 WLED-style strips; intrinsic 2D effects use 32×32. Mode comparisons share layout, assigned palette, input and timing.",
+      "Palette swatches describe assigned owner colors. acceptedColorCount records native acceptance: 0 means built-in/procedural hues, 1–4 means only the first N assigned stops are passed to the script.",
+      "No public random seed API: Math.random effects are nondeterministic. Non-audio Date clocks run in real-time.",
+      "GIFs may jump when looping; seamless loops are not claimed. playbackScale is a speed multiplier already encoded in the GIF (1 = real-time).",
+      "GIFs use adaptive per-frame 256-color palettes. Decoded colors are checked against every native sample, including frames combined into longer holds.",
+      "Non-audio real-time warmup, capture span and total wall duration must each remain within 5% of their timing targets. Every sampled frame must also land within half a sample interval of its absolute target; otherwise generation is rejected.",
+      "Flashing previews require explicit playback. GIFs contain no audio.",
+      "Publication replacement is atomic per file, not across the whole generation. An interruption can leave mixed files that fail verification; restore a consistent generated-file set from backup/version control, or regenerate to a different empty output directory."
+    ]
+  },
+  "sourceSha256": {
+    "engine/audio/src/CMakeLists.txt": "d7b71dbf76479eb45506af5a0f953e32c81c506e40d23a9cb84e28c35d49aba5",
+    "engine/audio/src/aubioprocessor.cpp": "ed985bc8d153b4bf2911a35cde9e8b4b758124173956a8ff9fff8be5ccc769aa",
+    "engine/audio/src/aubioprocessor.h": "9f8cbb9a615f88e7fb6685b2e343a4218dd3d63efbb3157a91e3434dd920bd94",
+    "engine/audio/src/aubioresults.h": "1bebce835806107589137d511eeb9a729395c492e1377441b000740b02f9f002",
+    "engine/audio/src/audio.cpp": "304f4241d7d4d9d13607ad97ceb61d3e8111ccc008e283926d9e46684e354663",
+    "engine/audio/src/audio.h": "9d7bbc5453ff02eee036bec8456ade6158738949010ea1662a5d0c62348cad69",
+    "engine/audio/src/audioanalyzer.cpp": "4988fc63bef9464f8bed6ec8b1ba973952a5061930c398bb407d64465757e053",
+    "engine/audio/src/audioanalyzer.h": "9c3a99ee4a0f28dd3c10ce914ff97525388c1656cabc734e83072effa1b2a2ae",
+    "engine/audio/src/audiocapture.cpp": "0f4860a90b704fda917f8d9d32d1abd4e9e12f7921ee88a702a5d6827b3456c4",
+    "engine/audio/src/audiocapture.h": "6531c61d4115c87c0fb453580a6b2a53915f187c2146f67962a7745f1db6215b",
+    "engine/audio/src/audiocapture_alsa.cpp": "07c6120963493d240e2290d08620c02e4f4779127c2e265ddf08b7ffeffb0563",
+    "engine/audio/src/audiocapture_alsa.h": "d6131914f98401cd5ee9c9d24cb1b8594d54945e8e2708f28aef34137b83040f",
+    "engine/audio/src/audiocapture_portaudio.cpp": "9f0a0222792cf8230160c506c34b7d54dc8c614167039185fb3ef82ae648187b",
+    "engine/audio/src/audiocapture_portaudio.h": "0b742ef720f6d46421706e4cfc68bedddae433c0a6f72747427b6883e803a073",
+    "engine/audio/src/audiocapture_qt5.cpp": "d6ee3d1280d7743dca3232db4d46c09c49d66e8c090d76181ef8d674a83cbd88",
+    "engine/audio/src/audiocapture_qt5.h": "25aae1bdb498761a9fe0de1bf7fa7c9e35be43325c309240d91d421f3267640d",
+    "engine/audio/src/audiocapture_qt6.cpp": "fc32b066aff0c0b59d66675c8377d81b362eb4cabeed60ac95b7ba6f0b6fc554",
+    "engine/audio/src/audiocapture_qt6.h": "92e3844b4e9782202d113ab509ee96d180593c50199911de75df468643043c8b",
+    "engine/audio/src/audiocapture_wavein.cpp": "b78fa4162e8c994b583224d3ba076970c31c87eb46cd88a9a70e1a79ad435fea",
+    "engine/audio/src/audiocapture_wavein.h": "6529d0410b352494c788fff41928d10b8f9ea6287401e8440b2a3cb2610f6763",
+    "engine/audio/src/audiochannel.cpp": "8da8855059a44b333fee888d745b6a5d03262bed292e86eb592b7898e8851e1b",
+    "engine/audio/src/audiochannel.h": "ba087ac1935f4f3a68166d1df6188ac5633c91f0517d77c6aab0c7a9d7014e95",
+    "engine/audio/src/audiochannelconfig.cpp": "aeae76984d45da6b6aedae1bdc78e5621aa9a48cc4b9ea8c7c0ec3db73114611",
+    "engine/audio/src/audiochannelconfig.h": "4aff088c53c004be1074a3fd4b13ad24670aa50d8e24c3e31f764af2ba195c6b",
+    "engine/audio/src/audiodecoder.cpp": "1f264df7e07566f46fdbea762f073c36fbab5ab8e60a696ff1097308f793d7be",
+    "engine/audio/src/audiodecoder.h": "0e923f7531b8d8fe9b714f10ad5ab09269aa43e6aa4979117b9a50af7a339ccb",
+    "engine/audio/src/audioframe.h": "0e4ddc6f0f3187696f04ab57006d6d468c2220965152762f0108a634d9360ccc",
+    "engine/audio/src/audioparameters.cpp": "87700d51aa9a843b68727edb37b4e5d8d3beb3994a6efade7abe51645f305122",
+    "engine/audio/src/audioparameters.h": "e26e33eaae7aa155f4cf076d38d07e97fdfa38750f74a7b7417d472e085cd313",
+    "engine/audio/src/audioplugincache.cpp": "5c8d7502b588650abf4e74a41a3eb5bb88fd0154cc05e7c7022a5e7fe4c0c0d2",
+    "engine/audio/src/audioplugincache.h": "fbaf1ef0c0739d530aaceb9915dec486d01b8524b3ec6831507bbfa025198d8b",
+    "engine/audio/src/audiorenderer.cpp": "b3046ba253b990a5136650bbbcad40d4a84749cfdb9160aa8bbe9d2cf37cb964",
+    "engine/audio/src/audiorenderer.h": "f0b931befa26d40854e38d7599ac781b20547014936cc8d9f0b84f725d1d3d5b",
+    "engine/audio/src/audiorenderer_alsa.cpp": "6bf1db6af44ed463a9291ac7dc3dc3e4f996ab6f866870c84e1df559f277ffdf",
+    "engine/audio/src/audiorenderer_alsa.h": "ba0351452e4a968ce69ec65264c3ccf48aa14ee4bd8f7b6df695a03d9381d14a",
+    "engine/audio/src/audiorenderer_coreaudio.cpp": "cee47a310decd96e0db50a9df933ff86616e179fc34230e3f00a5b971dbfe5f4",
+    "engine/audio/src/audiorenderer_coreaudio.h": "a5c8d7c4f6371b665661fdfd9d0831dff7741f6f94f8666722c021c8801f4e56",
+    "engine/audio/src/audiorenderer_null.cpp": "877eb9aeb3f3c0d038a8290f506015c8955290e79d24b698fb7649c45c81fc7b",
+    "engine/audio/src/audiorenderer_null.h": "198813cafe0bb0f786cbf16d7053091326abc80008ee5e1bdaaaa460965e4048",
+    "engine/audio/src/audiorenderer_portaudio.cpp": "297fb4fea7370f99f8a1564e7b729c579305ade4bae8c509762ccfe5e807284d",
+    "engine/audio/src/audiorenderer_portaudio.h": "3fc993a1a31fcffafbe197bda64ceea881b98da4c13a6420879b8f1112d2179b",
+    "engine/audio/src/audiorenderer_qt5.cpp": "e203d8e13ceb55d2b9417e788d432a91fc98ae2ae5b3541e0ef524247437d7b1",
+    "engine/audio/src/audiorenderer_qt5.h": "a34ecca6441c3855b9a8c29847344d817098de83756c48a376a3ce3a0fc63b3c",
+    "engine/audio/src/audiorenderer_qt6.cpp": "c5150910992c3ef35a92ed4f6893af963d7adcadd333076578b287961d7ad3b0",
+    "engine/audio/src/audiorenderer_qt6.h": "eabb80e22e534e95cbebe3e40957dd6b745b279d6b4097b9c022b45b92dbed90",
+    "engine/audio/src/audiorenderer_waveout.cpp": "f691de606f5668c0c6b24b2fe54f1abc19f43a7de3e383be20f1825e313dfa80",
+    "engine/audio/src/audiorenderer_waveout.h": "75c98bbea9627737db21537c02e8b6c301721f6b725e6906de72e1793e8ebcd2",
+    "engine/audio/src/audiosnapshot.h": "6543fda5840e64ee63a344dac044fde92e35ce0a083c3eee0728ccf8bd6e15b6",
+    "engine/audio/src/beattracker.cpp": "7fc03307746e072aaa99e9ba4ae8ef88fa5494951a0695b0d73caa3fa7d90974",
+    "engine/audio/src/beattracker.h": "bcb0d418d1b91f7f3f1ea9fbadd5276c9ecc51b4df17680a5d422de6f4592638",
+    "engine/audio/src/melpostprocessor.cpp": "3594e43c9163b861f6e26cada9716cc6b28c37c5bad3940d4ec14163db82c594",
+    "engine/audio/src/melpostprocessor.h": "34f37e1adce0c7839daf270b6e9ce11011a1c68644455fa8641ca23871fa8eff",
+    "engine/audio/src/oscaudiosource.cpp": "c2f9b62024c67a90a53ea444e789cce10f0ba2f00d9a63067ed02abb686f3071",
+    "engine/audio/src/oscaudiosource.h": "580191e6e1ba670138eade2b220946436b10e6a8d062bf3191267276d839a1aa",
+    "engine/src/CMakeLists.txt": "4edb2972a919d52d5adef241a2144050f14bbe69538593d227da120854f963d4",
+    "engine/src/audioprofile.cpp": "a46da30fa5b4681995b67be0236f04b20aa74661de9e98ce1a3ab83dc0a78cb7",
+    "engine/src/audioprofile.h": "28828759704dc851625a2fe707615f6ca20ba6ea1b0e91fdee1a785386739d02",
+    "engine/src/audioview.cpp": "8976e14f11338eb40cb39b96451dd4d68a5211b9aed508f97a6b5b647df22b71",
+    "engine/src/audioview.h": "4adb59cc047f2d373357b058b9261f180f1cc3e9b66d15e0747d740ee566dabf",
+    "engine/src/avolitesd4parser.cpp": "d60c35a201f4a274b1778dcc4f0942980514a4da89f998d715d00e586db954b0",
+    "engine/src/avolitesd4parser.h": "9c33cc7e92d36a8859afdef3653dc0f6056c6ff8cba33b463401f46f6107a17d",
+    "engine/src/bus.cpp": "d1b5edd6ba5798a1b1ce291e7813b306a97490d355d563e5e97fe99bea5d5a2c",
+    "engine/src/bus.h": "7bc7c738cf722a5f796751d03ebef5affba2ef3fad41ae7b5bf1941498f3edb7",
+    "engine/src/channelmodifier.cpp": "8a8043a82ace3e4554a0f86f2f318d23ae2c768836fe4234b308a48a612d43a0",
+    "engine/src/channelmodifier.h": "d0336efb0350db37f06189af30713f8f569ae5f0bdb31ba7da510f96516e90b5",
+    "engine/src/channelsgroup.cpp": "a4de8b44189af2389d88c62a1a50673082a4d4b60d841150e536da4ccc982940",
+    "engine/src/channelsgroup.h": "5e7d4af981987cc9a1c42d1049f3a687c44400788bbbc0f5db49e9dfec76b660",
+    "engine/src/chaser.cpp": "6f144f6c87eb4a5f7a8b7b1f97911e4ff18f3b814b964a39219526d594c82f6c",
+    "engine/src/chaser.h": "fb98717c11f5cf59977d8984b18a13d1fbb66036c784fdfa2d56043ed292b9c9",
+    "engine/src/chaseraction.h": "1b3665dc47af76333343dce5414f23889bc29225c346e423ded6f63796950d0a",
+    "engine/src/chaserrunner.cpp": "d57d334dc9703d734cf58dadd702f5db22f2b460e1965c1ccf369b850ed048fb",
+    "engine/src/chaserrunner.h": "1dbe2763f62fa03773d2d1478588a86ed4eb0583010253afd035df7bdad1a041",
+    "engine/src/chaserstep.cpp": "552a6f2c929fea2ca6893350fb80f91853655de4293ad0107b90f1cb5648f5ca",
+    "engine/src/chaserstep.h": "d1fe4443f329c622396d251716c820dabec25050e402a0d56da2da284e5d93fc",
+    "engine/src/collection.cpp": "c8fdd60b805fe2d11e343338658c4455f192e353f0386a1635a8d9f177cd4731",
+    "engine/src/collection.h": "75ad5d0850dcb88aa8e1731e34c6bb706fbf0190bbde44ed3e8fb275ca324823",
+    "engine/src/cue.cpp": "4301fcaa56d5d765075d42657cc9a1ad4ff4b21c4381258b13abc3105f2371ef",
+    "engine/src/cue.h": "77bfb1e9d25abf3fef89d0e84f4afc06f761e5d484dbc218abd69a9577153d3a",
+    "engine/src/cuestack.cpp": "7d359764f3b38809897c3127a3c3ee4ab04a14e7f2b13dc865f67e1a27384b77",
+    "engine/src/cuestack.h": "9d8508d07f84d71c92b6faaf775fe9e94b64fd73a8870e0d2b2c8cb99dd9d62f",
+    "engine/src/dmxcapture.cpp": "5e5e0cb44110c39aa0638ae6c15293d3b72b6606f13bb94f673d82800fb4490b",
+    "engine/src/dmxcapture.h": "8dd2252afcc12a478feb4c4ed2ea6a5ce32f097368e904b356d0f51f91a06ea8",
+    "engine/src/dmxdumpfactoryproperties.cpp": "22cbfd889f3662aca26d44b782a62814fe2fd4999071fdf4f1b251688bce761a",
+    "engine/src/dmxdumpfactoryproperties.h": "4774a3b8e8342da6623045ed545552324cc264dcb68755373b08988e77c7a021",
+    "engine/src/dmxsource.h": "7b3c2883719cbaec2092fbcac42bcfda71b7644575758678c3b4041232727650",
+    "engine/src/doc.cpp": "434bccc47ea3a0fadc1684b6200397f786b3f5b401564ae29409e322bd6c4a3a",
+    "engine/src/doc.h": "28c506ffea4a447321ffd8b97f289d30ef589f9da5479cfc602a54fd6c57ca3c",
+    "engine/src/efx.cpp": "3761681cc436b9cabf38f37797fe4d01b00ac4576544a578ff218905f0bf917a",
+    "engine/src/efx.h": "0b4727ae6d0ea1a3f2fe8a315a2ff8729e51f822c40549accdae69f3ec8b5939",
+    "engine/src/efxfixture.cpp": "b9190aa2f0ee3b1bc5b8681e2bd0e1891fa162cf8909eee40ff1595657fc170f",
+    "engine/src/efxfixture.h": "8071b5fe10e53c59e3d17b3070a827af59e3da35571c864e36768b8360791bc1",
+    "engine/src/fadechannel.cpp": "c87b0cdcc213e49ed2d67701b50ee948b658944e344599a6bf66780b721411b9",
+    "engine/src/fadechannel.h": "2c611a587007ed855785c6208e13be84baebad4d0bc117c5b94d0e857b361092",
+    "engine/src/fixture.cpp": "ed1c760b90ec4a7165c9469d17ef50c94961c289bcd836ef0577ed04739e5d67",
+    "engine/src/fixture.h": "6544d92913161ef1f7e2a449193519651aa1ac2519c2180f1e43781b935b9dd1",
+    "engine/src/fixturegroup.cpp": "baddb408038d69d58935f7465dbf89aabb3fa47e050346b75d5ed7ee07118936",
+    "engine/src/fixturegroup.h": "2b3a035035847a4e73625b7f420dcb034aedeac36a40d9ca128830122f46a076",
+    "engine/src/fixtureremapper.cpp": "1ca608ef35196bdd12ac40eb2b2aab25adecbc666e0e7de39c87925cf63b9f97",
+    "engine/src/fixtureremapper.h": "8866984b1e1d7c0dfd46fbb03b792143e655769026334c25c7d0661977fafb2b",
+    "engine/src/function.cpp": "2494aace87545a1b05f3ff5c94615943b0d61ec6b78564d7365af6dbdbdf4a7b",
+    "engine/src/function.h": "d502784f0cf9d5c2e20e202a116662b9885ad3b804effbad275a0c0f697d56f5",
+    "engine/src/functionparent.h": "9a51d14e1ae32b0d3e094f95933b542f8fee98046df9ec8bfe7824e0ee8c0576",
+    "engine/src/genericdmxsource.cpp": "481e9030e3b3eacc49936a2473f32cf8caba0aa85f20fc171ff222553530c3eb",
+    "engine/src/genericdmxsource.h": "21f26d2ec4391eca5c980b9861dde88889de23ebe53e693f0e67cf4fe8e120ed",
+    "engine/src/genericfader.cpp": "30ccbc2b836774d20bd6ef84e865b290700d49a4f036465557bc0502a6712454",
+    "engine/src/genericfader.h": "690472c10901fc26a589435a6164025f76cc255f91fdb56e5a0da0e5c370d9c8",
+    "engine/src/gradient.cpp": "b1ed36d97ab3e04eb3171ecb16e028cca5e9671cf8c8a05f3988e978b3300d10",
+    "engine/src/gradient.h": "cae05f33e2404435e93b117d73b231388121568ec9b226f4598bcced65a5e1a7",
+    "engine/src/grandmaster.cpp": "b58752ce1a58996b64cf10045f73007d70b2172aae0c6fedbc05c22ddf0a151f",
+    "engine/src/grandmaster.h": "fe135f28fb2282b7789e89cefb85cfd93cef28f4c55443620aaf448a43edea66",
+    "engine/src/grouphead.cpp": "3fd985d77f990fbaf1cd243cbc395b2430a7989f002b6719354367eec6fc2003",
+    "engine/src/grouphead.h": "906eb697318770a4e564a0b58eb5b8d5d1497006ff12cd24f2a7448ad5b025b8",
+    "engine/src/huecolor.h": "73b1c97dbeef27cd4da830c5efb3aa012de29083611e2b38f9e5c38891991a3c",
+    "engine/src/huematrix.cpp": "bbc471d18270e3b9de904d284bc0a499f37e32cc3a121bbbf59b80bb09df4216",
+    "engine/src/huematrix.h": "239ae4534424d882da8346338a54ec47c2db6171d03c1679cc04929bc538253a",
+    "engine/src/huescript.cpp": "9f99ee3ae40fe54320171178ff531b28fa7fab2fb3bc73ef2e2401d66a3aa9c9",
+    "engine/src/huescript.h": "df9dec4664adf4dd0fc436e39899105a5271f549e8fc06fe413a730e5e957a9f",
+    "engine/src/huescriptscache.cpp": "252523684129d705e9d26c71239b2691d7f2891baf03f1eef1a9add3a89db530",
+    "engine/src/huescriptscache.h": "66635fa7afe46fc1dab1af66723355d7e5c58a1796858ae6f3d3d1da3590d2b0",
+    "engine/src/inputoutputmap.cpp": "0c0698841a713861a9c8781d629ca1450e85b935e53e5b6532e0e89f7532d307",
+    "engine/src/inputoutputmap.h": "8095cc13e3353e20539a10809b57399b10470690b51d1196849d98c5f6b83428",
+    "engine/src/inputpatch.cpp": "390b573893a35288ce8e629ad1e5984dca728a2d5510496dc3d8d82098f880e4",
+    "engine/src/inputpatch.h": "ca2e0d047f0d41e33832503af1f3148ee5e0e6d085b693fb3a4e3e43eeefb326",
+    "engine/src/ioplugincache.cpp": "e2c2af8d38da580bfa0709b8e6c4ae18c055cd3a74c0094c7b5611466d17041d",
+    "engine/src/ioplugincache.h": "64f4eed383ccf29504d9b86ca17f51dfd0820ba088356c9c5de2d34c6a9326ae",
+    "engine/src/jsthread_p.h": "9498c3c8abf23c514e1a5c64669a0cf7f47695fb248053e8c46d3769e18e0767",
+    "engine/src/keypadparser.cpp": "7839b23d8216d66871219fa61a04ab22dc2ef3f7b49a17e72482fa3fdff0d3fb",
+    "engine/src/keypadparser.h": "8dbd14613399256ba42e306d6c1fe33f1555f7672305f944a2d14195d71e70a5",
+    "engine/src/mastertimer-unix.cpp": "fa17482f7271739e6ce076b7b0848d7cc00c1581400a5cbbd8448e173b9b4d0e",
+    "engine/src/mastertimer-unix.h": "a1dd8a61d7de4e0079374b6efbec0e9e1e053c216e6459a5ccdc55f5f8a3849e",
+    "engine/src/mastertimer-win32.cpp": "3b94f7031fac373df57bd8360764394fa9f2aa879ad7a60d931674cf72ea3ac4",
+    "engine/src/mastertimer-win32.h": "2eaac0a5ed3cf6d85160e58903b5ceb0f4cf1ca9302841a61cf4e3f89ab383cf",
+    "engine/src/mastertimer.cpp": "1d13f0a7dfc8eb91b55c2909a79b7aaad40d68ef281661b683e3a4b1ca072860",
+    "engine/src/mastertimer.h": "0e18f68d7dd60f916e961e8acbe292e5ae360c56f7a55160799e6e0f5238468d",
+    "engine/src/monitorproperties.cpp": "30a3c72c847f65b7c71077c9178a2f6a23fdcd147c80af9aa8c73df384319e4b",
+    "engine/src/monitorproperties.h": "45bb0cad0624fe7e1dcd985fe139e1b036374af0617d30337050502b1145be8d",
+    "engine/src/outputpatch.cpp": "d6c24db86bd839b9a885ae5074704402194ccb3b2f25d6a61a025985a8d573cc",
+    "engine/src/outputpatch.h": "a8a07d40ec52ef6f54ab0299c6240c310265aa7343d5072e4857058623d55587",
+    "engine/src/qlccapability.cpp": "cdfd4fdfb64c84d1a735d42e9ed3acdb87f38105d2e13cb647091c0a9705c59c",
+    "engine/src/qlccapability.h": "11d62c1d3ee5f991937beb35101cc7df73a0deaa11fe09e5cf70b421fa02bb99",
+    "engine/src/qlcchannel.cpp": "9fa4dc388594f44243f85c7f97929429def2e52581d741989b543b04b39742fc",
+    "engine/src/qlcchannel.h": "2e75e31ee66049db6766a7be4c8786e79b40b540e919955e8a15e19938dd04b2",
+    "engine/src/qlcclipboard.cpp": "fe3f5f92256c96dd889df23d28f611fbdbd7cd7be89cbb54d500f78a86746b77",
+    "engine/src/qlcclipboard.h": "d6dc890884bd7fa1038fceabfe66376857d609b79d4058c9d5bb20369d2522a0",
+    "engine/src/qlcconfig.h": "e55af6d0a3d47e389aea0bccbaf998fc8822f0063aea4dcff591df7b03bd4727",
+    "engine/src/qlcfile.cpp": "11651ae88276af28e12c7d1fb660174451c8ea075de99d56da4f9df958896762",
+    "engine/src/qlcfile.h": "3ab30c25ae01009efc3f66c14f1b6a6fc133e62e162d614a686d3f260cad4efe",
+    "engine/src/qlcfixturedef.cpp": "be522a430deecf01b1a09dcb59578dd9d32f92e3967afc241dbac6ba55648f7c",
+    "engine/src/qlcfixturedef.h": "bc29e55bdead4719ce430722a90304aa7c32c6432af75f6429293995266df6f3",
+    "engine/src/qlcfixturedefcache.cpp": "cc72abc8d126b6873d6780ba31b3eca54a2779108cdaaa3a2e14688cdae6e4a3",
+    "engine/src/qlcfixturedefcache.h": "de3fd2fa8f40292ac04d56ed022c4c9adf8d6f791565e5d445d83082daad9ac3",
+    "engine/src/qlcfixturehead.cpp": "576b98928bc54512036ca814e0e66b8a2bf7b996e48abb491be37705fc15eb7b",
+    "engine/src/qlcfixturehead.h": "b2ddf6792e9d29dcdb95ea0bf4632135b5f7b68bfc9150ace033e2ffc0ee126e",
+    "engine/src/qlcfixturemode.cpp": "91c06fb93e887e3f16c533814ea8a4a3ab9b30770fa0308418b414da148cb8b7",
+    "engine/src/qlcfixturemode.h": "3a3f94f9697380643b25148a72142034c239513322dcfcb64ee58459afa94213",
+    "engine/src/qlci18n.cpp": "828ce4373278ced863a318bf1ddb00fa6f04afc947a44bf7cf8caf62cf17c7eb",
+    "engine/src/qlci18n.h": "d5a79d59add698d84857045cb255483c2924afcf42cbe2c710037848e800b648",
+    "engine/src/qlcinputchannel.cpp": "edacfa706b09f2ab97a8f04a6418721d85580af14795cc200d9be3c864e6ca6c",
+    "engine/src/qlcinputchannel.h": "827642712895b6abbdadebb767ad8dd8e482bb05a47f4ac4d5ce22516d6d5e9d",
+    "engine/src/qlcinputfeedback.cpp": "a6c37d545067247041f2e7fe90228bf47f86770c4024ef956c09c68897d85878",
+    "engine/src/qlcinputfeedback.h": "26e9e13307c3c8870777a2a399c9b9c9b0392f461bbf71f68d7c65bdbb42f277",
+    "engine/src/qlcinputprofile.cpp": "2e6617997e6d80cf8c0e5ada195ad264ace54ee7e01239ea3805b9dc60f9e99c",
+    "engine/src/qlcinputprofile.h": "9ec0075c547879c41784a5e59e3786049c13eb512e46669c7ae6ad85eb27ca5b",
+    "engine/src/qlcinputsource.cpp": "fa6bc0efe9e25d53dc9493055cbf9c68fa49363cad9b2c14edf4f81728869d34",
+    "engine/src/qlcinputsource.h": "9b7582c2dba0bdd46e9f4305d5f475b5fac30107c384e2e331d81209079595e7",
+    "engine/src/qlcmodifierscache.cpp": "f028bc1549bed169c9cc7597c7a77259d7c5dfb58fc80bbbd47ad0e5d5127f76",
+    "engine/src/qlcmodifierscache.h": "cc7eff9fc5641804bf5a7e7a30c156a852eb58ec8015ac150c0d4822d0481a7a",
+    "engine/src/qlcpalette.cpp": "a2e55bc7d914a1629ae001842ad851eeaabb6621fb0c882ec1d59bb9fcc40941",
+    "engine/src/qlcpalette.h": "69632c215849644acbed1892e44ed258734a4f373a18a90766a59f032fbf2644",
+    "engine/src/qlcphysical.cpp": "f39e6efffb2669eb4bd95d5ff7ce6c2f8d9cb0f35da428612f5c713409d28905",
+    "engine/src/qlcphysical.h": "e7ec3d8ed176b04c7d052ca243c974ba0e2ca67a91847943b8728009a3eb0625",
+    "engine/src/qlcpoint.cpp": "38f20279801cfab318b1a711f6428718c4a53c4030a1f1b8dc848603c63663bf",
+    "engine/src/qlcpoint.h": "5400cb305af3ad0990161f5d6743372b831816c69fc203f740579b58db488efd",
+    "engine/src/rgbalgorithm.cpp": "4a6915bb6dea30f62f7d3fa792c9986e40587b73e46d1b41e85b62b3075e8739",
+    "engine/src/rgbalgorithm.h": "e9e9a08293b44cca31bdeadeca9682a5ccb4a0fab390dabc79ee1c4c28d2db50",
+    "engine/src/rgbaudio.cpp": "b08b4a9fa6ba892eefe7e6db6e951963864acd9dec0d5dfa54ddb7391ff76a7a",
+    "engine/src/rgbaudio.h": "812152fde815fd2a5fe673b85151b5e6b9f036ccede27fe6b23bcfd40c9e39cf",
+    "engine/src/rgbimage.cpp": "a2402c9b1e7f39627be133f79aacc869699347cb33a401ec78edb064e9be948c",
+    "engine/src/rgbimage.h": "313a662656b45fcdd92e32cf55365ed9a8b69e503a0a659e42f870b3c2f4023a",
+    "engine/src/rgbmatrix.cpp": "a47db99fdd3c934ff560b20c4600c8cbd3e8063ddfa0ca432a18af3d12c8c49f",
+    "engine/src/rgbmatrix.h": "20f7da21c6b392730f66c892d1ed3b5b1d82baab772b47a8c456a38d2941bba2",
+    "engine/src/rgbplain.cpp": "305b0843499d7c9d9a6e451e35b0bdfc217bb08f043ed2d605727ad5dd499933",
+    "engine/src/rgbplain.h": "266f87b0a6e317f977dcc9d52f7a93df81e86213314b4e866fb438648b556d2a",
+    "engine/src/rgbscript.cpp": "0ec371492a0b168a1c204ee500a5e2f0cccd179b2bd1548ee5e7318cb04928e8",
+    "engine/src/rgbscript.h": "71614788eaaad52a48c43f76fb32716c04f813d5e90b72704e7ef5975b8952bd",
+    "engine/src/rgbscriptproperty.h": "4f53fb28c37392d06b8f4998da917b1c72378be1e0c4d5c80554821026229369",
+    "engine/src/rgbscriptscache.cpp": "15227a01f2320f8d5ed0e38720dc12cf04be339b2bd7d39d9b4f8566c074cdc0",
+    "engine/src/rgbscriptscache.h": "792334c0ca1f994f2fc684de10cc23b0fd29300c4ef82b0d8d4ef3f0637d5218",
+    "engine/src/rgbscriptv4.cpp": "1498c1c6b70392a0c260962e204cf1e56b1291a43085c6379633ba912ede50ad",
+    "engine/src/rgbscriptv4.h": "1d18ebde286c00ccb9ac5c3952eb7ef0617a9e1c21052edcc48690abf71843e6",
+    "engine/src/rgbtext.cpp": "b8703bc08e3242bbd81e97a7888062e6060b7e5238be1ea79e486742b2bbb84e",
+    "engine/src/rgbtext.h": "06368ebb25392a2f3c15c7a9c55414244bf57f76134d3403a07413b6d9fa49d7",
+    "engine/src/scene.cpp": "6b293e424b7333a373f3107e78d7a41f6252a4b671443e0ecfc2c1ca545cfaf0",
+    "engine/src/scene.h": "98a30281b4d96568f64a31fef9287d982a7bcdfa9a995cc6468acf0e2e10d656",
+    "engine/src/scenevalue.cpp": "8093f805d8b2e1e24d771f3dc50d2e0f64b15a9282a9732e371cf1eba9742039",
+    "engine/src/scenevalue.h": "4d7315c8f69570878e6f4ed4bd39681b8f510b816c222c797a1a7c8c63c23b11",
+    "engine/src/script.cpp": "8b7fa801697d834d1fdd1f7ec650fe9919a758dc0b97174c3cb5154a46e51042",
+    "engine/src/script.h": "e9a6a64605221e814e10a55d31426b42d8139011ae49245ca4b1cf2263bfd95e",
+    "engine/src/scriptrunner.cpp": "a6c63f2a7f2eb41962b38c33e7bcacae454b4cb0f34eb494762680ff6a0ec5ba",
+    "engine/src/scriptrunner.h": "81b88746c1b9ec0f6340829461d878223721d31ba9510984e5cc3de05ff5f1da",
+    "engine/src/scriptv4.cpp": "415108368d82993cc792edfd40640d9e63f957434d1b48f079f218fc682ae854",
+    "engine/src/scriptv4.h": "eaaf92e9f8665d810b22d780a3b202d1053940565be0d35c72b5e5ecea45c35a",
+    "engine/src/scriptwrapper.h": "28caac294aff5c863e18b1d826977b4a2d05b3531665cf43d4ffb4805cc34e03",
+    "engine/src/sequence.cpp": "5bfed75053f3f5b8e2f2c73239c4367f36dd8cc6b57dfdde35e7c9ad1a890227",
+    "engine/src/sequence.h": "9414f78a7785ea5d4c78c15458e10c4e22ae35e5a5ddc79c536e8e2f85d09143",
+    "engine/src/show.cpp": "034cc2bb8967bc8cc067b61592f03b77ff1e1ef99584603697fac304c3a1c054",
+    "engine/src/show.h": "37378b3aa6d828c66afc4cbcb0ae78e9fe788e42c6a6ec96da73980b81cd55c6",
+    "engine/src/showfunction.cpp": "5e7e9a3e6b59e8f383a71409ad577c74203aaeccf3788a448d93887e9a79c6d1",
+    "engine/src/showfunction.h": "c842f32c202dcc6ff7411fe8f9dc48bc5bd71e4c2ed8c19b9f55b61d81dc5f60",
+    "engine/src/showrunner.cpp": "fd845d8cd0166eb7adb563ce36793ed0ccc0c102077cf02443ceb0ad6f6bbce4",
+    "engine/src/showrunner.h": "8e1c8e3b6f3c1e7b468479b4e12fb76e37818d3c5f54bbe7742f42e86a2719ed",
+    "engine/src/track.cpp": "a7b33d80c088dbdedbc9c7622fae5873edbc86eff83daf2cdd2c96d6ab7db7f7",
+    "engine/src/track.h": "d3ad26415d350cdc845e40285427d576afe426baca44ecf7a9090cb7687878b7",
+    "engine/src/universe.cpp": "79ef1944106560eeba1ad35065f6c14356bc0159c19d43d87f2c08ef583b9501",
+    "engine/src/universe.h": "6eb146e4de3b651dd14fc821beb2a3fe3f5822e83adcdcd2e5d7b80fe64e4725",
+    "engine/src/video.cpp": "77c7d21d168678d6ecb2b2d6509adcdc40eb88d5c7755e33565a2572416fb9a5",
+    "engine/src/video.h": "9bdc6352a9a87419d4d52964974fd1d62eb4c796cfede6ff836f1dc69cdda5c2",
+    "resources/huescripts/CMakeLists.txt": "86c0d463dc4de59fc3632beedbeb553df8d1cf06f0f82ae4ba696ee04df8049e",
+    "resources/huescripts/audioaurora.js": "9629a7d93042bb175ccf8ad9613e8a7846767a6322404636f3c9dfba44cc010c",
+    "resources/huescripts/audiobands.js": "e334102586bb569ac4c5e03a723a3ee7eba9f14db0a93786bce876d6ff9856bd",
+    "resources/huescripts/audiobandsmatrix.js": "6308b37a6a351eaf849de850798f9a5cf7f833e95910f8bd49a6e05d7d44223d",
+    "resources/huescripts/audiobarcode.js": "242ac58710d8ee92c12c11dcd8405effe815dca92e97b27b6ed71459737fc651",
+    "resources/huescripts/audiobasslaser.js": "8476b4ec7f821bf0978c900ce685591f9b398d6e6116e7dd4d5ac4e1133c90fe",
+    "resources/huescripts/audiobeatcolors.js": "3d7bb7c53dba8798bee2cef06f831035148bf17c95d0ff65ac225f2a4fbbe183",
+    "resources/huescripts/audiobladepower.js": "40cb232177016efc0ccad40c102bcb5c95ba5e04e1147037acccd00326449e7c",
+    "resources/huescripts/audiobleep.js": "2e972602e1939adea169fff83ab0605c3da23be6aed2a5f8c047c09895d19fe9",
+    "resources/huescripts/audioblocks.js": "6e49baa82158c12a5763244e7d8338f620d5fe934b1120416cb267d37dc75aa1",
+    "resources/huescripts/audioblurz.js": "587fa55d9661510a91b534d6f433afd273ad2ada36ac8c731f4b56ea679e94fe",
+    "resources/huescripts/audiobpmbar.js": "39fca186900af9f8acd9ff4c564bda2a8a1f810254df04227eeba43010893474",
+    "resources/huescripts/audiobuildup.js": "04581b4ee9cdcd82bba916082e10df827eafb12a636903f27beaaebdcee42090",
+    "resources/huescripts/audiocellular.js": "26b544bebcf962832a64dda9f19f67a41c2db07aeb0ffa75a3e402ccaa54bdb7",
+    "resources/huescripts/audiochaser.js": "b52a41a2af45be929f2bc802d54aefd6cb0933604ac0eb27221c0aea152287ed",
+    "resources/huescripts/audioconcentric.js": "879a77f34ff7f70343cdf1b4c9ebc3f36a85a6d4ed1fc3404faadb6d93dee8fa",
+    "resources/huescripts/audiocrawler.js": "92fb95656a50603dd7e9073bfada96d1a6d60341272e96be9e190fc5adc0bdbe",
+    "resources/huescripts/audiodigitalrain.js": "3ab83e6cc8c0123cd0cea91085dd2a30aaf44309f442e3d63473055b6be9715f",
+    "resources/huescripts/audiodjlight.js": "77bd8217541f3a61f2ff36cc9cb3b523772285964a5a9812acade8008b2e8e50",
+    "resources/huescripts/audioenergy.js": "65695e0fa32dfdea6fc9e4e1949c97832545bc3ce1dae65cb8a626de4797eb2d",
+    "resources/huescripts/audioenergy2.js": "c7af1696f931aeb89d1890d898daef1b0d880fb597f93f8a77db79bd6729810e",
+    "resources/huescripts/audioequalizer.js": "27120d01e9953def5293ab18ea78816aa9659b04ecdad171ae0f54903944c9c6",
+    "resources/huescripts/audioequalizer2d.js": "8a070730d7a716b5764b2c46cd85c0df1e556765389be75aba1f73b0b67c3058",
+    "resources/huescripts/audiofilter.js": "7355c02475a6c4da4f772307df63aac439fe0a48d875d700fbe543aec7bd1b63",
+    "resources/huescripts/audiofire.js": "c0b4ca5eaa2b83ebed18f602e162c275c0942d3ec0e6761445e3e47fccf59bfb",
+    "resources/huescripts/audiofireworks.js": "bca3eb1e230a649946f164b35675107fccebfd0891bb2e8d4366a553c15e770b",
+    "resources/huescripts/audioflame.js": "c12165b83b66e538d248ff91139289e0b318c34ad95c534ae20b109067903238",
+    "resources/huescripts/audioflowfield.js": "7a921bcf69cc3971ff30d40b3fb009951aefaa1d3391605027ccac651509f108",
+    "resources/huescripts/audiogameoflife.js": "413b3532729c6072cf9ae28b6fd84563ce11619dcfbaa90bddddaa0034db45fa",
+    "resources/huescripts/audioglitch.js": "199b751a4b477f4a0485dd13db1352eb46605fa1e04bb758ecbb82d6b2cbfb38",
+    "resources/huescripts/audioglitch2.js": "612a40366a94530a1d7bbfc081bed82fd21c53f9c96c2f5c2b9e9b3bc78e921f",
+    "resources/huescripts/audiogravimeter.js": "dd63bc41a756fc7c4b8aa9a7c46be49000a36385cdfebaa9a49442441296d06b",
+    "resources/huescripts/audiohierarchy.js": "5ed306b6aa82bd2d052f806d2e38205000e5e6839a08cb1b5e5cf06238aebab8",
+    "resources/huescripts/audiohueshift.js": "b39aa14056f914e22e71f1d3f13575f2fc7b5839ffc511cf0e23c36b785f32ec",
+    "resources/huescripts/audiolava.js": "c70f16896b8ea84c2638b5a72ef50f14ce13e7cbd9a41ec726456565a8a58692",
+    "resources/huescripts/audiomagnitude.js": "c41d7cf3b24de0706840079e47a87c1ee1cc8b953a10baac3a418c46709e3bdb",
+    "resources/huescripts/audiomarching.js": "ef6f070d6f098de6cb5168ce0ae4d6888102741dc49670933f4739fb41867eb3",
+    "resources/huescripts/audiomelt.js": "cd36f7f7f6a6fd03f67e809284a932d0eee9de9dd080c0e847bf606139954268",
+    "resources/huescripts/audiomeltsparkle.js": "d97780b52d7ae0662eb383f56033e7ad1ce5bcaf3de7bf236d596ce35c8cac01",
+    "resources/huescripts/audiomulticolorbar.js": "7c5c336e4d79909af2ca7f35281f48b53e1456d570386f6b71f34ea6b0931d99",
+    "resources/huescripts/audionoise.js": "59c22bf9f0c013011b0c7e0f4bd41ac667266a0335d043dffa33983d94610202",
+    "resources/huescripts/audiopitchspectrum.js": "1c233e6b4de17bfdfed25c0922180cffec3066f060f5ddf925470174322a9c1b",
+    "resources/huescripts/audioplasma.js": "7ef0080485f9477db191bfb95224935eec46409820cb43fd785db1a29486de19",
+    "resources/huescripts/audiopower.js": "aef0d348270f6562873489b86b64f2d5e4f4918f862682cb215735cd6ad31c8a",
+    "resources/huescripts/audiopuddles.js": "8eefadb7a62bccfe4529d08dab48ec97e060649623fe4b73bb449ee6c48e3edd",
+    "resources/huescripts/audioreaction.js": "15bb107d9cf3401de3872b55c01ea2866081d6b229e8df7b67ac43f9be4d5e5d",
+    "resources/huescripts/audioreactor.js": "fd830b6d871f7da09b94aabaa3a48bdfa412bcfb32cf06d4244d10ae306452c2",
+    "resources/huescripts/audioscan.js": "2fcee20c459ca82c1cead02cba4c85ab20680bd36508edd0f2a2daa0a1ad8f69",
+    "resources/huescripts/audioscanflare.js": "32efcc2b0d8af0f0addfed97a1277e7b6b9e48cc9b61301d65dfb065fb0f343a",
+    "resources/huescripts/audioscanmulti.js": "9a7e8bd6d3dd9e1648908a6e60e6bda13d992afee57ffc18547c7503ff6a5752",
+    "resources/huescripts/audioshockwave.js": "9897e47e6735c4b69121f77e81f7e66a7006a72d389ce7a2c63c29fb36330877",
+    "resources/huescripts/audioshot.js": "151e1b87e294b4a397a1443ec68242ac408d0faffbef1dda795a31ad6288fa17",
+    "resources/huescripts/audiosmoke.js": "8ba74d0c341d7122cc397d666c33764d1d19db4fa86828e7028837d8a87cbade",
+    "resources/huescripts/audiosoap.js": "db8020012137aae5859747a4087fccb664e857b8d5f3f1c738da6df9c734fc8a",
+    "resources/huescripts/audiospectralblocks.js": "e006cbecc7fffa86f8141f79f0611d42167429855b648d5cfa251ef2a59813f6",
+    "resources/huescripts/audiospectrum.js": "52079be3fc53d224d036ee51e3caa47559142981478864e91ef7b6e1b2cce84a",
+    "resources/huescripts/audiosplittower.js": "bfa92eb51dec10751f16987ed8ae77d6a60503c799dfe90bb2a0d9d546e81a71",
+    "resources/huescripts/audiospotlight.js": "64131e886fc9d9583b5a57aed80a3e3da03e87d266eca593381900cebe264860",
+    "resources/huescripts/audiostrobe.js": "921c51e8bf422227a978946e8e9f95e83f13ad1ae23804121a6f8df11ff5cd09",
+    "resources/huescripts/audiotunnel.js": "5155b4d7b716e81909fd91d58e6e39dd927266410d568d617e9157f6a00ffb45",
+    "resources/huescripts/audiovortex.js": "c78322b17528e5c4f2912f7d81329142b513f599278020f720a3b20c816bc547",
+    "resources/huescripts/audiovumeter.js": "d05825d5f8489d85e0f669f91986576421c465b1125662f4a889aa0f3f91689b",
+    "resources/huescripts/audiowater.js": "57efbcf89c3a02daee9cbc1846282f21ce982b7a6781ccee54cc7f6780f9ff3a",
+    "resources/huescripts/audiowaterfall.js": "c2c424b9e030e7729b89475a87578021eabac479a4a19aa924b49fc8804947f0",
+    "resources/huescripts/hsvutil.js": "4a03abdddfa99b4f575cf76142e1985c0648e601ef3f82d09c42399333d107aa",
+    "resources/huescripts/huefade.js": "70322fb9c48c9324aa4836e2899433e2634d1bea3274a3a06d039ede363dc663",
+    "resources/huescripts/huegradient.js": "661d7eb5241ae73aaa92791bf6e3f28589bd97bf1b5c46321048b9b3cbafede0",
+    "resources/huescripts/huemetro.js": "ec8a316cd433867591d3c5255fda773f7e033bdf136256935d8bd6093eb60139",
+    "resources/huescripts/huepixels.js": "be712e046c6e14477a569ce9e38b80eedfbae9068787369ed0122fff9ed3b250",
+    "resources/huescripts/huerainbow.js": "d0a95c338356c440d2d4cfa9214ae63ee9d09d68d06a8f1c690ea9e26a0ce7d3",
+    "resources/huescripts/huerandomflash.js": "3702e141c52b8134549fd663dab0bd477217e82c75311b512131ec6f4e05f204",
+    "resources/huescripts/huesinglecolor.js": "fcc9827160b187c0e2a9704370b4c46ab3be06894713d4372b3ac3091710f87b",
+    "tools/hue-gallery/CMakeLists.txt": "b993e7a942cfa4d6fde8963a2456759136edd1c507ebc94a5f79398d4d8d7335",
+    "tools/hue-gallery/generate.py": "1ceeaf50a3b35a3321e4925d7fe061b6c1d62b4df7daebb401d513931a63fa11",
+    "tools/hue-gallery/native_gallery.cpp": "1b71953abf802585484b562e15012e67c58804b33317d46df0fb808e5e7d5c0e",
+    "tools/hue-gallery/requirements.txt": "5ebc7ddfa10ff584cd21e117fb08802d88430a5e4732a13c47b6b1b18a43c3b6",
+    "tools/hue-gallery/test_generate.py": "8f21f766547f80c70e8ff6de7d2dc63a4880615b7f9daeedd9689a38ea368ba2"
+  },
+  "binarySha256": {
+    "nativeRenderer": "66adeb5396eac54b41894dfa2367106e2c1130393839e5e354de2b0cdcb2b395",
+    "nativeEngine": "3e55da93378d89140bcd33184938ba99ca60f878190367bd4485bd85e61fb08d"
+  },
+  "files": {
+    "catalog.json": "dfe7548e7766cfb2d037cc463e0a6415286bb9908dfe4f434671efdb597848da",
+    "media/audiogameoflife--default.png": "cbdade7983d04bc445907a2aeb137f1bbe9e26387884c214ef7914328f543b0e",
+    "media/audiogameoflife--default.gif": "8c4355f38f32c29911aedd37ff0f630ee3dec5fd60c0e42db17b79220bdc3aab",
+    "media/audiomelt--artistic.png": "e672904b00e1d7ffb8506d77ed3e01e5a9fbce1e276119eca432738d8327900b",
+    "media/audiomelt--artistic.gif": "cab23c2420d619949ab1414b5ad07c6c5adab74d5c5779566479414efb20b5c8",
+    "media/audiomelt--ledfx-melt.png": "06a971a265d16197368a6aca22e3a85a378ea7da6d3d3fc7dc1dac00b720bc64",
+    "media/audiomelt--ledfx-melt.gif": "c9ac97895017a579a2466fe181097c903afeba969e1e8a8eb8552af4eb8271df",
+    "media/audiomeltsparkle--artistic.png": "034df081527edd9accbf4ec2542190f5886ceab1efd33aaed5b9cb3bcfdd057e",
+    "media/audiomeltsparkle--artistic.gif": "a334b7300f3c62c3f74e3dfa38a19922dbc03021d5659894b38f0c47ba1afea6",
+    "media/audiomeltsparkle--ledfx-melt-and-sparkle.png": "bf3589444da0ad6c4ae811ed2accab83a37b29ad6c5e6c80b7a9debb5bed9bca",
+    "media/audiomeltsparkle--ledfx-melt-and-sparkle.gif": "b947e21e1d7a11322630fd7263fbb84e60108265d870b7bcb7848a0993f7f368",
+    "media/audiowaterfall--default.png": "60860100611d610812fa3d8a02bfbbf17905f2e30224522b15a19c5c588d9664",
+    "media/audiowaterfall--default.gif": "10d27c4fa04cb44b0a55d6c8d14ef206c6a1f45bb23ff153af9535cb50118b4e",
+    "media/huefade--default.png": "856d86a8b8b3b503547b38668cdc4d688f7b70d7ba5218efac7fd289438f2497",
+    "media/huefade--default.gif": "b5614feaf3bccc1475717f971817eada3f6cec3125bdcb44dbecf91c826a75a5",
+    "media/huesinglecolor--default.png": "1cd5eec7234e078a648e5c8558038ac94aa742555e68ec01e6bab6a48148cfbf",
+    "media/huesinglecolor--default.gif": "b4c45ea6cb3ac017cb99de6acd606644366e04465b3bcbb6f58550ca5d81a86a",
+    "media/audioaurora--default.png": "eeab63d72315eac12775cccdc4ab20cdc8892f910cec3e93ba4919b79a12bfe1",
+    "media/audioaurora--default.gif": "1791fc3087d4b3603dbc59c72cb53a850c5e12b88e01871887c71e5eabc981f9",
+    "media/audiobands--default.png": "d32e2316bbd8ad952be55e6be1b16e74de316c366671bab56b8cf8b370af4d2b",
+    "media/audiobands--default.gif": "e6465464df0e711dc7250e7b22b111ae1d525a76a73401fbfcd988b90622c7cd",
+    "media/audiobandsmatrix--default.png": "a14e3e94ae892fe4189b1b2882da31dc5f848854d4d9f0642a7e99b44e015cc8",
+    "media/audiobandsmatrix--default.gif": "7747ae9a165758a4c905ae51614bf11c234a812876d3b4ad0747db6b9b8ddf47",
+    "media/audiobarcode--artistic.png": "f755e90436473d13e680890794ae861440f5c9ca5bb8d1df06b36ab14960ae14",
+    "media/audiobarcode--artistic.gif": "ff3abad54b8ae1571ad74584818d2c94ce529b6793e381f722c699e1083e6630",
+    "media/audiobarcode--reference.png": "da448c03e53bed5606123e51a02c2bc384929ee10e0bbd9cb4078edff040d02e",
+    "media/audiobarcode--reference.gif": "1410566eb2323a781e1daf05fec1169b67d529b441496a6851a226e4ec57e216",
+    "media/audiobarcode--scroll.png": "b9a007109e993808753f9998745743be7f09993ac9796d4a825614e8930ea212",
+    "media/audiobarcode--scroll.gif": "620f03e974c6e5f45e0139625e7e67a30493c61df50c40677c26be060da01817",
+    "media/audiobasslaser--default.png": "5b090b139b2a8633447de4ea21e3bc050a5641ab04af6a80662b27b698a83e86",
+    "media/audiobasslaser--default.gif": "2d5b7a1e84b155557438d8966aed1c89c6957575b16ca3b53b095299d73e19f1",
+    "media/audiobeatcolors--default.png": "374b2b98fbc3f0585305b770710ec7d82a3595d613894b3a6b1a5fcdaa20b9d4",
+    "media/audiobeatcolors--default.gif": "76a99155165d528de67d810214e915690e2c5dc401c56f5042f763a2639bdb71",
+    "media/audiobladepower--default.png": "ef3009c0751d9f8043eaacf05290290b933ca119c6759a7ac0c277b859d93c01",
+    "media/audiobladepower--default.gif": "59bac3e093e4654cc7dc238b4dbe6e8bea0a935e5ab9635062cb3e16d97980f2",
+    "media/audiobleep--points.png": "073176acbb320a79f8d6f4fede33252445552c366909153f0d108f469896dba9",
+    "media/audiobleep--points.gif": "6ce4390552e403bb59c91fedd6b0d29a626d190aa5817c45975b7337ac06aa62",
+    "media/audiobleep--lines.png": "f7931bbc96b59cf01d0516df5cf438432ffcc83abfe7aa49223db58a1bd24c40",
+    "media/audiobleep--lines.gif": "c895fa782cb83fc6bff7a261498f82411f1815044f11509c8d0643e668253959",
+    "media/audiobleep--fill.png": "db42761c2ffd232c04f66a6636e8811a0afef5fc884dfb703c230a3ff9e6ecc8",
+    "media/audiobleep--fill.gif": "bfe78611ca858675055e0b5e802a6f35d717ae6cfe7d2b9350e28ab59ccef1b2",
+    "media/audioblocks--artistic.png": "ebdc9aadc2eb0b0124f034a6f21c5a7924d2845111160f33f9ea9842fe6cc5f9",
+    "media/audioblocks--artistic.gif": "3139c32314217b445673b7058b077626a1f6ddcf1b860421f7ff3cded2c0b93c",
+    "media/audioblocks--ledfx-block-reflections.png": "9d841bf8452902dc8653a639ba0fa88c52a56a998dbc8390137a52c90354484c",
+    "media/audioblocks--ledfx-block-reflections.gif": "a283e0f86f940fc6273644481b63bb0b6a399b66b2826f31b0acdbf32053b6b1",
+    "media/audioblurz--default.png": "365272f289e55b1df9cbe7126dcc8f082c37450bc8fcfbad7673bd933c044306",
+    "media/audioblurz--default.gif": "e3cd673cfe31742624d40e25678615d02e70d813ebb9faa5269a6400ba18021e",
+    "media/audiobpmbar--wipe.png": "f072d71820a735f873516a7aea6f0a1ebc45a41c4d3eb915c298423f60dd02de",
+    "media/audiobpmbar--wipe.gif": "29a17d58347ebfcc9e07532e9b106aa5c4de9cbe66b479c81c32a8dae1ffebbe",
+    "media/audiobpmbar--bounce.png": "4b235e693c392aef3a16659b861f285d594a9ace3df55f1933cdc93daae6e89e",
+    "media/audiobpmbar--bounce.gif": "58c7531c799afb96883da6cb9bf2fdb5bf1a5e3ce40a1ebeaea4c9d95c9119ec",
+    "media/audiobpmbar--in-out.png": "f072d71820a735f873516a7aea6f0a1ebc45a41c4d3eb915c298423f60dd02de",
+    "media/audiobpmbar--in-out.gif": "f755c329404fbfc93f8f8342c7f8e143df3d6428084abd994f2af6cb6762f091",
+    "media/audiobuildup--default.png": "eee88938316b9429cae1fcb1c0c25b73ed6366cab22fb14a3273276cef7b63eb",
+    "media/audiobuildup--default.gif": "2c61cc7cdd364c60ad48714edd6e175ec24a04778c3876536ccbe8eb8fee4de1",
+    "media/audiocellular--default.png": "522bfb93c944ac6cfdce2ce208939464d08ee9a1ca7a5f997a497b1bf8e85eec",
+    "media/audiocellular--default.gif": "e3057a774b73fb8360c91edd2639af4cf6c94a0051ff101afc8c6aedbb79b408",
+    "media/audiochaser--default.png": "f19df72690774c473cfa0ec3774b4f9c04ef77cbeff64ec9c25c1146b4b06ce0",
+    "media/audiochaser--default.gif": "956b1c7dc87cbcaac89bc10a7f85509baaf018e9dbbae9bbdeb8846e766f79e2",
+    "media/audioconcentric--default.png": "1e0fd2cfd64c90824d43eac38ee886b0d1663ef78508d7ba5c5a0dfe0359eaa9",
+    "media/audioconcentric--default.gif": "af7df338762be2f4eb1faa28e6c188b7ac12e5d457ed5cff59a55f5d0c5e19d4",
+    "media/audiocrawler--artistic.png": "e6b9a281aa8515cdbaeaa252c4fff72267234bac1e17377daec189c9d7a1a2cb",
+    "media/audiocrawler--artistic.gif": "49c0986c808ffbafb05b6adc16fdb2143e066c629a2344ce4bd39160b3d47ac8",
+    "media/audiocrawler--ledfx-crawler.png": "4be8b0633ccb387eb99babe52a728a89404767ebdfb2a933a4b950264269d0c1",
+    "media/audiocrawler--ledfx-crawler.gif": "ad1a23fa99d59cc0ed2377acdcd13d57e252119d8e7f3ffb5c135e7d3d72c592",
+    "media/audiodigitalrain--default.png": "389f9d99644fcc05823aac3a1c61affbf1d7c0085eb649f9d5bea2a752590cd3",
+    "media/audiodigitalrain--default.gif": "6b7a216d64023abd9ee27076670a17399f5e6efbdda9fe073bede261808e1fd4",
+    "media/audiodjlight--default.png": "2299c4084e2d94f9359a61836803f15be85b3d4591d3adfd5c45a71e48351b66",
+    "media/audiodjlight--default.gif": "f421e29a4f23a9ac604a1ec3a0bff112924990de9aaeb43b0a0cb48d6c3055e3",
+    "media/audioenergy--artistic.png": "defbf437c490c8cdeb00bfb6acd9f627658d1672336e42792539588c36cb2e2f",
+    "media/audioenergy--artistic.gif": "866efc1e59071bebe6bd3aa25f465d7bb5f79220555ae26ebf7a6d741e7db199",
+    "media/audioenergy--reference.png": "617abb1d46b2e729c3998c7029977c312d87766469276488b46ae186718aec51",
+    "media/audioenergy--reference.gif": "bcddb56baee8834a7566550b0e0587db80f1fb73021c004a5d8902c21d5fd868",
+    "media/audioenergy2--artistic.png": "7eecac2de3a1cf43c2c0394e86a0cd0213c9ad164d03763a86ae9ba462fac792",
+    "media/audioenergy2--artistic.gif": "c633677f1adba5999b1e91910e5f47bddde9638efdb63684d357f68cab3c51e2",
+    "media/audioenergy2--reference.png": "a1c492e2794f8c8e07372ced3ea33c8afd60d8a24b9cdff010b839ea3577b3e8",
+    "media/audioenergy2--reference.gif": "057899bfd79aaeab6281849098982c7be84407b0124e997ce2b57a38c5e30e2e",
+    "media/audioenergy2--ledfx-energy-2.png": "e4ea869f1ad2159e0df2da9da49315ebfcba7b9af0a57f9fb1d32071e9b1cab3",
+    "media/audioenergy2--ledfx-energy-2.gif": "eadb1845d2e5f65dd6e9d999de9eae94c49f4fd2a4e02b51a91429c9f2757a81",
+    "media/audioequalizer--artistic.png": "a8e079d287a5e838efe288d6c9beb22db58903f44bd9fc013afed9dec9501750",
+    "media/audioequalizer--artistic.gif": "92f4257c846fc12a8fb875a19b3b3e04fe4f9b7f08aff7df2c08842bfc1b533b",
+    "media/audioequalizer--segment-equalizer.png": "fb8c6fedd457edecc00f1e9d8289de0df1ec3ae9e260fa7c2d7f4ba644332cb9",
+    "media/audioequalizer--segment-equalizer.gif": "685b6335018c6c9021d533f3a763e5d44f3b00ae2f93cf18194df4e8512cf9f7",
+    "media/audioequalizer2d--bars.png": "40b87f788e944869e07641111a7f429199e4ed3da1244dd4613ee6aa833a96d3",
+    "media/audioequalizer2d--bars.gif": "8cd220b1ff98d17df0f201fc5223a5bf706532bdb9500cdcd6b7abdbc6e92382",
+    "media/audioequalizer2d--ring.png": "41e5a45272300f1cd913c37e190cfba70aa7673912dfe356747393545f013ccd",
+    "media/audioequalizer2d--ring.gif": "ba32bbafcaeffd44e59ca85b8dc1485e7e9880eed5fa3a40af96a5690d3a5d09",
+    "media/audiofilter--default.png": "96b9fd570af19f783ee6a82eb9a26eef005f32089960cbd96bab478be33a1f6d",
+    "media/audiofilter--default.gif": "85b7b9b16efde83b34ac7161d81a5ed42cc7c2ae8479af750983f1141268d524",
+    "media/audiofire--artistic.png": "8921eca95aa94b4e9a73ebc5537d6d9421a572cda41d0ddbce5811bec86c447b",
+    "media/audiofire--artistic.gif": "49b40b4ffe53ad422d1cbdf9e218ebf4d007253490a4f2a94edbf9d7bb74982a",
+    "media/audiofire--ledfx-fire.png": "292bc354b4a09562f6957a841b3c046a36d9744d6a4bcc0473d64e47af7f4308",
+    "media/audiofire--ledfx-fire.gif": "305306a49fc2a6e03233f4898e7d6a6a087c18ef85a6c7a80324297771ed7d24",
+    "media/audiofireworks--default.png": "48d15e79dc84caf0193ea6f913fd0064d2bf2b8a79c55eb99ee9522c2acea9aa",
+    "media/audiofireworks--default.gif": "8a1b4fcfc0943924ae50b26a7e6c287fec18905d229601921c36fa88c5b8cc14",
+    "media/audioflame--default.png": "900f8a36a7f73faf8e722253ce1ccb84fb9d15de93ecec14bca04a3b8eec4c8d",
+    "media/audioflame--default.gif": "b69d46d0e59f983cb02f85563b8fd140bd3bdd70793978329dadbe4d1babad76",
+    "media/audioflowfield--default.png": "93337ab6d75cd2a020a8a67dd95d1d64c19a47e7e36ea9e56db4b8f1f8a6f5da",
+    "media/audioflowfield--default.gif": "9ce0aded2211e8ebcfc7f2e4b5fa86112e5d69296f9169091ba01527013c5685",
+    "media/audioglitch--artistic.png": "1540a8abec0b313b87550c4e9df65019f12854bd60ca96034cb22fc408a41c17",
+    "media/audioglitch--artistic.gif": "1bd8ffdf33dbfcf850a43e1275fa2925af49db156ac65de17f14c6f47d9393e8",
+    "media/audioglitch--ledfx-glitch.png": "96be1f650c29209ce0b563972971be1ae67f1b96ff210c084c1e7e5abf3b558a",
+    "media/audioglitch--ledfx-glitch.gif": "687c9134aa4e77877d88b72657d40ae0b0e420bf39cf8e3b363b6650e5fa780e",
+    "media/audioglitch2--default.png": "66a99c7b599a2ac24d417d8d8dc8fef89da20041d70528557b0cee4115fca162",
+    "media/audioglitch2--default.gif": "e0bc97c11e13ee27a7671065689d833f7e0d6be4c6772df95cf9845f89a6274b",
+    "media/audiogravimeter--default.png": "c0ba0ce865800e23be67b5f1f671999b3f698e6cd950899536daaaf23432bd4b",
+    "media/audiogravimeter--default.gif": "12f8a0a3416101eeadcd2c26e15e0f0c6cd931b2e943b405ef688ddcdd3a4782",
+    "media/audiohierarchy--default.png": "3fbe5f1c0f7368d8c394408928fbb8461f583f6ca0c00af613bc2ad36c525163",
+    "media/audiohierarchy--default.gif": "c1f85776697fee3d0ecf54240fd1ae63673b2df15a014cbdeac00376ba2e3cc3",
+    "media/audiohueshift--default.png": "585a201bda2485f260b30f8692faffe534b7777a05ac667ef2e194dab89e5234",
+    "media/audiohueshift--default.gif": "8b3ee96a77c44377afdd79870f47c57e47e479d19984edb7a591f646392fb443",
+    "media/audiolava--artistic.png": "960c1ec19ab171ae3f0cb8a1b4530cc988d978ca0a3d7e7ddd1a726a633f6f1c",
+    "media/audiolava--artistic.gif": "3e6ce9af8062f1a6cbd073b668b500b0197b35f73dfd7ea2c4fa60469332baa2",
+    "media/audiolava--ledfx-lava-lamp.png": "e585b0f21cf5b3992c7092731230c9b8d044b56c77f4e99b2a07d074c1735db4",
+    "media/audiolava--ledfx-lava-lamp.gif": "7944d49eb1d403b4ea2f1d6fc954544962dcad78ec6125bfd9bc50d692fd3cf0",
+    "media/audiomagnitude--default.png": "49cb63eceac50d04d1ef71239aefd157d98b45528cb1e44ad823c83162332184",
+    "media/audiomagnitude--default.gif": "d2526b7e71ef7dfdf793ee57b0c6d04dbb62b72d6a33c297ccba85ed71bc9c72",
+    "media/audiomarching--default.png": "4cf1c91871d3193bf11beb5e3715490920dafd7631554ba9baa12c94e468a6a4",
+    "media/audiomarching--default.gif": "8f6c7d4d54d1b227e31d2fc3005470ae4988b911a960c708ef0a3eec8af0418a",
+    "media/audiomulticolorbar--cascade.png": "dcf95255d081f3d8290d699cfef12c451fa01599cf1f6d025c19ef363083220f",
+    "media/audiomulticolorbar--cascade.gif": "64bac9c7bf52119ea1a79c0145eb4e0418f6ba7748fab83ed0930d86b9e7ced2",
+    "media/audiomulticolorbar--wipe.png": "231f013339b78e0ce5b9d6e5e83ccd4aa5db09a66bd76f620d89e9072e181d37",
+    "media/audiomulticolorbar--wipe.gif": "ae97777c37b9dd16383b80db5334aa52878cab78d7acd8b3563f394953ab2fed",
+    "media/audionoise--default.png": "30df96ccada038a6c1d486843dbbed3b041af3011ae916f8b06f5d63738436ae",
+    "media/audionoise--default.gif": "ca34b995eece8eddc6846bc455baf0f48d5fd35a95d96a5a024a647be2827ba3",
+    "media/audiopitchspectrum--default.png": "a18e59bedad4eaa1853111e41cab73c091b7a03886e94fd368fafc75be581300",
+    "media/audiopitchspectrum--default.gif": "b14a6d4d420da72df470a5bfd9a1ab4ae98acc20b121ac5c37aceaab0c9ec360",
+    "media/audioplasma--artistic.png": "5bd7f038a891395273d2ce0336681017b2d4d2c99a980db15bfd5a6f0b742412",
+    "media/audioplasma--artistic.gif": "eb339e6d84889faa962aa116ee71227da8ca3c0caba04faa6fb830691bbd7b49",
+    "media/audioplasma--plasma2d.png": "0abbf317b822efded63c4036ba10bddc9e7cd34505ffa8a58bccc135faea772b",
+    "media/audioplasma--plasma2d.gif": "0706498db54b17c2fff7568bbee1bbf5cd2053eafbd8ca5d14e48235e213316d",
+    "media/audioplasma--plasmawled2d.png": "d624dff3fbbdeea308962afe98f7b5352ddb8417554913450a8950f9c46019ee",
+    "media/audioplasma--plasmawled2d.gif": "edc10cf603f0f5427c05c16ef544ae5f35bceb10524860d908dea7c21229ad10",
+    "media/audiopower--artistic.png": "7d9ea48b40a3a5574fab613f5613fe4305528726b0460f4f8584c18db95689be",
+    "media/audiopower--artistic.gif": "a548b0a1485ed0c0531d5aa67707e064fc8fa209151f91da2c8bbccc281a9d25",
+    "media/audiopower--ledfx-power.png": "af25d80ff091ff9555a07133ae99abe2e07c3f5ba929a844d0daaef23e527358",
+    "media/audiopower--ledfx-power.gif": "3ccb5e2e16a632b8a216cf0f9dff840e4447f90af7beac35e861ed655934f0cc",
+    "media/audiopuddles--artistic.png": "12ebdd629cea484c3432f1e01ceede0dca37fe27a29ee1df2b0d775e4801f84d",
+    "media/audiopuddles--artistic.gif": "45929fdaef340c0fe75b84776463075698d410bd9c99673014601c0beea04d45",
+    "media/audiopuddles--rain-pulse.png": "4365e1d729654599e96d0a32b753dd45f415633993c0970b2b8eeb83a8cbbf48",
+    "media/audiopuddles--rain-pulse.gif": "ec3b66f8cd119c24a459f415900a934273726d22496629e452c39ef228e58b6f",
+    "media/audioreaction--default.png": "d978261b1103b438952dcac0c2b0611b6b5a2ea2d2efe96313b7122aa9ef2bc5",
+    "media/audioreaction--default.gif": "40afdeb09b380fa5149c0c4dd8909ce12fae8dcb25bef23c14f624078745071b",
+    "media/audioreactor--default.png": "ae7716962f6b1b969b7cb2d40c2f4cdedd1e4f8551ff3d34b57e8177f5e3e689",
+    "media/audioreactor--default.gif": "0f7084cf81d2d39f0f7f15ac5b0b00d75c9eefc948c8ef0ee0d5eb2cba0992cd",
+    "media/audioscan--artistic.png": "ffe93f8a9a3925dabef5b4e5c60f587354ab38180543ba8117a72832c1e96443",
+    "media/audioscan--artistic.gif": "49152fb50f8371932ba6ba04294a9a38552ec9e5a5240549666e7637e30a226a",
+    "media/audioscan--ledfx-scan.png": "843d30247d691eda52c0de803f8c2101c5150dff455aa85c2dcef797d5bebaf6",
+    "media/audioscan--ledfx-scan.gif": "2c49f93ec34cfb0d6d0ebf22e7ad627cf5c59b6030151c6b00fb14abf4d3a734",
+    "media/audioscanflare--artistic.png": "2f0a0b256f3609b01389496e4e069029a7473a78db3304f2c332edf5101580e4",
+    "media/audioscanflare--artistic.gif": "7b1a8c28728558726c2df56712b3d05e87ac2152fac62a38919938cce2b1fefb",
+    "media/audioscanflare--ledfx-scan-and-flare.png": "f86e245f690718cc4a624e4ea179099b0c77dc4fb080e3381de1363fb70b6910",
+    "media/audioscanflare--ledfx-scan-and-flare.gif": "5f907f81ffc84cdf9aace111616bb3e27ee4068f268ab5507b0cf867256a868b",
+    "media/audioscanmulti--artistic.png": "4cfe77950dbaae592c970e086cc30275e8f68a61cd8d96adbf8eb501efbbe11a",
+    "media/audioscanmulti--artistic.gif": "ed0c1ebdde310b33d47c18bc1fca671b93a9a9fd67edf99e5d38370dc6596d88",
+    "media/audioscanmulti--ledfx-scan-multi.png": "b8716a7bb20202dc4a22f210aa2be256090da01dc3bf2cd9d74fcd583dd01481",
+    "media/audioscanmulti--ledfx-scan-multi.gif": "4f60627dd306ef47af02c970b3bc8e86a410a4e2ab2f339ca679e6eb3de83563",
+    "media/audioshockwave--default.png": "fd96ed89e7a9d2c79976ebaac353f864a4e9a37ca3ddc2c078e3480b30042150",
+    "media/audioshockwave--default.gif": "387233f38462d0880d42a7e014edc4fa620c092c93d24502fa16354b3de49169",
+    "media/audioshot--default.png": "3557286a89a7fc7f114f5a1e89f88906b4f446894e2bf6a168945364ca400f8d",
+    "media/audioshot--default.gif": "c4bb7d739382c39b772ec17ca7d75f829493b3974f18542fa01e07682b1e4a95",
+    "media/audiosmoke--default.png": "2e95221b955c8471f72405d2bde14748af946e476dd94ab4a724175f7b2ce6b8",
+    "media/audiosmoke--default.gif": "0a13541360ac932dcd43f3c106736da588cd2e9f087af08aba9fcad377155147",
+    "media/audiosoap--artistic.png": "463c986e7d82ffbf2967bb021db1ba570c66e4dfbddbad35d528b93b014b5e28",
+    "media/audiosoap--artistic.gif": "f536d98b9deb8a6b8385a24c05ef4042c979f853ae897e0c4033eb21aa0115b7",
+    "media/audiosoap--ledfx-soap.png": "8935f397cc0a1a035e26dc132437b6b73fd21170c05f575eb57eb896291587c4",
+    "media/audiosoap--ledfx-soap.gif": "7e6b85f706ecea28cf1e586db7a31ce3f946c147bf00165f93b36025bd3543aa",
+    "media/audiospectralblocks--default.png": "6b3062378058c6f65f833514c6a37b535831bcac7d7f65cd17880e11146ba1b7",
+    "media/audiospectralblocks--default.gif": "e8127f47c15b0fb566290561364665945aced353ca2b406e71084f56d8a614a2",
+    "media/audiospectrum--artistic.png": "877bc5b721c1c40fe8a651a7baad7c6bc2f231b8af269b828e840dd133edcd3c",
+    "media/audiospectrum--artistic.gif": "7189718626692fe62826a6627bc616cc4702fbb2b5b53d560249b9825c7de88b",
+    "media/audiospectrum--reference.png": "cde04ba3871802fff49c60635f4eb11542b6e7f1420247fb75e24275036aa041",
+    "media/audiospectrum--reference.gif": "6fd222b85054708ea5cc3033275b442ceae2eb314a10a43fe56ed53879341120",
+    "media/audiosplittower--default.png": "11705ca32c4f89d570e3123b5956265643b751d79b41e5d85982749f8a0cca7d",
+    "media/audiosplittower--default.gif": "ab7c2132e13f4f45f1e0b1313288f811eb612b095ded8e4aa77175520275225e",
+    "media/audiospotlight--default.png": "6830b98661eb2d0d353aa25b096be86d4aaafad5ccb3b4b76c7cc141b5a670e4",
+    "media/audiospotlight--default.gif": "1f72650cbcc25e5f17b2f7ba373fe12d797bb383a5695aefcb6ee8ac079e3c46",
+    "media/audiostrobe--artistic.png": "c08a4492b4a79a2de22f6bc69fe496b8b205d2dda09aea953ffda4639b931afa",
+    "media/audiostrobe--artistic.gif": "c843fab0c3b84417fd890333c2924131d210ad85d22f062cb0969e935a840f15",
+    "media/audiostrobe--reference.png": "0463786b04fee47f24b3cce5779b00b6d5df5f40e05767ad6b084119bef86260",
+    "media/audiostrobe--reference.gif": "695c3e6104ed48e09ee77215c4e143ca610ba429a84eac9470e67150d68c7d6c",
+    "media/audiostrobe--percussive-rgb.png": "f265d12ba38d535dc126f1f184064eedc1338fe1397d3b93be29fde82133b0ea",
+    "media/audiostrobe--percussive-rgb.gif": "9c4d7117ed04fc9fe6279f9da73cd3eb82f084c644012ad88133f3772d42ded5",
+    "media/audiotunnel--default.png": "97548e793de667cdc93d2c2cd7fee7f07c9daac31522ab87e0ca96a03af5e053",
+    "media/audiotunnel--default.gif": "3f20de1ba3ab80043822b5938f5726de03153ba881f93f1a43857e7a1614f3d4",
+    "media/audiovortex--default.png": "7cb96bea98c4b26efb06ebeb937ebe51b18c310b073cb8bf1641081a151b9617",
+    "media/audiovortex--default.gif": "9d4616478f5064aa2ed8d8819c2d9f7e7500851df59b7b37ee3eb46e78190cf0",
+    "media/audiovumeter--default.png": "1eee1716ce546fa3059429d1294294b373f6c8b83eb26089c72a7bb5a9979476",
+    "media/audiovumeter--default.gif": "604488a91b3a70069bc809f9413e40ffe403547cf5589414bdee4b899f0151e3",
+    "media/audiowater--artistic.png": "fb243623cc578935ec5e4839cd165e94ebd9ff62d4c5a769c582f1d38fb54bc7",
+    "media/audiowater--artistic.gif": "bb67e2d064fb3844f83ba55a01e935dbc7d3a5e7ca6ea4df929260d2963754cd",
+    "media/audiowater--ledfx-water.png": "dfab828d09eddb12edb31cc43e0079dc1a4049c8ddd100a273523db1ab8c136a",
+    "media/audiowater--ledfx-water.gif": "24421536127def4ee43ee68992de41d4538d585beaf9a9690f9d0228c1fae72d",
+    "media/huegradient--default.png": "f296bbbcb4975ac2d98c64f898381d21e39b75de417cdac97dc81d2fcf399948",
+    "media/huegradient--default.gif": "26f277736039a61ce5756b50d4153cba1c4e1ecf3a014f3d1841f4dfff6208dd",
+    "media/huemetro--default.png": "6c7cd21b315dc1cebe391f51434eacde51d4f5b14b4622a4db8ebb927cbca303",
+    "media/huemetro--default.gif": "b8ebb53955942d1f8f1df8c8745fbe4065530e32da7dabbb36d75d99f40b430b",
+    "media/huepixels--default.png": "a98a30b2d9c940473f1fed4e8f73f1af449a057b9efdfa22e34fc4d3cfec7059",
+    "media/huepixels--default.gif": "7896198a787a152afe619cb18a9d745c1bb0b15e39f4b0c080191d4a982f4cba",
+    "media/huerainbow--default.png": "a81688f6f91f5c4862ce32b4587752961834cc1e69f5836e7cfebd0fddae042c",
+    "media/huerainbow--default.gif": "08b35a4d81a764c413580c8bb6d3107299b46551e86d88c6dc2b28f86028f6e4",
+    "media/huerandomflash--default.png": "bd446a2a22ac11d23375120f904e5c718efa79be0143424af2932fc1aa096ef8",
+    "media/huerandomflash--default.gif": "a9a2dd717cad9ac0dd109c28ffea72c1568bdd5877b0ce6eeb5742e07c08e869"
+  },
+  "validation": [
+    {
+      "id": "audioaurora--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.6813151041666666,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1112
+      },
+      "appearance": {
+        "maximumMeanRGB": 31.054361979166668,
+        "peakChannel": 142,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobands--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 37,
+      "decodedGifFrames": 37,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 193
+      },
+      "appearance": {
+        "maximumMeanRGB": 67.74479166666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 153,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.478125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobandsmatrix--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 39,
+      "decodedGifFrames": 39,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 972
+      },
+      "appearance": {
+        "maximumMeanRGB": 64.18717447916667,
+        "peakChannel": 255,
+        "maximumLitPixels": 496,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.484375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobarcode--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 29,
+      "decodedGifFrames": 35,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 23
+      },
+      "appearance": {
+        "maximumMeanRGB": 10.691666666666668,
+        "peakChannel": 239,
+        "maximumLitPixels": 32,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.1,
+        "blankFrameCount": 6
+      }
+    },
+    {
+      "id": "audiobarcode--reference",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 26,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 579
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.756249999999998,
+        "peakChannel": 135,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobarcode--scroll",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 26,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 513
+      },
+      "appearance": {
+        "maximumMeanRGB": 26.84375,
+        "peakChannel": 135,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobasslaser--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 2,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 44
+      },
+      "appearance": {
+        "maximumMeanRGB": 3.827083333333333,
+        "peakChannel": 155,
+        "maximumLitPixels": 59,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.184375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobeatcolors--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 12,
+      "decodedGifFrames": 24,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 10,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 4,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 69
+      },
+      "appearance": {
+        "maximumMeanRGB": 171.0,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobladepower--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.008333333333333333,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 909
+      },
+      "appearance": {
+        "maximumMeanRGB": 138.98854166666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 270,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.84375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobleep--points",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 84
+      },
+      "appearance": {
+        "maximumMeanRGB": 4.481770833333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 30,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.029296875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobleep--lines",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 267
+      },
+      "appearance": {
+        "maximumMeanRGB": 18.642578125,
+        "peakChannel": 255,
+        "maximumLitPixels": 122,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.119140625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobleep--fill",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 1,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 950
+      },
+      "appearance": {
+        "maximumMeanRGB": 99.53841145833333,
+        "peakChannel": 255,
+        "maximumLitPixels": 867,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.8466796875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioblocks--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 24,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 59
+      },
+      "appearance": {
+        "maximumMeanRGB": 89.54166666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioblocks--ledfx-block-reflections",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 15,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 643
+      },
+      "appearance": {
+        "maximumMeanRGB": 86.80416666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioblurz--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 341
+      },
+      "appearance": {
+        "maximumMeanRGB": 35.78125,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobpmbar--wipe",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 37,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 34,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 121
+      },
+      "appearance": {
+        "maximumMeanRGB": 185.66666666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 4
+      }
+    },
+    {
+      "id": "audiobpmbar--bounce",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 32,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 121
+      },
+      "appearance": {
+        "maximumMeanRGB": 55.699999999999996,
+        "peakChannel": 255,
+        "maximumLitPixels": 96,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.3,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiobpmbar--in-out",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 29,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 34,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 123
+      },
+      "appearance": {
+        "maximumMeanRGB": 185.66666666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 4
+      }
+    },
+    {
+      "id": "audiobuildup--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 32,
+      "decodedGifFrames": 32,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 2,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 141
+      },
+      "appearance": {
+        "maximumMeanRGB": 57.99166666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiocellular--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 20,
+      "decodedGifFrames": 33,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 58
+      },
+      "appearance": {
+        "maximumMeanRGB": 18.736002604166668,
+        "peakChannel": 255,
+        "maximumLitPixels": 148,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.14453125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiochaser--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 34
+      },
+      "appearance": {
+        "maximumMeanRGB": 7.402083333333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 66,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.20625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioconcentric--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 12,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1525
+      },
+      "appearance": {
+        "maximumMeanRGB": 163.46875,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiocrawler--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 48
+      },
+      "appearance": {
+        "maximumMeanRGB": 48.80416666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 280,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiocrawler--ledfx-crawler",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 584
+      },
+      "appearance": {
+        "maximumMeanRGB": 43.5,
+        "peakChannel": 185,
+        "maximumLitPixels": 279,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.871875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiodigitalrain--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 21,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 399
+      },
+      "appearance": {
+        "maximumMeanRGB": 33.4140625,
+        "peakChannel": 255,
+        "maximumLitPixels": 434,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.423828125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiodjlight--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 55
+      },
+      "appearance": {
+        "maximumMeanRGB": 50.00833333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioenergy--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 31,
+      "decodedGifFrames": 34,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 26,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 51
+      },
+      "appearance": {
+        "maximumMeanRGB": 171.0,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioenergy--reference",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 623
+      },
+      "appearance": {
+        "maximumMeanRGB": 128.55416666666667,
+        "peakChannel": 179,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioenergy2--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 36,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 47
+      },
+      "appearance": {
+        "maximumMeanRGB": 73.075,
+        "peakChannel": 255,
+        "maximumLitPixels": 308,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.9625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioenergy2--reference",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 892
+      },
+      "appearance": {
+        "maximumMeanRGB": 18.51458333333333,
+        "peakChannel": 112,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioenergy2--ledfx-energy-2",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 6,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 49
+      },
+      "appearance": {
+        "maximumMeanRGB": 66.54166666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 308,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.9625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioequalizer--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 38,
+      "decodedGifFrames": 38,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 30
+      },
+      "appearance": {
+        "maximumMeanRGB": 88.03333333333335,
+        "peakChannel": 250,
+        "maximumLitPixels": 224,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.7,
+        "blankFrameCount": 3
+      }
+    },
+    {
+      "id": "audioequalizer--segment-equalizer",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 37,
+      "decodedGifFrames": 37,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 257
+      },
+      "appearance": {
+        "maximumMeanRGB": 45.21979166666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 96,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.3,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioequalizer2d--bars",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 25,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 345
+      },
+      "appearance": {
+        "maximumMeanRGB": 60.618489583333336,
+        "peakChannel": 255,
+        "maximumLitPixels": 452,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.44140625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioequalizer2d--ring",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 39,
+      "decodedGifFrames": 39,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 25,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 682
+      },
+      "appearance": {
+        "maximumMeanRGB": 50.518880208333336,
+        "peakChannel": 255,
+        "maximumLitPixels": 336,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.328125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiofilter--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 33,
+      "decodedGifFrames": 36,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 124
+      },
+      "appearance": {
+        "maximumMeanRGB": 70.33333333333333,
+        "peakChannel": 211,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiofire--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 32,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 79
+      },
+      "appearance": {
+        "maximumMeanRGB": 134.10416666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiofire--ledfx-fire",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 37,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 2095
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.506510416666668,
+        "peakChannel": 255,
+        "maximumLitPixels": 559,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.5458984375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiofireworks--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 52
+      },
+      "appearance": {
+        "maximumMeanRGB": 3.2607421875,
+        "peakChannel": 255,
+        "maximumLitPixels": 69,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.0673828125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioflame--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 24,
+      "decodedGifFrames": 24,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 36,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 614
+      },
+      "appearance": {
+        "maximumMeanRGB": 0.3577473958333333,
+        "peakChannel": 187,
+        "maximumLitPixels": 22,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.021484375,
+        "blankFrameCount": 17
+      }
+    },
+    {
+      "id": "audioflowfield--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 21,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 2.5745442708333335,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 192
+      },
+      "appearance": {
+        "maximumMeanRGB": 45.162434895833336,
+        "peakChannel": 255,
+        "maximumLitPixels": 810,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.791015625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiogameoflife--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 11,
+      "decodedGifFrames": 11,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1624
+      },
+      "appearance": {
+        "maximumMeanRGB": 55.1279296875,
+        "peakChannel": 255,
+        "maximumLitPixels": 707,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.6904296875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioglitch--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 25,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 79
+      },
+      "appearance": {
+        "maximumMeanRGB": 173.47083333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioglitch--ledfx-glitch",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 1,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 642
+      },
+      "appearance": {
+        "maximumMeanRGB": 125.59166666666668,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioglitch2--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 11,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 74
+      },
+      "appearance": {
+        "maximumMeanRGB": 135.34583333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiogravimeter--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 34,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 37
+      },
+      "appearance": {
+        "maximumMeanRGB": 105.23958333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 213,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.665625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiohierarchy--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 36,
+      "decodedGifFrames": 39,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 86
+      },
+      "appearance": {
+        "maximumMeanRGB": 70.33333333333333,
+        "peakChannel": 211,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiohueshift--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 63
+      },
+      "appearance": {
+        "maximumMeanRGB": 91.01979166666666,
+        "peakChannel": 163,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiolava--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 15,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 78
+      },
+      "appearance": {
+        "maximumMeanRGB": 85.86458333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiolava--ledfx-lava-lamp",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 36,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.7688802083333334,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 2104
+      },
+      "appearance": {
+        "maximumMeanRGB": 121.4013671875,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomagnitude--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.11875000000000001,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 561
+      },
+      "appearance": {
+        "maximumMeanRGB": 126.38229166666667,
+        "peakChannel": 211,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomarching--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 26,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 682
+      },
+      "appearance": {
+        "maximumMeanRGB": 42.76458333333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 162,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.50625,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomelt--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 52
+      },
+      "appearance": {
+        "maximumMeanRGB": 83.86666666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 304,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.95,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomelt--ledfx-melt",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.3614583333333334,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 591
+      },
+      "appearance": {
+        "maximumMeanRGB": 89.94270833333333,
+        "peakChannel": 255,
+        "maximumLitPixels": 299,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.934375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomeltsparkle--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 119
+      },
+      "appearance": {
+        "maximumMeanRGB": 17.004166666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 252,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.7875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomeltsparkle--ledfx-melt-and-sparkle",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 930
+      },
+      "appearance": {
+        "maximumMeanRGB": 20.147916666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 246,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.76875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomulticolorbar--cascade",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 36,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 128
+      },
+      "appearance": {
+        "maximumMeanRGB": 185.66666666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiomulticolorbar--wipe",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 127
+      },
+      "appearance": {
+        "maximumMeanRGB": 185.66666666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audionoise--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 7,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 703
+      },
+      "appearance": {
+        "maximumMeanRGB": 161.11875,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiopitchspectrum--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 24,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 568
+      },
+      "appearance": {
+        "maximumMeanRGB": 108.98333333333333,
+        "peakChannel": 212,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioplasma--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 23,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.20084635416666666,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 381
+      },
+      "appearance": {
+        "maximumMeanRGB": 172.06901041666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioplasma--plasma2d",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.2594401041666667,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1618
+      },
+      "appearance": {
+        "maximumMeanRGB": 184.16927083333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioplasma--plasmawled2d",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1766
+      },
+      "appearance": {
+        "maximumMeanRGB": 161.76822916666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiopower--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 81
+      },
+      "appearance": {
+        "maximumMeanRGB": 178.51250000000002,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiopower--ledfx-power",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 36,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 670
+      },
+      "appearance": {
+        "maximumMeanRGB": 123.29791666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 252,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.7875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiopuddles--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 38,
+      "decodedGifFrames": 38,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 21,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 121
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.046223958333332,
+        "peakChannel": 255,
+        "maximumLitPixels": 459,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.4482421875,
+        "blankFrameCount": 3
+      }
+    },
+    {
+      "id": "audiopuddles--rain-pulse",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 9,
+      "decodedGifFrames": 19,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 5,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 419
+      },
+      "appearance": {
+        "maximumMeanRGB": 229.0,
+        "peakChannel": 229,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 24
+      }
+    },
+    {
+      "id": "audioreaction--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 600
+      },
+      "appearance": {
+        "maximumMeanRGB": 86.07291666666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioreactor--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.023763020833333332,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 261
+      },
+      "appearance": {
+        "maximumMeanRGB": 117.9326171875,
+        "peakChannel": 245,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscan--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 39,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 178
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.849999999999998,
+        "peakChannel": 135,
+        "maximumLitPixels": 120,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscan--ledfx-scan",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 39,
+      "decodedGifFrames": 39,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 5,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 614
+      },
+      "appearance": {
+        "maximumMeanRGB": 24.099999999999998,
+        "peakChannel": 135,
+        "maximumLitPixels": 112,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.35,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscanflare--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 61
+      },
+      "appearance": {
+        "maximumMeanRGB": 26.224999999999998,
+        "peakChannel": 255,
+        "maximumLitPixels": 80,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.25,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscanflare--ledfx-scan-and-flare",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 33,
+      "decodedGifFrames": 36,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 277
+      },
+      "appearance": {
+        "maximumMeanRGB": 16.13125,
+        "peakChannel": 255,
+        "maximumLitPixels": 54,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.16875,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscanmulti--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 50
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.183333333333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 96,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.3,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioscanmulti--ledfx-scan-multi",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 283
+      },
+      "appearance": {
+        "maximumMeanRGB": 25.95104166666667,
+        "peakChannel": 255,
+        "maximumLitPixels": 35,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.109375,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioshockwave--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 27,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 2,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 487
+      },
+      "appearance": {
+        "maximumMeanRGB": 41.015299479166664,
+        "peakChannel": 182,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audioshot--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 39,
+      "decodedGifFrames": 39,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 25,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 48
+      },
+      "appearance": {
+        "maximumMeanRGB": 2.6705729166666665,
+        "peakChannel": 241,
+        "maximumLitPixels": 84,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.08203125,
+        "blankFrameCount": 2
+      }
+    },
+    {
+      "id": "audiosmoke--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.2571614583333333,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 3582
+      },
+      "appearance": {
+        "maximumMeanRGB": 158.02473958333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiosoap--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 3.4645182291666665,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 995
+      },
+      "appearance": {
+        "maximumMeanRGB": 156.45930989583334,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiosoap--ledfx-soap",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 10,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 3.0074869791666665,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 2251
+      },
+      "appearance": {
+        "maximumMeanRGB": 154.99544270833334,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiospectralblocks--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 36,
+      "decodedGifFrames": 36,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 35,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 253
+      },
+      "appearance": {
+        "maximumMeanRGB": 23.804166666666664,
+        "peakChannel": 125,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 5
+      }
+    },
+    {
+      "id": "audiospectrum--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.19999999999999998,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 192
+      },
+      "appearance": {
+        "maximumMeanRGB": 68.85729166666667,
+        "peakChannel": 222,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiospectrum--reference",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 642
+      },
+      "appearance": {
+        "maximumMeanRGB": 153.15625,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiosplittower--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 57
+      },
+      "appearance": {
+        "maximumMeanRGB": 84.09928385416667,
+        "peakChannel": 255,
+        "maximumLitPixels": 770,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.751953125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiospotlight--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 15,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 17473
+      },
+      "appearance": {
+        "maximumMeanRGB": 209.25,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiostrobe--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 36,
+      "decodedGifFrames": 36,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 35
+      },
+      "appearance": {
+        "maximumMeanRGB": 143.04166666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 5
+      }
+    },
+    {
+      "id": "audiostrobe--reference",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 9,
+      "decodedGifFrames": 33,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 1,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 547
+      },
+      "appearance": {
+        "maximumMeanRGB": 5.314583333333334,
+        "peakChannel": 15,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 24
+      }
+    },
+    {
+      "id": "audiostrobe--percussive-rgb",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 36,
+      "decodedGifFrames": 36,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 30,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 67
+      },
+      "appearance": {
+        "maximumMeanRGB": 155.54166666666666,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 5
+      }
+    },
+    {
+      "id": "audiotunnel--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 285
+      },
+      "appearance": {
+        "maximumMeanRGB": 72.15364583333333,
+        "peakChannel": 180,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiovortex--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 2.1666666666666665,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 250
+      },
+      "appearance": {
+        "maximumMeanRGB": 72.822265625,
+        "peakChannel": 180,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiovumeter--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 3,
+      "decodedGifFrames": 3,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 20,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 136
+      },
+      "appearance": {
+        "maximumMeanRGB": 72.25,
+        "peakChannel": 255,
+        "maximumLitPixels": 272,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.85,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiowater--artistic",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 25,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 54
+      },
+      "appearance": {
+        "maximumMeanRGB": 199.3125,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiowater--ledfx-water",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 31,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 3,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 1990
+      },
+      "appearance": {
+        "maximumMeanRGB": 34.826822916666664,
+        "peakChannel": 255,
+        "maximumLitPixels": 957,
+        "pixelCount": 1024,
+        "maximumLitFraction": 0.9345703125,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "audiowaterfall--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        384,
+        384
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "synthetic",
+        "wallMs": 844
+      },
+      "appearance": {
+        "maximumMeanRGB": 130.72981770833334,
+        "peakChannel": 255,
+        "maximumLitPixels": 1024,
+        "pixelCount": 1024,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huefade--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 39,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7985,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4002.430792,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3899.6736249999994,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 8.853833000000122,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 109.33333333333333,
+        "peakChannel": 162,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huegradient--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 17,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0.19583333333333333,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7983,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4006.572417,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3900.5829580000004,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 11.511792000000241,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 153.10520833333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huemetro--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 2,
+      "decodedGifFrames": 2,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 2,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7982,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4007.129334,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3899.4156249999996,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 9.753584000000046,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 111.63645833333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huepixels--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 12,
+      "decodedGifFrames": 12,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 37,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 5,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7984,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4005.349708,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3895.179417,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 8.633041000000048,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 22.09166666666667,
+        "peakChannel": 135,
+        "maximumLitPixels": 88,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.275,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huerainbow--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 40,
+      "decodedGifFrames": 40,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 22,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 0,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7982,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4006.519,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3899.749416,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 10.40899999999965,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 133.96458333333334,
+        "peakChannel": 255,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    },
+    {
+      "id": "huerandomflash--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 11,
+      "decodedGifFrames": 13,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 33,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 1,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7988,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4003.323833,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3899.343208,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 9.001166000000012,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 20.083333333333332,
+        "peakChannel": 135,
+        "maximumLitPixels": 80,
+        "pixelCount": 320,
+        "maximumLitFraction": 0.25,
+        "blankFrameCount": 30
+      }
+    },
+    {
+      "id": "huesinglecolor--default",
+      "nativeFrames": 40,
+      "distinctNativeFrames": 1,
+      "decodedGifFrames": 1,
+      "decodedDurationMs": 4000,
+      "encodedDimensions": [
+        640,
+        32
+      ],
+      "posterFrame": 0,
+      "nativePixelComparisons": 120,
+      "posterExactNativeRGB": true,
+      "maximumGifMeanAbsoluteRGBError": 0,
+      "gifSampleComparisons": 40,
+      "acceptedColorCount": 1,
+      "pacing": {
+        "clock": "wall",
+        "wallMs": 7986,
+        "expectedWallMs": 7980,
+        "measuredWarmupMs": 4002.881583,
+        "expectedWarmupMs": 4000,
+        "measuredCaptureSpanMs": 3900.1185419999997,
+        "expectedCaptureSpanMs": 3900.0,
+        "sampleIntervalMs": 100.0,
+        "toleranceFraction": 0.05,
+        "maximumFrameTargetErrorMs": 9.830374999999549,
+        "frameTargetToleranceMs": 50.0
+      },
+      "appearance": {
+        "maximumMeanRGB": 80.33333333333333,
+        "peakChannel": 135,
+        "maximumLitPixels": 320,
+        "pixelCount": 320,
+        "maximumLitFraction": 1.0,
+        "blankFrameCount": 0
+      }
+    }
+  ],
+  "randomSeed": null
+}

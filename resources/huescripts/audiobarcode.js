@@ -19,6 +19,8 @@ var testAlgo;
 
 (
   function () {
+    var referenceState = null;
+    var scrollPlusState = null;
     var algo = new Object;
     algo.apiVersion = 3;
     algo.name = "Audio Barcode";
@@ -27,19 +29,46 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var referenceState = null;
     algo.presetMode = "Artistic";
-    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Reference|write:setMode|read:getMode");
-    algo.setMode = function(v) { algo.presetMode = v === "Reference" ? v : "Artistic"; referenceState = null; };
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Reference,Scroll+|write:setMode|read:getMode");
+    algo.setMode = function(v) {
+      algo.presetMode = (v === "Reference" || v === "Scroll+") ? v : "Artistic";
+      referenceState = null;
+      scrollPlusState = null;
+    };
     algo.getMode = function() { return algo.presetMode; };
     algo.referenceBlur = 1.5;
     algo.referenceMirror = "On";
     algo.referenceBrightness = 0.7;
     algo.referencePalette = "#ff0000,#00ff00,#0000ff";
+    algo.referenceSpeed = 3;
+    algo.referenceDecay = 0.97;
+    algo.referenceThreshold = 0;
+    algo.referenceRangeStart = 0;
+    algo.referenceRangeEnd = 1;
+    algo.referenceFlip = "Off";
+    algo.referenceBackgroundMode = "Off";
+    algo.referenceBackgroundColor = "#000000";
+    algo.referenceBackgroundBrightness = 1;
+    algo.scrollPlusSpeed = 0.5;
+    algo.scrollPlusDecay = 0.5;
+    algo.scrollPlusThreshold = 0.1;
     algo.properties.push("name:referenceBlur|type:float|display:Reference Blur|write:setReferenceBlur|read:getReferenceBlur");
     algo.properties.push("name:referenceMirror|type:list|display:Reference Mirror|values:Off,On|write:setReferenceMirror|read:getReferenceMirror");
     algo.properties.push("name:referenceBrightness|type:float|display:Reference Brightness|write:setReferenceBrightness|read:getReferenceBrightness");
     algo.properties.push("name:referencePalette|type:string|display:Reference RGB Palette|write:setReferencePalette|read:getReferencePalette");
+    algo.properties.push("name:referenceSpeed|type:range|display:Reference Speed (px/tick)|values:1,10|write:setReferenceSpeed|read:getReferenceSpeed");
+    algo.properties.push("name:referenceDecay|type:float|values:0.8,1|display:Reference Decay (0.8..1)|write:setReferenceDecay|read:getReferenceDecay");
+    algo.properties.push("name:referenceThreshold|type:float|values:0,1|display:Reference Threshold (0..1)|write:setReferenceThreshold|read:getReferenceThreshold");
+    algo.properties.push("name:referenceRangeStart|type:float|values:0,1|display:Reference Range Start (0..1)|write:setReferenceRangeStart|read:getReferenceRangeStart");
+    algo.properties.push("name:referenceRangeEnd|type:float|values:0,1|display:Reference Range End (0..1)|write:setReferenceRangeEnd|read:getReferenceRangeEnd");
+    algo.properties.push("name:referenceFlip|type:list|display:Reference Flip|values:Off,On|write:setReferenceFlip|read:getReferenceFlip");
+    algo.properties.push("name:referenceBackgroundMode|type:list|display:Reference Background Mode|values:Off,Additive|write:setReferenceBackgroundMode|read:getReferenceBackgroundMode");
+    algo.properties.push("name:referenceBackgroundColor|type:string|display:Reference Background Color (#rrggbb)|write:setReferenceBackgroundColor|read:getReferenceBackgroundColor");
+    algo.properties.push("name:referenceBackgroundBrightness|type:float|values:0,1|display:Reference Background Brightness (0..1)|write:setReferenceBackgroundBrightness|read:getReferenceBackgroundBrightness");
+    algo.properties.push("name:scrollPlusSpeed|type:float|values:0.01,2|display:Scroll+ Speed (strips/s)|write:setScrollPlusSpeed|read:getScrollPlusSpeed");
+    algo.properties.push("name:scrollPlusDecay|type:float|values:0,2|display:Scroll+ Decay (linear/s)|write:setScrollPlusDecay|read:getScrollPlusDecay");
+    algo.properties.push("name:scrollPlusThreshold|type:float|values:0,1|display:Scroll+ Threshold|write:setScrollPlusThreshold|read:getScrollPlusThreshold");
     algo.setReferenceBlur = function(v) { algo.referenceBlur = Math.max(0, Math.min(10, parseFloat(v) || 0)); };
     algo.getReferenceBlur = function() { return algo.referenceBlur; };
     algo.setReferenceMirror = function(v) { algo.referenceMirror = v === "On" ? "On" : "Off"; };
@@ -48,87 +77,232 @@ var testAlgo;
     algo.getReferenceBrightness = function() { return algo.referenceBrightness; };
     algo.setReferencePalette = function(v) { if (/^#[0-9a-f]{6},#[0-9a-f]{6},#[0-9a-f]{6}$/i.test(v)) algo.referencePalette = v; };
     algo.getReferencePalette = function() { return algo.referencePalette; };
+    algo.setReferenceSpeed = function(v) {
+      var value = parseInt(v, 10);
+      if (!isFinite(value)) value = 3;
+      algo.referenceSpeed = Math.max(1, Math.min(10, value));
+    };
+    algo.getReferenceSpeed = function() { return algo.referenceSpeed; };
+    algo.setReferenceDecay = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 0.97;
+      algo.referenceDecay = Math.max(0.8, Math.min(1, value));
+    };
+    algo.getReferenceDecay = function() { return algo.referenceDecay; };
+    algo.setReferenceThreshold = function(v) {
+      algo.referenceThreshold = HSVUtil.clamp01(parseFloat(v) || 0);
+    };
+    algo.getReferenceThreshold = function() { return algo.referenceThreshold; };
+    algo.setReferenceRangeStart = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 0;
+      algo.referenceRangeStart = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceRangeStart = function() { return algo.referenceRangeStart; };
+    algo.setReferenceRangeEnd = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 1;
+      algo.referenceRangeEnd = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceRangeEnd = function() { return algo.referenceRangeEnd; };
+    algo.setReferenceFlip = function(v) { algo.referenceFlip = v === "On" ? "On" : "Off"; };
+    algo.getReferenceFlip = function() { return algo.referenceFlip; };
+    algo.setReferenceBackgroundMode = function(v) {
+      algo.referenceBackgroundMode = v === "Additive" ? "Additive" : "Off";
+    };
+    algo.getReferenceBackgroundMode = function() { return algo.referenceBackgroundMode; };
+    algo.setReferenceBackgroundColor = function(v) {
+      if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
+        algo.referenceBackgroundColor = v;
+    };
+    algo.getReferenceBackgroundColor = function() { return algo.referenceBackgroundColor; };
+    algo.setReferenceBackgroundBrightness = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 1;
+      algo.referenceBackgroundBrightness = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceBackgroundBrightness = function() { return algo.referenceBackgroundBrightness; };
+    algo.setScrollPlusSpeed = function(v) { algo.scrollPlusSpeed = Math.max(0.01, Math.min(2, parseFloat(v) || 0.5)); };
+    algo.getScrollPlusSpeed = function() { return algo.scrollPlusSpeed; };
+    algo.setScrollPlusDecay = function(v) { algo.scrollPlusDecay = Math.max(0, Math.min(2, parseFloat(v) || 0)); };
+    algo.getScrollPlusDecay = function() { return algo.scrollPlusDecay; };
+    algo.setScrollPlusThreshold = function(v) { algo.scrollPlusThreshold = HSVUtil.clamp01(parseFloat(v) || 0); };
+    algo.getScrollPlusThreshold = function() { return algo.scrollPlusThreshold; };
+
+    function parseReferenceColors() {
+      return algo.referencePalette.split(",").map(function(hex) {
+        return HSVUtil.parseHexRgb(hex);
+      });
+    }
+
+    function rangedProcessed(audio) {
+      var values = audio && audio.banks && audio.banks.full && audio.banks.full.processed
+        ? audio.banks.full.processed.slice() : [];
+      if (!values.length) return values;
+      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
+      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
+      var from = Math.max(0, Math.floor(start * values.length));
+      var to = Math.min(values.length, Math.ceil(end * values.length));
+      return to > from ? values.slice(from, to) : [];
+    }
+
+    function bandLevels(values, threshold) {
+      var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
+      var levels = [0, 0, 0];
+      for (var band = 0; band < 3; band++) {
+        var peak = 0;
+        for (var i = bounds[band]; i < bounds[band + 1]; i++) peak = Math.max(peak, values[i] || 0);
+        levels[band] = HSVUtil.clamp01(peak * peak);
+      }
+      if (levels[0] < threshold / 10) levels[0] = 0;
+      if (levels[1] < threshold / 8) levels[1] = 0;
+      if (levels[2] < threshold / 7) levels[2] = 0;
+      return levels;
+    }
+
+    function mixColor(levels, colors) {
+      return [
+        colors[0][0] * levels[0] + colors[1][0] * levels[1] + colors[2][0] * levels[2],
+        colors[0][1] * levels[0] + colors[1][1] * levels[1] + colors[2][1] * levels[2],
+        colors[0][2] * levels[0] + colors[1][2] * levels[1] + colors[2][2] * levels[2]
+      ];
+    }
+
+    function modeColor(audio, threshold) {
+      var colors = parseReferenceColors();
+      var values = rangedProcessed(audio || {});
+      var levels = bandLevels(values, threshold);
+      return { levels: levels, rgb: mixColor(levels, colors) };
+    }
+
+    function rgbToHsv(r, g, b) {
+      r = HSVUtil.clamp01(r);
+      g = HSVUtil.clamp01(g);
+      b = HSVUtil.clamp01(b);
+      var max = Math.max(r, g, b);
+      var min = Math.min(r, g, b);
+      var delta = max - min;
+      var h = 0;
+      if (delta) h = (max === r ? (g - b) / delta : max === g ? 2 + (b - r) / delta : 4 + (r - g) / delta) / 6;
+      return { h: HSVUtil.mod1(h), s: max ? delta / max : 0, v: max };
+    }
+
+    function scrollPlusMap(width, height, audio) {
+      var map = HSVUtil.createMap(width, height);
+      var n = width * height;
+      var previousIdentity = scrollPlusState ? scrollPlusState.identityKey : "";
+      var identityKey = HSVUtil.audioIdentityKey(audio, previousIdentity);
+      if (!scrollPlusState || scrollPlusState.n !== n || scrollPlusState.identityKey !== identityKey)
+        scrollPlusState = {
+          n: n,
+          identityKey: identityKey,
+          offset: 0,
+          strip: new Array(n).fill(0).map(function() { return [0, 0, 0]; })
+        };
+      var state = scrollPlusState;
+      var dt = HSVUtil.audioSeconds(audio);
+      var mode = modeColor(audio || {}, algo.scrollPlusThreshold);
+      state.offset += algo.scrollPlusSpeed * n * Math.max(0, dt);
+      var shift = Math.floor(state.offset);
+      state.offset -= shift;
+      var decay = dt > 0 ? Math.max(0, 1 - algo.scrollPlusDecay * dt * 3) : 1;
+      for (var i = 0; i < n; i++) {
+        var p = state.strip[i];
+        p[0] *= decay;
+        p[1] *= decay;
+        p[2] *= decay;
+      }
+      shift = Math.min(shift, n);
+      for (var i = 0; i < shift; i++) {
+        state.strip.pop();
+        state.strip.unshift(mode.rgb.slice());
+      }
+      for (var i = 0; i < n; i++) {
+        var p = state.strip[i];
+        var hsv = rgbToHsv(p[0], p[1], p[2]);
+        map[i * 3] = hsv.h;
+        map[i * 3 + 1] = hsv.s;
+        map[i * 3 + 2] = hsv.v;
+      }
+      return HSVUtil.applyStripTransforms(map, width, height, {
+        flip: algo.referenceFlip,
+        mirror: algo.referenceMirror,
+        backgroundMode: algo.referenceBackgroundMode,
+        backgroundColor: algo.referenceBackgroundColor,
+        backgroundBrightness: algo.referenceBackgroundBrightness,
+        brightness: algo.referenceBrightness,
+        blur: algo.referenceBlur
+      });
+    }
 
     function referenceOutput(pixels, width, height) {
-      var n = pixels.length, values = pixels;
-      if (algo.referenceMirror === "On") {
-        values = new Array(n);
-        for (var i = 0; i < n; i++) {
-        var a = 2 * i, b = a + 1;
-        a = a < n ? n - 1 - a : a - n;
-        b = b < n ? n - 1 - b : b - n;
-          values[i] = [Math.max(pixels[a][0], pixels[b][0]),
-                       Math.max(pixels[a][1], pixels[b][1]), Math.max(pixels[a][2], pixels[b][2])];
-        }
-      }
-      var sigma = algo.referenceBlur;
-      var radius = sigma > 0 && n > 3 ? Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(4 * sigma))) : 0;
-      var weights = [], sum = 0;
-      for (var d = -radius; d <= radius; d++) {
-        var weight = radius ? Math.exp(-d * d / (2 * sigma * sigma)) : 1;
-        weights.push(weight); sum += weight;
-      }
-      var transformed = new Array(n);
-      for (var i = 0; i < n; i++) {
-        var r = 0, g = 0, b = 0;
-        for (var d = Math.max(-radius, -i); d <= radius && i + d < n; d++) {
-          var pixel = values[i + d], weight = weights[d + radius];
-          r += pixel[0] * weight; g += pixel[1] * weight; b += pixel[2] * weight;
-        }
-        transformed[i] = [r / sum * algo.referenceBrightness,
-                          g / sum * algo.referenceBrightness, b / sum * algo.referenceBrightness];
-      }
-      if (algo.referenceDiagnostics) algo.referenceFrame = {pre: pixels, transformed: transformed};
+      var n = pixels.length;
       var map = HSVUtil.createMap(width, height);
       for (var i = 0; i < n; i++) {
-        var pixel = transformed[i];
-        var r = HSVUtil.clamp01(pixel[0]), g = HSVUtil.clamp01(pixel[1]), b = HSVUtil.clamp01(pixel[2]);
-        var max = Math.max(r, g, b), delta = max - Math.min(r, g, b), h = 0;
-        if (delta) h = (max === r ? (g - b) / delta : max === g ? 2 + (b - r) / delta : 4 + (r - g) / delta) / 6;
-        map[i * 3] = HSVUtil.mod1(h); map[i * 3 + 1] = max ? delta / max : 0; map[i * 3 + 2] = max;
+        var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
+        map[i * 3] = hsv.h;
+        map[i * 3 + 1] = hsv.s;
+        map[i * 3 + 2] = hsv.v;
+      }
+      HSVUtil.applyStripTransforms(map, width, height, {
+        flip: algo.referenceFlip,
+        mirror: algo.referenceMirror,
+        backgroundMode: algo.referenceBackgroundMode,
+        backgroundColor: algo.referenceBackgroundColor,
+        backgroundBrightness: algo.referenceBackgroundBrightness,
+        brightness: algo.referenceBrightness,
+        blur: algo.referenceBlur
+      });
+      if (algo.referenceDiagnostics) {
+        var transformed = new Array(n);
+        for (var j = 0; j < n; j++) {
+          var o = j * 3;
+          transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
+        }
+        algo.referenceFrame = {pre: pixels, transformed: transformed};
       }
       return map;
     }
 
     function referenceMap(width, height, audio) {
-      var n = width * height, bank = audio && audio.banks && audio.banks.full;
-      var epoch = audio ? [audio.sourceId, audio.profileId, audio.sourceEpoch, audio.configRevision].join(":") : "";
-      var initial = !referenceState || referenceState.n !== n || referenceState.epoch !== epoch;
-      if (initial) referenceState = {n: n, epoch: epoch, age: 0, history: []};
-      var values = bank && bank.count ? bank.processed : [];
-      var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
-      var levels = [0, 1, 2].map(function(band) {
-        var peak = 0;
-        for (var i = bounds[band]; i < bounds[band + 1]; i++) peak = Math.max(peak, values[i]);
-        return Math.min(1, peak * peak);
-      });
-      var colors = algo.referencePalette.split(",").map(function(hex) {
-        return [1, 3, 5].map(function(offset) { return parseInt(hex.substr(offset, 2), 16) / 255; });
-      });
-      var color = [0, 1, 2].map(function(c) {
-        return colors[0][c] * levels[0] + colors[1][c] * levels[1] + colors[2][c] * levels[2];
-      });
-      var scale = audio && audio.timing ? audio.timing.deltaSeconds * 60 : 1;
+      var n = width * height;
+      var previousIdentity = referenceState ? referenceState.identityKey : "";
+      var identityKey = HSVUtil.audioIdentityKey(audio, previousIdentity);
+      if (!referenceState || referenceState.n !== n || referenceState.identityKey !== identityKey)
+        referenceState = {
+          n: n,
+          identityKey: identityKey,
+          offset: 0,
+          seeded: false,
+          strip: new Array(n).fill(0).map(function() { return [0, 0, 0]; })
+        };
       var state = referenceState;
-      if (initial || scale > 0) {
-        state.age += initial ? 0 : scale;
-        state.history.unshift({age: state.age, color: color});
-        while (state.history.length > 1 && (state.age - state.history[state.history.length - 2].age) * 3 > n)
-          state.history.pop();
+      var dt = HSVUtil.audioSeconds(audio);
+      var ticks = Math.max(0, dt * 60);
+      var mode = modeColor(audio || {}, algo.referenceThreshold);
+      if (!state.seeded) {
+        var initialSpan = Math.min(n, Math.max(1, Math.floor(algo.referenceSpeed)));
+        for (var s = 0; s < initialSpan; s++) state.strip[s] = mode.rgb.slice();
+        state.seeded = true;
       }
-      // Sample an elapsed-time trail. At 60 Hz each sample occupies exactly three pixels.
-      var pixels = new Array(n).fill(0).map(function(_, i) {
-        var age = i / 3, entry = null;
-        for (var j = 0; j < state.history.length; j++)
-          if (state.age - state.history[j].age <= age + 1e-7) entry = state.history[j]; else break;
-        if (!entry) return [0, 0, 0];
-        var elapsed = state.age - entry.age;
-        var nextAge = state.history.indexOf(entry) + 1;
-        var end = nextAge < state.history.length ? state.age - state.history[nextAge].age : elapsed + 1;
-        if (age >= end - 1e-7) return [0, 0, 0];
-        return entry.color.map(function(c) { return c * Math.pow(0.97, elapsed); });
-      });
-      return referenceOutput(pixels, width, height);
+      state.offset += algo.referenceSpeed * ticks;
+      var shift = Math.min(n, Math.max(0, Math.floor(state.offset)));
+      state.offset -= shift;
+      if (shift > 0) {
+        for (var i = n - 1; i >= shift; i--) state.strip[i] = state.strip[i - shift].slice();
+      }
+      if (ticks > 0) {
+        var decay = Math.pow(algo.referenceDecay, ticks);
+        for (var i = 0; i < n; i++) {
+          state.strip[i][0] *= decay;
+          state.strip[i][1] *= decay;
+          state.strip[i][2] *= decay;
+        }
+      }
+      if (shift > 0) {
+        for (var i = 0; i < shift; i++) state.strip[i] = mode.rgb.slice();
+      }
+      return referenceOutput(state.strip, width, height);
     }
 
     var DEFAULT_GRADIENT = [
@@ -244,7 +418,10 @@ var testAlgo;
     }
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      if (algo.presetMode === "Reference") return referenceMap(width, height, audio);
+      if (algo.presetMode === "Scroll+")
+        return scrollPlusMap(width, height, audio);
+      if (algo.presetMode === "Reference")
+        return referenceMap(width, height, audio);
       var dt = audio.timing ? audio.timing.deltaSeconds : audio.dt * 60.0 / audio.bpm;
       ensureState(width, height);
 

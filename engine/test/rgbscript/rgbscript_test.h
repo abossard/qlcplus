@@ -42,6 +42,8 @@ private slots:
     void rgbMapStepCount();
     void rgbMapColorArray();
     void rgbMap();
+    void floatBoundsDescriptor_data();
+    void floatBoundsDescriptor();
     void runScripts();
 
 private:

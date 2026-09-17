@@ -914,6 +914,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                                     break;
                                 case RGBScriptProperty::Float:
                                     p["type"] = "float";
+                                    if (prop.m_floatHasBounds)
+                                    {
+                                        p["min"] = prop.m_floatMinValue;
+                                        p["max"] = prop.m_floatMaxValue;
+                                    }
                                     break;
                                 case RGBScriptProperty::String:
                                     p["type"] = "string";

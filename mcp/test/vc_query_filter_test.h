@@ -42,6 +42,8 @@ private slots:
     // Field selection / serialization — parameterized
     void serializeWidget_data();
     void serializeWidget();
+    void serializeAudioSources_data();
+    void serializeAudioSources();
 
     // Known properties completeness
     void knownPropertiesCompleteness();

@@ -243,6 +243,15 @@ void HUEMatrix::registerScriptPropertyAttributes()
 
 void HUEMatrix::includeFloatAttributeValue(int index, qreal value)
 {
+    const int propIndex = index - ScriptPropertyAttr;
+    const auto properties = scriptPropertyAttributes();
+    if (propIndex >= 0 && propIndex < properties.count() &&
+        properties.at(propIndex).m_floatHasBounds)
+    {
+        // Bounded float properties keep their declared limits.
+        return;
+    }
+
     const Attribute attribute = attributes().at(index);
     if (value >= attribute.m_min && value <= attribute.m_max)
         return;

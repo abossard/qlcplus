@@ -84,6 +84,18 @@ Wire makeWire()
     return w;
 }
 
+void configureUniverse(DDPController *ctrl, quint32 universe, quint16 port,
+                       quint32 offset, quint8 destId = 1)
+{
+    ctrl->addUniverse(universe);
+    ctrl->setDestAddress(universe, "127.0.0.1");
+    ctrl->setDestPort(universe, port);
+    ctrl->setDestId(universe, destId);
+    ctrl->setDDPOffset(universe, offset);
+    ctrl->setComponents(universe, DDPController::RGB);
+    ctrl->setTransmissionMode(universe, DDPController::Partial);
+}
+
 // Drain all pending datagrams from the receiver socket (10ms idle wait).
 QVector<ParsedPkt> drain(QUdpSocket *rx)
 {
@@ -107,6 +119,15 @@ QByteArray rgbFrame(int pixels, char r=0x11, char g=0x22, char b=0x33)
     QByteArray buf(pixels * 3, 0);
     for (int i = 0; i < pixels; i++) {
         buf[i*3+0] = r; buf[i*3+1] = g; buf[i*3+2] = b;
+    }
+    return buf;
+}
+
+QByteArray rgbwFrame(int pixels, char r=0x11, char g=0x22, char b=0x33, char w=0x44)
+{
+    QByteArray buf(pixels * 4, 0);
+    for (int i = 0; i < pixels; i++) {
+        buf[i*4+0] = r; buf[i*4+1] = g; buf[i*4+2] = b; buf[i*4+3] = w;
     }
     return buf;
 }
@@ -301,7 +322,8 @@ void DDP_Partial_Test::setPixelCount_invalidatesAllBaselines()
     QByteArray f = rgbFrame(50);                 // 150 bytes (auto mode)
     w.ctrl->sendDmx(UNI, f, true);
     w.ctrl->sendDmx(1,  f, true);
-    QCOMPARE(drain(w.rx).size(), 2);             // one full each
+    auto primed = drain(w.rx);
+    QCOMPARE(primed.size(), 2);                  // one snapshot per universe, one PUSH total
 
     w.ctrl->setPixelCount(40);                    // → totalLen 120; SHIFT
 
@@ -309,11 +331,15 @@ void DDP_Partial_Test::setPixelCount_invalidatesAllBaselines()
     w.ctrl->sendDmx(1,   f, true);
     auto pkts = drain(w.rx);
     // Each universe emits: 1 zero-clear for old-only tail [120,150) + 1 full
-    // snapshot of new 120-byte coverage. PUSH only on the snapshot packet.
+    // snapshot of new 120-byte coverage. The destination burst carries one
+    // final PUSH across both universes.
     QCOMPARE(pkts.size(), 4);
-    int snapshots = 0, clears = 0;
+    int snapshots = 0, clears = 0, pushes = 0;
     for (const auto &p : pkts) {
+        if (p.push()) pushes++;
         if (p.dataLen == 120 && p.offset == 0 && p.push()) {
+            snapshots++;
+        } else if (p.dataLen == 120 && p.offset == 0 && !p.push()) {
             snapshots++;
         } else if (p.dataLen == 30 && p.offset == 120 && !p.push()) {
             QCOMPARE(p.payload, QByteArray(30, char(0)));
@@ -325,6 +351,7 @@ void DDP_Partial_Test::setPixelCount_invalidatesAllBaselines()
     }
     QCOMPARE(snapshots, 2);
     QCOMPARE(clears,    2);
+    QCOMPARE(pushes,    1);
     delete w.ctrl; delete w.rx;
 }
 
@@ -531,6 +558,481 @@ void DDP_Partial_Test::sequence_cyclesOneToFifteen_noZero()
     QSet<quint8> uniq;
     for (auto s : seqs) uniq.insert(s);
     QVERIFY(uniq.size() >= 5);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::sameEndpointDifferentDestId_sharesSequence()
+{
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 0, 2);
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray a = rgbFrame(8, char(0x11), char(0x12), char(0x13));
+    QByteArray b = rgbFrame(8, char(0x21), char(0x22), char(0x23));
+
+    w.ctrl->sendDmx(UNI, a, true);
+    auto first = drain(w.rx);
+    QCOMPARE(first.size(), 1);
+    QVERIFY(first[0].push());
+    QCOMPARE(first[0].destId, quint8(1));
+
+    w.ctrl->sendDmx(1, b, true);
+    auto second = drain(w.rx);
+    QCOMPARE(second.size(), 1);
+    QVERIFY(second[0].push());
+    QCOMPARE(second[0].destId, quint8(2));
+
+    const quint8 expected = quint8((first[0].seq % 15) + 1);
+    QCOMPARE(second[0].seq, expected);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::multiUniverse_over15Chunks_oneSequence()
+{
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 12000, 1);
+    w.ctrl->setTransmissionMode(UNI, DDPController::Full);
+    w.ctrl->setTransmissionMode(1, DDPController::Full);
+    w.ctrl->setPixelCount(4000); // 12000 bytes (9 chunks) per universe
+
+    QByteArray a(12000, char(0x11));
+    QByteArray b(12000, char(0x22));
+
+    // Prime group membership, then finish the transitional cycle.
+    w.ctrl->sendDmx(UNI, a, true);
+    drain(w.rx);
+    w.ctrl->sendDmx(1, b, true);
+    drain(w.rx);
+    w.ctrl->sendDmx(UNI, a, false);
+    drain(w.rx);
+
+    a[0] = char(0x31);
+    b[0] = char(0x41);
+    w.ctrl->sendDmx(UNI, a, true);
+    QCOMPARE(drain(w.rx).size(), 0);
+    w.ctrl->sendDmx(1, b, true);
+    auto pkts = drain(w.rx);
+
+    QCOMPARE(pkts.size(), 18);
+    QCOMPARE(pkts[0].seq, pkts.back().seq);
+    QVERIFY(pkts[0].seq >= 1 && pkts[0].seq <= 15);
+
+    int pushes = 0;
+    for (const auto &p : pkts)
+    {
+        QCOMPARE(p.seq, pkts[0].seq);
+        if (p.push()) pushes++;
+    }
+    QCOMPARE(pushes, 1);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::multiUniverse_cleanCompleterPushOnly_data()
+{
+    QTest::addColumn<int>("holds");
+    QTest::addColumn<int>("components");
+    for (int components : { int(DDPController::RGB), int(DDPController::RGBW) })
+    {
+        const char *mode = (components == int(DDPController::RGBW)) ? "rgbw" : "rgb";
+        for (int holds = 1; holds <= 16; holds++)
+        {
+            const QByteArray row = QByteArray(mode) + "_hold_" + QByteArray::number(holds);
+            QTest::newRow(row.constData()) << holds << components;
+        }
+    }
+}
+
+void DDP_Partial_Test::multiUniverse_cleanCompleterPushOnly()
+{
+    QFETCH(int, holds);
+    QFETCH(int, components);
+    const bool rgbw = (components == int(DDPController::RGBW));
+    const int bpp = rgbw ? 4 : 3;
+
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, bpp * 3, 1);
+    w.ctrl->setComponents(UNI, rgbw ? DDPController::RGBW : DDPController::RGB);
+    w.ctrl->setComponents(1, rgbw ? DDPController::RGBW : DDPController::RGB);
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray row0 = rgbw
+        ? rgbwFrame(3, char(0x10), char(0x11), char(0x12), char(0x13))
+        : rgbFrame(3, char(0x10), char(0x11), char(0x12));
+    QByteArray row1 = rgbw
+        ? rgbwFrame(3, char(0x20), char(0x21), char(0x22), char(0x23))
+        : rgbFrame(3, char(0x20), char(0x21), char(0x22));
+    QByteArray strip(row0.size() + row1.size(), char(0));
+
+    auto apply = [&](const QVector<ParsedPkt> &pkts) {
+        for (const auto &p : pkts)
+        {
+            if (p.dataLen == 0)
+                continue;
+            QVERIFY2(p.offset + p.dataLen <= quint32(strip.size()), "packet outside strip");
+            memcpy(strip.data() + p.offset, p.payload.constData(), p.dataLen);
+        }
+    };
+
+    w.ctrl->sendDmx(UNI, row0, true);
+    apply(drain(w.rx));
+    w.ctrl->sendDmx(1, row1, true);
+    apply(drain(w.rx));
+    w.ctrl->sendDmx(UNI, row0, false);
+    apply(drain(w.rx));
+
+    QVector<quint8> pushSeqs;
+    for (int i = 0; i < holds; i++)
+    {
+        for (int c = 0; c < bpp; c++)
+            row0[c] = char(0x30 + (i + c));
+
+        w.ctrl->sendDmx(UNI, row0, true);
+        QCOMPARE(drain(w.rx).size(), 0);
+
+        w.ctrl->sendDmx(1, row1, false);
+        auto pkts = drain(w.rx);
+        QCOMPARE(pkts.size(), 2);
+        const quint8 seq = pkts[1].seq;
+        for (const auto &p : pkts)
+            QCOMPARE(p.seq, seq);
+        if (!pushSeqs.isEmpty())
+            QCOMPARE(seq, quint8((pushSeqs.back() % 15) + 1));
+        QVERIFY(!pkts[0].push());
+        QVERIFY(pkts[1].push());
+        QCOMPARE(int(pkts[1].dataLen), 0);
+
+        int pushes = 0;
+        for (const auto &p : pkts)
+            if (p.push()) pushes++;
+        QCOMPARE(pushes, 1);
+
+        pushSeqs.push_back(seq);
+        apply(pkts);
+        QCOMPARE(strip, row0 + row1);
+    }
+
+    for (quint8 s : pushSeqs)
+        QVERIFY2(s >= 1 && s <= 15, qPrintable(QString("bad seq %1").arg(int(s))));
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::stalledMember_fallsBackWithinTwoTicks()
+{
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 9, 1);
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray row0 = rgbFrame(3, char(0x10), char(0x11), char(0x12));
+    QByteArray row1 = rgbFrame(3, char(0x20), char(0x21), char(0x22));
+
+    w.ctrl->sendDmx(UNI, row0, true);
+    drain(w.rx);
+    QTest::qWait(20);
+    w.ctrl->sendDmx(1, row1, true);
+    drain(w.rx);
+    QTest::qWait(20);
+    w.ctrl->sendDmx(UNI, row0, false);
+    drain(w.rx);
+    QTest::qWait(20);
+
+    row0[0] = char(0x31);
+    w.ctrl->sendDmx(UNI, row0, true);
+    QCOMPARE(drain(w.rx).size(), 0);
+
+    QTest::qWait(35);
+    row0[0] = char(0x32);
+    w.ctrl->sendDmx(UNI, row0, true);
+    auto pkts = drain(w.rx);
+    char expectedHead = row0[0];
+
+    if (pkts.isEmpty())
+    {
+        QTest::qWait(35);
+        row0[0] = char(0x33);
+        w.ctrl->sendDmx(UNI, row0, true);
+        pkts = drain(w.rx);
+        expectedHead = row0[0];
+    }
+    QVERIFY(!pkts.isEmpty());
+
+    int pushes = 0;
+    bool sawRow0 = false;
+    bool touchedRow1 = false;
+    for (const auto &p : pkts)
+    {
+        if (p.push())
+            pushes++;
+        if (p.dataLen > 0 && p.offset < 9)
+        {
+            sawRow0 = true;
+            QVERIFY(p.payload.contains(expectedHead));
+        }
+        if (p.dataLen > 0 && p.offset >= 9)
+            touchedRow1 = true;
+    }
+
+    QCOMPARE(pushes, 1);
+    QVERIFY(sawRow0);
+    QVERIFY(!touchedRow1);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::droppedUpdate_repairedByKeepAlive_data()
+{
+    QTest::addColumn<int>("dropIndex");
+    QTest::addColumn<bool>("forceWriteFailure");
+    QTest::newRow("drop_data_packet") << 0 << false;
+    QTest::newRow("drop_final_push") << 1 << false;
+    QTest::newRow("local_write_failure_on_final_member") << -1 << true;
+}
+
+void DDP_Partial_Test::droppedUpdate_repairedByKeepAlive()
+{
+    QFETCH(int, dropIndex);
+    QFETCH(bool, forceWriteFailure);
+
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 9, 1);
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray row0 = rgbFrame(3, char(0x11), char(0x22), char(0x33));
+    QByteArray row1 = rgbFrame(3, char(0x41), char(0x42), char(0x43));
+    QByteArray source = row0 + row1;
+    QByteArray staged(source.size(), char(0));
+    QByteArray displayed(source.size(), char(0));
+
+    auto apply = [&](const QVector<ParsedPkt> &pkts, int dropIndex) {
+        for (int i = 0; i < pkts.size(); i++)
+        {
+            if (i == dropIndex)
+                continue;
+            const auto &p = pkts[i];
+            QVERIFY2(p.offset + p.dataLen <= quint32(staged.size()), "packet outside strip");
+            if (p.dataLen > 0)
+                memcpy(staged.data() + p.offset, p.payload.constData(), p.dataLen);
+            if (p.push())
+                displayed = staged;
+        }
+    };
+
+    auto universeInfo = [&](quint32 universe) -> DDPUniverseInfo {
+        bool found = false;
+        DDPUniverseInfo info = w.ctrl->getUniverseInfo(universe, &found);
+        Q_ASSERT(found);
+        return info;
+    };
+
+    w.ctrl->sendDmx(UNI, row0, true);
+    apply(drain(w.rx), -1);
+    w.ctrl->sendDmx(1, row1, true);
+    apply(drain(w.rx), -1);
+    w.ctrl->sendDmx(UNI, row0, false);
+    apply(drain(w.rx), -1);
+    QCOMPARE(displayed, source);
+    QVERIFY(universeInfo(UNI).baselineValid);
+    QVERIFY(universeInfo(1).baselineValid);
+    if (forceWriteFailure)
+        qInfo() << "baseline_before_failure_u0" << universeInfo(UNI).baselineValid
+                << "u1" << universeInfo(1).baselineValid;
+
+    row0[0] = char(0x7A);
+    row0[1] = char(0x6B);
+    row0[2] = char(0x5C);
+    if (forceWriteFailure)
+    {
+        row1[0] = char(0x2A);
+        row1[1] = char(0x3B);
+        row1[2] = char(0x4C);
+    }
+    source = row0 + row1;
+    QVector<ParsedPkt> dropped;
+    if (!forceWriteFailure)
+    {
+        w.ctrl->sendDmx(UNI, row0, true);
+        QCOMPARE(drain(w.rx).size(), 0);
+
+        w.ctrl->sendDmx(1, row1, false);
+        dropped = drain(w.rx);
+        QCOMPARE(dropped.size(), 2);
+        QVERIFY(!dropped[0].push());
+        QCOMPARE(int(dropped[0].dataLen), 3);
+        QVERIFY(dropped[1].push());
+        QCOMPARE(int(dropped[1].dataLen), 0);
+        apply(dropped, dropIndex);
+    }
+    else
+    {
+        quint8 seq = 1;
+        bool seqAssigned = false;
+        DDPController::EmitResult row0Emit;
+        DDPController::EmitResult row1Emit;
+        quint64 packetsBeforeFinalize = w.ctrl->getPacketSentNumber();
+
+        {
+            QMutexLocker lock(&w.ctrl->m_dataMutex);
+            QVERIFY(w.ctrl->m_universeMap.contains(UNI));
+            QVERIFY(w.ctrl->m_universeMap.contains(1));
+            DDPUniverseInfo &u0 = w.ctrl->m_universeMap[UNI];
+            DDPUniverseInfo &u1 = w.ctrl->m_universeMap[1];
+            u0.pendingDataChanged = true;
+            u0.pendingData = row0;
+            u0.pendingTotalLen = row0.size();
+            u0.pendingBpp = 3;
+            u0.pendingDataType = DDP_DATATYPE_RGB888;
+
+            u1.pendingDataChanged = true;
+            u1.pendingData = row1;
+            u1.pendingTotalLen = row1.size();
+            u1.pendingBpp = 3;
+            u1.pendingDataType = DDP_DATATYPE_RGB888;
+            u1.destPort = 0;
+
+            const qint64 now = qMax<qint64>(w.ctrl->m_sendTimer.elapsed(), 1);
+            row0Emit = w.ctrl->emitUniverse(u0, now, seq, seqAssigned, false);
+            row1Emit = w.ctrl->emitUniverse(u1, now, seq, seqAssigned, true);
+        }
+
+        dropped = drain(w.rx);
+        QVERIFY(row0Emit.emittedPackets);
+        QVERIFY(row0Emit.ok);
+        QVERIFY(!row1Emit.emittedPackets);
+        QVERIFY(!row1Emit.ok);
+        QVERIFY(!dropped.isEmpty());
+        bool sawRow0Payload = false;
+        bool sawRow1Payload = false;
+        int pushes = 0;
+        for (const auto &p : dropped)
+        {
+            if (p.dataLen > 0 && p.offset < 9)
+                sawRow0Payload = true;
+            if (p.dataLen > 0 && p.offset >= 9)
+                sawRow1Payload = true;
+            if (p.push())
+                pushes++;
+        }
+        QVERIFY(sawRow0Payload);
+        QVERIFY(!sawRow1Payload);
+        QCOMPARE(pushes, 0);
+        QCOMPARE(w.ctrl->getPacketSentNumber(), packetsBeforeFinalize + 1);
+        apply(dropped, -1);
+        QVERIFY(universeInfo(UNI).baselineValid);
+        QVERIFY(!universeInfo(1).baselineValid);
+        qInfo() << "baseline_after_failure_u0" << universeInfo(UNI).baselineValid
+                << "u1" << universeInfo(1).baselineValid;
+    }
+    QVERIFY(displayed != source);
+
+    QVector<ParsedPkt> repair;
+    if (forceWriteFailure)
+    {
+        quint8 seq = 1;
+        bool seqAssigned = false;
+        DDPController::EmitResult row0Repair;
+        DDPController::EmitResult row1Repair;
+
+        {
+            QMutexLocker lock(&w.ctrl->m_dataMutex);
+            QVERIFY(w.ctrl->m_universeMap.contains(UNI));
+            QVERIFY(w.ctrl->m_universeMap.contains(1));
+            DDPUniverseInfo &u0 = w.ctrl->m_universeMap[UNI];
+            DDPUniverseInfo &u1 = w.ctrl->m_universeMap[1];
+            u1.destPort = w.rxPort;
+
+            u0.pendingDataChanged = false;
+            u0.pendingData = row0;
+            u0.pendingTotalLen = row0.size();
+            u0.pendingBpp = 3;
+            u0.pendingDataType = DDP_DATATYPE_RGB888;
+
+            u1.pendingDataChanged = false;
+            u1.pendingData = row1;
+            u1.pendingTotalLen = row1.size();
+            u1.pendingBpp = 3;
+            u1.pendingDataType = DDP_DATATYPE_RGB888;
+
+            const qint64 now = qMax<qint64>(w.ctrl->m_sendTimer.elapsed(), 1);
+            row0Repair = w.ctrl->emitUniverse(u0, now, seq, seqAssigned, false);
+            row1Repair = w.ctrl->emitUniverse(u1, now, seq, seqAssigned, true);
+        }
+
+        repair = drain(w.rx);
+        QVERIFY(row0Repair.ok);
+        QVERIFY(!row0Repair.emittedPackets);
+        QVERIFY(row1Repair.ok);
+        QVERIFY(row1Repair.emittedPackets);
+    }
+    else
+    {
+        // Positive control: loss rows need keep-alive to force a full repair.
+        w.ctrl->setKeepAliveIntervalMsForTest(40);
+        QTest::qWait(60);
+        w.ctrl->sendDmx(UNI, row0, false);
+        QCOMPARE(drain(w.rx).size(), 0);
+        w.ctrl->sendDmx(1, row1, false);
+        repair = drain(w.rx);
+    }
+
+    QVERIFY(!repair.isEmpty());
+    apply(repair, -1);
+    QCOMPARE(displayed, source);
+
+    int pushes = 0;
+    for (const auto &p : repair)
+        if (p.push()) pushes++;
+    QCOMPARE(pushes, 1);
+    if (forceWriteFailure)
+    {
+        bool sawRow1Full = false;
+        for (const auto &p : repair)
+        {
+            if (p.dataLen == 9 && p.offset == 9)
+                sawRow1Full = true;
+            qInfo() << "repair_packet" << "offset" << p.offset
+                    << "len" << p.dataLen << "push" << p.push();
+        }
+        QVERIFY(sawRow1Full);
+        QVERIFY(universeInfo(1).baselineValid);
+        qInfo() << "baseline_after_repair_u0" << universeInfo(UNI).baselineValid
+                << "u1" << universeInfo(1).baselineValid;
+    }
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::destIdChange_dropsPendingBeforeCycleClose()
+{
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 9, 1);
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray row0 = rgbFrame(3, char(0x10), char(0x11), char(0x12));
+    QByteArray row1 = rgbFrame(3, char(0x20), char(0x21), char(0x22));
+
+    w.ctrl->sendDmx(UNI, row0, true);
+    drain(w.rx);
+    w.ctrl->sendDmx(1, row1, true);
+    drain(w.rx);
+
+    row1[0] = char(0x44);
+    w.ctrl->sendDmx(1, row1, true);
+    QCOMPARE(drain(w.rx).size(), 0);
+
+    w.ctrl->setDestId(1, 2);
+    row0[0] = char(0x33);
+    w.ctrl->sendDmx(UNI, row0, true);
+    auto oldDestCycle = drain(w.rx);
+    QVERIFY(!oldDestCycle.isEmpty());
+    for (const auto &p : oldDestCycle)
+    {
+        QCOMPARE(p.destId, quint8(1));
+        QVERIFY(p.offset < 9);
+    }
+
+    w.ctrl->sendDmx(1, row1, false);
+    auto newDest = drain(w.rx);
+    QVERIFY(!newDest.isEmpty());
+    for (const auto &p : newDest)
+        QCOMPARE(p.destId, quint8(2));
+
     delete w.ctrl; delete w.rx;
 }
 

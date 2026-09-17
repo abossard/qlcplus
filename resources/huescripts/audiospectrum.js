@@ -35,64 +35,109 @@ var testAlgo;
     algo.referenceBlur = 1.5;
     algo.referenceMirror = "On";
     algo.referenceBrightness = 0.7;
+    algo.referenceRangeStart = 0;
+    algo.referenceRangeEnd = 1;
+    algo.referenceFlip = "Off";
+    algo.referenceBackgroundMode = "Off";
+    algo.referenceBackgroundColor = "#000000";
+    algo.referenceBackgroundBrightness = 1;
     algo.properties.push("name:referenceBlur|type:float|display:Reference Blur|write:setReferenceBlur|read:getReferenceBlur");
     algo.properties.push("name:referenceMirror|type:list|display:Reference Mirror|values:Off,On|write:setReferenceMirror|read:getReferenceMirror");
     algo.properties.push("name:referenceBrightness|type:float|display:Reference Brightness|write:setReferenceBrightness|read:getReferenceBrightness");
+    algo.properties.push("name:referenceRangeStart|type:float|values:0,1|display:Reference Range Start (0..1)|write:setReferenceRangeStart|read:getReferenceRangeStart");
+    algo.properties.push("name:referenceRangeEnd|type:float|values:0,1|display:Reference Range End (0..1)|write:setReferenceRangeEnd|read:getReferenceRangeEnd");
+    algo.properties.push("name:referenceFlip|type:list|display:Reference Flip|values:Off,On|write:setReferenceFlip|read:getReferenceFlip");
+    algo.properties.push("name:referenceBackgroundMode|type:list|display:Reference Background Mode|values:Off,Additive|write:setReferenceBackgroundMode|read:getReferenceBackgroundMode");
+    algo.properties.push("name:referenceBackgroundColor|type:string|display:Reference Background Color (#rrggbb)|write:setReferenceBackgroundColor|read:getReferenceBackgroundColor");
+    algo.properties.push("name:referenceBackgroundBrightness|type:float|values:0,1|display:Reference Background Brightness (0..1)|write:setReferenceBackgroundBrightness|read:getReferenceBackgroundBrightness");
     algo.setReferenceBlur = function(v) { algo.referenceBlur = Math.max(0, Math.min(10, parseFloat(v) || 0)); };
     algo.getReferenceBlur = function() { return algo.referenceBlur; };
     algo.setReferenceMirror = function(v) { algo.referenceMirror = v === "On" ? "On" : "Off"; };
     algo.getReferenceMirror = function() { return algo.referenceMirror; };
     algo.setReferenceBrightness = function(v) { algo.referenceBrightness = HSVUtil.clamp01(parseFloat(v) || 0); };
     algo.getReferenceBrightness = function() { return algo.referenceBrightness; };
+    algo.setReferenceRangeStart = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 0;
+      algo.referenceRangeStart = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceRangeStart = function() { return algo.referenceRangeStart; };
+    algo.setReferenceRangeEnd = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 1;
+      algo.referenceRangeEnd = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceRangeEnd = function() { return algo.referenceRangeEnd; };
+    algo.setReferenceFlip = function(v) { algo.referenceFlip = v === "On" ? "On" : "Off"; };
+    algo.getReferenceFlip = function() { return algo.referenceFlip; };
+    algo.setReferenceBackgroundMode = function(v) {
+      algo.referenceBackgroundMode = v === "Additive" ? "Additive" : "Off";
+    };
+    algo.getReferenceBackgroundMode = function() { return algo.referenceBackgroundMode; };
+    algo.setReferenceBackgroundColor = function(v) {
+      if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
+        algo.referenceBackgroundColor = v;
+    };
+    algo.getReferenceBackgroundColor = function() { return algo.referenceBackgroundColor; };
+    algo.setReferenceBackgroundBrightness = function(v) {
+      var value = parseFloat(v);
+      if (!isFinite(value)) value = 1;
+      algo.referenceBackgroundBrightness = HSVUtil.clamp01(value);
+    };
+    algo.getReferenceBackgroundBrightness = function() { return algo.referenceBackgroundBrightness; };
+
+    function rangedValues(values) {
+      if (!values || !values.length) return [];
+      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
+      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
+      var from = Math.max(0, Math.floor(start * values.length));
+      var to = Math.min(values.length, Math.ceil(end * values.length));
+      return to > from ? values.slice(from, to) : [];
+    }
 
     // Linear RGB stays unclipped until the final HSV wire conversion.
     function referenceOutput(pixels, width, height) {
-      var n = pixels.length, values = pixels;
-      if (algo.referenceMirror === "On") {
-        values = new Array(n);
-        for (var i = 0; i < n; i++) {
-          var a = 2 * i, b = a + 1;
-          a = a < n ? n - 1 - a : a - n;
-          b = b < n ? n - 1 - b : b - n;
-          values[i] = [Math.max(pixels[a][0], pixels[b][0]),
-                       Math.max(pixels[a][1], pixels[b][1]), Math.max(pixels[a][2], pixels[b][2])];
-        }
-      }
-      var sigma = algo.referenceBlur;
-      var radius = sigma > 0 && n > 3 ? Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(4 * sigma))) : 0;
-      var weights = [], sum = 0;
-      for (var d = -radius; d <= radius; d++) {
-        var weight = radius ? Math.exp(-d * d / (2 * sigma * sigma)) : 1;
-        weights.push(weight); sum += weight;
-      }
-      var transformed = new Array(n);
-      for (var i = 0; i < n; i++) {
-        var r = 0, g = 0, b = 0;
-        for (var d = Math.max(-radius, -i); d <= radius && i + d < n; d++) {
-          var pixel = values[i + d], weight = weights[d + radius];
-          r += pixel[0] * weight; g += pixel[1] * weight; b += pixel[2] * weight;
-        }
-        transformed[i] = [r / sum * algo.referenceBrightness,
-                          g / sum * algo.referenceBrightness, b / sum * algo.referenceBrightness];
-      }
-      if (algo.referenceDiagnostics) algo.referenceFrame = {pre: pixels, transformed: transformed};
+      var n = pixels.length;
       var map = HSVUtil.createMap(width, height);
       for (var i = 0; i < n; i++) {
-        var pixel = transformed[i];
-        var hsv = toHsv(pixel[0] * 255, pixel[1] * 255, pixel[2] * 255);
-        map[i * 3] = hsv.h; map[i * 3 + 1] = hsv.s; map[i * 3 + 2] = hsv.v;
+        var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
+        map[i * 3] = hsv.h;
+        map[i * 3 + 1] = hsv.s;
+        map[i * 3 + 2] = hsv.v;
+      }
+      HSVUtil.applyStripTransforms(map, width, height, {
+        flip: algo.referenceFlip,
+        mirror: algo.referenceMirror,
+        backgroundMode: algo.referenceBackgroundMode,
+        backgroundColor: algo.referenceBackgroundColor,
+        backgroundBrightness: algo.referenceBackgroundBrightness,
+        brightness: algo.referenceBrightness,
+        blur: algo.referenceBlur
+      });
+      if (algo.referenceDiagnostics) {
+        var transformed = new Array(n);
+        for (var j = 0; j < n; j++) {
+          var o = j * 3;
+          transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
+        }
+        algo.referenceFrame = {pre: pixels, transformed: transformed};
       }
       return map;
     }
 
     function referenceMap(width, height, audio) {
       var n = width * height, bank = audio && audio.banks && audio.banks.full;
-      var epoch = audio ? [audio.sourceId, audio.profileId, audio.sourceEpoch, audio.configRevision].join(":") : "";
+      var epoch = audio ? [
+        audio.sourceId, audio.profileId, audio.sourceEpoch, audio.configRevision,
+        algo.referenceRangeStart, algo.referenceRangeEnd
+      ].join(":") : "";
       if (!referenceState || referenceState.n !== n || referenceState.epoch !== epoch)
         referenceState = {n: n, epoch: epoch, previous: new Array(n).fill(0), envelope: null};
       var state = referenceState;
-      var y = HSVUtil.interpolate(bank && bank.count ? bank.processed : [], n);
-      var novelty = HSVUtil.interpolate(bank && bank.count ? bank.novelty : [], n);
+      var processed = bank && bank.count ? rangedValues(bank.processed || []) : [];
+      var noveltyBank = bank && bank.count ? rangedValues(bank.novelty || []) : [];
+      var y = HSVUtil.interpolate(processed, n);
+      var novelty = HSVUtil.interpolate(noveltyBank, n);
       var scale = audio && audio.timing ? audio.timing.deltaSeconds * 60 : 1;
       if (!state.output || scale > 0) {
         if (!state.envelope) state.envelope = y.slice();

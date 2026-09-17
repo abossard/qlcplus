@@ -68,6 +68,29 @@ QJsonObject bankJson(const AudioSnapshot::MelBankSnapshot &bank)
             {"novelty", numbers(bank.novelty, bank.count)},
             {"gain", bank.gain > 0.0 ? QJsonValue(bank.gain) : QJsonValue(QJsonValue::Null)}};
 }
+
+QByteArray nonPowerDigest(const AubioResults &a, const AudioSnapshot &snapshot)
+{
+    const QJsonObject fields{
+        {"preEmphasis", numbers(a.preEmphasis.data(), int(a.preEmphasis.size()))},
+        {"spectrum", numbers(a.spectrum.data(), int(a.spectrum.size()))},
+        {"master", numbers(a.mel, AUBIO_MEL_BANDS)},
+        {"banks", QJsonArray{bankJson(snapshot.melLow), bankJson(snapshot.melMid), bankJson(snapshot.melHigh)}},
+        {"mfcc", numbers(a.mfcc, AUBIO_MFCC_COEFFS)},
+        {"descriptors", QJsonArray{a.centroidHz, a.spread, a.rolloffHz, a.flux, a.hfc}},
+        {"tssTransient", numbers(a.tssTransientNorm, a.tssBinCount)},
+        {"tssSteady", numbers(a.tssSteadyNorm, a.tssBinCount)},
+        {"pitch", QJsonArray{a.pitchHz, a.pitchValue, a.pitchConfidence}},
+        {"tempo", QJsonArray{a.bpm, a.beatConfidence, a.beatPhase, a.barPhase, a.beatInBar,
+                            a.beat, a.tatum, a.tempoValid, a.barWrap}},
+        {"onsetDescriptors", numbers(a.onsetDescriptors, AUBIO_ONSET_METHODS)},
+        {"onsetThresholded", numbers(a.onsetThresholdedDescriptors, AUBIO_ONSET_METHODS)},
+        {"onsets", QJsonArray{a.onsets.energy, a.onsets.hfc, a.onsets.complex, a.onsets.phase,
+                             a.onsets.wphase, a.onsets.specdiff, a.onsets.kl, a.onsets.mkl, a.onsets.specflux}},
+        {"notes", QJsonArray{a.noteOn, a.noteOff, a.noteMidi, a.noteVelocity}}};
+    return QCryptographicHash::hash(QJsonDocument(fields).toJson(QJsonDocument::Compact),
+                                    QCryptographicHash::Sha256).toHex();
+}
 }
 
 void AudioAnalyzer_Test::canonicalProfiles_data()
@@ -209,6 +232,317 @@ void AudioAnalyzer_Test::profileRevisionAndRetirement()
     analyzer.destroyChannel(first);
     QVERIFY(!analyzer.snapshot(7).available);
     QVERIFY(!analyzer.snapshot(first).available);
+}
+
+void AudioAnalyzer_Test::powerWindow_data()
+{
+    QTest::addColumn<int>("window");
+    QTest::addColumn<bool>("diagnostics");
+    QTest::addColumn<double>("hz");
+    for (int window : {4096, 2048})
+        for (bool diagnostics : {false, true})
+            for (double hz : {60.0, 170.0, 900.0, 6000.0})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(window).arg(diagnostics).arg(hz)))
+                    << window << diagnostics << hz;
+}
+
+void AudioAnalyzer_Test::powerWindow()
+{
+    QFETCH(int, window);
+    QFETCH(bool, diagnostics);
+    QFETCH(double, hz);
+    auto config = AudioChannelConfig::defaults();
+    config.aubio.diagnosticsEnabled = diagnostics;
+    AudioAnalyzer analyzer;
+    auto *ordinary = analyzer.createChannel(config, 7);
+    config.aubio.powerWindowSize = window;
+    auto *selected = analyzer.createChannel(config, 29);
+    QVERIFY(ordinary);
+    QVERIFY(selected);
+    for (uint64_t n = 1; n <= 60; ++n)
+    {
+        if (n == 31)
+        {
+            auto reduced = ordinary->config();
+            reduced.aubio.melBanks.high.bands = 13;
+            ordinary->updateConfig(reduced);
+            reduced.aubio.powerWindowSize = window;
+            selected->updateConfig(reduced);
+        }
+        const auto samples = tone(hz, 0.2, (n - 1) * 500);
+        auto frame = pcmFrame(samples.data(), n);
+        analyzer.processFrame(frame);
+        const auto a = ordinary->aubioResults();
+        const auto b = selected->aubioResults();
+        QCOMPARE(b.powerWindowSize, window);
+        QCOMPARE(b.powerBinCount, window / 2 + 1);
+        QCOMPARE(b.powerMelCount, window == 2048 ? b.melHighCount : 0);
+        QCOMPARE(b.spectrum.size(), diagnostics ? size_t(2049) : size_t(0));
+        QCOMPARE(b.tssBinCount, diagnostics && !selected->snapshot().noiseGateClosed ? 2049 : 0);
+        QCOMPARE(b.preEmphasis, a.preEmphasis);
+        QCOMPARE(b.spectrum, a.spectrum);
+        QCOMPARE(b.centroidHz, a.centroidHz);
+        QCOMPARE(b.spread, a.spread);
+        QCOMPARE(b.rolloffHz, a.rolloffHz);
+        QCOMPARE(b.flux, a.flux);
+        QCOMPARE(b.hfc, a.hfc);
+        for (int i = 0; i < AUBIO_MFCC_COEFFS; ++i)
+            QCOMPARE(b.mfcc[i], a.mfcc[i]);
+        for (int i = 0; i < 2049; ++i)
+        {
+            QCOMPARE(b.tssTransientNorm[i], a.tssTransientNorm[i]);
+            QCOMPARE(b.tssSteadyNorm[i], a.tssSteadyNorm[i]);
+        }
+        const auto sa = ordinary->snapshot();
+        const auto sb = selected->snapshot();
+        const AudioSnapshot::MelBankSnapshot *banksA[] = {&sa.melLow, &sa.melMid, &sa.melHigh};
+        const AudioSnapshot::MelBankSnapshot *banksB[] = {&sb.melLow, &sb.melMid, &sb.melHigh};
+        for (int bank = 0; bank < 3; ++bank)
+            for (int i = 0; i < kMaxMelBands; ++i)
+            {
+                QCOMPARE(banksB[bank]->raw[i], banksA[bank]->raw[i]);
+                QCOMPARE(banksB[bank]->processed[i], banksA[bank]->processed[i]);
+                QCOMPARE(banksB[bank]->novelty[i], banksA[bank]->novelty[i]);
+                QCOMPARE(banksB[bank]->centersHz[i], banksA[bank]->centersHz[i]);
+                QVERIFY(std::isfinite(b.powerMel[i]));
+                if (i >= b.powerMelCount)
+                    QCOMPARE(b.powerMel[i], 0.0);
+            }
+        for (double power : sb.powersRaw)
+            QVERIFY(std::isfinite(power) && power >= 0.0 && power <= 1.0);
+        QCOMPARE(sb.sampleTime, (n - 1) * 500);
+        QCOMPARE(sb.sourceEpoch, uint64_t(3));
+    }
+    const auto snap = selected->snapshot();
+    QVERIFY(*std::max_element(snap.melHigh.raw, snap.melHigh.raw + snap.melHigh.count) > 0.0);
+}
+
+void AudioAnalyzer_Test::powerResponse_data()
+{
+    QTest::addColumn<bool>("descending");
+    QTest::addColumn<bool>("diagnostics");
+    for (bool descending : {true, false})
+        for (bool diagnostics : {false, true})
+            QTest::newRow(qPrintable(QString("%1-diag%2")
+                .arg(descending ? "descending-kick" : "simultaneous-tones").arg(diagnostics)))
+                << descending << diagnostics;
+}
+
+void AudioAnalyzer_Test::powerResponse()
+{
+    QFETCH(bool, descending);
+    QFETCH(bool, diagnostics);
+    AudioAnalyzer analyzer;
+    auto config = AudioChannelConfig::defaults();
+    config.aubio.diagnosticsEnabled = diagnostics;
+    auto *ordinary = analyzer.createChannel(config, 7);
+    config.aubio.powerWindowSize = 2048;
+    auto *selected = analyzer.createChannel(config, 29);
+    QVERIFY(ordinary);
+    QVERIFY(selected);
+    QCOMPARE(selected->config().freqPower, ordinary->config().freqPower);
+    QCOMPARE(selected->config().aubio.melBanks, ordinary->config().aubio.melBanks);
+    QJsonArray records;
+    std::array<std::array<std::vector<double>, 4>, 2> traces;
+    QCryptographicHash pcmHash(QCryptographicHash::Sha256);
+    // Two seconds of silence, then a fixed 180 -> 50 Hz descending kick
+    // (45-ms frequency decay), or simultaneous 60 + 170 Hz low tones.
+    // Both use the same 120-ms amplitude decay, with no profile-specific PCM.
+    for (uint64_t n = 0; n < 180; ++n)
+    {
+        std::array<float, 500> samples{};
+        if (n >= 120)
+            for (size_t i = 0; i < samples.size(); ++i)
+            {
+                const double t = double((n - 120) * 500 + i) / 30000.0;
+                const double phase = 2.0 * M_PI *
+                    (50.0 * t + 130.0 * 0.045 * (1.0 - std::exp(-t / 0.045)));
+                samples[i] = float(std::exp(-t / 0.12) * (descending
+                    ? 0.6 * std::sin(phase)
+                    : 0.3 * (std::sin(2.0 * M_PI * 60.0 * t) + std::sin(2.0 * M_PI * 170.0 * t))));
+            }
+        pcmHash.addData(QByteArrayView(reinterpret_cast<const char *>(samples.data()),
+                                      sizeof(samples)));
+        auto frame = pcmFrame(samples.data(), n + 1);
+        analyzer.processFrame(frame);
+        if (n < 120)
+            continue;
+        QJsonArray profiles;
+        for (int profile = 0; profile < 2; ++profile)
+        {
+            const auto snapshot = analyzer.snapshot(profile == 0 ? 7 : 29);
+            const double values[] = {snapshot.powersRaw[0], snapshot.powersRaw[1],
+                                     snapshot.beatPower, snapshot.bassPower};
+            for (int k = 0; k < 4; ++k)
+            {
+                QVERIFY(std::isfinite(values[k]));
+                traces[profile][k].push_back(values[k]);
+            }
+            profiles.append(numbers(values, 4));
+        }
+        const auto defaultDigest = nonPowerDigest(ordinary->aubioResults(), ordinary->snapshot());
+        QCOMPARE(nonPowerDigest(selected->aubioResults(), selected->snapshot()), defaultDigest);
+        records.append(QJsonObject{{"sample_end", double((n - 119) * 500)}, {"profiles", profiles},
+            {"default_non_power_sha256", QString::fromLatin1(defaultDigest)}});
+    }
+    int crossings[2][4] = {};
+    const char *labels[] = {"raw-kick", "raw-bass", "filtered-kick", "filtered-bass"};
+    for (int profile = 0; profile < 2; ++profile)
+    {
+        for (int k = 0; k < 4; ++k)
+        {
+            const auto &trace = traces[profile][k];
+            const auto peak = std::max_element(trace.begin(), trace.end());
+            const int first = int(std::find_if(trace.begin(), trace.end(),
+                [](double v) { return v > 1e-6; }) - trace.begin()) + 1;
+            const int crossing = int(std::find_if(trace.begin(), trace.end(),
+                [&](double v) { return v >= *peak * 0.5; }) - trace.begin()) + 1;
+            crossings[profile][k] = crossing;
+            qInfo().nospace() << (profile == 0 ? "Default " : "2048 power ") << labels[k]
+                << " first_ms=" << first * 500.0 / 30.0
+                << " half_ms=" << crossing * 500.0 / 30.0
+                << " peak_ms=" << (peak - trace.begin() + 1) * 500.0 / 30.0
+                << " peak=" << *peak;
+            QVERIFY2(*peak > 0.01, "Power response must remain useful, not just a normalized vanished signal");
+        }
+        qInfo() << "Kick/Bass half-crossing lag_ms" << profile
+                << (crossings[profile][2] - crossings[profile][3]) * 500.0 / 30.0;
+    }
+    qInfo() << "PCM SHA256" << pcmHash.result().toHex();
+    const QString output = qEnvironmentVariable("QLC_AUDIO_RESPONSE_OUTPUT");
+    if (!output.isEmpty())
+    {
+        QVERIFY(QDir().mkpath(output));
+        QFile file(QDir(output).filePath(QString::fromLatin1(QTest::currentDataTag()) + ".json"));
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write(QJsonDocument(QJsonObject{
+            {"pcm_sha256", QString::fromLatin1(pcmHash.result().toHex())},
+            {"rate", 30000}, {"hop", 500}, {"records", records}}).toJson()) > 0);
+    }
+    if (descending)
+        QVERIFY2(crossings[1][2] <= crossings[0][2] - 1,
+                 "Descending kick must improve by at least one 500-sample hop");
+    else
+        QVERIFY2(crossings[1][2] <= crossings[0][2],
+                 "Simultaneous low tones must not cross later");
+}
+
+void AudioAnalyzer_Test::rawDetectorsPreserved_data()
+{
+    QTest::addColumn<QString>("unit");
+    QTest::addColumn<bool>("diagnostics");
+    for (const QString &unit : {QString("midi"), QString("bin")})
+        for (bool diagnostics : {false, true})
+            QTest::newRow(qPrintable(unit + (diagnostics ? "-diagnostics" : "-ordinary")))
+                << unit << diagnostics;
+}
+
+void AudioAnalyzer_Test::rawDetectorsPreserved()
+{
+    QFETCH(QString, unit);
+    QFETCH(bool, diagnostics);
+    auto config = AudioChannelConfig::defaults().aubio;
+    config.pitchUnit = unit;
+    config.diagnosticsEnabled = diagnostics;
+    AubioProcessor ordinary, shortPower;
+    ordinary.setPendingConfig(config);
+    config.powerWindowSize = 2048;
+    shortPower.setPendingConfig(config);
+    ordinary.initialize(30000);
+    shortPower.initialize(30000);
+    int beats = 0, onsets = 0, notes = 0, pitches = 0;
+    for (int n = 0; n < 1500; ++n)
+    {
+        if (n == 180)
+        {
+            std::fill_n(config.onsetMethodEnabled, 9, true);
+            shortPower.setPendingConfig(config);
+            config.powerWindowSize = 4096;
+            ordinary.setPendingConfig(config);
+        }
+        std::array<float, 500> samples{};
+        for (size_t i = 0; i < samples.size(); ++i)
+        {
+            const double t = double(n * 500 + i) / 30000.0;
+            const double local = std::fmod(t, 0.5);
+            samples[i] = float(n < 300 ? 0.2 * std::sin(2 * M_PI * 440 * t)
+                : (local < 0.35 ? 0.25 * std::sin(2 * M_PI * 440 * t) * std::exp(-local / 0.2) : 0.0)
+                + 0.5 * std::exp(-local / 0.045) * std::sin(2 * M_PI * 70 * t));
+        }
+        ordinary.process(samples.data(), 500);
+        shortPower.process(samples.data(), 500);
+        const auto &a = ordinary.results();
+        const auto &b = shortPower.results();
+        QCOMPARE(b.pitchValue, a.pitchValue);
+        QCOMPARE(b.pitchHz, a.pitchHz);
+        QCOMPARE(b.pitchConfidence, a.pitchConfidence);
+        QCOMPARE(b.bpm, a.bpm);
+        QCOMPARE(b.beatConfidence, a.beatConfidence);
+        QCOMPARE(b.beat, a.beat);
+        QCOMPARE(b.tatum, a.tatum);
+        QCOMPARE(b.beatPhase, a.beatPhase);
+        QCOMPARE(b.barPhase, a.barPhase);
+        QCOMPARE(b.noteMidi, a.noteMidi);
+        QCOMPARE(b.noteVelocity, a.noteVelocity);
+        QCOMPARE(b.noteOn, a.noteOn);
+        QCOMPARE(b.noteOff, a.noteOff);
+        const bool eventsA[] = {a.onsets.energy, a.onsets.hfc, a.onsets.complex, a.onsets.phase,
+            a.onsets.wphase, a.onsets.specdiff, a.onsets.kl, a.onsets.mkl, a.onsets.specflux};
+        const bool eventsB[] = {b.onsets.energy, b.onsets.hfc, b.onsets.complex, b.onsets.phase,
+            b.onsets.wphase, b.onsets.specdiff, b.onsets.kl, b.onsets.mkl, b.onsets.specflux};
+        for (int i = 0; i < 9; ++i)
+        {
+            QCOMPARE(eventsB[i], eventsA[i]);
+            QCOMPARE(b.onsetDescriptors[i], a.onsetDescriptors[i]);
+            QCOMPARE(b.onsetThresholdedDescriptors[i], a.onsetThresholdedDescriptors[i]);
+            onsets += eventsA[i];
+        }
+        pitches += a.pitchHz > 0.0;
+        notes += a.noteOn;
+        beats += a.beat;
+    }
+    qInfo() << "identical per-hop raw detectors: pitches" << pitches << "beats" << beats
+            << "onsets" << onsets << "notes" << notes;
+    QVERIFY(pitches > 0);
+    QVERIFY(beats > 0);
+    QVERIFY(onsets > 0);
+    QVERIFY(!diagnostics || notes > 0);
+    QCOMPARE(AubioProcessor::windowSize(), uint32_t(4096));
+    QCOMPARE(AubioProcessor::hopSize(), uint32_t(500));
+}
+
+void AudioAnalyzer_Test::powerReconfiguration()
+{
+    AudioAnalyzer analyzer;
+    auto *channel = analyzer.defaultChannel();
+    auto config = AudioChannelConfig::defaults();
+    config.aubio.diagnosticsEnabled = true;
+    uint64_t n = 0;
+    for (int window : {4096, 2048, 4096, 2048})
+    {
+        config.aubio.powerWindowSize = window;
+        config.aubio.melBanks.high.bands = n ? 13 : 24;
+        channel->updateConfig(config);
+        for (int i = 0; i < 20; ++i)
+        {
+            auto samples = tone(170, 0.2, n * 500);
+            auto frame = pcmFrame(samples.data(), ++n);
+            analyzer.processFrame(frame);
+        }
+        const auto result = channel->aubioResults();
+        QCOMPARE(result.powerWindowSize, window);
+        QCOMPARE(result.powerBinCount, window / 2 + 1);
+        QCOMPARE(result.spectrum.size(), size_t(2049));
+        QCOMPARE(result.tssBinCount, 2049);
+        for (int i = result.powerMelCount; i < kMaxMelBands; ++i)
+            QCOMPARE(result.powerMel[i], 0.0);
+    }
+    auto invalid = config;
+    invalid.aubio.powerWindowSize = 1024;
+    QVERIFY(!invalid.validationError().isEmpty());
+    channel->updateConfig(invalid);
+    QCOMPARE(channel->config().aubio.powerWindowSize, 2048);
+    QVERIFY(!analyzer.createChannel(invalid, 7));
 }
 
 void AudioAnalyzer_Test::dumpCorpus()

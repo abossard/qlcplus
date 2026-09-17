@@ -7,24 +7,32 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJSEngine>
+#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSemaphore>
+#include <QSettings>
+#include <QSet>
 #include <QtEndian>
 
 #include "audioconsumers_test.h"
 #include "audioanalyzer.h"
 #include "audiochannel.h"
+#include "audiocapture.h"
 #include "audioframe.h"
 #include "audioview.h"
+#define private public
 #include "doc.h"
+#undef private
 #include "huecolor.h"
 #include "huematrix.h"
 #include "huescript.h"
 #include "huescriptscache.h"
+#include "rgbscriptscache.h"
 #include "rgbaudio.h"
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -44,9 +52,39 @@
 
 namespace
 {
+// Native scripts may subscribe while a test supplies snapshots directly.
+// Keep those lifecycle calls real without opening shared physical input.
+class ConsumerTestCapture final : public AudioCapture
+{
+public:
+    ~ConsumerTestCapture() override { stop(); }
+    void run() override {}
+    void setVolume(qreal) override {}
+protected:
+    bool initialize() override { return false; }
+    void uninitialize() override {}
+    void suspend() override {}
+    void resume() override {}
+    qint64 latency() const override { return -1; }
+    bool readAudio(int) override { return false; }
+};
+
 QDir scriptsDirectory()
 {
     return QDir(QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().filePath("../../../resources/huescripts"));
+}
+
+QDir rgbScriptsDirectory()
+{
+    return QDir(QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().filePath("../../../resources/rgbscripts"));
+}
+
+void failOnUnexpectedHueScriptWarnings()
+{
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*values cannot be applied before the 'type' property.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*Variable\\s+\"[^\"]+\"\\s+is\\s+used\\s+before\\s+its\\s+declaration.*")));
 }
 
 AudioSnapshot distinctSnapshot()
@@ -65,6 +103,14 @@ AudioSnapshot distinctSnapshot()
     s.lows = 0.22;
     s.mids = 0.47;
     s.highs = 0.83;
+    s.powersRaw[0] = 0.17;
+    s.powersRaw[1] = 0.53;
+    s.powersRaw[2] = 0.41;
+    s.powersRaw[3] = 0.29;
+    s.pitch.hz = 220.0;
+    s.pitch.unit = "Midi";
+    s.pitch.value = 57.0;
+    s.pitch.confidence = 0.64;
     s.music.valid = true;
     s.music.bpm = 110;
     s.music.beatPhase = 0.2;
@@ -121,6 +167,25 @@ QJsonArray pixels(const RGBMap &map, double brightness = 1)
     return result;
 }
 
+QByteArray packedPixels(const RGBMap &map)
+{
+    int pixelCount = 0;
+    for (const auto &row : map)
+        pixelCount += row.size();
+    QByteArray packed;
+    packed.reserve(pixelCount * 3);
+    for (const auto &row : map)
+    {
+        for (uint pixel : row)
+        {
+            packed.append(char(qRed(pixel)));
+            packed.append(char(qGreen(pixel)));
+            packed.append(char(qBlue(pixel)));
+        }
+    }
+    return packed;
+}
+
 const QStringList effectNames{"spectrum", "energy", "scroll", "wavelength", "strobe"};
 const QStringList effectScripts{"audiospectrum.js", "audioenergy.js", "audiobarcode.js",
                                  "audioenergy2.js", "audiostrobe.js"};
@@ -142,6 +207,248 @@ bool powerEchoMatches(const AudioSnapshot &snapshot, const QJsonArray &recorded)
     return true;
 }
 
+int maxChannelDelta(const RGBMap &a, const RGBMap &b)
+{
+    if (a.size() != b.size())
+        return INT_MAX;
+    int maxDiff = 0;
+    for (int y = 0; y < a.size(); ++y)
+    {
+        if (a[y].size() != b[y].size())
+            return INT_MAX;
+        for (int x = 0; x < a[y].size(); ++x)
+        {
+            const uint lhs = a[y][x];
+            const uint rhs = b[y][x];
+            maxDiff = std::max(maxDiff, std::abs(qRed(lhs) - qRed(rhs)));
+            maxDiff = std::max(maxDiff, std::abs(qGreen(lhs) - qGreen(rhs)));
+            maxDiff = std::max(maxDiff, std::abs(qBlue(lhs) - qBlue(rhs)));
+        }
+    }
+    return maxDiff;
+}
+
+bool hasWhitePeak(const RGBMap &map)
+{
+    for (const auto &row : map)
+    {
+        for (uint pixel : row)
+        {
+            if (qRed(pixel) >= 250 && qGreen(pixel) >= 250 && qBlue(pixel) >= 250)
+                return true;
+        }
+    }
+    return false;
+}
+
+bool hasDarkPixel(const RGBMap &map)
+{
+    for (const auto &row : map)
+    {
+        for (uint pixel : row)
+        {
+            if (qRed(pixel) == 0 && qGreen(pixel) == 0 && qBlue(pixel) == 0)
+                return true;
+        }
+    }
+    return false;
+}
+
+int litPixels(const RGBMap &map)
+{
+    int lit = 0;
+    for (const auto &row : map)
+    {
+        for (uint pixel : row)
+        {
+            if ((pixel & 0xffffff) != 0)
+                ++lit;
+        }
+    }
+    return lit;
+}
+
+int brightestRow(const RGBMap &map)
+{
+    int best = -1;
+    int bestLevel = -1;
+    for (int y = 0; y < map.size(); ++y)
+    {
+        for (uint pixel : map[y])
+        {
+            const int level = qRed(pixel) + qGreen(pixel) + qBlue(pixel);
+            if (level > bestLevel)
+            {
+                bestLevel = level;
+                best = y;
+            }
+        }
+    }
+    return bestLevel > 0 ? best : -1;
+}
+
+struct NativeSweepCase
+{
+    QString caseId;
+    QString algorithmName;
+    QString propertyName;
+    QString propertyValue;
+    QSize layout;
+    bool usesAudio;
+    bool branchCase;
+};
+
+QString slugToken(const QString &value)
+{
+    QString token = value.toLower();
+    token.replace(QRegularExpression(QStringLiteral("[^a-z0-9]+")), QStringLiteral("-"));
+    token.remove(QRegularExpression(QStringLiteral("(^-+|-+$)")));
+    return token.isEmpty() ? QStringLiteral("default") : token;
+}
+
+void applyUnevenBank(AudioSnapshot::MelBankSnapshot &bank, double scale, int frameSeed)
+{
+    bank.count = 11;
+    bank.minHz = 20;
+    bank.maxHz = 12000;
+    for (int i = 0; i < bank.count; ++i)
+    {
+        const double ramp = double(i + 1) / double(bank.count + 1);
+        const double curve = std::fmod(0.11 * (i + 2 + frameSeed), 0.95);
+        bank.centersHz[i] = 35 + i * 180;
+        bank.processed[i] = std::clamp(scale * (0.18 + ramp + curve), 0.0, 1.75);
+        bank.novelty[i] = std::clamp(scale * (0.09 + curve * 0.7 + ramp * 0.4), 0.0, 1.75);
+    }
+}
+
+AudioSnapshot sweepSnapshotForFrame(int frame, int64_t baseNs)
+{
+    AudioSnapshot s = distinctSnapshot();
+    s.sourceId = "native-execution-contract";
+    s.profileId = 12;
+    s.sourceEpoch = 4;
+    s.configRevision = 19;
+    s.available = true;
+    s.status = "available";
+    s.publishTimeNs = baseNs + frame * 20000000LL;
+    s.volume.raw = 0.31 + 0.04 * frame;
+    s.volume.volumeNorm = 0.57 + 0.07 * frame;
+    s.beatPower = 0.19 + 0.06 * frame;
+    s.bassPower = 0.28 + 0.05 * frame;
+    s.lows = 0.23 + 0.03 * frame;
+    s.mids = 0.51 + 0.05 * frame;
+    s.highs = 0.77 - 0.04 * frame;
+    s.powersRaw[0] = 0.12 + frame * 0.19;
+    s.powersRaw[1] = 0.41 + frame * 0.11;
+    s.powersRaw[2] = 0.33 + frame * 0.09;
+    s.powersRaw[3] = 0.22 + frame * 0.07;
+    s.pitch.hz = 220.0 + frame * 55.0;
+    s.pitch.unit = "midi";
+    s.pitch.value = 57.0 + frame * 3.0;
+    s.pitch.confidence = 0.83 - frame * 0.08;
+    s.music.valid = true;
+    s.music.bpm = 126;
+    s.music.beatPhase = std::fmod(0.19 * (frame + 1), 1.0);
+    s.music.beatInBar = (frame + 1) % 4;
+    s.music.barPhase = std::fmod(0.31 * (frame + 1), 1.0);
+    s.events.onset = 8 + frame * 2;
+    s.events.beat = 16 + frame;
+    s.events.kick = 5 + frame;
+    s.events.bar = 2 + frame / 2;
+    applyUnevenBank(s.melLow, 0.77, frame);
+    applyUnevenBank(s.melMid, 0.91, frame + 1);
+    applyUnevenBank(s.melHigh, 1.0, frame + 2);
+    return s;
+}
+
+bool ensureNativeSweepCachesLoaded(Doc *doc)
+{
+    static bool loaded = false;
+    if (loaded)
+        return true;
+    if (!doc->rgbScriptsCache()->load(rgbScriptsDirectory()))
+        return false;
+    if (!doc->hueScriptsCache()->load(scriptsDirectory(), true))
+        return false;
+    if (!doc->hueScriptsCache()->load(rgbScriptsDirectory(), false))
+        return false;
+    loaded = true;
+    return true;
+}
+
+Doc *nativeSweepDoc()
+{
+    static std::unique_ptr<Doc> doc;
+    if (!doc)
+    {
+        doc = std::make_unique<Doc>(nullptr);
+        doc->m_inputCapture.reset(new ConsumerTestCapture());
+    }
+    return doc.get();
+}
+
+const QVector<NativeSweepCase> &nativeSweepCases()
+{
+    static QVector<NativeSweepCase> rows;
+    if (!rows.isEmpty())
+        return rows;
+
+    Doc *doc = nativeSweepDoc();
+    if (!ensureNativeSweepCachesLoaded(doc))
+        return rows;
+
+    const QStringList names = HUEMatrix::availableAlgorithms(doc);
+    QSet<QString> seenRows;
+    int branchOrdinal = 0;
+    auto addCase = [&](const QString &algorithmName, const QString &propertyName,
+                       const QString &propertyValue, const QSize &layout,
+                       bool usesAudio, bool branchCase) {
+        const QString label = propertyName.isEmpty()
+            ? QString("default-%1").arg(slugToken(algorithmName))
+            : QString("%1-%2-%3").arg(slugToken(algorithmName),
+                                      slugToken(propertyName),
+                                      slugToken(propertyValue));
+        if (seenRows.contains(label))
+            return;
+        seenRows.insert(label);
+        rows.push_back({label, algorithmName, propertyName, propertyValue, layout, usesAudio, branchCase});
+    };
+
+    for (const QString &name : names)
+    {
+        std::unique_ptr<RGBAlgorithm> algorithm(HUEMatrix::createAlgorithm(doc, name));
+        if (!algorithm)
+            continue;
+        addCase(name, QString(), QString(), QSize(7, 11), algorithm->usesAudio(), false);
+        auto *script = dynamic_cast<RGBScript *>(algorithm.get());
+        if (!script)
+            continue;
+        const QList<RGBScriptProperty> properties = script->properties();
+        for (const RGBScriptProperty &property : properties)
+        {
+            if (property.m_type != RGBScriptProperty::List || property.m_listValues.isEmpty())
+                continue;
+            for (const QString &choice : property.m_listValues)
+            {
+                if (choice.isEmpty())
+                    continue;
+                const QSize layout = ((branchOrdinal++ % 2) == 0) ? QSize(1, 24) : QSize(7, 11);
+                addCase(name, property.m_name, choice, layout, algorithm->usesAudio(), true);
+            }
+        }
+    }
+    return rows;
+}
+
+}
+
+void AudioConsumers_Test::initTestCase()
+{
+    const QString path = QDir::current().absoluteFilePath("build/low-latency-evidence/settings-consumers");
+    QVERIFY(QDir().mkpath(path));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, path);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, path);
 }
 
 void AudioConsumers_Test::mapping()
@@ -153,6 +460,47 @@ void AudioConsumers_Test::mapping()
     QCOMPARE(mapped["low"].toDouble(), 0.22);
     QCOMPARE(mapped["volume"].toMap()["rawRms"].toDouble(), 0.23);
     QCOMPARE(mapped["barPhase"].toDouble(), 0.55);
+    const auto raw = mapped["powers"].toMap()["raw"].toMap();
+    QCOMPARE(raw["beat"].toDouble(), 0.17);
+    QCOMPARE(raw["bass"].toDouble(), 0.53);
+    QCOMPARE(raw["low"].toDouble(), 0.35);
+    QCOMPARE(raw["mid"].toDouble(), 0.41);
+    QCOMPARE(raw["high"].toDouble(), 0.29);
+    const auto pitch = mapped["pitch"].toMap();
+    QVERIFY(pitch["valid"].toBool());
+    QCOMPARE(pitch["hz"].toDouble(), 220.0);
+    QVERIFY(std::abs(pitch["midi"].toDouble() - 57.0) < 1e-9);
+    QCOMPARE(pitch["confidence"].toDouble(), 0.64);
+    const double canonicalHz = 329.6275569128699;
+    s.pitch.hz = canonicalHz;
+    s.pitch.unit = "midi";
+    s.pitch.value = 64.0;
+    const auto midiDisplay = audioViewToVariant(AudioRenderView::fromSnapshot(s, 1000000002))["pitch"].toMap();
+    s.pitch.unit = "cent";
+    s.pitch.value = 6400.0;
+    const auto centDisplay = audioViewToVariant(AudioRenderView::fromSnapshot(s, 1000000003))["pitch"].toMap();
+    QVERIFY(midiDisplay["valid"].toBool());
+    QVERIFY(centDisplay["valid"].toBool());
+    QVERIFY(std::abs(midiDisplay["hz"].toDouble() - canonicalHz) < 1e-9);
+    QVERIFY(std::abs(centDisplay["hz"].toDouble() - canonicalHz) < 1e-9);
+    QVERIFY(std::abs(midiDisplay["midi"].toDouble() - 64.0) < 1e-12);
+    QVERIFY(std::abs(centDisplay["midi"].toDouble() - 64.0) < 1e-12);
+    QVERIFY(std::abs(midiDisplay["hz"].toDouble() - centDisplay["hz"].toDouble()) < 1e-12);
+    QVERIFY(std::abs(midiDisplay["midi"].toDouble() - centDisplay["midi"].toDouble()) < 1e-12);
+    s.pitch.hz = 0;
+    const auto zeroPitch = audioViewToVariant(AudioRenderView::fromSnapshot(s, 1000000004))["pitch"].toMap();
+    QVERIFY(!zeroPitch["valid"].toBool());
+    QCOMPARE(zeroPitch["hz"].toDouble(), 0.0);
+    QCOMPARE(zeroPitch["midi"].toDouble(), 0.0);
+    QCOMPARE(zeroPitch["confidence"].toDouble(), 0.0);
+    s.pitch.hz = std::numeric_limits<double>::infinity();
+    const auto infPitch = audioViewToVariant(AudioRenderView::fromSnapshot(s, 1000000005))["pitch"].toMap();
+    QVERIFY(!infPitch["valid"].toBool());
+    QCOMPARE(infPitch["hz"].toDouble(), 0.0);
+    s.pitch.hz = std::numeric_limits<double>::quiet_NaN();
+    const auto nanPitch = audioViewToVariant(AudioRenderView::fromSnapshot(s, 1000000006))["pitch"].toMap();
+    QVERIFY(!nanPitch["valid"].toBool());
+    QCOMPARE(nanPitch["midi"].toDouble(), 0.0);
     const auto full = mapped["banks"].toMap()["full"].toMap();
     QCOMPARE(full["count"].toInt(), 5);
     QCOMPARE(full["processed"].toList()[4].toDouble(), 1.7);
@@ -171,7 +519,10 @@ void AudioConsumers_Test::mapping()
     QVERIFY(!stale.available);
     QCOMPARE(stale.status, QString("stale"));
     QCOMPARE(stale.low, 0.0);
+    QCOMPARE(stale.rawLow, 0.0);
+    QVERIFY(!stale.pitchValid);
     QCOMPARE(audioFrequency(stale, 2, 3), 0.0);
+    QCOMPARE(stale.banks[2].processed.size(), 5);
     QCOMPARE(stale.banks[2].processed[4], 0.0);
 }
 
@@ -243,41 +594,1014 @@ void AudioConsumers_Test::eventCadence()
     QCOMPARE(reset.deltaSeconds, 0.0);
 }
 
+void AudioConsumers_Test::eventCadenceTransientLoss()
+{
+    AudioEventCursor cursor;
+    auto base = distinctSnapshot();
+    base.sourceId = "microphone";
+    base.profileId = 7;
+    base.sourceEpoch = 42;
+    base.events = {};
+
+    auto initial = AudioRenderView::fromSnapshot(base, 1000000000);
+    cursor.advance(initial);
+
+    auto next = base;
+    next.events.beat = 1;
+    auto available = AudioRenderView::fromSnapshot(next, 1100000000);
+    cursor.advance(available);
+    QVERIFY(std::abs(available.deltaSeconds - 0.1) < 1e-12);
+    QCOMPARE(available.deltas[1], uint64_t(1));
+
+    auto lost = AudioSnapshot{};
+    lost.profileId = 7;
+    lost.sourceEpoch = 0;
+    lost.available = false;
+    lost.status = QStringLiteral("reset");
+    auto unavailable1 = AudioRenderView::fromSnapshot(lost, 1200000000);
+    cursor.advance(unavailable1);
+    QVERIFY(std::abs(unavailable1.deltaSeconds - 0.1) < 1e-12);
+    for (auto delta : unavailable1.deltas)
+        QCOMPARE(delta, uint64_t(0));
+
+    auto unavailable2 = AudioRenderView::fromSnapshot(lost, 1300000000);
+    cursor.advance(unavailable2);
+    QVERIFY(std::abs(unavailable2.deltaSeconds - 0.1) < 1e-12);
+
+    auto reboundSameIdentity = base;
+    reboundSameIdentity.events.beat = 3;
+    auto reboundSuppressed = AudioRenderView::fromSnapshot(reboundSameIdentity, 1400000000);
+    cursor.advance(reboundSuppressed);
+    // m_available gating policy keeps dt continuous but suppresses replay of
+    // all missed event deltas on the first frame after loss.
+    QVERIFY(std::abs(reboundSuppressed.deltaSeconds - 0.1) < 1e-12);
+    for (auto delta : reboundSuppressed.deltas)
+        QCOMPARE(delta, uint64_t(0));
+
+    reboundSameIdentity.events.beat = 4;
+    auto reboundDelivered = AudioRenderView::fromSnapshot(reboundSameIdentity, 1500000000);
+    cursor.advance(reboundDelivered);
+    QVERIFY(std::abs(reboundDelivered.deltaSeconds - 0.1) < 1e-12);
+    QCOMPARE(reboundDelivered.deltas[1], uint64_t(1));
+
+    auto reboundEpochChanged = base;
+    reboundEpochChanged.sourceEpoch = 43;
+    reboundEpochChanged.events.beat = 6;
+    auto reboundFirst = AudioRenderView::fromSnapshot(reboundEpochChanged, 1600000000);
+    cursor.advance(reboundFirst);
+    QCOMPARE(reboundFirst.deltaSeconds, 0.0);
+    for (auto delta : reboundFirst.deltas)
+        QCOMPARE(delta, uint64_t(0));
+
+    reboundEpochChanged.events.beat = 7;
+    auto reboundSecond = AudioRenderView::fromSnapshot(reboundEpochChanged, 1700000000);
+    cursor.advance(reboundSecond);
+    QVERIFY(std::abs(reboundSecond.deltaSeconds - 0.1) < 1e-12);
+    QCOMPARE(reboundSecond.deltas[1], uint64_t(1));
+
+    auto resetDifferentProfile = AudioSnapshot{};
+    resetDifferentProfile.profileId = 9;
+    resetDifferentProfile.sourceEpoch = 0;
+    resetDifferentProfile.available = false;
+    resetDifferentProfile.status = QStringLiteral("reset");
+    auto profileReset = AudioRenderView::fromSnapshot(resetDifferentProfile, 1800000000);
+    cursor.advance(profileReset);
+    QCOMPARE(profileReset.deltaSeconds, 0.0);
+    for (auto delta : profileReset.deltas)
+        QCOMPARE(delta, uint64_t(0));
+
+    auto switched = base;
+    switched.profileId = 9;
+    switched.sourceEpoch = 5;
+    switched.events.beat = 8;
+    auto switchedView = AudioRenderView::fromSnapshot(switched, 1900000000);
+    cursor.advance(switchedView);
+    QCOMPARE(switchedView.deltaSeconds, 0.0);
+    for (auto delta : switchedView.deltas)
+        QCOMPARE(delta, uint64_t(0));
+
+    switched.events.beat = 9;
+    auto switchedSteady = AudioRenderView::fromSnapshot(switched, 2000000000);
+    cursor.advance(switchedSteady);
+    QVERIFY(std::abs(switchedSteady.deltaSeconds - 0.1) < 1e-12);
+    QCOMPARE(switchedSteady.deltas[1], uint64_t(1));
+}
+
+void AudioConsumers_Test::packedScriptContract_data()
+{
+    QTest::addColumn<QString>("caseId");
+    QTest::addColumn<int>("hz");
+    for (int hz : {25, 30, 50, 60})
+        QTest::newRow(qPrintable(QString("meltsparkle-cadence-%1hz").arg(hz)))
+            << QString("meltsparkle-cadence") << hz;
+    QTest::newRow("meltsparkle-zero-dt-and-rollback") << QString("meltsparkle-zero-dt") << 0;
+    QTest::newRow("meltsparkle-stall") << QString("meltsparkle-stall") << 0;
+    QTest::newRow("meltsparkle-artistic-threshold") << QString("meltsparkle-artistic-threshold") << 0;
+    QTest::newRow("meltsparkle-ledfx-threshold") << QString("meltsparkle-ledfx-threshold") << 0;
+    QTest::newRow("meltsparkle-cooldown-and-small-geometry") << QString("meltsparkle-cooldown") << 0;
+    QTest::newRow("waterfall-frequency-time") << QString("waterfall-frequency-time") << 0;
+    QTest::newRow("waterfall-center-fade") << QString("waterfall-center-fade") << 0;
+    QTest::newRow("digitalrain-raw-phase-time") << QString("digitalrain-raw-phase-time") << 0;
+    QTest::newRow("pitchspectrum-valid-pitch-and-stale") << QString("pitchspectrum-valid-pitch-and-stale") << 0;
+}
+
 void AudioConsumers_Test::packedScriptContract()
 {
+    QFETCH(QString, caseId);
+    QFETCH(int, hz);
+
+    failOnUnexpectedHueScriptWarnings();
+
     Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
     QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
-    HUEScript script(&doc);
-    QVERIFY(script.load(QFileInfo(QString::fromUtf8(__FILE__)).absoluteDir().filePath("snapshot.js")));
-    auto snapshot = distinctSnapshot();
-    RGBMap map;
-    script.rgbMapWithAudio({4, 1}, 0xffffff, 0, map,
-        AudioRenderView::fromSnapshot(snapshot, 1000000000), {11, 9});
-    QCOMPARE(map.size(), 1);
-    QCOMPARE(map[0][0], HUEColor::hsvToRgb(0, 1, float(0.22)));
-    QCOMPARE(map[0][1], HUEColor::hsvToRgb(float(1.0 / 3), 1, float(0.4)));
-    snapshot.events.beat = 3;
-    script.rgbMapWithAudio({4, 1}, 0xffffff, 0, map,
-        AudioRenderView::fromSnapshot(snapshot, 1120000000));
-    QCOMPARE(qBlue(map[0][2]), qBlue(HUEColor::hsvToRgb(float(2.0 / 3), 1, float(0.3))));
-    QCOMPARE(qRed(map[0][3]), qRed(HUEColor::hsvToRgb(0, 0, float(0.12))));
-    script.rgbMapWithAudio({4, 1}, 0xffffff, 0, map,
-        AudioRenderView::fromSnapshot(snapshot, 1120000000));
-    QCOMPARE(qBlue(map[0][2]), 0);
-    QCOMPARE(qRed(map[0][3]), 0);
-    RGBAudio builtin(&doc);
-    builtin.rgbMapWithAudio({5, 8}, 0xff0000, map,
-        AudioRenderView::fromSnapshot(snapshot, 1120000000));
-    int lit[] = {0, 0, 0, 0, 0};
-    for (const auto &row : map)
+    const auto scriptPath = [&](const QString &name) { return scriptsDirectory().filePath(name); };
+    const auto makeSnapshot = []() {
+        AudioSnapshot s = distinctSnapshot();
+        s.sourceId = "native-contract";
+        s.profileId = 3;
+        s.sourceEpoch = 9;
+        s.configRevision = 12;
+        s.available = true;
+        s.status = "available";
+        s.music.valid = true;
+        s.music.bpm = 120;
+        s.music.beatPhase = 0.25;
+        s.publishTimeNs = 0;
+        return s;
+    };
+    const auto setFullBank = [](AudioSnapshot &s, const std::array<double, 4> &processed,
+                                const std::array<double, 4> &novelty) {
+        s.melHigh.count = 4;
+        s.melHigh.minHz = 20;
+        s.melHigh.maxHz = 12000;
+        for (int i = 0; i < 4; ++i)
+        {
+            s.melHigh.centersHz[i] = 200 + i * 300;
+            s.melHigh.processed[i] = processed[size_t(i)];
+            s.melHigh.novelty[i] = novelty[size_t(i)];
+        }
+    };
+    const auto rowEnergy = [](const QVector<uint> &row) {
+        int level = 0;
+        for (uint pixel : row)
+            level += qRed(pixel) + qGreen(pixel) + qBlue(pixel);
+        return level;
+    };
+
+    if (caseId == "meltsparkle-cadence" || caseId == "meltsparkle-stall")
+    {
+        const auto runDecay = [&](int cadenceHz, bool withStall) -> RGBMap {
+            auto script = std::make_unique<HUEScript>(&doc);
+            if (!script->load(scriptPath("audiomeltsparkle.js"))
+                || !script->setProperty("mode", "Artistic")
+                || !script->setProperty("presetBgBright", "0")
+                || !script->setProperty("presetStrobeBlur", "0")
+                || !script->setProperty("presetStrobeWidth", "1"))
+            {
+                return RGBMap();
+            }
+            AudioSnapshot s = makeSnapshot();
+            s.lows = 0;
+            s.mids = 0;
+            s.highs = 1;
+            s.events.onset = 0;
+            RGBMap map;
+            const int64_t startNs = 1000000000LL;
+            s.publishTimeNs = startNs;
+            script->rgbMapWithAudio({1, 1}, 0xffffff, 0, map, AudioRenderView::fromSnapshot(s, startNs));
+            s.events.onset = 1;
+            const int64_t eventNs = startNs + int64_t(std::llround((1.0 / cadenceHz) * 1e9));
+            s.publishTimeNs = eventNs;
+            script->rgbMapWithAudio({1, 1}, 0xffffff, 0, map, AudioRenderView::fromSnapshot(s, eventNs));
+            if (withStall)
+            {
+                for (const int64_t offset : {eventNs + 40000000LL, eventNs + 80000000LL, eventNs + 200000000LL})
+                {
+                    s.publishTimeNs = offset;
+                    script->rgbMapWithAudio({1, 1}, 0xffffff, 0, map,
+                        AudioRenderView::fromSnapshot(s, offset));
+                }
+            }
+            else
+            {
+                const int steps = int(std::round(0.2 * cadenceHz));
+                for (int i = 1; i <= steps; ++i)
+                {
+                    const int64_t nowNs = eventNs + int64_t(std::llround((double(i) / cadenceHz) * 1e9));
+                    s.publishTimeNs = nowNs;
+                    script->rgbMapWithAudio({1, 1}, 0xffffff, 0, map, AudioRenderView::fromSnapshot(s, nowNs));
+                }
+            }
+            return map;
+        };
+        const RGBMap observed = caseId == "meltsparkle-stall" ? runDecay(50, true) : runDecay(hz, false);
+        QVERIFY(!observed.isEmpty());
+        QCOMPARE(observed.size(), 1);
+        QCOMPARE(observed[0].size(), 1);
+        const uint pixel = observed[0][0];
+        const int observedPeak = std::max({qRed(pixel), qGreen(pixel), qBlue(pixel)});
+        const double decayMul = 1.0 - 0.25;
+        const double elapsedSeconds = 0.2;
+        const int expectedPeak = int(std::lround(255.0 * std::pow(decayMul, elapsedSeconds * 50.0)));
+        QVERIFY2(std::abs(observedPeak - expectedPeak) <= 1,
+            qPrintable(QString("peak=%1 expected=%2 cadence=%3")
+                .arg(observedPeak).arg(expectedPeak).arg(caseId == "meltsparkle-stall" ? 50 : hz)));
+        return;
+    }
+
+    if (caseId == "meltsparkle-zero-dt")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiomeltsparkle.js")));
+        QVERIFY(script.setProperty("mode", "Artistic"));
+        QVERIFY(script.setProperty("presetBgBright", "0"));
+        QVERIFY(script.setProperty("presetStrobeBlur", "0"));
+        QVERIFY(script.setProperty("presetStrobeWidth", "1"));
+        AudioSnapshot s = makeSnapshot();
+        RGBMap warmup;
+        const int64_t warmupNs = 1990000000LL;
+        s.events.onset = 0;
+        s.publishTimeNs = warmupNs;
+        script.rgbMapWithAudio({1, 1}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, warmupNs));
+        s.highs = 1;
+        s.events.onset = 1;
+        RGBMap first, repeat, rollback;
+        const int64_t t0 = 2000000000LL;
+        s.publishTimeNs = t0;
+        script.rgbMapWithAudio({1, 1}, 0xffffff, 0, first, AudioRenderView::fromSnapshot(s, t0));
+        script.rgbMapWithAudio({1, 1}, 0xffffff, 0, repeat, AudioRenderView::fromSnapshot(s, t0));
+        script.rgbMapWithAudio({1, 1}, 0xffffff, 0, rollback, AudioRenderView::fromSnapshot(s, t0 - 1000000));
+        QCOMPARE(repeat, first);
+        QCOMPARE(rollback, first);
+        QVERIFY(hasWhitePeak(first));
+        return;
+    }
+
+    if (caseId == "meltsparkle-artistic-threshold")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiomeltsparkle.js")));
+        QVERIFY(script.setProperty("mode", "Artistic"));
+        QVERIFY(script.setProperty("presetBgBright", "0"));
+        QVERIFY(script.setProperty("presetStrobeBlur", "0"));
+        QVERIFY(script.setProperty("presetStrobeWidth", "1"));
+        AudioSnapshot s = makeSnapshot();
+        RGBMap warmup;
+        RGBMap below, above;
+        const int64_t t0 = 3000000000LL;
+        s.events.onset = 0;
+        s.publishTimeNs = t0 - 10000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, t0 - 10000000));
+        s.highs = 0.70;
+        s.events.onset = 1;
+        s.publishTimeNs = t0;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, below, AudioRenderView::fromSnapshot(s, t0));
+        QCOMPARE(litPixels(below), 0);
+        s.highs = 0.80;
+        s.events.onset = 2;
+        s.publishTimeNs = t0 + 200000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, above, AudioRenderView::fromSnapshot(s, t0 + 200000000));
+        QVERIFY(hasWhitePeak(above));
+        QVERIFY(hasDarkPixel(above));
+        return;
+    }
+
+    if (caseId == "meltsparkle-ledfx-threshold")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiomeltsparkle.js")));
+        QVERIFY(script.setProperty("mode", "Artistic"));
+        QVERIFY(script.setProperty("presetBgBright", "0.4"));
+        QVERIFY(script.setProperty("presetStrobeBlur", "0"));
+        QVERIFY(script.setProperty("presetStrobeWidth", "1"));
+        QVERIFY(script.setProperty("presetStrobeThreshold", "1"));
+        AudioSnapshot s = makeSnapshot();
+        RGBMap warmup;
+        RGBMap artisticMap, sourceModeMap;
+        const int64_t t0 = 4000000000LL;
+        s.lows = 0;
+        s.powersRaw[0] = 1;
+        s.powersRaw[1] = 1;
+        s.highs = 0;
+        s.events.onset = 0;
+        s.publishTimeNs = t0 - 10000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, t0 - 10000000));
+        s.publishTimeNs = t0 + 200000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, artisticMap, AudioRenderView::fromSnapshot(s, t0 + 200000000));
+        QVERIFY(script.setProperty("mode", "LedFx Melt and Sparkle"));
+        s.sourceEpoch += 1;
+        s.publishTimeNs = t0 + 400000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, t0 + 400000000));
+        s.publishTimeNs = t0 + 600000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, sourceModeMap,
+            AudioRenderView::fromSnapshot(s, t0 + 600000000));
+        QVERIFY(litPixels(artisticMap) > 0);
+        QVERIFY(litPixels(sourceModeMap) > 0);
+        QVERIFY(maxChannelDelta(artisticMap, sourceModeMap) > 0);
+        return;
+    }
+
+    if (caseId == "meltsparkle-cooldown")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiomeltsparkle.js")));
+        QVERIFY(script.setProperty("mode", "Artistic"));
+        QVERIFY(script.setProperty("presetBgBright", "0"));
+        QVERIFY(script.setProperty("presetStrobeBlur", "0"));
+        QVERIFY(script.setProperty("presetStrobeWidth", "1"));
+        QVERIFY(script.setProperty("presetStrobeDecay", "1"));
+        QVERIFY(script.setProperty("presetStrobeThreshold", "0.2"));
+        AudioSnapshot s = makeSnapshot();
+        RGBMap warmup;
+        s.highs = 1;
+        RGBMap first, cooldownBlocked, cooldownReleased, tiny;
+        const int64_t t0 = 5000000000LL;
+        s.events.onset = 0;
+        s.publishTimeNs = t0 - 10000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, t0 - 10000000));
+        s.events.onset = 1;
+        s.publishTimeNs = t0;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, first, AudioRenderView::fromSnapshot(s, t0));
+        QVERIFY(hasWhitePeak(first));
+        QVERIFY(hasDarkPixel(first));
+        s.events.onset = 2;
+        s.publishTimeNs = t0 + 50000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, cooldownBlocked,
+            AudioRenderView::fromSnapshot(s, t0 + 50000000));
+        QCOMPARE(litPixels(cooldownBlocked), 0);
+        s.events.onset = 3;
+        s.publishTimeNs = t0 + 500000000;
+        script.rgbMapWithAudio({37, 1}, 0xffffff, 0, cooldownReleased,
+            AudioRenderView::fromSnapshot(s, t0 + 500000000));
+        QVERIFY(hasWhitePeak(cooldownReleased));
+        s.events.onset = 4;
+        s.publishTimeNs = t0 + 900000000;
+        script.rgbMapWithAudio({1, 1}, 0xffffff, 0, tiny, AudioRenderView::fromSnapshot(s, t0 + 900000000));
+        QCOMPARE(tiny.size(), 1);
+        QCOMPARE(tiny[0].size(), 1);
+        QVERIFY(hasWhitePeak(tiny));
+        return;
+    }
+
+    if (caseId == "waterfall-frequency-time")
+    {
+        const auto setFullBankValues = [](AudioSnapshot &s, const std::vector<double> &values) {
+            const int count = std::min(int(values.size()), AudioSnapshot::kMelBankBandsMax);
+            s.melHigh.count = count;
+            s.melHigh.minHz = 20;
+            s.melHigh.maxHz = 12000;
+            for (int i = 0; i < count; ++i)
+            {
+                s.melHigh.centersHz[i] = 150 + i * 150;
+                s.melHigh.processed[i] = values[size_t(i)];
+                s.melHigh.novelty[i] = values[size_t(i)];
+            }
+        };
+        QVERIFY(doc.rgbScriptsCache()->load(rgbScriptsDirectory()));
+        QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
+        QVERIFY(doc.hueScriptsCache()->load(rgbScriptsDirectory(), false));
+
+        HUEMatrix *brightHolder = new HUEMatrix(&doc);
+        brightHolder->setName("waterfall-bright");
+        brightHolder->setAlgorithm(HUEMatrix::createAlgorithm(&doc, "Audio Waterfall"));
+        QVERIFY(brightHolder->algorithm() != nullptr);
+        brightHolder->setColor(0, QColor("#ffffff"));
+        brightHolder->setColor(1, QColor("#000000"));
+        QVERIFY(doc.addFunction(brightHolder));
+        HUEScript *brightAtZero = dynamic_cast<HUEScript *>(brightHolder->algorithm());
+        QVERIFY(brightAtZero != nullptr);
+        QVERIFY(brightAtZero->setProperty("bands", "4"));
+        QVERIFY(brightAtZero->setProperty("aggregation", "Mean"));
+        QVERIFY(brightAtZero->setProperty("centerMode", "Off"));
+        QVERIFY(brightAtZero->setProperty("dropSeconds", "2"));
+        QVERIFY(brightAtZero->setProperty("fadeOut", "0"));
+        AudioSnapshot s = makeSnapshot();
+        setFullBankValues(s, {0, 0, 0, 0});
+        RGBMap zeroBright;
+        const int64_t t0 = 6000000000LL;
+        s.publishTimeNs = t0;
+        brightAtZero->rgbMapWithAudio({5, 3}, 0xffffff, 0, zeroBright, AudioRenderView::fromSnapshot(s, t0));
+        QCOMPARE(zeroBright.size(), 3);
+        QCOMPARE(zeroBright[0].size(), 5);
         for (int x = 0; x < 5; ++x)
-            lit[x] += (row[x] & 0xffffff) != 0;
-    QCOMPARE(lit[0], 0);
-    QCOMPARE(lit[1], 1);
-    QCOMPARE(lit[2], 4);
-    QCOMPARE(lit[3], 7);
-    QCOMPARE(lit[4], 8);
-    QCOMPARE(builtin.name(), QString("Audio Spectrum"));
+            QVERIFY2(qRed(zeroBright[0][x]) >= 240, "G(0) should keep the first bright palette stop");
+
+        HUEMatrix *holder = new HUEMatrix(&doc);
+        holder->setName("waterfall-shift");
+        holder->setAlgorithm(HUEMatrix::createAlgorithm(&doc, "Audio Waterfall"));
+        QVERIFY(holder->algorithm() != nullptr);
+        holder->setColor(0, QColor("#000000"));
+        holder->setColor(1, QColor("#ff0000"));
+        holder->setColor(2, QColor("#00ff00"));
+        holder->setColor(3, QColor("#0000ff"));
+        holder->setColor(4, QColor("#ffffff"));
+        QVERIFY(doc.addFunction(holder));
+        HUEScript *script = dynamic_cast<HUEScript *>(holder->algorithm());
+        QVERIFY(script != nullptr);
+        QVERIFY(script->setProperty("bands", "4"));
+        QVERIFY(script->setProperty("aggregation", "Max"));
+        QVERIFY(script->setProperty("centerMode", "Off"));
+        QVERIFY(script->setProperty("dropSeconds", "3"));
+        QVERIFY(script->setProperty("fadeOut", "0"));
+        setFullBankValues(s, {1, 0.8, 0, 0, 0, 0, 0, 0});
+        RGBMap first, duplicate, second;
+        s.publishTimeNs = t0;
+        {
+            const QVariantMap bankMap = audioViewToVariant(AudioRenderView::fromSnapshot(s, t0))
+                .value("banks").toMap().value("full").toMap();
+            const QVariantList novelty = bankMap.value("novelty").toList();
+            QCOMPARE(bankMap.value("count").toInt(), 8);
+            QCOMPARE(novelty.size(), 8);
+            QCOMPARE(novelty[0].toDouble(), 1.0);
+            QCOMPARE(novelty[7].toDouble(), 0.0);
+        }
+        script->rgbMapWithAudio({12, 5}, 0xffffff, 0, first, AudioRenderView::fromSnapshot(s, t0));
+        script->rgbMapWithAudio({12, 5}, 0xffffff, 0, duplicate, AudioRenderView::fromSnapshot(s, t0));
+        setFullBankValues(s, {0, 0, 0, 0, 0, 0, 0.8, 1});
+        s.publishTimeNs = t0 + 700000000;
+        {
+            const QVariantMap bankMap = audioViewToVariant(AudioRenderView::fromSnapshot(s, t0 + 700000000))
+                .value("banks").toMap().value("full").toMap();
+            const QVariantList novelty = bankMap.value("novelty").toList();
+            QCOMPARE(bankMap.value("count").toInt(), 8);
+            QCOMPARE(novelty.size(), 8);
+            QCOMPARE(novelty[0].toDouble(), 0.0);
+            QCOMPARE(novelty[7].toDouble(), 1.0);
+        }
+        script->rgbMapWithAudio({12, 5}, 0xffffff, 0, second, AudioRenderView::fromSnapshot(s, t0 + 700000000));
+        QCOMPARE(duplicate, first);
+        QCOMPARE(first.size(), 5);
+        QCOMPARE(first[0].size(), 12);
+        const auto brightestX = [](const QVector<uint> &row) {
+            int best = -1;
+            int bestLuma = -1;
+            for (int i = 0; i < row.size(); ++i)
+            {
+                const uint px = row[i];
+                const int luma = qRed(px) + qGreen(px) + qBlue(px);
+                if (luma > bestLuma)
+                {
+                    bestLuma = luma;
+                    best = i;
+                }
+            }
+            return best;
+        };
+        const auto rowToString = [](const QVector<uint> &row) {
+            QStringList channels;
+            channels.reserve(row.size());
+            for (uint pixel : row)
+                channels << QString::asprintf("%02x%02x%02x", qRed(pixel), qGreen(pixel), qBlue(pixel));
+            return channels.join(",");
+        };
+        QVERIFY2(first[0] != second[0],
+            qPrintable(QString("firstRow=%1 secondRow=%2")
+                .arg(rowToString(first[0]), rowToString(second[0]))));
+        const int leftPeak = brightestX(first[0]);
+        const int rightPeak = brightestX(second[0]);
+        QVERIFY2(leftPeak >= 0 && leftPeak < 6,
+            qPrintable(QString("leftPeak=%1 firstRow=%2").arg(leftPeak).arg(rowToString(first[0]))));
+        QVERIFY2(rightPeak >= 6 && rightPeak < 12,
+            qPrintable(QString("rightPeak=%1 secondRow=%2").arg(rightPeak).arg(rowToString(second[0]))));
+        QCOMPARE(second[1], first[0]);
+        QCOMPARE(rowEnergy(second[2]), 0);
+        return;
+    }
+
+    if (caseId == "waterfall-center-fade")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiowaterfall.js")));
+        QVERIFY(script.setProperty("bands", "4"));
+        QVERIFY(script.setProperty("aggregation", "Max"));
+        QVERIFY(script.setProperty("centerMode", "On"));
+        QVERIFY(script.setProperty("dropSeconds", "3"));
+        QVERIFY(script.setProperty("fadeOut", "1"));
+        script.rgbMapSetColors({0xffffff, 0x00ff00});
+        AudioSnapshot s = makeSnapshot();
+        setFullBank(s, {0.9, 0.1, 0.0, 0.0}, {0.9, 0.1, 0.0, 0.0});
+        RGBMap map;
+        const int64_t t0 = 7000000000LL;
+        s.publishTimeNs = t0;
+        script.rgbMapWithAudio({4, 5}, 0xffffff, 0, map, AudioRenderView::fromSnapshot(s, t0));
+        QVERIFY(rowEnergy(map[2]) > 0);
+        QCOMPARE(rowEnergy(map[0]), 0);
+        QCOMPARE(rowEnergy(map[4]), 0);
+        return;
+    }
+
+    if (caseId == "digitalrain-raw-phase-time")
+    {
+        HUEScript script(&doc);
+        QVERIFY(script.load(scriptPath("audiodigitalrain.js")));
+        QVERIFY(script.setProperty("addSpeed", "30"));
+        QVERIFY(script.setProperty("lineWidth", "30"));
+        QVERIFY(script.setProperty("runSeconds", "2"));
+        QVERIFY(script.setProperty("tail", "100"));
+        QVERIFY(script.setProperty("tailSegments", "4"));
+        QVERIFY(script.setProperty("multiplier", "3"));
+        AudioSnapshot s = makeSnapshot();
+        s.powersRaw[0] = 0;
+        s.powersRaw[1] = 0;
+        s.powersRaw[2] = 0;
+        s.powersRaw[3] = 0;
+        RGBMap warmup, baseline, phase0, phase99, moved, boosted, tail;
+        const int64_t t0 = 8000000000LL;
+        s.music.beatPhase = 0.1;
+        s.publishTimeNs = t0;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, warmup, AudioRenderView::fromSnapshot(s, t0));
+        s.publishTimeNs = t0 + 400000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, baseline, AudioRenderView::fromSnapshot(s, t0 + 400000000));
+        s.music.beatPhase = 0.0;
+        s.publishTimeNs = t0 + 400000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, phase0, AudioRenderView::fromSnapshot(s, t0 + 400000000));
+        s.music.beatPhase = 0.99;
+        s.publishTimeNs = t0 + 400000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, phase99, AudioRenderView::fromSnapshot(s, t0 + 400000000));
+        s.music.beatPhase = 0.1;
+        s.publishTimeNs = t0 + 800000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, moved, AudioRenderView::fromSnapshot(s, t0 + 800000000));
+        s.powersRaw[0] = 1;
+        s.powersRaw[1] = 1;
+        s.powersRaw[2] = 1;
+        s.powersRaw[3] = 1;
+        s.publishTimeNs = t0 + 1200000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, boosted, AudioRenderView::fromSnapshot(s, t0 + 1200000000));
+        s.powersRaw[0] = 0;
+        s.powersRaw[1] = 0;
+        s.powersRaw[2] = 0;
+        s.powersRaw[3] = 0;
+        s.publishTimeNs = t0 + 1700000000;
+        script.rgbMapWithAudio({8, 24}, 0xffffff, 0, tail, AudioRenderView::fromSnapshot(s, t0 + 1700000000));
+        QVERIFY(brightestRow(baseline) >= 0);
+        QVERIFY(maxChannelDelta(phase0, phase99) > 0);
+        QVERIFY(maxChannelDelta(baseline, moved) > 0);
+        QVERIFY(maxChannelDelta(moved, boosted) > 0);
+        QVERIFY(litPixels(tail) > 0);
+        return;
+    }
+
+    if (caseId == "pitchspectrum-valid-pitch-and-stale")
+    {
+        QVERIFY(doc.rgbScriptsCache()->load(rgbScriptsDirectory()));
+        QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
+        QVERIFY(doc.hueScriptsCache()->load(rgbScriptsDirectory(), false));
+
+        HUEMatrix *holder = new HUEMatrix(&doc);
+        holder->setName("pitch-spectrum-proof");
+        holder->setAlgorithm(HUEMatrix::createAlgorithm(&doc, "Audio Pitch Spectrum"));
+        QVERIFY(holder->algorithm() != nullptr);
+        holder->setColor(0, QColor("#ff0000"));
+        holder->setColor(1, QColor("#ffff00"));
+        holder->setColor(2, QColor("#00ff00"));
+        holder->setColor(3, QColor("#00ffff"));
+        holder->setColor(4, QColor("#0000ff"));
+        QVERIFY(doc.addFunction(holder));
+        HUEScript *script = dynamic_cast<HUEScript *>(holder->algorithm());
+        QVERIFY(script != nullptr);
+        QVERIFY(script->setProperty("blur", "0"));
+        QVERIFY(script->setProperty("mirror", "No"));
+        QVERIFY(script->setProperty("fadeRate", "0"));
+        QVERIFY(script->setProperty("responsiveness", "1"));
+        AudioSnapshot s = makeSnapshot();
+        setFullBank(s, {1.0, 1.0, 1.0, 1.0}, {0.0, 0.0, 0.0, 0.0});
+        s.pitch.hz = 27.5;  // MIDI 21 -> first palette stop
+        s.pitch.value = 21.0;
+        s.pitch.unit = "midi";
+        s.pitch.confidence = 0.9;
+        RGBMap lowPitch, highPitch, fresh, stale;
+        const int64_t t0 = 9000000000LL;
+        s.publishTimeNs = t0;
+        script->rgbMapWithAudio({5, 1}, 0xffffff, 0, lowPitch, AudioRenderView::fromSnapshot(s, t0));
+        s.pitch.hz = 4186.009044809578;  // MIDI 108 -> last palette stop
+        s.pitch.value = 108.0;
+        s.publishTimeNs = t0 + 100000000;
+        script->rgbMapWithAudio({5, 1}, 0xffffff, 0, highPitch, AudioRenderView::fromSnapshot(s, t0 + 100000000));
+        QCOMPARE(lowPitch.size(), 1);
+        QCOMPARE(highPitch.size(), 1);
+        QCOMPARE(lowPitch[0].size(), 5);
+        QCOMPARE(highPitch[0].size(), 5);
+        for (int i = 0; i < 5; ++i)
+        {
+            QCOMPARE(qRed(lowPitch[0][i]), 255);
+            QCOMPARE(qGreen(lowPitch[0][i]), 0);
+            QCOMPARE(qBlue(lowPitch[0][i]), 0);
+            QCOMPARE(qRed(highPitch[0][i]), 0);
+            QCOMPARE(qGreen(highPitch[0][i]), 0);
+            QCOMPARE(qBlue(highPitch[0][i]), 255);
+        }
+        QVERIFY(lowPitch != highPitch);
+        QVERIFY(script->setProperty("fadeRate", "0.5"));
+        s.publishTimeNs = t0 + 200000000;
+        script->rgbMapWithAudio({5, 1}, 0xffffff, 0, fresh,
+            AudioRenderView::fromSnapshot(s, t0 + 200000000));
+        QVERIFY(litPixels(fresh) > 0);
+        script->rgbMapWithAudio({5, 1}, 0xffffff, 0, stale,
+            AudioRenderView::fromSnapshot(s, t0 + 500000000));
+        QCOMPARE(litPixels(stale), 0);
+        return;
+    }
+
+    QFAIL(qPrintable(QString("Unhandled packed-script case %1").arg(caseId)));
+}
+
+void AudioConsumers_Test::paletteRoutingRegression_data()
+{
+    QTest::addColumn<QString>("algorithmName");
+    QTest::addColumn<QString>("sourceMode");
+    QTest::addColumn<QString>("scriptFile");
+
+    QTest::newRow("melt") << QString("Audio Melt") << QString("LedFx Melt") << QString("audiomelt.js");
+    QTest::newRow("melt-and-sparkle")
+        << QString("Audio Melt and Sparkle") << QString("LedFx Melt and Sparkle")
+        << QString("audiomeltsparkle.js");
+    QTest::newRow("blocks")
+        << QString("Audio Blocks") << QString("LedFx Block Reflections") << QString("audioblocks.js");
+    QTest::newRow("crawler")
+        << QString("Audio Crawler") << QString("LedFx Crawler") << QString("audiocrawler.js");
+    QTest::newRow("lava")
+        << QString("Audio Lava Lamp") << QString("LedFx Lava Lamp") << QString("audiolava.js");
+    QTest::newRow("water")
+        << QString("Audio Water") << QString("LedFx Water") << QString("audiowater.js");
+    QTest::newRow("fire")
+        << QString("Audio Fire") << QString("LedFx Fire") << QString("audiofire.js");
+}
+
+void AudioConsumers_Test::paletteRoutingRegression()
+{
+    QFETCH(QString, algorithmName);
+    QFETCH(QString, sourceMode);
+    QFETCH(QString, scriptFile);
+
+    failOnUnexpectedHueScriptWarnings();
+
+    Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
+    QVERIFY(doc.rgbScriptsCache()->load(rgbScriptsDirectory()));
+    QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
+    QVERIFY(doc.hueScriptsCache()->load(rgbScriptsDirectory(), false));
+
+    const QSize layout(13, 5);
+    const std::array<QColor, 3> paletteA{
+        QColor("#ff2200"),
+        QColor("#00d060"),
+        QColor("#2040ff")
+    };
+    const std::array<QColor, 3> paletteB{
+        QColor("#2040ff"),
+        QColor("#00d060"),
+        QColor("#ff2200")
+    };
+
+    const auto makeSnapshot = [](int frame, int64_t baseNs) {
+        AudioSnapshot snapshot = sweepSnapshotForFrame(frame, baseNs);
+        snapshot.sourceId = "palette-routing-regression";
+        snapshot.profileId = 27;
+        snapshot.sourceEpoch = 5;
+        snapshot.configRevision = 2;
+        snapshot.events = {};
+        snapshot.lows = 0.0;
+        snapshot.mids = 0.73;
+        snapshot.highs = 0.86;
+        snapshot.powersRaw[0] = 0.0;
+        snapshot.powersRaw[1] = 0.67;
+        snapshot.powersRaw[2] = 0.92;
+        snapshot.powersRaw[3] = 0.44;
+        snapshot.publishTimeNs = baseNs + int64_t(frame) * 20000000LL;
+        return snapshot;
+    };
+
+    struct RenderResult
+    {
+        RGBMap map;
+        QString error;
+    };
+
+    const auto renderWithPalette = [&](const QString &mode,
+                                       const std::array<QColor, 3> &palette,
+                                       const QString &scriptPath,
+                                       int64_t baseNs,
+                                       const QString &suffix) -> RenderResult {
+        RenderResult result;
+        std::unique_ptr<HUEMatrix> holder(new HUEMatrix(&doc));
+        holder->setName(QString("palette-routing-%1-%2-%3")
+            .arg(slugToken(algorithmName), slugToken(mode), suffix));
+
+        std::unique_ptr<HUEScript> loadedScript(new HUEScript(&doc));
+        loadedScript->setHsvContract(true);
+        if (!loadedScript->load(scriptPath))
+        {
+            result.error = QString("Failed to load script copy %1").arg(scriptPath);
+            return result;
+        }
+        holder->setAlgorithm(loadedScript.release());
+
+        if (holder->algorithm() == nullptr)
+        {
+            result.error = QString("Missing algorithm %1").arg(algorithmName);
+            return result;
+        }
+
+        for (int colorIndex = 0; colorIndex < 3; ++colorIndex)
+            holder->setColor(colorIndex, palette[size_t(colorIndex)]);
+
+        if (!doc.addFunction(holder.get()))
+        {
+            result.error = QString("Failed to register HUEMatrix owner for %1").arg(algorithmName);
+            return result;
+        }
+        HUEMatrix *ownedHolder = holder.release();
+        const quint32 holderId = ownedHolder->id();
+        auto holderCleanup = qScopeGuard([&]() {
+            if (doc.function(holderId) != nullptr)
+                doc.deleteFunction(holderId);
+        });
+
+        auto *script = dynamic_cast<HUEScript *>(ownedHolder->algorithm());
+        if (script == nullptr)
+        {
+            result.error = QString("Algorithm %1 is not a HUEScript instance").arg(algorithmName);
+            return result;
+        }
+        if (!script->setProperty("mode", mode))
+        {
+            result.error = QString("Failed to set mode %1 on %2").arg(mode, algorithmName);
+            return result;
+        }
+        if (algorithmName == "Audio Melt and Sparkle"
+            && !script->setProperty("presetStrobeThreshold", "10"))
+        {
+            result.error = QString("Failed to force deterministic threshold for %1").arg(algorithmName);
+            return result;
+        }
+
+        for (int frame = 0; frame < 4; ++frame)
+        {
+            AudioSnapshot snapshot = makeSnapshot(frame, baseNs);
+            script->rgbMapWithAudio(layout, 0xffffff, frame, result.map,
+                AudioRenderView::fromSnapshot(snapshot, snapshot.publishTimeNs), layout);
+            if (result.map.size() != layout.height())
+            {
+                result.error = QString("Unexpected map height for %1 (%2): got %3 expected %4")
+                    .arg(algorithmName, mode)
+                    .arg(result.map.size())
+                    .arg(layout.height());
+                return result;
+            }
+            for (const auto &row : result.map)
+            {
+                if (row.size() != layout.width())
+                {
+                    result.error = QString("Unexpected map width for %1 (%2): got %3 expected %4")
+                        .arg(algorithmName, mode)
+                        .arg(row.size())
+                        .arg(layout.width());
+                    return result;
+                }
+            }
+        }
+
+        return result;
+    };
+
+    QFile sourceScript(scriptsDirectory().filePath(scriptFile));
+    QVERIFY2(sourceScript.open(QIODevice::ReadOnly),
+        qPrintable(QString("Failed to read %1").arg(sourceScript.fileName())));
+    const QString sourceScriptBody = QString::fromUtf8(sourceScript.readAll());
+    QString downgradedScriptSource = sourceScriptBody;
+    const QRegularExpression acceptColorsPattern(QStringLiteral("algo\\.acceptColors\\s*=\\s*3\\s*;"));
+    QVERIFY2(acceptColorsPattern.match(downgradedScriptSource).hasMatch(),
+        qPrintable(QString("Missing acceptColors=3 in %1").arg(scriptFile)));
+    downgradedScriptSource.replace(acceptColorsPattern, QStringLiteral("algo.acceptColors = 0;"));
+    const QDir scratchDir(QDir::current().filePath(QStringLiteral("hue-palette-regression")));
+    QVERIFY(QDir().mkpath(scratchDir.absolutePath()));
+    const auto writeSeededCopy = [&](const QString &tag, const QString &body) {
+        constexpr quint32 kSeed = 0x4d3c2b1aU;
+        const QString path = scratchDir.filePath(QString("%1-%2.js").arg(slugToken(scriptFile), tag));
+        QFile copy(path);
+        if (!copy.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            return QString();
+        QString seededBody = body;
+        seededBody.replace(QRegularExpression(QStringLiteral("\\bMath\\.random\\(\\)")),
+                           QStringLiteral("__qlcSeededRandom()"));
+        const QString seededPreamble = QStringLiteral(
+            "var __qlcSeededRandom = (function(seed){\n"
+            "var state = seed >>> 0;\n"
+            "return function() {\n"
+            "state = (1664525 * state + 1013904223) >>> 0;\n"
+            "return state / 4294967296;\n"
+            "};\n"
+            "})(%1);\n").arg(kSeed);
+        if (copy.write((seededPreamble + seededBody).toUtf8()) <= 0)
+            return QString();
+        copy.close();
+        return path;
+    };
+
+    const QString seededPath = writeSeededCopy("seeded", sourceScriptBody);
+    QVERIFY2(!seededPath.isEmpty(), qPrintable(QString("Failed to write seeded copy for %1").arg(scriptFile)));
+    const QString downgradedPath = writeSeededCopy("seeded-acceptcolors0", downgradedScriptSource);
+    QVERIFY2(!downgradedPath.isEmpty(), qPrintable(QString("Failed to write downgraded copy for %1").arg(scriptFile)));
+    auto copyCleanup = qScopeGuard([&]() {
+        QFile::remove(seededPath);
+        QFile::remove(downgradedPath);
+        QDir().rmdir(scratchDir.absolutePath());
+    });
+
+    const RenderResult artisticA = renderWithPalette("Artistic", paletteA, seededPath, 41000000000LL, "artistic-a");
+    QVERIFY2(artisticA.error.isEmpty(), qPrintable(artisticA.error));
+    const RenderResult artisticB = renderWithPalette("Artistic", paletteB, seededPath, 41000000000LL, "artistic-b");
+    QVERIFY2(artisticB.error.isEmpty(), qPrintable(artisticB.error));
+    const QByteArray artisticPackedA = packedPixels(artisticA.map);
+    const QByteArray artisticPackedB = packedPixels(artisticB.map);
+    QCOMPARE(artisticPackedA, artisticPackedB);
+
+    const RenderResult sourceA = renderWithPalette(sourceMode, paletteA, seededPath, 42000000000LL, "source-a");
+    QVERIFY2(sourceA.error.isEmpty(), qPrintable(sourceA.error));
+    const RenderResult sourceB = renderWithPalette(sourceMode, paletteB, seededPath, 42000000000LL, "source-b");
+    QVERIFY2(sourceB.error.isEmpty(), qPrintable(sourceB.error));
+    QVERIFY2(litPixels(sourceA.map) > 0 && litPixels(sourceB.map) > 0,
+        qPrintable(QString("%1 produced black source-mode output").arg(algorithmName)));
+    const QByteArray sourcePackedA = packedPixels(sourceA.map);
+    const QByteArray sourcePackedB = packedPixels(sourceB.map);
+    QVERIFY2(sourcePackedA != sourcePackedB,
+        qPrintable(QString("%1 did not react to source-mode palette reversal").arg(algorithmName)));
+
+    const RenderResult degradedA =
+        renderWithPalette(sourceMode, paletteA, downgradedPath, 43000000000LL, "degraded-a");
+    QVERIFY2(degradedA.error.isEmpty(), qPrintable(degradedA.error));
+    const RenderResult degradedB =
+        renderWithPalette(sourceMode, paletteB, downgradedPath, 43000000000LL, "degraded-b");
+    QVERIFY2(degradedB.error.isEmpty(), qPrintable(degradedB.error));
+    QCOMPARE(packedPixels(degradedA.map), packedPixels(degradedB.map));
+}
+
+void AudioConsumers_Test::nativeExecutionContractSweep_data()
+{
+    QTest::addColumn<QString>("caseId");
+    QTest::addColumn<QString>("algorithmName");
+    QTest::addColumn<QString>("propertyName");
+    QTest::addColumn<QString>("propertyValue");
+    QTest::addColumn<QSize>("layout");
+    QTest::addColumn<bool>("usesAudio");
+    QTest::addColumn<bool>("branchCase");
+
+    const QVector<NativeSweepCase> &rows = nativeSweepCases();
+    QVERIFY2(!rows.isEmpty(), "Failed to enumerate native execution sweep cases from descriptors");
+
+    QSet<QString> algorithmNames;
+    int branchCases = 0;
+    for (const NativeSweepCase &row : rows)
+    {
+        algorithmNames.insert(row.algorithmName);
+        branchCases += row.branchCase ? 1 : 0;
+        QTest::newRow(row.caseId.toUtf8().constData())
+            << row.caseId << row.algorithmName << row.propertyName << row.propertyValue
+            << row.layout << row.usesAudio << row.branchCase;
+    }
+
+    QCOMPARE(algorithmNames.size(), 70);
+    qInfo() << "NATIVE_EXECUTION_CONTRACT_SWEEP rows" << rows.size()
+            << "algorithmRows" << algorithmNames.size()
+            << "listBranchRows" << branchCases;
+}
+
+void AudioConsumers_Test::nativeExecutionContractSweep()
+{
+    QFETCH(QString, caseId);
+    QFETCH(QString, algorithmName);
+    QFETCH(QString, propertyName);
+    QFETCH(QString, propertyValue);
+    QFETCH(QSize, layout);
+    QFETCH(bool, usesAudio);
+
+    failOnUnexpectedHueScriptWarnings();
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*Exception at line.*Error:.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*requires a flat Float32Array of length width\\*height\\*3.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*Float32Array \\(HSV\\) is supported.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*TypedArray size mismatch.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*ArrayBuffer extraction size mismatch.*")));
+
+    Doc *doc = nativeSweepDoc();
+    QVERIFY(ensureNativeSweepCachesLoaded(doc));
+
+    static bool paletteControlChecked = false;
+    if (!paletteControlChecked)
+    {
+        std::unique_ptr<HUEMatrix> controlHolder(new HUEMatrix(doc));
+        controlHolder->setName("native-execution-palette-control");
+        controlHolder->setAlgorithm(HUEMatrix::createAlgorithm(doc, "Audio Magnitude"));
+        QVERIFY(controlHolder->algorithm() != nullptr);
+        controlHolder->setColor(0, QColor("#ff0000"));
+        controlHolder->setColor(1, QColor("#ffff00"));
+        controlHolder->setColor(2, QColor("#00ff00"));
+        controlHolder->setColor(3, QColor("#00ffff"));
+        controlHolder->setColor(4, QColor("#0000ff"));
+        QVERIFY2(doc->addFunction(controlHolder.get()), "Failed to register palette control HUEMatrix");
+        HUEMatrix *ownedControl = controlHolder.release();
+        const quint32 controlId = ownedControl->id();
+        auto controlCleanup = qScopeGuard([&]() {
+            if (doc->function(controlId) != nullptr)
+                doc->deleteFunction(controlId);
+        });
+        auto *controlScript = dynamic_cast<HUEScript *>(ownedControl->algorithm());
+        QVERIFY(controlScript != nullptr);
+        QVERIFY(controlScript->setProperty("blur", "0"));
+        QVERIFY(controlScript->setProperty("mirror", "Off"));
+        AudioSnapshot s = sweepSnapshotForFrame(0, 26000000000LL);
+        RGBMap firstPaletteMap;
+        controlScript->rgbMapWithAudio({5, 1}, 0xffffff, 0, firstPaletteMap,
+            AudioRenderView::fromSnapshot(s, s.publishTimeNs), {5, 1});
+        QCOMPARE(firstPaletteMap.size(), 1);
+        QCOMPARE(firstPaletteMap[0].size(), 5);
+        ownedControl->setColor(0, QColor("#f0f0f0"));
+        ownedControl->setColor(1, QColor("#c0c0ff"));
+        ownedControl->setColor(2, QColor("#7070ff"));
+        ownedControl->setColor(3, QColor("#2020ff"));
+        ownedControl->setColor(4, QColor("#000040"));
+        RGBMap secondPaletteMap;
+        controlScript->rgbMapWithAudio({5, 1}, 0xffffff, 0, secondPaletteMap,
+            AudioRenderView::fromSnapshot(s, s.publishTimeNs), {5, 1});
+        QCOMPARE(secondPaletteMap.size(), 1);
+        QCOMPARE(secondPaletteMap[0].size(), 5);
+        QVERIFY2(maxChannelDelta(firstPaletteMap, secondPaletteMap) > 0,
+            "Palette-sensitive control did not react to owner palette change");
+        paletteControlChecked = true;
+    }
+
+    std::unique_ptr<HUEMatrix> holder(new HUEMatrix(doc));
+    holder->setName(QString("native-execution-sweep-%1").arg(caseId));
+    holder->setAlgorithm(HUEMatrix::createAlgorithm(doc, algorithmName));
+    QVERIFY2(holder->algorithm() != nullptr, qPrintable(QString("Missing algorithm %1").arg(algorithmName)));
+    holder->setColor(0, QColor("#0a1430"));
+    holder->setColor(1, QColor("#2070ff"));
+    holder->setColor(2, QColor("#25dba5"));
+    holder->setColor(3, QColor("#f0a030"));
+    holder->setColor(4, QColor("#ffe8e0"));
+    QVERIFY2(doc->addFunction(holder.get()),
+        qPrintable(QString("Failed to register HUEMatrix for %1").arg(caseId)));
+    HUEMatrix *ownedHolder = holder.release();
+    const quint32 holderId = ownedHolder->id();
+    auto holderCleanup = qScopeGuard([&]() {
+        if (doc->function(holderId) != nullptr)
+            doc->deleteFunction(holderId);
+    });
+
+    RGBAlgorithm *algorithm = ownedHolder->algorithm();
+    auto *script = dynamic_cast<RGBScript *>(algorithm);
+    if (!propertyName.isEmpty())
+    {
+        QVERIFY2(script != nullptr, qPrintable(QString("Property row for non-script algorithm %1").arg(algorithmName)));
+        QVERIFY2(script->setProperty(propertyName, propertyValue),
+            qPrintable(QString("setProperty failed for %1.%2=%3")
+                .arg(algorithmName, propertyName, propertyValue)));
+        QCOMPARE(script->property(propertyName), propertyValue);
+    }
+
+    QVERIFY(layout.width() > 0);
+    QVERIFY(layout.height() > 0);
+
+    QVector<RGBMap> maps;
+    maps.reserve(4);
+    auto *hueScript = dynamic_cast<HUEScript *>(algorithm);
+    const int64_t baseNs = 24000000000LL;
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        RGBMap map;
+        if (hueScript != nullptr)
+        {
+            if (usesAudio)
+            {
+                const int snapshotFrame = frame > 1 ? 1 : frame;
+                AudioSnapshot snapshot = sweepSnapshotForFrame(snapshotFrame, baseNs);
+                const int64_t nowNs = (frame == 3) ? snapshot.publishTimeNs + 350000000LL
+                                                   : snapshot.publishTimeNs;
+                hueScript->rgbMapWithAudio(layout, 0xffffff, frame, map,
+                    AudioRenderView::fromSnapshot(snapshot, nowNs), layout);
+            }
+            else
+            {
+                hueScript->rgbMap(layout, 0xffffff, frame, map);
+                if (frame < 3)
+                    QTest::qSleep(25);
+            }
+        }
+        else
+            algorithm->rgbMap(layout, 0xffffff, frame, map);
+
+        QCOMPARE(map.size(), layout.height());
+        for (const auto &row : map)
+            QCOMPARE(row.size(), layout.width());
+        maps.push_back(map);
+    }
+
+    QVERIFY(!maps.isEmpty());
 }
 
 void AudioConsumers_Test::scriptRunnerStop_data()
@@ -303,6 +1627,7 @@ void AudioConsumers_Test::scriptRunnerStop()
     QFETCH(bool, beforePublication);
     QFETCH(bool, invalidSyntax);
     Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
     ScriptRunner runner(&doc, nullptr, content);
     QSemaphore entered, continueScript, destroying, continueDestruction;
     bool destructionOnRunner = false;
@@ -383,6 +1708,7 @@ void AudioConsumers_Test::pcmToPixels()
 {
     QFETCH(double, frequency);
     Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
     QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
     HUEScript spectrum(&doc);
     QVERIFY(spectrum.load(scriptsDirectory().filePath("audiospectrum.js")));
@@ -490,6 +1816,7 @@ void AudioConsumers_Test::exportEffects()
     QVERIFY(!fixtures.isEmpty());
     const QDir corpusDirectory(QFileInfo(corpusFile).absolutePath());
     Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
     QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
     const QStringList selected = qEnvironmentVariable("QLC_AUDIO_CORPUS_FIXTURE").split(',', Qt::SkipEmptyParts);
     int exported = 0;
@@ -689,6 +2016,7 @@ void AudioConsumers_Test::runtimeReplay()
     QVERIFY(analyzer.createChannel(config, 29));
     QVERIFY(analyzer.defaultChannel());
     Doc doc(nullptr);
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
     QVERIFY(doc.hueScriptsCache()->load(scriptsDirectory(), true));
     std::vector<std::unique_ptr<HUEScript>> scripts;
     const QString mode = qEnvironmentVariable("QLC_AUDIO_RUNTIME_MODE", "Artistic");

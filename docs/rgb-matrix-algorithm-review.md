@@ -152,6 +152,113 @@ The boundary invariant for every repair below is the installed script contract:
 
 Classification: **proven defect**.
 
+## 2026-09-16 Hue Matrix LedFx migration progress
+
+The Hue catalog contains 70 identities: 63 audio scripts and seven nonaudio
+scripts. The comparison pins LedFx commit
+`87583f9638fbd749bc0953f35334d8d5140c882f`: 53 procedural registrations, the
+strip-pulse part of Rain, and nine exclusions requiring unavailable inputs.
+Existing identities keep their Artistic defaults; named source modes expose
+the migrated behavior.
+
+The executable manifest binds included rows to public-render proofs.
+Native checks cover script loading, pixel output, input publication and
+saved settings. Musical and visual acceptance remains the manual checklist
+in `MANUAL_REVIEW.md` section 25.
+
+Timing adaptations remain explicit. Crawler uses function-relative field phase
+rather than LedFx's process-start phase. Pitch Spectrum's timed recurrence is
+exact for constant input; it holds the current pitch and spectrum over each
+render interval, so differently sampled pitch changes need not match.
+The native palette/noise path does not promise bit-identical hue-index
+quantization or noise samples.
+
+```text
+$ node tests/test_audio_scripts.js
+RESULTS: 63 passed, 0 failed, 63 total
+COVERAGE: contract=5629 parameters=1636 responses=65 contrast=59 deterministic=63 resize=126 waterBands=9
+
+$ huematrix_test
+Totals: 126 passed, 0 failed, 0 skipped
+
+$ audioconsumers_test
+Totals: 36 passed, 0 failed, 2 skipped
+```
+
+The skipped audio-consumer cases are opt-in corpus export and ten-minute
+replay, not failed migration checks. The earlier 41-script review below
+retains its historical paths, contract and measurements.
+
+### Pinned registration mapping
+
+N denotes a new Hue identity, M an existing identity or mode, and X an excluded input dependency. Rain includes only its source-free strip-pulse branches.
+
+| Row | LedFx registration | Hue target and disposition |
+|---|---|---|
+| 01 | Bands / `bands` | **N** `audiobands.js`. Equalizer currently uses five scalar bars. |
+| 02 | Bands Matrix / `bands_matrix` | **N** `audiobandsmatrix.js`. On matrices, frequency groups span columns and amplitude controls fractional height, with alternating fill/gradient anchors. Both strip orientations retain the source-style concatenated bands. |
+| 03 | Bar / `bar` | **N** `audiobpmbar.js`. Beat Colors' soft color transition lacks finite bars and erase phase. |
+| 04 | Blade Power+ / `blade_power_plus` | **N** `audiobladepower.js`. Energy fills three regions rather than one persistent gradient blade. |
+| 05 | Bleep / `bleep` | **N** `audiobleep.js`. Barcode stores mixed color, not historical amplitude coordinates. |
+| 06 | Blender / `blender` | **X**. No public source-frame lookup or buffers. |
+| 07 | Block Reflections / `block_reflections` | **M** Audio Blocks / `LedFx Block Reflections`. Local centered modular/squared-value field matches the core, but uses filtered low, beat phase and row extrusion. |
+| 08 | Blocks / `blocks` | **N** `audiospectralblocks.js`. Audio Blocks is Block Reflections. |
+| 09 | Clone / `clone` | **X**. HUEScript has no desktop-frame input. |
+| 10 | Concentric / `concentric` | **N** `audioconcentric.js`. Tunnel multiplies sine rings by energy and adds release flashes. |
+| 11 | Crawler / `crawler` | **M** `audiocrawler.js` / `LedFx Crawler`. Source execution uses the t3 position field and accumulated low-driven time. |
+| 12 | Digital Rain / `digitalrain2d` | **N** `audiodigitalrain.js`. Chaser has fixed wrapping horizontal dots. |
+| 13 | Energy / `energy` | **M** Audio Energy / Reference. Its default additive fills are pixel-proven. |
+| 14 | Energy 2 / `energy2` | **M** `audioenergy2.js` / `LedFx Energy 2`; preserve Artistic and Wavelength Reference. |
+| 15 | Equalizer / `equalizer` | **M** Audio Equalizer / `Segment Equalizer`; default five-band bars stay. |
+| 16 | Equalizer2d / `equalizer2d` | **N** `audioequalizer2d.js`. Current five-scalar bars have no ring mesh. |
+| 17 | Fade / `fade` | **N** `huefade.js`, no audio. |
+| 18 | Filter / `filter` | **N** `audiofilter.js`; Hue Shift/Reactor lack uniform time-selected color. |
+| 19 | Fire / `fire` | **M** `audiofire.js` / `LedFx Fire`. Existing heat kernel and particles correspond, but use filtered low and width-only geometry. |
+| 20 | Flame / `flame2d` | **N** `audioflame.js`. Fire repeats a heat row; Flow Field spawns throughout a noise field. |
+| 21 | Frontend / `frontend` | **X**. No browser-frame input. |
+| 22 | Game of Life / `game_of_life` | **N** `audiogameoflife.js`. Cellular implements 1D Wolfram evolution. |
+| 23 | GIF Player / `gifplayer` | **X**. Default path also loads an asset. |
+| 24 | Glitch / `glitch` | **M** `audioglitch.js` / `LedFx Glitch`. Artistic remaps to dominant-band color and an event brightness floor. |
+| 25 | Gradient / `gradient` | **N** `huegradient.js`; selectable class is TemporalGradientEffect. |
+| 26 | Hierarchy / `hierarchy` | **N** `audiohierarchy.js`. Reactor chooses greatest current band. |
+| 27 | Image / `imagespin` | **X**. Pattern/tray/album branches still load assets. |
+| 28 | Keybeat2d / `keybeat2d` | **X**. Time/audio exist; frame input does not. |
+| 29 | Lava lamp / `lava_lamp` | **M** `audiolava.js` / `LedFx Lava Lamp`. Three traveling fields match; local input/time are filtered/beat-based. |
+| 30 | Magnitude / `magnitude` | **N** `audiomagnitude.js`. Existing Energy changes reach. |
+| 31 | Marching / `marching` | **N** `audiomarching.js`. Existing analytic family labels do not cover subtraction of marching wave trains. |
+| 32 | Melt / `melt` | **M** `audiomelt.js`, repair Artistic and add `LedFx Melt`. |
+| 33 | Melt and Sparkle / `melt_and_sparkle` | **M** `audiomeltsparkle.js`, repair Artistic and add `LedFx Melt and Sparkle`. |
+| 34 | Metro / `metro` | **N** `huemetro.js`; no audio. |
+| 35 | Multicolor Bar / `multiBar` | **N** `audiomulticolorbar.js`. Beat Colors soft blending is different. |
+| 36 | Noise / `noise2d` | **N** `audionoise.js`. Aurora is sine layering; Soap is 2D feedback. |
+| 37 | Number / `number` | **X**. Numeric data exist; font glyphs do not. |
+| 38 | Pitch Spectrum / `pitchSpectrum` | **N** `audiopitchspectrum.js`. Include the small publication prerequisite. |
+| 39 | Pixels / `pixels` | **N** `huepixels.js`; no audio. |
+| 40 | Plasma2d / `plasma2d` | **M** Audio Plasma / `Plasma2d`. Current formula uses fixed theoretical normalization and beat time. |
+| 41 | PlasmaWled2d / `plasmawled` | **M** Audio Plasma / `PlasmaWled2d`; distinct nested composition. |
+| 42 | Power / `power` | **M** `audiopower.js` / `LedFx Power`. Artistic uses scalar interpolation, winner hue and release accents. |
+| 43 | Radial / `radial` | **X**. No rendered-source input. |
+| 44 | Rain / `rain` | **P** Audio Puddles / `Rain Pulse`. Full-field pulse only; droplet playback is excluded. The existing local 50 Hz convention decays before returning pixels (first white level 229), whereas upstream displays 255 before decay. The rising audio baseline uses 0.99 of the new value, so held input does not retrigger. |
+| 45 | Rainbow / `rainbow` | **N** `huerainbow.js`; no audio. |
+| 46 | Random Flash / `random_flash` | **N** `huerandomflash.js`; no audio. |
+| 47 | Strobe / `real_strobe` | **M** Audio Strobe / `Percussive RGB`. Artistic tints flashes and collapses queued onsets. |
+| 48 | Scan / `scan` | **M** `audioscan.js` / `LedFx Scan`. Current mode adds smoothing/release boosts. |
+| 49 | Scan and Flare / `scan_and_flare` | **M** `audioscanflare.js` / `LedFx Scan and Flare`. Existing flares move opposite the scanner and die at boundaries. |
+| 50 | Scan Multi / `scan_multi` | **M** `audioscanmulti.js` / `LedFx Scan Multi`. Matrices use three transverse band lanes and Axis-controlled travel; input filters and scalar movement state remain source-derived. Artistic and both strip orientations are unchanged. |
+| 51 | Scroll / `scroll` | **M** Audio Barcode / Reference, proven fixed default core. |
+| 52 | Scroll+ / `scroll_plus` | **M** Audio Barcode / `Scroll+`. Existing Reference has fixed pixel-speed/history sampling. |
+| 53 | Single Color / `singleColor` | **N** `huesinglecolor.js`; no audio. |
+| 54 | Smoke / `smoke2d` | **N** `audiosmoke.js`. Existing 2D noise/helper has no FBm volume slice. |
+| 55 | Soap / `soap2d` | **M** `audiosoap.js` / `LedFx Soap`. Core row/column smear exists; initial noise and sampling scale differ. |
+| 56 | Spectrum / `spectrum` | **M** Audio Spectrum Bars / Reference. Six RGB permutations are pixel-proven. |
+| 57 | Spotlight / `spotlight` | **N** `audiospotlight.js`. Shot is event-triggered2D radial blobs with linear fade. |
+| 58 | BPM Strobe / `strobe` | **M** Audio Strobe / Reference, proven default core. |
+| 59 | Texter / `texter2d` | **X**. Glyph/word images are absent. |
+| 60 | VuMeter / `vumeter` | **N** `audiovumeter.js`. Equalizer lacks raw-volume zones and inverse-volume marker. |
+| 61 | Water / `water` | **M** `audiowater.js` / `LedFx Water`. Current kernel exists but uses scalar squares, emits before propagation and rounds speed. |
+| 62 | Waterfall / `waterfall2d` | **N** `audiowaterfall.js`. Barcode collapses frequencies into one color. |
+| 63 | Wavelength / `wavelength` | **M** Audio Energy2 / Reference, proven Wavelength core. |
+
 ## Quality rubric and limits
 
 “Algorithmic quality” means the first eight dimensions below. “Similarity”

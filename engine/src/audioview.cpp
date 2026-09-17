@@ -59,6 +59,23 @@ AudioRenderView AudioRenderView::fromSnapshot(const AudioSnapshot &s, int64_t no
     v.low = s.lows;
     v.mid = s.mids;
     v.high = s.highs;
+    if (std::isfinite(s.powersRaw[0]))
+        v.rawBeat = s.powersRaw[0];
+    if (std::isfinite(s.powersRaw[1]))
+        v.rawBass = s.powersRaw[1];
+    v.rawLow = 0.5 * (v.rawBeat + v.rawBass);
+    if (std::isfinite(s.powersRaw[2]))
+        v.rawMid = s.powersRaw[2];
+    if (std::isfinite(s.powersRaw[3]))
+        v.rawHigh = s.powersRaw[3];
+    v.pitchValid = std::isfinite(s.pitch.hz) && s.pitch.hz > 0;
+    if (v.pitchValid)
+    {
+        v.pitchHz = s.pitch.hz;
+        v.pitchMidi = 69.0 + 12.0 * std::log2(s.pitch.hz / 440.0);
+        if (std::isfinite(s.pitch.confidence))
+            v.pitchConfidence = s.pitch.confidence;
+    }
     v.onsetIntensity = s.onsets.thresholdedDescriptors[
         std::clamp(s.config.aubio.onsetMethodIndex, 0, AUBIO_ONSET_METHODS - 1)];
     v.tempoValid = s.music.valid && std::isfinite(s.music.bpm) && s.music.bpm > 0;
@@ -75,15 +92,24 @@ void AudioEventCursor::advance(AudioRenderView &v)
 {
     const bool sameSource = m_initialized && m_sourceId == v.sourceId
         && m_profileId == v.profileId && m_epoch == v.sourceEpoch;
-    v.deltaSeconds = sameSource ? std::max(0.0, double(v.renderTimeNs - m_timeNs) / 1e9) : 0;
+    const bool transientUnavailable = m_initialized
+        && !v.available
+        && v.profileId == m_profileId
+        && (v.sourceId.isEmpty() || v.status == QStringLiteral("reset"));
+    v.deltaSeconds = (sameSource || transientUnavailable)
+        ? std::max(0.0, double(v.renderTimeNs - m_timeNs) / 1e9)
+        : 0;
     v.elapsedBeats = v.tempoValid ? v.deltaSeconds * v.bpm / 60 : 0;
     for (size_t i = 0; i < m_counters.size(); ++i)
         v.deltas[i] = sameSource && m_available && v.available && v.counters[i] >= m_counters[i]
             ? v.counters[i] - m_counters[i] : 0;
-    m_sourceId = v.sourceId;
-    m_profileId = v.profileId;
-    m_epoch = v.sourceEpoch;
-    m_counters = v.counters;
+    if (!transientUnavailable)
+    {
+        m_sourceId = v.sourceId;
+        m_profileId = v.profileId;
+        m_epoch = v.sourceEpoch;
+        m_counters = v.counters;
+    }
     m_timeNs = v.renderTimeNs;
     m_available = v.available;
     m_initialized = true;
@@ -135,6 +161,12 @@ QVariantMap audioViewToVariant(const AudioRenderView &v)
         {"tempo", QVariantMap{{"valid", v.tempoValid}, {"bpm", v.bpm},
             {"confidence", v.confidence}, {"beatPhase", v.phase}, {"barPhase", v.barPhase},
             {"beatInBar", v.beatInBar}, {"beatsPerBar", v.beatsPerBar}}},
+        {"powers", QVariantMap{{"raw", QVariantMap{
+            {"beat", v.rawBeat}, {"bass", v.rawBass}, {"low", v.rawLow},
+            {"mid", v.rawMid}, {"high", v.rawHigh}
+        }}}},
+        {"pitch", QVariantMap{{"valid", v.pitchValid}, {"hz", v.pitchHz},
+            {"midi", v.pitchMidi}, {"confidence", v.pitchConfidence}}},
         {"events", QVariantMap{{"counters", counters}, {"delta", deltas}}},
         {"timing", QVariantMap{{"deltaSeconds", v.deltaSeconds}, {"elapsedBeats", v.elapsedBeats}}}
     };

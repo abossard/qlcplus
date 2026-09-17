@@ -335,6 +335,53 @@ void VCQueryFilter_Test::serializeWidget()
 
 // ========== Known Properties Completeness ==========
 
+void VCQueryFilter_Test::serializeAudioSources_data()
+{
+    QTest::addColumn<QStringList>("properties");
+    QTest::newRow("all-properties") << QStringList();
+    QTest::newRow("only-bars") << QStringList({"bars"});
+}
+
+void VCQueryFilter_Test::serializeAudioSources()
+{
+    QFETCH(QStringList, properties);
+    VCBridge::WidgetDetails widget;
+    widget.id = 42;
+    widget.type = "audioTrigger";
+    static const QStringList keys = {"Kick", "KickPower", "BassPower", ""};
+    static const QStringList labels = {"Kick hit", "Kick power", "Bass", ""};
+    static const QStringList colors = {"#ffaa55", "#DC143C", "#FF4500", ""};
+    static const QList<int> indexes = {5, 6, 7, 0};
+    for (int i = 0; i < keys.size(); ++i)
+    {
+        VCBridge::WidgetDetails::AudioBarInfo bar;
+        bar.barIndex = indexes[i];
+        bar.sourceKey = keys[i];
+        bar.label = labels[i];
+        bar.color = colors[i];
+        bar.type = "none";
+        widget.audioBars.append(bar);
+    }
+    std::set<std::string> selected;
+    for (const auto &property : properties)
+        selected.insert(property.toStdString());
+    const auto result = VCQueryPages::serializeWidget(widget, selected);
+    QCOMPARE(result.at("bars").size(), size_t(4));
+    for (int i = 0; i < keys.size(); ++i)
+    {
+        const auto &bar = result.at("bars").at(i);
+        QCOMPARE(bar.at("barIndex").get<int>(), indexes[i]);
+        for (const auto &field : {"sourceKey", "label", "color"})
+            QCOMPARE(bar.contains(field), !keys[i].isEmpty());
+        if (!keys[i].isEmpty())
+        {
+            QCOMPARE(QString::fromStdString(bar.at("sourceKey").get<std::string>()), keys[i]);
+            QCOMPARE(QString::fromStdString(bar.at("label").get<std::string>()), labels[i]);
+            QCOMPARE(QString::fromStdString(bar.at("color").get<std::string>()), colors[i]);
+        }
+    }
+}
+
 void VCQueryFilter_Test::knownPropertiesCompleteness()
 {
     // Ensure all compound groups are in the valid set

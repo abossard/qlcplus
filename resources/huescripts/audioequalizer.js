@@ -22,6 +22,10 @@ var testAlgo;
     algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
+    algo.presetMode = "Artistic";
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Segment Equalizer|write:setMode|read:getMode");
+    algo.setMode = function(v) { algo.presetMode = v === "Segment Equalizer" ? v : "Artistic"; };
+    algo.getMode = function() { return algo.presetMode; };
 
     algo.presetDecay = 5;
     algo.properties.push(
@@ -66,6 +70,38 @@ var testAlgo;
     algo.setPeakDecay = function(_v) { algo.presetPeakDecay = parseFloat(_v); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
+    algo.presetSegmentCount = 5;
+    algo.properties.push(
+      "name:presetSegmentCount|type:range|display:Segment Count|" +
+      "values:1,16|write:setSegmentCount|read:getSegmentCount");
+    algo.presetSegmentAlign = "Left";
+    algo.properties.push(
+      "name:presetSegmentAlign|type:list|display:Segment Alignment|" +
+      "values:Left,Right,Center,Invert|write:setSegmentAlign|read:getSegmentAlign");
+    algo.setSegmentCount = function(_v) {
+        var n = parseInt(_v, 10);
+        if (!isFinite(n)) n = 5;
+        algo.presetSegmentCount = Math.max(1, Math.min(16, n));
+    };
+    algo.getSegmentCount = function() { return algo.presetSegmentCount; };
+    algo.setSegmentAlign = function(_v) {
+        algo.presetSegmentAlign = (_v === "Right" || _v === "Center" || _v === "Invert") ? _v : "Left";
+    };
+    algo.getSegmentAlign = function() { return algo.presetSegmentAlign; };
+    var readSegmentTransforms = HSVUtil.attachStripTransformControls(algo, {
+        prefix: "presetSegment",
+        display: "Segment ",
+        defaults: {
+            flip: "Off",
+            mirror: "Off",
+            backgroundMode: "Off",
+            backgroundColor: "#000000",
+            backgroundBrightness: 1,
+            brightness: 1,
+            blur: 0
+        }
+    });
+
     var BAND_COUNT = 5;
     var DEFAULT_COLORS = [
         {h: 0.0,   s: 1.0, v: 1.0},  // red (beat)
@@ -79,6 +115,37 @@ var testAlgo;
     var peakValues = [0, 0, 0, 0, 0];
     var peakHolds = [0, 0, 0, 0, 0];
 
+    function splitSizes(total, count) {
+        var active = Math.max(1, Math.min(count, Math.max(1, total)));
+        var base = Math.floor(total / active);
+        var extra = total - base * active;
+        var sizes = new Array(active);
+        for (var i = 0; i < active; i++)
+            sizes[i] = base + (i < extra ? 1 : 0);
+        return sizes;
+    }
+
+    function paintAlignedMask(mask, start, size, volume, align) {
+        if (size <= 0 || volume <= 0) return;
+        var lit = Math.max(0, Math.min(size, volume));
+        if (lit <= 0) return;
+        if (align === "Right") {
+            for (var i = size - lit; i < size; i++)
+                mask[start + i] = 1;
+            return;
+        }
+        var shift = 0;
+        if (align === "Center")
+            shift = Math.floor((size - lit) / 2);
+        else if (align === "Invert")
+            shift = -Math.floor(lit / 2);
+        for (var j = 0; j < lit; j++) {
+            var pos = (j + shift) % size;
+            if (pos < 0) pos += size;
+            mask[start + pos] = 1;
+        }
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -87,6 +154,42 @@ var testAlgo;
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
+        if (algo.presetMode === "Segment Equalizer") {
+            var pixelCount = width * height;
+            if (pixelCount <= 0) return map;
+            var count = Math.max(1, Math.min(16, algo.presetSegmentCount | 0, pixelCount));
+            var bank = audio && audio.banks && audio.banks.full;
+            var novelty = bank && bank.count ? bank.novelty : [];
+            var bins = HSVUtil.interpolate(novelty || [], pixelCount);
+            var stopsSeg = (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_COLORS;
+            var clipped = new Array(pixelCount);
+            for (var i = 0; i < pixelCount; i++)
+                clipped[i] = HSVUtil.clamp01(isFinite(bins[i]) ? bins[i] : 0);
+            var sizes = splitSizes(pixelCount, count);
+            var mask = new Array(pixelCount);
+            for (var m = 0; m < pixelCount; m++) mask[m] = 0;
+            var start = 0;
+            for (var seg = 0; seg < sizes.length; seg++) {
+                var segWidth = sizes[seg];
+                var sum = 0;
+                for (var s = 0; s < segWidth; s++)
+                    sum += clipped[start + s];
+                var volume = Math.floor((sum / segWidth) * segWidth);
+                paintAlignedMask(mask, start, segWidth, volume, algo.presetSegmentAlign);
+                start += segWidth;
+            }
+            for (var p = 0; p < pixelCount; p++) {
+                if (mask[p]) {
+                    var tSeg = pixelCount <= 1 ? 0 : p / (pixelCount - 1);
+                    var hsvSeg = HSVUtil.gradientLedfxAt(stopsSeg, tSeg);
+                    var oSeg = p * 3;
+                    map[oSeg] = hsvSeg.h;
+                    map[oSeg + 1] = hsvSeg.s;
+                    map[oSeg + 2] = hsvSeg.v;
+                }
+            }
+            return HSVUtil.applyStripTransforms(map, width, height, readSegmentTransforms());
+        }
 
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
         var stops = (algo.colors && algo.colors.length >= 5) ? algo.colors : DEFAULT_COLORS;

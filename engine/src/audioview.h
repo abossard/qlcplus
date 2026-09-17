@@ -27,6 +27,9 @@ struct AudioRenderView
     bool available = false, gateOpen = false, tempoValid = false;
     double staleAgeMs = 0, rawRms = 0, rmsDb = -96, peakDb = -96, volume = 0;
     double beat = 0, bass = 0, low = 0, mid = 0, high = 0, onsetIntensity = 0;
+    double rawBeat = 0, rawBass = 0, rawLow = 0, rawMid = 0, rawHigh = 0;
+    bool pitchValid = false;
+    double pitchHz = 0, pitchMidi = 0, pitchConfidence = 0;
     double bpm = 0, confidence = 0, phase = 0, barPhase = 0;
     int beatInBar = 0, beatsPerBar = 4;
     double deltaSeconds = 0, elapsedBeats = 0;

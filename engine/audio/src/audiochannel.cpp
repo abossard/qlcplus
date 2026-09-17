@@ -170,8 +170,10 @@ void AudioChannel::resetState()
     m_melPostLow.setConfig(m_config.aubio.melBanks.low.post);
     m_melPostMid.setConfig(m_config.aubio.melBanks.mid.post);
     m_melPostHigh.setConfig(m_config.aubio.melBanks.high.post);
-    for (auto *post : {&m_melPost, &m_melPostLow, &m_melPostMid, &m_melPostHigh})
+    m_powerMelPost.setConfig(m_config.aubio.melBanks.high.post);
+    for (auto *post : {&m_melPost, &m_melPostLow, &m_melPostMid, &m_melPostHigh, &m_powerMelPost})
         post->reset();
+    std::fill_n(m_powerMelProcessed, AudioSnapshot::kMelBankBandsMax, 0.0);
     std::fill_n(m_freqPower, 4, 0.0);
     std::fill_n(m_freqPowerRaw, 4, 0.0);
     std::fill_n(m_envSmoothed, kBandCount, 0.0);
@@ -307,8 +309,11 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     if (frame.aubio == nullptr)
         return;
 
-    // Scalar powers share the full-range bank's normalization.
-    const int nHigh = frame.aubio->melHighCount;
+    // Ordinary profiles reuse the full-range bank. Short-window power has
+    // its own bank and post-processor, with identical tuning and cutoffs.
+    const bool shortPower = m_config.aubio.powerWindowSize == 2048;
+    const int nHigh = shortPower ? frame.aubio->powerMelCount : frame.aubio->melHighCount;
+    const double *processed = shortPower ? m_powerMelProcessed : m_melHighProcessed;
 
     if (nHigh <= 0)
         return;
@@ -322,12 +327,12 @@ void AudioChannel::updateFreqPower(const AudioFrame &frame)
     int highEnd  = std::min(nHigh, hzToBankBin(fp.high.maxHz, banks.high));
 
     double raw[4] = {};
-    raw[0] = averageMel(m_melHighProcessed, 0, beatEnd);
-    raw[1] = averageMel(m_melHighProcessed, beatEnd, bassEnd);
+    raw[0] = averageMel(processed, 0, beatEnd);
+    raw[1] = averageMel(processed, beatEnd, bassEnd);
 
-    raw[2] = averageMel(m_melHighProcessed, bassEnd, midEnd);
+    raw[2] = averageMel(processed, bassEnd, midEnd);
 
-    raw[3] = averageMel(m_melHighProcessed, midEnd, highEnd);
+    raw[3] = averageMel(processed, midEnd, highEnd);
 
     // Smooth with per-band ExpFilter
     const FreqPowerBandConfig *cfg[4] = { &fp.beat, &fp.bass, &fp.mids, &fp.high };
@@ -473,6 +478,7 @@ void AudioChannel::updateMelPost(const AudioFrame &frame)
         std::fill(std::begin(m_melMidNovelty),   std::end(m_melMidNovelty),   0.0);
         std::fill(std::begin(m_melHighProcessed), std::end(m_melHighProcessed), 0.0);
         std::fill(std::begin(m_melHighNovelty),   std::end(m_melHighNovelty),   0.0);
+        std::fill_n(m_powerMelProcessed, AudioSnapshot::kMelBankBandsMax, 0.0);
         return;
     }
     m_melPost.process(frame.aubio->mel, AUBIO_MEL_BANDS,
@@ -508,6 +514,13 @@ void AudioChannel::updateMelPost(const AudioFrame &frame)
             m_melMidProcessed,  m_melMidNovelty,  kMax);
     runBank(m_melPostHigh, frame.aubio->melHigh, frame.aubio->melHighCount,
             m_melHighProcessed, m_melHighNovelty, kMax);
+    if (m_config.aubio.powerWindowSize == 2048)
+    {
+        const int count = std::clamp(frame.aubio->powerMelCount, 0, kMax);
+        m_powerMelPost.process(frame.aubio->powerMel, count, m_powerMelProcessed,
+                               nullptr, m_noiseGateClosed);
+        std::fill(m_powerMelProcessed + count, m_powerMelProcessed + kMax, 0.0);
+    }
 }
 
 void AudioChannel::updateKickDetector(const AudioFrame &frame, double dtMs)

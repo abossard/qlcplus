@@ -136,9 +136,9 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"absoluteValueMax", {{"type", "integer"}, {"description", "SpeedDial: absolute value range max (ms)"}}},
                 {"resetFactorOnDialChange", {{"type", "boolean"}, {"description", "SpeedDial: reset factor on dial change"}}},
                 {"barsNumber", {{"type", "integer"},
-                    {"description", "Audio Triggers: legacy compatibility field; QLC+ 5 uses a fixed six-band mapping"}}},
+                    {"description", "Audio Triggers: legacy compatibility field; QLC+ 5 uses fixed source mappings. Query widget bars for source identities."}}},
                 {"bars", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
-                    {"barIndex", {{"type", "integer"}, {"description", "Bar index (0=volume bar, 1+=spectrum bars)"}}},
+                    {"barIndex", {{"type", "integer"}, {"description", "Stable source index: 0=Low bank trigger, 1=Mid bank trigger, 2=High bank trigger, 3=Volume, 4=Beat pulse, 5=Kick hit, 6=Kick power, 7=Bass, 8=Lows, 9=Mids, 10=High power. Independent mappings to one slider retain last-update-wins behavior."}}},
                     {"type", {{"type", "string"}, {"description", "Bar type: none, dmx, function, widget"}}},
                     {"minThreshold", {{"type", "integer"}, {"description", "Min trigger threshold 0-100"}}},
                     {"maxThreshold", {{"type", "integer"}, {"description", "Max trigger threshold 0-100"}}},

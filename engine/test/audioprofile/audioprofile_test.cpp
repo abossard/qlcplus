@@ -155,4 +155,75 @@ void AudioProfile_Test::profileBinding()
     QVERIFY(!analyzer.snapshot(7).available);
 }
 
+void AudioProfile_Test::latencyFields_data()
+{
+    QTest::addColumn<QString>("attributes");
+    QTest::addColumn<QString>("aubio");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<int>("window");
+    for (int source : {0, 1})
+        QTest::newRow(qPrintable(QString("roundtrip-source-%1").arg(source)))
+            << QString("AnalysisContractRevision=\"4\" BuiltInKey=\"low-latency\" VisualIntervalMs=\"16\" CaptureBufferMs=\"20\" AudioSource=\"%1\" OscPort=\"12129\"").arg(source)
+            << QString("PowerWindowSize=\"2048\" PitchTolerance=\"0.83\"") << true << 2048;
+    QTest::newRow("legacy-revision2") << QString() << QString() << true << 4096;
+    QTest::newRow("legacy-revision3") << QString("AnalysisContractRevision=\"3\"") << QString() << true << 4096;
+    for (const QString &field : {QString("VisualIntervalMs"), QString("CaptureBufferMs")})
+        for (const QString &value : {QString("nonsense"), QString("-1"), QString("17"), QString("2147483648")})
+            QTest::newRow(qPrintable(field + "-" + value))
+                << QString("AnalysisContractRevision=\"4\" %1=\"%2\"").arg(field, value)
+                << QString() << false << 4096;
+    for (const QString &value : {QString("bad"), QString("1024"), QString("0"), QString("-2048")})
+        QTest::newRow(qPrintable("power-" + value))
+            << QString("AnalysisContractRevision=\"4\"")
+            << QString("PowerWindowSize=\"%1\"").arg(value) << false << 4096;
+    QTest::newRow("future-contract") << QString("AnalysisContractRevision=\"5\"") << QString() << false << 4096;
+    QTest::newRow("malformed-contract") << QString("AnalysisContractRevision=\"oops\"") << QString() << false << 4096;
+    QTest::newRow("nondefault-old-contract") << QString("AnalysisContractRevision=\"3\"")
+        << QString("PowerWindowSize=\"2048\"") << false << 4096;
+}
+
+void AudioProfile_Test::latencyFields()
+{
+    QFETCH(QString, attributes);
+    QFETCH(QString, aubio);
+    QFETCH(bool, valid);
+    QFETCH(int, window);
+    QXmlStreamReader reader(QString("<Profiles><AudioProfile ID=\"7\" Version=\"2\" Name=\"Retained\" %1>"
+        "<Aubio %2/></AudioProfile><AudioProfile ID=\"29\" Version=\"2\" AnalysisContractRevision=\"3\"/>"
+        "</Profiles>").arg(attributes, aubio));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(reader.readNextStartElement());
+    AudioProfile profile(7);
+    QCOMPARE(profile.loadXML(reader), valid);
+    QVERIFY(!profile.channel());
+    if (valid)
+    {
+        QCOMPARE(profile.channelConfig().aubio.powerWindowSize, window);
+        QCOMPARE(profile.channelConfig().visualIntervalMs, window == 2048 ? 16 : 33);
+        QCOMPARE(profile.channelConfig().captureBufferMs, window == 2048 ? 20 : 0);
+        if (window == 2048)
+        {
+            QCOMPARE(profile.builtInKey(), QString("low-latency"));
+            QCOMPARE(profile.channelConfig().aubio.pitchTolerance, 0.83);
+        }
+        QString saved;
+        QXmlStreamWriter writer(&saved);
+        QVERIFY(profile.saveXML(&writer));
+        QVERIFY(saved.contains(QString("AnalysisContractRevision=\"%1\"").arg(window == 2048 ? 4 : 3)));
+        QXmlStreamReader rereader(saved);
+        QVERIFY(rereader.readNextStartElement());
+        AudioProfile restored(0);
+        QVERIFY(restored.loadXML(rereader));
+        QString resaved;
+        QXmlStreamWriter rewriter(&resaved);
+        QVERIFY(restored.saveXML(&rewriter));
+        QCOMPARE(resaved, saved);
+    }
+    QVERIFY(reader.readNextStartElement());
+    AudioProfile sibling(29);
+    QVERIFY(sibling.loadXML(reader));
+    QCOMPARE(sibling.id(), quint32(29));
+    QVERIFY(!reader.hasError());
+}
+
 QTEST_MAIN(AudioProfile_Test)

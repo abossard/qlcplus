@@ -93,7 +93,7 @@ static const QMap<QString, QList<VCBridge::SourceDef>> sourceDefTable = {
                          {"previousPage", 1, "Previous page"},
                          {"enable", 2, "Enable/disable frame"},
                          {"collapse", 3, "Collapse/expand"}}},
-    {"VCAudioTriggers", {{"default", 0, "Enable/disable capture"},
+    {"VCAudioTriggers", {{"default", 0, "Enable/disable mappings (meters can update while paused)"},
                          {"volumeControl", 1, "Volume control"}}},
     {"VCAnimation",     {{"default", 0, "Intensity fader"}}},
     {"VCLabel",         {}},
@@ -1033,6 +1033,9 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
             QVariantMap bm = v.toMap();
             WidgetDetails::AudioBarInfo bar;
             bar.barIndex = bm.value("index").toInt();
+            bar.sourceKey = bm.value("sourceKey").toString();
+            bar.label = bm.value("bLabel").toString();
+            bar.color = bm.value("color").toString();
             int bType = bm.value("type").toInt();
             switch (bType)
             {

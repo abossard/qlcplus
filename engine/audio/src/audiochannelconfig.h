@@ -192,6 +192,10 @@ struct OnsetMethodOverride
  */
 struct AubioConfig
 {
+    // Only scalar powers may use a shorter FFT. Spectral consumers and raw
+    // pitch/tempo/onset/notes detectors retain their 4096-sample window.
+    int powerWindowSize = 4096;
+
     // Mel filterbank — aubio_filterbank_set_norm / aubio_filterbank_set_power.
     // norm: 1 = each mel filter normalized to unit area (default), 0 = raw triangular weights.
     // power: input |X|^power before filtering. 1 = magnitude, 2 = power (energy).
@@ -297,8 +301,12 @@ struct AudioChannelConfig
     double volumeSmoothingMs = 100.0;
     FreqPowerConfig freqPower;      // LedFx audio.py:1107-1331 — per-band Hz cutoff + ExpFilter alphas
     AubioConfig aubio;
+    int visualIntervalMs = 33;
+    // Zero leaves the shared backend at its platform default.
+    int captureBufferMs = 0;
 
     static AudioChannelConfig defaults();
+    static AudioChannelConfig lowLatency();
     QString validationError() const;
 };
 

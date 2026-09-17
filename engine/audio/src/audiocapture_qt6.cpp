@@ -22,6 +22,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include <chrono>
 
 #include <QMediaDevices>
 #include <QAudioDevice>
@@ -60,6 +61,10 @@ public:
             if (!format.isValid())
                 return nullptr;
             m_source = std::make_unique<QAudioSource>(device, format);
+            // Qt ignores buffer-size setters after start(). Use the negotiated
+            // rate, channels and encoding, not the 512-frame read-block limit.
+            if (m_bufferRequestMs > 0)
+                m_source->setBufferSize(format.bytesForDuration(qint64(m_bufferRequestMs) * 1000));
             QIODevice *input = m_source->start();
             if (!input || m_source->state() == QAudio::StoppedState)
             {
@@ -87,9 +92,14 @@ public:
         if (m_source)
             m_source->setVolume(volume);
     }
+    void setBufferRequestMs(int ms) override { m_bufferRequestMs = ms; }
+    int appliedBufferRequestMs() const override { return m_source ? m_bufferRequestMs : -1; }
+    qint64 bufferCapacityBytes() const override { return m_source ? m_source->bufferSize() : -1; }
+    qint64 queuedBytes() const override { return m_source ? m_source->bytesAvailable() : -1; }
 
 private:
     std::unique_ptr<QAudioSource> m_source;
+    int m_bufferRequestMs = 0;
 };
 
 template<typename Sample>
@@ -165,6 +175,8 @@ bool AudioCaptureQt6::initialize()
         return false;
     }
     QAudioFormat format;
+    m_openBufferRequestMs = requestedBufferMs();
+    m_backend->setBufferRequestMs(m_openBufferRequestMs);
     m_input = m_backend->open(selected.id,
         settings.value(SETTINGS_AUDIO_INPUT_SRATE, AUDIO_DEFAULT_SAMPLE_RATE).toInt(),
         settings.value(SETTINGS_AUDIO_INPUT_CHANNELS, AUDIO_DEFAULT_CHANNELS).toInt(), format);
@@ -186,6 +198,7 @@ bool AudioCaptureQt6::initialize()
     m_appliedVolume = m_volume;
     m_backend->setVolume(m_appliedVolume);
     m_currentReadBuffer.clear();
+    updateInputDiagnostics(false);
     return true;
 }
 
@@ -197,11 +210,53 @@ void AudioCaptureQt6::uninitialize()
     QMutexLocker locker(&m_mutex);
     m_appliedDevice.clear();
     m_format = {};
+    m_appliedBufferRequestMs = -1;
+    m_capacityBytes = m_queuedBytes = -1;
+    m_lastPcmNs = 0;
 }
 
 qint64 AudioCaptureQt6::latency() const
 {
-    return 0; // TODO
+    return -1; // Physical input latency has not been measured.
+}
+
+void AudioCaptureQt6::updateInputDiagnostics(bool received)
+{
+    // This method is called only on the capture thread. UI getters never
+    // dereference QAudioSource or its QIODevice across threads.
+    const int applied = m_backend->appliedBufferRequestMs();
+    const qint64 capacity = m_backend->bufferCapacityBytes();
+    const qint64 queued = m_backend->queuedBytes();
+    QMutexLocker locker(&m_mutex);
+    m_appliedBufferRequestMs = applied;
+    m_capacityBytes = capacity;
+    m_queuedBytes = queued < 0 ? -1 : queued + m_currentReadBuffer.size();
+    if (received)
+        m_lastPcmNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+QVariantMap AudioCaptureQt6::inputDiagnostics() const
+{
+    QMutexLocker locker(&m_mutex);
+    const bool open = m_format.isValid();
+    const auto durationMs = [&](qint64 bytes) {
+        return open && bytes >= 0 ? m_format.durationForBytes(bytes) / 1000.0 : -1.0;
+    };
+    const qint64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const double ageMs = m_lastPcmNs > 0 ? (now - m_lastPcmNs) / 1000000.0 : -1.0;
+    const int request = requestedBufferMs();
+    const QString state = !open ? QStringLiteral("unavailable")
+        : m_appliedBufferRequestMs < 0 ? QStringLiteral("unsupported or unreported")
+        : m_appliedBufferRequestMs != request ? QStringLiteral("pending reopen")
+        : request == 0 ? QStringLiteral("platform default") : QStringLiteral("request submitted");
+    return {{"requestedMs", request}, {"appliedRequestMs", m_appliedBufferRequestMs},
+            {"requestedBytes", open ? m_format.bytesForDuration(qint64(request) * 1000) : qint64(-1)},
+            {"capacityBytes", m_capacityBytes}, {"capacityMs", durationMs(m_capacityBytes)},
+            {"queuedBytes", m_queuedBytes}, {"queuedMs", durationMs(m_queuedBytes)},
+            {"lastPcmAgeMs", ageMs}, {"fresh", open && ageMs >= 0.0 && ageMs < 150.0},
+            {"requestStatus", state}, {"physicalLatencyMs", -1.0}};
 }
 
 void AudioCaptureQt6::setVolume(qreal volume)
@@ -263,11 +318,15 @@ bool AudioCaptureQt6::readAudio(int maxSize)
     m_currentReadBuffer.append(m_input->read(maximumBytes - m_currentReadBuffer.size()));
     m_readFrames = unsigned(m_currentReadBuffer.size() / bytesPerFrame);
     if (!m_readFrames)
+    {
+        updateInputDiagnostics(false);
         return false;
+    }
     const int completeBytes = int(m_readFrames) * bytesPerFrame;
     const bool valid = convertSamples(QByteArrayView(m_currentReadBuffer.constData(), completeBytes),
                                      m_format, int(m_readFrames * m_channels), m_floatBuffer.data());
     m_currentReadBuffer.remove(0, completeBytes);
+    updateInputDiagnostics(valid);
     return valid;
 }
 

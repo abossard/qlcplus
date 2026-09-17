@@ -12,6 +12,17 @@ target_link_libraries(ddp_partial_test PRIVATE
     ddp
 )
 
+add_executable(ddp-race-test ddp_race_test.cpp ddp_race_test.h)
+target_include_directories(ddp-race-test PRIVATE
+    ../../interfaces .. ../../../engine/src
+)
+target_link_libraries(ddp-race-test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Network
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusengine ddp
+)
+
 add_executable(ddp_mutex_bench
     mutex_bench.cpp
 )

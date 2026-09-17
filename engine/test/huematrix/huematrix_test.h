@@ -39,6 +39,7 @@ private slots:
     void defaultPattern_data();
     void defaultPattern();
     void nonAudioHsvContract();
+    void nonAudioSingleColorStepBoundary();
     void patternSelection_data();
     void patternSelection();
     void legacyAlgorithmRoundTrip_data();
@@ -106,6 +107,7 @@ private slots:
     void destructorReturnsImmediatelyWhenNothingIsInFlight();
 
     /* AC24 */
+    void asyncPrecomputeProducesAConsumableMap_data();
     void asyncPrecomputeProducesAConsumableMap();
     void asyncPrecomputeIsThrottledToOneTaskInFlight();
     void asyncPrecomputeIsSkippedForNonScriptAlgorithms();

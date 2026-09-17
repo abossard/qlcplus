@@ -79,7 +79,7 @@ InputOutputManager::InputOutputManager(QQuickView *view, Doc *doc, QObject *pare
 InputOutputManager::~InputOutputManager()
 {
     if (m_audioInputPreview && m_inputCapture)
-        m_inputCapture->unregisterBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
+        m_inputCapture->unregisterSubscriber(this);
 }
 
 void InputOutputManager::slotDocLoaded()
@@ -486,11 +486,11 @@ void InputOutputManager::enableAudioInputPreview(bool enable)
     {
         connect(m_inputCapture, &AudioCapture::volumeChanged,
                 this, &InputOutputManager::slotAudioInputLevelChanged, Qt::UniqueConnection);
-        m_inputCapture->registerBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
+        m_inputCapture->registerSubscriber(this);
     }
     else
     {
-        m_inputCapture->unregisterBandsNumber(FREQ_SUBBANDS_DEFAULT_NUMBER);
+        m_inputCapture->unregisterSubscriber(this);
         disconnect(m_inputCapture, &AudioCapture::volumeChanged,
                    this, &InputOutputManager::slotAudioInputLevelChanged);
 

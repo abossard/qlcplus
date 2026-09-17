@@ -26,6 +26,7 @@
 #include <qmath.h>
 #include <algorithm>
 #include <cmath>
+#include "audioanalyzer.h"
 
 #include "vcaudiotriggers.h"
 #include "fixturemanager.h"
@@ -75,29 +76,43 @@
 #define KXMLQLCAudioMappingBeatHold QStringLiteral("BeatHoldMs")
 #define KXMLQLCAudioTriggerAudioProfileID QStringLiteral("AudioProfileID")
 
+namespace
+{
+struct MappingSource
+{
+    const char *key;
+    const char *label;
+    const char *color;
+    double AudioSnapshot::*power = nullptr;
+};
+
+const MappingSource mappingSources[] = {
+    {"Low", "Low bank trigger", "#ff3333"},
+    {"Mid", "Mid bank trigger", "#33cc66"},
+    {"High", "High bank trigger", "#33ccff"},
+    {"Volume", "Volume", "#aaaaaa"},
+    {"Beat", "Beat pulse", "#ffffff"},
+    {"Kick", "Kick hit", "#ffaa55"},
+    {"KickPower", "Kick power", "#DC143C", &AudioSnapshot::beatPower},
+    {"BassPower", "Bass", "#FF4500", &AudioSnapshot::bassPower},
+    {"LowsPower", "Lows", "#FF8C00", &AudioSnapshot::lows},
+    {"MidsPower", "Mids", "#9ACD32", &AudioSnapshot::mids},
+    {"HighsPower", "High", "#00CED1", &AudioSnapshot::highs}
+};
+static_assert(std::size(mappingSources) == VCAudioTriggers::BandSourceCount);
+}
+
 static QString bandSourceToKey(VCAudioTriggers::BandSource s)
 {
-    switch (s)
-    {
-        case VCAudioTriggers::BandLow:    return QStringLiteral("Low");
-        case VCAudioTriggers::BandMid:    return QStringLiteral("Mid");
-        case VCAudioTriggers::BandHigh:   return QStringLiteral("High");
-        case VCAudioTriggers::BandVolume: return QStringLiteral("Volume");
-        case VCAudioTriggers::BandBeat:   return QStringLiteral("Beat");
-        case VCAudioTriggers::BandKick:   return QStringLiteral("Kick");
-        default: return QString();
-    }
+    return QString::fromLatin1(mappingSources[s].key);
 }
 
 static int bandSourceFromKey(const QString &key, bool *ok)
 {
     if (ok) *ok = true;
-    if (key == QLatin1String("Low"))    return VCAudioTriggers::BandLow;
-    if (key == QLatin1String("Mid"))    return VCAudioTriggers::BandMid;
-    if (key == QLatin1String("High"))   return VCAudioTriggers::BandHigh;
-    if (key == QLatin1String("Volume")) return VCAudioTriggers::BandVolume;
-    if (key == QLatin1String("Beat"))   return VCAudioTriggers::BandBeat;
-    if (key == QLatin1String("Kick"))   return VCAudioTriggers::BandKick;
+    for (int i = 0; i < VCAudioTriggers::BandSourceCount; ++i)
+        if (key == QLatin1String(mappingSources[i].key))
+            return i;
     // Legacy 5-band keys map to closest equivalent (Sub/Bass -> Low,
     // LowMid -> Mid). Old projects load without errors.
     if (key == QLatin1String("Sub"))    return VCAudioTriggers::BandLow;
@@ -105,34 +120,6 @@ static int bandSourceFromKey(const QString &key, bool *ok)
     if (key == QLatin1String("LowMid")) return VCAudioTriggers::BandMid;
     if (ok) *ok = false;
     return -1;
-}
-
-static QString bandSourceLabel(VCAudioTriggers::BandSource s)
-{
-    switch (s)
-    {
-        case VCAudioTriggers::BandLow:    return QStringLiteral("Low");
-        case VCAudioTriggers::BandMid:    return QStringLiteral("Mid");
-        case VCAudioTriggers::BandHigh:   return QStringLiteral("High");
-        case VCAudioTriggers::BandVolume: return QStringLiteral("Volume");
-        case VCAudioTriggers::BandBeat:   return QStringLiteral("Beat");
-        case VCAudioTriggers::BandKick:   return QStringLiteral("Kick");
-        default: return QString();
-    }
-}
-
-static QString bandSourceColor(VCAudioTriggers::BandSource s)
-{
-    switch (s)
-    {
-        case VCAudioTriggers::BandLow:    return QStringLiteral("#ff3333");
-        case VCAudioTriggers::BandMid:    return QStringLiteral("#33cc66");
-        case VCAudioTriggers::BandHigh:   return QStringLiteral("#33ccff");
-        case VCAudioTriggers::BandVolume: return QStringLiteral("#aaaaaa");
-        case VCAudioTriggers::BandKick:   return QStringLiteral("#ffaa55");
-        case VCAudioTriggers::BandBeat:
-        default: return QStringLiteral("#ffffff");
-    }
 }
 
 static QVariantList bankConfigurationValues(const AudioChannelConfig &config);
@@ -150,13 +137,13 @@ VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
 {
     setType(VCWidget::AudioTriggersWidget);
 
-    registerExternalControl(INPUT_ENABLE_CAPTURE, tr("Enable Capture"), true);
+    registerExternalControl(INPUT_ENABLE_CAPTURE, tr("Enable mappings"), true);
     registerExternalControl(INPUT_VOLUME_CONTROL, tr("Volume Control"), false);
 
     QSharedPointer<AudioCapture> capture(m_doc ? m_doc->audioInputCapture() : nullptr);
     m_inputCapture = capture.data();
 
-    // Fixed 6 source mappings (Low, Mid, High, Volume, Beat, Kick)
+    m_mappingActive.resize(BandSourceCount);
     m_bandMappings.resize(BandSourceCount);
     for (int i = 0; i < BandSourceCount; i++)
         m_bandMappings[i].source = BandSource(i);
@@ -173,6 +160,10 @@ VCAudioTriggers::VCAudioTriggers(Doc *doc, VirtualConsole *vc, QObject *parent)
     m_snapshotTimer = new QTimer(this);
     m_snapshotTimer->setInterval(16);
     connect(m_snapshotTimer, &QTimer::timeout, this, &VCAudioTriggers::processAudioSnapshot);
+    connect(this, &VCAudioTriggers::audioSnapshotChanged, this, [this]() {
+        m_inputLatencyTimer.start();
+        emit inputLatencyStatusChanged();
+    });
     if (m_doc)
     {
         connect(m_doc, &Doc::audioProfilesChanged, this, [this]() {
@@ -270,7 +261,7 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
     if (enable == m_captureEnabled)
         return;
 
-    if (!m_doc || !m_inputCapture)
+    if (!m_doc)
         return;
     enqueueTardisAction(Tardis::VCAudioTriggersSetCaptureEnabled, m_captureEnabled, enable);
 
@@ -285,8 +276,9 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
 
     if (enable == true)
     {
-        connect(m_inputCapture, SIGNAL(volumeChanged(int)),
-                this, SIGNAL(volumeLevelChanged()));
+        if (m_inputCapture)
+            connect(m_inputCapture, SIGNAL(volumeChanged(int)),
+                    this, SIGNAL(volumeLevelChanged()));
         for (BandMapping &bm : m_bandMappings)
         {
             if (bm.type == VCAudioTriggers::BarType::DMXBar)
@@ -298,8 +290,9 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
     }
     else
     {
-        disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
-                   this, SIGNAL(volumeLevelChanged()));
+        if (m_inputCapture)
+            disconnect(m_inputCapture, SIGNAL(volumeChanged(int)),
+                       this, SIGNAL(volumeLevelChanged()));
 
         m_doc->masterTimer()->unregisterDMXSource(this);
 
@@ -395,11 +388,16 @@ void VCAudioTriggers::refreshProfile()
     m_connectedProfile = resolvedAudioProfile();
     if (m_connectedProfile)
     {
-        connect(m_connectedProfile, &AudioProfile::configChanged, this, &VCAudioTriggers::configChanged);
+        connect(m_connectedProfile, &AudioProfile::configChanged, this, [this]() {
+            updateCaptureSubscription();
+            emit configChanged();
+            emit audioSnapshotChanged();
+        });
         connect(m_connectedProfile, &AudioProfile::audioSourceChanged, this, [this]() {
             resetEventCursor();
             updateCaptureSubscription();
             emit audioSourceChanged();
+            emit audioSnapshotChanged();
         });
         connect(m_connectedProfile, &AudioProfile::oscPortChanged, this, &VCAudioTriggers::oscPortChanged);
     }
@@ -417,13 +415,13 @@ void VCAudioTriggers::updateCaptureSubscription()
 {
     const bool subscribe = m_captureEnabled && resolvedAudioProfile()
                            && audioSource() == AudioProfile::Microphone;
-    if (!m_inputCapture || subscribe == m_captureRegistered)
+    if (!m_inputCapture)
         return;
-    m_captureRegistered = subscribe;
     if (subscribe)
-        m_inputCapture->registerBandsNumber(BandSourceCount - 1);
-    else
-        m_inputCapture->unregisterBandsNumber(BandSourceCount - 1);
+        m_inputCapture->registerSubscriber(this, profileChannelConfig().captureBufferMs);
+    else if (m_captureRegistered)
+        m_inputCapture->unregisterSubscriber(this);
+    m_captureRegistered = subscribe;
 }
 
 int VCAudioTriggers::audioSource() const
@@ -521,12 +519,12 @@ bool VCAudioTriggers::beatActive() const { return m_beatActive; }
 
 int VCAudioTriggers::lowCutBin() const
 {
-    return AudioCapture::lowCutBin(BandSourceCount - 1);
+    return AudioCapture::lowCutBin(5);
 }
 
 int VCAudioTriggers::highCutBin() const
 {
-    return AudioCapture::highCutBin(BandSourceCount - 1);
+    return AudioCapture::highCutBin(5);
 }
 
 double VCAudioTriggers::envelopeAttack() const
@@ -1870,7 +1868,11 @@ void VCAudioTriggers::duplicateCurrentProfile(const QString &name)
 AudioProfileListModel* VCAudioTriggers::profileListModel()
 {
     if (!m_profileListModel)
+    {
+        if (m_doc)
+            m_doc->ensureLowLatencyAudioProfile();
         m_profileListModel = new AudioProfileListModel(m_doc, this);
+    }
     return m_profileListModel;
 }
 
@@ -2022,8 +2024,10 @@ QVariantMap VCAudioTriggers::appliedAudio() const
                        {"banks", banks}, {"analysisFormat", tr("30000 Hz mono, 500 samples")},
                        {"device", QString()}, {"captureFormat", QString()}};
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    if (const auto *capture = qobject_cast<const AudioCaptureQt6 *>(m_inputCapture))
+    if (const auto *capture = qobject_cast<const AudioCaptureQt6 *>(m_inputCapture);
+        capture && audioSource() == AudioProfile::Microphone)
     {
+        result["input"] = capture->inputDiagnostics();
         result["device"] = capture->appliedDevice();
         const auto format = capture->captureFormat();
         result["captureFormat"] = tr("%1 Hz, %2 channels, %3")
@@ -2032,6 +2036,10 @@ QVariantMap VCAudioTriggers::appliedAudio() const
                  format.sampleFormat() == QAudioFormat::Int16 ? QStringLiteral("Int16") : tr("unavailable"));
     }
 #endif
+    const double processingUs = m_doc ? m_doc->audioAnalyzer()->avgFrameTimeUs() : 0.0;
+    result["analysisProcessingMs"] = audioSource() == AudioProfile::Microphone &&
+        analysisAvailable() && processingUs > 0.0 ? processingUs / 1000.0 : -1.0;
+    result["powerWindowSize"] = m_cachedSnapshot.config.aubio.powerWindowSize;
     result["tempoValid"] = m_cachedSnapshot.music.valid;
     result["beatInBar"] = m_cachedSnapshot.music.beatInBar;
     result["beatsPerBar"] = m_cachedSnapshot.music.beatsPerBar;
@@ -2039,6 +2047,29 @@ QVariantMap VCAudioTriggers::appliedAudio() const
     result["noiseFloor"] = m_cachedSnapshot.config.noiseGate.thresholdDb;
     result["diagnosticsEnabled"] = m_cachedSnapshot.config.aubio.diagnosticsEnabled;
     return result;
+}
+
+QString VCAudioTriggers::inputLatencyStatus() const
+{
+    if (audioSource() == AudioProfile::OscSynesthesia)
+        return tr("OSC source: microphone buffer and native analysis timing are not applicable. "
+                  "Hardware/end-to-end latency: unmeasured.");
+    const auto applied = appliedAudio();
+    const auto input = applied.value("input").toMap();
+    auto ms = [](const QVariant &value) {
+        return value.isValid() && value.toDouble() >= 0.0
+            ? tr("%1 ms").arg(value.toDouble(), 0, 'f', 2) : tr("unavailable");
+    };
+    return tr("Profile request: %1 ms; shared request: %2; submitted request: %3; capacity: %4.\n"
+              "Queued audio duration: %5; last PCM age: %6 (%7); shared analysis processing: %8.\n"
+              "%9. Hardware/end-to-end latency: unmeasured.")
+        .arg(profileChannelConfig().captureBufferMs)
+        .arg(ms(input.value("requestedMs")), ms(input.value("appliedRequestMs")),
+             ms(input.value("capacityMs")), ms(input.value("queuedMs")),
+             ms(input.value("lastPcmAgeMs")),
+             input.value("fresh").toBool() ? tr("fresh") : tr("stale or unavailable"),
+             ms(applied.value("analysisProcessingMs")),
+             input.value("requestStatus", tr("Input unavailable")).toString());
 }
 
 static QVariantList bankConfigurationValues(const AudioChannelConfig &config)
@@ -2418,10 +2449,12 @@ QVariantList VCAudioTriggers::barsInfo() const
         const BandMapping &bm = m_bandMappings[idx];
         QVariantMap barMap;
 
-        barMap.insert("bLabel", bandSourceLabel(bm.source));
+        barMap.insert("bLabel", QString::fromLatin1(mappingSources[bm.source].label));
         barMap.insert("source", int(bm.source));
         barMap.insert("sourceKey", bandSourceToKey(bm.source));
-        barMap.insert("color", bandSourceColor(bm.source));
+        barMap.insert("color", QString::fromLatin1(mappingSources[bm.source].color));
+        barMap.insert("group", bm.source >= BandKickPower || bm.source == BandVolume
+                      ? tr("Levels") : tr("Bank triggers / events"));
         barMap.insert("index", idx);
         barMap.insert("type", bm.type);
         barMap.insert("dmxScale", bm.dmxScale);
@@ -2457,6 +2490,39 @@ QVariantList VCAudioTriggers::barsInfo() const
     }
 
     return bList;
+}
+
+QVariantList VCAudioTriggers::mappingOrder() const
+{
+    return {BandKickPower, BandBassPower, BandLowsPower, BandMidsPower, BandHighsPower,
+            BandVolume, BandLow, BandMid, BandHigh, BandBeat, BandKick};
+}
+
+double VCAudioTriggers::sourceValue(BandSource source, quint64 beats) const
+{
+    switch (source)
+    {
+        case BandLow: return m_cachedSnapshot.triggers[0].value;
+        case BandMid: return m_cachedSnapshot.triggers[1].value;
+        case BandHigh: return m_cachedSnapshot.triggers[2].value;
+        case BandVolume: return m_cachedSnapshot.volume.normalized;
+        case BandBeat: return beats ? 1.0 : 0.0;
+        case BandKick: return m_cachedSnapshot.kickTrigger.value;
+        default: return m_cachedSnapshot.*(mappingSources[source].power);
+    }
+}
+
+QVariantList VCAudioTriggers::spectrumBars() const
+{
+    QVariantList bars;
+    for (int source = BandKickPower; source < BandSourceCount; ++source)
+        bars.append(QVariantMap{
+            {"name", QString::fromLatin1(mappingSources[source].label)},
+            {"color", QString::fromLatin1(mappingSources[source].color)},
+            {"value", sourceValue(BandSource(source))},
+            {"active", source >= BandLowsPower && m_cachedSnapshot.triggers[source - BandLowsPower].active}
+        });
+    return bars;
 }
 
 void VCAudioTriggers::setBarType(BarType type)
@@ -2753,7 +2819,17 @@ void VCAudioTriggers::processAudioSnapshot()
                        || snapshot.events.kick < m_eventKick || snapshot.events.bar < m_eventBar;
     const bool changed = reset || snapshot.frameSequence != m_eventFrame || wasAvailable != snapshot.available;
     if (!changed)
+    {
+        // PCM age advances even when the source has stopped publishing frames.
+        const int interval = profileChannelConfig().visualIntervalMs;
+        if (!m_inputLatencyTimer.isValid() || interval == m_snapshotTimer->interval()
+            || m_inputLatencyTimer.elapsed() >= interval)
+        {
+            m_inputLatencyTimer.start();
+            emit inputLatencyStatusChanged();
+        }
         return;
+    }
     const double elapsedMs = reset ? 0.0 : snapshot.audioDtMs * double(snapshot.frameSequence - m_eventFrame);
     quint64 onset = 0, beats = 0, kicks = 0, bars = 0;
     if (!reset && wasAvailable && snapshot.available)
@@ -2785,23 +2861,15 @@ void VCAudioTriggers::processAudioSnapshot()
     // A timer polls one bounded publication. Counters recover edges after skipped frames.
     if (!m_uiThrottleTimer.isValid())
         m_uiThrottleTimer.start();
+    const int visualIntervalMs = profileChannelConfig().visualIntervalMs;
+    // Low Latency uses the existing 16-ms poll itself as the visual gate.
+    // A second elapsed() >= 16 check drops polls when timer jitter or integer
+    // millisecond rounding measures 15 ms since the previous publication.
     const bool updateVisuals = reset || wasAvailable != snapshot.available
-                              || m_uiThrottleTimer.elapsed() >= kUiUpdateIntervalMs;
+                              || visualIntervalMs == m_snapshotTimer->interval()
+                              || m_uiThrottleTimer.elapsed() >= visualIntervalMs;
     if (updateVisuals)
         m_uiThrottleTimer.restart();
-    auto sourceNorm = [&](BandSource s) -> double {
-        switch (s)
-        {
-            case BandLow:    return m_cachedSnapshot.triggers[0].value;
-            case BandMid:    return m_cachedSnapshot.triggers[1].value;
-            case BandHigh:   return m_cachedSnapshot.triggers[2].value;
-            case BandVolume: return m_cachedSnapshot.volume.normalized;
-            case BandBeat:   return beats ? 1.0 : 0.0;
-            case BandKick:   return m_cachedSnapshot.kickTrigger.value;
-            default: return 0.0;
-        }
-    };
-
     auto trigState = [&](BandSource s) -> const TriggerState & {
         switch (s)
         {
@@ -2827,11 +2895,13 @@ void VCAudioTriggers::processAudioSnapshot()
     for (int idx = 0; idx < BandSourceCount; idx++)
     {
         BandMapping &bm = m_bandMappings[idx];
-        bm.lastNorm = sourceNorm(bm.source);
+        bm.lastNorm = sourceValue(bm.source, beats);
         bm.m_value = uchar(qBound(0.0, double(bm.lastNorm) * 255.0, 255.0));
         m_audioLevels.append(int(bm.m_value));
 
         TriggerState ts = trigState(bm.source);
+        if (bm.source >= BandKickPower)
+            ts.active = bm.lastNorm > 0.0;
         const bool pulse = bm.source == BandBeat || bm.source == BandKick;
         const quint64 count = bm.source == BandBeat ? beats : bm.source == BandKick ? kicks : 0;
         ts.firedThisFrame = !reset && ts.active && !m_mappingActive[idx];

@@ -11,5 +11,12 @@ private slots:
     void rawDetectorBranch();
     void silenceFreezesSpectrum();
     void profileRevisionAndRetirement();
+    void powerWindow_data();
+    void powerWindow();
+    void powerResponse_data();
+    void powerResponse();
+    void rawDetectorsPreserved_data();
+    void rawDetectorsPreserved();
+    void powerReconfiguration();
     void dumpCorpus();
 };

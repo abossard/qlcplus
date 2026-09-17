@@ -54,6 +54,29 @@ CustomPopupDialog
         propsList = list
     }
 
+    function boundedFloatDecimals(minValue, maxValue, currentValue)
+    {
+        var decimals = 3
+        var minAbs = Number.MAX_VALUE
+        var values = [Math.abs(minValue), Math.abs(maxValue), Math.abs(currentValue)]
+        for (var i = 0; i < values.length; i++)
+        {
+            if (values[i] > 0 && values[i] < minAbs)
+                minAbs = values[i]
+        }
+        if (minAbs !== Number.MAX_VALUE && minAbs < 1)
+            decimals = Math.max(decimals, Math.ceil(-Math.log10(minAbs)))
+
+        var span = Math.abs(maxValue - minValue)
+        if (span > 0 && span < 1)
+            decimals = Math.max(decimals, Math.ceil(-Math.log10(span)) + 1)
+
+        var maxAbs = Math.max(1, Math.abs(minValue), Math.abs(maxValue), Math.abs(currentValue))
+        var maxScale = 2147483647 / maxAbs
+        var maxDecimals = maxScale <= 1 ? 0 : Math.max(0, Math.min(6, Math.floor(Math.log10(maxScale))))
+        return Math.max(0, Math.min(decimals, maxDecimals))
+    }
+
     onAccepted:
     {
         if (widgetRef && algoCombo.currentText !== "")
@@ -220,11 +243,16 @@ CustomPopupDialog
         CustomDoubleSpinBox
         {
             property var propData
+            property bool hasBounds: propData && propData.min !== undefined && propData.max !== undefined
+            property real initialFloatValue: (propData && propData.value) ? parseFloat(propData.value) : 0
+            property int boundedDecimals: hasBounds ? popupRoot.boundedFloatDecimals(propData.min, propData.max, initialFloatValue) : 3
             height: UISettings.listItemHeight
-            realFrom: -1000000
-            realTo: 1000000
-            decimals: 3
-            realValue: (propData && propData.value) ? parseFloat(propData.value) : 0
+            boundedControl: hasBounds
+            realFrom: hasBounds ? propData.min : -1000000
+            realTo: hasBounds ? propData.max : 1000000
+            realStep: hasBounds ? Math.pow(10, -boundedDecimals) : 0.5
+            decimals: boundedDecimals
+            realValue: initialFloatValue
             onRealValueChanged:
             {
                 if (propData)

@@ -24,10 +24,13 @@ import "."
 CustomSpinBox
 {
     id: controlRoot
-    from: realFrom * Math.pow(10, decimals)
-    to: realTo * Math.pow(10, decimals)
-    value: realValue * Math.pow(10, decimals)
-    stepSize: realStep * Math.pow(10, decimals)
+    property real scale: Math.pow(10, decimals)
+    property bool boundedControl: false
+
+    from: boundedControl ? Math.round(realFrom * scale) : realFrom * scale
+    to: boundedControl ? Math.round(realTo * scale) : realTo * scale
+    value: boundedControl ? Math.round(realValue * scale) : realValue * scale
+    stepSize: boundedControl ? Math.max(1, Math.round(realStep * scale)) : realStep * scale
     suffix: "°"
 
     property real realFrom: 0
@@ -36,24 +39,54 @@ CustomSpinBox
     property real realStep: 0.5
     property int decimals: 2
 
-    validator: DoubleValidator {
+    validator: boundedControl ? boundedValidator : unboundedValidator
+    DoubleValidator
+    {
+        id: boundedValidator
+        decimals: controlRoot.decimals
+        notation: DoubleValidator.StandardNotation
+        bottom: Math.min(controlRoot.realFrom, controlRoot.realTo)
+        top: Math.max(controlRoot.realFrom, controlRoot.realTo)
+    }
+
+    DoubleValidator
+    {
+        id: unboundedValidator
         bottom: Math.min(controlRoot.from, controlRoot.to)
-        top:  Math.max(controlRoot.from, controlRoot.to)
+        top: Math.max(controlRoot.from, controlRoot.to)
     }
 
     textFromValue: function(value, locale) {
-        return Number(value / Math.pow(10, decimals)).toLocaleString(locale, 'f', decimals) + suffix
+        return Number(value / scale).toLocaleString(locale, 'f', decimals) + suffix
     }
 
     valueFromText: function(text, locale) {
-        return Number.fromLocaleString(locale, text.replace(suffix, "")) * Math.pow(10, decimals)
+        return Number.fromLocaleString(locale, text.replace(suffix, "")) * scale
     }
 
-    onValueModified: realValue = value / Math.pow(10, decimals)
+    onValueModified: realValue = value / scale
+    onRealValueChanged:
+    {
+        var targetValue = boundedControl ? Math.round(realValue * scale) : realValue * scale
+        if (value !== targetValue)
+            value = targetValue
+    }
+    onScaleChanged:
+    {
+        var targetValue = boundedControl ? Math.round(realValue * scale) : realValue * scale
+        if (value !== targetValue)
+            value = targetValue
+    }
+    onBoundedControlChanged:
+    {
+        var targetValue = boundedControl ? Math.round(realValue * scale) : realValue * scale
+        if (value !== targetValue)
+            value = targetValue
+    }
 
     function setValue(newValue)
     {
-        value = newValue
-        realValue = newValue / Math.pow(10, decimals)
+        value = boundedControl ? Math.round(newValue) : newValue
+        realValue = value / scale
     }
 }

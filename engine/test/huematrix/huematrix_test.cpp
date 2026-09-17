@@ -23,6 +23,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QScopeGuard>
+#include <QSet>
 #include <cmath>
 #include <limits>
 
@@ -52,6 +53,34 @@
 #include "../common/resource_paths.h"
 
 #define INTERNAL_HUESCRIPTDIR "../../../resources/huescripts/"
+
+static QStringList expectedHueAlgorithmNames()
+{
+    return QStringList{
+        "Audio Aurora", "Audio BPM Bar", "Audio Bands", "Audio Bands Matrix", "Audio Barcode",
+        "Audio Bass Laser", "Audio Beat Colors", "Audio Blade Power", "Audio Bleep", "Audio Blocks",
+        "Audio Blurz", "Audio Buildup", "Audio Cellular", "Audio Chaser", "Audio Concentric",
+        "Audio Crawler", "Audio DJ Light", "Audio Digital Rain", "Audio Energy", "Audio Energy 2",
+        "Audio Equalizer", "Audio Equalizer 2D", "Audio Filter", "Audio Fire", "Audio Fireworks",
+        "Audio Flame", "Audio Flow Field", "Audio Game of Life", "Audio Glitch", "Audio Glitch 2",
+        "Audio Gravimeter", "Audio Hierarchy", "Audio Hue Shift", "Audio Lava Lamp", "Audio Magnitude",
+        "Audio Marching", "Audio Melt", "Audio Melt and Sparkle", "Audio Multicolor Bar", "Audio Noise",
+        "Audio Pitch Spectrum", "Audio Plasma", "Audio Power", "Audio Puddles", "Audio Reaction-Diffusion",
+        "Audio Reactor", "Audio Scan", "Audio Scan Multi", "Audio Scan and Flare", "Audio Shockwave",
+        "Audio Shot", "Audio Smoke", "Audio Soap", "Audio Spectral Blocks", "Audio Spectrum Bars",
+        "Audio Split Tower", "Audio Spotlight", "Audio Strobe", "Audio Tunnel", "Audio Vortex",
+        "Audio VuMeter", "Audio Water", "Audio Waterfall", "Hue Fade", "Hue Gradient", "Hue Metro",
+        "Hue Pixels", "Hue Rainbow", "Hue Random Flash", "Hue Single Color"
+    };
+}
+
+static void failOnUnexpectedHueScriptWarnings()
+{
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*values cannot be applied before the 'type' property.*")));
+    QTest::failOnWarning(
+        QRegularExpression(QStringLiteral(".*Variable\\s+\"[^\"]+\"\\s+is\\s+used\\s+before\\s+its\\s+declaration.*")));
+}
 
 void HUEMatrix_Test::initTestCase()
 {
@@ -112,25 +141,52 @@ void HUEMatrix_Test::audioScriptsAreNotOfferedToRGBMatrix()
 
     // And resources/huescripts holds exactly those files
     QStringList moved = QDir(INTERNAL_HUESCRIPTDIR).entryList(QStringList() << "audio*.js");
-    QCOMPARE(moved.count(), 41);
+    QCOMPARE(moved.count(), 63);
 }
 
 void HUEMatrix_Test::hueMatrixOffersAllAudioScripts()
 {
+    failOnUnexpectedHueScriptWarnings();
+
     QStringList hueNames = HUEMatrix::availableAlgorithms(m_doc);
     QStringList rgbNames = RGBAlgorithm::algorithms(m_doc);
+    const QStringList expected = expectedHueAlgorithmNames();
 
     foreach (QString name, rgbNames)
         QVERIFY2(hueNames.contains(name) == false, qPrintable(name));
 
-    // All 41 relocated audio scripts are present and instantiable
+    // All HSV scripts are present and instantiable.
     QStringList hsv = m_doc->hueScriptsCache()->hsvNames();
-    QCOMPARE(hsv.count(), 41);
-    QCOMPARE(hueNames, hsv);
+    QCOMPARE(expected.count(), 70);
+    QCOMPARE(hsv.count(), 70);
+    QStringList sortedExpected = expected;
+    QStringList sortedHue = hueNames;
+    QStringList sortedHsv = hsv;
+    sortedExpected.sort();
+    sortedHue.sort();
+    sortedHsv.sort();
+    QCOMPARE(sortedHue, sortedExpected);
+    QCOMPARE(sortedHsv, sortedExpected);
+    QCOMPARE(QSet<QString>(hueNames.begin(), hueNames.end()).size(), hueNames.size());
     QVERIFY(hueNames.contains("Audio Spectrum Bars"));
+    QVERIFY(hueNames.contains("Audio Pitch Spectrum"));
+    QVERIFY(hueNames.contains("Audio Digital Rain"));
+    QVERIFY(hueNames.contains("Audio Waterfall"));
+    QVERIFY(hueNames.contains("Audio Bands"));
+    QVERIFY(hueNames.contains("Audio Equalizer 2D"));
+    QVERIFY(hueNames.contains("Audio VuMeter"));
+    QVERIFY(hueNames.contains("Hue Fade"));
+    QVERIFY(hueNames.contains("Hue Rainbow"));
     QVERIFY(!hueNames.contains("Audio Spectrum"));
     QVERIFY(rgbNames.contains("Audio Spectrum"));
     QVERIFY(rgbNames.contains("Stripes"));
+    QStringList runtime = HUEMatrix::runtimeAlgorithms(m_doc);
+    QStringList runtimeSuffix = runtime.mid(rgbNames.size());
+    QStringList sortedRuntimeSuffix = runtimeSuffix;
+    sortedRuntimeSuffix.sort();
+    QCOMPARE(runtime.mid(0, rgbNames.size()), rgbNames);
+    QCOMPARE(sortedRuntimeSuffix, sortedExpected);
+    QCOMPARE(QSet<QString>(runtime.begin(), runtime.end()).size(), runtime.size());
     foreach (QString name, hsv)
     {
         QVERIFY2(hueNames.contains(name), qPrintable(name));
@@ -160,7 +216,7 @@ void HUEMatrix_Test::defaultPattern()
     const QStringList offered = HUEMatrix::availableAlgorithms(&doc);
     if (loadHsv)
     {
-        QCOMPARE(offered.count(), 41);
+        QCOMPARE(offered.count(), 70);
         QVERIFY(matrix.algorithm() != nullptr);
         QCOMPARE(matrix.algorithm()->name(), QString("Audio Aurora"));
         QVERIFY(offered.contains(matrix.algorithm()->name()));
@@ -199,6 +255,69 @@ void HUEMatrix_Test::nonAudioHsvContract()
     QVERIFY(!RGBAlgorithm::algorithms(&doc).contains("Still HSV"));
     QVERIFY(file.remove());
     QVERIFY(QDir().rmdir(fixtureDir));
+}
+
+void HUEMatrix_Test::nonAudioSingleColorStepBoundary()
+{
+    auto *group = new FixtureGroup(m_doc);
+    group->setName("HueSingleColor");
+    group->setSize(QSize(5, 1));
+    QVERIFY(m_doc->addFixtureGroup(group));
+
+    MasterTimer timer(m_doc);
+    QList<Universe *> universes = m_doc->inputOutputMap()->claimUniverses();
+    m_doc->inputOutputMap()->releaseUniverses(false);
+
+    auto *staticAlgo = HUEMatrix::createAlgorithm(m_doc, "Hue Single Color");
+    QVERIFY(staticAlgo != nullptr);
+    auto *staticScript = static_cast<RGBScript *>(staticAlgo);
+    QVERIFY(staticScript->setProperty("presetModulation", "Off"));
+    QCOMPARE(staticAlgo->rgbMapStepCount(group->size()), 1);
+    HUEMatrix staticMatrix(m_doc);
+    staticMatrix.setFixtureGroup(group->id());
+    staticMatrix.setDuration(20);
+    staticMatrix.setFadeInSpeed(0);
+    staticMatrix.setFadeOutSpeed(0);
+    staticMatrix.setAlgorithm(staticAlgo);
+    staticMatrix.preRun(&timer);
+    staticMatrix.write(&timer, universes);
+    const RGBMap staticFirst = staticMatrix.m_stepHandler->m_map;
+    QTest::qSleep(30);
+    staticMatrix.write(&timer, universes);
+    const RGBMap staticSecond = staticMatrix.m_stepHandler->m_map;
+    staticMatrix.postRun(&timer, universes);
+    QCOMPARE(staticFirst, staticSecond);
+
+    auto *animatedAlgo = HUEMatrix::createAlgorithm(m_doc, "Hue Single Color");
+    QVERIFY(animatedAlgo != nullptr);
+    auto *animatedScript = static_cast<RGBScript *>(animatedAlgo);
+    QVERIFY(animatedScript->setProperty("presetModulation", "Sine"));
+    QVERIFY(animatedScript->setProperty("presetModulationSpeed", "1"));
+    QVERIFY(animatedScript->setProperty("presetTemporalSpeed", "10"));
+    QCOMPARE(animatedAlgo->rgbMapStepCount(group->size()), 2);
+
+    HUEMatrix animatedMatrix(m_doc);
+    animatedMatrix.setFixtureGroup(group->id());
+    animatedMatrix.setDuration(20);
+    animatedMatrix.setFadeInSpeed(0);
+    animatedMatrix.setFadeOutSpeed(0);
+    animatedMatrix.setAlgorithm(animatedAlgo);
+    animatedMatrix.preRun(&timer);
+    animatedMatrix.write(&timer, universes);
+    const RGBMap animatedFirst = animatedMatrix.m_stepHandler->m_map;
+    QTest::qSleep(30);
+    animatedMatrix.write(&timer, universes);
+    const RGBMap animatedSecond = animatedMatrix.m_stepHandler->m_map;
+
+    const uint sentinel = 0x00123456;
+    animatedMatrix.setDuration(200);
+    animatedMatrix.write(&timer, universes);
+    animatedMatrix.m_stepHandler->m_map = RGBMap(1, QVector<uint>(5, sentinel));
+    animatedMatrix.write(&timer, universes);
+    QCOMPARE(animatedMatrix.m_stepHandler->m_map, RGBMap(1, QVector<uint>(5, sentinel)));
+    animatedMatrix.postRun(&timer, universes);
+
+    QVERIFY(animatedFirst != animatedSecond);
 }
 
 void HUEMatrix_Test::patternSelection_data()
@@ -289,13 +408,74 @@ void HUEMatrix_Test::legacyAlgorithmRoundTrip_data()
     QTest::addColumn<QString>("type");
     QTest::addColumn<QString>("propertyName");
     QTest::addColumn<QString>("propertyValue");
-    QTest::newRow("legacy-rgb-script") << "Stripes" << "Script" << "orientation" << "Vertical";
-    QTest::newRow("legacy-built-in-audio") << "Audio Spectrum" << "Audio" << "" << "";
-    QTest::newRow("hsv-script") << "Audio Fire" << "Script" << "intensity" << "19";
+    const auto add = [](const char *rowId, const char *name, const char *type,
+                        const char *propertyName, const char *propertyValue) {
+        QTest::newRow(rowId) << QString::fromUtf8(name) << QString::fromUtf8(type)
+                             << QString::fromUtf8(propertyName) << QString::fromUtf8(propertyValue);
+    };
+
+    add("legacy-rgb-script", "Stripes", "Script", "orientation", "Vertical");
+    add("legacy-built-in-audio", "Audio Spectrum", "Audio", "", "");
+    add("legacy-hsv-script", "Audio Fire", "Script", "intensity", "19");
+
+    // Added mode values on existing identities
+    add("mode-audio-barcode-scrollplus", "Audio Barcode", "Script", "mode", "Scroll+");
+    add("mode-audio-blocks-ledfx", "Audio Blocks", "Script", "mode", "LedFx Block Reflections");
+    add("mode-audio-crawler-ledfx", "Audio Crawler", "Script", "mode", "LedFx Crawler");
+    add("mode-audio-energy2-ledfx", "Audio Energy 2", "Script", "mode", "LedFx Energy 2");
+    add("mode-audio-equalizer-segment", "Audio Equalizer", "Script", "mode", "Segment Equalizer");
+    add("mode-audio-fire-ledfx", "Audio Fire", "Script", "mode", "LedFx Fire");
+    add("mode-audio-glitch-ledfx", "Audio Glitch", "Script", "mode", "LedFx Glitch");
+    add("mode-audio-lava-ledfx", "Audio Lava Lamp", "Script", "mode", "LedFx Lava Lamp");
+    add("mode-audio-melt-ledfx", "Audio Melt", "Script", "mode", "LedFx Melt");
+    add("mode-audio-meltsparkle-ledfx", "Audio Melt and Sparkle", "Script", "mode", "LedFx Melt and Sparkle");
+    add("mode-audio-plasma-plasma2d", "Audio Plasma", "Script", "mode", "Plasma2d");
+    add("mode-audio-plasma-wled2d", "Audio Plasma", "Script", "mode", "PlasmaWled2d");
+    add("mode-audio-power-ledfx", "Audio Power", "Script", "mode", "LedFx Power");
+    add("mode-audio-puddles-rainpulse", "Audio Puddles", "Script", "mode", "Rain Pulse");
+    add("mode-audio-scan-ledfx", "Audio Scan", "Script", "mode", "LedFx Scan");
+    add("mode-audio-scanflare-ledfx", "Audio Scan and Flare", "Script", "mode", "LedFx Scan and Flare");
+    add("mode-audio-scanmulti-ledfx", "Audio Scan Multi", "Script", "mode", "LedFx Scan Multi");
+    add("mode-audio-soap-ledfx", "Audio Soap", "Script", "mode", "LedFx Soap");
+    add("mode-audio-strobe-percussive", "Audio Strobe", "Script", "mode", "Percussive RGB");
+    add("mode-audio-water-ledfx", "Audio Water", "Script", "mode", "LedFx Water");
+
+    // All 29 new identities with nondefault properties
+    add("new-identity-audio-bands", "Audio Bands", "Script", "bandCount", "11");
+    add("new-identity-audio-bands-matrix", "Audio Bands Matrix", "Script", "flipBandOrder", "Yes");
+    add("new-identity-audio-blade-power", "Audio Blade Power", "Script", "frequencyRange", "High");
+    add("new-identity-audio-bleep", "Audio Bleep", "Script", "mode", "Fill");
+    add("new-identity-audio-bpm-bar", "Audio BPM Bar", "Script", "mode", "bounce");
+    add("new-identity-audio-concentric", "Audio Concentric", "Script", "frequencyRange", "High");
+    add("new-identity-audio-digital-rain", "Audio Digital Rain", "Script", "lineWidth", "17");
+    add("new-identity-audio-equalizer-2d", "Audio Equalizer 2D", "Script", "mode", "Ring");
+    add("new-identity-audio-filter", "Audio Filter", "Script", "useGradient", "No");
+    add("new-identity-audio-flame", "Audio Flame", "Script", "spawnRate", "11");
+    add("new-identity-audio-game-of-life", "Audio Game of Life", "Script", "healthCheck", "Oscillating");
+    add("new-identity-audio-hierarchy", "Audio Hierarchy", "Script", "thresholdLows", "0.2");
+    add("new-identity-audio-magnitude", "Audio Magnitude", "Script", "mirror", "On");
+    add("new-identity-audio-marching", "Audio Marching", "Script", "reactivity", "0.4");
+    add("new-identity-audio-multicolor-bar", "Audio Multicolor Bar", "Script", "mode", "cascade");
+    add("new-identity-audio-noise", "Audio Noise", "Script", "stretch", "1.2");
+    add("new-identity-audio-pitch-spectrum", "Audio Pitch Spectrum", "Script", "mirror", "No");
+    add("new-identity-audio-smoke", "Audio Smoke", "Script", "zoom", "3");
+    add("new-identity-audio-spectral-blocks", "Audio Spectral Blocks", "Script", "blockCount", "7");
+    add("new-identity-audio-spotlight", "Audio Spotlight", "Script", "gradient", "No");
+    add("new-identity-audio-vumeter", "Audio VuMeter", "Script", "peakPercent", "3");
+    add("new-identity-audio-waterfall", "Audio Waterfall", "Script", "centerMode", "On");
+    add("new-identity-hue-fade", "Hue Fade", "Script", "presetFlip", "On");
+    add("new-identity-hue-gradient", "Hue Gradient", "Script", "presetModulation", "Sine");
+    add("new-identity-hue-metro", "Hue Metro", "Script", "presetSteps", "5");
+    add("new-identity-hue-pixels", "Hue Pixels", "Script", "presetBuildUp", "Off");
+    add("new-identity-hue-rainbow", "Hue Rainbow", "Script", "presetMirror", "On");
+    add("new-identity-hue-random-flash", "Hue Random Flash", "Script", "presetSize", "3");
+    add("new-identity-hue-single-color", "Hue Single Color", "Script", "presetModulation", "Sine");
 }
 
 void HUEMatrix_Test::legacyAlgorithmRoundTrip()
 {
+    failOnUnexpectedHueScriptWarnings();
+
     QFETCH(QString, name);
     QFETCH(QString, type);
     QFETCH(QString, propertyName);
@@ -323,8 +503,12 @@ void HUEMatrix_Test::legacyAlgorithmRoundTrip()
         QVERIFY(dynamic_cast<RGBAudio *>(matrix->algorithm()) != nullptr);
     else
         QVERIFY(dynamic_cast<HUEScript *>(matrix->algorithm()) != nullptr);
-    if (name != "Audio Fire")
+    if (type == "Audio")
         QVERIFY(!HUEMatrix::availableAlgorithms(&doc).contains(name));
+    else if (name == "Stripes")
+        QVERIFY(!HUEMatrix::availableAlgorithms(&doc).contains(name));
+    else
+        QVERIFY(HUEMatrix::availableAlgorithms(&doc).contains(name));
 
     QString saved;
     QXmlStreamWriter writer(&saved);
@@ -1535,9 +1719,17 @@ static bool waitForPrecomputeDrain(HUEMatrix *mtx, int timeoutMs = 60000)
     return true;
 }
 
+void HUEMatrix_Test::asyncPrecomputeProducesAConsumableMap_data()
+{
+    QTest::addColumn<QString>("algorithmName");
+    QTest::newRow("legacy-script") << "Stripes";
+    QTest::newRow("hue-single-color") << "Hue Single Color";
+}
+
 void HUEMatrix_Test::asyncPrecomputeProducesAConsumableMap()
 {
-    const QString name = "Stripes";
+    QFETCH(QString, algorithmName);
+    const QString name = algorithmName;
     RGBAlgorithm *algo = HUEMatrix::createAlgorithm(m_doc, name);
     QVERIFY2(algo != NULL, qPrintable(name));
     QCOMPARE(algo->type(), RGBAlgorithm::Script);

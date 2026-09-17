@@ -520,6 +520,8 @@ public:
 
     /** Ensure a default audio profile exists and return it */
     AudioProfile* ensureDefaultAudioProfile();
+    /** Populate the opt-in preset after workspace loading, at chooser entry. */
+    AudioProfile* ensureLowLatencyAudioProfile();
 
     /** The active profile supplies unqualified audio and the global Audio clock. */
     quint32 activeAudioProfileId() const;

@@ -20,9 +20,13 @@ var testAlgo;
     algo.apiVersion = 3;
     algo.name = "Audio Water";
     algo.author = "Ported from LedFx";
-    algo.acceptColors = 0;
+    algo.acceptColors = 3;
     algo.usesAudio = true;
     algo.properties = new Array();
+    algo.presetMode = "Artistic";
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,LedFx Water|write:setMode|read:getMode");
+    algo.setMode = function(v) { algo.presetMode = v === "LedFx Water" ? v : "Artistic"; };
+    algo.getMode = function() { return algo.presetMode; };
 
     algo.speed = 1;
     algo.vertical_shift = 0.12;
@@ -56,6 +60,12 @@ var testAlgo;
     var EMITTER_DRIFT_RATE = 0.0002;
     var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
     var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
+    var ledFxAudioIdentityKey = "";
+    var ledFxGeometryKey = "";
+    var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
+        prefix: "ledFx",
+        display: "LedFx "
+    });
 
     function init(w) {
         buf0 = new Array(w); buf1 = new Array(w);
@@ -63,6 +73,16 @@ var testAlgo;
         curBuf = 0;
         midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
         highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
+    }
+
+    function ledFxGradientStops() {
+        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
+            return algo.colors;
+        return [
+            {h: 0 / 3, s: 1, v: 1},
+            {h: 1 / 3, s: 1, v: 1},
+            {h: 2 / 3, s: 1, v: 1}
+        ];
     }
 
     function createDrop(pos, h, w) {
@@ -92,65 +112,140 @@ var testAlgo;
         curBuf = 1 - curBuf;
     }
 
+    function thirdMaxPowers(audio) {
+        var bank = audio && audio.banks && audio.banks.full;
+        if (!bank || !bank.count) {
+            return {
+                low: HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0),
+                mid: HSVUtil.clamp01(audio && isFinite(audio.mid) ? audio.mid : 0),
+                high: HSVUtil.clamp01(audio && isFinite(audio.high) ? audio.high : 0)
+            };
+        }
+        var values = Array.isArray(bank.processed) ? bank.processed : [];
+        if (!values.length) {
+            return {
+                low: HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0),
+                mid: HSVUtil.clamp01(audio && isFinite(audio.mid) ? audio.mid : 0),
+                high: HSVUtil.clamp01(audio && isFinite(audio.high) ? audio.high : 0)
+            };
+        }
+        var count = Math.min(bank.count, values.length);
+        var a = Math.floor(count * 0.2);
+        var b = Math.floor(count * 0.5);
+        function maxIn(start, end) {
+            var peak = 0;
+            for (var i = start; i < end; i++) {
+                var v = isFinite(values[i]) ? values[i] : 0;
+                if (v > peak) peak = v;
+            }
+            return HSVUtil.clamp01(peak);
+        }
+        return { low: maxIn(0, a), mid: maxIn(a, b), high: maxIn(b, count) };
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
-        if (!buf0 || buf0.length !== width) init(width);
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
-        if (width < 5) return map;
+        var ledFxMode = algo.presetMode === "LedFx Water";
+        var stripLength = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
+        var stops = ledFxMode ? ledFxGradientStops() : null;
+        var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
+        if (ledFxMode) {
+            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
+            var geometryKey = width + "x" + height;
+            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
+                ledFxAudioIdentityKey = audioIdentityKey;
+                ledFxGeometryKey = geometryKey;
+                init(stripLength);
+            }
+        }
+        if (!buf0 || buf0.length !== stripLength) init(stripLength);
+        if (stripLength < 5) {
+            if (ledFxMode)
+                HSVUtil.applyStripTransforms(map, width, height, ledFxOutputOptions);
+            return map;
+        }
 
         var speed = algo.speed;
         var dampFactor = Math.pow(2, algo.viscosity);
         var shift = algo.vertical_shift;
+        var ledFxDrift = ledFxMode ? (HSVUtil.audioSeconds(audio) * 60) : 1;
 
-        var lowP = Math.pow(audio.low, 2);
-        var midP = Math.pow(audio.mid, 2);
-        var hiP  = Math.pow(audio.high, 2);
+        var power = ledFxMode ? thirdMaxPowers(audio) : {
+            low: HSVUtil.clamp01(audio.low),
+            mid: HSVUtil.clamp01(audio.mid),
+            high: HSVUtil.clamp01(audio.high)
+        };
+        var lowP = Math.pow(power.low, 2);
+        var midP = Math.pow(power.mid, 2);
+        var hiP  = Math.pow(power.high, 2);
 
-        createDrop(1, lowP * algo.bass_size, width);
-        createDrop(Math.floor(width / 2), lowP * algo.bass_size, width);
-        createDrop(width - 2, lowP * algo.bass_size, width);
+        function injectDrops() {
+            createDrop(1, lowP * algo.bass_size, stripLength);
+            createDrop(Math.floor(stripLength / 2), lowP * algo.bass_size, stripLength);
+            createDrop(stripLength - 2, lowP * algo.bass_size, stripLength);
 
-        for (var i = 0; i < midsEmitters.length; i++) {
-            var pos = 1 + Math.floor(midsEmitters[i][0] * (width - 2));
-            createDrop(pos, midP * algo.mids_size, width);
-            midsEmitters[i][0] += EMITTER_DRIFT_RATE * midsEmitters[i][1] * speed;
-            if (midsEmitters[i][0] < 0) midsEmitters[i][0] += 1;
-            else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
+            for (var i = 0; i < midsEmitters.length; i++) {
+                var pos = 1 + Math.floor(midsEmitters[i][0] * (stripLength - 2));
+                createDrop(pos, midP * algo.mids_size, stripLength);
+                midsEmitters[i][0] += EMITTER_DRIFT_RATE * midsEmitters[i][1] * speed * ledFxDrift;
+                if (midsEmitters[i][0] < 0) midsEmitters[i][0] += 1;
+                else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
+            }
+
+            for (var i = 0; i < highEmitters.length; i++) {
+                var pos = 1 + Math.floor(highEmitters[i][0] * (stripLength - 2));
+                createDrop(pos, hiP * algo.high_size, stripLength);
+                highEmitters[i][0] += EMITTER_DRIFT_RATE * highEmitters[i][1] * speed * ledFxDrift;
+                if (highEmitters[i][0] < 0) highEmitters[i][0] += 1;
+                else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
+            }
         }
+        if (!ledFxMode)
+            injectDrops();
 
-        for (var i = 0; i < highEmitters.length; i++) {
-            var pos = 1 + Math.floor(highEmitters[i][0] * (width - 2));
-            createDrop(pos, hiP * algo.high_size, width);
-            highEmitters[i][0] += EMITTER_DRIFT_RATE * highEmitters[i][1] * speed;
-            if (highEmitters[i][0] < 0) highEmitters[i][0] += 1;
-            else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
-        }
-
-        var speedSteps = Math.round(speed);
+        var speedSteps = ledFxMode ? Math.floor(speed) : Math.round(speed);
         for (var s = 0; s < speedSteps; s++)
-            doRipple(dampFactor, width);
+            doRipple(dampFactor, stripLength);
 
-        // Output HSV directly — this effect already computed in HSV
+        if (ledFxMode)
+            injectDrops();
+
         var current = (curBuf === 0) ? buf0 : buf1;
-        for (var x = 0; x < width; x++) {
-            var val = current[x];
+        for (var i = 0; i < stripLength; i++) {
+            var x = ledFxMode ? (i % width) : i;
+            var yBase = ledFxMode ? Math.floor(i / width) : 0;
+            var val = current[i];
             var h = HSVUtil.triangle(val);
             var vScaled = (val + shift) / (1 + shift);
             var sv = Math.max(0, Math.min(1, 2 - (vScaled + shift)));
             var v = Math.max(0, Math.min(1, vScaled));
 
-            for (var y = 0; y < height; y++) {
-                var i3 = (y * width + x) * 3;
-                map[i3] = h;
-                map[i3 + 1] = sv;
-                map[i3 + 2] = v;
+            if (ledFxMode) {
+                var base = HSVUtil.gradientRgbAt(stops, h);
+                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
+                var r = (base[0] + (maxRgb - base[0]) * (1 - sv)) * v;
+                var g = (base[1] + (maxRgb - base[1]) * (1 - sv)) * v;
+                var b = (base[2] + (maxRgb - base[2]) * (1 - sv)) * v;
+                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                HSVUtil.setPixel(map, width, x, yBase, hsvOut.h, hsvOut.s, hsvOut.v);
+            } else {
+                for (var y = 0; y < height; y++) {
+                    var i3 = (y * width + x) * 3;
+                    map[i3] = h;
+                    map[i3 + 1] = sv;
+                    map[i3 + 2] = v;
+                }
             }
         }
+
+        if (ledFxMode)
+            HSVUtil.applyStripTransforms(map, width, height, ledFxOutputOptions);
 
         return map;
     };

@@ -23,6 +23,10 @@ var testAlgo;
     algo.acceptColors = 3; // low/mid/high mel-bank gradient
     algo.usesAudio = true;
     algo.properties = new Array();
+    algo.presetMode = "Artistic";
+    algo.properties.push("name:mode|type:list|display:Response|values:Artistic,LedFx Glitch|write:setMode|read:getMode");
+    algo.setMode = function(v) { algo.presetMode = v === "LedFx Glitch" ? v : "Artistic"; };
+    algo.getMode = function() { return algo.presetMode; };
 
     algo.presetReactivity = 0.3;
     algo.properties.push(
@@ -34,7 +38,7 @@ var testAlgo;
       "write:setSpeed|read:getSpeed");
     algo.presetSaturation = 1.0;
     algo.properties.push(
-      "name:presetSaturation|type:float|display:Saturation|" +
+      "name:presetSaturation|type:float|display:Saturation Threshold|" +
       "write:setSaturation|read:getSaturation");
     algo.presetComplexity = 5;
     algo.properties.push(
@@ -70,6 +74,14 @@ var testAlgo;
     var FLASH_DECAY = 0.15;
     var COLOR_FLOOR = 0.35;
     var BRIGHT_FLOOR = 0.4;
+    var glitchLedTimestepMs = 0;
+    var NOMINAL_HZ = 60;
+    var glitchLedAudioIdentityKey = "";
+    var glitchLedGeometryKey = "";
+    var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
+        prefix: "ledFx",
+        display: "LedFx "
+    });
     var phaseSlow = { phase: 0 };
     var phaseMed  = { phase: 0 };
     var phaseT4   = { phase: 0 };
@@ -94,6 +106,16 @@ var testAlgo;
         return bc[0];
     }
 
+    function ledFxGradientStops() {
+        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
+            return algo.colors;
+        return [
+            {h: 0 / 3, s: 1, v: 1},
+            {h: 1 / 3, s: 1, v: 1},
+            {h: 2 / 3, s: 1, v: 1}
+        ];
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -102,6 +124,70 @@ var testAlgo;
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
+
+        var ledFxMode = algo.presetMode === "LedFx Glitch";
+        if (ledFxMode) {
+            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, glitchLedAudioIdentityKey);
+            var geometryKey = width + "x" + height;
+            if (audioIdentityKey !== glitchLedAudioIdentityKey || geometryKey !== glitchLedGeometryKey) {
+                glitchLedAudioIdentityKey = audioIdentityKey;
+                glitchLedGeometryKey = geometryKey;
+                glitchLedTimestepMs = 0;
+            }
+            var dtSec = HSVUtil.audioSeconds(audio);
+            var lowPower = HSVUtil.clamp01(isFinite(audio.low) ? audio.low : 0);
+            var speed = algo.presetSpeed;
+            var speedSafe = speed > 0 ? speed : 0.00001;
+            var reactivity = algo.presetReactivity;
+            var satThreshold = HSVUtil.clamp01(algo.presetSaturation);
+            var count = Math.max(1, width * height);
+
+            glitchLedTimestepMs += dtSec * 1000.0;
+            glitchLedTimestepMs += lowPower * reactivity / speedSafe * 1000.0 * dtSec * NOMINAL_HZ;
+
+            var t1 = HSVUtil.time01(speed * 0.5, glitchLedTimestepMs) * Math.PI * 2;
+            var t2 = HSVUtil.time01(speed * 0.5, glitchLedTimestepMs);
+            var t3 = HSVUtil.time01(speed * 2.5, glitchLedTimestepMs);
+            var t4 = HSVUtil.time01(speed * 1.0, glitchLedTimestepMs) * Math.PI * 2;
+            var t5 = HSVUtil.time01(speed * 0.25, glitchLedTimestepMs);
+            var t6 = HSVUtil.time01(speed * 10.0, glitchLedTimestepMs);
+
+            var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
+            var c = triangle(t3) * 10.0 + 4.0 * Math.sin(t4);
+            var stops = ledFxGradientStops();
+            var ledFxOutputOptions = getLedFxOutputOptions();
+            var denom = Math.max(1, count - 1);
+
+            for (var i = 0; i < count; i++) {
+                var x = i % width;
+                var y = Math.floor(i / width);
+                var centered = (i - count / 2) / count;
+                var i2 = (i / denom) * 5.0;
+                var i3 = -1.0 + i / denom;
+
+                var h = ((centered * c) % m + m) % m;
+                h += Math.sin(t1);
+
+                var s1 = triangle((t5 + i2) % 1);
+                s1 *= s1;
+                var s2 = triangle((t6 - i3) % 1);
+                s2 = Math.pow(s2, 4);
+                var sat = 1 - triangle(s1 * s2);
+                if (sat < satThreshold) sat = satThreshold;
+                if (sat > 1) sat = 1;
+
+                var base = HSVUtil.gradientRgbAt(stops, HSVUtil.mod1(h));
+                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
+                var r = base[0] + (maxRgb - base[0]) * (1 - sat);
+                var g = base[1] + (maxRgb - base[1]) * (1 - sat);
+                var b = base[2] + (maxRgb - base[2]) * (1 - sat);
+                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                HSVUtil.setPixel(map, width, x, y, hsvOut.h, hsvOut.s, hsvOut.v);
+            }
+
+            HSVUtil.applyStripTransforms(map, width, height, ledFxOutputOptions);
+            return map;
+        }
 
         var dt = audio.dt;
         var lowPower = audio.low;
@@ -160,8 +246,6 @@ var testAlgo;
 
             var baseBrightness = Math.max(BRIGHT_FLOOR, flashLevel);
             var brightness = baseBrightness;
-
-            // HSV output: dominant hue shifted by glitch pattern
             var hOut = HSVUtil.mod1(dominant.h + hNorm * (1 - dominant.s) * 0.4);
             var sOut = HSVUtil.clamp01(dominant.s + (1 - dominant.s) * sat * 0.5);
             var vOut = HSVUtil.clamp01((COLOR_FLOOR + glitchMix) * brightness * dominant.v);

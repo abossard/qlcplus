@@ -23,6 +23,7 @@
 #include <QThread>
 #include <QDebug>
 #include <QFile>
+#include <cmath>
 
 // cppcheck-suppress missingIncludeSystem
 #include <QCoreApplication>
@@ -586,7 +587,6 @@ bool RGBScript::loadProperties()
     foreach (QString cap, slCaps)
     {
         RGBScriptProperty newCap;
-
         QStringList propsList = cap.split('|');
         foreach (QString prop, propsList)
         {
@@ -634,8 +634,37 @@ bool RGBScript::loadProperties()
                         }
                     }
                     break;
+                    case RGBScriptProperty::Float:
+                    {
+                        if (values.length() != 2)
+                        {
+                            qWarning() << value << ": malformed property. Float bounds should be defined as 'min,max'. Please fix it.";
+                        }
+                        else
+                        {
+                            bool minOk = false;
+                            bool maxOk = false;
+                            double minValue = values.at(0).trimmed().toDouble(&minOk);
+                            double maxValue = values.at(1).trimmed().toDouble(&maxOk);
+                            if (!minOk || !maxOk || !std::isfinite(minValue) || !std::isfinite(maxValue))
+                            {
+                                qWarning() << value << ": malformed property. Float bounds must be finite numbers 'min,max'. Please fix it.";
+                            }
+                            else if (minValue >= maxValue)
+                            {
+                                qWarning() << value << ": malformed property. Float bounds must be ordered as min < max.";
+                            }
+                            else
+                            {
+                                newCap.m_floatHasBounds = true;
+                                newCap.m_floatMinValue = minValue;
+                                newCap.m_floatMaxValue = maxValue;
+                            }
+                        }
+                    }
+                    break;
                     default:
-                        qWarning() << value << ": values cannot be applied before the 'type' property or on type:integer and type:string";
+                        qWarning() << value << ": values cannot be applied before the 'type' property or on type:string";
                     break;
                 }
             }

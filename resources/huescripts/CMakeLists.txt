@@ -1,6 +1,12 @@
 project(huescripts)
 
 set(SCRIPT_FILES
+    audiobands.js
+    audiobandsmatrix.js
+    audiobladepower.js
+    audiobleep.js
+    audiobpmbar.js
+    audioconcentric.js
     audioaurora.js
     audiobarcode.js
     audiobasslaser.js
@@ -11,22 +17,33 @@ set(SCRIPT_FILES
     audiocellular.js
     audiochaser.js
     audiocrawler.js
+    audiodigitalrain.js
     audiodjlight.js
     audioenergy.js
     audioenergy2.js
     audioequalizer.js
+    audioequalizer2d.js
+    audiofilter.js
     audiofire.js
+    audioflame.js
     audiofireworks.js
     audioflowfield.js
+    audiogameoflife.js
     audioglitch.js
     audioglitch2.js
     audiogravimeter.js
+    audiohierarchy.js
     audiohueshift.js
     audiolava.js
+    audiomagnitude.js
+    audiomarching.js
     audiomelt.js
     audiomeltsparkle.js
+    audiomulticolorbar.js
+    audionoise.js
     audioplasma.js
     audiopower.js
+    audiopitchspectrum.js
     audiopuddles.js
     audioreaction.js
     audioreactor.js
@@ -36,12 +53,24 @@ set(SCRIPT_FILES
     audioshockwave.js
     audioshot.js
     audiosoap.js
+    audiosmoke.js
+    audiospectralblocks.js
+    audiospotlight.js
     audiospectrum.js
     audiosplittower.js
     audiostrobe.js
     audiotunnel.js
+    audiovumeter.js
     audiovortex.js
     audiowater.js
+    audiowaterfall.js
+    huefade.js
+    huegradient.js
+    huemetro.js
+    huepixels.js
+    huerainbow.js
+    huerandomflash.js
+    huesinglecolor.js
     hsvutil.js
 )
 

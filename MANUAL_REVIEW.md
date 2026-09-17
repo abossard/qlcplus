@@ -1266,3 +1266,111 @@ Upstream renamed the executable `qlcplus-qml` → **`qlcplus5`** to avoid collid
 | Scene Editor input / pan-tilt | | | | §24.8 |
 | 3D scene reset | | | | §24.9 |
 | Binary rename fallout | | | | §24.10 |
+
+---
+
+## 25. Hue Matrix LedFx migration manual acceptance (C0-8)
+
+Automation already checks contract, finite HSV bounds, script registration, and replay stability. This section is only visual and musical acceptance. Keep it unchecked until a human runs it.
+
+### 25.1 Fixture setup
+
+- ☐ Run on three layouts: 1xN strip, Nx1 tall strip, and asymmetric matrix (for example 7x11).
+- ☐ Use one track with clear low, mid, high, onset, beat, and downbeat passages.
+- ☐ Keep the same palette and fixture profile while comparing variants.
+
+### 25.2 Eligible registration checklist (54 rows)
+
+- ☐ Row 01 bands
+- ☐ Row 02 bands_matrix
+- ☐ Row 03 bar
+- ☐ Row 04 blade_power_plus
+- ☐ Row 05 bleep
+- ☐ Row 07 block_reflections
+- ☐ Row 08 blocks
+- ☐ Row 10 concentric
+- ☐ Row 11 crawler
+- ☐ Row 12 digitalrain2d
+- ☐ Row 13 energy
+- ☐ Row 14 energy2
+- ☐ Row 15 equalizer
+- ☐ Row 16 equalizer2d
+- ☐ Row 17 fade
+- ☐ Row 18 filter
+- ☐ Row 19 fire
+- ☐ Row 20 flame2d
+- ☐ Row 22 game_of_life
+- ☐ Row 24 glitch
+- ☐ Row 25 gradient
+- ☐ Row 26 hierarchy
+- ☐ Row 29 lava_lamp
+- ☐ Row 30 magnitude
+- ☐ Row 31 marching
+- ☐ Row 32 melt
+- ☐ Row 33 melt_and_sparkle
+- ☐ Row 34 metro
+- ☐ Row 35 multiBar
+- ☐ Row 36 noise2d
+- ☐ Row 38 pitchSpectrum
+- ☐ Row 39 pixels
+- ☐ Row 40 plasma2d
+- ☐ Row 41 plasmawled
+- ☐ Row 42 power
+- ☐ Row 44 rain (partial, strip-pulse branch only)
+- ☐ Row 45 rainbow
+- ☐ Row 46 random_flash
+- ☐ Row 47 real_strobe
+- ☐ Row 48 scan
+- ☐ Row 49 scan_and_flare
+- ☐ Row 50 scan_multi
+- ☐ Row 51 scroll
+- ☐ Row 52 scroll_plus
+- ☐ Row 53 singleColor
+- ☐ Row 54 smoke2d
+- ☐ Row 55 soap2d
+- ☐ Row 56 spectrum
+- ☐ Row 57 spotlight
+- ☐ Row 58 strobe
+- ☐ Row 60 vumeter
+- ☐ Row 61 water
+- ☐ Row 62 waterfall2d
+- ☐ Row 63 wavelength
+
+### 25.3 Branch groups to verify visually
+
+- ☐ Melt and Melt and Sparkle: flow continuity, sparkle footprint isolation, white highlight, no stale epoch ghosting.
+- ☐ Waterfall and Scroll families: frequency-to-position mapping and time-history retention.
+- ☐ Scan/Scan and Flare/Scan Multi: direction, bounce, and flare persistence against BPM changes.
+- ☐ Plasma and Noise/Smoke: smooth field motion without visible stepping artifacts.
+- ☐ Nonaudio generators (Fade, Gradient, Metro, Pixels, Rainbow, Random Flash, Single Color): wall-clock progression on step boundaries.
+  - ☐ Metro (row 34): stage sequence must visibly follow full strip → 7-cell prefix → split prefixes → quarter markers, with off-duty blank period.
+  - ☐ Gradient Breath (row 25): confirm moving suffix clear, not full-strip dimming.
+  - ☐ Fade/Gradient/Rainbow (rows 17/25/45): confirm flip, mirror, additive background tint, brightness, and blur controls alter output.
+  - ☐ Random Flash (row 46): resizing 1xN to Nx1 must clear stale active spans before respawn.
+  - ☐ Pixels (row 39): after a long pause, motion resumes without multi-frame catch-up bursts.
+
+### 25.4 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Audio Melt and Audio Melt and Sparkle booklet previews | User | 2026-09-17 | Pass (preview appearance) | "both look pretty good" after opening the booklet in Safari. No tuning requested. Does not cover the music, layout or lifecycle checks above. |
+| Audio Puddles / Rain Pulse booklet preview | User | 2026-09-17 | Corrected preview awaiting review | "Rain Pulse is just a blinking white area". Fixed sustained retriggering caused by an inverted rise coefficient; regenerated the preview with a flash warning and pulse-only explanation. Full-field fill and default white are intentional. No approval of the corrected preview recorded yet. |
+| Hue Matrix LedFx migration visual acceptance | | | | §25.1–25.3 |
+
+## 26. Matrix-aware source responses
+
+Compare the frozen and candidate native previews with the same input and
+palette. These checks are visual acceptance, not substitutes for numerical
+geometry and Artistic-preservation tests.
+
+- ☐ Scan Multi / LedFx: low, mid and high scanners occupy separate lanes and move visibly across both wide and square matrices.
+- ☐ Scan Multi / LedFx: Axis exchanges travel and lane axes; assess the fractional brightness differences on a shallow matrix.
+- ☐ Bands Matrix: frequency groups and amplitude heights remain readable on 80x4, 32x32 and an odd-sized matrix.
+- ☐ Bands Matrix: Flip Band Order moves each frequency group's fill direction and gradient together, including an even number of groups.
+- ☐ Confirm that the changed source responses improve the matrix appearance before continuing to Fire and the remaining adaptations.
+- ☐ Confirm Artistic looks remain unchanged. Do not accept similar-looking output in place of the exact preservation checks.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Scan Multi / LedFx matrix adaptation | | | | Wide, square and exchanged axes |
+| Bands Matrix adaptation | | | | Fractional heights and frequency ordering |

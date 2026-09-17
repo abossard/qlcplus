@@ -306,7 +306,28 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
     Q_UNUSED(version)
 
     AudioChannelConfig config = AudioChannelConfig::defaults();
-    const int contractRevision = intAttribute(attrs, KXMLQLCAudioProfileAnalysisContractRevision, 2);
+    QString latencyError;
+    // Unlike legacy numeric tuning, the latency contract must never silently
+    // substitute defaults for malformed or unsupported fields.
+    auto strictInt = [&latencyError](const QXmlStreamAttributes &attributes,
+                                     const QString &name, int fallback) {
+        if (!attributes.hasAttribute(name))
+            return fallback;
+        bool parsed = false;
+        const int value = attributes.value(name).toInt(&parsed);
+        if (!parsed)
+            latencyError = QStringLiteral("Malformed ") + name;
+        return value;
+    };
+    const int contractRevision = strictInt(attrs, KXMLQLCAudioProfileAnalysisContractRevision, 2);
+    config.visualIntervalMs = strictInt(attrs, QStringLiteral("VisualIntervalMs"), 33);
+    config.captureBufferMs = strictInt(attrs, QStringLiteral("CaptureBufferMs"), 0);
+    if (!latencyError.isEmpty())
+    {
+        qWarning().noquote() << "AudioProfile" << m_id << latencyError;
+        root.skipCurrentElement();
+        return false;
+    }
     m_migrationWarning.clear();
     if (contractRevision < 3)
     {
@@ -327,7 +348,7 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
             "tempo coast/decay settings no longer alter the native tempo estimate.");
         qWarning().noquote() << "AudioProfile" << m_id << m_migrationWarning;
     }
-    else if (contractRevision > 3)
+    else if (contractRevision > 4)
     {
         qWarning() << "AudioProfile" << m_id << "unsupported analysis contract" << contractRevision;
         root.skipCurrentElement();
@@ -482,6 +503,7 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
         else if (root.name() == KXMLQLCAudioProfileAubio)
         {
+            config.aubio.powerWindowSize = strictInt(childAttrs, QStringLiteral("PowerWindowSize"), 4096);
             // OnsetThreshold / OnsetMinInterval are silently ignored on load
             // (legacy attributes — global onset overrides have been removed
             // so aubio's per-method tuned defaults stay authoritative).
@@ -728,6 +750,17 @@ bool AudioProfile::loadXML(QXmlStreamReader &root)
         }
     }
 
+    if (latencyError.isEmpty())
+        latencyError = config.validationError();
+    if (latencyError.isEmpty() && contractRevision < 4 &&
+        (config.aubio.powerWindowSize != 4096 || config.visualIntervalMs != 33 || config.captureBufferMs != 0))
+        latencyError = QStringLiteral("Nondefault latency settings require analysis contract 4");
+    if (!latencyError.isEmpty())
+    {
+        qWarning().noquote() << "AudioProfile" << m_id << "configuration rejected:" << latencyError;
+        return false;
+    }
+    m_builtInKey = attrs.value(QStringLiteral("BuiltInKey")).toString();
     setChannelConfig(config);
     if (m_analyzer && m_channel && m_channel->profileId() != m_id)
     {
@@ -749,7 +782,16 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileName, name());
     doc->writeAttribute(KXMLQLCAudioProfileIsDefault, isDefault() ? KXMLQLCTrue : KXMLQLCFalse);
     doc->writeAttribute(KXMLQLCAudioProfileVersion, QStringLiteral("2"));
-    doc->writeAttribute(KXMLQLCAudioProfileAnalysisContractRevision, QStringLiteral("3"));
+    const bool latency = m_config.aubio.powerWindowSize != 4096 ||
+                         m_config.visualIntervalMs != 33 || m_config.captureBufferMs != 0;
+    doc->writeAttribute(KXMLQLCAudioProfileAnalysisContractRevision, latency ? QStringLiteral("4") : QStringLiteral("3"));
+    if (!m_builtInKey.isEmpty())
+        doc->writeAttribute(QStringLiteral("BuiltInKey"), m_builtInKey);
+    if (latency)
+    {
+        doc->writeAttribute(QStringLiteral("VisualIntervalMs"), QString::number(m_config.visualIntervalMs));
+        doc->writeAttribute(QStringLiteral("CaptureBufferMs"), QString::number(m_config.captureBufferMs));
+    }
 
     // Audio source type and OSC port
     if (m_audioSource != Microphone)
@@ -831,6 +873,8 @@ bool AudioProfile::saveXML(QXmlStreamWriter *doc) const
     doc->writeAttribute(KXMLQLCAudioProfileVolumeBrightnessFloor, numeric(m_config.brightnessFloor));
 
     doc->writeStartElement(KXMLQLCAudioProfileAubio);
+    if (latency)
+        doc->writeAttribute(QStringLiteral("PowerWindowSize"), QString::number(m_config.aubio.powerWindowSize));
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchMethod, m_config.aubio.pitchMethod);
     doc->writeAttribute(KXMLQLCAudioProfileAubioPitchUnit, m_config.aubio.pitchUnit);
     doc->writeAttribute(KXMLQLCAudioProfileAubioDiagnosticsEnabled, m_config.aubio.diagnosticsEnabled ? "1" : "0");

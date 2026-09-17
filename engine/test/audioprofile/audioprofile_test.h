@@ -9,4 +9,6 @@ private slots:
     void versionTwoRoundTrip_data();
     void versionTwoRoundTrip();
     void profileBinding();
+    void latencyFields_data();
+    void latencyFields();
 };

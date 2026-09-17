@@ -74,6 +74,10 @@ private:
     AubioResults m_results;
 
     aubio_pvoc_t *m_pvoc = nullptr;
+    aubio_pvoc_t *m_powerPvoc = nullptr;
+    aubio_filterbank_t *m_powerFilterbank = nullptr;
+    cvec_t *m_powerGrain = nullptr;
+    fvec_t *m_powerMelOut = nullptr;
     aubio_filter_t *m_preEmphasis = nullptr;
     aubio_tempo_t *m_tempo = nullptr;
     aubio_pitch_t *m_pitch = nullptr;

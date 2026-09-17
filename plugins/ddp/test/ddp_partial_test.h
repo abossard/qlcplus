@@ -49,6 +49,8 @@ private slots:
 
     // Sequence
     void sequence_cyclesOneToFifteen_noZero();
+    void sameEndpointDifferentDestId_sharesSequence();
+    void multiUniverse_over15Chunks_oneSequence();
 
     // Coverage-shift
     void offsetShiftClearsOldRange();
@@ -61,6 +63,14 @@ private slots:
 
     // RGBW
     void rgbwMisalignedOffset_rejected();
+
+    // Multi-universe refresh grouping
+    void multiUniverse_cleanCompleterPushOnly_data();
+    void multiUniverse_cleanCompleterPushOnly();
+    void stalledMember_fallsBackWithinTwoTicks();
+    void droppedUpdate_repairedByKeepAlive_data();
+    void droppedUpdate_repairedByKeepAlive();
+    void destIdChange_dropsPendingBeforeCycleClose();
 };
 
 #endif // DDP_PARTIAL_TEST_H

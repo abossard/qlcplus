@@ -92,7 +92,9 @@ VCWidgetItem
                 Text
                 {
                     Layout.fillWidth: true
-                    text: audioTriggerObj ? audioTriggerObj.analysisStatus + " | " +
+                    text: audioTriggerObj ? (audioTriggerObj.captureEnabled
+                          ? qsTr("Mappings enabled") : qsTr("Mappings paused")) + " | " +
+                          audioTriggerObj.analysisStatus + " | " +
                           audioTriggerObj.rmsDb.toFixed(1) + " dB | " +
                           (audioTriggerObj.noiseGateOpen ? qsTr("Gate open") : qsTr("Gate closed")) : ""
                     color: audioTriggerObj && audioTriggerObj.analysisAvailable ? "#bbbbbb" : "#ffaa55"
@@ -123,7 +125,7 @@ VCWidgetItem
                 }
 
                 // ============================================================
-                // §2 — Beat / Bass / Lows / Mids / Highs power bars
+                // §2 — Kick power / Bass / Lows / Mids / High power bars
                 //      LedFx audio.py:1283-1342 — 4 raw freq_power slots +
                 //      lows = (beat + bass) / 2 composite. Vertical bars,
                 //      same width, height proportional to 0..1 power.
@@ -131,35 +133,13 @@ VCWidgetItem
                 Item
                 {
                     id: powerSection
+                    objectName: "audioPowerSection"
                     Layout.fillWidth: true
                     Layout.preferredHeight: 64
                     Layout.fillHeight: true
                     Layout.minimumHeight: 32
 
-                    // Per-band colors. Warm → cool across the spectrum.
-                    readonly property color colorBeat:  "#DC143C"  // crimson — sub-bass / kick (0-100 Hz)
-                    readonly property color colorBass:  "#FF4500"  // orange-red — bass (100-250 Hz)
-                    readonly property color colorLows:  "#FF8C00"  // orange — composite (beat+bass)/2
-                    readonly property color colorMids:  "#9ACD32"  // yellow-green — mids (250-3000 Hz)
-                    readonly property color colorHighs: "#00CED1"  // cyan — highs (3000-10000 Hz)
-
-                    property var bands: [
-                        { name: "Beat", color: powerSection.colorBeat,
-                          value: audioTriggerObj ? +(audioTriggerObj.beatPower        || 0) : 0,
-                          active: false },
-                        { name: "Bass", color: powerSection.colorBass,
-                          value: audioTriggerObj ? +(audioTriggerObj.bassPower        || 0) : 0,
-                          active: false },
-                        { name: "Lows", color: powerSection.colorLows,
-                          value: audioTriggerObj ? +(audioTriggerObj.lowsPowerSliced  || 0) : 0,
-                          active: audioTriggerObj ? audioTriggerObj.triggerLowActive  : false },
-                        { name: "Mids", color: powerSection.colorMids,
-                          value: audioTriggerObj ? +(audioTriggerObj.midsPowerSliced  || 0) : 0,
-                          active: audioTriggerObj ? audioTriggerObj.triggerMidActive  : false },
-                        { name: "High", color: powerSection.colorHighs,
-                          value: audioTriggerObj ? +(audioTriggerObj.highsPowerSliced || 0) : 0,
-                          active: audioTriggerObj ? audioTriggerObj.triggerHighActive : false }
-                    ]
+                    property var bands: audioTriggerObj ? audioTriggerObj.spectrumBars : []
 
                     Row
                     {
@@ -420,13 +400,16 @@ VCWidgetItem
         // ============================================================
         IconButton
         {
+            objectName: "audioMappingsToggle"
+            Accessible.name: qsTr("Enable mappings")
+            Accessible.description: checked ? qsTr("Mappings enabled") : qsTr("Mappings paused; meters still update")
             width: height
             height: UISettings.iconSizeMedium
             Layout.alignment: Qt.AlignHCenter
             radius: 0
             border.width: 0
             checkable: true
-            tooltip: qsTr("Enable/Disable the audio capture")
+            tooltip: checked ? qsTr("Mappings enabled. Click to pause.") : qsTr("Mappings paused. Click to enable.")
             faSource: FontAwesome.fa_check
             faColor: "lime"
             imgMargins: 1

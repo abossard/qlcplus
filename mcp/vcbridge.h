@@ -277,6 +277,9 @@ public:
         struct AudioBarInfo
         {
             int barIndex = 0;
+            QString sourceKey;
+            QString label;
+            QString color;
             QString type;                     // "none", "dmx", "function", "widget"
             int minThreshold = 51;            // 0–255 (default 20%)
             int maxThreshold = 204;           // 0–255 (default 80%)

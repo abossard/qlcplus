@@ -113,6 +113,9 @@ private:
     MelPostProcessor m_melPostLow;
     MelPostProcessor m_melPostMid;
     MelPostProcessor m_melPostHigh;
+    // Only the short power path has extra normalization/smoothing state.
+    MelPostProcessor m_powerMelPost;
+    double m_powerMelProcessed[AudioSnapshot::kMelBankBandsMax] = {};
     double m_melLowProcessed [AudioSnapshot::kMelBankBandsMax] = {};
     double m_melLowNovelty   [AudioSnapshot::kMelBankBandsMax] = {};
     double m_melMidProcessed [AudioSnapshot::kMelBankBandsMax] = {};

@@ -13,6 +13,9 @@
 #include <QQuickItem>
 #include <QQuickView>
 #include <QSignalSpy>
+#include <QSemaphore>
+#include <QSettings>
+#include <QScopeGuard>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <limits>
@@ -48,6 +51,10 @@
 #include "mastertimer.h"
 #include "scene.h"
 #include "vcbutton.h"
+#include "vcframe.h"
+#include "vcslider.h"
+#include "dmxcapture.h"
+#include "universe.h"
 #include "vcaudiotriggers.h"
 #include "virtualconsole.h"
 
@@ -61,6 +68,41 @@ public:
     bool failed() const override { return false; }
     void close() override {}
     void setVolume(qreal) override {}
+};
+
+class StalledInputBackend final : public MissingInputBackend
+{
+public:
+    QList<AudioCaptureQt6::Device> devices() const override
+    {
+        return {{QByteArray("stall-test"), QStringLiteral("Mock stalled input"), true}};
+    }
+    QIODevice *open(const QByteArray &, int, int, QAudioFormat &format) override
+    {
+        format.setSampleRate(30000);
+        format.setChannelCount(1);
+        format.setSampleFormat(QAudioFormat::Float);
+        static const auto pcm = []() {
+            std::array<float, 6000> samples{};
+            for (size_t i = 0; i < samples.size(); ++i)
+                samples[i] = float(0.4 * std::sin(2 * M_PI * 60 * i / 30000.0));
+            return samples;
+        }();
+        m_input = std::make_unique<QBuffer>();
+        m_input->setData(reinterpret_cast<const char *>(pcm.data()), int(sizeof(pcm)));
+        if (!m_input->open(QIODevice::ReadOnly))
+            return nullptr;
+        return m_input.get();
+    }
+    void close() override { m_input.reset(); }
+    void setBufferRequestMs(int ms) override { m_requestMs = ms; }
+    int appliedBufferRequestMs() const override { return m_input ? m_requestMs : -1; }
+    qint64 bufferCapacityBytes() const override { return m_input ? 4800 : -1; }
+    qint64 queuedBytes() const override { return m_input ? m_input->bytesAvailable() : -1; }
+
+private:
+    std::unique_ptr<QBuffer> m_input;
+    int m_requestMs = 0;
 };
 
 class ConsumerCapture final : public AudioCapture
@@ -137,6 +179,11 @@ QString profileXml(AudioProfile *profile)
 
 void VCAudioTriggers_Test::initTestCase()
 {
+    const QString settingsPath = QDir::current().absoluteFilePath("build/low-latency-evidence/settings-widget");
+    QVERIFY(QDir().mkpath(settingsPath));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsPath);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settingsPath);
     for (const QString &name : {QStringLiteral("VCAudioTriggersProperties.qml"),
                                 QStringLiteral("VCAudioTriggersItem.qml")})
     {
@@ -155,19 +202,30 @@ void VCAudioTriggers_Test::realPanel_data()
     QTest::newRow("noncontiguous-7") << 7;
     QTest::newRow("noncontiguous-29") << 29;
     QTest::newRow("missing-device") << -2;
+    QTest::newRow("preset-fresh-document") << -3;
+    QTest::newRow("preset-older-workspace") << -4;
 }
 
 void VCAudioTriggers_Test::realPanel()
 {
     QFETCH(int, profileId);
     Doc doc(nullptr, 1);
-    auto *seven = addProfile(doc, 7);
-    auto *twentyNine = addProfile(doc, 29);
-    QVERIFY(seven && twentyNine);
-    const QString sevenBefore = profileXml(seven);
-    const QString twentyNineBefore = profileXml(twentyNine);
+    if (profileId == -4)
+    {
+        QXmlStreamReader reader(QString("<Engine><AudioProfile ID=\"7\" Name=\"Older custom\" Version=\"2\" "
+                                         "AnalysisContractRevision=\"3\"/></Engine>"));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(doc.loadXML(reader));
+    }
+    auto *seven = profileId < -2 ? doc.audioProfile(7) : addProfile(doc, 7);
+    auto *twentyNine = profileId < -2 ? nullptr : addProfile(doc, 29);
+    if (profileId >= -2)
+        QVERIFY(seven && twentyNine);
+    const QString sevenBefore = seven ? profileXml(seven) : QString();
+    const QString twentyNineBefore = twentyNine ? profileXml(twentyNine) : QString();
     VCAudioTriggers widget(&doc);
-    widget.setAudioProfileId(profileId < 0 ? 7 : quint32(profileId));
+    if (profileId >= -2)
+        widget.setAudioProfileId(profileId < 0 ? 7 : quint32(profileId));
     AudioCaptureQt6 missingCapture(std::make_unique<MissingInputBackend>());
     if (profileId == -2)
     {
@@ -184,6 +242,24 @@ void VCAudioTriggers_Test::realPanel()
     view.resize(900, 700);
     view.rootContext()->setContextProperty("screenPixelDensity", 4.0);
     view.rootContext()->setContextProperty("mainView", view.contentItem());
+    QQmlComponent loaderComponent(view.engine());
+    loaderComponent.setData(R"(
+        import QtQuick
+        import "."
+        Item {
+            visible: false
+            width: UISettings.sidePanelWidth
+            property var modelProvider
+            property string source: ""
+        }
+    )", QUrl("qrc:/SpectrumSideLoader.qml"));
+    std::unique_ptr<QObject> sideLoader(loaderComponent.create());
+    QVERIFY2(sideLoader, qPrintable(loaderComponent.errorString()));
+    qobject_cast<QQuickItem *>(sideLoader.get())->setParentItem(view.contentItem());
+    view.rootContext()->setContextProperty("sideLoader", sideLoader.get());
+    QQuickItem rightSidePanel;
+    rightSidePanel.setWidth(780);
+    view.rootContext()->setContextProperty("rightSidePanel", &rightSidePanel);
     InputOutputManager ioManager(&view, &doc);
     FunctionManager functionManager(&view, &doc);
     QStringList warnings;
@@ -199,10 +275,43 @@ void VCAudioTriggers_Test::realPanel()
     }));
     QVERIFY2(panel, qPrintable(component.errorString()));
     qobject_cast<QQuickItem *>(panel.get())->setParentItem(view.contentItem());
+    view.show();
     QCoreApplication::processEvents();
 
     auto *selector = panel->findChild<QObject *>("audioProfileSelector");
     QVERIFY(selector);
+    if (profileId < -2)
+    {
+        auto *model = widget.profileListModel();
+        int row = -1;
+        quint32 selectedId = AudioProfile::invalidId();
+        for (int i = 0; i < model->rowCount(); ++i)
+            if (model->data(model->index(i), AudioProfileListModel::NameRole).toString() == "Low Latency")
+            {
+                row = i;
+                selectedId = model->data(model->index(i), AudioProfileListModel::IdRole).toUInt();
+            }
+        QVERIFY(row >= 0);
+        const quint32 active = doc.activeAudioProfileId();
+        QVERIFY(widget.resolvedProfileId() != selectedId);
+        QVERIFY(QMetaObject::invokeMethod(selector, "activated", Q_ARG(int, row)));
+        QCOMPARE(widget.audioProfileId(), selectedId);
+        QCOMPARE(doc.activeAudioProfileId(), active);
+        QCOMPARE(widget.property("powerWindowSize").toInt(), 2048);
+        QCOMPARE(widget.property("windowSize").toInt(), 4096);
+        QVERIFY(!widget.captureEnabled());
+        QVERIFY(widget.property("inputLatencyStatus").toString().contains("unmeasured"));
+        QVERIFY(panel->findChild<QObject *>("audioInputLatency"));
+        if (seven)
+            QCOMPARE(profileXml(seven), sevenBefore);
+        const int count = model->rowCount();
+        VCAudioTriggers reopened(&doc);
+        QCOMPARE(reopened.profileListModel()->rowCount(), count);
+        widget.duplicateCurrentProfile("Custom copy");
+        QVERIFY(doc.audioProfile(widget.audioProfileId())->builtInKey().isEmpty());
+        QCOMPARE(doc.audioProfile(widget.audioProfileId())->channelConfig().captureBufferMs, 20);
+        return;
+    }
     if (profileId >= 0)
         QTRY_COMPARE(selector->property("currentValue").toUInt(), quint32(profileId));
     if (profileId == -2)
@@ -260,6 +369,170 @@ void VCAudioTriggers_Test::realPanel()
         widget.deleteCurrentProfile();
         QTRY_COMPARE(widget.profileListModel()->rowCount(), count);
         QTRY_COMPARE(selector->property("currentValue").toUInt(), widget.resolvedProfileId());
+    }
+    if (profileId == 7)
+    {
+        auto *section = panel->findChild<QQuickItem *>("audioMappingSection");
+        QVERIFY(section);
+        section->setProperty("isExpanded", true);
+        QCoreApplication::processEvents();
+        auto *table = panel->findChild<QQuickItem *>("audioMappingTable");
+        auto *contents = panel->findChild<QQuickItem *>("audioMappingContents");
+        QVERIFY(section && table && contents);
+        QVERIFY(!table->property("interactive").isValid());
+        for (int type : {int(VCAudioTriggers::None), int(VCAudioTriggers::VCWidgetBar),
+                         int(VCAudioTriggers::FunctionBar), int(VCAudioTriggers::DMXBar)})
+        {
+            for (int source = 0; source < widget.barsNumber(); ++source)
+            {
+                widget.selectBarForEditing(source);
+                widget.setBarType(VCAudioTriggers::BarType(type));
+            }
+            QCoreApplication::processEvents();
+            const qreal rowHeight = panel->property("gridItemsHeight").toDouble();
+            QTRY_COMPARE(table->height(), rowHeight * (1 + 11 *
+                (type == VCAudioTriggers::None ? 1 : 2)));
+            QTRY_COMPARE(table->height(), contents->height());
+            int rows = 0;
+            qreal bottom = 0;
+            for (QQuickItem *child : contents->childItems())
+                if (child->objectName().startsWith("audioMappingRow")
+                    || child->objectName() == "audioMappingHeader")
+                {
+                    QVERIFY(child->y() >= bottom);
+                    bottom = child->y() + child->height();
+                    QVERIFY(bottom <= table->height());
+                    ++rows;
+                }
+            QCOMPARE(rows, 12);
+            QCOMPARE(bottom, table->height());
+            qInfo() << "mapping geometry" << type << "rows including header" << rows
+                    << "height" << table->height() << "bottom" << bottom;
+        }
+        const auto order = widget.mappingOrder();
+        auto mappingRow = [&](int source) -> QQuickItem * {
+            for (auto *child : contents->childItems())
+                if (child->objectName() == QString("audioMappingRow%1").arg(source))
+                    return child;
+            return nullptr;
+        };
+        auto *panelItem = qobject_cast<QQuickItem *>(panel.get());
+        panelItem->setY(panelItem->y() - table->mapToScene(QPointF()).y() + 10);
+        auto *selectedFunction = new Scene(&doc);
+        QVERIFY(doc.addFunction(selectedFunction, 73));
+        for (int type : {int(VCAudioTriggers::FunctionBar), int(VCAudioTriggers::VCWidgetBar)})
+        {
+            const int source = type == VCAudioTriggers::FunctionBar
+                ? VCAudioTriggers::BandBassPower : VCAudioTriggers::BandMidsPower;
+            widget.selectBarForEditing(source);
+            widget.setBarType(VCAudioTriggers::BarType(type));
+            const quint32 target = type == VCAudioTriggers::FunctionBar ? selectedFunction->id() : 173;
+            const auto before = widget.barsInfo();
+            auto editButton = [&](int index) -> QObject * {
+                auto *row = mappingRow(index);
+                if (!row)
+                    return nullptr;
+                for (auto *child : row->findChildren<QObject *>())
+                    if (child->property("checkable").toBool())
+                        return child;
+                return nullptr;
+            };
+            QCoreApplication::processEvents();
+            auto *row = mappingRow(source);
+            QVERIFY(row);
+            QCOMPARE(row->y(), contents->childItems()[1]->y() +
+                order.indexOf(source) * panel->property("gridItemsHeight").toDouble() * 2);
+            auto *editor = editButton(source);
+            QVERIFY(editor);
+            editor->setProperty("checked", true);
+            QCOMPARE(widget.selectedBar(), source);
+            QCOMPARE(table->property("currentChecked").value<QObject *>(), editor);
+            QCOMPARE(table->property("currentType").toInt(), type);
+            QVERIFY(sideLoader->property("visible").toBool());
+            QCOMPARE(sideLoader->property("modelProvider").value<QObject *>(), &widget);
+            QCOMPARE(sideLoader->property("source").toString(),
+                     type == VCAudioTriggers::FunctionBar ? QString("qrc:/FunctionManager.qml")
+                                                        : QString("qrc:/VCWidgetsList.qml"));
+            const qreal openedWidth = rightSidePanel.width();
+            auto *siblingEditor = editButton(VCAudioTriggers::BandVolume);
+            QVERIFY(siblingEditor);
+            siblingEditor->setProperty("checked", true);
+            QCOMPARE(widget.selectedBar(), int(VCAudioTriggers::BandVolume));
+            QCOMPARE(table->property("currentChecked").value<QObject *>(), siblingEditor);
+            QVERIFY(!editor->property("checked").toBool());
+            QVERIFY(sideLoader->property("visible").toBool());
+            QCOMPARE(rightSidePanel.width(), openedWidth);
+            editor->setProperty("checked", true);
+            QCOMPARE(widget.selectedBar(), source);
+            QCOMPARE(table->property("currentChecked").value<QObject *>(), editor);
+            QVERIFY(!siblingEditor->property("checked").toBool());
+            QVERIFY(sideLoader->property("visible").toBool());
+            QCOMPARE(rightSidePanel.width(), openedWidth);
+            editor->setProperty("checked", false);
+            QVERIFY(!sideLoader->property("visible").toBool());
+            QCOMPARE(rightSidePanel.width(), 780.0);
+            QCOMPARE(widget.barsInfo(), before);
+            QVERIFY(!table->property("currentChecked").value<QObject *>());
+
+            // Execute Qt Quick drag delivery into the production DropArea.
+            for (int choice : {0, 1, 2})
+            {
+                if (choice == 1 && type == VCAudioTriggers::FunctionBar)
+                    continue;
+                editor = editButton(source);
+                QVERIFY(editor);
+                editor->setProperty("checked", true);
+                QCOMPARE(rightSidePanel.width(), openedWidth);
+                QQmlComponent dragComponent(view.engine());
+                const QString marker = type == VCAudioTriggers::FunctionBar
+                    ? "fromFunctionManager" : "fromVCWidgetsList";
+                const QString key = type == VCAudioTriggers::FunctionBar
+                    ? "function" : "audiotriggerswidget";
+                dragComponent.setData(QString(R"(
+                    import QtQuick
+                    Item {
+                        id: payload
+                        width: 1; height: 1
+                        property var itemsList: %1
+                        %2
+                        Drag.keys: ["%3"]
+                        Drag.source: payload
+                        function dropOn(target) {
+                            var p = target.mapToItem(parent, 8, 8)
+                            x = p.x; y = p.y
+                            Drag.active = true
+                            return Drag.drop()
+                        }
+                    }
+                )").arg(choice == 1 ? "[]" : QString("[%1]").arg(target))
+                    .arg(choice ? "property bool " + marker + ": true" : "")
+                    .arg(key).toUtf8(), QUrl("qrc:/SpectrumDrag.qml"));
+                std::unique_ptr<QObject> drag(dragComponent.create());
+                QVERIFY2(drag, qPrintable(dragComponent.errorString()));
+                qobject_cast<QQuickItem *>(drag.get())->setParentItem(view.contentItem());
+                QVERIFY(QMetaObject::invokeMethod(drag.get(), "dropOn", Q_ARG(QVariant, QVariant::fromValue(table))));
+                QCoreApplication::processEvents();
+                if (choice != 2)
+                {
+                    QCOMPARE(widget.barsInfo(), before);
+                    QVERIFY(sideLoader->property("visible").toBool());
+                    QCOMPARE(table->property("currentChecked").value<QObject *>(), editor);
+                    editor->setProperty("checked", false);
+                }
+                else
+                {
+                    QCOMPARE(widget.barsInfo()[source].toMap()["intVal"].toUInt(), target);
+                    QVERIFY(!sideLoader->property("visible").toBool());
+                    QCOMPARE(rightSidePanel.width(), 780.0);
+                    QVERIFY(!table->property("currentChecked").value<QObject *>());
+                    for (int i = 0; i < widget.barsNumber(); ++i)
+                        if (i != source)
+                            QCOMPARE(widget.barsInfo()[i], before[i]);
+                }
+            }
+            qInfo() << "mapping edit/drop" << source << "type" << type
+                    << "cancel preserved, invalid origin ignored, valid target" << target;
+        }
     }
     panel.reset();
     QCoreApplication::processEvents();
@@ -532,6 +805,388 @@ void VCAudioTriggers_Test::bankControlBounds()
     QTest::keyClick(&view, Qt::Key(key));
     QCOMPARE(control->property("value").toInt(), qRound(initial * scale));
     QCOMPARE(profileXml(doc.audioProfile(7)), before);
+}
+
+void VCAudioTriggers_Test::latencyBinding_data()
+{
+    QTest::addColumn<int>("source");
+    QTest::addColumn<bool>("legacy");
+    for (int source : {0, 1})
+        for (bool legacy : {false, true})
+            QTest::newRow(qPrintable(QString("source-%1-%2").arg(source).arg(legacy ? "legacy" : "latency")))
+                << source << legacy;
+}
+
+void VCAudioTriggers_Test::latencyBinding()
+{
+    QFETCH(int, source);
+    QFETCH(bool, legacy);
+    Doc doc(nullptr, 0);
+    auto *profile = new AudioProfile(29, &doc);
+    auto config = legacy ? AudioChannelConfig::defaults() : AudioChannelConfig::lowLatency();
+    config.aubio.pitchTolerance = 0.83;
+    profile->setChannelConfig(config);
+    profile->setAudioSource(source);
+    profile->setOscPort(0);
+    QVERIFY(doc.addAudioProfile(profile));
+    VCAudioTriggers widget(&doc);
+    widget.setAudioProfileId(29);
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(widget.saveXML(&writer));
+    const QString savedProfile = profileXml(profile);
+    Doc restoredDoc(nullptr, 0);
+    auto *restoredProfile = new AudioProfile(0, &restoredDoc);
+    QXmlStreamReader profileReader(savedProfile);
+    QVERIFY(profileReader.readNextStartElement());
+    QVERIFY(restoredProfile->loadXML(profileReader));
+    QVERIFY(restoredDoc.addAudioProfile(restoredProfile));
+    VCAudioTriggers restored(&restoredDoc);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(restored.loadXML(reader));
+    QCOMPARE(restored.audioProfileId(), quint32(29));
+    QCOMPARE(restored.powerWindowSize(), legacy ? 4096 : 2048);
+    QCOMPARE(restoredProfile->channelConfig().visualIntervalMs, legacy ? 33 : 16);
+    QCOMPARE(restoredProfile->channelConfig().captureBufferMs, legacy ? 0 : 20);
+    QCOMPARE(restoredProfile->channelConfig().aubio.pitchTolerance, 0.83);
+    QCOMPARE(restored.audioSource(), source);
+    QCOMPARE(profileXml(restoredProfile), savedProfile);
+    QVERIFY(!restored.captureEnabled());
+    QCOMPARE(restoredDoc.audioInputCapture()->requestedBufferMs(), 0);
+}
+
+void VCAudioTriggers_Test::inputLatencyStall_data()
+{
+    QTest::addColumn<int>("interval");
+    QTest::addColumn<bool>("pendingStatus");
+    QTest::newRow("default-33ms") << 33 << false;
+    QTest::newRow("low-latency-16ms") << 16 << false;
+    QTest::newRow("default-33ms-pending-status") << 33 << true;
+    QTest::newRow("low-latency-16ms-pending-status") << 16 << true;
+}
+
+void VCAudioTriggers_Test::inputLatencyStall()
+{
+    QFETCH(int, interval);
+    QFETCH(bool, pendingStatus);
+    Doc doc(nullptr, 0);
+    const auto originalCapture = doc.audioInputCapture();
+    const auto restoreCapture = qScopeGuard([&]() { doc.m_inputCapture = originalCapture; });
+    auto *capture = new AudioCaptureQt6(std::make_unique<StalledInputBackend>());
+    doc.m_inputCapture.reset(capture);
+    capture->setInputDevice(QString());
+    capture->setAnalyzer(doc.audioAnalyzer());
+    auto *profile = addProfile(doc, 7);
+    QVERIFY(profile);
+    profile->setChannelConfig(interval == 16 ? AudioChannelConfig::lowLatency()
+                                             : AudioChannelConfig::defaults());
+
+    qmlRegisterType<VCAudioTriggers>("org.qlcplus.classes", 1, 0, "VCAudioTriggers");
+    qmlRegisterType<AudioSparklineItem>("org.qlcplus.classes", 1, 0, "AudioSparkline");
+    qmlRegisterUncreatableType<Function>("org.qlcplus.classes", 1, 0, "QLCFunction", "Engine-owned");
+    QQuickView view;
+    view.resize(900, 700);
+    view.rootContext()->setContextProperty("screenPixelDensity", 4.0);
+    view.rootContext()->setContextProperty("mainView", view.contentItem());
+    QQuickItem sideLoader, rightSidePanel;
+    rightSidePanel.setWidth(780);
+    view.rootContext()->setContextProperty("sideLoader", &sideLoader);
+    view.rootContext()->setContextProperty("rightSidePanel", &rightSidePanel);
+    InputOutputManager ioManager(&view, &doc);
+    FixtureManager fixtureManager(&view, &doc);
+    FunctionManager functionManager(&view, &doc);
+    ContextManager contextManager(&view, &doc, &fixtureManager, &functionManager);
+    VirtualConsole vc(&view, &doc, &contextManager);
+    auto cleanupTardis = [](Tardis *tardis) {
+        delete tardis;
+        Tardis::s_instance = nullptr;
+    };
+    std::unique_ptr<Tardis, decltype(cleanupTardis)> tardis(
+        new Tardis(&view, &doc, nullptr, &fixtureManager, &functionManager,
+                   &contextManager, nullptr, nullptr, &vc), cleanupTardis);
+    tardis->m_busy = true;
+    auto *scene = new Scene(&doc);
+    QVERIFY(doc.addFunction(scene));
+    MappedButton button(&doc, scene->id());
+    VCSlider slider(&doc);
+    vc.addWidgetToMap(&button);
+    vc.addWidgetToMap(&slider);
+    const auto unmap = qScopeGuard([&]() {
+        vc.removeWidgetFromMap(&button);
+        vc.removeWidgetFromMap(&slider);
+    });
+    AudioCapture::Status deliveredStatus = AudioCapture::Stopped;
+    quint64 deliveredEpoch = 0;
+    VCAudioTriggers widget(&doc, &vc);
+    // Registered after the widget's production status handler, on the same receiver
+    // and event queue: observing this callback fences that handler's delivery.
+    connect(capture, &AudioCapture::statusChanged, &widget,
+            [&](AudioCapture::Status status, const QString &, quint64 epoch) {
+        QCOMPARE(QThread::currentThread(), widget.thread());
+        deliveredStatus = status;
+        deliveredEpoch = epoch;
+    }, Qt::QueuedConnection);
+    const auto unavailableEmitted = std::make_shared<QSemaphore>();
+    connect(capture, &AudioCapture::statusChanged, &widget,
+            [unavailableEmitted](AudioCapture::Status status) {
+        if (status == AudioCapture::Unavailable)
+            unavailableEmitted->release();
+    }, Qt::DirectConnection);
+    widget.setAudioProfileId(7);
+    widget.selectBarForEditing(VCAudioTriggers::BandBeat);
+    widget.setBarType(VCAudioTriggers::VCWidgetBar);
+    widget.setBarWidget(button.id());
+    widget.selectBarForEditing(VCAudioTriggers::BandKickPower);
+    widget.setBarType(VCAudioTriggers::VCWidgetBar);
+    widget.setBarWidget(slider.id());
+    QQmlComponent component(view.engine(), QUrl(QStringLiteral("qrc:/VCAudioTriggersProperties.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> panel(component.createWithInitialProperties({
+        {"width", 780}, {"widgetRef", QVariant::fromValue(&widget)}
+    }));
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    qobject_cast<QQuickItem *>(panel.get())->setParentItem(view.contentItem());
+    auto *label = panel->findChild<QObject *>("audioInputLatency");
+    QVERIFY(label);
+    view.show();
+    QCoreApplication::processEvents();
+    widget.setCaptureEnabled(true);
+    QTRY_COMPARE(capture->inputDiagnostics().value("queuedMs").toDouble(), 0.0);
+    QTRY_COMPARE(deliveredStatus, AudioCapture::Available);
+    QVERIFY(capture->inputDiagnostics().value("lastPcmAgeMs").toDouble() >= 0.0);
+    widget.processAudioSnapshot();
+    QVERIFY(widget.analysisAvailable());
+
+    // The finite PCM is drained. Seed unequal events before the real stall transition.
+    auto snapshot = profile->channel()->snapshot();
+    widget.processAudioSnapshot();
+    QSignalSpy events(&widget, &VCAudioTriggers::audioEvents);
+    snapshot.frameSequence++;
+    snapshot.events.beat += 2;
+    snapshot.events.kick += 3;
+    snapshot.beatPower = 0.63;
+    profile->channel()->injectSnapshot(snapshot);
+    widget.processAudioSnapshot();
+    QCOMPARE(events.count(), 1);
+    QCOMPARE(events[0][1].toULongLong(), quint64(2));
+    QCOMPARE(events[0][2].toULongLong(), quint64(3));
+    QCOMPARE(button.state(), VCButton::Active);
+    QCOMPARE(slider.value(), qreal(uchar(0.63 * 255.0)));
+
+    if (pendingStatus)
+    {
+        // Hold the main event loop, not the capture thread. Its real invalidation
+        // updates the snapshot and queues status delivery before releasing us.
+        QVERIFY(unavailableEmitted->tryAcquire(1, 5000));
+        QCOMPARE(capture->status(), AudioCapture::Unavailable);
+        QCOMPARE(deliveredStatus, AudioCapture::Available);
+        widget.processAudioSnapshot();
+        QVERIFY(!widget.analysisAvailable());
+        qInfo() << "controlled stall: unavailable snapshot consumed; main-thread status still pending";
+    }
+    QTRY_COMPARE(capture->status(), AudioCapture::Unavailable);
+    // Status/snapshot getters may change before the queued production handler.
+    // Start steady-state observation only after its main-thread delivery.
+    QTRY_COMPARE(deliveredStatus, AudioCapture::Unavailable);
+    QCOMPARE(deliveredEpoch, capture->sourceEpoch());
+    QTRY_VERIFY(!widget.analysisAvailable());
+    QTRY_VERIFY(label->property("label").toString().contains("stale or unavailable"));
+    QCOMPARE(button.state(), VCButton::Inactive);
+    QCOMPARE(slider.value(), qreal(0));
+    QCOMPARE(capture->inputDiagnostics().value("capacityMs").toDouble(), 40.0);
+    QCOMPARE(capture->inputDiagnostics().value("appliedRequestMs").toInt(), interval == 16 ? 20 : 0);
+    const auto epoch = widget.sourceEpoch();
+    const auto frame = widget.frameSequence();
+    const auto beats = widget.beatCount();
+    const auto kicks = widget.kickCount();
+    const auto visualPublication = widget.m_uiThrottleTimer.msecsSinceReference();
+    slider.setValue(93);
+    events.clear();
+    QSignalSpy states(&button, &VCButton::stateChanged);
+    QSignalSpy levels(&widget, &VCAudioTriggers::audioLevelsChanged);
+    QSignalSpy snapshots(&widget, &VCAudioTriggers::audioSnapshotChanged);
+    QSignalSpy labels(label, SIGNAL(labelChanged()));
+    QVERIFY(labels.isValid());
+    if (pendingStatus)
+    {
+        // Deliver only queued widget calls, without timer polling. Before the
+        // delivery fence this exposes the legitimate status-handler notification.
+        QCoreApplication::sendPostedEvents(&widget, QEvent::MetaCall);
+        qInfo() << "controlled status MetaCall drain: snapshot notifications" << snapshots.count()
+                << "delivered epoch" << deliveredEpoch << "baseline epoch" << epoch;
+        QCOMPARE(deliveredStatus, AudioCapture::Unavailable);
+        QCOMPARE(deliveredEpoch, epoch);
+    }
+    static const QRegularExpression agePattern(QStringLiteral("last PCM age: ([0-9]+\\.[0-9]+) ms"));
+    QList<double> ages;
+    for (int waitMs : {0, 200, 350})
+    {
+        if (waitMs)
+            QTest::qWait(waitMs);
+        const auto match = agePattern.match(label->property("label").toString());
+        QVERIFY2(match.hasMatch(), qPrintable(label->property("label").toString()));
+        ages.append(match.captured(1).toDouble());
+        QCOMPARE(widget.sourceEpoch(), epoch);
+        QCOMPARE(widget.frameSequence(), frame);
+        QCOMPARE(widget.beatCount(), beats);
+        QCOMPARE(widget.kickCount(), kicks);
+        QCOMPARE(widget.m_uiThrottleTimer.msecsSinceReference(), visualPublication);
+        QCOMPARE(events.count(), 0);
+        QCOMPARE(states.count(), 0);
+        QCOMPARE(slider.value(), qreal(93));
+        QCOMPARE(levels.count(), 0);
+        QCOMPARE(snapshots.count(), 0);
+    }
+    qInfo() << "stalled production QML age ms" << ages << "interval" << interval
+            << "label updates" << labels.count() << "mapping/event/snapshot updates"
+            << states.count() << events.count() << snapshots.count();
+    QVERIFY(ages[0] >= 150.0);
+    QVERIFY2(ages[1] - ages[0] >= 100.0, "Displayed PCM age must advance during the first post-stall wait");
+    QVERIFY2(ages[2] - ages[1] >= 250.0, "Displayed PCM age must keep advancing during the second post-stall wait");
+    QVERIFY(labels.count() >= (interval == 16 ? 25 : 8));
+    QVERIFY(labels.count() <= (interval == 16 ? 42 : 18));
+    widget.setCaptureEnabled(false);
+}
+
+void VCAudioTriggers_Test::sharedProfileDemand()
+{
+    Doc doc(nullptr, 0);
+    const auto original = doc.audioInputCapture();
+    const auto restore = qScopeGuard([&]() { doc.m_inputCapture = original; });
+    auto *capture = new ConsumerCapture();
+    doc.m_inputCapture.reset(capture); // Replace real input before any subscription.
+    capture->setAnalyzer(doc.audioAnalyzer());
+    auto *ordinary = doc.ensureDefaultAudioProfile();
+    auto *low = doc.ensureLowLatencyAudioProfile();
+    QVERIFY(ordinary && low);
+    QCOMPARE(capture->subscribers(), 0);
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    VCAudioTriggers first(&doc), second(&doc);
+    first.setAudioProfileId(low->id());
+    second.setAudioProfileId(low->id());
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    first.setCaptureEnabled(true);
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    QCOMPARE(capture->subscribers(), 1);
+    std::array<float, 500> pcm{};
+    for (size_t i = 0; i < pcm.size(); ++i)
+        pcm[i] = float(0.2 * std::sin(2 * M_PI * i / 30.0));
+    QVERIFY(capture->feed(pcm));
+    QVERIFY(capture->feed(pcm));
+    first.processAudioSnapshot();
+    QVERIFY(first.appliedAudio().value("analysisProcessingMs").toDouble() > 0.0);
+    qInfo() << "production PCM shared analysis ms" << first.appliedAudio().value("analysisProcessingMs");
+    second.setCaptureEnabled(true);
+    QCOMPARE(capture->subscribers(), 2);
+    first.setAudioProfileId(ordinary->id());
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    second.setCaptureEnabled(false);
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    first.setAudioProfileId(low->id());
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    low->setOscPort(0);
+    low->setAudioSource(AudioProfile::OscSynesthesia);
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    QCOMPARE(capture->subscribers(), 0);
+    QVERIFY(first.property("inputLatencyStatus").toString().contains("OSC"));
+    low->setAudioSource(AudioProfile::Microphone);
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    auto config = low->channelConfig();
+    config.captureBufferMs = 0;
+    low->setChannelConfig(config);
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    config.captureBufferMs = 20;
+    low->setChannelConfig(config);
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    first.setCaptureEnabled(false);
+    doc.setActiveAudioProfileId(low->id());
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    capture->registerBandsNumber(1);
+    QCOMPARE(capture->requestedBufferMs(), 20);
+    doc.setActiveAudioProfileId(ordinary->id());
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    capture->unregisterBandsNumber(1);
+    {
+        VCAudioTriggers temporary(&doc);
+        temporary.setAudioProfileId(low->id());
+        temporary.setCaptureEnabled(true);
+        QCOMPARE(capture->requestedBufferMs(), 20);
+    }
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    second.setCaptureEnabled(true);
+    QVERIFY(doc.removeAudioProfile(low->id()));
+    QCOMPARE(capture->requestedBufferMs(), 0);
+    QCOMPARE(capture->subscribers(), 0);
+    second.setCaptureEnabled(false);
+}
+
+void VCAudioTriggers_Test::visualCadence_data()
+{
+    QTest::addColumn<int>("interval");
+    QTest::newRow("default-33ms") << 33;
+    QTest::newRow("low-latency-16ms") << 16;
+}
+
+void VCAudioTriggers_Test::visualCadence()
+{
+    QFETCH(int, interval);
+    Doc doc(nullptr, 0);
+    auto *profile = addProfile(doc, 7);
+    auto config = profile->channelConfig();
+    config.visualIntervalMs = interval;
+    profile->setChannelConfig(config);
+    VCAudioTriggers widget(&doc);
+    widget.setAudioProfileId(7);
+    widget.m_snapshotTimer->stop();
+    AudioSnapshot frame;
+    frame.sourceId = QStringLiteral("visual-cadence-test");
+    frame.available = true;
+    frame.sourceEpoch = 17;
+    frame.frameSequence = 1;
+    profile->channel()->injectSnapshot(frame);
+    widget.processAudioSnapshot();
+    QSignalSpy visuals(&widget, &VCAudioTriggers::audioLevelsChanged);
+    QSignalSpy events(&widget, &VCAudioTriggers::audioEvents);
+    widget.m_uiThrottleTimer.restart();
+    QTest::qSleep(16);
+    const auto elapsed = widget.m_uiThrottleTimer.elapsed();
+    QVERIFY2(elapsed >= 16 && elapsed < 33, "Controlled visual gate test requires a 16..32-ms scheduler interval");
+    frame.frameSequence += 4;
+    frame.events.beat += 2;
+    frame.events.kick += 3;
+    frame.lows = 0.61;
+    profile->channel()->injectSnapshot(frame);
+    widget.processAudioSnapshot();
+    QCOMPARE(visuals.count(), interval == 16 ? 1 : 0);
+    QCOMPARE(events.count(), 1);
+    QCOMPARE(events[0][1].toULongLong(), quint64(2));
+    QCOMPARE(events[0][2].toULongLong(), quint64(3));
+    widget.processAudioSnapshot();
+    QCOMPARE(events.count(), 1);
+    QCOMPARE(visuals.count(), interval == 16 ? 1 : 0);
+    visuals.clear();
+    QTimer producer;
+    producer.setInterval(8);
+    connect(&producer, &QTimer::timeout, &widget, [&]() {
+        frame.frameSequence++;
+        frame.lows = frame.frameSequence % 2 ? 0.27 : 0.74;
+        profile->channel()->injectSnapshot(frame);
+    });
+    producer.start();
+    QSignalSpy polls(widget.m_snapshotTimer, &QTimer::timeout);
+    widget.m_snapshotTimer->start();
+    QEventLoop loop;
+    QTimer::singleShot(650, &loop, &QEventLoop::quit);
+    loop.exec();
+    widget.m_snapshotTimer->stop();
+    producer.stop();
+    qInfo() << "visual interval" << interval << "signals in 650ms" << visuals.count()
+            << "timer polls" << polls.count();
+    QVERIFY(visuals.count() >= (interval == 16 ? 34 : 10));
+    QVERIFY(visuals.count() <= (interval == 16 ? 43 : 21));
+    if (interval == 16)
+        QCOMPARE(visuals.count(), polls.count());
 }
 
 void VCAudioTriggers_Test::coherentPublication()
@@ -1081,18 +1736,25 @@ void VCAudioTriggers_Test::eventDelivery_data()
 {
     QTest::addColumn<int>("rate");
     QTest::addColumn<bool>("osc");
+    QTest::addColumn<int>("interval");
+    for (int interval : {16, 33})
     for (int rate : {25, 30, 50, 60})
         for (bool osc : {false, true})
-            QTest::newRow(qPrintable(QString("%1Hz-%2").arg(rate).arg(osc ? "OSC" : "microphone"))) << rate << osc;
+            QTest::newRow(qPrintable(QString("%1Hz-%2-%3ms").arg(rate).arg(osc ? "OSC" : "microphone").arg(interval)))
+                << rate << osc << interval;
 }
 
 void VCAudioTriggers_Test::eventDelivery()
 {
     QFETCH(int, rate);
     QFETCH(bool, osc);
+    QFETCH(int, interval);
     Doc doc(nullptr, 1);
     auto *profile = addProfile(doc, 7);
     QVERIFY(profile && profile->channel());
+    auto config = profile->channelConfig();
+    config.visualIntervalMs = interval;
+    profile->setChannelConfig(config);
     VCAudioTriggers first(&doc), second(&doc);
     first.setAudioProfileId(7);
     second.setAudioProfileId(7);
@@ -1181,16 +1843,44 @@ void VCAudioTriggers_Test::eventDelivery()
 
 void VCAudioTriggers_Test::mappedActions_data()
 {
-    eventDelivery_data();
+    QTest::addColumn<int>("rate");
+    QTest::addColumn<bool>("osc");
+    QTest::addColumn<int>("powerSource");
+    QTest::addColumn<int>("interval");
+    for (int interval : {16, 33})
+    {
+    for (int rate : {25, 30, 50, 60})
+        for (bool osc : {false, true})
+            QTest::newRow(qPrintable(QString("%1Hz-%2-%3ms").arg(rate).arg(osc ? "OSC" : "microphone").arg(interval)))
+                << rate << osc << -1 << interval;
+    for (int source = VCAudioTriggers::BandKickPower; source < VCAudioTriggers::BandSourceCount; ++source)
+        for (bool osc : {false, true})
+            QTest::newRow(qPrintable(QString("power-%1-%2-%3ms").arg(source).arg(osc ? "OSC" : "native").arg(interval)))
+                << 25 << osc << source << interval;
+    }
 }
 
 void VCAudioTriggers_Test::mappedActions()
 {
     QFETCH(int, rate);
     QFETCH(bool, osc);
+    QFETCH(int, powerSource);
+    QFETCH(int, interval);
     Doc doc(nullptr, 0);
+    const auto originalCapture = doc.audioInputCapture();
+    const auto restoreCapture = qScopeGuard([&]() { doc.m_inputCapture = originalCapture; });
     auto *profile = addProfile(doc, 7);
     QVERIFY(profile);
+    auto config = profile->channelConfig();
+    config.visualIntervalMs = interval;
+    profile->setChannelConfig(config);
+    if (osc)
+    {
+        profile->setAudioSource(AudioProfile::OscSynesthesia);
+        doc.m_inputCapture.clear();
+    }
+    else
+        doc.m_inputCapture.reset(new ConsumerCapture());
     QQuickView view;
     FixtureManager fixtureManager(&view, &doc);
     FunctionManager functionManager(&view, &doc);
@@ -1229,13 +1919,19 @@ void VCAudioTriggers_Test::mappedActions()
     {
         widgets[i]->setAudioProfileId(7);
         widgets[i]->m_snapshotTimer->stop();
-        widgets[i]->selectBarForEditing(i == 0 ? VCAudioTriggers::BandBeat : VCAudioTriggers::BandKick);
+        widgets[i]->selectBarForEditing(powerSource >= 0 ? powerSource :
+            i == 0 ? VCAudioTriggers::BandBeat : VCAudioTriggers::BandKick);
         widgets[i]->setBarType(VCAudioTriggers::FunctionBar);
         widgets[i]->setBarFunction(functions[i]->id());
-        widgets[i]->selectBarForEditing(i == 0 ? VCAudioTriggers::BandKick : VCAudioTriggers::BandBeat);
-        widgets[i]->setBarType(VCAudioTriggers::VCWidgetBar);
-        widgets[i]->setBarWidget(buttons[i]->id());
-        widgets[i]->m_captureEnabled = true;
+        if (powerSource < 0 || i == 1)
+        {
+            if (powerSource < 0)
+                widgets[i]->selectBarForEditing(i == 0 ? VCAudioTriggers::BandKick : VCAudioTriggers::BandBeat);
+            widgets[i]->setBarType(VCAudioTriggers::VCWidgetBar);
+            widgets[i]->setBarWidget(buttons[i]->id());
+        }
+        widgets[i]->setCaptureEnabled(true);
+        QVERIFY(widgets[i]->captureEnabled());
     }
     QSignalSpy firstStates(&firstButton, &VCButton::stateChanged);
     QSignalSpy secondStates(&secondButton, &VCButton::stateChanged);
@@ -1246,6 +1942,50 @@ void VCAudioTriggers_Test::mappedActions()
     frame.frameSequence = 1;
     frame.available = true;
     frame.kickTrigger.value = 0.8;
+    if (powerSource >= 0)
+    {
+        static const std::array<double AudioSnapshot::*, 5> powers = {
+            &AudioSnapshot::beatPower, &AudioSnapshot::bassPower, &AudioSnapshot::lows,
+            &AudioSnapshot::mids, &AudioSnapshot::highs
+        };
+        frame.beatPower = 0.19;
+        frame.bassPower = 0.37;
+        frame.lows = 0.53;
+        frame.mids = 0.71;
+        frame.highs = 0.89;
+        auto publish = [&](double value, bool available, bool active) {
+            frame.*powers[powerSource - VCAudioTriggers::BandKickPower] = value;
+            frame.available = available;
+            frame.beatTrigger.active = value == 0;
+            frame.beatTrigger.value = value == 0 ? 0.91 : 0.07;
+            frame.frameSequence++;
+            profile->channel()->injectSnapshot(frame);
+            for (auto *widget : widgets)
+                if (osc)
+                    widget->slotOscSnapshotInjected();
+                else
+                    widget->slotAubioDataReady(AubioResults{}, 0);
+            QCOMPARE(functions[0]->stopped(), !active);
+            QCOMPARE(buttonFunctions[1]->stopped(), !active);
+            QCOMPARE(secondButton.state(), active ? VCButton::Active : VCButton::Inactive);
+        };
+        publish(0.0, true, false);
+        publish(0.63, true, true);
+        publish(0.0, true, false);
+        publish(0.41, true, true);
+        publish(0.83, false, false);
+        publish(0.27, true, true);
+        first.setCaptureEnabled(false);
+        second.setCaptureEnabled(false);
+        QVERIFY(functions[0]->stopped());
+        QVERIFY(buttonFunctions[1]->stopped());
+        QCOMPARE(secondButton.state(), VCButton::Inactive);
+        publish(0.0, true, false);
+        publish(0.97, true, false);
+        vc.removeWidgetFromMap(&firstButton);
+        vc.removeWidgetFromMap(&secondButton);
+        return;
+    }
     quint64 previousFunctionEvents[2] = {}, previousButtonEvents[2] = {};
     auto read = [&](int i) {
         const quint64 functionEvents = i == 0 ? frame.events.beat : frame.events.kick;
@@ -1336,7 +2076,8 @@ void VCAudioTriggers_Test::mappedActions()
     second.processAudioSnapshot();
     QVERIFY(functions[0]->stopped() && functions[1]->stopped());
     QVERIFY(buttonFunctions[0]->stopped() && buttonFunctions[1]->stopped());
-    first.m_captureEnabled = second.m_captureEnabled = false;
+    first.setCaptureEnabled(false);
+    second.setCaptureEnabled(false);
     vc.removeWidgetFromMap(&firstButton);
     vc.removeWidgetFromMap(&secondButton);
 }
@@ -1346,11 +2087,11 @@ void VCAudioTriggers_Test::mappingRoundTrip_data()
     QTest::addColumn<int>("source");
     QTest::addColumn<bool>("withChannels");
     QTest::addColumn<bool>("formatted");
-    for (int source : {int(VCAudioTriggers::BandBeat), int(VCAudioTriggers::BandKick)})
+    for (int source = 0; source < VCAudioTriggers::BandSourceCount; ++source)
         for (bool withChannels : {false, true})
             for (bool formatted : {false, true})
                 QTest::newRow(qPrintable(QString("%1-%2-%3")
-                    .arg(source == VCAudioTriggers::BandBeat ? "beat" : "kick")
+                    .arg(source)
                     .arg(withChannels ? "channels" : "empty")
                     .arg(formatted ? "formatted" : "compact")))
                     << source << withChannels << formatted;
@@ -1396,6 +2137,8 @@ void VCAudioTriggers_Test::mappingRoundTrip()
     QVERIFY(widget.saveXML(&writer));
     writer.writeEmptyElement("FollowingWidget");
     writer.writeEndElement();
+    if (source == VCAudioTriggers::BandLow)
+        xml.replace("Source=\"Low\"", "Source=\"Bass\"");
     VCAudioTriggers restored(&doc);
     QBuffer buffer;
     buffer.setData(xml.toUtf8());
@@ -1426,6 +2169,231 @@ void VCAudioTriggers_Test::mappingRoundTrip()
     QCOMPARE(restoredSibling.value("dmxScale").toDouble(), 0.62);
     QCOMPARE(restoredSibling.value("dmxFloor").toInt(), 19);
     QCOMPARE(restoredSibling.value("beatHoldMs").toInt(), 287);
+}
+
+void VCAudioTriggers_Test::mappedSubmaster_data()
+{
+   QTest::addColumn<int>("source");
+   QTest::addColumn<bool>("osc");
+   for (int source = 0; source < 11; ++source)
+       for (bool osc : {false, true})
+           QTest::newRow(qPrintable(QString("%1-%2").arg(source).arg(osc ? "osc" : "native")))
+               << source << osc;
+}
+
+void VCAudioTriggers_Test::invalidMappingSource_data()
+{
+    QTest::addColumn<QString>("attribute");
+    QTest::newRow("missing-source") << QString();
+    QTest::newRow("empty-source") << QString("Source=\"\"");
+    QTest::newRow("unknown-source") << QString("Source=\"FuturePower\"");
+    QTest::newRow("wrong-case") << QString("Source=\"basspower\"");
+}
+
+void VCAudioTriggers_Test::invalidMappingSource()
+{
+    QFETCH(QString, attribute);
+    Doc doc(nullptr, 1);
+    VCAudioTriggers widget(&doc);
+    widget.selectBarForEditing(VCAudioTriggers::BandVolume);
+    widget.setBarType(VCAudioTriggers::VCWidgetBar);
+    widget.setBarWidget(173);
+    const auto before = widget.barsInfo();
+    const QString xml = QString(R"(<Root>
+        <Mapping %1 Type="2" FunctionID="91">
+            <Mapping Source="Volume" Type="2" FunctionID="92"/>
+        </Mapping>
+        <Mapping Source="KickPower" Type="2" FunctionID="73"/>
+    </Root>)").arg(attribute);
+    QBuffer buffer;
+    buffer.setData(xml.toUtf8());
+    QVERIFY(buffer.open(QIODevice::ReadOnly));
+    QXmlStreamReader reader(&buffer);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(!widget.loadBarXML(reader));
+    QVERIFY(!reader.hasError());
+    QCOMPARE(widget.barsInfo(), before);
+    QVERIFY(reader.isEndElement());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(widget.loadBarXML(reader));
+    QVERIFY(!reader.hasError());
+    const auto after = widget.barsInfo();
+    QCOMPARE(after[VCAudioTriggers::BandKickPower].toMap()["intVal"].toInt(), 73);
+    for (int i = 0; i < widget.barsNumber(); ++i)
+        if (i != VCAudioTriggers::BandKickPower)
+            QCOMPARE(after[i], before[i]);
+}
+
+void VCAudioTriggers_Test::mappedSubmaster()
+{
+   QFETCH(int, source);
+   QFETCH(bool, osc);
+   Doc doc(nullptr, 1);
+   const auto originalCapture = doc.audioInputCapture();
+   const auto restoreCapture = qScopeGuard([&]() { doc.m_inputCapture = originalCapture; });
+   auto *profile = addProfile(doc, 7);
+   QVERIFY(profile);
+   if (osc)
+   {
+       profile->setAudioSource(AudioProfile::OscSynesthesia);
+       doc.m_inputCapture.clear();
+   }
+   else
+       doc.m_inputCapture.reset(new ConsumerCapture());
+   QQuickView view;
+   FixtureManager fixtureManager(&view, &doc);
+   FunctionManager functionManager(&view, &doc);
+   ContextManager contextManager(&view, &doc, &fixtureManager, &functionManager);
+   VirtualConsole vc(&view, &doc, &contextManager);
+   auto cleanupTardis = [](Tardis *tardis) {
+       delete tardis;
+       Tardis::s_instance = nullptr;
+   };
+   std::unique_ptr<Tardis, decltype(cleanupTardis)> tardis(
+       new Tardis(&view, &doc, nullptr, &fixtureManager, &functionManager,
+                  &contextManager, nullptr, nullptr, &vc), cleanupTardis);
+   tardis->m_busy = true;
+   auto *fixture = new Fixture(&doc);
+   fixture->setChannels(1);
+   QVERIFY(doc.addFixture(fixture));
+   auto *scene = new Scene(&doc);
+   QVERIFY(doc.addFunction(scene));
+   scene->setValue(fixture->id(), 0, 255);
+   VCFrame frame(&doc, &vc);
+   auto &button = *new MappedButton(&doc, scene->id());
+   button.setParent(&frame);
+   frame.addWidget(nullptr, &button, {});
+   auto &slider = *new VCSlider(&doc, &frame);
+   VCSlider other(&doc);
+   slider.setSliderMode(VCSlider::Submaster);
+   frame.addWidget(nullptr, &slider, {});
+   vc.addWidgetToMap(&other);
+   VCAudioTriggers audio(&doc, &vc);
+   audio.setAudioProfileId(7);
+   audio.m_snapshotTimer->stop();
+   audio.setCaptureEnabled(true);
+   QVERIFY(audio.captureEnabled());
+   QCOMPARE(audio.barsNumber(), 11);
+   doc.inputOutputMap()->startUniverses();
+   button.requestStateChange(true);
+   audio.selectBarForEditing(source);
+   audio.setBarType(VCAudioTriggers::VCWidgetBar);
+   audio.setBarWidget(slider.id());
+   QString mappingXml;
+   QXmlStreamWriter mappingWriter(&mappingXml);
+   QVERIFY(audio.saveXML(&mappingWriter));
+   QBuffer mappingBuffer;
+   mappingBuffer.setData(mappingXml.toUtf8());
+   QVERIFY(mappingBuffer.open(QIODevice::ReadOnly));
+   QXmlStreamReader mappingReader(&mappingBuffer);
+   QVERIFY(mappingReader.readNextStartElement());
+   VCAudioTriggers restored(&doc, &vc);
+   QVERIFY(restored.loadXML(mappingReader));
+   QCOMPARE(restored.barsInfo()[source].toMap(), audio.barsInfo()[source].toMap());
+   QVERIFY(!restored.captureEnabled());
+   AudioSnapshot snapshot;
+   snapshot.available = true;
+   snapshot.sourceId = osc ? "osc-submaster" : "native-submaster";
+   snapshot.sourceEpoch = 1;
+   snapshot.frameSequence = 1;
+   auto publish = [&]() {
+       ++snapshot.frameSequence;
+       profile->channel()->injectSnapshot(snapshot);
+       audio.processAudioSnapshot();
+   };
+   publish();
+   static const std::array<double, 11> levels = {
+       0.13, 0.29, 0.47, 0.61, 1.0, 0.79, 0.19, 0.37, 0.53, 0.71, 0.89
+   };
+   auto setLevels = [&](double scale) {
+       for (int bank = 0; bank < 3; ++bank)
+           snapshot.triggers[bank].value = levels[bank] * scale;
+       snapshot.volume.normalized = levels[3] * scale;
+       snapshot.kickTrigger.value = levels[5] * scale;
+       snapshot.beatPower = levels[6] * scale;
+       snapshot.bassPower = levels[7] * scale;
+       snapshot.lows = levels[8] * scale;
+       snapshot.mids = levels[9] * scale;
+       snapshot.highs = levels[10] * scale;
+       ++snapshot.events.beat;
+       ++snapshot.events.kick;
+   };
+   for (double scale : {0.25, 0.5, 1.0})
+   {
+       setLevels(scale);
+       publish();
+       const int expected = source == 4 ? 255 : int(levels[source] * scale * 255);
+       QCOMPARE(slider.value(), expected);
+       QCOMPARE(button.intensity(), qreal(expected) / 255);
+       QCOMPARE(scene->getAttributeValue(Function::Intensity), qreal(expected) / 255);
+       doc.masterTimer()->timerTick();
+       QTRY_COMPARE(int(DmxCapture::captureAllFixtures(&doc, false)[0].value), expected);
+       if (source >= 6)
+       {
+           const auto bar = audio.spectrumBars()[source - 6].toMap();
+           const auto mapping = audio.barsInfo()[source].toMap();
+           QCOMPARE(bar["name"], mapping["bLabel"]);
+           QCOMPARE(bar["color"], mapping["color"]);
+           QCOMPARE(bar["value"].toDouble(), levels[source] * scale);
+       }
+       if (source == 4)
+       {
+           publish();
+           QCOMPARE(slider.value(), 0);
+       }
+   }
+   audio.setCaptureEnabled(false);
+   QVERIFY(!audio.captureEnabled());
+   const int paused = slider.value();
+   auto checkOldTarget = [&]() {
+       QCOMPARE(slider.value(), paused);
+       QCOMPARE(button.intensity(), qreal(paused) / 255);
+       QCOMPARE(scene->getAttributeValue(Function::Intensity), qreal(paused) / 255);
+       doc.masterTimer()->timerTick();
+       QTRY_COMPARE(int(DmxCapture::captureAllFixtures(&doc, false)[0].value), paused);
+   };
+   // Consume the reset cursor before checking disabled event delivery.
+   publish();
+   setLevels(0.4);
+   publish();
+   checkOldTarget();
+   audio.setBarWidget(other.id());
+   audio.setCaptureEnabled(true);
+   QVERIFY(audio.captureEnabled());
+   publish();
+   setLevels(0.7);
+   publish();
+   checkOldTarget();
+   const int remapped = source == VCAudioTriggers::BandBeat ? 255 : int(levels[source] * 0.7 * 255);
+   QCOMPARE(other.value(), remapped);
+   snapshot.available = false;
+   setLevels(0.9);
+   publish();
+   QVERIFY(!audio.analysisAvailable());
+   const bool pulse = source == VCAudioTriggers::BandBeat || source == VCAudioTriggers::BandKick;
+   QCOMPARE(other.value(), pulse ? remapped : 0);
+   checkOldTarget();
+   snapshot.available = true;
+   setLevels(0.3);
+   publish();
+   QVERIFY(audio.analysisAvailable());
+   QCOMPARE(other.value(), pulse ? remapped : int(levels[source] * 0.3 * 255));
+   checkOldTarget();
+   setLevels(0.6);
+   publish();
+   QCOMPARE(other.value(), source == VCAudioTriggers::BandBeat ? 255 : int(levels[source] * 0.6 * 255));
+   checkOldTarget();
+   qInfo() << "source lifecycle" << source << "old target held" << paused
+           << "remapped" << remapped << "unavailable" << (pulse ? remapped : 0)
+           << "recovered" << (pulse ? remapped : int(levels[source] * 0.3 * 255))
+           << "next" << other.value();
+   audio.setCaptureEnabled(false);
+   button.requestStateChange(false);
+   doc.masterTimer()->timerTick();
+   vc.removeWidgetFromMap(&button);
+   vc.removeWidgetFromMap(&slider);
+   vc.removeWidgetFromMap(&other);
 }
 
 QTEST_MAIN(VCAudioTriggers_Test)

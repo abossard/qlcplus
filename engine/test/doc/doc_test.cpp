@@ -25,6 +25,7 @@
 #include <QUdpSocket>
 #include <QtEndian>
 #include <QScopeGuard>
+#include <QSettings>
 #include <thread>
 #include <atomic>
 #include <cstring>
@@ -65,6 +66,12 @@
 
 void Doc_Test::initTestCase()
 {
+    const QString settingsPath = QDir(QCoreApplication::applicationDirPath())
+        .absoluteFilePath("../../../low-latency-evidence/settings-doc");
+    QVERIFY(QDir().mkpath(settingsPath));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsPath);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settingsPath);
     Bus::init(this);
 
     m_doc = new Doc(this);
@@ -1218,6 +1225,74 @@ void Doc_Test::createBusNode(QXmlStreamWriter &doc, quint32 id, quint32 val)
 
     /* End the <Bus> tag */
     doc.writeEndElement();
+}
+
+void Doc_Test::latencyPreset_data()
+{
+    QTest::addColumn<bool>("loaded");
+    QTest::newRow("fresh") << false;
+    QTest::newRow("older-loaded-collisions") << true;
+}
+
+void Doc_Test::latencyPreset()
+{
+    QFETCH(bool, loaded);
+    auto serialize = [](AudioProfile *profile) {
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        profile->saveXML(&writer);
+        return xml;
+    };
+    if (loaded)
+    {
+        QXmlStreamReader reader(QString(R"xml(<Engine>
+          <AudioProfile ID="99" Version="2" AnalysisContractRevision="4">
+            <Aubio PowerWindowSize="not-an-integer"/></AudioProfile>
+          <AudioProfile ID="7" Version="2" AnalysisContractRevision="3" Name="Default Audio" IsDefault="True">
+            <Aubio PitchTolerance="0.83"/></AudioProfile>
+          <AudioProfile ID="29" Version="2" AnalysisContractRevision="3" Name="Low Latency">
+            <NoiseGate Threshold="-47"/></AudioProfile>
+          <AudioProfile ID="41" Version="2" AnalysisContractRevision="3" Name="Low Latency (2)"/>
+        </Engine>)xml"));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(m_doc->loadXML(reader));
+        QVERIFY(!m_doc->audioProfile(99));
+        m_doc->setActiveAudioProfileId(29);
+    }
+    QMap<quint32, QString> before;
+    for (auto *profile : m_doc->audioProfiles())
+        before[profile->id()] = serialize(profile);
+    const auto active = m_doc->activeAudioProfileId();
+    auto *preset = m_doc->ensureLowLatencyAudioProfile();
+    QVERIFY(preset);
+    QCOMPARE(preset->name(), loaded ? QString("Low Latency (3)") : QString("Low Latency"));
+    QCOMPARE(preset->builtInKey(), QString("low-latency"));
+    QCOMPARE(preset->channelConfig().aubio.powerWindowSize, 2048);
+    QCOMPARE(preset->channelConfig().visualIntervalMs, 16);
+    QCOMPARE(preset->channelConfig().captureBufferMs, 20);
+    QVERIFY(!preset->isDefault());
+    for (auto it = before.cbegin(); it != before.cend(); ++it)
+        QCOMPARE(serialize(m_doc->audioProfile(it.key())), it.value());
+    if (loaded)
+        QCOMPARE(m_doc->activeAudioProfileId(), active);
+    else
+        QCOMPARE(m_doc->defaultAudioProfile()->name(), QString("Default Audio"));
+    const int count = m_doc->audioProfiles().size();
+    preset->setName("My renamed preset");
+    auto config = preset->channelConfig();
+    config.aubio.pitchTolerance = 0.71;
+    config.freqPower.beat.maxHz = 93;
+    preset->setChannelConfig(config);
+    const QString customized = serialize(preset);
+    QCOMPARE(m_doc->ensureLowLatencyAudioProfile(), preset);
+    QCOMPARE(m_doc->audioProfiles().size(), count);
+    QCOMPARE(serialize(preset), customized);
+    AudioProfile restored(0);
+    QXmlStreamReader reader(customized);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(restored.loadXML(reader));
+    QCOMPARE(restored.builtInKey(), preset->builtInKey());
+    QCOMPARE(serialize(&restored), customized);
 }
 
 void Doc_Test::audioProfileLifetime()

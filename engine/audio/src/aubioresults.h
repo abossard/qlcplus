@@ -41,6 +41,12 @@ struct AubioResults
     double melLowCenters[AUBIO_MELBANK_MAX] = {};
     double melMidCenters[AUBIO_MELBANK_MAX] = {};
     double melHighCenters[AUBIO_MELBANK_MAX] = {};
+    // Optional independent short-window full-range bank for scalar powers.
+    // Ordinary profiles leave this empty and reuse melHigh/post-processing.
+    double powerMel[AUBIO_MELBANK_MAX] = {};
+    int powerMelCount = 0;
+    int powerWindowSize = 4096;
+    int powerBinCount = 2049;
     // Populated only for an explicitly requested diagnostic frame.
     std::vector<double> preEmphasis;
     std::vector<double> spectrum;

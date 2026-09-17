@@ -4,6 +4,9 @@
 
 #include <QtTest>
 #include <QSignalSpy>
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 
 #include "query_tools_test.h"
 #include "tool_registry.h"
@@ -288,7 +291,9 @@ void QueryTools_Test::queryRgbAlgorithms_matrixType()
     QCOMPARE(names.contains("Audio Fire"), hue);
     if (hue)
     {
-        QCOMPARE(result.size(), size_t(41));
+        QCOMPARE(result.size(), size_t(70));
+        QVERIFY(names.contains("Hue Fade"));
+        QVERIFY(names.contains("Audio Waterfall"));
         for (const auto &entry : result)
             QCOMPARE(entry.at("type").get<std::string>(), std::string("Script"));
     }
@@ -328,6 +333,72 @@ void QueryTools_Test::queryRgbAlgorithms_matrixType()
     const Json wrongKind = parsedToolResult(tm.invoke("query_rgb_algorithms", args));
     QVERIFY(wrongKind.is_array());
     QVERIFY(wrongKind.empty());
+}
+
+void QueryTools_Test::queryRgbAlgorithms_floatBoundsMetadata()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QFile scriptFile(temp.filePath("boundedfloatmetadata.js"));
+    QVERIFY(scriptFile.open(QIODevice::WriteOnly | QIODevice::Text));
+    scriptFile.write(R"(
+        (function() {
+          var algo = new Object;
+          var gain = 0.00001;
+          algo.apiVersion = 2;
+          algo.name = "Bounded Float Metadata";
+          algo.author = "QLC+ Unit Test";
+          algo.acceptColors = 0;
+          algo.properties = [
+            "name:gain|display:Gain|type:float|values:0.00001,1|write:setGain|read:getGain"
+          ];
+          algo.rgbMap = function(width, height, rgb, step) {
+            var out = [];
+            for (var y = 0; y < height; y++) {
+              var row = [];
+              for (var x = 0; x < width; x++) row.push(0);
+              out.push(row);
+            }
+            return out;
+          };
+          algo.rgbMapStepCount = function(width, height) { return 1; };
+          algo.setGain = function(value) { gain = parseFloat(value); };
+          algo.getGain = function() { return gain; };
+          return algo;
+        })();
+    )");
+    scriptFile.close();
+
+    QVERIFY(m_doc->rgbScriptsCache()->load(QDir(temp.path())));
+
+    auto tm = makeQueryToolManager(m_doc);
+    const Json result = parsedToolResult(tm.invoke("query_rgb_algorithms", Json{
+        {"matrixType", "RGBMatrix"},
+        {"type", "Script"},
+        {"name", "bounded float metadata"}
+    }));
+
+    QVERIFY2(result.is_array(), result.dump().c_str());
+    QCOMPARE(result.size(), size_t(1));
+    const Json &algo = result.at(0);
+    QVERIFY(algo.contains("properties"));
+    QVERIFY(algo.at("properties").is_array());
+
+    bool found = false;
+    for (const auto &prop : algo.at("properties"))
+    {
+        if (prop.at("name").get<std::string>() != std::string("gain"))
+            continue;
+        found = true;
+        QCOMPARE(prop.at("type").get<std::string>(), std::string("float"));
+        QVERIFY(prop.contains("min"));
+        QVERIFY(prop.contains("max"));
+        QCOMPARE(prop.at("min").get<double>(), 0.00001);
+        QCOMPARE(prop.at("max").get<double>(), 1.0);
+        break;
+    }
+    QVERIFY2(found, "gain float property not returned");
 }
 
 void QueryTools_Test::queryRgbAlgorithms_invalidMatrixTypeReturnsError()

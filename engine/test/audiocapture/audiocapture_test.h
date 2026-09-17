@@ -15,6 +15,7 @@ class AudioCapture_Test final : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void init();
     void cleanup();
 
@@ -49,6 +50,9 @@ private slots:
     void qt6PartialFrameReads();
     void qt6PoisonedBlockRecovery_data();
     void qt6PoisonedBlockRecovery();
+    void sharedBufferDemand_data();
+    void sharedBufferDemand();
+    void coalescedBufferDemand();
 };
 
 #endif // AUDIOCAPTURE_TEST_H

@@ -1134,8 +1134,12 @@ void RGBMatrix::registerScriptPropertyAttributes()
             min = prop.m_rangeMinValue;
             max = prop.m_rangeMaxValue;
         }
-        /** Scripts don't declare a range for float properties,
-         *  so 0.0 - 1.0 is assumed */
+        else if (prop.m_type == RGBScriptProperty::Float && prop.m_floatHasBounds)
+        {
+            min = prop.m_floatMinValue;
+            max = prop.m_floatMaxValue;
+        }
+        /** Unbounded float properties keep the historical 0.0 - 1.0 span. */
 
         /** A list property holds a string, so the attribute value is the
          *  index of the current value in the values list */
@@ -1163,7 +1167,7 @@ void RGBMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
             strValue = prop.m_listValues.at(qBound(0, int(qRound(value)), prop.m_listValues.count() - 1));
         break;
         case RGBScriptProperty::Float:
-            strValue = QString::number(value);
+            strValue = QString::number(value, 'g', 15);
         break;
         default:
             strValue = QString::number(qRound(value));

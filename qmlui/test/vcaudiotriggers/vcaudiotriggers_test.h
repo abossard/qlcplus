@@ -16,6 +16,13 @@ private slots:
     void bankControlBounds_data();
     void bankControlBounds();
     void coherentPublication();
+    void visualCadence_data();
+    void visualCadence();
+    void sharedProfileDemand();
+    void latencyBinding_data();
+    void latencyBinding();
+    void inputLatencyStall_data();
+    void inputLatencyStall();
     void sparklineRecovery_data();
     void sparklineRecovery();
     void diagnosticsControl_data();
@@ -29,4 +36,8 @@ private slots:
     void mappedActions();
     void mappingRoundTrip_data();
     void mappingRoundTrip();
+    void mappedSubmaster_data();
+    void mappedSubmaster();
+    void invalidMappingSource_data();
+    void invalidMappingSource();
 };

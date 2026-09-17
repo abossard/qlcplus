@@ -203,27 +203,72 @@ int AudioCapture::highCutBin(int N)
 void AudioCapture::registerBandsNumber(int number)
 {
     Q_UNUSED(number)
-    QMutexLocker locker(&m_mutex);
-    const bool wasZero = (m_registerCount == 0);
-    m_registerCount++;
-    if (wasZero)
-    {
-        locker.unlock();
-        start();
-    }
+    QMutexLocker subscribers(&m_subscriptionMutex);
+    ++m_globalSubscribers;
+    reconcileSubscribers();
 }
 
 void AudioCapture::unregisterBandsNumber(int number)
 {
     Q_UNUSED(number)
-    QMutexLocker locker(&m_mutex);
-    if (m_registerCount > 0)
-        m_registerCount--;
-    if (m_registerCount == 0)
+    QMutexLocker subscribers(&m_subscriptionMutex);
+    if (m_globalSubscribers > 0)
+        --m_globalSubscribers;
+    reconcileSubscribers();
+}
+
+void AudioCapture::registerSubscriber(const void *subscriber, int bufferMs)
+{
+    if (!subscriber || (bufferMs != 0 && bufferMs != 20))
     {
-        locker.unlock();
-        stop();
+        qWarning() << "Audio capture subscriber rejected: request must be 0 or 20 ms";
+        return;
     }
+    QMutexLocker subscribers(&m_subscriptionMutex);
+    m_subscribers.insert(subscriber, bufferMs);
+    reconcileSubscribers();
+}
+
+void AudioCapture::unregisterSubscriber(const void *subscriber)
+{
+    QMutexLocker subscribers(&m_subscriptionMutex);
+    m_subscribers.remove(subscriber);
+    reconcileSubscribers();
+}
+
+void AudioCapture::setGlobalProfileDemand(bool microphone, int bufferMs)
+{
+    if (bufferMs != 0 && bufferMs != 20)
+    {
+        qWarning() << "Audio capture global request rejected: request must be 0 or 20 ms";
+        return;
+    }
+    QMutexLocker subscribers(&m_subscriptionMutex);
+    m_globalMicrophone = microphone;
+    m_globalBufferMs = bufferMs;
+    reconcileSubscribers();
+}
+
+void AudioCapture::reconcileSubscribers()
+{
+    // The subscription mutex serializes demand transitions including start/stop.
+    // Never hold the PCM mutex while waiting for capture-thread teardown.
+    const int count = m_subscribers.size() + (m_globalMicrophone ? m_globalSubscribers : 0);
+    int request = m_globalMicrophone && m_globalSubscribers ? m_globalBufferMs : 0;
+    for (int value : std::as_const(m_subscribers))
+        if (value > 0 && (request == 0 || value < request))
+            request = value;
+    int previousCount;
+    {
+        QMutexLocker locker(&m_mutex);
+        previousCount = m_registerCount;
+        m_registerCount = count;
+    }
+    m_requestedBufferMs = request;
+    if (count > 0 && previousCount == 0)
+        start();
+    else if (count == 0 && previousCount > 0)
+        stop();
 }
 
 void AudioCapture::stop()
@@ -381,7 +426,8 @@ void AudioCapture::run()
     QElapsedTimer lastData;
     while (!m_userStop && !isInterruptionRequested())
     {
-        if (m_restart.exchange(false))
+        if (m_restart.exchange(false) ||
+            (initialized && m_openBufferRequestMs != requestedBufferMs()))
         {
             if (initialized)
                 uninitialize();
@@ -390,6 +436,7 @@ void AudioCapture::run()
         }
         if (!initialized)
         {
+            m_openBufferRequestMs = requestedBufferMs();
             if (!initialize())
             {
                 if (status() == Starting)

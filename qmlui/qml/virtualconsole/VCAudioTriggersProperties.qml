@@ -240,6 +240,24 @@ Rectangle
                     }
                     RobotoText
                     {
+                        objectName: "audioInputLatency"
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        height: gridItemsHeight * 5
+                        wrapText: true
+                        label: widgetRef ? widgetRef.inputLatencyStatus : ""
+                        tooltipText: qsTr("Zero request means platform default, not zero latency. Submitted is the buffer request sent before opening; the device may choose another capacity. Queued duration and last-PCM age are software observations, not physical input latency.")
+                    }
+                    RobotoText
+                    {
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        height: gridItemsHeight * 3
+                        wrapText: true
+                        label: qsTr("Low Latency is opt-in: 2048 samples for power only, with 16 ms visual updates. Its 20 ms input request applies only while microphone consumers use it. The first or last requester briefly reopens the shared input for all microphone consumers.")
+                    }
+                    RobotoText
+                    {
                         Layout.columnSpan: 2
                         height: gridItemsHeight
                         fontSize: UISettings.textSizeDefault
@@ -437,12 +455,20 @@ Rectangle
                         onActivated: if (widgetRef) widgetRef.setWindowType(windowList[currentIndex])
                     }
 
-                    RobotoText { height: gridItemsHeight; label: qsTr("Window size"); tooltipText: qsTr("FFT size in samples. Larger = better frequency resolution, more latency.") }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Spectral / detector window"); tooltipText: qsTr("4096 samples for ordinary spectrum, diagnostics, pitch, tempo, onset and notes. Window history is not a fixed end-to-end delay.") }
                     RobotoText
                     {
                         Layout.fillWidth: true
                         height: gridItemsHeight
                         label: widgetRef ? widgetRef.windowSize + "" : "--"
+                    }
+                    RobotoText { height: gridItemsHeight; label: qsTr("Power window"); tooltipText: qsTr("Only scalar powers use this window. Low Latency keeps the ordinary spectral and raw-detector windows unchanged.") }
+                    RobotoText
+                    {
+                        objectName: "audioPowerWindow"
+                        Layout.fillWidth: true
+                        height: gridItemsHeight
+                        label: widgetRef ? widgetRef.powerWindowSize + "" : "--"
                     }
 
                     RobotoText { height: gridItemsHeight; label: qsTr("Hop size"); tooltipText: qsTr("Samples between analysis frames. Smaller = faster updates, more CPU.") }
@@ -2186,6 +2212,7 @@ Rectangle
         SectionBox
         {
             id: audioTriggerProp
+            objectName: "audioMappingSection"
             sectionLabel: qsTr("Spectrum Bar Mappings")
             isExpanded: false
 
@@ -2197,52 +2224,62 @@ Rectangle
                     columnSpacing: 5
                     rowSpacing: 4
 
-                    // row 1
-                    RobotoText
+                    CheckBox
                     {
-                        height: gridItemsHeight
-                        label: qsTr("Number of bars")
+                        objectName: "audioMappingsEnabled"
+                        Layout.columnSpan: 2
+                        text: qsTr("Enable mappings")
+                        checked: widgetRef ? widgetRef.captureEnabled : false
+                        enabled: widgetRef !== null
+                        onToggled: if (widgetRef) widgetRef.captureEnabled = checked
                     }
-
-                    RobotoText
+                    Text
                     {
-                        Layout.fillWidth: true
-                        height: gridItemsHeight
-                        label: widgetRef ? widgetRef.barsNumber.toString() : "6"
-                    }
-
-                    // row 2
-                    ListView
-                    {
-                        id: barsList
                         Layout.columnSpan: 2
                         Layout.fillWidth: true
-                        clip: true
-                        //implicitWidth: audioTriggerPropsColumn.width
-                        implicitHeight: count * gridItemsHeight
-                        boundsBehavior: Flickable.StopAtBounds
-                        headerPositioning: ListView.OverlayHeader
-                        model: widgetRef ? widgetRef.barsInfo : null
+                        wrapMode: Text.WordWrap
+                        color: UISettings.fgMain
+                        text: (widgetRef && widgetRef.captureEnabled
+                               ? qsTr("Mappings enabled.") : qsTr("Mappings paused; meters still update.")) + " " +
+                              qsTr("Levels match the chart. Bank triggers, Beat pulse and Kick hit are separate signals. Multiple mappings to one slider compete: the last update wins. A submaster affects only its frame's children.")
+                    }
+
+                    Item
+                    {
+                        id: barsList
+                        objectName: "audioMappingTable"
+                        Layout.columnSpan: 2
+                        Layout.fillWidth: true
+                        implicitHeight: mappingContents.implicitHeight
+                        property var model: {
+                            if (!widgetRef) return []
+                            var bars = widgetRef.barsInfo
+                            return widgetRef.mappingOrder.map(function(source) { return bars[source] })
+                        }
 
                         property Item currentChecked: null
                         property int currentType: VCAudioTriggers.None
 
-                        header:
-                            RowLayout
+                        Column
+                        {
+                            id: mappingContents
+                            objectName: "audioMappingContents"
+                            width: barsList.width
+                            Row
                             {
+                                objectName: "audioMappingHeader"
                                 z: 2
                                 width: barsList.width
                                 height: gridItemsHeight
+                                spacing: 10
 
                                 RobotoText
                                 {
-                                    width: UISettings.bigItemHeight * 1.8
+                                    width: barsList.width * 0.42
                                     height: gridItemsHeight
                                     label: qsTr("Name")
                                     color: UISettings.sectionHeader
                                 }
-                                Rectangle { width: 1; height: gridItemsHeight }
-
                                 RobotoText
                                 {
                                     width: UISettings.bigItemHeight + gridItemsHeight + 10
@@ -2251,30 +2288,28 @@ Rectangle
                                     color: UISettings.sectionHeader
                                 }
 
-                                Rectangle { width: 1; height: gridItemsHeight }
-
-                                RobotoText
-                                {
-                                    Layout.fillWidth: true
-                                    height: gridItemsHeight
-                                    label: qsTr("Information")
-                                    color: UISettings.sectionHeader
-                                }
                             }
 
-                        delegate:
-                            Row
+                        Repeater
+                        {
+                            model: barsList.model
+                            Item
                             {
+                                objectName: "audioMappingRow" + modelData.index
                                 width: barsList.width
-                                height: modelData.type === VCAudioTriggers.FunctionBar ||
-                                        modelData.type === VCAudioTriggers.VCWidgetBar ? gridItemsHeight * 2 : gridItemsHeight
+                                height: modelData.type === VCAudioTriggers.None ? gridItemsHeight : gridItemsHeight * 2
+                                Row
+                                {
+                                width: parent.width
+                                height: gridItemsHeight
                                 spacing: 10
 
                                 RobotoText
                                 {
-                                    width: UISettings.bigItemHeight * 1.8
+                                    width: barsList.width * 0.42
                                     height: gridItemsHeight
                                     label: modelData.bLabel
+                                    labelColor: modelData.color
                                 }
                                 CustomComboBox
                                 {
@@ -2344,11 +2379,13 @@ Rectangle
                                         }
                                     }
                                 }
+                                }
 
                                 RobotoText
                                 {
                                     visible: modelData.type !== VCAudioTriggers.None && modelData.type === VCAudioTriggers.DMXBar
-                                    width: UISettings.bigItemHeight * 2
+                                    y: gridItemsHeight
+                                    width: parent.width
                                     height: gridItemsHeight
                                     clip: false
                                     label: modelData.intVal + " " + qsTr("Channels")
@@ -2361,13 +2398,13 @@ Rectangle
                                     // configured per band on the AudioProfile.
                                     visible: modelData.type === VCAudioTriggers.FunctionBar ||
                                              modelData.type === VCAudioTriggers.VCWidgetBar
-                                    width: UISettings.bigItemHeight * 2
+                                    y: gridItemsHeight
+                                    width: parent.width
                                     height: gridItemsHeight
 
                                     IconTextEntry
                                     {
                                         visible: modelData.type === VCAudioTriggers.FunctionBar
-                                        y: gridItemsHeight
                                         height: gridItemsHeight
                                         width: parent.width
 
@@ -2379,7 +2416,6 @@ Rectangle
                                     IconTextEntry
                                     {
                                         visible: modelData.type === VCAudioTriggers.VCWidgetBar
-                                        y: gridItemsHeight
                                         height: gridItemsHeight
                                         width: parent.width
                                         iSrc: modelData.iconVal ? modelData.iconVal : ""
@@ -2387,6 +2423,8 @@ Rectangle
                                     }
                                 }
                             }
+                        }
+                        }
 
                         Rectangle
                         {
@@ -2460,7 +2498,7 @@ Rectangle
                                 }
                             }
                         }
-                    } // ListView
+                    } // Item
                 } // GridLayout
         } // SectionBox
 

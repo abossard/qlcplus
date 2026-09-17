@@ -754,6 +754,11 @@ QVariantList VCAnimation::algorithmProperties(QString algoName) const
             break;
         case RGBScriptProperty::Float:
             entry.insert("type", QStringLiteral("Float"));
+            if (prop.m_floatHasBounds)
+            {
+                entry.insert("min", prop.m_floatMinValue);
+                entry.insert("max", prop.m_floatMaxValue);
+            }
             break;
         case RGBScriptProperty::String:
             entry.insert("type", QStringLiteral("String"));

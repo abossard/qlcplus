@@ -17,6 +17,7 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QIODevice>
+#include <QScopeGuard>
 
 #include "audioanalyzer.h"
 #include "audiocapture.h"
@@ -294,9 +295,35 @@ public:
     std::atomic<int> opens {0};
     std::atomic<qreal> volume {0.0};
     QByteArray openedId;
+    std::atomic<int> requestedMs {0};
+    std::atomic<int> openedRequestMs {-1};
+    std::atomic<qint64> submittedBytes {-1};
+    bool supportsRequest = true;
+    std::atomic<bool> failOpen {false};
+    QThread *openThread = nullptr;
+    std::atomic<bool> holdEnumeration {false};
+    mutable std::atomic<bool> enumerating {false};
+    QVector<int> successfulRequests; // Read only after capture has stopped.
+
+    void setBufferRequestMs(int ms) override { requestedMs = ms; }
+    int appliedBufferRequestMs() const override
+    {
+        return supportsRequest && input ? openedRequestMs.load() : -1;
+    }
+    qint64 bufferCapacityBytes() const override
+    {
+        return input ? format.bytesForDuration(40000) : -1;
+    }
+    qint64 queuedBytes() const override
+    {
+        return input ? input->bytes.size() - input->offset : -1;
+    }
 
     QList<AudioCaptureQt6::Device> devices() const override
     {
+        enumerating = true;
+        while (holdEnumeration)
+            QThread::msleep(1);
         if (disconnected)
             return {{QByteArray("other"), QStringLiteral("Other mic"), true}};
         return {{QByteArray("selected"), QStringLiteral("Selected input"), true},
@@ -305,6 +332,12 @@ public:
     QIODevice *open(const QByteArray &id, int, int, QAudioFormat &actual) override
     {
         ++opens;
+        openThread = QThread::currentThread();
+        openedRequestMs = requestedMs.load();
+        submittedBytes = format.bytesForDuration(qint64(openedRequestMs) * 1000);
+        if (failOpen)
+            return nullptr;
+        successfulRequests.append(openedRequestMs.load());
         openedId = id;
         actual = format;
         input = std::make_unique<PacketInput>();
@@ -354,6 +387,131 @@ std::vector<float> resampleReference(const std::vector<float> &mono, int rate)
 }
 
 } // namespace
+
+void AudioCapture_Test::initTestCase()
+{
+    // The suite writes capture settings in init/cleanup. Never use the user's
+    // native preference store, even when launched outside CTest.
+    const QString settingsPath = QDir::current().absoluteFilePath("build/low-latency-evidence/settings-capture");
+    QVERIFY(QDir().mkpath(settingsPath));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsPath);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settingsPath);
+}
+
+void AudioCapture_Test::coalescedBufferDemand()
+{
+    auto backend = std::make_unique<InjectedInput>();
+    auto *fake = backend.get();
+    fake->format = makeQt6Format(30000, 1, QAudioFormat::Float);
+    fake->holdEnumeration = true;
+    AudioCaptureQt6 capture(std::move(backend));
+    capture.setInputDevice("id:c2VsZWN0ZWQ=");
+    const auto release = qScopeGuard([&]() { fake->holdEnumeration = false; });
+    int ordinary = 0, low = 0;
+    capture.registerSubscriber(&ordinary);
+    QTRY_VERIFY(fake->enumerating.load());
+    // Change demand during device enumeration, before the backend has opened.
+    capture.registerSubscriber(&low, 20);
+    fake->holdEnumeration = false;
+    QTRY_COMPARE(capture.inputDiagnostics().value("appliedRequestMs").toInt(), 20);
+    QTest::qWait(40);
+    capture.unregisterSubscriber(&ordinary);
+    capture.unregisterSubscriber(&low);
+    qInfo() << "successful requests during startup transition" << fake->successfulRequests;
+    QVERIFY(!fake->successfulRequests.isEmpty());
+    QCOMPARE(fake->successfulRequests.last(), 20);
+    for (int i = 1; i < fake->successfulRequests.size(); ++i)
+        QVERIFY2(fake->successfulRequests[i] != fake->successfulRequests[i - 1],
+                 "Demand changed during open must not cause an identical successful reopen");
+}
+
+void AudioCapture_Test::sharedBufferDemand_data()
+{
+    QTest::addColumn<int>("rate");
+    QTest::addColumn<int>("channels");
+    QTest::addColumn<bool>("supported");
+    QTest::newRow("30000-mono") << 30000 << 1 << true;
+    QTest::newRow("48000-stereo") << 48000 << 2 << true;
+    QTest::newRow("44100-stereo-unsupported") << 44100 << 2 << false;
+}
+
+void AudioCapture_Test::sharedBufferDemand()
+{
+    QFETCH(int, rate);
+    QFETCH(int, channels);
+    QFETCH(bool, supported);
+    auto backend = std::make_unique<InjectedInput>();
+    auto *fake = backend.get();
+    fake->format = makeQt6Format(rate, channels, QAudioFormat::Float);
+    fake->supportsRequest = supported;
+    fake->bytes = floatBlock(std::vector<float>(size_t(rate * channels), 0.1f));
+    AudioCaptureQt6 capture(std::move(backend));
+    capture.setInputDevice("id:c2VsZWN0ZWQ=");
+    int first = 0, second = 0, ordinary = 0;
+    QCOMPARE(capture.requestedBufferMs(), 0);
+    capture.setGlobalProfileDemand(true, 20); // Stored/selected profile alone is not demand.
+    QCOMPARE(capture.requestedBufferMs(), 0);
+    QCOMPARE(fake->opens.load(), 0);
+    capture.registerSubscriber(&ordinary, 0);
+    QTRY_COMPARE(fake->opens.load(), 1);
+    QTRY_COMPARE(capture.captureFormat(), fake->format);
+    const auto epoch = capture.sourceEpoch();
+    capture.registerSubscriber(&first, 20);
+    QTRY_COMPARE(fake->opens.load(), 2);
+    QTRY_VERIFY(capture.sourceEpoch() > epoch);
+    QTRY_COMPARE(fake->openedRequestMs.load(), 20);
+    QCOMPARE(fake->submittedBytes.load(), qint64(rate * channels * 4 / 50));
+    QVERIFY(fake->openThread != QThread::currentThread());
+    QTRY_COMPARE(capture.inputDiagnostics().value("capacityMs").toDouble(), 40.0);
+    QCOMPARE(capture.inputDiagnostics().value("appliedRequestMs").toInt(), supported ? 20 : -1);
+    QTRY_VERIFY(capture.inputDiagnostics().value("fresh").toBool());
+    const double queuedBefore = capture.inputDiagnostics().value("queuedMs").toDouble();
+    QVERIFY(queuedBefore > 0.0);
+    QTRY_VERIFY(capture.inputDiagnostics().value("queuedMs").toDouble() < queuedBefore);
+    qInfo() << "capture-thread request" << fake->openedRequestMs.load()
+            << "negotiated" << rate << channels << "Float32"
+            << "requested bytes" << fake->submittedBytes.load()
+            << "applied ms" << capture.inputDiagnostics().value("appliedRequestMs")
+            << "capacity ms" << capture.inputDiagnostics().value("capacityMs")
+            << "queued ms before/after" << queuedBefore << capture.inputDiagnostics().value("queuedMs");
+    if (!supported)
+        QVERIFY(capture.inputDiagnostics().value("requestStatus").toString().contains("unsupported"));
+    QVERIFY(capture.latency() < 0); // No physical latency measurement exists.
+    capture.registerSubscriber(&second, 20);
+    capture.registerSubscriber(&first, 20);
+    QTest::qWait(30);
+    QCOMPARE(fake->opens.load(), 2);
+    capture.unregisterSubscriber(&first);
+    QCOMPARE(capture.requestedBufferMs(), 20);
+    capture.unregisterSubscriber(&second);
+    QTRY_COMPARE(fake->opens.load(), 3);
+    QTRY_COMPARE(fake->openedRequestMs.load(), 0);
+    capture.registerBandsNumber(1); // Actual global-active consumer.
+    QTRY_COMPARE(fake->opens.load(), 4);
+    QTRY_COMPARE(fake->openedRequestMs.load(), 20);
+    capture.setGlobalProfileDemand(false, 20); // Global OSC consumer is dormant.
+    QTRY_COMPARE(fake->opens.load(), 5);
+    QTRY_COMPARE(fake->openedRequestMs.load(), 0);
+    capture.unregisterBandsNumber(1);
+    QCOMPARE(capture.requestedBufferMs(), 0);
+    QTRY_COMPARE(capture.inputDiagnostics().value("queuedMs").toDouble(), 0.0);
+    QTRY_VERIFY(!capture.inputDiagnostics().value("fresh").toBool());
+    QVERIFY(capture.inputDiagnostics().value("lastPcmAgeMs").toDouble() >= 150.0);
+    QCOMPARE(fake->opens.load(), 5);
+    qInfo() << "five demand-transition opens; drained queue and stale input:"
+            << capture.inputDiagnostics();
+    fake->failOpen = true;
+    capture.registerSubscriber(&first, 20);
+    QTRY_VERIFY(capture.status() == AudioCapture::Error);
+    QCOMPARE(capture.requestedBufferMs(), 20);
+    QCOMPARE(capture.inputDiagnostics().value("appliedRequestMs").toInt(), -1);
+    QCOMPARE(capture.inputDiagnostics().value("capacityMs").toDouble(), -1.0);
+    capture.unregisterSubscriber(&first);
+    capture.unregisterSubscriber(&ordinary);
+    QVERIFY(!capture.isRunning());
+    QCOMPARE(capture.inputDiagnostics().value("fresh").toBool(), false);
+}
 
 void AudioCapture_Test::init()
 {

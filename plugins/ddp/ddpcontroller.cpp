@@ -20,6 +20,8 @@
 #include <QDebug>
 #include <QLoggingCategory>
 #include <QVarLengthArray>
+#include <QVector>
+#include <algorithm>
 #include <cstring>
 
 #ifdef Q_OS_UNIX
@@ -32,6 +34,21 @@
 #endif
 
 #include "ddpcontroller.h"
+
+namespace {
+QString normalizedAddressKey(const QHostAddress &address)
+{
+    if (address.isNull())
+        return QStringLiteral("null");
+    bool isV4 = false;
+    const quint32 v4 = address.toIPv4Address(&isV4);
+    if (isV4)
+        return QStringLiteral("v4:%1").arg(v4);
+    const Q_IPV6ADDR v6 = address.toIPv6Address();
+    return QStringLiteral("v6:%1").arg(QString::fromLatin1(
+        QByteArray(reinterpret_cast<const char *>(v6.c), 16).toHex()));
+}
+}
 
 // DDP UDP write failures (interface flap, no listener, blocked datagram) are
 // expected at runtime and must NOT spam qWarning. Filter via
@@ -108,11 +125,11 @@ DDPController::~DDPController()
 //  already in realtimeMode), then       │   a full snapshot, then diffs
 //  PRESERVES un-addressed pixels.       │   only update the dirty range.
 //                                       │
-//  PUSH flag: `ddpSeenPush` latches on  │ ONE seq per logical frame;
-//  first PUSH; thereafter only PUSH     │   PUSH set ONLY on the very
-//  triggers strip.show(). Pre-PUSH,     │   last chunk of the very last
-//  every packet triggers show().        │   run; coverage-clear packets
-//                                       │   are PUSH=false.
+//  PUSH flag: `ddpSeenPush` latches on  │ ONE sequence per emitted destination
+//  first PUSH; thereafter only PUSH     │   burst. PUSH is set only on the
+//  triggers strip.show(). Pre-PUSH,     │   final packet of the burst (or a
+//  every packet triggers show().        │   standalone len=0 PUSH when the
+//                                       │   terminal completer had no payload).
 //                                       │
 //  Render rate-cap: udp.cpp limits      │ Our max FPS cap is 50; well
 //  show() to ~66 fps (15 ms gap).       │   under WLED's render rate cap.
@@ -167,12 +184,28 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
     DDPUniverseInfo &info = it.value();
 
     const qint64 now = m_sendTimer.elapsed();
+    const QString previousDestKey = info.participatesInRefresh ? info.refreshDestKey : QString();
+
+    auto dropFromRefresh = [&]() {
+        info.hasPendingReport = false;
+        info.pendingData.clear();
+        info.pendingTotalLen = 0;
+        info.pendingBpp = 0;
+        if (info.participatesInRefresh)
+        {
+            info.participatesInRefresh = false;
+            info.refreshDestKey.clear();
+            if (!previousDestKey.isEmpty())
+                maybeEmitDestination(previousDestKey, now, -1, /*allowFallback=*/false);
+        }
+    };
 
     // ---- Pre-flight validation (apply to both Full and Partial paths) ----
     if (info.destAddress.isNull())
     {
         qCDebug(ddpLog) << "sendDmx: skipping universe" << universe
                         << "no destination IP configured";
+        dropFromRefresh();
         return;
     }
     // WLED firmware rejects these reserved destIds as pixel writes:
@@ -184,100 +217,300 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
     {
         qCDebug(ddpLog) << "sendDmx: refusing reserved destId" << info.destId
                         << "for universe" << universe;
+        dropFromRefresh();
         return;
     }
 
     // ---- Pixel framing ---------------------------------------------------
     const int bpp = (info.components == RGBW) ? 4 : 3;
-    const char *srcData = data.constData();
     const int srcLen = data.size();
-    int totalLen;
+    int totalLen = 0;
     if (m_pixelCount > 0)
         totalLen = m_pixelCount * bpp;            // explicit: zero-pad if needed
     else
         totalLen = (srcLen / bpp) * bpp;          // auto: whole pixels only
-    if (totalLen <= 0)
-        return;
 
     // ddpOffset must be a whole pixel — WLED divides by bpp internally:
     // wled00/e131.cpp handleDDPPacket():
     //   uint32_t start = htonl(p->channelOffset) / ddpChannelsPerLed;
     // A non-aligned offset would silently floor on the receiver.
-    if ((info.ddpOffset % static_cast<quint32>(bpp)) != 0)
+    const bool alignedOffset = ((info.ddpOffset % static_cast<quint32>(bpp)) == 0);
+    const bool eligible = alignedOffset && totalLen > 0;
+
+    if (!eligible)
     {
-        qCDebug(ddpLog) << "sendDmx: ddpOffset" << info.ddpOffset
-                        << "not aligned to bpp" << bpp << "for universe" << universe;
+        if (!alignedOffset)
+        {
+            qCDebug(ddpLog) << "sendDmx: ddpOffset" << info.ddpOffset
+                            << "not aligned to bpp" << bpp << "for universe" << universe;
+        }
+
+        dropFromRefresh();
         return;
     }
 
-    const bool partialMode = (info.transmissionMode == Partial);
     const quint8 dataType = (info.components == RGBW)
         ? DDP_DATATYPE_RGBW888
         : DDP_DATATYPE_RGB888;
 
-    // ---- Decide "must send full snapshot" (Partial-mode dispatch) ----
-    //   - Full mode: always sends a snapshot, but the FPS throttle still applies.
-    //   - Partial:   mustFull marks the keep-alive / first-frame / identity-change
-    //                snapshot that ALSO bypasses the throttle (delay-sensitive).
-    //
-    // Partial mode is only safe because WLED preserves un-addressed pixels
-    // between packets within a session. See wled00/udp.cpp realtimeLock():
-    //   if (!realtimeMode && !realtimeOverride) { strip.fill(BLACK); ... }
-    // — the BLACK fill happens ONCE on session entry; subsequent packets only
-    // overwrite the bytes they address (handleDDPPacket loops i=start..stop).
+    QByteArray prepared(totalLen, char(0));
+    if (srcLen > 0)
+        memcpy(prepared.data(), data.constData(), qMin(srcLen, totalLen));
+
+    const QString currentDestKey = destinationKey(info);
+
+    if (info.participatesInRefresh && previousDestKey != currentDestKey)
+    {
+        info.participatesInRefresh = false;
+        info.hasPendingReport = false;
+        info.refreshDestKey.clear();
+        maybeEmitDestination(previousDestKey, now, -1, /*allowFallback=*/false);
+    }
+
+    info.participatesInRefresh = true;
+    info.refreshDestKey = currentDestKey;
+    info.hasPendingReport = true;
+    info.pendingDataChanged = dataChanged;
+    info.pendingData = std::move(prepared);
+    info.pendingTotalLen = totalLen;
+    info.pendingBpp = bpp;
+    info.pendingDataType = dataType;
+
+    DestinationCycleState &cycle = m_destinationCycles[currentDestKey];
+    if (cycle.lastReportAt > 0 && now > cycle.lastReportAt)
+        cycle.tickPeriodMs = qMax<qint64>(1, now - cycle.lastReportAt);
+    cycle.lastReportAt = now;
+    if (!cycle.active)
+    {
+        cycle.active = true;
+        cycle.startedAt = now;
+        cycle.activeTickPeriodMs = qMax<qint64>(1, cycle.tickPeriodMs);
+        if (cycle.cycle == 0)
+            cycle.cycle = 1;
+    }
+
+    info.reportedCycle = cycle.cycle;
+
+    maybeEmitDestination(currentDestKey, now, static_cast<qint32>(universe), /*allowFallback=*/true);
+}
+
+QString DDPController::destinationKey(const DDPUniverseInfo &info) const
+{
+    return QStringLiteral("%1|%2|%3")
+        .arg(normalizedAddressKey(info.destAddress))
+        .arg(info.destPort)
+        .arg(info.destId);
+}
+
+QString DDPController::endpointKey(const DDPUniverseInfo &info) const
+{
+    return QStringLiteral("%1|%2")
+        .arg(normalizedAddressKey(info.destAddress))
+        .arg(info.destPort);
+}
+
+quint8 DDPController::nextEndpointSequence(const DDPUniverseInfo &info)
+{
+    const QString key = endpointKey(info);
+    quint64 &frame = m_endpointFrameCounts[key];
+    frame++;
+    return DDPPacketizer::sequenceForFrame(frame);
+}
+
+void DDPController::maybeEmitDestination(const QString &destKey, qint64 now,
+                                         qint32 preferredFinalUniverse, bool allowFallback)
+{
+    auto stateIt = m_destinationCycles.find(destKey);
+    if (stateIt == m_destinationCycles.end() || !stateIt.value().active)
+        return;
+
+    auto isDestinationMember = [&](const DDPUniverseInfo &info) -> bool {
+        if (info.destAddress.isNull())
+            return false;
+        if (destinationKey(info) != destKey)
+            return false;
+        if (info.destId == 246 || info.destId == 250 || info.destId == 251)
+            return false;
+        const int bpp = (info.components == RGBW) ? 4 : 3;
+        if ((info.ddpOffset % static_cast<quint32>(bpp)) != 0)
+            return false;
+        return true;
+    };
+
+    int participants = 0;
+    int reported = 0;
+    for (auto it = m_universeMap.constBegin(); it != m_universeMap.constEnd(); ++it)
+    {
+        const DDPUniverseInfo &info = it.value();
+        if (!isDestinationMember(info))
+            continue;
+        participants++;
+        if (info.reportedCycle == stateIt.value().cycle)
+            reported++;
+    }
+
+    if (participants == 0)
+    {
+        stateIt.value().active = false;
+        stateIt.value().startedAt = 0;
+        return;
+    }
+
+    const bool allReported = (reported == participants);
+    bool fallbackDue = false;
+    if (!allReported && allowFallback)
+    {
+        const qint64 tick = qMax<qint64>(1, stateIt.value().activeTickPeriodMs);
+        const qint64 fallbackWindow = qMax<qint64>(2, tick * kFallbackTickPeriods);
+        fallbackDue = (now - stateIt.value().startedAt) >= fallbackWindow;
+    }
+
+    if (allReported || fallbackDue)
+        emitDestination(destKey, now, preferredFinalUniverse);
+}
+
+void DDPController::emitDestination(const QString &destKey, qint64 now, qint32 preferredFinalUniverse)
+{
+    auto stateIt = m_destinationCycles.find(destKey);
+    if (stateIt == m_destinationCycles.end() || !stateIt.value().active)
+        return;
+
+    const quint64 cycleId = stateIt.value().cycle;
+
+    QVector<quint32> universes;
+    universes.reserve(m_universeMap.size());
+    for (auto it = m_universeMap.constBegin(); it != m_universeMap.constEnd(); ++it)
+    {
+        const DDPUniverseInfo &info = it.value();
+        if (!info.participatesInRefresh || info.refreshDestKey != destKey)
+            continue;
+        if (destinationKey(info) != destKey)
+            continue;
+        if (info.reportedCycle != cycleId || !info.hasPendingReport)
+            continue;
+        universes.push_back(it.key());
+    }
+
+    std::sort(universes.begin(), universes.end());
+
+    qint32 finalUniverse = -1;
+    for (quint32 uni : universes)
+    {
+        if (static_cast<qint32>(uni) == preferredFinalUniverse)
+        {
+            finalUniverse = preferredFinalUniverse;
+            break;
+        }
+    }
+    if (finalUniverse < 0 && !universes.isEmpty())
+        finalUniverse = static_cast<qint32>(universes.back());
+
+    bool seqAssigned = false;
+    quint8 seq = 1;
+    bool anyPackets = false;
+    bool anyFailure = false;
+    qint32 lastEmitterUniverse = -1;
+    bool finalUniverseEmitted = false;
+
+    auto emitOne = [&](quint32 uni, bool allowPush, bool isFinal) {
+        auto uit = m_universeMap.find(uni);
+        if (uit == m_universeMap.end())
+            return;
+        EmitResult r = emitUniverse(uit.value(), now, seq, seqAssigned, allowPush);
+        anyPackets = anyPackets || r.emittedPackets;
+        anyFailure = anyFailure || !r.ok;
+        if (r.emittedPackets)
+            lastEmitterUniverse = static_cast<qint32>(uni);
+        if (isFinal)
+            finalUniverseEmitted = r.emittedPackets;
+    };
+
+    for (quint32 uni : universes)
+    {
+        if (static_cast<qint32>(uni) == finalUniverse)
+            continue;
+        emitOne(uni, /*allowPush=*/false, /*isFinal=*/false);
+    }
+    if (finalUniverse >= 0)
+        emitOne(static_cast<quint32>(finalUniverse), /*allowPush=*/true, /*isFinal=*/true);
+
+    if (seqAssigned && anyPackets && !anyFailure && !finalUniverseEmitted && lastEmitterUniverse >= 0)
+    {
+        auto emitterIt = m_universeMap.find(static_cast<quint32>(lastEmitterUniverse));
+        if (emitterIt != m_universeMap.end())
+            (void) sendPushOnly(emitterIt.value(), seq);
+    }
+
+    for (auto it = m_universeMap.begin(); it != m_universeMap.end(); ++it)
+    {
+        DDPUniverseInfo &info = it.value();
+        if (!info.participatesInRefresh || info.refreshDestKey != destKey)
+            continue;
+        if (info.reportedCycle == cycleId)
+            info.hasPendingReport = false;
+    }
+
+    stateIt.value().active = false;
+    stateIt.value().startedAt = 0;
+    stateIt.value().cycle++;
+}
+
+DDPController::EmitResult DDPController::emitUniverse(DDPUniverseInfo &info, qint64 now,
+                                                       quint8 &seq, bool &seqAssigned, bool allowPush)
+{
+    const bool partialMode = (info.transmissionMode == Partial);
+
     bool mustFull = false;
     if (partialMode)
     {
         mustFull = !info.baselineValid
-            || info.lastCoverageLen != totalLen
-            || info.lastBpp != bpp
+            || info.lastCoverageLen != info.pendingTotalLen
+            || info.lastBpp != info.pendingBpp
             || info.lastDestAddress != info.destAddress
             || info.lastDestPort != info.destPort
             || info.lastDestId != info.destId
             || info.lastDdpOffset != info.ddpOffset
             || (now - info.lastFullFrameElapsed) >= m_keepAliveMs;
     }
-    const bool wantsFullSnapshot = !partialMode || mustFull;
 
-    // ---- FPS throttle. Only bypassed for Partial-mode keep-alive snapshots,
-    //      where dropping the frame would risk WLED's ~2.5s realtime timeout
-    //      (wled00/udp.cpp `realtimeTimeoutMs`, default 2500). Also bypassed
-    //      for the very first send on a universe (lastSendElapsed=0). ----
     if (!(partialMode && mustFull) && !m_maxFpsBypassForTest && info.lastSendElapsed != 0)
     {
         const qint64 minInterval = (m_maxFps > 0) ? (1000 / m_maxFps) : 0;
         if (minInterval > 0 && (now - info.lastSendElapsed) < minInterval)
-            return;
+            return EmitResult{};
     }
 
-    // ---- skipUnchanged (Full-mode only; Partial inherently sends nothing
-    //      when nothing's dirty). ---------------------------------------
-    if (!partialMode && m_skipUnchanged && !dataChanged
+    if (!partialMode && m_skipUnchanged && !info.pendingDataChanged
             && (now - info.lastSendDataElapsed) < kKeepAliveMs)
-        return;
+        return EmitResult{};
 
-    // ---- Materialise a contiguous totalLen-byte view of the source.
-    //      writePacketInPlace already zero-pads beyond srcLen, but the
-    //      Partial diff and baseline memcpy need a contiguous buffer.
-    QByteArray paddedHolder;
-    const char *effSrc;
-    if (srcLen >= totalLen)
+    if (partialMode && !mustFull && info.lastSentData.size() == info.pendingTotalLen
+            && memcmp(info.pendingData.constData(), info.lastSentData.constData(), info.pendingTotalLen) == 0)
+        return EmitResult{};
+
+    if (!seqAssigned)
     {
-        effSrc = srcData;
-    }
-    else
-    {
-        paddedHolder.resize(totalLen);
-        if (srcLen > 0)
-            memcpy(paddedHolder.data(), srcData, srcLen);
-        memset(paddedHolder.data() + srcLen, 0, totalLen - srcLen);
-        effSrc = paddedHolder.constData();
+        seq = nextEndpointSequence(info);
+        seqAssigned = true;
     }
 
-    if (wantsFullSnapshot)
-        (void) sendFullSnapshot(info, effSrc, totalLen, bpp, dataType, now);
-    else
-        (void) sendPartialDiff(info, effSrc, totalLen, bpp, dataType, now);
+    bool emitted = false;
+    const char *srcData = info.pendingData.constData();
+    const bool wantsFullSnapshot = !partialMode || mustFull;
+    const bool ok = wantsFullSnapshot
+        ? sendFullSnapshot(info, srcData, info.pendingTotalLen, info.pendingBpp, info.pendingDataType,
+                           now, seq, allowPush, &emitted)
+        : sendPartialDiff(info, srcData, info.pendingTotalLen, info.pendingBpp, info.pendingDataType,
+                          now, seq, allowPush, &emitted);
+    return EmitResult{emitted, ok};
+}
+
+bool DDPController::sendPushOnly(const DDPUniverseInfo &info, quint8 seq)
+{
+    const quint8 dataType = (info.components == RGBW)
+        ? DDP_DATATYPE_RGBW888
+        : DDP_DATATYPE_RGB888;
+    return writeChunk(info, nullptr, 0, 0, 0, info.ddpOffset, seq, /*push=*/true, dataType);
 }
 
 // =====================================================================
@@ -309,8 +542,12 @@ bool DDPController::writeChunk(const DDPUniverseInfo &info,
 
 bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
                                      int totalLen, int bpp, quint8 dataType,
-                                     qint64 now)
+                                     qint64 now, quint8 seq, bool allowPush,
+                                     bool *emittedPackets)
 {
+    if (emittedPackets)
+        *emittedPackets = false;
+
     // Capture old identity BEFORE we mutate it, so we can clear an old-only
     // tail/head if coverage shifted on this same destination.
     // NOTE: we use lastBpp>0 (set on first successful send, never cleared by
@@ -322,12 +559,6 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
     const int    oldBpp      = info.lastBpp;
     const QHostAddress oldAddr = info.lastDestAddress;
     const quint16 oldPort      = info.lastDestPort;
-
-    // Sequence number cycles 1..15; 0 is reserved by the DDP spec as "unused"
-    // (wled00/src/dependencies/e131/ESPAsyncE131.h, and the e131SkipOutOfSequence
-    // dedup window in handleDDPPacket() ignores sn==0).
-    info.frameCount++;
-    const quint8 seq = DDPPacketizer::sequenceForFrame(info.frameCount);
 
     // Coverage-clear: only safe when destination IDENTITY is unchanged. The
     // old-only byte range must be addressed at the OLD bpp/destId because that
@@ -373,27 +604,31 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
                 ok = writeChunk(info, zeroChunk, chunk, 0, chunk,
                                 static_cast<quint32>(ivs[k].s) + static_cast<quint32>(sent),
                                 seq, /*push=*/false, oldDataType);
+                if (ok && emittedPackets)
+                    *emittedPackets = true;
                 sent += chunk;
             }
         }
     }
 
-    // Full snapshot — PUSH on the last chunk only.
+    // Full snapshot for one universe. allowPush is true only on the burst's
+    // designated terminal universe.
     //
     // PUSH gating in WLED: wled00/e131.cpp handleDDPPacket() maintains
     // `static bool ddpSeenPush` per realtime session. Once any PUSH arrives,
-    // only PUSH packets trigger e131NewData (and thus strip.show()). Setting
-    // PUSH exclusively on the last chunk gives the receiver one atomic visual
-    // update per logical frame.
+    // only PUSH packets trigger e131NewData (and thus strip.show()). Grouped
+    // emission keeps PUSH only on the destination burst's terminal packet.
     const int totalPackets = DDPPacketizer::packetsRequired(totalLen);
     for (int i = 0; i < totalPackets; i++)
     {
         const int chunkStart = i * DDP_MAX_DATALEN;
         const int chunkLen   = qMin(DDP_MAX_DATALEN, totalLen - chunkStart);
-        const bool push      = (i == totalPackets - 1);
+        const bool push      = allowPush && (i == totalPackets - 1);
         ok = writeChunk(info, srcData, totalLen, chunkStart, chunkLen,
                         info.ddpOffset + static_cast<quint32>(chunkStart),
                         seq, push, dataType) && ok;
+        if (ok && emittedPackets)
+            *emittedPackets = true;
         if (!ok) break;
     }
 
@@ -423,11 +658,16 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
 
 bool DDPController::sendPartialDiff(DDPUniverseInfo &info, const char *srcData,
                                     int totalLen, int bpp, quint8 dataType,
-                                    qint64 now)
+                                    qint64 now, quint8 seq, bool allowPush,
+                                    bool *emittedPackets)
 {
+    if (emittedPackets)
+        *emittedPackets = false;
+
     // Defensive: baseline must match totalLen (mustFull guards this, but check).
     if (info.lastSentData.size() != totalLen)
-        return sendFullSnapshot(info, srcData, totalLen, bpp, dataType, now);
+        return sendFullSnapshot(info, srcData, totalLen, bpp, dataType, now,
+                                seq, allowPush, emittedPackets);
 
     const char *baseData = info.lastSentData.constData();
 
@@ -478,18 +718,15 @@ bool DDPController::sendPartialDiff(DDPUniverseInfo &info, const char *srcData,
     for (auto &r : runs) { partialCost += packetCost(r.end - r.start); }
     const int fullCost = packetCost(totalLen);
     if (partialCost >= fullCost)
-        return sendFullSnapshot(info, srcData, totalLen, bpp, dataType, now);
+        return sendFullSnapshot(info, srcData, totalLen, bpp, dataType, now,
+                                seq, allowPush, emittedPackets);
 
-    // 5) Emit packets. ONE sequence for the whole logical frame; PUSH on the
-    //    very last chunk of the very last run.
+    // 5) Emit packets for one universe. Grouped emission keeps one sequence
+    //    for the destination burst and enables PUSH only on the terminal send.
     //
-    //    The single-seq + last-chunk-PUSH discipline matches WLED's
-    //    expectation: a logical "frame" is a burst of same-seq packets
-    //    ending in one PUSH, which triggers exactly one strip.show()
-    //    (wled00/e131.cpp handleDDPPacket sets e131NewData on the PUSH).
-    info.frameCount++;
-    const quint8 seq = DDPPacketizer::sequenceForFrame(info.frameCount);
-
+    //    WLED expects same-seq packets ending with one PUSH, which triggers
+    //    strip.show() (wled00/e131.cpp handleDDPPacket sets e131NewData on
+    //    the PUSH).
     bool ok = true;
     for (int r = 0; r < runs.size(); r++)
     {
@@ -500,11 +737,13 @@ bool DDPController::sendPartialDiff(DDPUniverseInfo &info, const char *srcData,
             const int chunk = qMin(DDP_MAX_DATALEN, runLen - sent);
             const bool lastChunk = (sent + chunk >= runLen);
             const bool lastRun   = (r == runs.size() - 1);
-            const bool push      = lastChunk && lastRun;
+            const bool push      = allowPush && lastChunk && lastRun;
             const int  absStart  = runs[r].start + sent;
             ok = writeChunk(info, srcData, totalLen, absStart, chunk,
                             info.ddpOffset + static_cast<quint32>(absStart),
                             seq, push, dataType) && ok;
+            if (ok && emittedPackets)
+                *emittedPackets = true;
             if (!ok) break;
             sent += chunk;
         }
@@ -598,7 +837,16 @@ void DDPController::setDestAddress(quint32 universe, const QString &address)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destAddress = QHostAddress(address);
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -607,7 +855,16 @@ void DDPController::setDestPort(quint32 universe, quint16 port)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destPort = port;
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -616,7 +873,16 @@ void DDPController::setDestId(quint32 universe, quint8 id)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destId = id;
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -625,7 +891,16 @@ void DDPController::setDDPOffset(quint32 universe, quint32 offset)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().ddpOffset = offset;
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -634,7 +909,16 @@ void DDPController::setTransmissionMode(quint32 universe, TransmissionMode mode)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().transmissionMode = mode;
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -643,7 +927,16 @@ void DDPController::setComponents(quint32 universe, Components components)
     QMutexLocker locker(&m_dataMutex);
     auto it = m_universeMap.find(universe);
     if (it == m_universeMap.end()) return;
+    const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().components = components;
+    it.value().participatesInRefresh = false;
+    it.value().refreshDestKey.clear();
+    it.value().hasPendingReport = false;
+    it.value().pendingData.clear();
+    it.value().pendingTotalLen = 0;
+    it.value().pendingBpp = 0;
+    if (!previousDestKey.isEmpty())
+        maybeEmitDestination(previousDestKey, m_sendTimer.elapsed(), -1, /*allowFallback=*/false);
     invalidateBaseline(universe);
 }
 
@@ -710,6 +1003,14 @@ void DDPController::setPixelCount(int pixels)
     m_pixelCount = v;
     // pixelCount is controller-wide — every universe baseline becomes stale.
     invalidateAllBaselines();
+    // Pending payloads were framed with the old count. Like per-universe
+    // configuration changes, require fresh reports before publishing them.
+    for (auto it = m_universeMap.begin(); it != m_universeMap.end(); ++it)
+    {
+        it.value().hasPendingReport = false;
+        it.value().reportedCycle = 0;
+        it.value().pendingData.clear();
+    }
 }
 
 int DDPController::pixelCount() const

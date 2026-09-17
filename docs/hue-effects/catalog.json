@@ -1,0 +1,3069 @@
+{
+  "schemaVersion": 1,
+  "generation": {
+    "status": "complete",
+    "sourceCommit": "aeb093ad1beec251ee8d08a4e114135c9d9c6087",
+    "createdAt": "2026-09-17T05:50:38.141523+00:00",
+    "renderer": "Production HUEScript/HUEMatrix owner, native Qt QJSEngine, HSV-to-RGB packing. Isolated Doc; no live application.",
+    "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+    "notes": [
+      "Native render previews, not desktop screenshots or hardware validation.",
+      "Every primary mode/presetMode choice is inventoried. Other property cross-products are excluded.",
+      "Unspecified settings use native defaults. Source/helper and native binary hashes are in media/generation.json.",
+      "50 Hz rendering, 4-second warmup, 10 fps sampling over 4 seconds. Script steps advance once per 120 BPM beat.",
+      "80×4 WLED-style strips; intrinsic 2D effects use 32×32. Mode comparisons share layout, assigned palette, input and timing.",
+      "Palette swatches describe assigned owner colors. acceptedColorCount records native acceptance: 0 means built-in/procedural hues, 1–4 means only the first N assigned stops are passed to the script.",
+      "No public random seed API: Math.random effects are nondeterministic. Non-audio Date clocks run in real-time.",
+      "GIFs may jump when looping; seamless loops are not claimed. playbackScale is a speed multiplier already encoded in the GIF (1 = real-time).",
+      "GIFs use adaptive per-frame 256-color palettes. Decoded colors are checked against every native sample, including frames combined into longer holds.",
+      "Non-audio real-time warmup, capture span and total wall duration must each remain within 5% of their timing targets. Every sampled frame must also land within half a sample interval of its absolute target; otherwise generation is rejected.",
+      "Flashing previews require explicit playback. GIFs contain no audio.",
+      "Publication replacement is atomic per file, not across the whole generation. An interruption can leave mixed files that fail verification; restore a consistent generated-file set from backup/version control, or regenerate to a different empty output directory."
+    ]
+  },
+  "plannedEffectCount": 70,
+  "plannedVariantCount": 101,
+  "entries": [
+    {
+      "id": "audioaurora--default",
+      "effectName": "Audio Aurora",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioaurora.js",
+      "description": "Audio Aurora rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioaurora--default.png",
+      "animation": "media/audioaurora--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobands--default",
+      "effectName": "Audio Bands",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobands.js",
+      "description": "Audio Bands rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobands--default.png",
+      "animation": "media/audiobands--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobandsmatrix--default",
+      "effectName": "Audio Bands Matrix",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobandsmatrix.js",
+      "description": "Audio Bands Matrix rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobandsmatrix--default.png",
+      "animation": "media/audiobandsmatrix--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobarcode--artistic",
+      "effectName": "Audio Barcode",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiobarcode.js",
+      "description": "Audio Barcode rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobarcode--artistic.png",
+      "animation": "media/audiobarcode--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobarcode--reference",
+      "effectName": "Audio Barcode",
+      "modeLabel": "Reference",
+      "sourcePath": "resources/huescripts/audiobarcode.js",
+      "description": "Audio Barcode rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Reference"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobarcode--reference.png",
+      "animation": "media/audiobarcode--reference.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobarcode--scroll",
+      "effectName": "Audio Barcode",
+      "modeLabel": "Scroll+",
+      "sourcePath": "resources/huescripts/audiobarcode.js",
+      "description": "Audio Barcode rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Scroll+"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobarcode--scroll.png",
+      "animation": "media/audiobarcode--scroll.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobasslaser--default",
+      "effectName": "Audio Bass Laser",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobasslaser.js",
+      "description": "Audio Bass Laser rendered by the production native HSV engine. Native metadata accepts only the first 2 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 2,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobasslaser--default.png",
+      "animation": "media/audiobasslaser--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobeatcolors--default",
+      "effectName": "Audio Beat Colors",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobeatcolors.js",
+      "description": "Audio Beat Colors rendered by the production native HSV engine. Native metadata accepts only the first 4 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 4,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobeatcolors--default.png",
+      "animation": "media/audiobeatcolors--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobladepower--default",
+      "effectName": "Audio Blade Power",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobladepower.js",
+      "description": "Audio Blade Power rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobladepower--default.png",
+      "animation": "media/audiobladepower--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobleep--points",
+      "effectName": "Audio Bleep",
+      "modeLabel": "Points",
+      "sourcePath": "resources/huescripts/audiobleep.js",
+      "description": "Audio Bleep rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Points"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobleep--points.png",
+      "animation": "media/audiobleep--points.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobleep--lines",
+      "effectName": "Audio Bleep",
+      "modeLabel": "Lines",
+      "sourcePath": "resources/huescripts/audiobleep.js",
+      "description": "Audio Bleep rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Lines"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobleep--lines.png",
+      "animation": "media/audiobleep--lines.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobleep--fill",
+      "effectName": "Audio Bleep",
+      "modeLabel": "Fill",
+      "sourcePath": "resources/huescripts/audiobleep.js",
+      "description": "Audio Bleep rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Fill"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobleep--fill.png",
+      "animation": "media/audiobleep--fill.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioblocks--artistic",
+      "effectName": "Audio Blocks",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioblocks.js",
+      "description": "Audio Blocks rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioblocks--artistic.png",
+      "animation": "media/audioblocks--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioblocks--ledfx-block-reflections",
+      "effectName": "Audio Blocks",
+      "modeLabel": "LedFx Block Reflections",
+      "sourcePath": "resources/huescripts/audioblocks.js",
+      "description": "Audio Blocks rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Block Reflections"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioblocks--ledfx-block-reflections.png",
+      "animation": "media/audioblocks--ledfx-block-reflections.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioblurz--default",
+      "effectName": "Audio Blurz",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioblurz.js",
+      "description": "Audio Blurz rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioblurz--default.png",
+      "animation": "media/audioblurz--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobpmbar--wipe",
+      "effectName": "Audio BPM Bar",
+      "modeLabel": "wipe",
+      "sourcePath": "resources/huescripts/audiobpmbar.js",
+      "description": "Audio BPM Bar rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "wipe"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobpmbar--wipe.png",
+      "animation": "media/audiobpmbar--wipe.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobpmbar--bounce",
+      "effectName": "Audio BPM Bar",
+      "modeLabel": "bounce",
+      "sourcePath": "resources/huescripts/audiobpmbar.js",
+      "description": "Audio BPM Bar rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "bounce"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobpmbar--bounce.png",
+      "animation": "media/audiobpmbar--bounce.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobpmbar--in-out",
+      "effectName": "Audio BPM Bar",
+      "modeLabel": "in-out",
+      "sourcePath": "resources/huescripts/audiobpmbar.js",
+      "description": "Audio BPM Bar rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "in-out"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiobpmbar--in-out.png",
+      "animation": "media/audiobpmbar--in-out.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiobuildup--default",
+      "effectName": "Audio Buildup",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiobuildup.js",
+      "description": "Audio Buildup rendered by the production native HSV engine. Native metadata accepts only the first 2 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 2,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiobuildup--default.png",
+      "animation": "media/audiobuildup--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiocellular--default",
+      "effectName": "Audio Cellular",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiocellular.js",
+      "description": "Audio Cellular rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiocellular--default.png",
+      "animation": "media/audiocellular--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiochaser--default",
+      "effectName": "Audio Chaser",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiochaser.js",
+      "description": "Audio Chaser rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiochaser--default.png",
+      "animation": "media/audiochaser--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioconcentric--default",
+      "effectName": "Audio Concentric",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioconcentric.js",
+      "description": "Audio Concentric rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioconcentric--default.png",
+      "animation": "media/audioconcentric--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiocrawler--artistic",
+      "effectName": "Audio Crawler",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiocrawler.js",
+      "description": "Audio Crawler rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiocrawler--artistic.png",
+      "animation": "media/audiocrawler--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiocrawler--ledfx-crawler",
+      "effectName": "Audio Crawler",
+      "modeLabel": "LedFx Crawler",
+      "sourcePath": "resources/huescripts/audiocrawler.js",
+      "description": "Audio Crawler rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Crawler"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiocrawler--ledfx-crawler.png",
+      "animation": "media/audiocrawler--ledfx-crawler.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiodigitalrain--default",
+      "effectName": "Audio Digital Rain",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiodigitalrain.js",
+      "description": "Audio Digital Rain rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiodigitalrain--default.png",
+      "animation": "media/audiodigitalrain--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiodjlight--default",
+      "effectName": "Audio DJ Light",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiodjlight.js",
+      "description": "Audio DJ Light rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiodjlight--default.png",
+      "animation": "media/audiodjlight--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioenergy--artistic",
+      "effectName": "Audio Energy",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioenergy.js",
+      "description": "Audio Energy rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioenergy--artistic.png",
+      "animation": "media/audioenergy--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioenergy--reference",
+      "effectName": "Audio Energy",
+      "modeLabel": "Reference",
+      "sourcePath": "resources/huescripts/audioenergy.js",
+      "description": "Audio Energy rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Reference"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioenergy--reference.png",
+      "animation": "media/audioenergy--reference.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioenergy2--artistic",
+      "effectName": "Audio Energy 2",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioenergy2.js",
+      "description": "Audio Energy 2 rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioenergy2--artistic.png",
+      "animation": "media/audioenergy2--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioenergy2--reference",
+      "effectName": "Audio Energy 2",
+      "modeLabel": "Reference",
+      "sourcePath": "resources/huescripts/audioenergy2.js",
+      "description": "Audio Energy 2 rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {
+        "mode": "Reference"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioenergy2--reference.png",
+      "animation": "media/audioenergy2--reference.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioenergy2--ledfx-energy-2",
+      "effectName": "Audio Energy 2",
+      "modeLabel": "LedFx Energy 2",
+      "sourcePath": "resources/huescripts/audioenergy2.js",
+      "description": "Audio Energy 2 rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {
+        "mode": "LedFx Energy 2"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioenergy2--ledfx-energy-2.png",
+      "animation": "media/audioenergy2--ledfx-energy-2.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioequalizer--artistic",
+      "effectName": "Audio Equalizer",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioequalizer.js",
+      "description": "Audio Equalizer rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioequalizer--artistic.png",
+      "animation": "media/audioequalizer--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioequalizer--segment-equalizer",
+      "effectName": "Audio Equalizer",
+      "modeLabel": "Segment Equalizer",
+      "sourcePath": "resources/huescripts/audioequalizer.js",
+      "description": "Audio Equalizer rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Segment Equalizer"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioequalizer--segment-equalizer.png",
+      "animation": "media/audioequalizer--segment-equalizer.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioequalizer2d--bars",
+      "effectName": "Audio Equalizer 2D",
+      "modeLabel": "Bars",
+      "sourcePath": "resources/huescripts/audioequalizer2d.js",
+      "description": "Audio Equalizer 2D rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Bars"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioequalizer2d--bars.png",
+      "animation": "media/audioequalizer2d--bars.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioequalizer2d--ring",
+      "effectName": "Audio Equalizer 2D",
+      "modeLabel": "Ring",
+      "sourcePath": "resources/huescripts/audioequalizer2d.js",
+      "description": "Audio Equalizer 2D rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Ring"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioequalizer2d--ring.png",
+      "animation": "media/audioequalizer2d--ring.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiofilter--default",
+      "effectName": "Audio Filter",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiofilter.js",
+      "description": "Audio Filter rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiofilter--default.png",
+      "animation": "media/audiofilter--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiofire--artistic",
+      "effectName": "Audio Fire",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiofire.js",
+      "description": "Audio Fire rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiofire--artistic.png",
+      "animation": "media/audiofire--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiofire--ledfx-fire",
+      "effectName": "Audio Fire",
+      "modeLabel": "LedFx Fire",
+      "sourcePath": "resources/huescripts/audiofire.js",
+      "description": "Audio Fire rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Fire"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiofire--ledfx-fire.png",
+      "animation": "media/audiofire--ledfx-fire.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiofireworks--default",
+      "effectName": "Audio Fireworks",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiofireworks.js",
+      "description": "Audio Fireworks rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiofireworks--default.png",
+      "animation": "media/audiofireworks--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioflame--default",
+      "effectName": "Audio Flame",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioflame.js",
+      "description": "Audio Flame rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette. Low average brightness in this native sample: mean RGB up to 0.358/255; peak 187/255; up to 22/1024 pixels lit (2.15%); 17/40 fully black frames.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioflame--default.png",
+      "animation": "media/audioflame--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioflowfield--default",
+      "effectName": "Audio Flow Field",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioflowfield.js",
+      "description": "Audio Flow Field rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioflowfield--default.png",
+      "animation": "media/audioflowfield--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiogameoflife--default",
+      "effectName": "Audio Game of Life",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiogameoflife.js",
+      "description": "Conway-style cellular evolution with beat/kick pattern injection and occupancy coloring.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiogameoflife--default.png",
+      "animation": "media/audiogameoflife--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioglitch--artistic",
+      "effectName": "Audio Glitch",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioglitch.js",
+      "description": "Audio Glitch rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioglitch--artistic.png",
+      "animation": "media/audioglitch--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioglitch--ledfx-glitch",
+      "effectName": "Audio Glitch",
+      "modeLabel": "LedFx Glitch",
+      "sourcePath": "resources/huescripts/audioglitch.js",
+      "description": "Audio Glitch rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Glitch"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioglitch--ledfx-glitch.png",
+      "animation": "media/audioglitch--ledfx-glitch.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioglitch2--default",
+      "effectName": "Audio Glitch 2",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioglitch2.js",
+      "description": "Audio Glitch 2 rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioglitch2--default.png",
+      "animation": "media/audioglitch2--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiogravimeter--default",
+      "effectName": "Audio Gravimeter",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiogravimeter.js",
+      "description": "Audio Gravimeter rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiogravimeter--default.png",
+      "animation": "media/audiogravimeter--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiohierarchy--default",
+      "effectName": "Audio Hierarchy",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiohierarchy.js",
+      "description": "Audio Hierarchy rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiohierarchy--default.png",
+      "animation": "media/audiohierarchy--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiohueshift--default",
+      "effectName": "Audio Hue Shift",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiohueshift.js",
+      "description": "Audio Hue Shift rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiohueshift--default.png",
+      "animation": "media/audiohueshift--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiolava--artistic",
+      "effectName": "Audio Lava Lamp",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiolava.js",
+      "description": "Audio Lava Lamp rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiolava--artistic.png",
+      "animation": "media/audiolava--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiolava--ledfx-lava-lamp",
+      "effectName": "Audio Lava Lamp",
+      "modeLabel": "LedFx Lava Lamp",
+      "sourcePath": "resources/huescripts/audiolava.js",
+      "description": "Audio Lava Lamp rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Lava Lamp"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiolava--ledfx-lava-lamp.png",
+      "animation": "media/audiolava--ledfx-lava-lamp.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomagnitude--default",
+      "effectName": "Audio Magnitude",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiomagnitude.js",
+      "description": "Audio Magnitude rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomagnitude--default.png",
+      "animation": "media/audiomagnitude--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomarching--default",
+      "effectName": "Audio Marching",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiomarching.js",
+      "description": "Audio Marching rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomarching--default.png",
+      "animation": "media/audiomarching--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomelt--artistic",
+      "effectName": "Audio Melt",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiomelt.js",
+      "description": "Layered sine-wave melt. Artistic and LedFx response modes share input and palette assignment. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomelt--artistic.png",
+      "animation": "media/audiomelt--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomelt--ledfx-melt",
+      "effectName": "Audio Melt",
+      "modeLabel": "LedFx Melt",
+      "sourcePath": "resources/huescripts/audiomelt.js",
+      "description": "Layered sine-wave melt. Artistic and LedFx response modes share input and palette assignment. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Melt"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomelt--ledfx-melt.png",
+      "animation": "media/audiomelt--ledfx-melt.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomeltsparkle--artistic",
+      "effectName": "Audio Melt and Sparkle",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiomeltsparkle.js",
+      "description": "Moving melt background with transient sparkle accents. Contains flashes. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiomeltsparkle--artistic.png",
+      "animation": "media/audiomeltsparkle--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomeltsparkle--ledfx-melt-and-sparkle",
+      "effectName": "Audio Melt and Sparkle",
+      "modeLabel": "LedFx Melt and Sparkle",
+      "sourcePath": "resources/huescripts/audiomeltsparkle.js",
+      "description": "Moving melt background with transient sparkle accents. Contains flashes. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Melt and Sparkle"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiomeltsparkle--ledfx-melt-and-sparkle.png",
+      "animation": "media/audiomeltsparkle--ledfx-melt-and-sparkle.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomulticolorbar--cascade",
+      "effectName": "Audio Multicolor Bar",
+      "modeLabel": "cascade",
+      "sourcePath": "resources/huescripts/audiomulticolorbar.js",
+      "description": "Audio Multicolor Bar rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "cascade"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomulticolorbar--cascade.png",
+      "animation": "media/audiomulticolorbar--cascade.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiomulticolorbar--wipe",
+      "effectName": "Audio Multicolor Bar",
+      "modeLabel": "wipe",
+      "sourcePath": "resources/huescripts/audiomulticolorbar.js",
+      "description": "Audio Multicolor Bar rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "wipe"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiomulticolorbar--wipe.png",
+      "animation": "media/audiomulticolorbar--wipe.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audionoise--default",
+      "effectName": "Audio Noise",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audionoise.js",
+      "description": "Audio Noise rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audionoise--default.png",
+      "animation": "media/audionoise--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiopitchspectrum--default",
+      "effectName": "Audio Pitch Spectrum",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiopitchspectrum.js",
+      "description": "Audio Pitch Spectrum rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiopitchspectrum--default.png",
+      "animation": "media/audiopitchspectrum--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioplasma--artistic",
+      "effectName": "Audio Plasma",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioplasma.js",
+      "description": "Audio Plasma rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioplasma--artistic.png",
+      "animation": "media/audioplasma--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioplasma--plasma2d",
+      "effectName": "Audio Plasma",
+      "modeLabel": "Plasma2d",
+      "sourcePath": "resources/huescripts/audioplasma.js",
+      "description": "Audio Plasma rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Plasma2d"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioplasma--plasma2d.png",
+      "animation": "media/audioplasma--plasma2d.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioplasma--plasmawled2d",
+      "effectName": "Audio Plasma",
+      "modeLabel": "PlasmaWled2d",
+      "sourcePath": "resources/huescripts/audioplasma.js",
+      "description": "Audio Plasma rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "PlasmaWled2d"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioplasma--plasmawled2d.png",
+      "animation": "media/audioplasma--plasmawled2d.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiopower--artistic",
+      "effectName": "Audio Power",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiopower.js",
+      "description": "Audio Power rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiopower--artistic.png",
+      "animation": "media/audiopower--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiopower--ledfx-power",
+      "effectName": "Audio Power",
+      "modeLabel": "LedFx Power",
+      "sourcePath": "resources/huescripts/audiopower.js",
+      "description": "Audio Power rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "LedFx Power"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiopower--ledfx-power.png",
+      "animation": "media/audiopower--ledfx-power.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiopuddles--artistic",
+      "effectName": "Audio Puddles",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiopuddles.js",
+      "description": "Audio Puddles rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiopuddles--artistic.png",
+      "animation": "media/audiopuddles--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiopuddles--rain-pulse",
+      "effectName": "Audio Puddles",
+      "modeLabel": "Rain Pulse",
+      "sourcePath": "resources/huescripts/audiopuddles.js",
+      "description": "Audio Puddles rendered by the production native HSV engine. This is LedFx Rain's full-field pulse layer: the selected band triggers a uniform flash that fades. Lows defaults to white; separate band-color controls set the pulse color, not the assigned palette. The spatial droplet animation is not included.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Rain Pulse"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiopuddles--rain-pulse.png",
+      "animation": "media/audiopuddles--rain-pulse.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioreaction--default",
+      "effectName": "Audio Reaction-Diffusion",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioreaction.js",
+      "description": "Audio Reaction-Diffusion rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioreaction--default.png",
+      "animation": "media/audioreaction--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioreactor--default",
+      "effectName": "Audio Reactor",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioreactor.js",
+      "description": "Audio Reactor rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioreactor--default.png",
+      "animation": "media/audioreactor--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscan--artistic",
+      "effectName": "Audio Scan",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioscan.js",
+      "description": "Audio Scan rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioscan--artistic.png",
+      "animation": "media/audioscan--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscan--ledfx-scan",
+      "effectName": "Audio Scan",
+      "modeLabel": "LedFx Scan",
+      "sourcePath": "resources/huescripts/audioscan.js",
+      "description": "Audio Scan rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Scan"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioscan--ledfx-scan.png",
+      "animation": "media/audioscan--ledfx-scan.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscanflare--artistic",
+      "effectName": "Audio Scan and Flare",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioscanflare.js",
+      "description": "Audio Scan and Flare rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioscanflare--artistic.png",
+      "animation": "media/audioscanflare--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscanflare--ledfx-scan-and-flare",
+      "effectName": "Audio Scan and Flare",
+      "modeLabel": "LedFx Scan and Flare",
+      "sourcePath": "resources/huescripts/audioscanflare.js",
+      "description": "Audio Scan and Flare rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Scan and Flare"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioscanflare--ledfx-scan-and-flare.png",
+      "animation": "media/audioscanflare--ledfx-scan-and-flare.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscanmulti--artistic",
+      "effectName": "Audio Scan Multi",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audioscanmulti.js",
+      "description": "Audio Scan Multi rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioscanmulti--artistic.png",
+      "animation": "media/audioscanmulti--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioscanmulti--ledfx-scan-multi",
+      "effectName": "Audio Scan Multi",
+      "modeLabel": "LedFx Scan Multi",
+      "sourcePath": "resources/huescripts/audioscanmulti.js",
+      "description": "Audio Scan Multi rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Scan Multi"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioscanmulti--ledfx-scan-multi.png",
+      "animation": "media/audioscanmulti--ledfx-scan-multi.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioshockwave--default",
+      "effectName": "Audio Shockwave",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioshockwave.js",
+      "description": "Audio Shockwave rendered by the production native HSV engine. Native metadata accepts only the first 2 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 2,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audioshockwave--default.png",
+      "animation": "media/audioshockwave--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audioshot--default",
+      "effectName": "Audio Shot",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audioshot.js",
+      "description": "Audio Shot rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. Low average brightness in this native sample: mean RGB up to 2.671/255; peak 241/255; up to 84/1024 pixels lit (8.20%); 2/40 fully black frames.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audioshot--default.png",
+      "animation": "media/audioshot--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiosmoke--default",
+      "effectName": "Audio Smoke",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiosmoke.js",
+      "description": "Audio Smoke rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiosmoke--default.png",
+      "animation": "media/audiosmoke--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiosoap--artistic",
+      "effectName": "Audio Soap",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiosoap.js",
+      "description": "Audio Soap rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiosoap--artistic.png",
+      "animation": "media/audiosoap--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiosoap--ledfx-soap",
+      "effectName": "Audio Soap",
+      "modeLabel": "LedFx Soap",
+      "sourcePath": "resources/huescripts/audiosoap.js",
+      "description": "Audio Soap rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {
+        "mode": "LedFx Soap"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiosoap--ledfx-soap.png",
+      "animation": "media/audiosoap--ledfx-soap.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiospectralblocks--default",
+      "effectName": "Audio Spectral Blocks",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiospectralblocks.js",
+      "description": "Audio Spectral Blocks rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiospectralblocks--default.png",
+      "animation": "media/audiospectralblocks--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiospectrum--artistic",
+      "effectName": "Audio Spectrum Bars",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiospectrum.js",
+      "description": "Audio Spectrum Bars rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiospectrum--artistic.png",
+      "animation": "media/audiospectrum--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiospectrum--reference",
+      "effectName": "Audio Spectrum Bars",
+      "modeLabel": "Reference",
+      "sourcePath": "resources/huescripts/audiospectrum.js",
+      "description": "Audio Spectrum Bars rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {
+        "mode": "Reference"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiospectrum--reference.png",
+      "animation": "media/audiospectrum--reference.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiosplittower--default",
+      "effectName": "Audio Split Tower",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiosplittower.js",
+      "description": "Audio Split Tower rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiosplittower--default.png",
+      "animation": "media/audiosplittower--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiospotlight--default",
+      "effectName": "Audio Spotlight",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiospotlight.js",
+      "description": "Audio Spotlight rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiospotlight--default.png",
+      "animation": "media/audiospotlight--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiostrobe--artistic",
+      "effectName": "Audio Strobe",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiostrobe.js",
+      "description": "Audio Strobe rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiostrobe--artistic.png",
+      "animation": "media/audiostrobe--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiostrobe--reference",
+      "effectName": "Audio Strobe",
+      "modeLabel": "Reference",
+      "sourcePath": "resources/huescripts/audiostrobe.js",
+      "description": "Audio Strobe rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Reference"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiostrobe--reference.png",
+      "animation": "media/audiostrobe--reference.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiostrobe--percussive-rgb",
+      "effectName": "Audio Strobe",
+      "modeLabel": "Percussive RGB",
+      "sourcePath": "resources/huescripts/audiostrobe.js",
+      "description": "Audio Strobe rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Percussive RGB"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/audiostrobe--percussive-rgb.png",
+      "animation": "media/audiostrobe--percussive-rgb.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiotunnel--default",
+      "effectName": "Audio Tunnel",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiotunnel.js",
+      "description": "Audio Tunnel rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiotunnel--default.png",
+      "animation": "media/audiotunnel--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiovortex--default",
+      "effectName": "Audio Vortex",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiovortex.js",
+      "description": "Audio Vortex rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiovortex--default.png",
+      "animation": "media/audiovortex--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiovumeter--default",
+      "effectName": "Audio VuMeter",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiovumeter.js",
+      "description": "Audio VuMeter rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiovumeter--default.png",
+      "animation": "media/audiovumeter--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiowater--artistic",
+      "effectName": "Audio Water",
+      "modeLabel": "Artistic",
+      "sourcePath": "resources/huescripts/audiowater.js",
+      "description": "Audio Water rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This Artistic mode uses procedural hues and ignores the injected palette.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "Artistic"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiowater--artistic.png",
+      "animation": "media/audiowater--artistic.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiowater--ledfx-water",
+      "effectName": "Audio Water",
+      "modeLabel": "LedFx Water",
+      "sourcePath": "resources/huescripts/audiowater.js",
+      "description": "Audio Water rendered by the production native HSV engine. Native metadata accepts only the first 3 of 5 assigned colors; the remaining assigned colors are not passed to the script. This LedFx mode uses the first 3 assigned colors.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 3,
+      "settings": {
+        "mode": "LedFx Water"
+      },
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiowater--ledfx-water.png",
+      "animation": "media/audiowater--ledfx-water.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "audiowaterfall--default",
+      "effectName": "Audio Waterfall",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/audiowaterfall.js",
+      "description": "Spectral novelty colors descend through a two-dimensional history.",
+      "layout": {
+        "columns": 32,
+        "rows": 32
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "Synthetic 120 BPM, 4-second repeating pattern: 0–0.5 s quiet, 0.5–2 s sustain, 2–4 s transients. Unequal low/mid/full spectral banks, independent filtered and raw powers, changing pitch, cumulative beat/kick/onset/bar counters. AudioSnapshot → AudioRenderView → production v6 JS bridge. Visual-only preview; no microphone, music, live workspace, or DMX.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/audiowaterfall--default.png",
+      "animation": "media/audiowaterfall--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huefade--default",
+      "effectName": "Hue Fade",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huefade.js",
+      "description": "Hue Fade rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/huefade--default.png",
+      "animation": "media/huefade--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huegradient--default",
+      "effectName": "Hue Gradient",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huegradient.js",
+      "description": "Hue Gradient rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/huegradient--default.png",
+      "animation": "media/huegradient--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huemetro--default",
+      "effectName": "Hue Metro",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huemetro.js",
+      "description": "Hue Metro rendered by the production native HSV engine. Native metadata accepts only the first 2 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 2,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/huemetro--default.png",
+      "animation": "media/huemetro--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huepixels--default",
+      "effectName": "Hue Pixels",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huepixels.js",
+      "description": "Hue Pixels rendered by the production native HSV engine.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 5,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/huepixels--default.png",
+      "animation": "media/huepixels--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huerainbow--default",
+      "effectName": "Hue Rainbow",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huerainbow.js",
+      "description": "Hue Rainbow rendered by the production native HSV engine. Native metadata accepts no palette; built-in/procedural hues replace the assigned palette.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 0,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/huerainbow--default.png",
+      "animation": "media/huerainbow--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huerandomflash--default",
+      "effectName": "Hue Random Flash",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huerandomflash.js",
+      "description": "Hue Random Flash rendered by the production native HSV engine. Native metadata accepts only the first 1 of 5 assigned colors; the remaining assigned colors are not passed to the script.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 1,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": true,
+      "poster": "media/huerandomflash--default.png",
+      "animation": "media/huerandomflash--default.gif",
+      "status": "ready",
+      "error": null
+    },
+    {
+      "id": "huesinglecolor--default",
+      "effectName": "Hue Single Color",
+      "modeLabel": "Default",
+      "sourcePath": "resources/huescripts/huesinglecolor.js",
+      "description": "Hue Single Color rendered by the production native HSV engine. Native metadata accepts only the first 1 of 5 assigned colors; the remaining assigned colors are not passed to the script. This preview is static at the selected settings.",
+      "layout": {
+        "columns": 80,
+        "rows": 4
+      },
+      "palette": [
+        "#521887",
+        "#ff4867",
+        "#ffbd45",
+        "#10d9c5",
+        "#bdefff"
+      ],
+      "acceptedColorCount": 1,
+      "settings": {},
+      "inputDescription": "No audio. Production non-audio rgbMap with real-time Date clock after 4 seconds of warmup.",
+      "durationMs": 4000,
+      "fps": 10,
+      "playbackScale": 1,
+      "flashing": false,
+      "poster": "media/huesinglecolor--default.png",
+      "animation": "media/huesinglecolor--default.gif",
+      "status": "ready",
+      "error": null
+    }
+  ]
+}

@@ -176,7 +176,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"visibilityMask", {{"type", "integer"}, {"description", "SpeedDial/Matrix: visibility bitmask"}}},
                 {"resetFactorOnDialChange", {{"type", "boolean"}, {"description", "SpeedDial: reset factor on dial change"}}},
                 {"volumeLevel", {{"type", "integer"}, {"description", "AudioTrigger: audio input volume 0-255"}}},
-                {"barsNumber", {{"type", "integer"}, {"description", "AudioTrigger: legacy compatibility field; QLC+ 5 uses a fixed six-band mapping"}}},
+                {"barsNumber", {{"type", "integer"}, {"description", "AudioTrigger: legacy compatibility field; QLC+ 5 uses fixed source mappings. Query widget bars for source identities."}}},
                 {"clockType", {{"type", "string"}, {"enum", {"clock", "stopwatch", "countdown"}}, {"description", "Clock type"}}},
                 {"countdownHours", {{"type", "integer"}, {"description", "Clock: countdown hours"}}},
                 {"countdownMinutes", {{"type", "integer"}, {"description", "Clock: countdown minutes"}}},

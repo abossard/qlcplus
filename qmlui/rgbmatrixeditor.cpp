@@ -19,6 +19,8 @@
 
 #include <QTimer>
 #include <QDebug>
+#include <cmath>
+#include <limits>
 
 #include "rgbmatrixeditor.h"
 
@@ -30,6 +32,43 @@
 #include "tardis.h"
 #include "scene.h"
 #include "doc.h"
+
+namespace
+{
+int boundedFloatDecimals(const RGBScriptProperty &prop, double currentValue)
+{
+    int decimals = 3;
+    const double minBound = prop.m_floatMinValue;
+    const double maxBound = prop.m_floatMaxValue;
+    const double span = std::fabs(maxBound - minBound);
+
+    const double minAbs = [] (double a, double b, double c) {
+        double result = std::numeric_limits<double>::max();
+        for (double value : {std::fabs(a), std::fabs(b), std::fabs(c)})
+        {
+            if (value > 0.0 && value < result)
+                result = value;
+        }
+        return result == std::numeric_limits<double>::max() ? 0.0 : result;
+    }(minBound, maxBound, currentValue);
+
+    if (minAbs > 0.0 && minAbs < 1.0)
+        decimals = qMax(decimals, int(std::ceil(-std::log10(minAbs))));
+    if (span > 0.0 && span < 1.0)
+        decimals = qMax(decimals, int(std::ceil(-std::log10(span))) + 1);
+
+    const double maxAbs = qMax(1.0, qMax(std::fabs(minBound),
+                                          qMax(std::fabs(maxBound), std::fabs(currentValue))));
+    int maxDecimals = 6;
+    const double maxScale = double(std::numeric_limits<int>::max()) / maxAbs;
+    if (maxScale <= 1.0)
+        maxDecimals = 0;
+    else
+        maxDecimals = qBound(0, int(std::floor(std::log10(maxScale))), 6);
+
+    return qBound(0, decimals, maxDecimals);
+}
+}
 
 RGBMatrixEditor::RGBMatrixEditor(QQuickView *view, Doc *doc, QObject *parent)
     : FunctionEditor(view, doc, parent)
@@ -496,9 +535,29 @@ void RGBMatrixEditor::createScriptObjects(QQuickItem *parent)
             break;
             case RGBScriptProperty::Float:
             {
-                QMetaObject::invokeMethod(parent, "addDoubleSpinBox",
-                                          Q_ARG(QVariant, prop.m_name),
-                                          Q_ARG(QVariant, pValue.toDouble()));
+                if (prop.m_floatHasBounds)
+                {
+                    int decimals = boundedFloatDecimals(prop, pValue.toDouble());
+                    QMetaObject::invokeMethod(parent, "addDoubleSpinBox",
+                                              Q_ARG(QVariant, prop.m_name),
+                                              Q_ARG(QVariant, pValue.toDouble()),
+                                              Q_ARG(QVariant, prop.m_floatMinValue),
+                                              Q_ARG(QVariant, prop.m_floatMaxValue),
+                                              Q_ARG(QVariant, std::pow(10.0, -decimals)),
+                                              Q_ARG(QVariant, decimals),
+                                              Q_ARG(QVariant, true));
+                }
+                else
+                {
+                    QMetaObject::invokeMethod(parent, "addDoubleSpinBox",
+                                              Q_ARG(QVariant, prop.m_name),
+                                              Q_ARG(QVariant, pValue.toDouble()),
+                                              Q_ARG(QVariant, QVariant()),
+                                              Q_ARG(QVariant, QVariant()),
+                                              Q_ARG(QVariant, QVariant()),
+                                              Q_ARG(QVariant, QVariant()),
+                                              Q_ARG(QVariant, false));
+                }
             }
             break;
             case RGBScriptProperty::String:
@@ -556,7 +615,7 @@ void RGBMatrixEditor::setScriptFloatProperty(QString paramName, double value)
     StringDoublePair oldValue(paramName, m_matrix->property(paramName).toDouble());
     Tardis::instance()->enqueueAction(Tardis::RGBMatrixSetScriptDoubleValue, m_matrix->id(), QVariant::fromValue(oldValue),
                                       QVariant::fromValue(StringDoublePair(paramName, value)));
-    m_matrix->setProperty(paramName, QString::number(value));
+    m_matrix->setProperty(paramName, QString::number(value, 'g', 15));
 }
 
 /************************************************************************

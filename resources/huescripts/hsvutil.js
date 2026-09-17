@@ -70,6 +70,285 @@ HSVUtil.gradientAt = function(stops, t) {
     };
 };
 
+HSVUtil.hsvToRgb = function(h, s, v) {
+    h = HSVUtil.mod1(h);
+    s = HSVUtil.clamp01(s);
+    // Keep intermediate overdrive until output brightness and final clipping.
+    v = Math.max(0, v);
+    var i = Math.floor(h * 6);
+    var f = h * 6 - i;
+    var p = v * (1 - s);
+    var q = v * (1 - f * s);
+    var r = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: return [v, r, p];
+        case 1: return [q, v, p];
+        case 2: return [p, v, r];
+        case 3: return [p, q, v];
+        case 4: return [r, p, v];
+        default: return [v, p, q];
+    }
+};
+
+HSVUtil.rgbToHsv = function(r, g, b) {
+    r = HSVUtil.clamp01(r);
+    g = HSVUtil.clamp01(g);
+    b = HSVUtil.clamp01(b);
+    var max = Math.max(r, g, b);
+    var min = Math.min(r, g, b);
+    var delta = max - min;
+    var h = 0;
+    if (delta > 0) {
+        if (max === r) h = ((g - b) / delta) / 6;
+        else if (max === g) h = (2 + (b - r) / delta) / 6;
+        else h = (4 + (r - g) / delta) / 6;
+    }
+    return {
+        h: HSVUtil.mod1(h),
+        s: max > 0 ? delta / max : 0,
+        v: max
+    };
+};
+
+HSVUtil.rgbToHsvUnclipped = function(r, g, b) {
+    var scale = Math.max(1, r, g, b);
+    var hsv = HSVUtil.rgbToHsv(r / scale, g / scale, b / scale);
+    hsv.v *= scale;
+    return hsv;
+};
+
+HSVUtil.parsePositions = function(csv, count) {
+    if (!csv || typeof csv !== "string") return null;
+    var values = csv.split(",").map(function(token) {
+        return parseFloat(String(token).trim());
+    });
+    if (values.length !== count) return null;
+    for (var i = 0; i < values.length; i++) {
+        if (!isFinite(values[i]) || values[i] < 0 || values[i] > 1) return null;
+        if (i > 0 && values[i] < values[i - 1]) return null;
+    }
+    return values;
+};
+
+HSVUtil.gradientRgbAt = function(stops, t, positionsCsv) {
+    if (!stops || stops.length === 0) return [0, 0, 0];
+    if (stops.length === 1) return HSVUtil.hsvToRgb(stops[0].h, stops[0].s, stops[0].v);
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    var positions = HSVUtil.parsePositions(positionsCsv, stops.length);
+    if (!positions) {
+        positions = new Array(stops.length);
+        for (var i = 0; i < stops.length; i++)
+            positions[i] = stops.length <= 1 ? 0 : i / (stops.length - 1);
+    }
+    var first = stops[0];
+    var last = stops[stops.length - 1];
+    if (positions[0] > 0) {
+        stops = [{h: first.h, s: first.s, v: first.v}].concat(stops);
+        positions = [0].concat(positions);
+    }
+    if (positions[positions.length - 1] < 1) {
+        stops = stops.concat([{h: last.h, s: last.s, v: last.v}]);
+        positions = positions.concat([1]);
+    }
+    var segment = 0;
+    while (segment + 1 < positions.length && t > positions[segment + 1]) segment++;
+    var leftPos = positions[segment];
+    var rightPos = positions[Math.min(segment + 1, positions.length - 1)];
+    var localT = rightPos > leftPos ? (t - leftPos) / (rightPos - leftPos) : 0;
+    localT = HSVUtil.clamp01(localT);
+    var slope = 1.5;
+    var powT = Math.pow(localT, slope);
+    var invPowT = Math.pow(1 - localT, slope);
+    var eased = powT + invPowT > 0 ? powT / (powT + invPowT) : localT;
+    var a = HSVUtil.hsvToRgb(stops[segment].h, stops[segment].s, stops[segment].v);
+    var b = HSVUtil.hsvToRgb(stops[Math.min(segment + 1, stops.length - 1)].h,
+                             stops[Math.min(segment + 1, stops.length - 1)].s,
+                             stops[Math.min(segment + 1, stops.length - 1)].v);
+    return [
+        a[0] + (b[0] - a[0]) * eased,
+        a[1] + (b[1] - a[1]) * eased,
+        a[2] + (b[2] - a[2]) * eased
+    ];
+};
+
+HSVUtil.gradientLedfxAt = function(stops, t, positionsCsv) {
+    var rgb = HSVUtil.gradientRgbAt(stops, t, positionsCsv);
+    return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
+};
+
+HSVUtil.parseHexRgb = function(hex) {
+    if (typeof hex !== "string" || !/^#[0-9a-f]{6}$/i.test(hex))
+        return [0, 0, 0];
+    return [
+        parseInt(hex.substr(1, 2), 16) / 255,
+        parseInt(hex.substr(3, 2), 16) / 255,
+        parseInt(hex.substr(5, 2), 16) / 255
+    ];
+};
+
+HSVUtil.attachStripTransformControls = function(algo, options) {
+    options = options || {};
+    var prefix = options.prefix || "";
+    var display = options.display || "";
+    var definitions = [
+        ["flip", "Flip", "list", "Off,On", "Off"],
+        ["mirror", "Mirror", "list", "Off,On", "Off"],
+        ["backgroundMode", "Background Mode", "list", "Off,Additive", "Off"],
+        ["backgroundColor", "Background Color", "string", "", "#000000"],
+        ["backgroundBrightness", "Background Brightness", "float", "0,1", 1],
+        ["brightness", "Brightness", "float", "0,1", 1],
+        ["blur", "Blur", "float", "0,10", 0]
+    ];
+    var readers = {};
+    function normalize(key, value) {
+        if (key === "flip" || key === "mirror") {
+            if (value === true || value === "On" || value === "Yes" || value === "true")
+                return "On";
+            if (value === false || value === "Off" || value === "No" || value === "false")
+                return "Off";
+        } else if (key === "backgroundMode") {
+            if (value === "Off" || value === "Additive") return value;
+        } else if (key === "backgroundColor") {
+            if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) return value;
+        } else {
+            if (value !== null && String(value).trim() !== "" && isFinite(Number(value)))
+                return Math.max(0, Math.min(key === "blur" ? 10 : 1, Number(value)));
+        }
+        throw new Error("Invalid " + key + " output control: " + value);
+    }
+    definitions.forEach(function(definition) {
+        var key = definition[0];
+        var name = prefix ? prefix + key.charAt(0).toUpperCase() + key.slice(1) : key;
+        var method = name.charAt(0).toUpperCase() + name.slice(1);
+        var write = "set" + method;
+        var read = "get" + method;
+        var existing = algo.properties.filter(function(property) {
+            return property.split("|")[0] === "name:" + name;
+        })[0];
+        if (existing) {
+            existing.split("|").forEach(function(field) {
+                if (field.indexOf("read:") === 0) read = field.slice(5);
+            });
+            if (typeof algo[read] !== "function")
+                throw new Error("Missing reader for output control " + name);
+        } else {
+            if (algo[write] || algo[read])
+                throw new Error("Output control method collision for " + name);
+            var value = normalize(key, options.defaults && options.defaults[key] !== undefined
+                ? options.defaults[key] : definition[4]);
+            algo[write] = function(next) { value = normalize(key, next); };
+            algo[read] = function() { return value; };
+            algo.properties.push("name:" + name + "|type:" + definition[2] +
+                "|display:" + display + definition[1] +
+                (definition[3] ? "|values:" + definition[3] : "") +
+                "|write:" + write + "|read:" + read);
+        }
+        readers[key] = function() { return normalize(key, algo[read]()); };
+    });
+    return function() {
+        var result = {};
+        definitions.forEach(function(definition) {
+            result[definition[0]] = readers[definition[0]]();
+        });
+        return result;
+    };
+};
+
+HSVUtil.applyStripTransforms = function(map, width, height, opts) {
+    opts = opts || {};
+    var n = width * height;
+    if (n <= 0) return map;
+    var brightness = parseFloat(opts.brightness);
+    if (!isFinite(brightness)) brightness = 1;
+    brightness = HSVUtil.clamp01(brightness);
+    var sigma = Math.max(0, Math.min(10, parseFloat(opts.blur) || 0));
+    var identity = opts.flip !== "On" && opts.mirror !== "On" &&
+        opts.backgroundMode !== "Additive" && brightness === 1 && sigma === 0;
+    if (identity) {
+        for (var i = 0; i < map.length; i++) {
+            if (!isFinite(map[i]) || map[i] < 0 || map[i] > 1) {
+                identity = false;
+                break;
+            }
+        }
+        if (identity) return map;
+    }
+    var pixels = new Array(n);
+    for (var i = 0; i < n; i++) {
+        var o = i * 3;
+        pixels[i] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
+    }
+    if (opts.flip === "On") pixels.reverse();
+    if (opts.mirror === "On") {
+        var mirrored = new Array(n * 2);
+        for (var i = 0; i < n; i++) {
+            mirrored[i] = pixels[n - 1 - i];
+            mirrored[n + i] = pixels[i];
+        }
+        var folded = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var a = mirrored[i * 2];
+            var b = mirrored[i * 2 + 1];
+            folded[i] = [
+                Math.max(a[0], b[0]),
+                Math.max(a[1], b[1]),
+                Math.max(a[2], b[2])
+            ];
+        }
+        pixels = folded;
+    }
+    if (opts.backgroundMode === "Additive") {
+        var bg = HSVUtil.parseHexRgb(opts.backgroundColor || "#000000");
+        var bgScale = parseFloat(opts.backgroundBrightness);
+        if (!isFinite(bgScale)) bgScale = 1;
+        bgScale = HSVUtil.clamp01(bgScale);
+        for (var i = 0; i < n; i++) {
+            pixels[i][0] += bg[0] * bgScale;
+            pixels[i][1] += bg[1] * bgScale;
+            pixels[i][2] += bg[2] * bgScale;
+        }
+    }
+    for (var i = 0; i < n; i++) {
+        pixels[i][0] *= brightness;
+        pixels[i][1] *= brightness;
+        pixels[i][2] *= brightness;
+    }
+    if (sigma > 0 && n > 3) {
+        var radius = Math.max(1, Math.min(Math.floor((n - 1) / 2), Math.round(4 * sigma)));
+        var kernel = new Array(radius * 2 + 1);
+        var sum = 0;
+        for (var d = -radius; d <= radius; d++) {
+            var w = Math.exp(-d * d / (2 * sigma * sigma));
+            kernel[d + radius] = w;
+            sum += w;
+        }
+        for (var k = 0; k < kernel.length; k++) kernel[k] /= sum;
+        var blurred = new Array(n);
+        for (var i = 0; i < n; i++) {
+            var rgb = [0, 0, 0];
+            for (var d = -radius; d <= radius; d++) {
+                var j = i + d;
+                if (j < 0 || j >= n) continue;
+                var w = kernel[d + radius];
+                rgb[0] += pixels[j][0] * w;
+                rgb[1] += pixels[j][1] * w;
+                rgb[2] += pixels[j][2] * w;
+            }
+            blurred[i] = rgb;
+        }
+        pixels = blurred;
+    }
+    for (var i = 0; i < n; i++) {
+        var hsv = HSVUtil.rgbToHsv(pixels[i][0], pixels[i][1], pixels[i][2]);
+        var o = i * 3;
+        map[o] = hsv.h;
+        map[o + 1] = hsv.s;
+        map[o + 2] = hsv.v;
+    }
+    return map;
+};
+
 /**
  * Resample an array to a new size using linear interpolation.
  * Matches numpy.interp behaviour over an evenly spaced grid.
@@ -218,6 +497,110 @@ HSVUtil.simplex2d = function(xin, yin) {
     if (t2 >= 0) { t2 *= t2; n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2); }
 
     return 70 * (n0 + n1 + n2);
+};
+
+/**
+ * 3D simplex noise. Range approximately -1..1.
+ */
+HSVUtil.simplex3d = function(xin, yin, zin) {
+    var F3 = 1 / 3;
+    var G3 = 1 / 6;
+    var perm = HSVUtil._perm;
+    var grad3 = HSVUtil._grad3;
+
+    var s = (xin + yin + zin) * F3;
+    var i = Math.floor(xin + s);
+    var j = Math.floor(yin + s);
+    var k = Math.floor(zin + s);
+    var t = (i + j + k) * G3;
+    var X0 = i - t;
+    var Y0 = j - t;
+    var Z0 = k - t;
+    var x0 = xin - X0;
+    var y0 = yin - Y0;
+    var z0 = zin - Z0;
+
+    var i1, j1, k1, i2, j2, k2;
+    if (x0 >= y0) {
+        if (y0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+        else if (x0 >= z0) { i1 = 1; j1 = 0; k1 = 0; i2 = 1; j2 = 0; k2 = 1; }
+        else { i1 = 0; j1 = 0; k1 = 1; i2 = 1; j2 = 0; k2 = 1; }
+    } else {
+        if (y0 < z0) { i1 = 0; j1 = 0; k1 = 1; i2 = 0; j2 = 1; k2 = 1; }
+        else if (x0 < z0) { i1 = 0; j1 = 1; k1 = 0; i2 = 0; j2 = 1; k2 = 1; }
+        else { i1 = 0; j1 = 1; k1 = 0; i2 = 1; j2 = 1; k2 = 0; }
+    }
+
+    var x1 = x0 - i1 + G3;
+    var y1 = y0 - j1 + G3;
+    var z1 = z0 - k1 + G3;
+    var x2 = x0 - i2 + 2 * G3;
+    var y2 = y0 - j2 + 2 * G3;
+    var z2 = z0 - k2 + 2 * G3;
+    var x3 = x0 - 1 + 3 * G3;
+    var y3 = y0 - 1 + 3 * G3;
+    var z3 = z0 - 1 + 3 * G3;
+
+    var ii = i & 255;
+    var jj = j & 255;
+    var kk = k & 255;
+    var gi0 = perm[ii + perm[jj + perm[kk]]] % 12;
+    var gi1 = perm[ii + i1 + perm[jj + j1 + perm[kk + k1]]] % 12;
+    var gi2 = perm[ii + i2 + perm[jj + j2 + perm[kk + k2]]] % 12;
+    var gi3 = perm[ii + 1 + perm[jj + 1 + perm[kk + 1]]] % 12;
+
+    var n0 = 0, n1 = 0, n2 = 0, n3 = 0;
+    var t0 = 0.6 - x0 * x0 - y0 * y0 - z0 * z0;
+    if (t0 > 0) { t0 *= t0; n0 = t0 * t0 * (grad3[gi0][0] * x0 + grad3[gi0][1] * y0 + grad3[gi0][2] * z0); }
+    var t1 = 0.6 - x1 * x1 - y1 * y1 - z1 * z1;
+    if (t1 > 0) { t1 *= t1; n1 = t1 * t1 * (grad3[gi1][0] * x1 + grad3[gi1][1] * y1 + grad3[gi1][2] * z1); }
+    var t2 = 0.6 - x2 * x2 - y2 * y2 - z2 * z2;
+    if (t2 > 0) { t2 *= t2; n2 = t2 * t2 * (grad3[gi2][0] * x2 + grad3[gi2][1] * y2 + grad3[gi2][2] * z2); }
+    var t3 = 0.6 - x3 * x3 - y3 * y3 - z3 * z3;
+    if (t3 > 0) { t3 *= t3; n3 = t3 * t3 * (grad3[gi3][0] * x3 + grad3[gi3][1] * y3 + grad3[gi3][2] * z3); }
+    return 32 * (n0 + n1 + n2 + n3);
+};
+
+HSVUtil.audioSeconds = function(audio) {
+    if (audio && audio.timing && isFinite(audio.timing.deltaSeconds))
+        return Math.max(0, audio.timing.deltaSeconds);
+    if (audio && isFinite(audio.dt) && isFinite(audio.bpm) && audio.bpm > 0)
+        return Math.max(0, audio.dt * 60 / audio.bpm);
+    return 0;
+};
+
+HSVUtil.audioIdentityKey = function(audio, previous) {
+    audio = audio || {};
+    var profile = String(audio.profileId === undefined ? "legacy" : audio.profileId);
+    var source = audio.sourceId || "";
+    if (previous && audio.available === false && (!source || audio.status === "reset") &&
+        previous.indexOf(profile + "|") === 0)
+        return previous;
+    return profile + "|" + (audio.sourceEpoch || 0) + "|" +
+        (audio.configRevision || 0) + "|" + source;
+};
+
+HSVUtil.powerForRange = function(audio, range, useRaw) {
+    if (!audio) return 0;
+    var raw = useRaw && audio.powers ? (audio.powers.raw || {}) : {};
+    var beat = HSVUtil.clamp01(useRaw && isFinite(raw.beat) ? raw.beat : (audio.beat || 0));
+    var bass = HSVUtil.clamp01(useRaw && isFinite(raw.bass) ? raw.bass : (audio.bass || 0));
+    var low = HSVUtil.clamp01(useRaw && isFinite(raw.low) ? raw.low : (audio.low || 0));
+    var mid = HSVUtil.clamp01(useRaw && isFinite(raw.mid) ? raw.mid : (audio.mid || 0));
+    var high = HSVUtil.clamp01(useRaw && isFinite(raw.high) ? raw.high : (audio.high || 0));
+    if (range === "Beat") return beat;
+    if (range === "Bass") return bass;
+    if (range === "Mids") return mid;
+    if (range === "High") return high;
+    if (range === "Lows") return low;
+    return HSVUtil.clamp01((beat + bass) * 0.5);
+};
+
+HSVUtil.aggressiveTopEndBias = function(x, boost) {
+    x = HSVUtil.clamp01(x);
+    boost = HSVUtil.clamp01(boost);
+    var aggressive = 1 - Math.pow(1 - x, 4);
+    return (1 - boost) * x + boost * aggressive;
 };
 
 /**

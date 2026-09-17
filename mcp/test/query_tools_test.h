@@ -23,6 +23,7 @@ private slots:
     void queryRgbAlgorithms_matrixTypeSchema();
     void queryRgbAlgorithms_matrixType_data();
     void queryRgbAlgorithms_matrixType();
+    void queryRgbAlgorithms_floatBoundsMetadata();
     void queryRgbAlgorithms_invalidMatrixTypeReturnsError();
     void queryWorkspaceSummary_returnsExpectedCounts();
     void queryWorkspaceSummary_populatedDoc_returnsExactCounts();
