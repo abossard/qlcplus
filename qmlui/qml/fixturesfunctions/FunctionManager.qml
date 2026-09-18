@@ -385,6 +385,7 @@ Rectangle
                                     else
                                         fDragItem.itemIcon = ""
                                     functionsListView.dragActive = true
+                                    UISettings.internalDragActive = true
                                 break;
                                 case App.DragFinished:
                                     fDragItem.Drag.drop()
@@ -392,6 +393,7 @@ Rectangle
                                     fDragItem.x = 0
                                     fDragItem.y = 0
                                     functionsListView.dragActive = false
+                                    UISettings.internalDragActive = false
                                 break;
                               }
                           }
@@ -441,6 +443,7 @@ Rectangle
                   visible: functionsListView.dragActive
 
                   Drag.active: functionsListView.dragActive
+                  Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                   Drag.source: fDragItem
                   Drag.keys: [ "function" ]
 

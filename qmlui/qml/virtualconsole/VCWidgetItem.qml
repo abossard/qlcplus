@@ -42,6 +42,7 @@ Rectangle
     Drag.source: wRoot
     Drag.keys: [ "vcwidget" ]
     Drag.active: dragMouseArea.drag.active
+    Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
 
     onIsSelectedChanged:
     {

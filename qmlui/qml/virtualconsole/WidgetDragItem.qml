@@ -34,6 +34,7 @@ Rectangle
     property string widgetType
     property string widgetIconName
     property bool reduced: Drag.active
+    Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
 
     Row
     {

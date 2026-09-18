@@ -306,6 +306,8 @@ function timeToQlcString(value, type)
   */
 function posToMs(x, timescale, tickSize)
 {
+    if (tickSize <= 0)
+        return 0;
     // tickSize : 1000 * timescale = x : result
     return parseInt(x * (1000 * timescale) / tickSize);
 }
@@ -326,6 +328,8 @@ function posToBeat(x, tickSize, beatsDivision)
   */
 function posToBeatMs(x, tickSize, bpmNumber, beatsDivision)
 {
+    if (tickSize <= 0 || bpmNumber <= 0 || beatsDivision <= 0)
+        return 0;
     // (bpmNumber / beatsDivision) * tickSize : 60000 = x : currentTime
     return (x * 60000) / ((bpmNumber / beatsDivision) * tickSize);
 }
@@ -337,6 +341,8 @@ function posToBeatMs(x, tickSize, bpmNumber, beatsDivision)
   */
 function timeToSize(time, timescale, tickSize)
 {
+    if (timescale <= 0)
+        return 0;
     return ((time * tickSize) / 1000) / timescale;
 }
 
@@ -344,6 +350,8 @@ function timeToSize(time, timescale, tickSize)
     based on BPM and the tick size */
 function timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
 {
+    if (beatsDivision <= 0 || bpmNumber <= 0)
+        return 0;
     // (bpmNumber / beatsDivision) * tickSize : 60000 = x : currentTime
     return (bpmNumber / beatsDivision) * tickSize * (currentTime / 60000);
 }
@@ -362,9 +370,37 @@ function beatsToSize(time, tickSize, beatsDivision)
   */
 function timeToBeatSize(time, bpmNumber, beatsDivision, tickSize)
 {
+    if (bpmNumber <= 0 || beatsDivision <= 0)
+        return 0;
     var barDuration = (60000 / bpmNumber) * beatsDivision;
     // tickSize : barDuration = x : time
     return (tickSize * time) / barDuration;
+}
+
+/**
+  * Return a value in pixels representing a "beats as ms" value
+  * (1000 units per beat, as stored by a beat tempo Function/ShowFunction)
+  * over a Time (milliseconds) based timeline, at the given BPM.
+  */
+function beatsToTimeSize(beatsMs, bpmNumber, timescale, tickSize)
+{
+    if (!bpmNumber)
+        return 0;
+    var realMs = (beatsMs / 1000) * (60000 / bpmNumber);
+    return timeToSize(realMs, timescale, tickSize);
+}
+
+/**
+  * Inverse of beatsToTimeSize: return a "beats as ms" value (1000 units
+  * per beat) for the given pixel position over a Time (milliseconds)
+  * based timeline, at the given BPM.
+  */
+function posToBeatsMsOnTimeline(x, timescale, tickSize, bpmNumber)
+{
+    if (!bpmNumber)
+        return 0;
+    var realMs = posToMs(x, timescale, tickSize);
+    return (realMs / (60000 / bpmNumber)) * 1000;
 }
 
 

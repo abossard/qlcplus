@@ -523,4 +523,169 @@ void McpShowTools_Test::show_survivesXmlRoundTrip()
     QCOMPARE((int)items.first()->duration(), 1750);
 }
 
+void McpShowTools_Test::mixedTempoMilliseconds_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::newRow("time-ruler") << int(Show::Time);
+    QTest::newRow("beat-ruler") << int(Show::BPM_4_4);
+}
+
+void McpShowTools_Test::mixedTempoMilliseconds()
+{
+    QFETCH(int, division);
+    Show *show = makeShow(m_doc, "Mixed");
+    show->setTimeDivision(Show::TimeDivision(division), 120);
+    Scene *beat = makeScene(m_doc, "Beat");
+    beat->setTempoType(Function::Beats);
+    beat->setDuration(4000);
+    Scene *time = makeScene(m_doc, "Time");
+    Json result = invoke(m_doc, "add_show_items", {
+        {"showID", show->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({
+            {{"functionID", beat->id()}, {"startTime", 1500}},
+            {{"functionID", time->id()}, {"startTime", 3500}, {"duration", 750}},
+            {{"functionID", time->id()}, {"startTime", 3000}, {"duration", 100}}
+        })}
+    });
+    QCOMPARE(result.size(), size_t(3));
+    QVERIFY2(!result[0].contains("error"), result.dump().c_str());
+    QVERIFY2(!result[1].contains("error"), result.dump().c_str());
+    QVERIFY(result[2].contains("conflictsWith"));
+    QCOMPARE(result[0].value("duration", -1), 2000);
+    QCOMPARE(result[2]["conflictsWith"].value("startTime", -1), 1500);
+    QCOMPARE(beat->tempoType(), Function::Beats);
+    QCOMPARE(time->tempoType(), Function::Time);
+    QCOMPARE(beat->duration(), uint(4000));
+    QCOMPARE(show->tracks().first()->showFunctions().first()->startTime(), uint(3000));
+
+    Show *other = makeShow(m_doc, "Shared");
+    other->setTimeDivision(Show::Time, 60);
+    result = invoke(m_doc, "add_show_items", {
+        {"showID", other->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionID", beat->id()}, {"startTime", 1500}}})}
+    });
+    QCOMPARE(result[0].value("duration", -1), 4000);
+    QCOMPARE(beat->tempoType(), Function::Beats);
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(show->saveXML(&writer));
+    Show restored(m_doc);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(restored.loadXML(reader));
+    QCOMPARE(restored.tracks().first()->showFunctions().first()->startTime(), uint(3000));
+    result = invoke(m_doc, "query_shows", {{"showID", show->id()}});
+    QCOMPARE(result[0]["tracks"][0]["items"].size(), size_t(2));
+    QCOMPARE(result[0]["tracks"][0]["items"][0].value("startTime", -1), 1500);
+    QCOMPARE(result[0]["tracks"][0]["items"][0].value("duration", -1), 2000);
+    QCOMPARE(result[0].value("totalDuration", -1), 4250);
+}
+
+void McpShowTools_Test::exactBeatMilliseconds_data()
+{
+    QTest::addColumn<int>("bpm");
+    QTest::addColumn<int>("start");
+    QTest::addColumn<int>("duration");
+    QTest::addColumn<bool>("representable");
+    QTest::newRow("30-odd-both") << 30 << 1 << 1 << false;
+    QTest::newRow("30-odd-start") << 30 << 1 << 2 << false;
+    QTest::newRow("30-odd-duration") << 30 << 2 << 1 << false;
+    QTest::newRow("30-even") << 30 << 2 << 2 << true;
+    QTest::newRow("120-odd") << 120 << 1 << 1 << true;
+    QTest::newRow("120-even") << 120 << 2 << 2 << true;
+    QTest::newRow("40-rounded-exact") << 40 << 2 << 2 << true;
+}
+
+void McpShowTools_Test::exactBeatMilliseconds()
+{
+    QFETCH(int, bpm);
+    QFETCH(int, start);
+    QFETCH(int, duration);
+    QFETCH(bool, representable);
+    Show *show = makeShow(m_doc, "Exact");
+    show->setTimeDivision(Show::BPM_4_4, bpm);
+    Scene *beat = makeScene(m_doc, "Shared beat");
+    beat->setTempoType(Function::Beats);
+    beat->setDuration(2000);
+    Show *other = makeShow(m_doc, "Other");
+    other->setTimeDivision(Show::Time, 120);
+    Json shared = invoke(m_doc, "add_show_items", {
+        {"showID", other->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionID", beat->id()}, {"startTime", 0}, {"duration", 2}}})}
+    });
+    QVERIFY2(shared[0].contains("status"), shared.dump().c_str());
+    const Json before = invoke(m_doc, "query_shows", {});
+    m_doc->resetModified();
+    Json args = {
+        {"showID", show->id()}, {"trackName", "New track"},
+        {"items", Json::array({{{"functionID", beat->id()}, {"startTime", start}, {"duration", duration}}})}
+    };
+    Json result = invoke(m_doc, "add_show_items", args);
+    QVERIFY(result.is_array());
+    QCOMPARE(result.size(), size_t(1));
+    QCOMPARE(beat->tempoType(), Function::Beats);
+    QCOMPARE(beat->duration(), uint(2000));
+    if (!representable)
+    {
+        QVERIFY2(result[0].contains("error"), result.dump().c_str());
+        QVERIFY(result[0].value("error", std::string()).find("round-trip") != std::string::npos);
+        QVERIFY(!m_doc->isModified());
+        QVERIFY(invoke(m_doc, "query_shows", {}) == before);
+        args["trackName"] = "Track 1";
+        result = invoke(m_doc, "add_show_items", args);
+        QVERIFY2(result[0].contains("error"), result.dump().c_str());
+        QVERIFY(!m_doc->isModified());
+        QVERIFY(invoke(m_doc, "query_shows", {}) == before);
+        return;
+    }
+    QCOMPARE(result[0].value("status", std::string()), std::string("added"));
+    QCOMPARE(result[0].value("startTime", -1), start);
+    QCOMPARE(result[0].value("duration", -1), duration);
+    result = invoke(m_doc, "add_show_items", args);
+    QVERIFY2(result[0].contains("conflictsWith"), result.dump().c_str());
+    QCOMPARE(result[0]["conflictsWith"].value("startTime", -1), start);
+    QCOMPARE(result[0]["conflictsWith"].value("duration", -1), duration);
+    Scene *time = makeScene(m_doc, "Adjacent time");
+    args["items"][0] = {{"functionID", time->id()}, {"startTime", start + duration}, {"duration", 3}};
+    result = invoke(m_doc, "add_show_items", args);
+    QCOMPARE(result[0].value("status", std::string()), std::string("added"));
+    const Json queried = invoke(m_doc, "query_shows", {{"showID", show->id()}});
+    QCOMPARE(queried[0]["tracks"][1]["items"].size(), size_t(2));
+    QCOMPARE(queried[0]["tracks"][1]["items"][0].value("startTime", -1), start);
+    QCOMPARE(queried[0]["tracks"][1]["items"][0].value("duration", -1), duration);
+    QCOMPARE(queried[0].value("totalDuration", -1), start + duration + 3);
+    QCOMPARE(time->tempoType(), Function::Time);
+
+    QByteArray xml;
+    QBuffer buffer(&xml);
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(m_doc->saveXML(&writer));
+    buffer.close();
+    Doc restored(nullptr);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(restored.loadXML(reader));
+    QVERIFY(invoke(&restored, "query_shows", {{"showID", show->id()}}) == queried);
+    QCOMPARE(restored.function(beat->id())->tempoType(), Function::Beats);
+    QVERIFY(invoke(m_doc, "query_shows", {{"showID", other->id()}})[0] == before[1]);
+}
+
+void McpShowTools_Test::invalidBeatConversion()
+{
+    Show *show = makeShow(m_doc, "No BPM");
+    show->setTimeDivisionBPM(0);
+    Scene *beat = makeScene(m_doc, "Beat");
+    beat->setTempoType(Function::Beats);
+    m_doc->resetModified();
+    Json result = invoke(m_doc, "add_show_items", {
+        {"showID", show->id()}, {"trackName", "Do not create"},
+        {"items", Json::array({{{"functionID", beat->id()}, {"startTime", 500}}})}
+    });
+    QVERIFY(result[0].contains("error"));
+    QCOMPARE(show->getTracksCount(), 1);
+    QVERIFY(!m_doc->isModified());
+    QCOMPARE(beat->tempoType(), Function::Beats);
+}
+
 QTEST_MAIN(McpShowTools_Test)

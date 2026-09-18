@@ -89,6 +89,7 @@ Rectangle
                         property string dragKey: isInput ? "audioInput" : "audioOutput"
 
                         Drag.active: delegateRoot.drag.active
+                        Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                         Drag.source: acDelegate
                         Drag.keys: [ dragKey ]
 
@@ -126,4 +127,3 @@ Rectangle
             } // Item
     } // ListView
 }
-

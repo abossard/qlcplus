@@ -1376,3 +1376,124 @@ geometry and Artistic-preservation tests.
 |------|--------|------|-------------|-------|
 | Scan Multi / LedFx matrix adaptation | | | | Wide, square and exchanged axes |
 | Bands Matrix adaptation | | | | Fractional heights and frequency ordering |
+
+## 27. September 2026 upstream integration
+
+All checks below are pending human review. Automated references are
+`showrunner_test`, `upstreamintegration_test`, `mcp_show_tools_test`,
+`tests/mcp/test_e2e.py`, and the fixture validator. They do not establish
+Finder behavior, visual quality, controller timing, or physical DMX output.
+
+### 27.1 Actions submenus and compact screens
+
+- ☐ Hover and click every Recent files, Network, and Language submenu entry, including the last row.
+- ☐ On a compact screen, open the File submenu and its Recent files submenu. Confirm readable sizing and no clipped or unreachable entries.
+- ☐ Confirm New/Open/Save, undo/redo, fullscreen, stop-all shortcuts, UI Settings, and fork view navigation still work. Leave and return to Fixtures/Functions and confirm its persistent view state survives.
+- ☐ Move the window between displays and check menu sizing when physical screen dimensions are unavailable.
+
+Automated: production MainView load and component checks in `upstreamintegration_test`; `qlcplus5` build.
+
+### 27.2 File dialog scrolling
+
+- ☐ Open a directory containing long folder and file lists. Use both scrollbars, select the last file, and confirm labels and selection remain readable.
+- ☐ Compare compact and normal window sizes, including double-click selection on macOS.
+
+### 27.3 Finder opening and desktop file drops
+
+- ☐ With unsaved changes, open a project through Finder and by dropping it onto the window. Check Save, Discard, and Cancel, including canceling Save As.
+- ☐ Confirm Cancel retains the original project and unsaved edits. Confirm a failed save does not replace the project.
+- ☐ Drop `.qxw`, `.qxw.gz`, `.qxf`, and `.d4` files on the appropriate view. Check project versus fixture routing and invalid-file feedback.
+- ☐ Drop an unsupported file and a nonlocal URL. Neither should replace the current project.
+- ☐ Confirm the external-drop highlight disappears after leaving or canceling a drag, including over persistent fork views.
+
+Automated: native `QFileOpenEvent` document-preservation checks in `upstreamintegration_test`.
+
+### 27.4 Internal dragging and insertion feedback
+
+- ☐ Drag functions, fixture groups, palettes, and Virtual Console widgets to valid targets. Check highlights, drop positions, and selection.
+- ☐ Reorder chaser steps and fixture channels. Confirm insertion feedback follows the pointer.
+- ☐ Drag fixture, I/O plugin, profile, audio-card, collection, and DMX-dump items. Confirm the desktop-drop overlay does not intercept them.
+- ☐ Cancel each drag or release it outside a target, then try an external file drag. The desktop-drop overlay must be available again.
+
+Automated: attached `Drag.active` and file-overlay stacking checks in `upstreamintegration_test`.
+
+### 27.5 Cue-list proportions and fork controls
+
+- ☐ Give all six cue-list columns different widths, resize the widget, copy it, save, and reopen. Confirm proportions are retained.
+- ☐ Open an older project without stored column widths. Confirm sensible defaults and readable columns after initialization and resizing.
+- ☐ Check the shared Chaser editor, next/previous behavior, playback layout, side fader, and mapped controller inputs.
+
+Automated: percentage resizing, zero-width initialization, copy and XML in `upstreamintegration_test`; existing MCP VC suites.
+
+- ☐ Start with a saved project and change only cue-list column widths. Open another project through Finder, cancel the save prompt, and check that the layout stays visible without flicker or lost proportions.
+
+Correction 1 automation: `cueListResizeGuard` checks the production `columnsResized` route on a clean document, dirty state, native FileOpen, Cancel and retained widths. Two unequal layouts pass; loading stored widths alone leaves the document clean.
+
+### 27.6 Mixed Time and Beats playback
+
+- ☐ Play unequal-length Time and Beats items together under both ruler types. The show must continue until both timelines finish.
+- ☐ Delay the first external beat. Time items must begin normally while beat items wait.
+- ☐ Resume from a nonzero cursor with some items already finished. Check the audible/visible start and cursor continuity.
+- ☐ Change live BPM, pause, and resume. Check that authored function tempo and item placement are retained.
+- ☐ Disable the global beat source and compare two shows with different song BPMs.
+
+Automated: delayed synchronization, independent completion, resume, zero-BPM fallback and external position in `showrunner_test`.
+
+- ☐ With a BPM ruler and only Time items, check smooth cursor motion from zero and a resumed position. Repeat with an external beat source, no beat source, and a muted beat track.
+
+Correction 1 automation: `timeOnlyCursor` checks five advancing positions and completion in 16 ruler/source/mute/resume combinations. `mixedTimelines` also checks cursor alignment after the delayed first beat.
+
+### 27.7 Mixed-item editing and timing controls
+
+- ☐ Drop, move, resize both edges, and paste mixed items under Time and BPM rulers. Check aligned edges at multiple zoom levels.
+- ☐ Set song BPM and live BPM to different values. The editor grid must follow the song BPM.
+- ☐ Switch from Time to BPM markers with fractional beat items. Cancel once, then confirm. Check alignment, selection, and undo.
+- ☐ Use start, end, duration, bars/beats, cursor alignment, and cut/insert timing controls on single and mixed selections.
+- ☐ Clear song BPM and check marker fallback, finite geometry, subticks, bar labels, and zoom direction.
+
+Automated: real ShowManager/QML conversions, snapping coordinates, paste, timing and read-only guards in `upstreamintegration_test`; millisecond API and shared-function reuse in native/HTTP MCP tests.
+
+Correction 1 automation: native and HTTP timing rows reject odd start or duration milliseconds at BPM 30 before creating tracks or items. Even milliseconds at BPM 30 and odd/even controls at BPM 120 pass add/query/XML and overlap checks without changing shared function tempo. BPM 40 accepts 2 ms after integer beat-unit conversion because it round-trips to 2 ms.
+
+### 27.8 VDJBeat and Perform integration [VDJ]
+
+- ☐ Load a song with a phased VDJ beat grid. Check VDJBeat placement, snapping, and zoom against the song waveform.
+- ☐ Seek backward and forward, stop, pause, and resume from VirtualDJ. Confirm no stale show function remains owned or running.
+- ☐ Enter Perform mode. Try edit shortcuts, drag/resize, paste, and timing controls. Confirm read-only mode blocks changes and leaving Perform restores editing.
+
+Automated: fork DJ/Perform/ShowFactory/VDJ suites and ShowRunner external-position tests. Controller timing remains pending.
+
+### 27.9 Fixture editor refresh
+
+- ☐ Edit channel capabilities and aliases, reorder mode channels, then reopen the editor. Confirm all lists and labels refresh without duplicate updates.
+
+Automated: native build covers the corrected signal/slot connections.
+
+### 27.10 Incoming fixture catalog and output [DMX]
+
+Catalog entries to inspect:
+American DJ Focus Spot Two; Briteq BT-Theatre 150EZ, 200TW, 261FC;
+Cameo NanoSpot 300 and Studio PAR 64 RGBWA+UV CLPST64RGBWAU12;
+Chauvet 4Bar Hex ILS and Ovation CYC 1 FC;
+Eurolite LED 4C-12 Silent Slim Spot, LED IP PIX Strobe Frost, LED IP PIX Strobe MK2,
+and LED SLS-3 HCL 3x10W; Ghost SLIM PAR56 V2; Martin MAC Aura XIP;
+Pro-Lights Diamond 19TW, Sunblast 3000 FC, and Tribe Crystal;
+Rockville Rockstrip 252; Showtec Xpression 2000W Wash Beam;
+Stairville CX-60 HEX; UKing ZQ02367 120W Beam; beamZ LCB183 LED Bar 18x3W.
+
+- ☐ Find every incoming fixture and mode in the browser. Confirm the fork Stairville Beam Ball 100 Quad LED remains available.
+- ☐ With matching equipment only, verify channel order, dimmer, shutter, color, movement, and special ranges. Pay particular attention to the final MAC Aura XIP and Sunblast 3000 FC corrections.
+
+Automated: all 22 final upstream QXF blobs match the captured source, map membership is retained, and the fixture validator reports zero errors. Hardware output is not verified.
+
+### 27.11 Sign-off
+
+- ☐ Record any failed or unavailable human checks above before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Menus, files and dragging | | | | |
+| Mixed timelines and authoring | | | | |
+| Cue lists and fixture editor | | | | |
+| VDJ/Perform timing | | | | |
+| Fixture hardware | | | | |

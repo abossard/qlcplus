@@ -210,6 +210,7 @@ Rectangle
                                 highlightIndex: cFunctionList.dragInsertIndex
 
                                 Drag.active: delegateRoot.drag.active
+                                Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                                 Drag.source: cfDelegate
                                 Drag.keys: [ "function" ]
                             }

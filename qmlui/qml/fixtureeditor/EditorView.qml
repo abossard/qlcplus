@@ -433,6 +433,7 @@ Rectangle
                                                     cDragItem.itemLabel = cEntryItem.tLabel
                                                     cDragItem.itemIcon = cEntryItem.iSrc
                                                     channelList.dragActive = true
+                                                    UISettings.internalDragActive = true
                                                 }
                                                 else
                                                 {
@@ -441,6 +442,7 @@ Rectangle
                                                     cDragItem.x = 0
                                                     cDragItem.y = 0
                                                     channelList.dragActive = false
+                                                    UISettings.internalDragActive = false
                                                 }
                                             }
 
@@ -516,6 +518,7 @@ Rectangle
                                     property bool fromMainEditor: true
 
                                     Drag.active: channelList.dragActive
+                                    Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                                     Drag.source: cDragItem
                                     Drag.keys: [ "channel" ]
                                 }

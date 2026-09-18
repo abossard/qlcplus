@@ -109,6 +109,7 @@ Rectangle
                         widgetIconName: icon
 
                         Drag.active: delegateRoot.drag.active
+                        Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                         Drag.source: widgetItem
                         // when dragging, the item is reduced to the icon square,
                         // so center that square (its full size) on the cursor
@@ -131,4 +132,3 @@ Rectangle
         ScrollBar.vertical: CustomScrollBar { }
     } // ListView
 }
-

@@ -9,6 +9,8 @@ import json
 import sys
 import os
 import time
+import tempfile
+import xml.etree.ElementTree as ET
 import urllib.request
 import urllib.error
 
@@ -314,6 +316,93 @@ def run_tests():
             assert len(r) == 1
             assert r[0]["name"] == "Color Chase"
         test("create_chasers (full run properties)", t_create_chasers)
+
+        def t_mixed_show_items():
+            functions = call("create_scenes", {"items": [
+                {"name": "Timeline Time", "tempoType": "time"},
+                {"name": "Timeline Beats", "tempoType": "beats"},
+            ]})
+            time_id, beat_id = [entry["id"] for entry in functions]
+            for division in ("time", "4/4"):
+                show = call("create_shows", {"items": [
+                    {"name": "Mixed " + division, "tempoType": division, "bpm": 120}
+                ]})[0]
+                result = call("add_show_items", {
+                    "showID": show["id"], "trackName": "Mixed",
+                    "items": [
+                        {"functionID": beat_id, "startTime": 1500, "duration": 2000},
+                        {"functionID": time_id, "startTime": 3500, "duration": 750},
+                        {"functionID": time_id, "startTime": 3000, "duration": 100},
+                    ],
+                })
+                assert result[0]["status"] == result[1]["status"] == "added", result
+                assert result[2]["conflictsWith"]["startTime"] == 1500, result
+                timeline = call("query_shows", {"showID": show["id"]})[0]
+                assert timeline["totalDuration"] == 4250, timeline
+                assert [(item["startTime"], item["duration"]) for item in
+                        timeline["tracks"][0]["items"]] == [(1500, 2000), (3500, 750)]
+            queried = {entry["id"]: entry for entry in call("query_functions")}
+            assert queried[time_id]["tempoType"] == "time", queried[time_id]
+            assert queried[beat_id]["tempoType"] == "beats", queried[beat_id]
+        test("mixed Show millisecond interface and shared function tempo", t_mixed_show_items)
+
+        def t_exact_show_milliseconds(bpm, start, duration, representable):
+            beat = call("create_scenes", {"items": [
+                {"name": "Exact timeline beat", "tempoType": "beats"},
+            ]})[0]
+            show = call("create_shows", {"items": [
+                {"name": f"Exact {bpm}-{start}-{duration}", "tempoType": "4/4", "bpm": bpm,
+                 "tracks": [{"name": "Existing"}]},
+            ]})[0]
+            before = call("query_shows", {"showID": show["id"]})
+            with tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, "exact.qxw")
+                assert call("save_workspace", {"path": path})["status"] == "saved"
+                args = {
+                    "showID": show["id"], "trackName": "New",
+                    "items": [{"functionID": beat["id"], "startTime": start, "duration": duration}],
+                }
+                result = call("add_show_items", args)[0]
+                if not representable:
+                    assert "round-trip" in result.get("error", ""), result
+                    assert call("query_shows", {"showID": show["id"]}) == before
+                    assert not call("query_workspace_file")["modified"]
+                    args["trackName"] = "Existing"
+                    result = call("add_show_items", args)[0]
+                    assert "round-trip" in result.get("error", ""), result
+                    assert call("query_shows", {"showID": show["id"]}) == before
+                    assert not call("query_workspace_file")["modified"]
+                else:
+                    assert result["status"] == "added", result
+                    assert (result["startTime"], result["duration"]) == (start, duration), result
+                    conflict = call("add_show_items", args)[0]["conflictsWith"]
+                    assert (conflict["startTime"], conflict["duration"]) == (start, duration), conflict
+                    args["items"] = [{"functionID": scene_ids[0],
+                                      "startTime": start + duration, "duration": 3}]
+                    assert call("add_show_items", args)[0]["status"] == "added"
+                    timeline = call("query_shows", {"showID": show["id"]})[0]
+                    items = timeline["tracks"][1]["items"]
+                    assert [(item["startTime"], item["duration"]) for item in items] == [
+                        (start, duration), (start + duration, 3)], timeline
+                    assert call("save_workspace", {"path": path})["status"] == "saved"
+                    xml = ET.parse(path)
+                    ns = {"q": "http://www.qlcplus.org/Workspace"}
+                    saved = xml.find(f".//q:Function[@ID='{show['id']}']", ns)
+                    assert saved is not None
+                    item = saved.find(f".//q:ShowFunction[@ID='{beat['id']}']", ns)
+                    assert item is not None
+                    scale = 60 / bpm
+                    assert int(int(item.attrib["StartTime"]) * scale + 0.5) == start
+                    assert int(int(item.attrib["Duration"]) * scale + 0.5) == duration
+                functions = {entry["id"]: entry for entry in call("query_functions")}
+                assert functions[beat["id"]]["tempoType"] == "beats", functions[beat["id"]]
+                assert functions[scene_ids[0]]["tempoType"] == "time", functions[scene_ids[0]]
+
+        for row in ((30, 1, 1, False), (30, 1, 2, False), (30, 2, 1, False),
+                    (30, 2, 2, True), (120, 1, 1, True), (120, 2, 2, True),
+                    (40, 2, 2, True)):
+            test(f"exact Show milliseconds BPM/start/duration={row[:3]}",
+                 lambda row=row: t_exact_show_milliseconds(*row))
 
         def t_create_efxs():
             r = call("create_efxs", {"items": [

@@ -27,12 +27,20 @@
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
+#include <limits>
 
 namespace {
 
 using Json = nlohmann::json;
 
-Json trackToJson(const Track *track, const Doc *doc)
+double millisecondsPerUnit(const Function *function, const Show *show)
+{
+    if (!function || function->tempoType() == Function::Time)
+        return 1.0;
+    return show->timeDivisionBPM() > 0 ? 60.0 / show->timeDivisionBPM() : 0.0;
+}
+
+Json trackToJson(const Track *track, const Doc *doc, const Show *show)
 {
     Json items = Json::array();
     for (ShowFunction *sf : track->showFunctions())
@@ -40,12 +48,15 @@ Json trackToJson(const Track *track, const Doc *doc)
         if (sf == NULL)
             continue;
         Function *fn = doc->function(sf->functionID());
+        const double scale = millisecondsPerUnit(fn, show);
+        if (scale == 0)
+            return {{"error", "beat items require a positive show BPM"}};
         items.push_back({
             {"id", (int)sf->id()},
             {"functionID", (int)sf->functionID()},
             {"functionName", fn ? fn->name().toStdString() : std::string()},
-            {"startTime", (int)sf->startTime()},
-            {"duration", (int)sf->duration()},
+            {"startTime", qRound64(sf->startTime() * scale)},
+            {"duration", qRound64(sf->duration() * scale)},
             {"locked", sf->isLocked()}
         });
     }
@@ -82,12 +93,6 @@ Function *functionByName(const Doc *doc, const QString &name, bool &ambiguous)
         found = fn;
     }
     return found;
-}
-
-/** End of an item on the timeline, in milliseconds. */
-quint32 endOf(const ShowFunction *sf)
-{
-    return sf->startTime() + sf->duration();
 }
 
 }
@@ -275,9 +280,18 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
 
                 Json tracks = Json::array();
+                qint64 totalDuration = 0;
                 for (Track *track : show->tracks())
                     if (track != NULL)
-                        tracks.push_back(trackToJson(track, doc));
+                    {
+                        Json data = trackToJson(track, doc, show);
+                        if (data.contains("error"))
+                            return data.dump();
+                        for (const auto &item : data["items"])
+                            totalDuration = qMax(totalDuration, item["startTime"].get<qint64>() +
+                                                 item["duration"].get<qint64>());
+                        tracks.push_back(data);
+                    }
 
                 results.push_back({
                     {"id", (int)show->id()},
@@ -286,7 +300,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     {"tempoType", timeDivisionToString(show->timeDivisionType())},
                     {"beatsDivision", show->beatsDivision()},
                     {"bpm", show->timeDivisionBPM()},
-                    {"totalDuration", (int)show->totalDuration()},
+                    {"totalDuration", totalDuration},
                     {"tracks", tracks}
                 });
             }
@@ -295,7 +309,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("List Shows with their tracks and timeline items (start time and duration in "
-                     "milliseconds)."),
+                     "milliseconds, converting beat items at the show's BPM)."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotReadOnly));
@@ -354,18 +368,6 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             for (Track *candidate : show->tracks())
                 if (candidate != NULL && candidate->name() == trackName)
                 { track = candidate; break; }
-            if (track == NULL)
-            {
-                track = new Track(Function::invalidId(), show);
-                track->setName(trackName);
-                if (!show->addTrack(track))
-                {
-                    delete track;
-                    return Json({{"error", "could not create track"},
-                                 {"trackName", trackName.toStdString()}}).dump();
-                }
-            }
-
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
@@ -414,7 +416,10 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 { results.push_back({{"error", "startTime must be a non-negative integer"}}); continue; }
                 const quint32 startTime = item.at("startTime").get<quint32>();
 
-                quint32 duration = function->totalDuration();
+                const double scale = millisecondsPerUnit(function, show);
+                if (scale == 0)
+                { results.push_back({{"error", "beat items require a positive show BPM"}}); continue; }
+                quint32 duration = qRound64(function->totalDuration() * scale);
                 if (item.contains("duration"))
                 {
                     if (!item.at("duration").is_number_integer() || item.at("duration").get<int>() < 1)
@@ -424,21 +429,38 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (duration == 0)
                     duration = 5000;   // same fallback the Show Manager uses
 
+                const qint64 itemStart = qRound64(startTime / scale);
+                const qint64 itemDuration = qRound64(duration / scale);
+                if (itemDuration < 1 || itemStart + itemDuration > std::numeric_limits<quint32>::max())
+                { results.push_back({{"error", "item timing is outside the representable range"}}); continue; }
+                if (qRound64(itemStart * scale) != startTime || qRound64(itemDuration * scale) != duration)
+                { results.push_back({{"error", "item timing cannot round-trip in milliseconds at the show BPM"}}); continue; }
+
                 // Overlaps on one track are not representable: the runner would
                 // have two functions owning the same instant on the same track.
                 bool overlaps = false;
                 Json conflict;
-                for (ShowFunction *existing : track->showFunctions())
+                for (ShowFunction *existing : track ? track->showFunctions() : QList<ShowFunction*>())
                 {
                     if (existing == NULL)
                         continue;
-                    if (startTime < endOf(existing) && existing->startTime() < startTime + duration)
+                    const double existingScale = millisecondsPerUnit(doc->function(existing->functionID()), show);
+                    if (existingScale == 0)
+                    {
+                        overlaps = true;
+                        conflict = {{"error", "beat items require a positive show BPM"}};
+                        break;
+                    }
+                    const qint64 existingStart = qRound64(existing->startTime() * existingScale);
+                    const qint64 existingDuration = qRound64(existing->duration() * existingScale);
+                    if (startTime < existingStart + existingDuration &&
+                        existingStart < qint64(startTime) + duration)
                     {
                         overlaps = true;
                         conflict = {{"id", (int)existing->id()},
                                     {"functionID", (int)existing->functionID()},
-                                    {"startTime", (int)existing->startTime()},
-                                    {"duration", (int)existing->duration()}};
+                                    {"startTime", existingStart},
+                                    {"duration", existingDuration}};
                         break;
                     }
                 }
@@ -451,16 +473,21 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
-                // ShowManager::addFunctions switches the function's tempo to match
-                // the timeline, which is what connects it to BPM changes. Without
-                // this the same show behaves differently depending on whether the
-                // UI or MCP built it.
-                function->setTempoType(Show::isTimeBasedDivision(show->timeDivisionType())
-                                           ? Function::Time : Function::Beats);
+                if (track == NULL)
+                {
+                    track = new Track(Function::invalidId(), show);
+                    track->setName(trackName);
+                    if (!show->addTrack(track))
+                    {
+                        delete track;
+                        return Json({{"error", "could not create track"},
+                                     {"trackName", trackName.toStdString()}}).dump();
+                    }
+                }
 
                 ShowFunction *sf = track->createShowFunction(function->id());
-                sf->setStartTime(startTime);
-                sf->setDuration(duration);
+                sf->setStartTime(itemStart);
+                sf->setDuration(itemDuration);
                 sf->setColor(ShowFunction::defaultColor(function->type()));
                 doc->setModified();
 
@@ -475,7 +502,9 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             });
         },
         std::nullopt,
-        std::string("Place functions on a Show track's timeline. Times are milliseconds. The track "
+        std::string("Place functions on a Show track's timeline. Times are milliseconds. Beat items "
+                     "are converted at the show's positive BPM without changing function tempo. Timing "
+                     "that cannot round-trip in milliseconds is rejected before mutation. The track "
                      "is created if it does not exist. An item overlapping one already on the same "
                      "track is refused, with the conflicting item reported. Batch: {\"items\": [...]}."),
         std::nullopt

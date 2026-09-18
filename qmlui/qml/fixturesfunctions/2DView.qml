@@ -357,6 +357,7 @@ Rectangle
                 z: 1
 
                 Drag.active: dragMouseArea.drag.active
+                Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
 
                 MouseArea
                 {

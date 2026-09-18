@@ -259,4 +259,217 @@ void ShowRunner_Test::internalBeatClockScalesWithSongBpm()
     QCOMPARE(beats120, beats60 * 2);
 }
 
+void ShowRunner_Test::mixedTimelines_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<int>("timeDuration");
+    QTest::newRow("time-beats-finish-last") << int(Show::Time) << 100;
+    QTest::newRow("beats-beats-finish-last") << int(Show::BPM_4_4) << 100;
+    QTest::newRow("time-ms-finish-last") << int(Show::Time) << 1000;
+    QTest::newRow("beats-ms-finish-last") << int(Show::BPM_4_4) << 1000;
+}
+
+void ShowRunner_Test::mixedTimelines()
+{
+    QFETCH(int, division);
+    QFETCH(int, timeDuration);
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    timer->setBeatSourceType(MasterTimer::External);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivisionType(Show::TimeDivision(division));
+    Scene *scenes[] = {new Scene(&doc), new Scene(&doc)};
+    for (int i = 0; i < 2; ++i)
+    {
+        doc.addFunction(scenes[i]);
+        scenes[i]->setTempoType(i ? Function::Beats : Function::Time);
+        auto *track = new Track(scenes[i]->id());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(scenes[i]->id());
+        item->setStartTime(0);
+        item->setDuration(i ? 2000 : timeDuration);
+        track->addShowFunction(item);
+        show->addTrack(track);
+    }
+    ShowRunner runner(&doc, show->id());
+    QSignalSpy finished(&runner, &ShowRunner::showFinished);
+    QSignalSpy position(&runner, &ShowRunner::timeChanged);
+    for (int i = 0; i < 10; ++i)
+        runner.write(timer);
+    QCOMPARE(runner.m_elapsedTime, quint32(200));
+    QCOMPARE(runner.m_currentTimeFunctionIndex, 1);
+    QCOMPARE(runner.m_currentBeatFunctionIndex, 0);
+    QCOMPARE(finished.count(), 0);
+    QCOMPARE(position.count(), division == Show::Time ? 10 : 0);
+    timer->requestBeat();
+    runner.write(timer);
+    QCOMPARE(runner.m_currentBeatFunctionIndex, 1);
+    QCOMPARE(position.last().first().toUInt(), division == Show::Time ? uint(220) : uint(20));
+    runner.write(timer);
+    QCOMPARE(finished.count(), 0);
+    runner.write(timer);
+    QCOMPARE(finished.count(), timeDuration == 100 ? 1 : 0);
+    if (timeDuration == 1000)
+    {
+        while (finished.isEmpty())
+            runner.write(timer);
+        QCOMPARE(runner.m_elapsedTime, quint32(1000));
+    }
+    QCOMPARE(scenes[0]->tempoType(), Function::Time);
+    QCOMPARE(scenes[1]->tempoType(), Function::Beats);
+    runner.stop();
+}
+
+void ShowRunner_Test::timeOnlyCursor_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<bool>("globalClock");
+    QTest::addColumn<bool>("mutedBeatTrack");
+    QTest::addColumn<quint32>("start");
+    for (auto division : {Show::Time, Show::BPM_4_4})
+        for (bool globalClock : {false, true})
+            for (bool muted : {false, true})
+                for (quint32 start : {0u, 200u})
+                    QTest::newRow(qPrintable(QString("%1-clock%2-muted%3-start%4")
+                                            .arg(int(division)).arg(globalClock).arg(muted).arg(start)))
+                            << int(division) << globalClock << muted << start;
+}
+
+void ShowRunner_Test::timeOnlyCursor()
+{
+    QFETCH(int, division);
+    QFETCH(bool, globalClock);
+    QFETCH(bool, mutedBeatTrack);
+    QFETCH(quint32, start);
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    timer->setBeatSourceType(globalClock ? MasterTimer::External : MasterTimer::None);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivision(Show::TimeDivision(division), 90);
+    for (int i = 0; i < (mutedBeatTrack ? 2 : 1); ++i)
+    {
+        auto *scene = new Scene(&doc);
+        scene->setTempoType(i ? Function::Beats : Function::Time);
+        doc.addFunction(scene);
+        auto *track = new Track(scene->id());
+        track->setMute(i != 0);
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(scene->id());
+        item->setStartTime(0);
+        item->setDuration(i ? 10000 : start + 5 * MasterTimer::tick());
+        track->addShowFunction(item);
+        show->addTrack(track);
+    }
+    ShowRunner runner(&doc, show->id(), start);
+    QSignalSpy position(&runner, &ShowRunner::timeChanged);
+    QSignalSpy finished(&runner, &ShowRunner::showFinished);
+    for (int i = 0; i < 5; ++i)
+    {
+        if (globalClock && i == 2)
+            timer->requestBeat();
+        runner.write(timer);
+    }
+    runner.write(timer);
+    QCOMPARE(finished.count(), 1);
+    QCOMPARE(position.count(), 5);
+    for (int i = 0; i < position.count(); ++i)
+        QCOMPARE(position[i].first().toUInt(), start + (i + 1) * MasterTimer::tick());
+    runner.stop();
+}
+
+void ShowRunner_Test::resumeMixedTimelines_data()
+{
+    QTest::addColumn<bool>("globalClock");
+    QTest::addColumn<int>("songBpm");
+    QTest::addColumn<int>("liveBpm");
+    QTest::addColumn<quint32>("beatStart");
+    QTest::newRow("global-slow-resume") << true << 120 << 30 << quint32(500);
+    QTest::newRow("song-resume") << false << 60 << 120 << quint32(1800);
+    QTest::newRow("zero-song-fallback") << false << 0 << 120 << quint32(3800);
+}
+
+void ShowRunner_Test::resumeMixedTimelines()
+{
+    QFETCH(bool, globalClock);
+    QFETCH(int, songBpm);
+    QFETCH(int, liveBpm);
+    QFETCH(quint32, beatStart);
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    timer->requestBpmNumber(liveBpm);
+    timer->setBeatSourceType(globalClock ? MasterTimer::External : MasterTimer::None);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivisionBPM(songBpm);
+    auto *scene = new Scene(&doc);
+    scene->setTempoType(Function::Beats);
+    doc.addFunction(scene);
+    auto *track = new Track(scene->id());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(beatStart);
+    item->setDuration(900);
+    track->addShowFunction(item);
+    show->addTrack(track);
+    ShowRunner runner(&doc, show->id(), 2000);
+    if (globalClock)
+        timer->requestBeat();
+    runner.write(timer);
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+    QCOMPARE(scene->tempoType(), Function::Beats);
+    runner.stop();
+}
+
+void ShowRunner_Test::externalMixedTimeline_data()
+{
+    QTest::addColumn<bool>("globalClock");
+    QTest::newRow("global-beats") << true;
+    QTest::newRow("no-source") << false;
+}
+
+void ShowRunner_Test::externalMixedTimeline()
+{
+    QFETCH(bool, globalClock);
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    timer->setBeatSourceType(globalClock ? MasterTimer::External : MasterTimer::None);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivisionBPM(60);
+    Scene *scenes[] = {new Scene(&doc), new Scene(&doc)};
+    for (int i = 0; i < 2; ++i)
+    {
+        doc.addFunction(scenes[i]);
+        scenes[i]->setTempoType(i ? Function::Beats : Function::Time);
+        auto *track = new Track(scenes[i]->id());
+        auto *sf = new ShowFunction(show->getLatestShowFunctionId());
+        sf->setFunctionID(scenes[i]->id());
+        sf->setStartTime(i ? 2000 : 0);
+        sf->setDuration(i ? 3000 : 1000);
+        track->addShowFunction(sf);
+        show->addTrack(track);
+    }
+    ShowRunner runner(&doc, show->id(), 3000);
+    runner.setSyncSource(ShowRunner::External);
+    QSignalSpy position(&runner, &ShowRunner::timeChanged);
+    runner.setExternalElapsedTime(3000);
+    runner.write(timer);
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+    QCOMPARE(runner.m_runningQueue.first().first, scenes[1]);
+    runner.setPause(true);
+    timer->requestBeat();
+    runner.write(timer);
+    QCOMPARE(position.last().first().toUInt(), uint(3000));
+    QCOMPARE(runner.m_elapsedBeats, uint(3000));
+    runner.setPause(false);
+    runner.setExternalElapsedTime(500);
+    runner.write(timer);
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+    QCOMPARE(runner.m_runningQueue.first().first, scenes[0]);
+    QCOMPARE(position.last().first().toUInt(), uint(500));
+    runner.stop();
+}
+
 QTEST_APPLESS_MAIN(ShowRunner_Test)

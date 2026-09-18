@@ -47,7 +47,11 @@ Rectangle
     property bool hasSelection: selectedItems.length > 0
     property bool hasSingleSelection: selectedItems.length === 1
     property bool hasMultipleSelection: selectedItems.length > 1
-    property int tempoType: showManager.timeBasedDivision ? QLCFunction.Time : QLCFunction.Beats
+    property var selectedFunction: selectedItem ? functionManager.getFunction(selectedItem.functionID) : null
+    property int timelineTempoType: showManager.timeBasedDivision ? QLCFunction.Time : QLCFunction.Beats
+    property int tempoType: selectedFunction && activeField !== fieldLength ? selectedFunction.tempoType : timelineTempoType
+    property bool isBeatBased: tempoType === QLCFunction.Beats
+    property int beatsDivision: showManager.beatsDivision > 0 ? showManager.beatsDivision : 4
 
     function refreshSelection()
     {
@@ -57,9 +61,11 @@ Rectangle
             activeField = fieldNone
     }
 
-    function cursorValue()
+    function cursorValue(sf)
     {
-        if (showManager.timeBasedDivision)
+        var func = sf ? functionManager.getFunction(sf.functionID) : null
+        var beats = func ? func.tempoType === QLCFunction.Beats : !showManager.timeBasedDivision
+        if (!beats)
             return showManager.currentTime
 
         var bpm = showManager.bpmNumber
@@ -69,9 +75,11 @@ Rectangle
         return Math.round((showManager.currentTime / beatDuration) * 1000)
     }
 
-    function minDurationValue()
+    function minDurationValue(sf)
     {
-        return showManager.timeBasedDivision ? 1 : 125
+        var func = sf ? functionManager.getFunction(sf.functionID) : null
+        var tempo = func ? func.tempoType : timelineTempoType
+        return tempo === QLCFunction.Beats ? 125 : 1
     }
 
     function timeLabelForValue(value)
@@ -85,7 +93,7 @@ Rectangle
 
     function cutInsertLengthLabel()
     {
-        return TimeUtils.timeToQlcString(cutInsertLength, tempoType)
+        return TimeUtils.timeToQlcString(cutInsertLength, timelineTempoType)
     }
 
     function isTimingField(fieldId)
@@ -124,6 +132,15 @@ Rectangle
 
         lastTimingSpinValue = value
 
+        if (isBeatBased)
+        {
+            // value is beats encoded as 1000 units per beat (bar.beat, no fractions here)
+            var totalBeats = Math.round(value / 1000)
+            overlayBarsSpin.value = Math.floor(totalBeats / beatsDivision)
+            overlayBeatsSpin.value = totalBeats - (overlayBarsSpin.value * beatsDivision)
+            return
+        }
+
         overlayHoursSpin.value = Math.floor(value / 3600000)
         value -= overlayHoursSpin.value * 3600000
         overlayMinutesSpin.value = Math.floor(value / 60000)
@@ -135,6 +152,9 @@ Rectangle
 
     function overlayTotalValue()
     {
+        if (isBeatBased)
+            return ((overlayBarsSpin.value * beatsDivision) + overlayBeatsSpin.value) * 1000
+
         return (overlayHoursSpin.value * 3600000)
                 + (overlayMinutesSpin.value * 60000)
                 + (overlaySecondsSpin.value * 1000)
@@ -218,26 +238,24 @@ Rectangle
 
     function alignStartToCursor()
     {
-        var target = cursorValue()
         for (var i = 0; i < selectedItems.length; i++)
         {
             var sf = selectedItems[i]
             if (!sf || sf.locked)
                 continue
-            showManager.setShowItemStartTime(sf, target)
+            showManager.setShowItemStartTime(sf, cursorValue(sf))
         }
     }
 
     function alignEndToCursor()
     {
-        var target = cursorValue()
         for (var i = 0; i < selectedItems.length; i++)
         {
             var sf = selectedItems[i]
             if (!sf || sf.locked)
                 continue
-            var newDuration = target - sf.startTime
-            var minDuration = minDurationValue()
+            var newDuration = cursorValue(sf) - sf.startTime
+            var minDuration = minDurationValue(sf)
             if (newDuration < minDuration)
                 newDuration = minDuration
             showManager.setShowItemDuration(sf, newDuration)
@@ -271,7 +289,7 @@ Rectangle
             else if (fieldId === fieldEnd)
             {
                 var newDuration = value - sf.startTime
-                var minDuration = minDurationValue()
+                var minDuration = minDurationValue(sf)
                 if (newDuration < minDuration)
                     newDuration = minDuration
                 showManager.setShowItemDuration(sf, newDuration)
@@ -279,7 +297,7 @@ Rectangle
             else if (fieldId === fieldDuration)
             {
                 var newDur = value
-                var minDur = minDurationValue()
+                var minDur = minDurationValue(sf)
                 if (newDur < minDur)
                     newDur = minDur
                 showManager.setShowItemDuration(sf, newDur)
@@ -297,26 +315,27 @@ Rectangle
             var sf = selectedItems[i]
             if (!sf || sf.locked)
                 continue
+            var itemDelta = Math.round(delta * showManager.itemUnitsPerTimelineUnit(sf))
 
             if (fieldId === fieldStart)
             {
-                var newStart = sf.startTime + delta
+                var newStart = sf.startTime + itemDelta
                 if (newStart < 0)
                     newStart = 0
                 showManager.setShowItemStartTime(sf, newStart)
             }
             else if (fieldId === fieldEnd)
             {
-                var newDuration = sf.duration + delta
-                var minDuration = minDurationValue()
+                var newDuration = sf.duration + itemDelta
+                var minDuration = minDurationValue(sf)
                 if (newDuration < minDuration)
                     newDuration = minDuration
                 showManager.setShowItemDuration(sf, newDuration)
             }
             else if (fieldId === fieldDuration)
             {
-                var newDur = sf.duration + delta
-                var minDur = minDurationValue()
+                var newDur = sf.duration + itemDelta
+                var minDur = minDurationValue(sf)
                 if (newDur < minDur)
                     newDur = minDur
                 showManager.setShowItemDuration(sf, newDur)
@@ -637,6 +656,7 @@ Rectangle
         {
             anchors.fill: parent
             spacing: 3
+            visible: !isBeatBased
 
             CustomSpinBox
             {
@@ -679,6 +699,35 @@ Rectangle
                 from: (panelContainer.isTimingField(activeField) && hasMultipleSelection) ? -999 : 0
                 to: 999
                 suffix: "ms"
+                onValueModified: panelContainer.applyOverlaySpinValue()
+            }
+        }
+
+        RowLayout
+        {
+            anchors.fill: parent
+            spacing: 3
+            visible: isBeatBased
+
+            CustomSpinBox
+            {
+                id: overlayBarsSpin
+                Layout.fillWidth: true
+                Layout.preferredHeight: timeEditOverlay.height
+                from: (panelContainer.isTimingField(activeField) && hasMultipleSelection) ? -999 : 0
+                to: 999
+                suffix: qsTr(" bar")
+                onValueModified: panelContainer.applyOverlaySpinValue()
+            }
+
+            CustomSpinBox
+            {
+                id: overlayBeatsSpin
+                Layout.fillWidth: true
+                Layout.preferredHeight: timeEditOverlay.height
+                from: (panelContainer.isTimingField(activeField) && hasMultipleSelection) ? -(beatsDivision - 1) : 0
+                to: beatsDivision - 1
+                suffix: qsTr(" beat")
                 onValueModified: panelContainer.applyOverlaySpinValue()
             }
         }

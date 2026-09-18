@@ -47,6 +47,14 @@ private slots:
     // Beat-clock fallback tests (no global beat source -> run at song BPM)
     void internalBeatClockUsesSongBpm();
     void internalBeatClockScalesWithSongBpm();
+    void mixedTimelines_data();
+    void mixedTimelines();
+    void timeOnlyCursor_data();
+    void timeOnlyCursor();
+    void resumeMixedTimelines_data();
+    void resumeMixedTimelines();
+    void externalMixedTimeline_data();
+    void externalMixedTimeline();
 
 private:
     Doc *m_doc;

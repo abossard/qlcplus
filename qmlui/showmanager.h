@@ -213,6 +213,15 @@ public:
      *  from the global playback BPM (InputOutputManager::bpmNumber). */
     int bpmNumber() const;
     void setBpmNumber(int bpmNumber);
+    /** Return true if the current Show has any item on its tracks whose
+     *  Function is beat (BPM) tempo based. Used to warn the user before
+     *  switching the Show from a Time to a BPM based division, since doing
+     *  so snaps those items' start/duration to the nearest whole beat
+     *  (they may have been placed at an arbitrary fractional-beat pixel
+     *  position while the Show was displaying a Time based ruler) */
+    Q_INVOKABLE bool hasBeatBasedItems() const;
+    /** Conversion from the ruler's unit to this item's authored unit. Zero means no BPM. */
+    Q_INVOKABLE double itemUnitsPerTimelineUnit(ShowFunction *sf) const;
 
     /** Get/Set the current time scale of the Show Manager timeline */
     float timeScale() const;
@@ -348,8 +357,7 @@ public:
      *  $originalTrackIdx and moved into $newTrackIdx and true is returned.
      */
     Q_INVOKABLE bool checkAndMoveItem(ShowFunction *sf,  int originalTrackIdx,
-                                      int newTrackIdx, int newStartTime,
-                                      bool itemSnapped = false);
+                                      int newTrackIdx, int newStartTime);
 
     /** Move a ShowFunction item to the Track at $trackIdx.
      *  This is used to apply a track change coming from an undo/redo or
@@ -424,7 +432,6 @@ protected slots:
 
 private:
     // Timeline mapping helpers
-    int minimumTimelineDuration(Show::TimeDivision division) const;
     quint32 itemRelativeTimeFromCursor(const ShowFunction *sf, int cursorTime) const;
     quint32 mapCursorToChaserTime(const ShowFunction *sf, Chaser *chaser, int cursorTime) const;
 

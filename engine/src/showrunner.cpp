@@ -24,6 +24,8 @@
 #include "function.h"
 #include "track.h"
 #include "show.h"
+#include "doc.h"
+#include "inputoutputmap.h"
 
 #define TIMER_INTERVAL 50
 
@@ -42,9 +44,12 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     , m_elapsedTime(startTime)
     , m_currentBeatFunctionIndex(0)
     , m_elapsedBeats(0)
-    , m_internalBeatClockMs(0.0)
+    , m_internalBeatClockMs(startTime)
     , beatSynced(false)
+    , m_syncElapsedTime(0)
+    , m_syncBeatsTime(0)
     , m_totalRunTime(0)
+    , m_totalRunBeats(0)
 {
     Q_ASSERT(m_doc != NULL);
     Q_ASSERT(showID != Show::invalidId());
@@ -52,6 +57,24 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     m_show = qobject_cast<Show*>(m_doc->function(showID));
     if (m_show == NULL)
         return;
+
+    /* startTime (e.g. coming from the cursor position) is always real
+       milliseconds. If playback doesn't start from 0, m_elapsedBeats needs
+       the equivalent estimate in "beats as ms" too, otherwise every Play
+       would always start counting beats from 0 regardless of where
+       playback actually begins - making beat-based Functions that should
+       already be running (or long finished) at startTime behave as if
+       playback had just begun. This is only a starting estimate: once the
+       first real beat lands (see beatSynced in write()), m_elapsedBeats
+       keeps advancing in lockstep with the actual beat clock from there */
+    if (startTime > 0)
+    {
+        int bpm = m_doc->masterTimer()->beatSourceType() == MasterTimer::None
+                ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
+                : m_doc->masterTimer()->bpmNumber();
+        if (bpm > 0)
+            m_elapsedBeats = qRound64(double(startTime) * bpm / 60.0);
+    }
 
     foreach (Track *track, m_show->tracks())
     {
@@ -66,20 +89,22 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
         // get all the functions of the track and append them to the runner queue
         foreach (ShowFunction *sfunc, track->showFunctions())
         {
-            if (sfunc->startTime() + sfunc->duration(m_doc) <= startTime)
-                continue;
-
             Function *f = m_doc->function(sfunc->functionID());
             if (f == NULL)
                 continue;
 
             if (f->tempoType() == Function::Time)
+            {
                 m_timeFunctions.append(sfunc);
+                if (sfunc->startTime() + sfunc->duration(m_doc) > m_totalRunTime)
+                    m_totalRunTime = sfunc->startTime() + sfunc->duration(m_doc);
+            }
             else
+            {
                 m_beatFunctions.append(sfunc);
-
-            if (sfunc->startTime() + sfunc->duration(m_doc) > m_totalRunTime)
-                m_totalRunTime = sfunc->startTime() + sfunc->duration(m_doc);
+                if (sfunc->startTime() + sfunc->duration(m_doc) > m_totalRunBeats)
+                    m_totalRunBeats = sfunc->startTime() + sfunc->duration(m_doc);
+            }
         }
 
         // Initialize the intensity map
@@ -126,6 +151,9 @@ void ShowRunner::stop()
     m_elapsedTime = 0;
     m_elapsedBeats = 0;
     m_internalBeatClockMs = 0.0;
+    beatSynced = false;
+    m_syncElapsedTime = 0;
+    m_syncBeatsTime = 0;
     m_currentTimeFunctionIndex = 0;
     m_currentBeatFunctionIndex = 0;
 
@@ -161,6 +189,9 @@ void ShowRunner::write(MasterTimer *timer)
         }
 
         m_elapsedTime = newTime;
+        const int songBpm = m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
+        m_elapsedBeats = qRound64(double(newTime) * songBpm / 60.0);
+        beatSynced = true;
     }
 
     // Phase 1. Check all the Functions that need to be started
@@ -168,45 +199,36 @@ void ShowRunner::write(MasterTimer *timer)
     // with start time greater than m_elapsed, this phase is over
     bool startFunctionsDone = false;
 
-    // check synchronization to beats (if show is beat-based)
-    if (m_show->tempoType() == Function::Beats)
+    // A Show can freely mix time-based and beat-based Functions on its
+    // tracks (e.g. a beat-synced Chaser next to a Time-based Audio track),
+    // regardless of the Show's own timeline display type. So beat tracking
+    // must not depend on, nor gate, anything based on the Show's own
+    // division: it only needs to run when this Show actually has beat-based
+    // Functions to drive, and it must never block m_timeFunctions/m_elapsedTime
+    // from progressing while waiting for the first beat to land.
+    if (m_syncSource == Autonomous && timer->beatSourceType() == MasterTimer::None &&
+        (!m_beatFunctions.isEmpty() || m_show->tempoType() == Function::Beats))
     {
-        //qDebug() << Q_FUNC_INFO << "isBeat:" << timer->isBeat() << ", elapsed beats:" << m_elapsedBeats;
-
-        if (timer->beatSourceType() != MasterTimer::None)
+        int songBpm = m_show->timeDivisionBPM();
+        if (songBpm <= 0)
+            songBpm = 120;
+        beatSynced = true;
+        m_internalBeatClockMs += double(MasterTimer::tick());
+        m_elapsedBeats = quint32((m_internalBeatClockMs * songBpm * 1000.0) / 60000.0);
+    }
+    else if (m_syncSource == Autonomous && !m_beatFunctions.isEmpty() && timer->isBeat())
+    {
+        if (beatSynced == false)
         {
-            // A global beat source is active (Internal BPM generator or external
-            // VDJ/MIDI/audio): advance one beat per global beat tick. The Show is
-            // authored on its own (song-BPM) beat grid, so running it at the global
-            // BPM scales the playback speed by globalBPM/songBPM automatically
-            // (e.g. a 60-BPM song played at a 120-BPM global beat runs at 2x).
-            if (timer->isBeat())
-            {
-                if (beatSynced == false)
-                {
-                    beatSynced = true;
-                    qDebug() << "Beat synced";
-                }
-                else
-                    m_elapsedBeats += 1000;
-            }
-
-            if (beatSynced == false)
-                return;
+            beatSynced = true;
+            m_syncElapsedTime = m_elapsedTime;
+            int syncBpm = timer->bpmNumber();
+            m_syncBeatsTime = syncBpm > 0 ? Function::beatsToTime(m_elapsedBeats, 60000 / syncBpm) : 0;
+            qDebug() << "Beat synced";
         }
         else
         {
-            // No global beat source: synthesize the beat clock from the Show's own
-            // BPM so a beat-based Show still plays (at the song BPM) instead of
-            // freezing. One "beat" is 60000/songBPM ms; m_elapsedBeats counts in
-            // beat-units where 1000 == 1 beat.
-            int songBpm = m_show->timeDivisionBPM();
-            if (songBpm <= 0)
-                songBpm = 120;
-
-            beatSynced = true;
-            m_internalBeatClockMs += double(MasterTimer::tick());
-            m_elapsedBeats = quint32((m_internalBeatClockMs * songBpm * 1000.0) / 60000.0);
+            m_elapsedBeats += 1000;
         }
     }
 
@@ -220,7 +242,7 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        if (f == nullptr)
+        if (f == nullptr || sf->startTime() + sf->duration(m_doc) <= m_elapsedTime)
         {
             m_currentTimeFunctionIndex++;
             continue;
@@ -256,7 +278,9 @@ void ShowRunner::write(MasterTimer *timer)
     startFunctionsDone = false;
 
     // check if there are beat-based functions to start
-    while (startFunctionsDone == false)
+    // (wait for the first real beat to land before considering any of
+    // them, so m_elapsedBeats == 0 is not mistaken for "beat zero happened")
+    while (startFunctionsDone == false && beatSynced)
     {
         if (m_currentBeatFunctionIndex == m_beatFunctions.count())
             break;
@@ -265,7 +289,7 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        if (f == nullptr)
+        if (f == nullptr || sf->startTime() + sf->duration(m_doc) <= m_elapsedBeats)
         {
             m_currentBeatFunctionIndex++;
             continue;
@@ -318,8 +342,16 @@ void ShowRunner::write(MasterTimer *timer)
         }
     }
 
-    // Phase 3. Check if this is the end of the Show
-    if (m_elapsedTime >= m_totalRunTime)
+    // Phase 3. Check if this is the end of the Show. A Show can mix
+    // time-based and beat-based tracks, so it is only really over once
+    // both the time-based and the beat-based timelines have completed.
+    // While there are beat-based Functions but no beat has been detected
+    // yet, the beat timeline hasn't even started, so it can't be "done".
+    bool timeDone = m_elapsedTime >= m_totalRunTime;
+    bool beatsDone = m_beatFunctions.isEmpty() ||
+                      (beatSynced && m_elapsedBeats >= m_totalRunBeats);
+
+    if (timeDone && beatsDone)
     {
         if (m_show != NULL)
             m_show->stop(functionParent());
@@ -331,7 +363,31 @@ void ShowRunner::write(MasterTimer *timer)
     if (m_syncSource == Autonomous)
         m_elapsedTime += MasterTimer::tick();
 
-    emit timeChanged(m_elapsedTime);
+    // Report plain elapsed milliseconds: it advances smoothly on every
+    // tick, and the UI scales it to a beat/bar position against the
+    // current BPM (see ShowManager and TimeUtils.timeToBeatPosition()) so
+    // it reacts immediately to live BPM changes.
+    //
+    // However, when the Show's own timeline is BPM based, m_elapsedTime is
+    // real wall-clock time since the Show started, which includes however
+    // long it took to wait for the first beat to sync (beat 0 is defined
+    // by that sync moment, not by when the Show started) - reporting it
+    // directly would make the cursor jump to an arbitrary, not
+    // beat-aligned position the instant sync happens. Instead, report the
+    // beat-zeroed resume position (m_syncBeatsTime) plus how much real
+    // time has passed since the sync moment: this still advances smoothly
+    // every tick (unlike reporting m_elapsedBeats directly, which only
+    // moves in whole-beat jumps), while staying exactly beat-aligned at
+    // the sync instant itself.
+    if (Show::isTimeBasedDivision(m_show->timeDivisionType()) || m_syncSource == External ||
+        m_beatFunctions.isEmpty())
+    {
+        emit timeChanged(m_elapsedTime);
+    }
+    else if (beatSynced)
+    {
+        emit timeChanged(m_syncBeatsTime + (m_elapsedTime - m_syncElapsedTime));
+    }
 }
 
 /************************************************************************
@@ -405,4 +461,3 @@ void ShowRunner::adjustIntensity(qreal fraction, const Track *track)
         }
     }
 }
-

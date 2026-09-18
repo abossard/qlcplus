@@ -199,6 +199,7 @@ VCWidgetItem
             nextIndex: sideFaderMode === VCCueList.Crossfade ? sideFaderLayout.nextStepIndex : -1
             tempoType: cueListObj ? cueListObj.tempoType : QLCFunction.Time
             isRunning: playbackStatus === VCCueList.Playing ? true : false
+            columnsWidths: cueListObj ? cueListObj.columnsWidths : []
 
             onIndexChanged: (index) =>
             {
@@ -213,13 +214,21 @@ VCWidgetItem
             }
             onAddFunctions: (list, index) =>
             {
-                if (cueListObj) 
+                if (cueListObj)
                     cueListObj.addFunctions(list, index)
             }
             onEnterPressed: (index) =>
             {
-                if (cueListObj) 
+                if (cueListObj)
                     cueListObj.playCurrentStep()
+            }
+            onColumnsResized: (widths) =>
+            {
+                if (cueListObj)
+                {
+                    cueListObj.columnsWidths = widths
+                    cueListObj.setDocModified()
+                }
             }
 
             states: [

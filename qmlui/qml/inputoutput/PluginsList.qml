@@ -105,6 +105,7 @@ Rectangle
                         pluginLine: modelData.line
 
                         Drag.active: delegateRoot.drag.active
+                        Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                         Drag.source: pluginItem
                         //Drag.hotSpot.x: width / 2
                         //Drag.hotSpot.y: height / 2
@@ -123,4 +124,3 @@ Rectangle
             } // Item
     } // ListView
 }
-

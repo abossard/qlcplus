@@ -149,6 +149,13 @@ void ShowManager::setCurrentShowID(int currentShowID)
         emit showNameChanged("");
         emit bpmNumberChanged(0);
     }
+
+    /* Emit time/beat change in case the new Show differs */
+    emit beatsDivisionChanged(beatsDivision());
+    emit timeDivisionChanged(timeDivision());
+    m_timeScale = 0.0; // force setTimeScale() to recompute and notify
+    setTimeScale(timeBasedDivision() ? m_timeScaleTime : m_timeScaleBeats);
+
     emit tracksChanged();
     updateVdjGrid();
     setPlaybackState(m_currentShow != nullptr ? m_currentShow->isRunning() : false,
@@ -237,16 +244,20 @@ QVariantList ShowManager::getSnapEdges(quint32 excludeFuncId,
                 continue;
 
             double startX, endX;
-            quint32 endTime = sf->startTime() + sf->duration();
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0)
+                continue;
+            const double startTime = sf->startTime() / scale;
+            const double endTime = (double(sf->startTime()) + sf->duration()) / scale;
 
             if (Show::isTimeBasedDivision(timeDivision()))
             {
-                startX = ((double)sf->startTime() * m_tickSize) / (m_timeScale * 1000.0);
+                startX = (startTime * m_tickSize) / (m_timeScale * 1000.0);
                 endX = ((double)endTime * m_tickSize) / (m_timeScale * 1000.0);
             }
             else
             {
-                startX = (m_tickSize / beatsDivision) * ((double)sf->startTime() / 1000.0);
+                startX = (m_tickSize / beatsDivision) * (startTime / 1000.0);
                 endX = (m_tickSize / beatsDivision) * ((double)endTime / 1000.0);
             }
 
@@ -277,6 +288,37 @@ Show::TimeDivision ShowManager::timeDivision() const
     return m_currentShow->timeDivisionType();
 }
 
+bool ShowManager::hasBeatBasedItems() const
+{
+    if (m_currentShow == nullptr)
+        return false;
+
+    foreach (Track *track, m_currentShow->tracks())
+    {
+        foreach (ShowFunction *sf, track->showFunctions())
+        {
+            Function *func = m_doc->function(sf->functionID());
+            if (func != nullptr && func->tempoType() == Function::Beats)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+double ShowManager::itemUnitsPerTimelineUnit(ShowFunction *sf) const
+{
+    Function *func = sf ? m_doc->function(sf->functionID()) : nullptr;
+    if (!func)
+        return 0;
+    const bool itemBeats = func->tempoType() == Function::Beats;
+    if (itemBeats == !timeBasedDivision())
+        return 1;
+    if (bpmNumber() <= 0)
+        return 0;
+    return itemBeats ? bpmNumber() / 60.0 : 60.0 / bpmNumber();
+}
+
 void ShowManager::setTimeDivision(Show::TimeDivision division)
 {
     if (m_readOnly)
@@ -288,6 +330,41 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
     Show::TimeDivision current = m_currentShow->timeDivisionType();
     if (division == current)
         return;
+    if (!Show::isTimeBasedDivision(division) && bpmNumber() <= 0)
+        return;
+
+    /* A beat tempo Function's items are always positioned in "beats as ms"
+       (1000 units per beat) regardless of the Show's own timeline
+       division, and are not affected by this switch. However, since they
+       can be freely dragged/resized in pixels while the Show is showing a
+       Time-based ruler, they may end up sitting at an arbitrary fractional
+       beat position instead of on a beat. When the user switches to a BPM
+       ruler, tidy those up by snapping them to the nearest whole beat (the
+       user is warned about this beforehand, see hasBeatBasedItems()) */
+    if (!Show::isTimeBasedDivision(division) && Show::isTimeBasedDivision(current))
+    {
+        foreach (Track *track, m_currentShow->tracks())
+        {
+            foreach (ShowFunction *sf, track->showFunctions())
+            {
+                Function *func = m_doc->function(sf->functionID());
+                if (func == nullptr || func->tempoType() != Function::Beats)
+                    continue;
+
+                quint32 startBeats = qRound((double)sf->startTime() / 1000.0);
+                quint32 durationBeats = qRound((double)sf->duration() / 1000.0);
+                if (durationBeats == 0)
+                    durationBeats = 1;
+
+                Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetStartTime,
+                                                   sf->id(), sf->startTime(), startBeats * 1000);
+                Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetDuration,
+                                                   sf->id(), sf->duration(), durationBeats * 1000);
+                sf->setStartTime(startBeats * 1000);
+                sf->setDuration(durationBeats * 1000);
+            }
+        }
+    }
 
     // remember the zoom level of the mode we are leaving so switching back restores it
     if (Show::isTimeBasedDivision(current))
@@ -310,6 +387,7 @@ void ShowManager::setTimeDivision(Show::TimeDivision division)
     updateVdjGrid();
 
     emit timeDivisionChanged(division);
+    m_doc->setModified();
 }
 
 int ShowManager::beatsDivision() const
@@ -667,27 +745,67 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         if (func == nullptr)
             continue;
 
+        const bool showIsBeats = !timeBasedDivision();
+        const bool funcIsBeats = func->tempoType() == Function::Beats;
+        if (showIsBeats != funcIsBeats && bpmNumber() <= 0)
+            continue;
         ShowFunction *showFunc = selectedTrack->createShowFunction(functionID);
 
-        if (Show::isTimeBasedDivision(timeDivision()))
+        /* A Function keeps its own tempo type when dropped on a track: a
+           Show can freely mix time-based and beat-based items regardless
+           of its own timeline division, so dropping a Function here must
+           not silently override a tempo type the user already chose for
+           it in its own editor */
+        if (func->tempoType() == Function::Time)
         {
-            func->setTempoType(Function::Time);
             showFunc->setDuration(func->totalDuration() ? func->totalDuration() : 5000);
         }
         else
         {
-            func->setTempoType(Function::Beats);
             if (func->type() == Function::AudioType || func->type() == Function::VideoType)
                 func->setTotalDuration(func->duration());
             showFunc->setDuration(func->totalDuration() ? func->totalDuration() : 4000);
         }
-        showFunc->setStartTime(startTime);
+
+        /* startTime is the drop position translated by the caller using
+           the Show's own ruler (Time or BPM), i.e. it is only guaranteed
+           to be in the dropped Function's own unit when that Function's
+           tempo type matches the Show's current division. Since a
+           Function keeps its own tempo type regardless of the Show's
+           division, convert it to that Function's unit when they differ,
+           using the Show's authoring BPM */
+        quint32 itemStartTime = (quint32)startTime;
+
+        if (showIsBeats != funcIsBeats)
+        {
+            itemStartTime = qRound64(itemStartTime * itemUnitsPerTimelineUnit(showFunc));
+        }
+
+        showFunc->setStartTime(itemStartTime);
         showFunc->setColor(ShowFunction::defaultColor(func->type()));
 
         // when pasting, inherit the customized properties of the source item
         if (sourceFunc != nullptr)
         {
-            showFunc->setDuration(sourceFunc->duration());
+            /* sourceFunc->duration() is expressed in the unit of ITS OWN
+               Function (which may not even be the same Function as the one
+               being pasted here, in a mixed selection), so it needs the
+               same unit conversion as startTime above, relative to the
+               Function this ShowFunction actually wraps */
+            quint32 pastedDuration = sourceFunc->duration();
+            Function *sourceOwnerFunc = m_doc->function(sourceFunc->functionID());
+            bool sourceIsBeats = (sourceOwnerFunc != nullptr) ?
+                        (sourceOwnerFunc->tempoType() == Function::Beats) : funcIsBeats;
+
+            if (sourceIsBeats != funcIsBeats)
+            {
+                if (bpmNumber() <= 0)
+                    continue;
+                pastedDuration = qRound64(pastedDuration *
+                                         (funcIsBeats ? bpmNumber() / 60.0 : 60.0 / bpmNumber()));
+            }
+
+            showFunc->setDuration(pastedDuration);
             showFunc->setColor(sourceFunc->color());
             showFunc->setLocked(sourceFunc->isLocked());
         }
@@ -704,7 +822,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         newItem->setProperty("funcRef", QVariant::fromValue(func));
 
         m_itemsMap[showFunc->id()] = newItem;
-        startTime += showFunc->duration();
+        startTime += qRound64(showFunc->duration() / itemUnitsPerTimelineUnit(showFunc));
     }
 
     emit showDurationChanged(m_currentShow->totalDuration());
@@ -837,7 +955,7 @@ void ShowManager::deleteShowItem(ShowFunction *sf)
     }
 }
 
-bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int newTrackIdx, int newStartTime, bool itemSnapped)
+bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int newTrackIdx, int newStartTime)
 {
     if (m_readOnly)
         return false;
@@ -874,42 +992,8 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
             return false;
     }
 
-    int newTime = newStartTime;
-
-    if (m_gridEnabled && !itemSnapped)
-    {
-        if (timeDivision() == Show::VDJBeat && m_vdjGrid.valid)
-        {
-            // VDJBeat mode: times are stored in ms. Snap to the nearest beat of
-            // the VirtualDJ grid (anchor phase + fractional beat period), which
-            // keeps positions sample-accurate to the song regardless of zoom.
-            // All math in double, clamped before the int conversion.
-            const double period = m_vdjGrid.beatPeriodMs;
-            const double anchor = m_vdjGrid.anchorMs;
-            const double snapped = anchor + double(qRound64((newStartTime - anchor) / period)) * period;
-            newTime = int(qBound(0.0, snapped, 2147483647.0));
-        }
-        else if (Show::isTimeBasedDivision(timeDivision()))
-        {
-            // calculate the X position from time and time scale
-            // timescale * 1000 : tickSize = time : x
-            float xPos = ((float)newStartTime * m_tickSize) / (m_timeScale * 1000.0);
-            // round to the nearest snap position
-            xPos = qRound(xPos / m_tickSize) * m_tickSize;
-            // recalculate the time from pixels
-            // xPos : time = tickSize : timescale * 1000
-            newTime = xPos * (1000 * m_timeScale) / m_tickSize;
-        }
-        else
-        {
-            // Beats mode: start times are stored in beat units (1000 == 1 beat),
-            // so snap to the nearest whole beat regardless of zoom.
-            newTime = qRound(newStartTime / 1000.0) * 1000;
-        }
-    }
-
-    Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetStartTime, sf->id(), sf->startTime(), newTime);
-    sf->setStartTime(newTime);
+    Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetStartTime, sf->id(), sf->startTime(), newStartTime);
+    sf->setStartTime(newStartTime);
 
     // check if we need to move the ShowFunction to a different Track
     if (newTrackIdx != originalTrackIdx)
@@ -996,11 +1080,6 @@ bool ShowManager::setShowItemDuration(ShowFunction *sf, int duration)
     sf->setDuration(duration);
 
     return true;
-}
-
-int ShowManager::minimumTimelineDuration(Show::TimeDivision division) const
-{
-    return Show::isTimeBasedDivision(division) ? 1 : 125;
 }
 
 quint32 ShowManager::itemRelativeTimeFromCursor(const ShowFunction *sf, int cursorTime) const
@@ -1134,7 +1213,8 @@ bool ShowManager::moveAllItemsAfterCursor(int cursorTime, int delta)
             if (sf == nullptr)
                 continue;
 
-            if (int(sf->startTime()) <= cursorTime)
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0 || sf->startTime() / scale <= cursorTime)
                 continue;
 
             itemsToMove.append(sf);
@@ -1142,16 +1222,18 @@ bool ShowManager::moveAllItemsAfterCursor(int cursorTime, int delta)
     }
 
     std::sort(itemsToMove.begin(), itemsToMove.end(),
-              [delta](ShowFunction *a, ShowFunction *b)
+              [this, delta](ShowFunction *a, ShowFunction *b)
               {
                   if (delta > 0)
-                      return a->startTime() > b->startTime();
-                  return a->startTime() < b->startTime();
+                      return a->startTime() / itemUnitsPerTimelineUnit(a) >
+                             b->startTime() / itemUnitsPerTimelineUnit(b);
+                  return a->startTime() / itemUnitsPerTimelineUnit(a) <
+                         b->startTime() / itemUnitsPerTimelineUnit(b);
               });
 
     for (ShowFunction *sf : itemsToMove)
     {
-        int newStart = int(sf->startTime()) + delta;
+        int newStart = int(sf->startTime()) + qRound(delta * itemUnitsPerTimelineUnit(sf));
         if (newStart < 0)
             newStart = 0;
 
@@ -1178,12 +1260,17 @@ bool ShowManager::insertShowItemTimeAt(ShowFunction *sf, int length, int cursorT
     Function *func = m_doc->function(sf->functionID());
     if (func == nullptr)
         return false;
+    const double scale = itemUnitsPerTimelineUnit(sf);
+    if (scale <= 0)
+        return false;
+    length = qRound(length * scale);
+    cursorTime = qRound(cursorTime * scale);
 
     Track *track = m_currentShow->getTrackFromShowFunctionID(sf->id());
     if (track == nullptr)
         return false;
 
-    int minDuration = minimumTimelineDuration(timeDivision());
+    int minDuration = func->tempoType() == Function::Time ? 1 : 125;
 
     switch (func->type())
     {
@@ -1273,8 +1360,13 @@ bool ShowManager::cutShowItemTimeAt(ShowFunction *sf, int length, int cursorTime
     Function *func = m_doc->function(sf->functionID());
     if (func == nullptr)
         return false;
+    const double scale = itemUnitsPerTimelineUnit(sf);
+    if (scale <= 0)
+        return false;
+    length = qRound(length * scale);
+    cursorTime = qRound(cursorTime * scale);
 
-    int minDuration = minimumTimelineDuration(timeDivision());
+    int minDuration = func->tempoType() == Function::Time ? 1 : 125;
     int maxCutDuration = int(sf->duration()) - minDuration;
     if (maxCutDuration <= 0)
         return false;
@@ -1435,11 +1527,14 @@ bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
             if (sf == nullptr || sf->isLocked())
                 continue;
 
-            int startTime = int(sf->startTime());
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0)
+                return false;
+            int startTime = qRound(sf->startTime() / scale);
             if (startTime > cursorTime)
                 hasItemsAfterCursor = true;
 
-            int endTime = startTime + int(sf->duration());
+            int endTime = startTime + qRound(sf->duration() / scale);
             if (cursorTime < startTime || cursorTime > endTime)
                 continue;
 
@@ -1466,8 +1561,11 @@ bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
             if (sf == nullptr || sf->isLocked())
                 continue;
 
-            int startTime = int(sf->startTime());
-            int endTime = startTime + int(sf->duration());
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0)
+                return false;
+            int startTime = qRound(sf->startTime() / scale);
+            int endTime = startTime + qRound(sf->duration() / scale);
             if (cursorTime < startTime || cursorTime > endTime)
                 continue;
 
@@ -1497,8 +1595,11 @@ bool ShowManager::cutTimeAtCursor(int length, int cursorTime)
             if (sf == nullptr || sf->isLocked())
                 continue;
 
-            int startTime = int(sf->startTime());
-            int endTime = startTime + int(sf->duration());
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0)
+                return false;
+            int startTime = qRound(sf->startTime() / scale);
+            int endTime = startTime + qRound(sf->duration() / scale);
             if (cursorTime < startTime || cursorTime > endTime)
                 continue;
 
@@ -1923,6 +2024,11 @@ bool ShowManager::checkOverlapping(Track *track, ShowFunction *sourceFunc,
 {
     if (track == nullptr)
         return false;
+    const double sourceScale = itemUnitsPerTimelineUnit(sourceFunc);
+    if (sourceScale <= 0)
+        return true;
+    const double start = startTime / sourceScale;
+    const double end = (double(startTime) + duration) / sourceScale;
 
     foreach (ShowFunction *sf, track->showFunctions())
     {
@@ -1932,9 +2038,11 @@ bool ShowManager::checkOverlapping(Track *track, ShowFunction *sourceFunc,
         Function *func = m_doc->function(sf->functionID());
         if (func != nullptr)
         {
-            quint32 fst = sf->startTime();
-            if ((startTime >= fst && startTime <= fst + sf->duration()) ||
-                (fst >= startTime && fst <= startTime + duration))
+            const double scale = itemUnitsPerTimelineUnit(sf);
+            if (scale <= 0)
+                return true;
+            const double fst = sf->startTime() / scale;
+            if (start < (double(sf->startTime()) + sf->duration()) / scale && fst < end)
             {
                 return true;
             }
@@ -2037,8 +2145,10 @@ bool ShowManager::pasteFromClipboard()
         if (item.m_showFunc == nullptr)
             continue;
 
-        if (item.m_showFunc->startTime() < lowerTime)
-            lowerTime = item.m_showFunc->startTime();
+        const double scale = itemUnitsPerTimelineUnit(item.m_showFunc);
+        if (scale <= 0)
+            return false;
+        lowerTime = qMin(lowerTime, quint32(qRound(item.m_showFunc->startTime() / scale)));
 
         if (item.m_trackIndex < lowerTrack)
             lowerTrack = item.m_trackIndex;
@@ -2071,7 +2181,10 @@ bool ShowManager::pasteFromClipboard()
 
         Track *track = trackList.at(trackIdx);
 
-        if (checkOverlapping(track, item.m_showFunc, m_currentTime, item.m_showFunc->duration()))
+        const double scale = itemUnitsPerTimelineUnit(item.m_showFunc);
+        const double cursor = timeBasedDivision() ? m_currentTime : m_currentTime * bpmNumber() / 60.0;
+        const int start = qRound(cursor + item.m_showFunc->startTime() / scale - lowerTime);
+        if (checkOverlapping(track, item.m_showFunc, qRound(start * scale), item.m_showFunc->duration()))
         {
             overlapping = true;
             continue;
@@ -2092,7 +2205,7 @@ bool ShowManager::pasteFromClipboard()
         }
 
         addItems(contextItem(), trackIdx,
-                 m_currentTime + item.m_showFunc->startTime() - lowerTime,
+                 start,
                  QVariantList() << func->id(), item.m_showFunc.data());
         pasted++;
     }

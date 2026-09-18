@@ -81,4 +81,5 @@ Item
     }
 
     Drag.active: fxMouseArea.drag.active
+    Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
 }

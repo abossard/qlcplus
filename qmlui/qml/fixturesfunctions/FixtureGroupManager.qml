@@ -607,6 +607,7 @@ Rectangle
                                     }
 
                                     groupListView.dragActive = true
+                                    UISettings.internalDragActive = true
                                 break;
                                 case App.DragFinished:
                                     gfhcDragItem.Drag.drop()
@@ -614,6 +615,7 @@ Rectangle
                                     gfhcDragItem.x = 0
                                     gfhcDragItem.y = 0
                                     groupListView.dragActive = false
+                                    UISettings.internalDragActive = false
                                     //gfhcDragItem.itemsList = []
                                 break;
                             }
@@ -648,6 +650,7 @@ Rectangle
                 visible: groupListView.dragActive
 
                 Drag.active: groupListView.dragActive
+                Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                 Drag.source: gfhcDragItem
                 Drag.keys: [ "fixture" ]
             }

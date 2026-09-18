@@ -108,7 +108,7 @@ public:
     VCWidget(Doc* doc = nullptr, QObject* parent = nullptr);
     virtual ~VCWidget();
 
-    void setDocModified();
+    Q_INVOKABLE void setDocModified();
 
     virtual void setupLookAndFeel(qreal pixelDensity, int page);
 

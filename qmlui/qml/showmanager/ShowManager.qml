@@ -444,6 +444,7 @@ Rectangle
                     { mLabel: qsTr("BPM 2/4"), mValue: Show.BPM_2_4 }
                 ]
                 id: markersCombo
+                objectName: "markersCombo"
                 enabled: canEdit
                 currValue: showManager.timeDivision
                 onValueChanged:
@@ -460,11 +461,19 @@ Rectangle
                         Qt.callLater(function() { markersCombo.currValue = Show.Time })
                         return
                     }
-                    showManager.timeDivision = currValue
+                    if (currValue !== Show.Time && currValue !== Show.VDJBeat &&
+                            showManager.timeBasedDivision &&
+                            showManager.hasBeatBasedItems())
+                    {
+                        beatAlignWarningPopup.pendingDivision = currValue
+                        beatAlignWarningPopup.open()
+                    }
+                    else
+                    {
+                        showManager.timeDivision = currValue
+                    }
                 }
 
-                // keep the combo in sync when the division changes from C++
-                // (e.g. auto-revert to Time when the BPM is cleared to 0)
                 Connections
                 {
                     target: showManager
@@ -473,6 +482,32 @@ Rectangle
                         if (markersCombo.currValue !== division)
                             Qt.callLater(function() { markersCombo.currValue = division })
                     }
+                }
+
+                CustomPopupDialog
+                {
+                    id: beatAlignWarningPopup
+                    objectName: "beatAlignWarningPopup"
+                    title: qsTr("Switch to BPM markers")
+                    message: qsTr("Warning: all beat-based functions will be aligned to the nearest beat")
+                    standardButtons: Dialog.Ok | Dialog.Cancel
+
+                    property var pendingDivision: Show.Time
+
+                    // the OK/Cancel buttons only emit clicked(role) (see
+                    // CustomPopupDialog's footer), while accepted()/rejected()
+                    // only fire when confirming with the Enter key, so both
+                    // paths must be handled to cover mouse and keyboard
+                    onClicked: (role) =>
+                    {
+                        if (role === Dialog.Ok)
+                            showManager.timeDivision = pendingDivision
+                        else
+                            markersCombo.currValue = showManager.timeDivision
+                        close()
+                    }
+                    onAccepted: showManager.timeDivision = pendingDivision
+                    onRejected: markersCombo.currValue = showManager.timeDivision
                 }
             }
 

@@ -32,10 +32,21 @@ Popup
     padding: 0
     closePolicy: submenuItem !== null ? Popup.CloseOnEscape : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
 
-    property Item submenuItem: null
+    property var submenuItem: null
     property int flagSize: UISettings.iconSizeDefault * 1.5
 
+    /** On small screens (7 inches or below) there is not enough vertical space
+      * for the whole menu, so the file entries are grouped into a "File" submenu */
+    property bool compactMode: qlcplus.smallScreen
+
     onClosed: submenuItem = null
+
+    /** Hover handler for the file entries. In compact mode they live inside the
+      * "File" submenu, which has to stay open while browsing them */
+    function fileEntryEntered(item)
+    {
+        submenuItem = item ? item : (compactMode ? fileMenu : null)
+    }
 
     function handleSaveAction()
     {
@@ -95,10 +106,52 @@ Popup
         qlcplus.stopAllFunctions()
     }
 
+    /** Open a project or fixture file, e.g. dropped onto the main window.
+      * Goes through the same "unsaved changes" guard as the File menu */
+    function openFile(url)
+    {
+        var path = url.toString()
+        if (!path.startsWith("file:") && !path.startsWith("/"))
+            return
+        var lowerPath = path.toLowerCase()
+
+        if (lowerPath.endsWith(".qxf") || lowerPath.endsWith(".d4"))
+        {
+            qlcplus.loadFixture(path)
+            return
+        }
+        if (!lowerPath.endsWith(".qxw") && !lowerPath.endsWith(".qxw.gz"))
+            return
+
+        if (qlcplus.docModified)
+        {
+            saveFirstPopup.action = path
+            saveFirstPopup.open()
+        }
+        else
+        {
+            qlcplus.loadWorkspace(path)
+        }
+    }
+
     function saveBeforeExit()
     {
         saveFirstPopup.action = "#EXIT"
         saveFirstPopup.open()
+    }
+
+    function finishPendingAction()
+    {
+        var action = saveFirstPopup.action
+        saveFirstPopup.action = ""
+        if (action === "#OPEN")
+            openDialog(App.OpenMode)
+        else if (action === "#NEW")
+            qlcplus.newWorkspace()
+        else if (action === "#EXIT")
+            qlcplus.exit(true)
+        else if (action)
+            qlcplus.loadWorkspace(action)
     }
 
     function setLanguage(lang)
@@ -158,10 +211,8 @@ Popup
             case App.SaveMode:
             case App.SaveAsMode:
             {
-                qlcplus.saveWorkspace(dialogSelectedFile)
-
-                if (saveFirstPopup.action == "#EXIT")
-                    qlcplus.exit()
+                if (qlcplus.saveWorkspace(dialogSelectedFile))
+                    finishPendingAction()
             }
             break
             case App.ImportMode:
@@ -190,6 +241,7 @@ Popup
             dialogCurrentFolder = currentFolder
             handleAccept()
         }
+        onRejected: saveFirstPopup.action = ""
     }
 
     PopupFolderBrowser
@@ -207,11 +259,13 @@ Popup
             dialogCurrentFolder = currentFolder
             handleAccept()
         }
+        onRejected: saveFirstPopup.action = ""
     }
 
     CustomPopupDialog
     {
         id: saveFirstPopup
+        objectName: "saveFirstPopup"
         width: mainView.width / 2
         height: mainView.height / 3
         title: qsTr("Your project has changes")
@@ -219,6 +273,7 @@ Popup
         standardButtons: Dialog.Yes | Dialog.No | Dialog.Cancel
 
         property string action: ""
+        onRejected: action = ""
 
         onClicked: function(role)
         {
@@ -226,30 +281,18 @@ Popup
             {
                 if (qlcplus.fileName())
                 {
-                    console.log("YES clicked 1")
-                    qlcplus.saveWorkspace(qlcplus.fileName())
-                    if (action == "#EXIT")
-                        qlcplus.exit()
+                    if (qlcplus.saveWorkspace(qlcplus.fileName()))
+                        menuRoot.finishPendingAction()
                 }
                 else
                 {
-                    console.log("YES clicked 2")
-                    //openDialog(App.SaveMode)
-                    handleSaveAction()
-                    if (action == "#EXIT")
-                        return
+                    openDialog(App.SaveMode)
+                    return
                 }
             }
             else if (role === Dialog.No)
             {
-                if (action == "#OPEN")
-                    openDialog(App.OpenMode)
-                else if (action == "#NEW")
-                    qlcplus.newWorkspace()
-                else if (action == "#EXIT")
-                    qlcplus.exit(true)
-                else
-                    qlcplus.loadWorkspace(action)
+                menuRoot.finishPendingAction()
             }
             else if (role === Dialog.Cancel)
             {
@@ -267,123 +310,162 @@ Popup
             border.width: 1
             border.color: UISettings.bgStronger
             color: UISettings.bgStrong
-            height: actionsMenuEntries.height
         }
+
+    /* The "File" submenu, shown in compact mode.
+       NOTE: it is deliberately NOT a child of fileMenuEntry, unlike the other
+       submenus here. A ContextMenuEntry sibling below it in the column grabs
+       the hover for the whole area, leaving only the first row of the submenu
+       reachable. Parenting to menuRoot avoids that entirely */
+    SubMenu
+    {
+        id: fileMenu
+        parent: menuRoot.contentItem
+        x: actionsMenuEntries.width
+        y: fileMenuEntry.y
+        // stay open while the recent files list, which belongs to one of the
+        // entries inside here, is the active submenu
+        visible: submenuItem === fileMenu || submenuItem === recentMenu
+    }
 
     Column
     {
         id: actionsMenuEntries
 
+        /* On small screens the file entries are moved into this submenu.
+           NOTE: the whole group is reparented as a single item on purpose.
+           Reparenting the entries individually makes Column lay them out in
+           reverse order, since the parent bindings evaluate bottom-up */
         ContextMenuEntry
         {
-            id: fileNew
-            imgSource: "qrc:/filenew.svg"
-            entryText: qsTr("New project")
-            shortcutText: ShortcutUtils.display("Ctrl+N")
-            onClicked: handleNewAction()
-            onEntered: submenuItem = null
+            id: fileMenuEntry
+            visible: menuRoot.compactMode
+            height: visible ? iconHeight + 6 : 0
+            imgSource: "qrc:/fileopen.svg"
+            entryText: qsTr("File")
+            onEntered: submenuItem = fileMenu
+
+            onClicked:
+            {
+                if (Qt.platform.os === "android")
+                    submenuItem = fileMenu
+            }
         }
 
-        ContextMenuEntry
+        Column
         {
-            id: fileOpen
-            imgSource: "qrc:/fileopen.svg"
-            entryText: qsTr("Open file")
-            shortcutText: ShortcutUtils.display("Ctrl+O")
-            onClicked: handleOpenAction()
-            onEntered: submenuItem = recentMenu
+            id: fileEntries
+            parent: menuRoot.compactMode ? fileMenu.contentItem : actionsMenuEntries
 
-            Rectangle
+            ContextMenuEntry
             {
-                id: recentMenu
-                x: menuRoot.width
-                width: recentColumn.width
-                height: recentColumn.height
-                color: UISettings.bgStrong
-                visible: submenuItem === recentMenu
+                id: fileNew
+                imgSource: "qrc:/filenew.svg"
+                entryText: qsTr("New project")
+                shortcutText: ShortcutUtils.display("Ctrl+N")
+                onClicked: handleNewAction()
+                onEntered: fileEntryEntered(null)
+            }
 
-                Column
+            ContextMenuEntry
+            {
+                id: fileOpen
+                imgSource: "qrc:/fileopen.svg"
+                entryText: qsTr("Open file")
+                shortcutText: ShortcutUtils.display("Ctrl+O")
+                onClicked: handleOpenAction()
+                onEntered: fileEntryEntered(recentMenu)
+
+                SubMenu
                 {
-                    id: recentColumn
-                    Repeater
+                    id: recentMenu
+                    parent: fileOpen
+                    x: fileOpen.width
+                    visible: submenuItem === recentMenu
+
+                    Column
                     {
-                        model: qlcplus.recentFiles
-                        delegate:
-                            ContextMenuEntry
-                            {
-                                entryText: modelData
-                                onClicked:
+                        id: recentColumn
+                        Repeater
+                        {
+                            model: qlcplus.recentFiles
+                            delegate:
+                                ContextMenuEntry
                                 {
-                                    if (qlcplus.docModified)
+                                    entryText: modelData
+                                    onClicked:
                                     {
-                                        saveFirstPopup.open()
-                                        saveFirstPopup.action = entryText
-                                    }
-                                    else
-                                    {
-                                        menuRoot.close()
-                                        qlcplus.loadWorkspace(entryText)
+                                        if (qlcplus.docModified)
+                                        {
+                                            saveFirstPopup.open()
+                                            saveFirstPopup.action = entryText
+                                        }
+                                        else
+                                        {
+                                            menuRoot.close()
+                                            qlcplus.loadWorkspace(entryText)
+                                        }
                                     }
                                 }
                             }
-                        }
+                    }
                 }
             }
-        }
 
-        ContextMenuEntry
-        {
-            id: fileSave
-            imgSource: "qrc:/filesave.svg"
-            entryText: qsTr("Save project")
-            shortcutText: ShortcutUtils.display("Ctrl+S")
-            onEntered: submenuItem = null
-
-            onClicked:
+            ContextMenuEntry
             {
-                handleSaveAction()
-                menuRoot.close()
-            }
-        }
+                id: fileSave
+                imgSource: "qrc:/filesave.svg"
+                entryText: qsTr("Save project")
+                shortcutText: ShortcutUtils.display("Ctrl+S")
+                onEntered: fileEntryEntered(null)
 
-        ContextMenuEntry
-        {
-            id: fileSaveAs
-            imgSource: "qrc:/filesaveas.svg"
-            entryText: qsTr("Save project as...")
-            onEntered: submenuItem = null
-
-            onClicked:
-            {
-                openDialog(App.SaveMode)
-                menuRoot.close()
-            }
-        }
-
-        ContextMenuEntry
-        {
-            id: fileImport
-            imgSource: "qrc:/import.svg"
-            entryText: qsTr("Import from project")
-            onEntered: submenuItem = null
-
-            onClicked:
-            {
-                openDialog(App.ImportMode)
-                menuRoot.close()
-            }
-
-            Loader
-            {
-                id: importLoader
-                onLoaded: item.open()
-
-                Connections
+                onClicked:
                 {
-                    target: importLoader.item
-                    function onClose()
+                    handleSaveAction()
+                    menuRoot.close()
+                }
+            }
+
+            ContextMenuEntry
+            {
+                id: fileSaveAs
+                imgSource: "qrc:/filesaveas.svg"
+                entryText: qsTr("Save project as...")
+                onEntered: fileEntryEntered(null)
+
+                onClicked:
+                {
+                    openDialog(App.SaveMode)
+                    menuRoot.close()
+                }
+            }
+
+            ContextMenuEntry
+            {
+                id: fileImport
+                imgSource: "qrc:/import.svg"
+                entryText: qsTr("Import from project")
+                onEntered: fileEntryEntered(null)
+
+                onClicked:
+                {
+                    openDialog(App.ImportMode)
+                    menuRoot.close()
+                }
+
+                Loader
+                {
+                    id: importLoader
+                    onLoaded: item.open()
+
+                    Connections
                     {
-                        importLoader.source = ""
+                        target: importLoader.item
+                        function onClose()
+                        {
+                            importLoader.source = ""
+                        }
                     }
                 }
             }
@@ -420,6 +502,7 @@ Popup
         }
         ContextMenuEntry
         {
+            id: netEntry
             imgSource: "qrc:/network.svg"
             //faSource: FontAwesome.fa_network_wired
             //faColor: "darkseagreen"
@@ -432,13 +515,11 @@ Popup
                     submenuItem = networkMenu
             }
 
-            Rectangle
+            SubMenu
             {
                 id: networkMenu
-                x: menuRoot.width
-                width: networkColumn.width
-                height: networkColumn.height
-                color: UISettings.bgStrong
+                parent: netEntry
+                x: netEntry.width
                 visible: submenuItem === networkMenu
 
                 Column
@@ -533,6 +614,7 @@ Popup
 
         ContextMenuEntry
         {
+            id: langEntry
             faSource: FontAwesome.fa_earth_europe
             faColor: "deepskyblue"
             entryText: qsTr("Language")
@@ -544,14 +626,12 @@ Popup
                     submenuItem = languageMenu
             }
 
-            Rectangle
+            SubMenu
             {
                 id: languageMenu
-                x: menuRoot.width
-                y: -height + parent.height
-                width: languageColumn.width
-                height: languageColumn.height
-                color: UISettings.bgStrong
+                parent: langEntry
+                x: langEntry.width
+                y: langEntry.height - height
                 visible: submenuItem === languageMenu
 
                 GridLayout

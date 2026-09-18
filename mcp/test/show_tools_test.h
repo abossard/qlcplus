@@ -29,6 +29,11 @@ class McpShowTools_Test final : public QObject
     Q_OBJECT
 
 private slots:
+    void mixedTempoMilliseconds_data();
+    void mixedTempoMilliseconds();
+    void exactBeatMilliseconds_data();
+    void exactBeatMilliseconds();
+    void invalidBeatConversion();
     void init();
     void cleanup();
 

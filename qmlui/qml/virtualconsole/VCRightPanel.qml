@@ -225,6 +225,7 @@ SidePanel
                             pasteDragItem.y = 0
                         }
                         pasteDragItem.Drag.active = dragActive
+                        UISettings.internalDragActive = dragActive
                     }
                 }
 

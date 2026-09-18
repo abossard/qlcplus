@@ -104,6 +104,7 @@ Rectangle
                             universe: uniItem.universe
 
                             Drag.active: ipMouseArea.drag.active
+                            Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                             Drag.source: ipMouseArea
                             Drag.hotSpot.x: width / 2
                             Drag.hotSpot.y: height / 2
@@ -354,6 +355,7 @@ Rectangle
                             patchIndex: index
 
                             Drag.active: opMouseArea.drag.active
+                            Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
                             Drag.source: opMouseArea
                             Drag.hotSpot.x: width / 2
                             Drag.hotSpot.y: height / 2
@@ -425,4 +427,3 @@ Rectangle
         color: isSelected ? UISettings.selection : UISettings.bgLight
     }
 }
-
