@@ -166,9 +166,9 @@ private:
     void applyPerformState(PerformFsm::PerformState state);
     void applyPerformShowChange(quint32 showId);
 
-    /** Sync-source adoption: while Perform drives a show it runs with
-     *  External sync; the previous source is restored on release so
-     *  manual playback keeps working (nothing is persisted). */
+    /** Runtime Perform adoption: while Perform drives a show it runs with
+     *  External sync and transient Audio suppression; release restores the
+     *  previous sync source and clears suppression (nothing is persisted). */
     void adoptActiveShow();
     void releaseAdoptedShow();
     void startAdoptedShow();

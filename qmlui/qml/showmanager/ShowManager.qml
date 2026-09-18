@@ -88,6 +88,26 @@ Rectangle
             xViewOffset = xPos
     }
 
+    function followPlayhead()
+    {
+        if (!timelineHeader || !hdrItem
+                || (!showManager.readOnly && (!showManager.isPlaying || showManager.isPaused))
+                || timelineHeader.width <= 0)
+            return
+
+        var cursorX = hdrItem.cursorPosition
+        if (cursorX < xViewOffset || cursorX + 1 > xViewOffset + timelineHeader.width)
+            xViewOffset = Math.max(0, cursorX - (timelineHeader.width / 2))
+    }
+
+    Connections
+    {
+        target: showManager
+        function onReadOnlyChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
+        function onIsPlayingChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
+        function onIsPausedChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
+    }
+
     function zoomTimeline(zoomIn)
     {
         // In time-based modes a larger timeScale renders smaller content (zoom out).
@@ -620,6 +640,7 @@ Rectangle
         contentX: xViewOffset
 
         onContentXChanged: xViewOffset = contentX
+        onWidthChanged: showMgrContainer.followPlayhead()
 
         HeaderAndCursor
         {
@@ -632,12 +653,16 @@ Rectangle
             cursorHeight: showMgrContainer.height - topBar.height - (bottomPanel.visible ? bottomPanel.height : 0)
             duration: showManager.showDuration
 
+            onCursorPositionChanged: showMgrContainer.followPlayhead()
+
             onClicked: (mouseX, mouseY) =>
             {
+                if (showManager.readOnly)
+                    return
                 if (showManager.timeBasedDivision)
-                    showManager.currentTime = TimeUtils.posToMs(mouseX, timeScale, tickSize)
+                    showManager.requestSeek(TimeUtils.posToMs(mouseX, timeScale, tickSize))
                 else
-                    showManager.currentTime = TimeUtils.posToBeatMs(mouseX, tickSize, showManager.bpmNumber, showManager.beatsDivision)
+                    showManager.requestSeek(TimeUtils.posToBeatMs(mouseX, tickSize, showManager.bpmNumber, showManager.beatsDivision))
                 showManager.resetItemsSelection()
             }
         }
@@ -728,12 +753,13 @@ Rectangle
             MouseArea
             {
                 anchors.fill: parent
+                enabled: !showManager.readOnly
                 onClicked: (mouse) =>
                 {
                     if (showManager.timeBasedDivision)
-                        showManager.currentTime = TimeUtils.posToMs(mouse.x, timeScale, tickSize)
+                        showManager.requestSeek(TimeUtils.posToMs(mouse.x, timeScale, tickSize))
                     else
-                        showManager.currentTime = TimeUtils.posToBeatMs(mouse.x, tickSize, showManager.bpmNumber, showManager.beatsDivision)
+                        showManager.requestSeek(TimeUtils.posToBeatMs(mouse.x, tickSize, showManager.bpmNumber, showManager.beatsDivision))
                     showManager.resetItemsSelection()
                 }
             }

@@ -27,6 +27,7 @@
 #include "function.h"
 
 class QXmlStreamReader;
+class ShowRunner;
 
 /** @addtogroup engine_functions Functions
  * @{
@@ -127,6 +128,9 @@ protected slots:
     void slotEndOfStream();
 
 private:
+    friend class ShowRunner;
+    void stopOutput();
+
     /** Instance of an AudioDecoder to perform actual audio decoding */
     AudioDecoder *m_decoder;
     /** output interface to render audio data got from m_decoder */

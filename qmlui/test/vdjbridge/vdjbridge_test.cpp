@@ -5,6 +5,8 @@
 
 #include <QtTest>
 #include <QSignalSpy>
+#include <QDir>
+#include <QSettings>
 
 // Access private members for test setup
 #define private public
@@ -27,6 +29,31 @@
 #include "function.h"
 #include "inputoutputmap.h"
 #include <QTableWidget>
+
+void VdjBridge_Test::initTestCase()
+{
+    QCoreApplication::setOrganizationName("qlcplus-test");
+    QCoreApplication::setApplicationName("vdjbridge_test");
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+
+    const QString settingsRoot = QDir::cleanPath(QCoreApplication::applicationDirPath()
+                                                 + "/vdjbridge_test_settings");
+    QDir().mkpath(settingsRoot);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsRoot);
+
+    QSettings isolated(QSettings::IniFormat, QSettings::UserScope,
+                       QCoreApplication::organizationName(),
+                       QCoreApplication::applicationName());
+    isolated.clear();
+}
+
+void VdjBridge_Test::cleanupTestCase()
+{
+    QSettings isolated(QSettings::IniFormat, QSettings::UserScope,
+                       QCoreApplication::organizationName(),
+                       QCoreApplication::applicationName());
+    isolated.clear();
+}
 
 void VdjBridge_Test::initialState()
 {
@@ -132,6 +159,73 @@ struct TestFixture {
             Q_ARG(QVariant, QVariant(on ? "on" : "off")));
     }
 };
+
+struct PerformShowFixture
+{
+    Show *show = nullptr;
+    Track *mixedTrack = nullptr;
+    Track *mutedTrack = nullptr;
+    Function *audioNow = nullptr;
+    Function *audioFuture = nullptr;
+    Scene *sceneNow = nullptr;
+    Scene *sceneFuture = nullptr;
+};
+
+static PerformShowFixture createPerformShowFixture(Doc *doc, const QString &name, bool withMutedTrack)
+{
+    PerformShowFixture fixture;
+    fixture.show = new Show(doc);
+    fixture.show->setName(name);
+    doc->addFunction(fixture.show);
+
+    fixture.audioNow = new Function(doc, Function::AudioType);
+    fixture.audioNow->setName(name + " Audio Now");
+    doc->addFunction(fixture.audioNow);
+
+    fixture.audioFuture = new Function(doc, Function::AudioType);
+    fixture.audioFuture->setName(name + " Audio Future");
+    doc->addFunction(fixture.audioFuture);
+
+    fixture.sceneNow = new Scene(doc);
+    fixture.sceneNow->setName(name + " Scene Now");
+    fixture.sceneNow->setDuration(5000);
+    doc->addFunction(fixture.sceneNow);
+
+    fixture.sceneFuture = new Scene(doc);
+    fixture.sceneFuture->setName(name + " Scene Future");
+    fixture.sceneFuture->setDuration(3000);
+    doc->addFunction(fixture.sceneFuture);
+
+    fixture.mixedTrack = new Track(Function::invalidId(), fixture.show);
+    fixture.mixedTrack->setName("Mixed");
+    fixture.show->addTrack(fixture.mixedTrack);
+
+    ShowFunction *audioNowItem = fixture.mixedTrack->createShowFunction(fixture.audioNow->id());
+    audioNowItem->setStartTime(0);
+    audioNowItem->setDuration(5000);
+
+    ShowFunction *sceneNowItem = fixture.mixedTrack->createShowFunction(fixture.sceneNow->id());
+    sceneNowItem->setStartTime(0);
+    sceneNowItem->setDuration(5000);
+
+    ShowFunction *audioFutureItem = fixture.mixedTrack->createShowFunction(fixture.audioFuture->id());
+    audioFutureItem->setStartTime(1800);
+    audioFutureItem->setDuration(3000);
+
+    ShowFunction *sceneFutureItem = fixture.mixedTrack->createShowFunction(fixture.sceneFuture->id());
+    sceneFutureItem->setStartTime(1800);
+    sceneFutureItem->setDuration(3000);
+
+    if (withMutedTrack)
+    {
+        fixture.mutedTrack = new Track(Function::invalidId(), fixture.show);
+        fixture.mutedTrack->setName("Muted");
+        fixture.mutedTrack->setMute(true);
+        fixture.show->addTrack(fixture.mutedTrack);
+    }
+
+    return fixture;
+}
 
 // --- C3: When VDJ deck play=true, auto-start the show ---
 
@@ -284,6 +378,181 @@ void VdjBridge_Test::performAdoptsAndReleasesSyncSource()
     QVERIFY(show->isPaused());
     QCOMPARE(show->syncSource(), 0);
 
+    doc->masterTimer()->stop();
+    delete doc;
+}
+
+void VdjBridge_Test::performAdoptionSuppressesAudioForAlreadyRunningShow()
+{
+    Doc *doc = new Doc(nullptr, 4);
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+
+    PerformShowFixture fixture = createPerformShowFixture(doc, "Adopt Running", false);
+    bridge.showFactory()->registerMapping("/music/adopt-running.mp3", fixture.show->id());
+
+    auto deckTrigger = [&bridge](int idx, const QString &t, const QVariant &v) {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+            Q_ARG(int, idx), Q_ARG(QString, t), Q_ARG(QVariant, v));
+    };
+    deckTrigger(0, "get_filepath", QVariant("/music/adopt-running.mp3"));
+    deckTrigger(0, "play", QVariant("on"));
+    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+
+    QSignalSpy audioStoppedSpy(fixture.audioNow, QOverload<quint32>::of(&Function::stopped));
+    QSignalSpy sceneRunningSpy(fixture.sceneNow, QOverload<quint32>::of(&Function::running));
+
+    doc->masterTimer()->start();
+    fixture.show->start(doc->masterTimer(), FunctionParent::master());
+    QTest::qWait(80);
+
+    QVERIFY(fixture.show->isRunning());
+    QVERIFY(fixture.audioNow->isRunning());
+    QVERIFY(sceneRunningSpy.count() > 0);
+
+    bridge.setPerformMode(true);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Live);
+
+    bool audioSuppressed = false;
+    for (int i = 0; i < 20 && !audioSuppressed; ++i)
+    {
+        QTest::qWait(20);
+        audioSuppressed = audioStoppedSpy.count() > 0 && !fixture.audioNow->isRunning();
+    }
+
+    QVERIFY2(audioSuppressed, "Perform adoption must stop the running Audio function.");
+    QVERIFY(sceneRunningSpy.count() > 0);
+    QVERIFY(fixture.show->isRunning());
+
+    bridge.setPerformMode(false);
+    doc->masterTimer()->stop();
+    delete doc;
+}
+
+void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression_data()
+{
+    QTest::addColumn<bool>("switchDeck");
+    QTest::newRow("release") << false;
+    QTest::newRow("switch") << true;
+}
+
+void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
+{
+    QFETCH(bool, switchDeck);
+
+    Doc *doc = new Doc(nullptr, 4);
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+
+    PerformShowFixture showA = createPerformShowFixture(doc, "Perform A", true);
+    PerformShowFixture showB = createPerformShowFixture(doc, "Perform B", true);
+    QSignalSpy showASceneNowRunningSpy(showA.sceneNow, QOverload<quint32>::of(&Function::running));
+    QSignalSpy showASceneFutureRunningSpy(showA.sceneFuture, QOverload<quint32>::of(&Function::running));
+    QSignalSpy showBSceneNowRunningSpy(showB.sceneNow, QOverload<quint32>::of(&Function::running));
+    bridge.showFactory()->registerMapping("/music/perform-a.mp3", showA.show->id());
+    bridge.showFactory()->registerMapping("/music/perform-b.mp3", showB.show->id());
+
+    auto deckTrigger = [&bridge](int idx, const QString &t, const QVariant &v) {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+            Q_ARG(int, idx), Q_ARG(QString, t), Q_ARG(QVariant, v));
+    };
+    deckTrigger(0, "get_filepath", QVariant("/music/perform-a.mp3"));
+    deckTrigger(1, "get_filepath", QVariant("/music/perform-b.mp3"));
+    deckTrigger(0, "play", QVariant("on"));
+    deckTrigger(1, "play", QVariant("on"));
+    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+
+    doc->masterTimer()->start();
+    showA.show->start(doc->masterTimer(), FunctionParent::master());
+    QTest::qWait(120);
+    QVERIFY(showA.audioNow->isRunning());
+    QVERIFY(showASceneNowRunningSpy.count() > 0);
+    QVERIFY(!showA.audioFuture->isRunning());
+    QCOMPARE(showASceneFutureRunningSpy.count(), 0);
+
+    bridge.setPerformMode(true);
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Live);
+    deckTrigger(0, "get_time elapsed absolute", QVariant(1200.0));
+    QTest::qWait(60);
+    QVERIFY(showA.show->performAudioSuppressed());
+    QVERIFY(!showA.audioNow->isRunning());
+    QVERIFY(showASceneNowRunningSpy.count() > 0);
+    QVERIFY(!showA.audioFuture->isRunning());
+    QCOMPARE(showASceneFutureRunningSpy.count(), 0);
+
+    if (switchDeck)
+    {
+        QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
+            Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("off")));
+        QTest::qWait(120);
+        QVERIFY(!showA.show->performAudioSuppressed());
+        QVERIFY(showA.show->isPaused());
+        QVERIFY(showB.show->performAudioSuppressed());
+        QVERIFY(!showB.audioNow->isRunning());
+        QVERIFY(showBSceneNowRunningSpy.count() > 0);
+
+        showA.show->setPause(false);
+        bool activeResumed = false;
+        for (int i = 0; i < 40 && !activeResumed; ++i)
+        {
+            QTest::qWait(25);
+            activeResumed = showA.audioNow->isRunning();
+        }
+        QVERIFY2(activeResumed, "Audio active at suppression time must resume after local unpause.");
+        QVERIFY(showASceneNowRunningSpy.count() > 0);
+
+        bool futureAudioStarted = false;
+        bool futureSceneStarted = showASceneFutureRunningSpy.count() > 0;
+        for (int i = 0; i < 30 && !(futureAudioStarted && futureSceneStarted); ++i)
+        {
+            QTest::qWait(50);
+            futureAudioStarted = futureAudioStarted || showA.audioFuture->isRunning();
+            futureSceneStarted = futureSceneStarted || showASceneFutureRunningSpy.count() > 0;
+        }
+        QVERIFY2(futureAudioStarted, "Future Audio must still start when due after suppression clears.");
+        QVERIFY2(futureSceneStarted, "Future Scene on mixed track must still start when due.");
+
+        bridge.setPerformMode(false);
+        QTest::qWait(60);
+        QVERIFY(!showB.show->performAudioSuppressed());
+    }
+    else
+    {
+        bridge.setPerformMode(false);
+        QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Idle);
+        QVERIFY(showA.show->isPaused());
+        QTest::qWait(40);
+        QVERIFY(!showA.show->performAudioSuppressed());
+        QVERIFY(!showB.show->performAudioSuppressed());
+
+        showA.show->setPause(false);
+        bool activeResumed = false;
+        for (int i = 0; i < 40 && !activeResumed; ++i)
+        {
+            QTest::qWait(25);
+            activeResumed = showA.audioNow->isRunning();
+        }
+        QVERIFY2(activeResumed, "Audio active at suppression time must resume after Perform release.");
+        QVERIFY(showASceneNowRunningSpy.count() > 0);
+
+        bool futureAudioStarted = false;
+        bool futureSceneStarted = showASceneFutureRunningSpy.count() > 0;
+        for (int i = 0; i < 30 && !(futureAudioStarted && futureSceneStarted); ++i)
+        {
+            QTest::qWait(50);
+            futureAudioStarted = futureAudioStarted || showA.audioFuture->isRunning();
+            futureSceneStarted = futureSceneStarted || showASceneFutureRunningSpy.count() > 0;
+        }
+        QVERIFY2(futureAudioStarted, "Suppressed future Audio must not be skipped permanently.");
+        QVERIFY2(futureSceneStarted, "Future Scene on mixed track must remain scheduled.");
+    }
+
+    QCOMPARE(showA.mixedTrack->isMute(), false);
+    QCOMPARE(showA.mutedTrack->isMute(), true);
+    QCOMPARE(showB.mixedTrack->isMute(), false);
+    QCOMPARE(showB.mutedTrack->isMute(), true);
     doc->masterTimer()->stop();
     delete doc;
 }

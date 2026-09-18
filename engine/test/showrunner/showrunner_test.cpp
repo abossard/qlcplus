@@ -18,18 +18,73 @@
 */
 
 #include <QtTest>
+#include <QDir>
+#include <QSettings>
+#include <cstring>
 #define private public
+#define protected public
+#include "audio.h"
+#include "audiorenderer_null.h"
 #include "showrunner.h"
+#include "mastertimer.h"
+#include "universe.h"
+#undef protected
 #undef private
+#include "fixture.h"
 #include "show.h"
 #include "track.h"
 #include "scene.h"
 #include "doc.h"
-#include "mastertimer.h"
+#include "inputoutputmap.h"
 #include "showrunner_test.h"
+
+class AudioTestDecoder final : public AudioDecoder
+{
+public:
+    AudioTestDecoder()
+    {
+        configure(48000, 2, PCM_S16LE);
+    }
+
+    AudioDecoder *createCopy() override { return new AudioTestDecoder; }
+    int priority() const override { return 0; }
+    QStringList supportedFormats() override { return {}; }
+    bool initialize(const QString &) override { return true; }
+    qint64 totalTime() override { return 60000; }
+    void seek(qint64) override { }
+    qint64 read(char *data, qint64 maxSize) override
+    {
+        std::memset(data, 0x7f, size_t(maxSize));
+        QThread::msleep(1);
+        return maxSize;
+    }
+    int bitrate() override { return 1536; }
+};
+
+static AudioRendererNull *attachNullRenderer(Audio *audio, bool start)
+{
+    auto *decoder = new AudioTestDecoder;
+    auto *renderer = new AudioRendererNull;
+    renderer->setDecoder(decoder);
+    renderer->initialize(48000, 2, PCM_S16LE);
+    renderer->setUserStop(false);
+    audio->m_decoder = decoder;
+    audio->m_audio_out = renderer;
+    if (start)
+        renderer->start();
+    return renderer;
+}
 
 void ShowRunner_Test::initTestCase()
 {
+    const QString settingsPath = qEnvironmentVariable(
+        "QLCPLUS_TEST_SETTINGS_PATH",
+        QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("settings-showrunner"));
+    QVERIFY(QDir().mkpath(settingsPath));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settingsPath);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settingsPath);
+
     m_doc = new Doc(this);
     m_show = new Show(m_doc);
     m_doc->addFunction(m_show);
@@ -182,6 +237,305 @@ void ShowRunner_Test::externalSyncBackwardSeek()
     runner.stop();
     m_doc->deleteFunction(scene->id());
     m_doc->deleteFunction(show->id());
+}
+
+void ShowRunner_Test::localSeek_data()
+{
+    QTest::addColumn<quint32>("startTime");
+    QTest::addColumn<quint32>("destination");
+    QTest::addColumn<int>("activeCue");
+    QTest::addColumn<int>("ticksToFutureCue");
+    QTest::newRow("forward") << quint32(0) << quint32(1500) << 1 << 25;
+    QTest::newRow("backward") << quint32(1500) << quint32(500) << 0 << 75;
+}
+
+void ShowRunner_Test::localSeek()
+{
+    QFETCH(quint32, startTime);
+    QFETCH(quint32, destination);
+    QFETCH(int, activeCue);
+    QFETCH(int, ticksToFutureCue);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = new Fixture(&doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(2);
+    doc.addFixture(fixture);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    Scene *cues[] = {new Scene(&doc), new Scene(&doc), new Scene(&doc)};
+    const quint32 cueStarts[] = {0, 1000, 2000};
+    const uchar cueValues[] = {51, 137, 223};
+    for (int i = 0; i < 3; ++i)
+    {
+        cues[i]->setValue(fixture->id(), 0, cueValues[i]);
+        doc.addFunction(cues[i]);
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(cues[i]->id());
+        item->setStartTime(cueStarts[i]);
+        item->setDuration(1000);
+        track->addShowFunction(item);
+    }
+    show->addTrack(track);
+
+    auto *independent = new Scene(&doc);
+    independent->setValue(fixture->id(), 1, 77);
+    doc.addFunction(independent);
+    independent->start(timer, FunctionParent::master());
+    show->start(timer, FunctionParent::master(), startTime);
+    timer->timerTick();
+
+    QSignalSpy position(show, &Show::timeChanged);
+    show->requestSeek(destination);
+    timer->timerTick();
+
+    QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    universes[0]->processFaders(MasterTimer::tick());
+    const uchar seekOutput = universes[0]->preGMValue(0);
+    const uchar independentSeekOutput = universes[0]->preGMValue(1);
+    doc.inputOutputMap()->releaseUniverses(false);
+
+    const quint32 seekPosition = position.last().first().toUInt();
+    QList<bool> runningAfterSeek;
+    for (int i = 0; i < 3; ++i)
+        runningAfterSeek.append(cues[i]->isRunning());
+    const quint32 activeElapsed = cues[activeCue]->elapsed();
+
+    for (int i = 0; i < ticksToFutureCue; ++i)
+        timer->timerTick();
+
+    universes = doc.inputOutputMap()->claimUniverses();
+    universes[0]->processFaders(MasterTimer::tick());
+    const uchar futureOutput = universes[0]->preGMValue(0);
+    const uchar independentFutureOutput = universes[0]->preGMValue(1);
+    doc.inputOutputMap()->releaseUniverses(false);
+    const bool futureRunning = cues[2]->isRunning();
+    const bool independentRunning = independent->isRunning();
+
+    show->stop(FunctionParent::master());
+    independent->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(seekOutput, cueValues[activeCue]);
+    QCOMPARE(independentSeekOutput, uchar(77));
+    QCOMPARE(seekPosition, destination + MasterTimer::tick());
+    for (int i = 0; i < 3; ++i)
+        QCOMPARE(runningAfterSeek[i], i == activeCue);
+    QCOMPARE(activeElapsed, quint32(520));
+    QCOMPARE(futureOutput, uchar(223));
+    QCOMPARE(independentFutureOutput, uchar(77));
+    QVERIFY(futureRunning);
+    QVERIFY(independentRunning);
+}
+
+void ShowRunner_Test::localSeekReusesActiveFunction_data()
+{
+    QTest::addColumn<quint32>("startTime");
+    QTest::addColumn<quint32>("destination");
+    QTest::addColumn<quint32>("cueStart");
+
+    QTest::newRow("same-cue-forward") << quint32(100) << quint32(700) << quint32(0);
+    QTest::newRow("same-cue-backward") << quint32(700) << quint32(100) << quint32(0);
+    QTest::newRow("reused-cue-forward") << quint32(500) << quint32(1500) << quint32(1000);
+    QTest::newRow("reused-cue-backward") << quint32(1500) << quint32(500) << quint32(0);
+}
+
+void ShowRunner_Test::localSeekReusesActiveFunction()
+{
+    QFETCH(quint32, startTime);
+    QFETCH(quint32, destination);
+    QFETCH(quint32, cueStart);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    QCOMPARE(doc.inputOutputMap()->outputPatchesCount(0), 0);
+
+    auto *fixture = new Fixture(&doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(1);
+    doc.addFixture(fixture);
+
+    auto *scene = new Scene(&doc);
+    scene->setValue(fixture->id(), 0, 200);
+    doc.addFunction(scene);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    for (quint32 itemStart : {quint32(0), quint32(1000)})
+    {
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(scene->id());
+        item->setStartTime(itemStart);
+        item->setDuration(1000);
+        track->addShowFunction(item);
+    }
+    show->addTrack(track);
+    show->adjustAttribute(0.4, 0);
+    show->start(timer, FunctionParent::master(), startTime);
+    timer->timerTick();
+
+    QSignalSpy position(show, &Show::timeChanged);
+    show->requestSeek(destination);
+    timer->timerTick();
+
+    QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    Universe *universe = universes[0];
+    const int stoppingFaderCount = universe->faders().count();
+    universe->processFaders(MasterTimer::tick());
+    doc.inputOutputMap()->releaseUniverses(false);
+
+    timer->timerTick();
+    universes = doc.inputOutputMap()->claimUniverses();
+    const int restartedFaderCount = universe->faders().count();
+    universe->processFaders(MasterTimer::tick());
+    const uchar output = universe->preGMValue(0);
+    doc.inputOutputMap()->releaseUniverses(false);
+
+    const quint32 elapsed = scene->elapsed();
+    const quint32 showPosition = position.last().first().toUInt();
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    const QString actual = QStringLiteral("elapsed=%1 position=%2 output=%3 faders=%4/%5")
+            .arg(elapsed).arg(showPosition).arg(output)
+            .arg(stoppingFaderCount).arg(restartedFaderCount);
+    QVERIFY2(elapsed == destination - cueStart + MasterTimer::tick()
+             && showPosition == destination + MasterTimer::tick()
+             && output == uchar(80)
+             && stoppingFaderCount == 1
+             && restartedFaderCount == 1,
+             qPrintable(actual));
+}
+
+void ShowRunner_Test::localSeekPreservesOtherOwner()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    QCOMPARE(doc.inputOutputMap()->outputPatchesCount(0), 0);
+
+    auto *fixture = new Fixture(&doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(1);
+    doc.addFixture(fixture);
+
+    auto *scene = new Scene(&doc);
+    scene->setValue(fixture->id(), 0, 200);
+    doc.addFunction(scene);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(0);
+    item->setDuration(1000);
+    track->addShowFunction(item);
+    show->addTrack(track);
+    show->adjustAttribute(0.4, 0);
+
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    scene->start(timer, manualOwner);
+    timer->timerTick();
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    const quint32 elapsedBeforeSeek = scene->elapsed();
+
+    QSignalSpy started(scene, &Function::running);
+    QSignalSpy stopped(scene, SIGNAL(stopped(quint32)));
+    QSignalSpy position(show, &Show::timeChanged);
+    show->requestSeek(500);
+    timer->timerTick();
+
+    QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    Universe *universe = universes[0];
+    universe->processFaders(MasterTimer::tick());
+    const uchar output = universe->preGMValue(0);
+    const int faderCount = universe->faders().count();
+    doc.inputOutputMap()->releaseUniverses(false);
+    const quint32 elapsedAfterSeek = scene->elapsed();
+    const quint32 showPosition = position.last().first().toUInt();
+    const int startsDuringSeek = started.count();
+    const int stopsDuringSeek = stopped.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    const bool runningAfterShowStop = scene->isRunning();
+    scene->stop(manualOwner);
+    timer->timerTick();
+
+    QCOMPARE(elapsedAfterSeek, elapsedBeforeSeek + MasterTimer::tick());
+    QCOMPARE(showPosition, quint32(500 + MasterTimer::tick()));
+    QCOMPARE(output, uchar(80));
+    QCOMPARE(faderCount, 1);
+    QCOMPARE(startsDuringSeek, 0);
+    QCOMPARE(stopsDuringSeek, 0);
+    QVERIFY(runningAfterShowStop);
+}
+
+void ShowRunner_Test::localSeekDoesNotOverrideExternalControl()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = new Fixture(&doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(1);
+    doc.addFixture(fixture);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    Scene *cues[] = {new Scene(&doc), new Scene(&doc)};
+    const uchar cueValues[] = {51, 137};
+    for (int i = 0; i < 2; ++i)
+    {
+        cues[i]->setValue(fixture->id(), 0, cueValues[i]);
+        doc.addFunction(cues[i]);
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(cues[i]->id());
+        item->setStartTime(i * 1000);
+        item->setDuration(1000);
+        track->addShowFunction(item);
+    }
+    show->addTrack(track);
+    show->setSyncSource(ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    show->setExternalElapsedTime(500);
+    timer->timerTick();
+
+    QSignalSpy position(show, &Show::timeChanged);
+    show->requestSeek(1500);
+    timer->timerTick();
+    const quint32 externalPosition = position.last().first().toUInt();
+    const bool firstCueUnderExternalControl = cues[0]->isRunning();
+    const bool secondCueUnderExternalControl = cues[1]->isRunning();
+
+    show->setSyncSource(ShowRunner::Autonomous);
+    timer->timerTick();
+    QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    universes[0]->processFaders(MasterTimer::tick());
+    const uchar output = universes[0]->preGMValue(0);
+    doc.inputOutputMap()->releaseUniverses(false);
+    const quint32 autonomousPosition = position.last().first().toUInt();
+    const bool firstCueAfterRelease = cues[0]->isRunning();
+    const bool secondCueAfterRelease = cues[1]->isRunning();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(externalPosition, quint32(500));
+    QVERIFY(firstCueUnderExternalControl);
+    QVERIFY(!secondCueUnderExternalControl);
+    QCOMPARE(autonomousPosition, quint32(520));
+    QVERIFY(firstCueAfterRelease);
+    QVERIFY(!secondCueAfterRelease);
+    QCOMPARE(output, uchar(51));
 }
 
 void ShowRunner_Test::internalBeatClockUsesSongBpm()
@@ -470,6 +824,127 @@ void ShowRunner_Test::externalMixedTimeline()
     QCOMPARE(runner.m_runningQueue.first().first, scenes[0]);
     QCOMPARE(position.last().first().toUInt(), uint(500));
     runner.stop();
+}
+
+void ShowRunner_Test::nativeAudioSuppression_data()
+{
+    QTest::addColumn<bool>("manualOwner");
+    QTest::newRow("last-show-owner") << false;
+    QTest::newRow("manual-co-owner") << true;
+}
+
+void ShowRunner_Test::nativeAudioSuppression()
+{
+    QFETCH(bool, manualOwner);
+    Doc doc(nullptr);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *audio = new Audio(&doc);
+    audio->setFadeOutSpeed(5000);
+    doc.addFunction(audio);
+    auto *track = new Track(audio->id());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(audio->id());
+    item->setStartTime(0);
+    item->setDuration(10000);
+    track->addShowFunction(item);
+    show->addTrack(track);
+
+    ShowRunner runner(&doc, show->id());
+    const FunctionParent showParent(FunctionParent::Function, show->id());
+    audio->m_sources.append(showParent);
+    if (manualOwner)
+        audio->m_sources.append(FunctionParent(FunctionParent::ManualVCWidget, 77));
+    audio->m_running = true;
+    audio->m_stop = false;
+    auto *renderer = attachNullRenderer(audio, true);
+    QTRY_VERIFY_WITH_TIMEOUT(renderer->isRunning(), 1000);
+    runner.m_runningQueue.append(qMakePair(static_cast<Function *>(audio), quint32(10000)));
+    runner.m_currentTimeFunctionIndex = runner.m_timeFunctions.count();
+
+    show->setPerformAudioSuppressed(true);
+    runner.write(doc.masterTimer());
+
+    QCOMPARE(runner.m_runningQueue.count(), 0);
+    QCOMPARE(audio->stopped(), !manualOwner);
+    QCOMPARE(audio->m_audio_out == nullptr, !manualOwner);
+    if (manualOwner)
+        QVERIFY(renderer->isRunning());
+    else
+        QVERIFY(!renderer->isRunning());
+
+    audio->stop(FunctionParent::master());
+    if (audio->m_audio_out != nullptr)
+        audio->m_audio_out->stop();
+}
+
+void ShowRunner_Test::pausedPerformAdoptionKeepsAudioPaused()
+{
+    Doc doc(nullptr);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *audio = new Audio(&doc);
+    audio->setFadeOutSpeed(5000);
+    doc.addFunction(audio);
+    auto *scene = new Scene(&doc);
+    doc.addFunction(scene);
+    for (Function *function : {static_cast<Function *>(audio), static_cast<Function *>(scene)})
+    {
+        auto *track = new Track(function->id());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(function->id());
+        item->setStartTime(0);
+        item->setDuration(10000);
+        track->addShowFunction(item);
+        show->addTrack(track);
+    }
+
+    ShowRunner runner(&doc, show->id());
+    const FunctionParent showParent(FunctionParent::Function, show->id());
+    auto *renderer = attachNullRenderer(audio, true);
+    QTRY_VERIFY_WITH_TIMEOUT(renderer->isRunning(), 1000);
+    for (Function *function : {static_cast<Function *>(audio), static_cast<Function *>(scene)})
+    {
+        function->m_sources.append(showParent);
+        function->m_running = true;
+        function->m_stop = false;
+        function->setPause(true);
+        runner.m_runningQueue.append(qMakePair(function, quint32(10000)));
+    }
+    runner.m_currentTimeFunctionIndex = runner.m_timeFunctions.count();
+
+    show->setPerformAudioSuppressed(true);
+    runner.setPause(false);
+
+    QVERIFY(audio->isPaused());
+    QVERIFY(!scene->isPaused());
+    runner.write(doc.masterTimer());
+    QCOMPARE(audio->m_audio_out, nullptr);
+    QVERIFY(!renderer->isRunning());
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+    QCOMPARE(runner.m_runningQueue.first().first, scene);
+    runner.stop();
+}
+
+void ShowRunner_Test::nativeAudioNormalStopPreservesFade()
+{
+    Doc doc(nullptr);
+    auto *audio = new Audio(&doc);
+    audio->setFadeOutSpeed(5000);
+    doc.addFunction(audio);
+    const FunctionParent parent(FunctionParent::Function, 42);
+    audio->m_sources.append(parent);
+    audio->m_running = true;
+    audio->m_stop = false;
+    auto *renderer = attachNullRenderer(audio, false);
+
+    audio->stop(parent);
+    audio->postRun(doc.masterTimer(), {});
+
+    QCOMPARE(audio->fadeOutSpeed(), uint(5000));
+    QCOMPARE(audio->m_audio_out, renderer);
+    QVERIFY(renderer->m_fadeStep < 0);
+    QVERIFY(!renderer->m_userStop);
 }
 
 QTEST_APPLESS_MAIN(ShowRunner_Test)

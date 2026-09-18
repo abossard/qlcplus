@@ -9,20 +9,32 @@
 #include <QJSValue>
 #include <QQuickItem>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <memory>
 #include <cmath>
 #include <QScopeGuard>
+#include <algorithm>
 
 #include "app.h"
 #include "doc.h"
+#include "djmanager.h"
+#include "fixture.h"
+#include "inputoutputmap.h"
 #include "mastertimer.h"
+#include "performfsm.h"
 #include "scene.h"
 #include "show.h"
+#include "showfunction.h"
+#include "showfactory.h"
 #include "showmanager.h"
+#include "showrunner.h"
 #include "tardis.h"
+#include "track.h"
+#include "universe.h"
 #include "vccuelist.h"
+#include "vdjbridge.h"
 
 class UpstreamIntegration_Test : public QObject
 {
@@ -49,14 +61,19 @@ private slots:
     void resizeItems();
     void timingControls_data();
     void timingControls();
+    void timelineUserSeek_data();
+    void timelineUserSeek();
+    void showPlayheadVisibilityAndFollow_data();
+    void showPlayheadVisibilityAndFollow();
 private:
+    QTemporaryDir m_settings;
     std::unique_ptr<App> m_app;
 };
 
 void UpstreamIntegration_Test::initTestCase()
 {
-    const QString settings = QDir::current().absoluteFilePath("isolated-settings");
-    QVERIFY(QDir().mkpath(settings));
+    QVERIFY(m_settings.isValid());
+    const QString settings = m_settings.path();
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, settings);
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, settings);
@@ -65,6 +82,7 @@ void UpstreamIntegration_Test::initTestCase()
     m_app = std::make_unique<App>();
     m_app->set3dSupported(false);
     m_app->startup();
+    m_app->resize(1200, 800);
     m_app->doc()->masterTimer()->stop();
     QVERIFY2(m_app->status() == QQuickView::Ready, qPrintable(m_app->errors().value(0).toString()));
 }
@@ -515,6 +533,440 @@ void UpstreamIntegration_Test::timingControls()
                                       Q_ARG(QVariant, 3), Q_ARG(QVariant, 5000)));
     QCOMPARE(beatItem->duration(), uint(2500));
     manager->setReadOnly(false);
+}
+
+void UpstreamIntegration_Test::timelineUserSeek_data()
+{
+    QTest::addColumn<bool>("readOnly");
+    QTest::addColumn<bool>("drag");
+    QTest::addColumn<quint32>("startTime");
+    QTest::addColumn<quint32>("destination");
+    QTest::addColumn<int>("activeCue");
+
+    QTest::newRow("forward-click") << false << false << quint32(500) << quint32(1500) << 1;
+    QTest::newRow("backward-drag") << false << true << quint32(1500) << quint32(500) << 0;
+    QTest::newRow("perform-click") << true << false << quint32(500) << quint32(1500) << 0;
+    QTest::newRow("perform-drag") << true << true << quint32(500) << quint32(1500) << 0;
+}
+
+void UpstreamIntegration_Test::timelineUserSeek()
+{
+    QFETCH(bool, readOnly);
+    QFETCH(bool, drag);
+    QFETCH(quint32, startTime);
+    QFETCH(quint32, destination);
+    QFETCH(int, activeCue);
+
+    auto *doc = m_app->doc();
+    auto *timer = doc->masterTimer();
+    auto *manager = qobject_cast<ShowManager*>(
+            m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    QCOMPARE(doc->inputOutputMap()->outputPatchesCount(0), 0);
+
+    auto *fixture = new Fixture(doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(1);
+    doc->addFixture(fixture);
+
+    auto *show = new Show(doc);
+    show->setTimeDivision(Show::Time, 120);
+    doc->addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    Scene *cues[] = {new Scene(doc), new Scene(doc), new Scene(doc)};
+    const quint32 cueStarts[] = {0, 1000, 2000};
+    const uchar cueValues[] = {51, 137, 223};
+    for (int i = 0; i < 3; ++i)
+    {
+        cues[i]->setValue(fixture->id(), 0, cueValues[i]);
+        doc->addFunction(cues[i]);
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(cues[i]->id());
+        item->setStartTime(cueStarts[i]);
+        item->setDuration(1000);
+        track->addShowFunction(item);
+    }
+    show->addTrack(track);
+    const quint32 fixtureId = fixture->id();
+    const quint32 showId = show->id();
+    const QList<quint32> cueIds = {cues[0]->id(), cues[1]->id(), cues[2]->id()};
+    std::unique_ptr<QObject> panelObject;
+    const auto cleanup = qScopeGuard([&]() {
+        manager->setReadOnly(false);
+        if (show->isRunning())
+            show->stopAndWait();
+        timer->stop();
+        manager->resetContents();
+        panelObject.reset();
+        doc->deleteFunction(showId);
+        for (quint32 cueId : cueIds)
+            doc->deleteFunction(cueId);
+        doc->deleteFixture(fixtureId);
+        doc->inputOutputMap()->resetUniverses();
+    });
+
+    manager->setReadOnly(false);
+    manager->setCurrentShowID(show->id());
+    manager->setTimeScale(1.0);
+    manager->setCurrentTime(int(startTime));
+
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/ShowManager.qml"));
+    panelObject.reset(component.create(&context));
+    QVERIFY2(panelObject, qPrintable(component.errorString()));
+    auto *panel = qobject_cast<QQuickItem*>(panelObject.get());
+    QVERIFY(panel);
+    panel->setParentItem(m_app->contentItem());
+    panel->setZ(10000);
+    QCoreApplication::processEvents();
+
+    QQmlExpression headerExpression(qmlContext(panel), panel, "hdrItem");
+    QObject *headerObject = headerExpression.evaluate().value<QObject*>();
+    QVERIFY2(!headerExpression.hasError(), qPrintable(headerExpression.error().toString()));
+    auto *header = qobject_cast<QQuickItem*>(headerObject);
+    QVERIFY(header);
+    QTRY_VERIFY(header->width() > 0);
+    QSignalSpy runnerPosition(show, &Show::timeChanged);
+    timer->start();
+
+    if (readOnly)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        QTRY_VERIFY(show->isRunning());
+        show->setExternalElapsedTime(startTime);
+        QTRY_VERIFY(!runnerPosition.isEmpty()
+                    && runnerPosition.last().first().toUInt() == startTime);
+        QTRY_COMPARE(manager->currentTime(), int(startTime));
+        manager->setReadOnly(true);
+    }
+    else
+    {
+        show->setSyncSource(ShowRunner::Autonomous);
+        manager->playShow();
+        QTRY_VERIFY(show->isRunning());
+        QTRY_VERIFY(manager->currentTime() >= int(startTime + MasterTimer::tick()));
+    }
+
+    runnerPosition.clear();
+    const auto timelineX = [manager](quint32 time) {
+        return time * manager->tickSize() / (1000.0 * manager->timeScale());
+    };
+    const qreal targetX = timelineX(destination);
+    if (drag)
+    {
+        const qreal cursorY = header->property("headerHeight").toReal() - 5;
+        const QPoint startPoint = header->mapToScene(
+                QPointF(timelineX(quint32(manager->currentTime())), cursorY)).toPoint();
+        const QPoint targetPoint = header->mapToScene(
+                QPointF(targetX, cursorY)).toPoint();
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, startPoint);
+        QTest::mouseMove(m_app.get(), targetPoint, 20);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, targetPoint);
+    }
+    else
+    {
+        const QPoint targetPoint = header->mapToScene(
+                QPointF(targetX, header->height() / 2)).toPoint();
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, targetPoint);
+    }
+    QCoreApplication::processEvents();
+
+    if (readOnly)
+    {
+        QCOMPARE(manager->currentTime(), int(startTime));
+        for (const QList<QVariant> &position : runnerPosition)
+            QCOMPARE(position.first().toUInt(), startTime);
+        show->setExternalElapsedTime(startTime + 40);
+        QTRY_COMPARE(manager->currentTime(), int(startTime + 40));
+        QCOMPARE(runnerPosition.last().first().toUInt(), startTime + 40);
+        QVERIFY(cues[activeCue]->isRunning());
+        QVERIFY(!cues[1]->isRunning());
+    }
+    else
+    {
+        const int pixelTolerance = int(std::ceil(1000.0 * manager->timeScale()
+                                                / manager->tickSize())) + 1;
+        QTRY_VERIFY_WITH_TIMEOUT(std::any_of(runnerPosition.cbegin(), runnerPosition.cend(),
+                               [destination, pixelTolerance](const QList<QVariant> &position) {
+            const int value = position.first().toInt();
+            return value >= int(destination) - pixelTolerance
+                    && value <= int(destination) + pixelTolerance + int(MasterTimer::tick() * 3);
+        }), 200);
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(cues[i]->isRunning(), i == activeCue);
+
+        QTRY_VERIFY(cues[2]->isRunning());
+    }
+
+    QList<Universe*> universes = doc->inputOutputMap()->claimUniverses();
+    QVERIFY(!universes.isEmpty());
+    Universe *universe = universes.first();
+    doc->inputOutputMap()->releaseUniverses(false);
+    const uchar expectedOutput = readOnly ? cueValues[0] : cueValues[2];
+    QTRY_COMPARE(universe->preGMValue(0), expectedOutput);
+}
+
+void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow_data()
+{
+    QTest::addColumn<bool>("alreadyRunningPaused");
+    QTest::addColumn<bool>("directlyCreated");
+    QTest::addColumn<quint32>("pausedPosition");
+    QTest::addColumn<quint32>("pausedUpdate");
+    QTest::addColumn<quint32>("resumePosition");
+
+    QTest::newRow("stopped-no-runner")
+            << false << false << quint32(121000) << quint32(163000) << quint32(327000);
+    QTest::newRow("already-running-paused")
+            << true << false << quint32(137000) << quint32(179000) << quint32(343000);
+    QTest::newRow("directly-created")
+            << false << true << quint32(121000) << quint32(163000) << quint32(327000);
+}
+
+void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
+{
+    QFETCH(bool, alreadyRunningPaused);
+    QFETCH(bool, directlyCreated);
+    QFETCH(quint32, pausedPosition);
+    QFETCH(quint32, pausedUpdate);
+    QFETCH(quint32, resumePosition);
+
+    auto *doc = m_app->doc();
+    auto *timer = doc->masterTimer();
+    auto *manager = qobject_cast<ShowManager*>(
+            m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    auto *djManager = qobject_cast<DjManager*>(
+            m_app->rootContext()->contextProperty("djManager").value<QObject*>());
+    QVERIFY(djManager);
+    auto *bridge = qobject_cast<VdjBridge*>(
+            m_app->rootContext()->contextProperty("vdjBridge").value<QObject*>());
+    QVERIFY(bridge);
+
+    auto *scene = new Scene(doc);
+    doc->addFunction(scene);
+    QQuickItem authoringArea(m_app->rootObject());
+    Show *show;
+    if (directlyCreated)
+    {
+        manager->resetContents();
+        manager->addItems(&authoringArea, -1, 0, {scene->id()});
+        show = manager->currentShow();
+        QVERIFY(show);
+        show->tracks().first()->showFunctions().first()->setDuration(420000);
+    }
+    else
+    {
+        show = new Show(doc);
+        doc->addFunction(show);
+        auto *track = new Track(Function::invalidId());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(scene->id());
+        item->setStartTime(0);
+        item->setDuration(420000);
+        track->addShowFunction(item);
+        show->addTrack(track);
+    }
+    show->setTimeDivision(Show::Time, 120);
+
+    const quint32 showId = show->id();
+    const quint32 sceneId = scene->id();
+    const QString filepath = QString("/c2/playhead-%1.mp3")
+            .arg(QString::fromLatin1(QTest::currentDataTag()));
+    std::unique_ptr<QObject> panelObject;
+    const auto cleanup = qScopeGuard([&]() {
+        djManager->setPerformMode(false);
+        if (show->isRunning())
+            show->stopAndWait();
+        timer->stop();
+        manager->resetContents();
+        panelObject.reset();
+        doc->deleteFunction(showId);
+        doc->deleteFunction(sceneId);
+    });
+
+    djManager->setPerformMode(false);
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Idle);
+    QVERIFY(!manager->readOnly());
+    manager->setTimeScale(1.0);
+    manager->setCurrentTime(7000);
+
+    const auto deckTrigger = [bridge](const QString &trigger, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onDeckTrigger",
+                                         Q_ARG(int, 0),
+                                         Q_ARG(QString, trigger),
+                                         Q_ARG(QVariant, value));
+    };
+    const auto globalTrigger = [bridge](const QString &trigger, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onGlobalTrigger",
+                                         Q_ARG(QString, trigger),
+                                         Q_ARG(QVariant, value));
+    };
+
+    bridge->showFactory()->registerMapping(filepath, show->id());
+    QVERIFY(deckTrigger("get_filepath", filepath));
+    QVERIFY(deckTrigger("get_title", "Playhead test"));
+    QVERIFY(deckTrigger("get_artist", "QLC+"));
+    QVERIFY(deckTrigger("get_bpm", 120.0));
+    djManager->assignShow(filepath, int(show->id()));
+    QVERIFY(globalTrigger("masterdeck", 1));
+    QVERIFY(deckTrigger("get_time elapsed absolute", double(pausedPosition)));
+    QVERIFY(deckTrigger("play", "off"));
+
+    timer->start();
+    if (alreadyRunningPaused)
+    {
+        show->setSyncSource(ShowRunner::Autonomous);
+        show->start(timer, FunctionParent::master(), 23000);
+        QTRY_VERIFY(show->isRunning());
+        show->setPause(true);
+        QTRY_VERIFY(show->isPaused());
+    }
+
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/ShowManager.qml"));
+    panelObject.reset(component.create(&context));
+    QVERIFY2(panelObject, qPrintable(component.errorString()));
+    auto *panel = qobject_cast<QQuickItem*>(panelObject.get());
+    QVERIFY(panel);
+    panel->setParentItem(m_app->contentItem());
+    panel->setZ(10000);
+    QCoreApplication::processEvents();
+
+    QQmlExpression headerExpression(qmlContext(panel), panel, "hdrItem");
+    auto *header = qobject_cast<QQuickItem*>(
+            headerExpression.evaluate().value<QObject*>());
+    QVERIFY2(!headerExpression.hasError(), qPrintable(headerExpression.error().toString()));
+    QVERIFY(header);
+    QQmlExpression timelineExpression(qmlContext(panel), panel, "timelineHeader");
+    auto *timeline = qobject_cast<QQuickItem*>(
+            timelineExpression.evaluate().value<QObject*>());
+    QVERIFY2(!timelineExpression.hasError(), qPrintable(timelineExpression.error().toString()));
+    QVERIFY(timeline);
+    QQmlExpression itemsExpression(qmlContext(panel), panel, "itemsArea");
+    auto *itemsArea = qobject_cast<QQuickItem*>(
+            itemsExpression.evaluate().value<QObject*>());
+    QVERIFY2(!itemsExpression.hasError(), qPrintable(itemsExpression.error().toString()));
+    QVERIFY(itemsArea);
+    auto *cursor = header->findChild<QQuickItem*>("showPlayhead");
+    QVERIFY(cursor);
+
+    const auto expectedCursorX = [manager]() {
+        if (manager->timeBasedDivision())
+            return manager->currentTime() * manager->tickSize()
+                    / (1000.0 * manager->timeScale());
+        return (manager->bpmNumber() / double(manager->beatsDivision()))
+                * manager->tickSize() * (manager->currentTime() / 60000.0);
+    };
+    const auto cursorIsInViewport = [cursor, timeline]() {
+        const qreal viewportX = cursor->mapToItem(timeline, QPointF()).x();
+        return viewportX >= 0 && viewportX + cursor->width() <= timeline->width();
+    };
+    const auto offsetMatches = [panel, timeline, itemsArea](qreal expected) {
+        return qAbs(panel->property("xViewOffset").toReal() - expected) < 0.5
+                && qAbs(timeline->property("contentX").toReal() - expected) < 0.5
+                && qAbs(itemsArea->property("contentX").toReal() - expected) < 0.5;
+    };
+
+    QSignalSpy runnerPosition(show, &Show::timeChanged);
+    djManager->setPerformMode(true);
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Suspended);
+    QTRY_COMPARE(manager->currentShowID(), int(show->id()));
+    QTRY_VERIFY(manager->readOnly());
+    QTRY_COMPARE(manager->currentTime(), int(pausedPosition));
+    QCOMPARE(manager->isPlaying(), alreadyRunningPaused);
+    QCOMPARE(manager->isPaused(), alreadyRunningPaused);
+    QCOMPARE(show->isRunning(), alreadyRunningPaused);
+    QCOMPARE(show->isPaused(), alreadyRunningPaused);
+
+    QTRY_VERIFY(cursor->isVisible());
+    QTRY_VERIFY(qAbs(cursor->x() - expectedCursorX()) < 0.5);
+    QTRY_VERIFY(cursorIsInViewport());
+
+    QVERIFY(deckTrigger("get_time elapsed absolute", double(pausedUpdate)));
+    QTRY_COMPARE(manager->currentTime(), int(pausedUpdate));
+    djManager->loadShow(filepath);
+    QTRY_COMPARE(manager->currentShowID(), int(show->id()));
+    QTRY_COMPARE(manager->currentTime(), int(pausedUpdate));
+    QCOMPARE(manager->isPlaying(), alreadyRunningPaused);
+    QCOMPARE(manager->isPaused(), alreadyRunningPaused);
+    QTRY_VERIFY(qAbs(cursor->x() - expectedCursorX()) < 0.5);
+    QTRY_VERIFY(cursorIsInViewport());
+
+    panel->setProperty("xViewOffset", 0);
+    QTRY_VERIFY(offsetMatches(0));
+    runnerPosition.clear();
+    QVERIFY(deckTrigger("get_time elapsed absolute", double(resumePosition)));
+    QVERIFY(deckTrigger("play", "on"));
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Live);
+    QTRY_VERIFY(show->isRunning() && !show->isPaused());
+    QTRY_VERIFY(manager->isPlaying() && !manager->isPaused());
+    QTRY_COMPARE(manager->currentTime(), int(resumePosition));
+    QTRY_VERIFY_WITH_TIMEOUT(std::any_of(runnerPosition.cbegin(), runnerPosition.cend(),
+                             [resumePosition](const QList<QVariant> &position) {
+        return position.first().toUInt() == resumePosition;
+    }), 1000);
+    QTRY_VERIFY(qAbs(cursor->x() - expectedCursorX()) < 0.5);
+    QTRY_VERIFY(cursorIsInViewport());
+    QVERIFY(panel->property("xViewOffset").toReal() > 0);
+
+    QSignalSpy displayedPositions(manager, &ShowManager::currentTimeChanged);
+    const QPoint cursorPoint = cursor->mapToScene(
+            QPointF(0, header->property("headerHeight").toReal() / 2)).toPoint();
+    const QPoint seekPoint = cursorPoint + QPoint(80, 0);
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, seekPoint);
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, cursorPoint);
+    QTest::mouseMove(m_app.get(), seekPoint, 20);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, seekPoint);
+    QCoreApplication::processEvents();
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Live);
+    QCOMPARE(manager->currentTime(), int(resumePosition));
+    for (const QList<QVariant> &position : displayedPositions)
+        QCOMPARE(position.first().toUInt(), resumePosition);
+
+    djManager->setPerformMode(false);
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Idle);
+    QTRY_VERIFY(!manager->readOnly());
+    show->stopAndWait();
+    QTRY_VERIFY(!show->isRunning());
+    QTRY_VERIFY(!manager->isPlaying());
+    QVERIFY(cursor->isVisible());
+
+    manager->setCurrentTime(15000);
+    panel->setProperty("xViewOffset", 2000);
+    QTRY_VERIFY(offsetMatches(2000));
+    manager->setCurrentTime(10000);
+    QCoreApplication::processEvents();
+    QVERIFY(offsetMatches(2000));
+    QVERIFY(cursor->isVisible());
+    QVERIFY(!cursorIsInViewport());
+
+    manager->setTimeScale(2.0);
+    QTRY_VERIFY(qAbs(cursor->x() - expectedCursorX()) < 0.5);
+    QVERIFY(offsetMatches(2000));
+    manager->setTimeDivision(Show::BPM_4_4);
+    manager->setBpmNumber(90);
+    QTRY_VERIFY(qAbs(cursor->x() - expectedCursorX()) < 0.5);
+    QVERIFY(offsetMatches(2000));
+
+    manager->setCurrentTime(220000);
+    panel->setProperty("xViewOffset", 0);
+    QTRY_VERIFY(offsetMatches(0));
+    show->setSyncSource(ShowRunner::Autonomous);
+    manager->playShow();
+    QTRY_VERIFY(show->isRunning() && !show->isPaused());
+    QTRY_VERIFY(manager->isPlaying() && !manager->isPaused());
+    QTRY_VERIFY(cursorIsInViewport());
+    QVERIFY(cursor->isVisible());
+    manager->playShow();
+    QTRY_VERIFY(manager->isPaused());
+    QVERIFY(cursor->isVisible());
+    manager->stopShow();
+    QTRY_VERIFY(!manager->isPlaying());
+    QVERIFY(cursor->isVisible());
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

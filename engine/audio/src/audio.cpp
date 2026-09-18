@@ -397,6 +397,12 @@ void Audio::setPause(bool enable)
     }
 }
 
+void Audio::stopOutput()
+{
+    if (stopped())
+        slotEndOfStream();
+}
+
 void Audio::write(MasterTimer* timer, QList<Universe *> universes)
 {
     Q_UNUSED(timer)

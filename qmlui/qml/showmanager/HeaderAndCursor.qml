@@ -45,6 +45,9 @@ Rectangle
     property int bpmNumber: showManager.bpmNumber
     property int beatsDivision: showManager.beatsDivision
     property bool showTimeMarkers: true
+    readonly property real cursorPosition: msMode
+            ? TimeUtils.timeToSize(currentTime, timeScale, tickSize)
+            : TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
 
     signal clicked(int mouseX, int mouseY)
 
@@ -85,17 +88,6 @@ Rectangle
         function onVdjGridChanged() { timeHeader.requestPaint() }
     }
 
-    onCurrentTimeChanged:
-    {
-        if (cursorHeight)
-        {
-            if (msMode)
-                cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
-            else
-                cursor.x = TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
-        }
-    }
-
     onDurationChanged:
     {
         width = parseInt(msMode
@@ -106,13 +98,6 @@ Rectangle
 
     onTimeScaleChanged:
     {
-        if (cursorHeight)
-        {
-            if (msMode)
-                cursor.x = TimeUtils.timeToSize(currentTime, timeScale, tickSize)
-            else
-                cursor.x = TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
-        }
         width = parseInt(msMode
                 ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
                 : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
@@ -123,11 +108,13 @@ Rectangle
     Rectangle
     {
         id: cursor
+        objectName: "showPlayhead"
+        x: cursorPosition
         height: cursorHeight
         width: 1
         color: "transparent"
         z: 1
-        visible: cursorHeight ? (x >= visibleX ? true : false) : false
+        visible: cursorHeight > 0 && showManager.isEditing
 
         Rectangle
         {
@@ -329,7 +316,7 @@ Rectangle
 
     MouseArea
     {
-        enabled: showTimeMarkers
+        enabled: showTimeMarkers && !showManager.readOnly
         anchors.fill: parent
         onClicked: (mouse) => tlHeaderCursorLayer.clicked(mouse.x, mouse.y)
     }

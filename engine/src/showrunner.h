@@ -23,8 +23,10 @@
 #include <QObject>
 #include <QMutex>
 #include <QMap>
+#include <QSet>
 
 #include <atomic>
+#include <limits>
 
 #include <function.h>
 
@@ -74,6 +76,9 @@ public:
      *  Only used when syncSource is External. */
     void setExternalElapsedTime(quint32 ms);
 
+    /** Queue a local seek for application on the timer thread. */
+    void requestSeek(quint32 ms);
+
 private:
     const Doc *m_doc;
 
@@ -85,6 +90,9 @@ private:
 
     /** Externally-provided elapsed time (thread-safe via atomic) */
     std::atomic<quint32> m_externalElapsedTime{0};
+
+    static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
+    std::atomic<quint64> m_requestedSeekTime{NoSeekRequested};
 
     /** The list of time-based Functions the Show needs to play */
     QList <ShowFunction *> m_timeFunctions;
@@ -129,8 +137,21 @@ private:
     /** List of the currently running Functions and their stop time */
     QList < QPair<Function *, quint32> > m_runningQueue;
 
-    /** Handle backward seek: stop all running functions, reset indices */
-    void seekBackward(quint32 newTime);
+    QSet<Function *> m_seekRestartFunctions;
+
+    void seekTo(quint32 newTime);
+
+    void syncPerformAudioSuppression();
+    bool isAudioFunction(const Function *function) const;
+    void stopRunningAudioFunctions();
+    bool isFunctionScheduled(Function *function, quint32 stopTime) const;
+    void markRunningAudioFunctionsDeferred(const QList<ShowFunction *> &functions,
+                                           QSet<quint32> &deferred,
+                                           quint32 elapsed);
+    void startDeferredAudioFunctions(const QList<ShowFunction *> &functions,
+                                     QSet<quint32> &deferred,
+                                     quint32 elapsed);
+    void applyTrackIntensity(ShowFunction *sf, Function *f);
 
 private:
     FunctionParent functionParent() const;
@@ -150,6 +171,9 @@ public:
 
 private:
     QMap<quint32, qreal> m_intensityMap;
+    bool m_performAudioSuppressed = false;
+    QSet<quint32> m_deferredTimeAudioFunctionIds;
+    QSet<quint32> m_deferredBeatAudioFunctionIds;
 
 };
 

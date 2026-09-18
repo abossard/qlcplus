@@ -31,6 +31,7 @@
 #include "scene.h"
 #include "track.h"
 #include "show.h"
+#include "showrunner.h"
 #include "doc.h"
 #include "app.h"
 
@@ -120,8 +121,15 @@ void ShowManager::setCurrentShowID(int currentShowID)
     if (m_currentShow != nullptr)
     {
         if (m_currentShow->id() == (quint32)currentShowID)
+        {
+            setPlaybackState(m_currentShow->isRunning(), m_currentShow->isPaused());
+            if (m_currentShow->syncSource() == ShowRunner::External)
+                slotTimeChanged(m_currentShow->externalElapsedTime());
             return;
+        }
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
+        disconnect(m_currentShow, &Show::externalElapsedTimeChanged,
+                   this, &ShowManager::slotExternalTimeChanged);
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
@@ -129,12 +137,16 @@ void ShowManager::setCurrentShowID(int currentShowID)
 
     m_currentShow = qobject_cast<Show*>(m_doc->function(currentShowID));
     m_cursorMovedDuringPause = false;
+    if (m_currentShow != nullptr && m_currentShow->syncSource() == ShowRunner::External)
+        slotTimeChanged(m_currentShow->externalElapsedTime());
     emit currentShowIDChanged(currentShowID);
     emit isEditingChanged();
 
     if (m_currentShow != nullptr)
     {
         connect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
+        connect(m_currentShow, &Show::externalElapsedTimeChanged,
+                this, &ShowManager::slotExternalTimeChanged);
         connect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         // playback may be started externally (VDJ Perform mode): track it
         connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
@@ -550,6 +562,17 @@ void ShowManager::setCurrentTime(int currentTime)
     emit currentTimeChanged(currentTime);
 }
 
+void ShowManager::requestSeek(int currentTime)
+{
+    if (m_readOnly || m_currentShow == nullptr)
+        return;
+
+    currentTime = qMax(0, currentTime);
+    setCurrentTime(currentTime);
+    if (m_currentShow->isRunning() && !m_currentShow->isPaused())
+        m_currentShow->requestSeek(quint32(currentTime));
+}
+
 /*********************************************************************
  * Tracks
  ********************************************************************/
@@ -696,6 +719,8 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
                                           Tardis::instance()->actionToByteArray(Tardis::FunctionCreate, m_currentShow->id()));
 
         connect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
+        connect(m_currentShow, &Show::externalElapsedTimeChanged,
+                this, &ShowManager::slotExternalTimeChanged);
         connect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
@@ -1627,6 +1652,8 @@ void ShowManager::resetContents()
     if (m_currentShow != nullptr)
     {
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
+        disconnect(m_currentShow, &Show::externalElapsedTimeChanged,
+                   this, &ShowManager::slotExternalTimeChanged);
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
@@ -1984,6 +2011,17 @@ void ShowManager::slotTimeChanged(quint32 msec_time)
 {
     m_currentTime = (int)msec_time;
     emit currentTimeChanged(m_currentTime);
+}
+
+void ShowManager::slotExternalTimeChanged(quint32 msec_time)
+{
+    if (sender() != m_currentShow || m_currentShow == nullptr
+        || m_currentShow->syncSource() != ShowRunner::External)
+        return;
+
+    setPlaybackState(m_currentShow->isRunning(), m_currentShow->isPaused());
+    if (!m_currentShow->isRunning() || m_currentShow->isPaused())
+        slotTimeChanged(msec_time);
 }
 
 void ShowManager::slotShowFinished()

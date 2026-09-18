@@ -21,6 +21,7 @@
 #include <QDebug>
 
 #include "showrunner.h"
+#include "audio.h"
 #include "function.h"
 #include "track.h"
 #include "show.h"
@@ -57,6 +58,7 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     m_show = qobject_cast<Show*>(m_doc->function(showID));
     if (m_show == NULL)
         return;
+    m_performAudioSuppressed = m_show->performAudioSuppressed();
 
     /* startTime (e.g. coming from the cursor position) is always real
        milliseconds. If playback doesn't start from 0, m_elapsedBeats needs
@@ -139,9 +141,13 @@ void ShowRunner::start()
 
 void ShowRunner::setPause(bool enable)
 {
+    const bool keepAudioPaused = !enable && m_show != NULL &&
+                                 m_show->performAudioSuppressed();
     for (int i = 0; i < m_runningQueue.count(); i++)
     {
         Function *f = m_runningQueue.at(i).first;
+        if (keepAudioPaused && isAudioFunction(f))
+            continue;
         f->setPause(enable);
     }
 }
@@ -164,6 +170,9 @@ void ShowRunner::stop()
     }
 
     m_runningQueue.clear();
+    m_seekRestartFunctions.clear();
+    m_deferredTimeAudioFunctionIds.clear();
+    m_deferredBeatAudioFunctionIds.clear();
     qDebug() << "ShowRunner stopped";
 }
 
@@ -185,7 +194,7 @@ void ShowRunner::write(MasterTimer *timer)
         // stop all running functions and reset scan indices
         if (newTime < m_elapsedTime && m_elapsedTime > 0)
         {
-            seekBackward(newTime);
+            seekTo(newTime);
         }
 
         m_elapsedTime = newTime;
@@ -193,6 +202,24 @@ void ShowRunner::write(MasterTimer *timer)
         m_elapsedBeats = qRound64(double(newTime) * songBpm / 60.0);
         beatSynced = true;
     }
+
+    const quint64 requestedSeekTime =
+            m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
+    if (requestedSeekTime != NoSeekRequested && m_syncSource == Autonomous)
+        seekTo(quint32(requestedSeekTime));
+
+    bool seekRestartPending = false;
+    const auto waitForSeekRestart = [this, &seekRestartPending](Function *function) {
+        if (!m_seekRestartFunctions.contains(function))
+            return false;
+        if (function->isRunning() && function->stopped())
+        {
+            seekRestartPending = true;
+            return true;
+        }
+        m_seekRestartFunctions.remove(function);
+        return false;
+    };
 
     // Phase 1. Check all the Functions that need to be started
     // m_timeFunctions is ordered by startup time, so when we found an entry
@@ -232,6 +259,14 @@ void ShowRunner::write(MasterTimer *timer)
         }
     }
 
+    syncPerformAudioSuppression();
+    if (!m_performAudioSuppressed)
+    {
+        startDeferredAudioFunctions(m_timeFunctions, m_deferredTimeAudioFunctionIds, m_elapsedTime);
+        if (beatSynced)
+            startDeferredAudioFunctions(m_beatFunctions, m_deferredBeatAudioFunctionIds, m_elapsedBeats);
+    }
+
     // check if there are time-based functions to start
     while (startFunctionsDone == false)
     {
@@ -242,12 +277,19 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        if (f == nullptr || sf->startTime() + sf->duration(m_doc) <= m_elapsedTime)
+        const quint32 functionStopTime = sf->startTime() + sf->duration(m_doc);
+        if (f == nullptr || functionStopTime <= m_elapsedTime)
         {
+            m_deferredTimeAudioFunctionIds.remove(sf->id());
             m_currentTimeFunctionIndex++;
             continue;
         }
-
+        if (m_performAudioSuppressed && isAudioFunction(f))
+        {
+            m_deferredTimeAudioFunctionIds.insert(sf->id());
+            m_currentTimeFunctionIndex++;
+            continue;
+        }
         // this should happen only when a Show is not started from 0
         if (m_elapsedTime > funcStartTime)
         {
@@ -256,19 +298,15 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedTime >= funcStartTime)
         {
-            foreach (Track *track, m_show->tracks())
+            if (waitForSeekRestart(f))
             {
-                if (track->showFunctions().contains(sf))
-                {
-                    int intOverrideId = f->requestAttributeOverride(Function::Intensity, m_intensityMap[track->id()]);
-                    //f->adjustAttribute(m_intensityMap[track->id()], Function::Intensity);
-                    sf->setIntensityOverrideId(intOverrideId);
-                    break;
-                }
+                startFunctionsDone = true;
+                continue;
             }
+            applyTrackIntensity(sf, f);
 
             f->start(m_doc->masterTimer(), functionParent(), functionTimeOffset);
-            m_runningQueue.append(QPair<Function *, quint32>(f, sf->startTime() + sf->duration(m_doc)));
+            m_runningQueue.append(QPair<Function *, quint32>(f, functionStopTime));
             m_currentTimeFunctionIndex++;
         }
         else
@@ -289,12 +327,19 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        if (f == nullptr || sf->startTime() + sf->duration(m_doc) <= m_elapsedBeats)
+        const quint32 functionStopTime = sf->startTime() + sf->duration(m_doc);
+        if (f == nullptr || functionStopTime <= m_elapsedBeats)
         {
+            m_deferredBeatAudioFunctionIds.remove(sf->id());
             m_currentBeatFunctionIndex++;
             continue;
         }
-
+        if (m_performAudioSuppressed && isAudioFunction(f))
+        {
+            m_deferredBeatAudioFunctionIds.insert(sf->id());
+            m_currentBeatFunctionIndex++;
+            continue;
+        }
         // this should happen only when a Show is not started from 0
         if (m_elapsedBeats > funcStartTime)
         {
@@ -303,19 +348,15 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedBeats >= funcStartTime)
         {
-            foreach (Track *track, m_show->tracks())
+            if (waitForSeekRestart(f))
             {
-                if (track->showFunctions().contains(sf))
-                {
-                    int intOverrideId = f->requestAttributeOverride(Function::Intensity, m_intensityMap[track->id()]);
-                    //f->adjustAttribute(m_intensityMap[track->id()], Function::Intensity);
-                    sf->setIntensityOverrideId(intOverrideId);
-                    break;
-                }
+                startFunctionsDone = true;
+                continue;
             }
+            applyTrackIntensity(sf, f);
 
             f->start(m_doc->masterTimer(), functionParent(), functionTimeOffset);
-            m_runningQueue.append(QPair<Function *, quint32>(f, sf->startTime() + sf->duration(m_doc)));
+            m_runningQueue.append(QPair<Function *, quint32>(f, functionStopTime));
             m_currentBeatFunctionIndex++;
         }
         else
@@ -360,7 +401,7 @@ void ShowRunner::write(MasterTimer *timer)
     }
 
     // Only auto-increment in Autonomous mode
-    if (m_syncSource == Autonomous)
+    if (m_syncSource == Autonomous && !seekRestartPending)
         m_elapsedTime += MasterTimer::tick();
 
     // Report plain elapsed milliseconds: it advances smoothly on every
@@ -408,21 +449,42 @@ void ShowRunner::setExternalElapsedTime(quint32 ms)
     m_externalElapsedTime.store(ms, std::memory_order_relaxed);
 }
 
-void ShowRunner::seekBackward(quint32 newTime)
+void ShowRunner::requestSeek(quint32 ms)
 {
-    qDebug() << "[ShowRunner] Backward seek detected:" << m_elapsedTime << "->" << newTime;
+    m_requestedSeekTime.store(ms, std::memory_order_release);
+}
+
+void ShowRunner::seekTo(quint32 newTime)
+{
+    qDebug() << "[ShowRunner] Seeking:" << m_elapsedTime << "->" << newTime;
 
     // Stop all currently running functions
+    m_seekRestartFunctions.clear();
     for (int i = 0; i < m_runningQueue.count(); i++)
     {
         Function *f = m_runningQueue.at(i).first;
         f->stop(functionParent());
+        if (f->isRunning() && f->stopped())
+            m_seekRestartFunctions.insert(f);
     }
     m_runningQueue.clear();
+    m_deferredTimeAudioFunctionIds.clear();
+    m_deferredBeatAudioFunctionIds.clear();
 
     // Reset the scan index so functions can be re-evaluated from the new position
     m_currentTimeFunctionIndex = 0;
     m_currentBeatFunctionIndex = 0;
+
+    m_elapsedTime = newTime;
+    m_internalBeatClockMs = newTime;
+    const MasterTimer *timer = m_doc->masterTimer();
+    const int bpm = timer->beatSourceType() == MasterTimer::None
+            ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
+            : timer->bpmNumber();
+    if (bpm > 0)
+        m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
+    m_syncElapsedTime = newTime;
+    m_syncBeatsTime = newTime;
 
     // Skip time-based functions that have already ended before newTime
     while (m_currentTimeFunctionIndex < m_timeFunctions.count())
@@ -432,6 +494,129 @@ void ShowRunner::seekBackward(quint32 newTime)
             m_currentTimeFunctionIndex++;
         else
             break;
+    }
+}
+
+void ShowRunner::syncPerformAudioSuppression()
+{
+    const bool requested = (m_show != NULL) ? m_show->performAudioSuppressed() : false;
+    if (requested == m_performAudioSuppressed)
+        return;
+
+    m_performAudioSuppressed = requested;
+    if (m_performAudioSuppressed)
+        stopRunningAudioFunctions();
+}
+
+bool ShowRunner::isAudioFunction(const Function *function) const
+{
+    return function != NULL && function->type() == Function::AudioType;
+}
+
+bool ShowRunner::isFunctionScheduled(Function *function, quint32 stopTime) const
+{
+    for (int i = 0; i < m_runningQueue.count(); ++i)
+    {
+        if (m_runningQueue.at(i).first == function && m_runningQueue.at(i).second == stopTime)
+            return true;
+    }
+
+    return false;
+}
+
+void ShowRunner::markRunningAudioFunctionsDeferred(const QList<ShowFunction *> &functions,
+                                                   QSet<quint32> &deferred,
+                                                   quint32 elapsed)
+{
+    foreach (ShowFunction *sf, functions)
+    {
+        if (sf == NULL)
+            continue;
+
+        const quint32 startTime = sf->startTime();
+        const quint32 stopTime = startTime + sf->duration(m_doc);
+        if (elapsed < startTime || elapsed >= stopTime)
+            continue;
+
+        Function *f = m_doc->function(sf->functionID());
+        if (!isAudioFunction(f))
+            continue;
+
+        deferred.insert(sf->id());
+    }
+}
+
+void ShowRunner::startDeferredAudioFunctions(const QList<ShowFunction *> &functions,
+                                             QSet<quint32> &deferred,
+                                             quint32 elapsed)
+{
+    foreach (ShowFunction *sf, functions)
+    {
+        if (sf == NULL)
+            continue;
+
+        if (!deferred.contains(sf->id()))
+            continue;
+
+        const quint32 startTime = sf->startTime();
+        const quint32 stopTime = startTime + sf->duration(m_doc);
+        if (stopTime <= elapsed)
+        {
+            deferred.remove(sf->id());
+            continue;
+        }
+
+        Function *f = m_doc->function(sf->functionID());
+        if (!isAudioFunction(f))
+        {
+            deferred.remove(sf->id());
+            continue;
+        }
+
+        if (elapsed < startTime)
+            continue;
+
+        if (!isFunctionScheduled(f, stopTime))
+        {
+            const quint32 offset = elapsed > startTime ? elapsed - startTime : 0;
+            applyTrackIntensity(sf, f);
+            f->start(m_doc->masterTimer(), functionParent(), offset);
+            m_runningQueue.append(QPair<Function *, quint32>(f, stopTime));
+        }
+
+        deferred.remove(sf->id());
+    }
+}
+
+void ShowRunner::stopRunningAudioFunctions()
+{
+    markRunningAudioFunctionsDeferred(m_timeFunctions, m_deferredTimeAudioFunctionIds, m_elapsedTime);
+    if (beatSynced)
+        markRunningAudioFunctionsDeferred(m_beatFunctions, m_deferredBeatAudioFunctionIds, m_elapsedBeats);
+
+    for (int i = m_runningQueue.count() - 1; i >= 0; --i)
+    {
+        Function *f = m_runningQueue.at(i).first;
+        if (!isAudioFunction(f))
+            continue;
+
+        f->stop(functionParent());
+        if (Audio *audio = qobject_cast<Audio *>(f))
+            audio->stopOutput();
+        m_runningQueue.removeAt(i);
+    }
+}
+
+void ShowRunner::applyTrackIntensity(ShowFunction *sf, Function *f)
+{
+    foreach (Track *track, m_show->tracks())
+    {
+        if (track->showFunctions().contains(sf))
+        {
+            int intOverrideId = f->requestAttributeOverride(Function::Intensity, m_intensityMap[track->id()]);
+            sf->setIntensityOverrideId(intOverrideId);
+            break;
+        }
     }
 }
 

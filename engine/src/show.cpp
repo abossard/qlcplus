@@ -41,6 +41,7 @@ Show::Show(Doc* doc) : Function(doc, Function::ShowType)
     , m_timeDivisionType(Time)
     , m_timeDivisionBPM(120)
     , m_syncSource(0) // ShowRunner::Autonomous
+    , m_performAudioSuppressed(false)
     , m_latestTrackId(0)
     , m_latestShowFunctionID(0)
     , m_runner(NULL)
@@ -231,8 +232,18 @@ void Show::setSyncSource(int source)
 
 void Show::setExternalElapsedTime(quint32 ms)
 {
-    if (m_runner != NULL)
-        m_runner->setExternalElapsedTime(ms);
+    if (m_externalElapsedTime.exchange(ms, std::memory_order_relaxed) != ms)
+        emit externalElapsedTimeChanged(ms);
+}
+
+void Show::requestSeek(quint32 ms)
+{
+    m_requestedSeekTime.store(ms, std::memory_order_release);
+}
+
+void Show::setPerformAudioSuppressed(bool suppress)
+{
+    m_performAudioSuppressed.store(suppress, std::memory_order_relaxed);
 }
 
 /*****************************************************************************
@@ -487,6 +498,7 @@ QList<quint32> Show::components() const
 
 void Show::preRun(MasterTimer* timer)
 {
+    m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
     Function::preRun(timer);
     m_runningChildren.clear();
     if (m_runner != NULL)
@@ -497,6 +509,7 @@ void Show::preRun(MasterTimer* timer)
 
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
     m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
+    m_runner->setExternalElapsedTime(externalElapsedTime());
     int i = 0;
     foreach (Track *track, m_tracks)
         m_runner->adjustIntensity(getAttributeValue(i++), track);
@@ -520,11 +533,17 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     if (isPaused())
         return;
 
+    m_runner->setExternalElapsedTime(externalElapsedTime());
+    const quint64 seekTime = m_requestedSeekTime.exchange(NoSeekRequested,
+                                                         std::memory_order_acquire);
+    if (seekTime != NoSeekRequested)
+        m_runner->requestSeek(quint32(seekTime));
     m_runner->write(timer);
 }
 
 void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
 {
+    m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
     if (m_runner != NULL)
     {
         m_runner->stop();
@@ -561,4 +580,3 @@ int Show::adjustAttribute(qreal fraction, int attributeId)
 
     return attrIndex;
 }
-

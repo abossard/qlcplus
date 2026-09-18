@@ -13,6 +13,8 @@ class VdjBridge_Test : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
+    void cleanupTestCase();
     void initialState();
     void beatTicksCounterAndConnected();
     void autoStartShowOnPlay();
@@ -20,6 +22,9 @@ private slots:
     void autoResumeShowOnPlayOn();
     void autoStartPauseResumeCycle();
     void performAdoptsAndReleasesSyncSource();
+    void performAdoptionSuppressesAudioForAlreadyRunningShow();
+    void performReleaseOrSwitchClearsTransientAudioSuppression_data();
+    void performReleaseOrSwitchClearsTransientAudioSuppression();
     void debugTableTracksLatestValuesAndCounts();
     void engineBpmFollowsVdjAndIgnoresJitter();
     void engineBpmDropsLowWhenPaused();

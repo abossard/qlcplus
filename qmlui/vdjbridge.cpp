@@ -364,14 +364,15 @@ void VdjBridge::driveActiveShow(int deckIndex, const QString &trigger, const QVa
     if (!m_fsm || deckIndex + 1 != m_fsm->activeDeck())
         return;
 
-    // Data plane only: per-frame position sync while Live. All control
+    // Data plane only: per-frame position sync while adopted. All control
     // decisions (start/pause/handover) flow through the PerformFsm via
     // the DjFsm signal connections in setDoc().
     if (trigger == QLatin1String("get_time elapsed absolute")
-        && m_performFsm->state() == PerformFsm::PerformState::Live)
+        && (m_performFsm->state() == PerformFsm::PerformState::Live
+            || m_performFsm->state() == PerformFsm::PerformState::Suspended))
     {
         Show *show = lookupShow(m_adoptedShowId);
-        if (show && show->isRunning())
+        if (show)
         {
             const int elapsed = m_fsm->deckAt(deckIndex).elapsedMs;
             show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
@@ -487,6 +488,7 @@ void VdjBridge::adoptActiveShow()
 
     m_adoptedShowId = id;
     m_adoptedPrevSyncSource = show->syncSource();
+    show->setPerformAudioSuppressed(true);
     show->setSyncSource(1); // ShowRunner::External — VDJ owns the playhead
     qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
 }
@@ -498,6 +500,7 @@ void VdjBridge::releaseAdoptedShow()
     {
         if (show->isRunning() && !show->isPaused())
             show->setPause(true);
+        show->setPerformAudioSuppressed(false);
         show->setSyncSource(m_adoptedPrevSyncSource);
         qDebug() << "[VdjBridge] Perform: released show" << show->name();
     }
@@ -513,6 +516,7 @@ void VdjBridge::startAdoptedShow()
 
     const int active = m_fsm->activeDeck();
     const int elapsed = (active >= 1) ? m_fsm->deckAt(active - 1).elapsedMs : 0;
+    show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
 
     if (!show->isRunning())
     {
@@ -523,12 +527,17 @@ void VdjBridge::startAdoptedShow()
     {
         show->setPause(false);
     }
-    show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
 }
 
 void VdjBridge::pauseAdoptedShow()
 {
     Show *show = lookupShow(m_adoptedShowId);
-    if (show && show->isRunning() && !show->isPaused())
+    if (show == nullptr || m_fsm == nullptr)
+        return;
+
+    const int active = m_fsm->activeDeck();
+    const int elapsed = (active >= 1) ? m_fsm->deckAt(active - 1).elapsedMs : 0;
+    show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
+    if (show->isRunning() && !show->isPaused())
         show->setPause(true);
 }

@@ -43,6 +43,12 @@ private slots:
     void externalSyncStartsFunctions();
     void externalSyncForwardJump();
     void externalSyncBackwardSeek();
+    void localSeek_data();
+    void localSeek();
+    void localSeekReusesActiveFunction_data();
+    void localSeekReusesActiveFunction();
+    void localSeekPreservesOtherOwner();
+    void localSeekDoesNotOverrideExternalControl();
 
     // Beat-clock fallback tests (no global beat source -> run at song BPM)
     void internalBeatClockUsesSongBpm();
@@ -55,6 +61,10 @@ private slots:
     void resumeMixedTimelines();
     void externalMixedTimeline_data();
     void externalMixedTimeline();
+    void nativeAudioSuppression_data();
+    void nativeAudioSuppression();
+    void pausedPerformAdoptionKeepsAudioPaused();
+    void nativeAudioNormalStopPreservesFade();
 
 private:
     Doc *m_doc;

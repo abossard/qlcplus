@@ -233,6 +233,7 @@ public:
     /** Get/Set the current time of the Show (aka cursor position) */
     int currentTime() const;
     void setCurrentTime(int currentTime);
+    Q_INVOKABLE void requestSeek(int currentTime);
 
 signals:
     void timeDivisionChanged(Show::TimeDivision division);
@@ -426,6 +427,7 @@ public:
 
 protected slots:
     void slotTimeChanged(quint32 msec_time);
+    void slotExternalTimeChanged(quint32 msec_time);
     void slotShowFinished();
     void slotShowStarted();
     void slotShowStopped();

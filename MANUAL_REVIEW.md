@@ -654,6 +654,18 @@ Navigate to Virtual Console with VC editing access:
 - ☐ After Perform off, pressing Play in the Show Manager plays the show normally (autonomous clock — the adopted External sync source was restored)
 - ☐ Perform off also pauses any *other* still-running external-sync show (stale-session safety net)
 
+### 12.4c Perform audio, local seeking and playhead follow [VDJ]
+
+Use a saved verification copy and controlled audio/lighting output.
+
+- ☐ Enable Perform before starting a song, then repeat while its Show is already playing. QLC+ suppresses the Show's Audio while lighting cues continue, including lighting on a mixed Audio/lighting track.
+- ☐ Switch decks, then disable Perform. Authored track-mute settings remain unchanged. Local Play resumes the song Audio at the current position and future Audio items still start when due.
+- ☐ With Perform OFF and local playback running, click ahead and behind on the timeline. The cursor and lighting cues move to the selected time; future cues still run.
+- ☐ With Perform ON, timeline clicks and cursor gestures do not override the external position. VirtualDJ seeks still move the playhead.
+- ☐ Open a Show stopped, paused and playing, including an already-playing Perform Show. The playhead appears at the current position. During playback it stays on-screen across viewport edges and backward seeks; stopped manual scrolling remains available.
+
+Automated checks exercise Show/ShowRunner scheduling and production QML. Native audio output and the installed VirtualDJ connection still require these manual observations.
+
 ### 12.5 Auto-start / auto-pause [LOW RISK]
 
 > LOW RISK: Core logic is well-covered by unit tests. Manual verification confirms QML UI updates track the bridge state correctly.

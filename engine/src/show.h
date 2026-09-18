@@ -23,6 +23,8 @@
 #include <QMutex>
 #include <QList>
 #include <QSet>
+#include <atomic>
+#include <limits>
 
 #include "function.h"
 #include "track.h"
@@ -114,11 +116,30 @@ public:
     /** Get the current sync source. */
     int syncSource() const { return m_syncSource; }
 
-    /** Provide external elapsed time in ms. Forwarded to runner if running. */
+    /** Store the latest externally-observed elapsed time in milliseconds. */
     void setExternalElapsedTime(quint32 ms);
+    quint32 externalElapsedTime() const
+    {
+        return m_externalElapsedTime.load(std::memory_order_relaxed);
+    }
+
+    /** Request a local seek for an already-running autonomous Show. */
+    void requestSeek(quint32 ms);
+
+    /** Transient runtime suppression for Audio functions while Perform owns
+     *  this Show. Not persisted in workspace XML. */
+    void setPerformAudioSuppressed(bool suppress);
+    bool performAudioSuppressed() const
+    {
+        return m_performAudioSuppressed.load(std::memory_order_relaxed);
+    }
 
 private:
     int m_syncSource;  // stored as int to avoid header dependency on ShowRunner enum
+    std::atomic<quint32> m_externalElapsedTime{0};
+    std::atomic_bool m_performAudioSuppressed;
+    static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
+    std::atomic<quint64> m_requestedSeekTime{NoSeekRequested};
 
     /*********************************************************************
      * Tracks
@@ -226,6 +247,7 @@ protected slots:
     void slotChildStopped(quint32 fid);
 
 signals:
+    void externalElapsedTimeChanged(quint32 ms);
     void timeChanged(quint32);
     void showFinished();
 

@@ -1,8 +1,10 @@
 add_executable(showrunner_test WIN32
     showrunner_test.cpp showrunner_test.h
+    ../../audio/src/audiorenderer_null.cpp
 )
 target_include_directories(showrunner_test PRIVATE
     ../../../plugins/interfaces
+    ../../audio/src
     ../../src
 )
 
