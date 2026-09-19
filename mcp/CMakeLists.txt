@@ -55,6 +55,7 @@ set(MCP_SOURCES
     tools/input_profile_tools.cpp
     tools/live_tools.cpp
     tools/show_tools.cpp
+    tools/profiling_tools.cpp
 )
 
 add_library(qlcplusmcp STATIC ${MCP_SOURCES})

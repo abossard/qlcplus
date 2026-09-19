@@ -33,6 +33,7 @@
 #include "fadechannel.h"
 #include "rgbmatrix.h"
 #include "rgbimage.h"
+#include "timingdiagnostics.h"
 #include "doc.h"
 
 #define KXMLQLCRGBMatrixStartColor      QStringLiteral("MonoColor")
@@ -782,7 +783,8 @@ void RGBMatrix::write(MasterTimer *timer, QList<Universe *> universes)
             }
             else if (elapsed() >= m_stepBeatDuration && (uint)timer->timeToNextBeat() > m_stepBeatDuration / 16)
             {
-                qDebug() << "Elapsed exceeded";
+                if (TimingDiag::enabled())
+                    TimingDiag::rgbStepAdvance(id(), name());
                 roundCheck();
             }
         }

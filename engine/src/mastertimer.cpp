@@ -32,6 +32,7 @@
 #include "inputoutputmap.h"
 #include "genericfader.h"
 #include "mastertimer.h"
+#include "timingdiagnostics.h"
 #include "dmxsource.h"
 #include "function.h"
 #include "universe.h"
@@ -58,6 +59,12 @@ MasterTimer::MasterTimer(Doc* doc)
     : QObject(doc)
     , d_ptr(new MasterTimerPrivate(this))
     , m_stopAllFunctions(false)
+    , m_diagDominantNs(-1)
+    , m_diagFunctionsNs(0)
+    , m_diagDominantId(0)
+    , m_diagDispatchLatenessNs(-1)
+    , m_diagTickActive(false)
+    , m_diagTickCaptureId(-1)
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     , m_dmxSourceListMutex(QMutex::Recursive)
 #endif
@@ -99,6 +106,10 @@ void MasterTimer::stop()
     stopAllFunctions();
     d_ptr->stop();
 
+    /* Emit any pending timing-diagnostics tail so an isolated final incident is
+     * not dropped on shutdown. No-op when diagnostics are disabled. */
+    TimingDiag::flushAll();
+
     /* After the timer thread has fully stopped, clear any remaining function
      * pointers to prevent dangling references if a function slipped through
      * the stopAllFunctions/startQueue race window. */
@@ -111,6 +122,24 @@ void MasterTimer::timerTick()
 {
     Doc *doc = qobject_cast<Doc*> (parent());
     Q_ASSERT(doc != NULL);
+
+    const bool diag = TimingDiag::enabled();
+    // Sample the capture identity once so this whole tick (callback timing and
+    // its function-write accounting) belongs to one capture; a mid-tick control
+    // change is then detected and the straddling sample discarded on record.
+    const qint64 tickCaptureId = diag ? TimingDiag::captureId() : -1;
+    m_diagTickActive = diag;
+    m_diagTickCaptureId = tickCaptureId;
+    QElapsedTimer diagTimer;
+    if (diag)
+    {
+        diagTimer.start();
+        m_diagDominantNs = -1;
+        m_diagFunctionsNs = 0;
+        m_diagDominantId = Function::invalidId();
+        m_diagDominantName.clear();
+        m_diagDominantType.clear();
+    }
 
 #ifdef DEBUG_MASTERTIMER
     qDebug() << "[MasterTimer] *********** tick:" << ticksCount++ << "**********";
@@ -158,6 +187,28 @@ void MasterTimer::timerTick()
 
     //qDebug() << ">>>>>>>> MASTERTIMER TICK";
     emit tickReady();
+
+    if (diag)
+    {
+        // Measured through the end of tickReady() so synchronous DirectConnection
+        // work (e.g. InputOutputMap::slotAudioTick) that the scheduler sees is
+        // included. Formatting/logging below happens after this sample.
+        const qint64 callbackNs = diagTimer.nsecsElapsed();
+        const qint64 budgetNs = 1000000000LL / qint64(MasterTimer::frequency());
+        if (callbackNs >= budgetNs)
+        {
+            TimingDiag::callbackConsumedPeriod(budgetNs, callbackNs, m_diagFunctionsNs,
+                                               m_diagDispatchLatenessNs, m_diagDominantId,
+                                               m_diagDominantType, m_diagDominantName,
+                                               m_diagDominantNs, tickCaptureId);
+        }
+        TimingDiag::flushExpired();
+    }
+
+    // Dispatch lateness is a one-shot value set by the scheduler loop before
+    // this tick; consume it so a directly driven tick (no loop) reports unknown
+    // rather than a stale value.
+    m_diagDispatchLatenessNs = -1;
 }
 
 uint MasterTimer::frequency()
@@ -246,6 +297,36 @@ void MasterTimer::timerTickFunctions(QList<Universe *> universes)
     bool stoppedAFunction = true;
     bool firstIteration = true;
 
+    // Time each function's write() only when diagnostics are enabled, and track
+    // the costliest one for slow-tick attribution. Reuse the single per-tick
+    // decision sampled in timerTick() so a mid-tick runtime toggle cannot enable
+    // write timing for a tick whose callback timing was not started (which would
+    // record into uninitialised scratch or a different capture). Disabled: a
+    // plain call.
+    const bool diag = m_diagTickActive;
+    auto runWrite = [&](Function *f)
+    {
+        if (diag)
+        {
+            QElapsedTimer wt;
+            wt.start();
+            f->write(this, universes);
+            const qint64 ns = wt.nsecsElapsed();
+            m_diagFunctionsNs += ns;
+            if (ns > m_diagDominantNs)
+            {
+                m_diagDominantNs = ns;
+                m_diagDominantId = f->id();
+                m_diagDominantName = f->name();
+                m_diagDominantType = Function::typeToString(f->type());
+            }
+        }
+        else
+        {
+            f->write(this, universes);
+        }
+    };
+
     while (stoppedAFunction)
     {
         stoppedAFunction = false;
@@ -261,7 +342,7 @@ void MasterTimer::timerTickFunctions(QList<Universe *> universes)
                 if (function->stopped() == false && m_stopAllFunctions == false)
                 {
                     if (firstIteration)
-                        function->write(this, universes);
+                        runWrite(function);
                 }
                 else
                 {
@@ -315,7 +396,7 @@ void MasterTimer::timerTickFunctions(QList<Universe *> universes)
                     functionListHasChanged = true;
                 }
                 f->preRun(this);
-                f->write(this, universes);
+                runWrite(f);
                 emit functionStarted(f->id());
             }
 

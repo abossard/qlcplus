@@ -52,6 +52,31 @@
 
 #include "../common/resource_paths.h"
 
+#include "timingdiagnostics.h"
+#include <QSemaphore>
+#include <memory>
+#include <thread>
+
+namespace
+{
+    QStringList g_hueHandoffMsgs;
+
+    void hueHandoffCaptureHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
+    {
+        Q_UNUSED(type);
+        Q_UNUSED(ctx);
+        if (msg.contains(QStringLiteral("[timing]")))
+            g_hueHandoffMsgs << msg;
+    }
+
+    double fieldMs(const QString &line, const QString &key)
+    {
+        QRegularExpression re(key + QStringLiteral("=([0-9.]+)ms"));
+        QRegularExpressionMatch m = re.match(line);
+        return m.hasMatch() ? m.captured(1).toDouble() : -1.0;
+    }
+}
+
 #define INTERNAL_HUESCRIPTDIR "../../../resources/huescripts/"
 
 static QStringList expectedHueAlgorithmNames()
@@ -2040,6 +2065,230 @@ void HUEMatrix_Test::audioPreviewReusesCommittedFrame()
     matrix.previewMap(1, &preview);
     QCOMPARE(preview.m_map, committed);
     matrix.Function::postRun(&timer, {});
+}
+
+/****************************************************************************
+ * The synchronous HUEScript render handoff is measured on the REAL path.
+ * The JS thread is running (scripts were evaluated at init), so a write() from
+ * this main thread hits HUEScript::renderMap's Qt::BlockingQueuedConnection -
+ * the exact production seam. Phase 1 proves the four timestamps are placed
+ * correctly (worker is actually measured on the JS thread). Phase 2 occupies
+ * the JS thread with a semaphore-gated task so the next render must wait in the
+ * queue, and the split must then show queue dominating worker.
+ ****************************************************************************/
+void HUEMatrix_Test::renderHandoffSplitIsMeasured()
+{
+    FixtureGroup *grp = new FixtureGroup(m_doc);
+    grp->setName("Handoff Group");
+    grp->setSize(QSize(3, 3));
+    m_doc->addFixtureGroup(grp);
+
+    MasterTimer timer(m_doc);
+    QList<Universe *> universes = m_doc->inputOutputMap()->claimUniverses();
+    m_doc->inputOutputMap()->releaseUniverses(false);
+
+    RGBAlgorithm *audio = HUEMatrix::createAlgorithm(m_doc, "Audio Water");
+    QVERIFY(audio != NULL);
+    QVERIFY2(audio->type() == RGBAlgorithm::Script, "need a HUE *script* (JS thread), not a built-in");
+    HUEMatrix mtx(m_doc);
+    mtx.setFixtureGroup(grp->id());
+    mtx.setAlgorithm(audio);
+    mtx.setBeatEffect(HUEMatrix::BeatEffectOff);
+    mtx.preRun(&timer);
+
+    g_hueHandoffMsgs.clear();
+    QtMessageHandler prev = qInstallMessageHandler(hueHandoffCaptureHandler);
+    auto restoreDiagnostics = qScopeGuard([prev]()
+    {
+        TimingDiag::setEnabledForTest(false);
+        TimingDiag::setClockForTest(nullptr);
+        TimingDiag::resetForTest();
+        qInstallMessageHandler(prev);
+    });
+    qint64 win = 0;
+    TimingDiag::resetForTest();
+    TimingDiag::setClockForTest([&win]() { return win; });
+    TimingDiag::setIntervalMsForTest(1000);
+    TimingDiag::setEnabledForTest(true);
+
+    // Phase 1: the JS thread is free; each write() blocks only for the render.
+    for (int i = 0; i < 4; i++)
+        mtx.write(&timer, universes);
+    win = 1000;
+    TimingDiag::flushExpired();
+
+    QStringList phase1;
+    foreach (const QString &m, g_hueHandoffMsgs)
+        if (m.contains(QStringLiteral("[timing] HUEScript handoff")))
+            phase1 << m;
+
+    // Phase 2: a gated task holds the JS thread, so the render (on a caller
+    // thread, as it runs live off the main thread) waits in the queue. An
+    // explicit `entered` handshake proves the JS worker is occupied before the
+    // caller queues, so no timing heuristic is needed; the main thread holds the
+    // gate for a generous interval, then releases and joins the caller.
+    g_hueHandoffMsgs.clear();
+    TimingDiag::resetForTest();
+    win = 2000;
+    struct Gate
+    {
+        QSemaphore entered;
+        QSemaphore release;
+    };
+    const auto gate = std::make_shared<Gate>();
+    const bool scheduled = HUEScript::scheduleOnJSThread([gate]()
+    {
+        gate->entered.release();
+        gate->release.acquire();
+    });
+    QVERIFY2(scheduled, "JS thread was not running - cannot exercise the handoff");
+    const bool entered = gate->entered.tryAcquire(1, 5000);
+    if (!entered)
+        gate->release.release();
+    QVERIFY2(entered, "JS worker did not enter the gate within five seconds");
+    std::thread caller([&]()
+    {
+        mtx.write(&timer, universes);
+    });
+    const bool rendering = QTest::qWaitFor(
+        [] { return HUEScript::pendingAudioRenders() > 0; }, 5000);
+    if (rendering)
+        QThread::msleep(150);
+    gate->release.release();
+    caller.join();
+    QVERIFY2(rendering, "Caller did not reach the HUE render boundary within five seconds");
+    win = 3000;
+    TimingDiag::flushExpired();
+
+    QStringList phase2;
+    foreach (const QString &m, g_hueHandoffMsgs)
+        if (m.contains(QStringLiteral("[timing] HUEScript handoff")))
+            phase2 << m;
+
+    TimingDiag::setEnabledForTest(false);
+    TimingDiag::setClockForTest(nullptr);
+    TimingDiag::resetForTest();
+    qInstallMessageHandler(prev);
+    restoreDiagnostics.dismiss();
+    mtx.postRun(&timer, universes);
+
+    // Phase 1: the real path fired and the worker was actually measured on the
+    // JS thread (correct timestamp placement/ordering).
+    QCOMPARE(phase1.size(), 1);
+    QVERIFY2(phase1.first().contains(QStringLiteral("id=")), qPrintable(phase1.first()));
+    const double worker1 = fieldMs(phase1.first(), "worker");
+    const double wait1 = fieldMs(phase1.first(), "maxWait");
+    QVERIFY2(worker1 >= 0.0, qPrintable(phase1.first()));    // measured, not "unknown"
+    QVERIFY2(wait1 + 0.001 >= worker1, qPrintable(phase1.first())); // wait contains worker
+
+    // C0-3: worker CPU is sampled on the JS worker thread and its span is nested
+    // inside the worker wall span (wallStart, cpuStart, render, cpuEnd, wallEnd),
+    // so when known it cannot exceed worker wall beyond the thread-CPU clock's own
+    // resolution. The macOS clock reports user+system in microseconds, so allow
+    // only a few microseconds of quantization plus the 3-dp ms formatting step -
+    // far tighter than the previous 0.5ms slack. The caller thread was blocked on
+    // the handoff throughout, so a caller-thread clock could not have produced
+    // this render's compute figure.
+    const double cpu1 = fieldMs(phase1.first(), "workerCpu");
+    if (cpu1 >= 0.0)
+        QVERIFY2(cpu1 <= worker1 + 0.01, qPrintable(phase1.first()));
+
+    // Phase 2: the render waited behind the gated task, so queue dominates worker
+    // by a generous margin (relational, not exact wall time).
+    QCOMPARE(phase2.size(), 1);
+    const double queue2 = fieldMs(phase2.first(), "queue");
+    const double worker2 = fieldMs(phase2.first(), "worker");
+    QVERIFY2(queue2 >= 40.0, qPrintable(phase2.first()));
+    QVERIFY2(queue2 > worker2, qPrintable(phase2.first()));  // contention, not compute
+    QVERIFY2(worker2 >= 0.0, qPrintable(phase2.first()));    // worker/return-tail stay non-negative
+}
+
+/****************************************************************************
+ * C0-3: worker CPU time is sampled with TimingDiag::threadCpuNs() ON the JS
+ * worker thread - the same thread the render handoff brackets. Running a busy
+ * loop and a sleep on that thread proves the clock measures on-CPU time and
+ * distinguishes it from wall time: a CPU-bound span advances thread CPU, a sleep
+ * of equal wall time does not. This is the property that lets worker wall minus
+ * worker CPU stand for "not running on that core", which a caller-thread clock
+ * (blocked on the handoff) could never establish.
+ ****************************************************************************/
+void HUEMatrix_Test::workerCpuDistinguishesBusyFromSleeping()
+{
+    // Bring the shared JS worker thread fully up with a real HUE render first,
+    // so the probe runs on the exact thread the handoff samples.
+    FixtureGroup *grp = new FixtureGroup(m_doc);
+    grp->setName("CPU Probe Group");
+    grp->setSize(QSize(3, 3));
+    m_doc->addFixtureGroup(grp);
+
+    MasterTimer timer(m_doc);
+    QList<Universe *> universes = m_doc->inputOutputMap()->claimUniverses();
+    m_doc->inputOutputMap()->releaseUniverses(false);
+
+    RGBAlgorithm *audio = HUEMatrix::createAlgorithm(m_doc, "Audio Water");
+    QVERIFY(audio != NULL);
+    QVERIFY2(audio->type() == RGBAlgorithm::Script, "need a HUE *script* (JS thread)");
+    HUEMatrix mtx(m_doc);
+    mtx.setFixtureGroup(grp->id());
+    mtx.setAlgorithm(audio);
+    mtx.preRun(&timer);
+    mtx.write(&timer, universes);   // starts/uses the JS worker thread
+
+    struct Probe
+    {
+        QSemaphore done;
+        qint64 busyCpu = -1;
+        qint64 busyWall = -1;
+        qint64 sleepCpu = -1;
+        qint64 sleepWall = -1;
+    };
+    const auto probe = std::make_shared<Probe>();
+
+    const bool scheduled = HUEScript::scheduleOnJSThread([probe]()
+    {
+        // Busy: burn CPU on THIS (JS worker) thread for ~40ms of wall time.
+        const qint64 c0 = TimingDiag::threadCpuNs();
+        const qint64 w0 = TimingDiag::nowNs();
+        volatile double acc = 1.0;
+        while ((TimingDiag::nowNs() - w0) < 40 * 1000000LL)
+            for (int i = 0; i < 20000; i++)
+                acc += double(i) * 1.0000001 + acc * 0.9999;
+        const qint64 c0b = TimingDiag::threadCpuNs();
+        probe->busyWall = TimingDiag::nowNs() - w0;
+        probe->busyCpu = (c0 < 0 || c0b < 0) ? -1 : (c0b - c0);
+
+        // Sleep: the same thread yields the core; thread CPU must barely advance.
+        const qint64 c1 = TimingDiag::threadCpuNs();
+        const qint64 w1 = TimingDiag::nowNs();
+        QThread::msleep(40);
+        const qint64 c1b = TimingDiag::threadCpuNs();
+        probe->sleepWall = TimingDiag::nowNs() - w1;
+        probe->sleepCpu = (c1 < 0 || c1b < 0) ? -1 : (c1b - c1);
+
+        probe->done.release();
+    });
+    QVERIFY2(scheduled, "JS thread was not running - cannot exercise the worker CPU clock");
+    QVERIFY2(probe->done.tryAcquire(1, 5000), "worker CPU probe did not finish within five seconds");
+    mtx.postRun(&timer, universes);
+
+    // Honest about unsupported/failed platform clocks: skip the strict split
+    // rather than assert a fabricated figure.
+    if (probe->busyCpu < 0 || probe->sleepCpu < 0)
+        QSKIP("thread CPU clock unsupported on this platform");
+
+    const qint64 MSns = 1000000LL;
+    // The busy span really elapsed and really burned CPU on this thread.
+    QVERIFY2(probe->busyWall >= 30 * MSns, "busy span did not elapse");
+    QVERIFY2(probe->busyCpu >= 5 * MSns,
+             qPrintable(QString("busy CPU too low: %1ns").arg(probe->busyCpu)));
+    // On-CPU time never exceeds the thread's own wall span.
+    QVERIFY2(probe->busyCpu <= probe->busyWall + MSns,
+             qPrintable(QString("busy CPU %1 > wall %2").arg(probe->busyCpu).arg(probe->busyWall)));
+    // The sleep really elapsed but accrued almost no thread CPU: wall != CPU.
+    QVERIFY2(probe->sleepWall >= 30 * MSns, "sleep span did not elapse");
+    QVERIFY2(probe->sleepCpu < 10 * MSns,
+             qPrintable(QString("sleeping thread burned CPU: %1ns").arg(probe->sleepCpu)));
+    QVERIFY2(probe->sleepCpu < probe->busyCpu, "busy did not out-consume sleep");
 }
 
 QTEST_MAIN(HUEMatrix_Test)

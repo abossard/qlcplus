@@ -30,6 +30,7 @@
 
 #include "mastertimer-unix.h"
 #include "mastertimer.h"
+#include "timingdiagnostics.h"
 
 /****************************************************************************
  * MasterTimerPrivate
@@ -63,21 +64,24 @@ int MasterTimerPrivate::compareTime(struct timespec *time1, struct timespec *tim
 #endif
 {
     if (time1->tv_sec < time2->tv_sec)
-    {
-        qDebug() << "Time is late by" << (time2->tv_sec - time1->tv_sec) << "seconds";
         return -1;
-    }
     else if (time1->tv_sec > time2->tv_sec)
         return 1;
     else if (time1->tv_nsec < time2->tv_nsec)
-    {
-        qDebug() << "Time is late by" << (time2->tv_nsec - time1->tv_nsec) << "nanoseconds";
         return -1;
-    }
     else if (time1->tv_nsec > time2->tv_nsec)
         return 1;
     else
         return 0;
+}
+
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+static qint64 timestampNs(const mach_timespec_t &value)
+#else
+static qint64 timestampNs(const struct timespec &value)
+#endif
+{
+    return qint64(value.tv_sec) * 1000000000LL + qint64(value.tv_nsec);
 }
 
 void MasterTimerPrivate::run()
@@ -109,6 +113,68 @@ void MasterTimerPrivate::run()
 
     sleepTime->tv_sec = 0;
 
+    // Runtime-controllable gate: re-read each iteration so diagnostics can be
+    // enabled/disabled while the loop is already running (no restart). The
+    // capture identity detects a reset or an off->on transition that lands
+    // entirely between ticks, so prior-callback markers from an earlier capture
+    // never bleed into a new one.
+    qint64 cachedCaptureId = -1;
+    qint64 previousStartNs = -1;
+    qint64 previousEndNs = -1;
+    const auto readDiagnosticClock = [&]() -> qint64
+    {
+        auto sample = *current;
+#if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
+        const int result = clock_get_time(cclock, &sample);
+#else
+        const int result = clock_gettime(CLOCK_MONOTONIC, &sample);
+#endif
+        if (result != 0)
+            return -1;
+        return timestampNs(sample);
+    };
+    const auto dispatchTick = [&](bool slept)
+    {
+        // Single live-gate load per tick. When disabled this is the only added
+        // work: no clock reads, no formatting, no allocation.
+        if (!TimingDiag::enabled())
+        {
+            mt->timerTick();
+            return;
+        }
+
+        // A changed capture identity (reset, or off->on between ticks) drops the
+        // stale prior-callback markers so the first tick of a new capture reports
+        // priorCallback=unknown rather than reusing another capture's values.
+        const qint64 captureId = TimingDiag::captureId();
+        if (captureId != cachedCaptureId)
+        {
+            previousStartNs = -1;
+            previousEndNs = -1;
+            cachedCaptureId = captureId;
+        }
+
+        const qint64 deadlineNs = timestampNs(*finish);
+        const qint64 startNs = readDiagnosticClock();
+        const qint64 dispatchLateNs = startNs < 0 ? -1 : qMax<qint64>(0, startNs - deadlineNs);
+        mt->m_diagDispatchLatenessNs = dispatchLateNs;
+        mt->timerTick();
+        const qint64 endNs = readDiagnosticClock();
+
+        // Pair dispatch lateness with the PRECEDING callback, not this new tick.
+        const qint64 priorCallbackNs = previousStartNs < 0 || previousEndNs < 0
+                                      ? -1 : previousEndNs - previousStartNs;
+        const qint64 priorFinishedLateNs = previousEndNs < 0
+                                          ? -1 : qMax<qint64>(0, previousEndNs - deadlineNs);
+        // Tag with the capture id sampled at tick start; a control change during
+        // the tick makes schedulerDispatch discard this straddling sample.
+        TimingDiag::schedulerDispatch(nsTickTime, dispatchLateNs, slept,
+                                     priorCallbackNs, priorFinishedLateNs,
+                                     int(startNs < 0) + int(endNs < 0), captureId);
+        previousStartNs = startNs;
+        previousEndNs = endNs;
+    };
+
     /* This is the start time for the timer */
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
     ret = clock_get_time(cclock, finish);
@@ -126,6 +192,32 @@ void MasterTimerPrivate::run()
         m_run = true;
     }
 
+    bool clockFailed = ret == -1;
+    qint64 windowStartNs = clockFailed ? 0 : timestampNs(*finish);
+    qint64 lastCheckNs = windowStartNs;
+    qint64 checkedTicks = 0, overdueTicks = 0, moderateTicks = 0, wholePeriodTicks = 0;
+    qint64 worstOverdueNs = 0;
+    const auto reportHealth = [&]()
+    {
+        if (overdueTicks > 0)
+        {
+            const bool warning = wholePeriodTicks > 0 || moderateTicks * 10 >= checkedTicks;
+            const QString message =
+                QString("[timer-health] pre-sleep deadline check: severity=%1 "
+                        "checkedTicks=%2 in %3ms overdue=%4 moderate=%5 wholePeriod=%6 "
+                        "worstOverdue=%7ms period=%8ms")
+                    .arg(warning ? "warning" : "debug").arg(checkedTicks)
+                    .arg(double(lastCheckNs - windowStartNs) / 1000000, 0, 'f', 6)
+                    .arg(overdueTicks).arg(moderateTicks).arg(wholePeriodTicks)
+                    .arg(double(worstOverdueNs) / 1000000, 0, 'f', 6)
+                    .arg(double(nsTickTime) / 1000000, 0, 'f', 6);
+            (warning ? qWarning() : qDebug()).noquote() << message;
+        }
+        windowStartNs = lastCheckNs;
+        checkedTicks = overdueTicks = moderateTicks = wholePeriodTicks = 0;
+        worstOverdueNs = 0;
+    };
+
     while (m_run == true)
     {
         /* Add nsTickTime to the finish time, to calculate the end timestamp of this loop */
@@ -141,17 +233,31 @@ void MasterTimerPrivate::run()
         {
             qWarning() << Q_FUNC_INFO << "Unable to get the current time:"
                        << strerror(errno);
+            clockFailed = true;
             m_run = false;
             break;
         }
 
-        /* Check if we're running late. This means that a tick is not enough
-         * to process all the running Functions :'( */
+        lastCheckNs = timestampNs(*current);
+        ++checkedTicks;
+        const qint64 overdueNs = lastCheckNs - timestampNs(*finish);
+        if (overdueNs > 0)
+        {
+            ++overdueTicks;
+            worstOverdueNs = qMax(worstOverdueNs, overdueNs);
+            if (overdueNs >= nsTickTime)
+                ++wholePeriodTicks;
+            else if (overdueNs * 4 >= nsTickTime)
+                ++moderateTicks;
+        }
+        if (lastCheckNs - windowStartNs >= 5000000000LL)
+            reportHealth();
+
+        /* A pre-sleep deadline check does not identify the cause of a delay. */
         if (compareTime(finish, current) <= 0)
         {
-            qDebug() << Q_FUNC_INFO << "MasterTimer is running late!";
             /* No need to sleep. Immediately process the next tick */
-            mt->timerTick();
+            dispatchTick(false);
             /* Now the finish time needs to be recalibrated */
 #if defined(Q_OS_MACOS) || defined(Q_OS_IOS)
             clock_get_time(cclock, finish);
@@ -183,8 +289,11 @@ void MasterTimerPrivate::run()
         }
 
         /* Execute the next timer event */
-        mt->timerTick();
+        dispatchTick(true);
     }
+
+    if (!clockFailed)
+        reportHealth();
 
     free(finish);
     free(current);

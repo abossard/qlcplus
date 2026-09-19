@@ -19,6 +19,7 @@
 
 #include <QRegularExpression>
 #include <QTextStream>
+#include <QElapsedTimer>
 #include <QJSEngine>
 #include <QThread>
 #include <QDebug>
@@ -33,6 +34,7 @@
 #include "huescript.h"
 #include "huescriptscache.h"
 #include "huematrix.h"
+#include "timingdiagnostics.h"
 
 #include "audiocapture.h"
 #include "audiosnapshot.h"
@@ -326,11 +328,64 @@ void HUEScript::renderMap(const QSize &size, uint rgb, int step, RGBMap &map,
     // thread whenever the async precompute misses.
     if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
     {
+        // The blocking invoke is a synchronous handoff: the MasterTimer thread
+        // waits for the JS thread to schedule and run the render. Four
+        // timestamps on one monotonic clock separate the queue/scheduling wait
+        // (Q..Jstart) from the worker-render wall time (Jstart..Jend); the
+        // return tail is the remainder. Per-invocation locals only - no shared
+        // member - so concurrent renders of the same script cannot alias.
+        if (!TimingDiag::enabled())
+        {
+            QMetaObject::invokeMethod(s_jsThread->engine,
+                                      [this, size, rgb, step, &map, audio, displaySize]{
+                                          renderMap(size, rgb, step, map, audio, displaySize);
+                                      },
+                                      Qt::BlockingQueuedConnection);
+            return;
+        }
+
+        std::atomic<qint64> jStart{-1};
+        std::atomic<qint64> jEnd{-1};
+        std::atomic<qint64> jCpuStart{-1};
+        std::atomic<qint64> jCpuEnd{-1};
+        // Capture identity sampled at the caller boundary (Q). If a reset or an
+        // off->on control change lands while this render is in flight, the sample
+        // is discarded on record rather than mixed into the new capture.
+        const qint64 captureId = TimingDiag::captureId();
+        const qint64 q = TimingDiag::nowNs();
         QMetaObject::invokeMethod(s_jsThread->engine,
-                                  [this, size, rgb, step, &map, audio, displaySize]{
+                                  [this, size, rgb, step, &map, audio, displaySize,
+                                   &jStart, &jEnd, &jCpuStart, &jCpuEnd]{
+                                      // Sampled ON the JS worker thread. The wall
+                                      // span CONTAINS the CPU span - wallStart,
+                                      // cpuStart, render, cpuEnd, wallEnd - so
+                                      // worker CPU is bounded by worker wall by
+                                      // construction (up to the thread-CPU clock's
+                                      // own resolution), and wall minus CPU is the
+                                      // part of the render not running on this core.
+                                      jStart.store(TimingDiag::nowNs(), std::memory_order_relaxed);
+                                      jCpuStart.store(TimingDiag::threadCpuNs(), std::memory_order_relaxed);
                                       renderMap(size, rgb, step, map, audio, displaySize);
+                                      jCpuEnd.store(TimingDiag::threadCpuNs(), std::memory_order_relaxed);
+                                      jEnd.store(TimingDiag::nowNs(), std::memory_order_relaxed);
                                   },
                                   Qt::BlockingQueuedConnection);
+        const qint64 r = TimingDiag::nowNs();
+
+        const qint64 js = jStart.load(std::memory_order_relaxed);
+        const qint64 je = jEnd.load(std::memory_order_relaxed);
+        const qint64 cs = jCpuStart.load(std::memory_order_relaxed);
+        const qint64 ce = jCpuEnd.load(std::memory_order_relaxed);
+        const qint64 waitNs = r - q;
+        const qint64 queueNs = js < 0 ? -1 : (js - q);
+        const qint64 workerNs = (js < 0 || je < 0) ? -1 : (je - js);
+        // Unknown (-1) when the thread CPU clock is unsupported or either read
+        // failed; never a zero that would fake full descheduling.
+        const qint64 workerCpuNs = (cs < 0 || ce < 0) ? -1 : qMax<qint64>(0, ce - cs);
+        RGBMatrix *m = owningMatrix(doc(), this);
+        TimingDiag::hueHandoff(m ? m->id() : Function::invalidId(),
+                               m ? m->name() : m_fileName, waitNs, queueNs, workerNs,
+                               workerCpuNs, captureId);
         return;
     }
 

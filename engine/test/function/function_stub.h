@@ -49,6 +49,11 @@ public:
     int m_writeCalls;
     int m_postRunCalls;
 
+    /** Optional busy delay per write() in microseconds. Default 0 keeps the
+     *  stub instantaneous, so existing tests are unchanged. Used by the
+     *  MasterTimer timing-diagnostics test to inject unequal callback costs. */
+    int m_writeSleepUs = 0;
+
     quint32 m_slotFixtureRemovedId;
 };
 

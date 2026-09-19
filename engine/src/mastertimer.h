@@ -26,6 +26,7 @@
 #include <QObject>
 #include <QMutex>
 #include <QList>
+#include <QString>
 #include <atomic>
 
 class MasterTimerPrivate;
@@ -135,6 +136,34 @@ private:
 
     /** Flag for stopping all functions */
     std::atomic<bool> m_stopAllFunctions;
+
+    /** Timing-diagnostics scratch, only written when TimingDiag is enabled:
+     *  the largest single function write() duration (ns) observed in the current
+     *  tick and its identity, plus the summed write() time of all functions.
+     *  Reports that largest write (maxWrite) as containment - not a cause - next
+     *  to the summed writes and the unattributed remainder, without affecting
+     *  scheduling or ordering. */
+    qint64 m_diagDominantNs;
+    qint64 m_diagFunctionsNs;
+    quint32 m_diagDominantId;
+    QString m_diagDominantName;
+    QString m_diagDominantType;
+
+    /** Measured dispatch lateness (ns) of the current tick: the actual
+     *  dispatch start minus the scheduled deadline, written by the scheduler
+     *  loop (MasterTimerPrivate::run) before each timerTick. -1 when the tick was
+     *  driven directly without the loop. Diagnostic only; does not affect
+     *  scheduling. */
+    qint64 m_diagDispatchLatenessNs;
+
+    /** One diagnostic decision per tick, sampled once at the top of timerTick()
+     *  and reused by timerTickFunctions() so a mid-tick runtime enable/disable
+     *  cannot split a tick's callback timing from its function-write accounting
+     *  or record into a different capture. m_diagTickActive gates the timing;
+     *  m_diagTickCaptureId is the capture identity the tick's period sample is
+     *  tagged with (-1 when inactive). */
+    bool m_diagTickActive;
+    qint64 m_diagTickCaptureId;
 
     /*************************************************************************
      * DMX Sources

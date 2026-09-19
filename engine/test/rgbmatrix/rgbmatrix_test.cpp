@@ -19,6 +19,7 @@
 */
 
 #include <QtTest>
+#include <QSet>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
@@ -30,6 +31,8 @@
 #include "qlcfixturedef.h"
 #include "fixturegroup.h"
 #include "mastertimer.h"
+#include "inputoutputmap.h"
+#include "universe.h"
 #include "rgbmatrix.h"
 #include "fixture.h"
 #include "qlcfile.h"
@@ -38,6 +41,20 @@
 #undef protected
 
 #include "../common/resource_paths.h"
+
+#include "timingdiagnostics.h"
+
+namespace
+{
+    QStringList g_rgbMsgs;
+
+    void rgbCaptureHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg)
+    {
+        Q_UNUSED(type);
+        Q_UNUSED(ctx);
+        g_rgbMsgs << msg;
+    }
+}
 
 void RGBMatrix_Test::initTestCase()
 {
@@ -386,6 +403,100 @@ void RGBMatrix_Test::loadSave()
     xmlReader.readNextStartElement();
     QVERIFY(mtx2.loadXML(xmlReader) == false); // Not an RGBMatrix node
 
+}
+
+/* C2-3: the ordinary between-beat step advance must advance the step the same
+   way whether diagnostics are on or off, must never emit the old unbounded
+   "Elapsed exceeded" line, and when enabled must produce one bounded, identified
+   summary carrying the advance count for the interval.
+
+   Each iteration renders a frame, then forces one between-beat transition
+   through the real write()/roundCheck() path. */
+void RGBMatrix_Test::beatStepAdvanceDiagnostic()
+{
+    MasterTimer *mt = m_doc->masterTimer();
+    QList<Universe*> u = m_doc->inputOutputMap()->claimUniverses();
+    const int N = 6;
+
+    auto driveWrites = [&](RGBMatrix &mtx, int n) -> QVector<RGBMap>
+    {
+        QVector<RGBMap> frames;
+        for (int i = 0; i < n; i++)
+        {
+            mtx.m_elapsed = 0;
+            mtx.write(mt, u);
+            frames.append(mtx.m_stepHandler->m_map);
+            mtx.m_stepBeatDuration = 40;
+            mtx.m_elapsed = 40;
+            mtx.write(mt, u);
+        }
+        return frames;
+    };
+
+    auto setup = [&](RGBMatrix &mtx)
+    {
+        mtx.setID(17);
+        mtx.setFixtureGroup(0);
+        mtx.setTempoType(Function::Beats);
+        mtx.setDuration(1000);
+        mt->requestBpmNumber(6);        // beatTimeDuration 10000ms -> beat far away
+        mtx.preRun(mt);
+    };
+
+    g_rgbMsgs.clear();
+    QtMessageHandler prev = qInstallMessageHandler(rgbCaptureHandler);
+
+    // Disabled baseline: advancement happens, nothing is logged.
+    TimingDiag::resetForTest();
+    TimingDiag::setEnabledForTest(false);
+    RGBMatrix disabledMtx(m_doc);
+    setup(disabledMtx);
+    const QVector<RGBMap> framesDisabled = driveWrites(disabledMtx, N);
+    const int idxDisabled = disabledMtx.m_stepHandler->currentStepIndex();
+
+    // Enabled: same advancement, one bounded identified summary.
+    qint64 now = 0;
+    TimingDiag::resetForTest();
+    TimingDiag::setClockForTest([&now]() { return now; });
+    TimingDiag::setIntervalMsForTest(1000);
+    TimingDiag::setEnabledForTest(true);
+    RGBMatrix enabledMtx(m_doc);
+    setup(enabledMtx);
+    const QVector<RGBMap> framesEnabled = driveWrites(enabledMtx, N);
+    const int idxEnabled = enabledMtx.m_stepHandler->currentStepIndex();
+    now = 1000;                                          // interval elapsed
+    TimingDiag::flushExpired();                          // periodic flush emits the window
+
+    TimingDiag::setEnabledForTest(false);
+    TimingDiag::setClockForTest(nullptr);
+    TimingDiag::resetForTest();
+    qInstallMessageHandler(prev);
+    m_doc->inputOutputMap()->releaseUniverses();
+
+    QStringList stepLines, elapsedLines;
+    foreach (const QString &m, g_rgbMsgs)
+    {
+        if (m.contains(QStringLiteral("[timing] RGBMatrix step advance")))
+            stepLines << m;
+        if (m.contains(QStringLiteral("Elapsed exceeded")))
+            elapsedLines << m;
+    }
+
+    QCOMPARE(idxEnabled, idxDisabled);          // advancement unchanged by diagnostics
+    QVERIFY(disabledMtx.m_stepsCount > 0);
+    QCOMPARE(idxDisabled, N % disabledMtx.m_stepsCount);
+    QCOMPARE(framesEnabled, framesDisabled);
+    QVERIFY(framesDisabled.first() != framesDisabled.at(1));
+    QSet<uint> colors;
+    for (const auto &row : framesDisabled.first())
+        for (uint color : row)
+            colors.insert(color);
+    QVERIFY(colors.size() > 1);
+    QCOMPARE(elapsedLines.size(), 0);           // ambiguous flood is gone in both modes
+    QCOMPARE(stepLines.size(), 1);              // exactly one bounded summary
+    QVERIFY2(stepLines.first().contains("advances=" + QString::number(N)),
+             qPrintable(stepLines.first()));
+    QVERIFY2(stepLines.first().contains("id=17"), qPrintable(stepLines.first()));
 }
 
 QTEST_MAIN(RGBMatrix_Test)

@@ -79,7 +79,7 @@ export function renderHtml() {
   button.danger { background: var(--true-color-red, #cf222e); border-color: var(--true-color-red, #cf222e); color: var(--color-white, #fff); }
   button.accent { background: var(--true-color-blue, #0969da); border-color: var(--true-color-blue, #0969da); color: var(--color-white, #fff); }
   label.opt { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; user-select: none; }
-  input[type=text] {
+  input[type=text], input[type=number] {
     font: inherit;
     padding: 4px 8px;
     border-radius: 6px;
@@ -88,6 +88,7 @@ export function renderHtml() {
     color: var(--text-color-default, #1f2328);
     min-width: 160px;
   }
+  input[type=number] { min-width: 0; width: 90px; }
   .sep { width: 1px; align-self: stretch; background: var(--border-color-default, #d0d7de); margin: 0 2px; }
   .tabs { display: flex; gap: 4px; padding: 8px 14px 0; align-items: center; }
   .tab { padding: 4px 12px; border-radius: 6px 6px 0 0; border: 1px solid transparent; cursor: pointer; font-size: 12px; color: var(--text-color-muted, #656d76); }
@@ -127,7 +128,10 @@ export function renderHtml() {
   <button id="bRestart">Restart</button>
   <div class="sep"></div>
   <label class="opt"><input type="checkbox" id="optDebug" checked /> Debug (-d)</label>
+  <label class="opt"><input type="checkbox" id="optTiming" /> Timing diagnostics</label>
+  <label class="opt">Report interval (ms) <input type="number" id="optTimingInterval" value="1000" min="1" max="9007199254740991" step="1" required disabled /></label>
   <input type="text" id="optArgs" placeholder="extra args (e.g. -o show.qxw)" />
+  <span id="timingHint" class="hint">Timing settings apply on Start or Restart.</span>
   <span id="envHint" class="hint"></span>
 </div>
 
@@ -153,6 +157,7 @@ export function renderHtml() {
   var buffers = { app: [], build: [] };
   var hasContent = { app: false, build: false };
   var lastState = null;
+  var timingSettingsPid = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -213,6 +218,19 @@ export function renderHtml() {
     pill.className = "pill ";
     var proc = s.proc || {};
     var build = s.build || {};
+    if (proc.running && proc.managed && proc.pid !== timingSettingsPid) {
+      timingSettingsPid = proc.pid;
+      $("optTiming").checked = proc.timingDiagnostics === true;
+      $("optTimingInterval").value = proc.timingIntervalMs == null ? "1000" : String(proc.timingIntervalMs);
+      $("optTimingInterval").disabled = !$("optTiming").checked;
+    }
+    var timingHint = "Timing settings apply on Start or Restart.";
+    if (proc.running) {
+      if (proc.timingDiagnostics === true) timingHint = "Launch setting: timing on, " + proc.timingIntervalMs + " ms. MCP can change runtime profiling.";
+      else if (proc.timingDiagnostics === false) timingHint = "Launch setting: timing off. MCP can change runtime profiling.";
+      else timingHint = "Launch timing setting unknown. Changes here apply on Restart.";
+    }
+    $("timingHint").textContent = timingHint;
     if (build.state === "running") { pill.className += "building"; txt.textContent = "building"; }
     else if (proc.running && proc.managed) { pill.className += "running"; txt.textContent = "running"; }
     else if (proc.running && !proc.managed) { pill.className += "external"; txt.textContent = "running (external)"; }
@@ -267,12 +285,24 @@ export function renderHtml() {
 
   function startOpts() {
     var args = $("optArgs").value.trim();
-    return { debug: $("optDebug").checked, extraArgs: args };
+    var opts = { debug: $("optDebug").checked, extraArgs: args, timingDiagnostics: $("optTiming").checked };
+    if (opts.timingDiagnostics) {
+      if (!$("optTimingInterval").reportValidity()) return null;
+      opts.timingIntervalMs = Number($("optTimingInterval").value);
+    }
+    return opts;
   }
 
-  $("bStart").onclick = function () { post("/api/start", startOpts()); };
+  $("optTiming").onchange = function () { $("optTimingInterval").disabled = !this.checked; };
+  $("bStart").onclick = function () {
+    var opts = startOpts();
+    if (opts) post("/api/start", opts);
+  };
   $("bStop").onclick = function () { post("/api/stop", {}); };
-  $("bRestart").onclick = function () { post("/api/restart", startOpts()); };
+  $("bRestart").onclick = function () {
+    var opts = startOpts();
+    if (opts) post("/api/restart", opts);
+  };
   $("bRebuild").onclick = function () {
     buffers.build = []; hasContent.build = false;
     $("logBuild").innerHTML = '<span class="empty">Starting build…</span>';

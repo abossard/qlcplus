@@ -44,6 +44,10 @@ private slots:
     void stop();
     void restart();
 
+    void diagAttributesSlowFunction();
+    void diagNoWriteSlowCallbackIsNone();
+    void diagDisabledPreservesBehavior();
+
 private:
     Doc* m_doc;
 };

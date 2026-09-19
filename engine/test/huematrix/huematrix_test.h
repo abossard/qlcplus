@@ -122,6 +122,12 @@ private slots:
     /* AC23 */
     void audioAlgorithmRecomputesTheMapEveryTick();
 
+    void renderHandoffSplitIsMeasured();
+
+    /* C0-3: worker CPU time is measured on the JS worker thread and separates
+       on-CPU compute from time not running on that thread. */
+    void workerCpuDistinguishesBusyFromSleeping();
+
 private:
     Doc *m_doc;
 };

@@ -165,6 +165,23 @@ var testAlgo;
         if (state.spots.length >= dynamicCap && state.carry > 0.999)
             state.carry = 0.999;
 
+        // sigma and the per-spot gradient endpoint colors depend only on
+        // frame-constant presets and each spot's anchor, never on the pixel
+        // position, so compute them once per frame instead of per pixel.
+        var sigma = Math.max(0.02, algo.presetWidth);
+        var sigmaSq = sigma * sigma;
+        var gradientOn = algo.presetGradient === "Yes";
+        var spotCenterRgb = null, spotEdgeRgb = null;
+        if (gradientOn) {
+            spotCenterRgb = new Array(state.spots.length);
+            spotEdgeRgb = new Array(state.spots.length);
+            for (var sp = 0; sp < state.spots.length; sp++) {
+                var spotSp = state.spots[sp];
+                spotCenterRgb[sp] = toRgb(colorAt(spotSp.anchor));
+                spotEdgeRgb[sp] = toRgb(colorAt(spotSp.anchor + algo.presetColorSpan));
+            }
+        }
+
         for (var y = 0; y < height; y++) {
             for (var x2 = 0; x2 < width; x2++) {
                 var pos = width <= 1 ? 0 : x2 / (width - 1);
@@ -173,16 +190,13 @@ var testAlgo;
                     var spot = state.spots[s];
                     var d = Math.abs(pos - spot.x);
                     d = Math.min(d, 1 - d);
-                    var sigma = Math.max(0.02, algo.presetWidth);
-                    var spatial = Math.exp(-(d * d) / (sigma * sigma));
+                    var spatial = Math.exp(-(d * d) / sigmaSq);
                     var life = Math.pow(HSVUtil.clamp01(spot.life / Math.max(1e-6, spot.maxLife)), 1.4);
                     var w = spatial * life;
                     var srgb = null;
-                    if (algo.presetGradient === "Yes") {
-                        var center = colorAt(spot.anchor);
-                        var edge = colorAt(spot.anchor + algo.presetColorSpan);
-                        var centerRgb = toRgb(center);
-                        var edgeRgb = toRgb(edge);
+                    if (gradientOn) {
+                        var centerRgb = spotCenterRgb[s];
+                        var edgeRgb = spotEdgeRgb[s];
                         var mix = HSVUtil.clamp01(d / sigma);
                         srgb = [
                             centerRgb[0] * (1 - mix) + edgeRgb[0] * mix,

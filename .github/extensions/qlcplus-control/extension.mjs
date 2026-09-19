@@ -23,6 +23,7 @@ import { join, resolve, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
+import { timingLaunchOptions } from "./launch-options.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -199,6 +200,8 @@ function procSnapshot() {
             running: true, managed: true, pid: managed.pid,
             startedAt: managed.startedAt, args: managed.args || [],
             debug: !!managed.debug, extraArgs: managed.extraArgs || "",
+            timingDiagnostics: managed.timingDiagnostics ?? null,
+            timingIntervalMs: managed.timingIntervalMs ?? null,
             logFile: managed.logFile || null,
         };
     }
@@ -368,7 +371,8 @@ function parseExtraArgs(s) {
     return String(s).trim().split(/\s+/).filter(Boolean);
 }
 
-function startApp({ debug, extraArgs }) {
+function startApp({ debug, extraArgs, timingDiagnostics, timingIntervalMs }) {
+    const timing = timingLaunchOptions({ timingDiagnostics, timingIntervalMs }, {}, process.env);
     const snap = procSnapshot();
     if (snap.running) throw new CanvasError("already_running", "QLC+ is already running (pid " + snap.pid + ").");
     if (!existsSync(BINARY)) throw new CanvasError("not_built", "Binary not found at build/qmlui/qlcplus5 — run Rebuild first.");
@@ -391,7 +395,7 @@ function startApp({ debug, extraArgs }) {
             cwd: BUILD_DIR,
             detached: true,
             stdio: ["ignore", fd, fd],
-            env: process.env,
+            env: timing.env,
         });
     } catch (e) {
         try { closeSync(fd); } catch (e2) { /* ignore */ }
@@ -406,6 +410,8 @@ function startApp({ debug, extraArgs }) {
         args,
         debug: !!debug,
         extraArgs: extraArgs || "",
+        timingDiagnostics: timing.timingDiagnostics,
+        timingIntervalMs: timing.timingIntervalMs,
         logFile,
     };
     saveRun(managed);
@@ -415,7 +421,11 @@ function startApp({ debug, extraArgs }) {
     broadcast({ type: "log", stream: "app", line: "=== Started pid " + child.pid + " : qlcplus5 " + args.join(" ") + " ===" });
     broadcastState();
     log("Started QLC+ (pid " + child.pid + ") args: " + args.join(" "));
-    return { pid: child.pid, args, logFile };
+    return {
+        pid: child.pid, args, logFile,
+        timingDiagnostics: timing.timingDiagnostics,
+        timingIntervalMs: timing.timingIntervalMs,
+    };
 }
 
 function stopApp() {
@@ -438,7 +448,9 @@ function stopApp() {
 
 async function restartApp(opts) {
     const snap = procSnapshot();
-    const prev = managed ? { debug: managed.debug, extraArgs: managed.extraArgs } : {};
+    const prev = managed || {};
+    // Validate before stopping a running app.
+    const timing = timingLaunchOptions(opts || {}, prev);
     if (snap.running) {
         stopApp();
         // brief grace period for the OS to release the port / single-instance lock
@@ -446,7 +458,11 @@ async function restartApp(opts) {
     }
     const debug = opts && opts.debug != null ? opts.debug : (prev.debug != null ? prev.debug : true);
     const extraArgs = opts && opts.extraArgs != null ? opts.extraArgs : (prev.extraArgs || "");
-    return startApp({ debug, extraArgs });
+    return startApp({
+        debug, extraArgs,
+        timingDiagnostics: timing.timingDiagnostics,
+        timingIntervalMs: timing.timingIntervalMs,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +531,13 @@ async function handle(req, res) {
         let body = {};
         try { const raw = await readBody(req); body = raw ? JSON.parse(raw) : {}; } catch (e) { body = {}; }
         try {
-            if (path === "/api/start") { json(res, 200, startApp({ debug: !!body.debug, extraArgs: body.extraArgs || "" })); return; }
+            if (path === "/api/start") {
+                json(res, 200, startApp({
+                    debug: !!body.debug, extraArgs: body.extraArgs || "",
+                    timingDiagnostics: body.timingDiagnostics, timingIntervalMs: body.timingIntervalMs,
+                }));
+                return;
+            }
             if (path === "/api/stop") { json(res, 200, stopApp()); return; }
             if (path === "/api/restart") { json(res, 200, await restartApp(body)); return; }
             if (path === "/api/rebuild") { json(res, 200, await startBuild()); return; }
@@ -568,18 +590,24 @@ function buildCanvas() {
             },
             {
                 name: "start",
-                description: "Start the QLC+ app. Optionally enable the -d debug flag and pass extra CLI args.",
+                description: "Start QLC+ with optional debug output, timing diagnostics, and extra CLI args.",
                 inputSchema: {
                     type: "object",
                     properties: {
                         debug: { type: "boolean", description: "Pass the -d debug flag (default true)." },
                         extraArgs: { type: "string", description: "Extra CLI args, space-separated (e.g. '-o show.qxw')." },
+                        timingDiagnostics: { type: "boolean", description: "Enable QLCPLUS_TIMING_DIAG for this launch (default false)." },
+                        timingIntervalMs: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Timing report interval in milliseconds (default 1000)." },
                     },
                     additionalProperties: false,
                 },
                 handler: async (ctx) => {
                     const debug = ctx.input && ctx.input.debug != null ? ctx.input.debug : true;
-                    return startApp({ debug, extraArgs: (ctx.input && ctx.input.extraArgs) || "" });
+                    return startApp({
+                        debug, extraArgs: (ctx.input && ctx.input.extraArgs) || "",
+                        timingDiagnostics: ctx.input?.timingDiagnostics,
+                        timingIntervalMs: ctx.input?.timingIntervalMs,
+                    });
                 },
             },
             {
@@ -595,6 +623,8 @@ function buildCanvas() {
                     properties: {
                         debug: { type: "boolean" },
                         extraArgs: { type: "string" },
+                        timingDiagnostics: { type: "boolean", description: "Override the previous launch's timing-diagnostics setting." },
+                        timingIntervalMs: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Override the previous timing report interval in milliseconds." },
                     },
                     additionalProperties: false,
                 },

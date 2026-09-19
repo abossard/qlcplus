@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE Workspace>
-<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="FIXANDFUNC">
  <Creator>
   <Name>Q Light Controller Plus</Name>
   <Version>5.3.0 GIT</Version>
@@ -8,7 +8,7 @@
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="0"/>
+   <BeatGenerator BeatType="Audio" BPM="120"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="VDJ Bridge" Name="1: VDJ Telemetry" UID="" Line="0"/>
@@ -457,23 +457,23 @@
    <Speed FadeIn="0" FadeOut="0" Duration="500"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Audio Water</Algorithm>
+   <Algorithm Type="Script">Audio Spotlight</Algorithm>
    <Color Index="0">4294967295</Color>
    <Color Index="1">4294967295</Color>
    <ControlMode>RGBWBrighter</ControlMode>
    <FixtureGroup>0</FixtureGroup>
-   <Property Name="bass_size" Value="8"/>
-   <Property Name="high_size" Value="3"/>
-   <Property Name="ledFxBackgroundBrightness" Value="1"/>
-   <Property Name="ledFxBackgroundMode" Value="Off"/>
-   <Property Name="ledFxBrightness" Value="1"/>
-   <Property Name="ledFxFlip" Value="Off"/>
-   <Property Name="ledFxMirror" Value="Off"/>
-   <Property Name="mids_size" Value="6"/>
-   <Property Name="mode" Value="Artistic"/>
-   <Property Name="speed" Value="1"/>
-   <Property Name="vertical_shift" Value="0.12"/>
-   <Property Name="viscosity" Value="6"/>
+   <Property Name="backgroundBrightness" Value="1"/>
+   <Property Name="backgroundMode" Value="Off"/>
+   <Property Name="birthGain" Value="10"/>
+   <Property Name="brightness" Value="1"/>
+   <Property Name="colorSpan" Value="1"/>
+   <Property Name="fadeSeconds" Value="0.8"/>
+   <Property Name="flip" Value="Off"/>
+   <Property Name="gradient" Value="Yes"/>
+   <Property Name="gradientSpeed" Value="0.5"/>
+   <Property Name="mirror" Value="Off"/>
+   <Property Name="source" Value="Lows (beat+bass)"/>
+   <Property Name="width" Value="0.18"/>
    <MirrorBlend>Additive</MirrorBlend>
    <Brightness>2</Brightness>
   </Function>
@@ -613,15 +613,16 @@
     <ShowFunction ID="15" StartTime="0" Duration="385934" Color="#608053"/>
    </Track>
   </Function>
-  <Function ID="17" Type="RGBMatrix" Name="BLUE" BlendMode="Additive">
+  <Function ID="17" Type="RGBMatrix" Name="BLUE">
    <Tempo>Beats</Tempo>
-   <Speed FadeIn="0" FadeOut="250" Duration="1000"/>
+   <Speed FadeIn="0" FadeOut="250" Duration="63"/>
    <Direction>Forward</Direction>
    <RunOrder>Loop</RunOrder>
-   <Algorithm Type="Script">Even/Odd</Algorithm>
-   <Color Index="0">4278190190</Color>
+   <Algorithm Type="Script">Stripes From Center</Algorithm>
+   <Color Index="0">4278190335</Color>
    <ControlMode>RGB</ControlMode>
    <FixtureGroup>0</FixtureGroup>
+   <Property Name="orientation" Value="Horizontal"/>
   </Function>
   <Function ID="18" Type="Audio" Name="Ape Drums &amp; JAMIE - 111 (Extended Mix).mp3" Path="Songs">
    <Speed FadeIn="0" FadeOut="0" Duration="353000"/>
@@ -744,6 +745,16 @@
     <ShowFunction ID="38" StartTime="0" Duration="240000" Color="#608053"/>
    </Track>
   </Function>
+  <Function ID="40" Type="RGBMatrix" Name="New RGB Matrix 40">
+   <Speed FadeIn="0" FadeOut="0" Duration="500"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Stripes</Algorithm>
+   <Color Index="0">4294901760</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="orientation" Value="Horizontal"/>
+  </Function>
   <Monitor DisplayMode="0" ShowLabels="0">
    <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
    <ChannelStyle>0</ChannelStyle>
@@ -767,40 +778,6 @@
    <ShowEnableButton>True</ShowEnableButton>
    <Collapsed>False</Collapsed>
    <Disabled>False</Disabled>
-   <Frame Caption="FULL" ID="7">
-    <WindowState Visible="True" X="677" Y="338" Width="309" Height="220"/>
-    <AllowResize>True</AllowResize>
-    <ShowHeader>True</ShowHeader>
-    <ShowEnableButton>True</ShowEnableButton>
-    <Collapsed>False</Collapsed>
-    <Disabled>False</Disabled>
-    <Slider Caption="Slider 9" ID="8" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="235" Y="44" Width="73" Height="147"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <SliderMode ValueDisplayStyle="Percentage">Level</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255"/>
-    </Slider>
-    <Slider Caption="COLO" ID="10" WidgetStyle="Slider" InvertedAppearance="false">
-     <WindowState Visible="True" X="162" Y="44" Width="73" Height="147"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <SliderMode ValueDisplayStyle="Percentage">Adjust</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255"/>
-     <Adjust Attribute="0" Function="1"/>
-     <Flash/>
-    </Slider>
-    <Button Caption="COLO" ID="9">
-     <WindowState Visible="True" X="29" Y="88" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="1"/>
-     <Action>Toggle</Action>
-    </Button>
-   </Frame>
    <Frame Caption="BASS" ID="2">
     <WindowState Visible="True" X="29" Y="324" Width="633" Height="220"/>
     <AllowResize>True</AllowResize>
@@ -808,6 +785,22 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
+    <Button Caption="WHITE" ID="6">
+     <WindowState Visible="True" X="235" Y="117" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="BASSHUE" ID="3">
+     <WindowState Visible="True" X="14" Y="44" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="3"/>
+     <Action>Toggle</Action>
+    </Button>
     <Slider Caption="BASSHUE" ID="11" WidgetStyle="Slider" InvertedAppearance="false">
      <WindowState Visible="True" X="456" Y="44" Width="73" Height="147"/>
      <Appearance>
@@ -823,25 +816,51 @@
       <BackgroundColor>4282664004</BackgroundColor>
      </Appearance>
      <SliderMode ValueDisplayStyle="Percentage">Submaster</SliderMode>
-     <Level LowLimit="0" HighLimit="255" Value="255"/>
+     <Level LowLimit="0" HighLimit="255" Value="0"/>
     </Slider>
-    <Button Caption="BASSHUE" ID="3">
-     <WindowState Visible="True" X="14" Y="44" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="3"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="WHITE" ID="6">
-     <WindowState Visible="True" X="235" Y="117" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="4"/>
-     <Action>Toggle</Action>
-    </Button>
    </Frame>
+   <Frame Caption="FULL" ID="7">
+    <WindowState Visible="True" X="677" Y="338" Width="309" Height="220"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="COLO" ID="9">
+     <WindowState Visible="True" X="29" Y="88" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="1"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Slider Caption="Slider 9" ID="8" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="235" Y="44" Width="73" Height="147"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Percentage">Level</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="0"/>
+    </Slider>
+    <Slider Caption="COLO" ID="10" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="162" Y="44" Width="73" Height="147"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Percentage">Adjust</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="255"/>
+     <Adjust Attribute="0" Function="1"/>
+     <Flash/>
+    </Slider>
+   </Frame>
+   <Button Caption="New RGB Matrix 1" ID="1">
+    <WindowState Visible="True" X="810" Y="147" Width="83" Height="83"/>
+    <Appearance>
+     <BackgroundColor>4282664004</BackgroundColor>
+    </Appearance>
+    <Function ID="4294967295"/>
+    <Action>Toggle</Action>
+   </Button>
    <AudioTriggers AudioProfileID="1" Caption="Audio Trigger 1" ID="0">
     <WindowState Visible="True" X="29" Y="14" Width="633" Height="309"/>
     <Appearance>
@@ -856,14 +875,6 @@
      <BackgroundColor>4282664004</BackgroundColor>
     </Appearance>
     <Function ID="0"/>
-    <Action>Toggle</Action>
-   </Button>
-   <Button Caption="New RGB Matrix 1" ID="1">
-    <WindowState Visible="True" X="810" Y="147" Width="83" Height="83"/>
-    <Appearance>
-     <BackgroundColor>4282664004</BackgroundColor>
-    </Appearance>
-    <Function ID="4294967295"/>
     <Action>Toggle</Action>
    </Button>
   </Frame>

@@ -460,6 +460,136 @@
 > | `-d` | Enable debug output to stderr |
 > | `-g` | Log debug output to `~/QLC+.log` |
 >
+> **Timing diagnostics**: opt-in, rate-bounded measurements for the MasterTimer
+> playback path. Off by default. Enable before launch (a restart is required):
+> ```bash
+> QLCPLUS_TIMING_DIAG=1 ./build/qmlui/qlcplus5 -d          # 1s reporting interval
+> QLCPLUS_TIMING_DIAG=1 QLCPLUS_TIMING_DIAG_MS=2000 ./build/qmlui/qlcplus5 -d
+> ```
+> Filter logs for `[timing]`. Durations are wall time in fractional milliseconds,
+> calculated in nanoseconds before formatting. `unknown` means unmeasured.
+> Each bucket reports at most once per configured interval while running.
+> Windows start with the first event; `in Wms` is their actual duration.
+> Stopping the timer flushes any remaining partial window.
+>
+> - `scheduler dispatch: ticks=N in Wms period=Bms maxDispatchLate=Lms slept=yes|no priorCallback=Pms priorFinishedLate=Ems measuredTicks=M unknownTicks=U clockReadFailures=F`
+>   reports the Unix scheduler, including ticks whose callbacks were cheap.
+>   L is actual dispatch start minus deadline, clamped to zero. The remaining
+>   fields belong to that worst dispatch: P is the preceding callback's wall
+>   duration, E is how far its end exceeded this deadline, and `slept` says
+>   whether this dispatch followed a sleep. `slept=yes` with E=0 and a large L
+>   identifies delay after the preceding callback finished on time; `slept=no`
+>   with E>0 shows the preceding callback already exceeded the deadline.
+>   P includes diagnostic work inside the callback. These values do not isolate
+>   OS descheduling, sleep precision, or diagnostic observer overhead.
+>   M counts measured dispatch starts, U counts unknown starts, and F counts
+>   failed start/end clock reads. These counters retain incomplete coverage even
+>   when a known maximum is available. Clock failures share the report rate bound.
+> - `callback consumed period: count=N in Wms period=Bms maxCallback=Cms functions=Fms unattributed=Ums dispatchLate=Lms maxWrite="NAME" type=T phase=write (id I) Dms`
+>   counts callbacks consuming at least the scheduler period (`1e9/frequency`).
+>   All fields describe the worst callback: C includes synchronous `tickReady`
+>   consumers, F sums function writes, D identifies the largest single write,
+>   and U=C-F includes untimed lifecycle, universe, DMX-source and signal work.
+>   `maxWrite=unknown` means no write was measured. L describes this callback's
+>   dispatch and can reflect preceding work; it is not necessarily wake delay.
+>   It is unknown for directly driven ticks or failed scheduler clock samples.
+> - `RGBMatrix step advance id=I name="NAME" advances=N in Wms` replaces the
+>   unbounded `Elapsed exceeded` message. It counts ordinary between-beat steps,
+>   not missed frames, without changing playback.
+> - `HUEScript handoff id=I name="NAME" renders=N in Wms maxWait=Wms queue=Qms worker=Xms workerCpu=Cms workerOffCpu=Oms returnTail=Rms`
+>   measures the synchronous render handoff to the JS thread, from four timestamps on one
+>   clock (Q before invoke, Jstart at worker entry, Jend at worker exit, R after
+>   return): `queue` = Jstart-Q (post/queue/descheduling before the worker ran),
+>   `worker` = Jend-Jstart (worker-side render: script call plus marshalling, NOT
+>   isolated script compute), `returnTail` = wait-queue-worker. `workerCpu` is the
+>   JS worker thread's on-CPU time across that same Jstart..Jend span, sampled ON
+>   the worker thread, and `workerOffCpu` = worker-workerCpu is the render time
+>   NOT running on that core (descheduling/contention); both are `unknown` when
+>   the platform thread-CPU clock is unsupported or a read failed (never a
+>   fabricated 0). worker CPU still includes native marshalling, so it is not by
+>   itself proof of script compute, and queue wait before Jstart is a separate
+>   boundary, not worker descheduling. queue and worker are components of the same
+>   max-wait render, not independent maxima. A direct on-thread render performs no
+>   handoff and emits nothing.
+>
+> Different report types summarize **independent windows**. Adjacent lines or
+> matching function IDs do not correlate a handoff with a particular slow tick.
+> No scheduling policy changes with this option. Disabled detailed diagnostics
+> skip diagnostic clock reads, aggregation, and formatting; enabled diagnostics
+> add measurement and logging overhead.
+>
+> **Timer health**: the Unix timer independently counts its existing **pre-sleep
+> deadline checks**, even with detailed profiling off. `[timer-health] pre-sleep
+> deadline check: severity=debug|warning checkedTicks=N in Wms overdue=O moderate=M
+> wholePeriod=F worstOverdue=Lms period=Pms` replaces both legacy incident messages.
+> Only positive overdue counts; exact equality is on time for reporting, with
+> the existing no-sleep/rebase scheduling unchanged. Moderate means at least
+> one-quarter period but less than a full period; whole-period means at least
+> one period. These bins are disjoint. A warning means any whole-period check
+> or moderate checks at least 10% of all checked ticks; other nonclean windows
+> are debug, and clean windows are silent. This is an engineering heuristic,
+> not a perceptual guarantee. At 50Hz (20ms period), 7ms is 35% of the period:
+> a rare event is debug, repeated events may warn. At 25Hz, moderate starts at
+> 10ms rather than 5ms.
+> Windows close at the first check reaching five seconds, including that check;
+> long gaps produce one report, not catch-up reports. Normal stop flushes one
+> nonclean partial window. W ends at the last valid check, not callback completion
+> or shutdown, so short tails expose their actual duration and checked count.
+> Durations retain nanoseconds until six-decimal millisecond formatting.
+> Health accounting adds no clock reads and formats only reports. These checks
+> do not cover subsequent wake or check-to-dispatch delays: zero whole-period
+> checks does not rule out a late dispatch. They establish neither dropped
+> output frames nor a Functions/CPU cause; use the separate detailed dispatch
+> measurements for that later boundary.
+>
+> **Runtime control (MCP `timing_diagnostics`)**: the same diagnostics can be
+> switched on and off at runtime — no restart — through the MCP tool
+> `timing_diagnostics`, so an active show can be profiled on demand. The tool
+> takes a single flat `action` and, only for `set_interval`, an `intervalMs`:
+>
+> | action | effect |
+> |--------|--------|
+> | `enable` | start a **fresh capture** and begin sampling |
+> | `disable` | stop sampling, but **retain** the capture for a later snapshot |
+> | `set_interval` | change the `[timing]` window/report interval (`intervalMs` > 0) |
+> | `reset` | begin a new capture, clearing retained aggregates |
+> | `snapshot` | return the current capture's bounded aggregates **without consuming them** |
+>
+> ```jsonc
+> // enable, let the show run, then read the retained aggregates
+> {"action": "enable"}
+> {"action": "snapshot"}
+> {"action": "disable"}   // aggregates stay readable until reset / re-enable
+> ```
+>
+> Every response reports `status`, the `action`, and a `state` object with the
+> current `captureId`, `enabled`, `intervalMs`, `elapsedMs`, `discardedSamples`,
+> and a bounded per-source `buckets` array (scheduler / period / hue / rgb) of
+> capture-cumulative aggregates. All durations are **nanoseconds**; `-1` means
+> unknown, never a fabricated `0`. Semantics to rely on:
+>
+> - **Capture identity.** Each `enable` (off→on) and each `reset` starts a new
+>   capture and bumps `captureId`. A sample whose render or tick straddled that
+>   change is discarded (counted in `discardedSamples`), never mixed into the new
+>   capture, and the first tick of a new capture carries no prior-callback state.
+> - **Retention.** Results are cumulative aggregates (not a per-frame history):
+>   they survive the periodic `[timing]` log flush and survive `disable`, and are
+>   cleared only by `reset` or the next `enable`. `snapshot` is a pure read. A
+>   disabled capture is a completed recording: its `elapsedMs` and each bucket's
+>   duration **freeze at the disable moment**, so a later rate/overhead comparison
+>   uses a fixed denominator rather than the still-growing wall-clock age.
+> - **Cost.** Disabled, the added cost is a single acquire-load atomic gate
+>   (~1 ns; no clock reads, allocation, or formatting). Enabled, the worker adds
+>   two thread-CPU clock reads per HUE render (~1 µs each here) plus the existing
+>   handoff wall clocks — well under ~0.4 ms of a 20 ms tick for realistic render
+>   counts. A virtual/injected-clock test proves the algorithm and reporting
+>   boundary, not OS wake precision.
+> - **Interpretation.** These are measured boundaries only. `worker` wall minus
+>   `workerCpu` is time not running on that core, not proof of any one scheduler
+>   cause; independent-window maxima must not be matched as the same event.
+>   The parent (owning) session preserves and restores live workspace, function,
+>   and IO/audio/beat state across any capture run.
+>
 > **Dev cycle** — after code changes:
 > ```bash
 > # Rebuild only what changed

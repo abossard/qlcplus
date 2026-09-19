@@ -55,6 +55,8 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+// Pure diagnostic control (no Doc): runtime toggle/snapshot of TimingDiag.
+void registerProfilingTools(fastmcpp::tools::ToolManager &tm);
 namespace fastmcpp { namespace prompts { class PromptManager; } }
 void registerPrompts(fastmcpp::prompts::PromptManager &pm, Doc *doc, VCBridge *vcBridge);
 

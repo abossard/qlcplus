@@ -12,6 +12,10 @@ as agent-callable actions.
 - **Start / Stop / Restart** — launches the binary and terminates it (SIGTERM).
 - **Debug flag** — a `Debug (-d)` checkbox plus a free-text field for any extra
   CLI args (e.g. `-o show.qxw`).
+- **Timing diagnostics**: a checkbox and report interval in milliseconds set
+  `QLCPLUS_TIMING_DIAG` and `QLCPLUS_TIMING_DIAG_MS` on Start/Restart. Default:
+  off, 1000 ms. Changing these controls does not alter the running app.
+  `[timing]` reports appear in **App stdout**.
 - **Live stdout log viewer** — the app's stdout/stderr is captured and streamed
   into the **App stdout** tab.
 - **CPU / memory / uptime** — sampled from `ps` every 2s and shown in the header.
@@ -20,6 +24,10 @@ as agent-callable actions.
 
 - The QLC+ process is a singleton, so **all open panels show the same live
   state**.
+- Timing settings for a managed run survive extension reloads. Restart reuses
+  them unless overridden. The panel labels these as launch settings: runtime MCP
+  profiling controls can change the current state independently. Older or external
+  runs show their launch timing setting as unknown.
 - The app is spawned **detached** with stdout/stderr redirected to a log file,
   so it **survives an `extensions_reload`** — the panel re-discovers the running
   PID and resumes tailing. (It is intentionally *not* killed when the extension
@@ -47,14 +55,24 @@ $COPILOT_HOME/extensions/qlcplus-control/artifacts/
 | Action      | Kind       | Description |
 |-------------|------------|-------------|
 | `status`    | read-only  | Process status, pid, CPU/mem, build state. |
-| `start`     | write      | Start the app. `{ debug?: bool, extraArgs?: string }`. |
+| `start`     | write      | Start the app. `{ debug?: bool, extraArgs?: string, timingDiagnostics?: bool, timingIntervalMs?: integer }`. |
 | `stop`      | write      | SIGTERM the running app (managed or external). |
-| `restart`   | write      | Stop then start, reusing prior flags unless overridden. |
+| `restart`   | write      | Stop then start, accepting the same options as `start` and reusing prior settings unless overridden. Invalid timing options are rejected before stopping. |
 | `rebuild`   | write      | Configure-if-needed + build; returns immediately, runs async. |
 | `tail_log`  | read-only  | Recent lines from the app or build log. `{ type?: "app"\|"build", lines?: number }`. |
 
 `rebuild` is asynchronous — poll `status` (build state flips
 `running → success`/`failed`) or read `tail_log` with `type: "build"`.
+
+Timing intervals must be positive safe integers. An unchecked timing option
+explicitly disables diagnostics even if the extension inherited an enabled
+`QLCPLUS_TIMING_DIAG` environment variable.
+
+Validate launch-option handling with:
+
+```bash
+node --test .github/extensions/qlcplus-control/launch-options.test.mjs
+```
 
 ## Notes
 

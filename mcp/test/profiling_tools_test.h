@@ -1,8 +1,8 @@
 /*
-  Q Light Controller
-  rgbmatrix_test.h
+  Q Light Controller Plus - Unit test
+  profiling_tools_test.h
 
-  Copyright (C) Heikki Junnila
+  Copyright (C) Massimo Callegari
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -17,38 +17,27 @@
   limitations under the License.
 */
 
-#ifndef RGBMATRIX_TEST_H
-#define RGBMATRIX_TEST_H
+#ifndef PROFILING_TOOLS_TEST_H
+#define PROFILING_TOOLS_TEST_H
 
 #include <QObject>
-#include <QList>
 
-#ifdef QT_QML_LIB
-  #include "rgbscriptv4.h"
-#else
-  #include "rgbscript.h"
-#endif
-
-class Doc;
-class RGBMatrix_Test final : public QObject
+class McpProfilingTools_Test final : public QObject
 {
     Q_OBJECT
+
 private slots:
-    void initTestCase();
-    void cleanupTestCase();
+    void init();
+    void cleanup();
 
-    void initial();
-    void group();
-    void color();
-    void copy();
-    void previewMaps();
-    void property();
-    void loadSave();
-
-    void beatStepAdvanceDiagnostic();
-
-private:
-    Doc* m_doc;
+    void missingAction_rejected();
+    void unknownField_rejected();
+    void invalidAction_rejected();
+    void setIntervalRequiresPositiveInterval();
+    void intervalOnlyValidWithSetInterval();
+    void enableRecordSnapshotResetRoundTrip();
+    void snapshotExposesRawWorkerCpuFields();
+    void disableRetainsUntilResetOrReenable();
 };
 
 #endif

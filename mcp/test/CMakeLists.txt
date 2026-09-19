@@ -495,3 +495,27 @@ target_link_libraries(mcp_input_profile_tools_test PRIVATE
     qlcplusmcp
     nlohmann_json::nlohmann_json
 )
+
+# Profiling tool (timing_diagnostics) — exercises the real registration and
+# dispatch path plus field/enum validation. Compiles the tool source directly
+# and links the engine (TimingDiag) and fastmcpp core, avoiding the Qt Quick
+# dependency of the full qlcplusmcp library.
+add_executable(mcp_profiling_tools_test WIN32
+    profiling_tools_test.cpp profiling_tools_test.h
+    ${CMAKE_SOURCE_DIR}/mcp/tools/profiling_tools.cpp
+)
+
+target_include_directories(mcp_profiling_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_profiling_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Test
+    fastmcpp_core
+    qlcplusengine
+    nlohmann_json::nlohmann_json
+)

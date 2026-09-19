@@ -8,7 +8,7 @@
  </Creator>
  <Engine>
   <InputOutputMap>
-   <BeatGenerator BeatType="Audio" BPM="120"/>
+   <BeatGenerator BeatType="Audio" BPM="0"/>
    <NetworkServer Type="Web" AutoStart="False"/>
    <Universe Name="Universe 1" ID="0">
     <Input Plugin="VDJ Bridge" Name="1: VDJ Telemetry" UID="" Line="0"/>
@@ -785,22 +785,6 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Button Caption="WHITE" ID="6">
-     <WindowState Visible="True" X="235" Y="117" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="4"/>
-     <Action>Toggle</Action>
-    </Button>
-    <Button Caption="BASSHUE" ID="3">
-     <WindowState Visible="True" X="14" Y="44" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="3"/>
-     <Action>Toggle</Action>
-    </Button>
     <Slider Caption="BASSHUE" ID="11" WidgetStyle="Slider" InvertedAppearance="false">
      <WindowState Visible="True" X="456" Y="44" Width="73" Height="147"/>
      <Appearance>
@@ -818,6 +802,22 @@
      <SliderMode ValueDisplayStyle="Percentage">Submaster</SliderMode>
      <Level LowLimit="0" HighLimit="255" Value="0"/>
     </Slider>
+    <Button Caption="WHITE" ID="6">
+     <WindowState Visible="True" X="235" Y="117" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="4"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="BASSHUE" ID="3">
+     <WindowState Visible="True" X="14" Y="44" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="3"/>
+     <Action>Toggle</Action>
+    </Button>
    </Frame>
    <Frame Caption="FULL" ID="7">
     <WindowState Visible="True" X="677" Y="338" Width="309" Height="220"/>
@@ -826,14 +826,6 @@
     <ShowEnableButton>True</ShowEnableButton>
     <Collapsed>False</Collapsed>
     <Disabled>False</Disabled>
-    <Button Caption="COLO" ID="9">
-     <WindowState Visible="True" X="29" Y="88" Width="83" Height="83"/>
-     <Appearance>
-      <BackgroundColor>4282664004</BackgroundColor>
-     </Appearance>
-     <Function ID="1"/>
-     <Action>Toggle</Action>
-    </Button>
     <Slider Caption="Slider 9" ID="8" WidgetStyle="Slider" InvertedAppearance="false">
      <WindowState Visible="True" X="235" Y="44" Width="73" Height="147"/>
      <Appearance>
@@ -852,6 +844,14 @@
      <Adjust Attribute="0" Function="1"/>
      <Flash/>
     </Slider>
+    <Button Caption="COLO" ID="9">
+     <WindowState Visible="True" X="29" Y="88" Width="83" Height="83"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="1"/>
+     <Action>Toggle</Action>
+    </Button>
    </Frame>
    <Button Caption="New RGB Matrix 1" ID="1">
     <WindowState Visible="True" X="810" Y="147" Width="83" Height="83"/>
@@ -859,6 +859,14 @@
      <BackgroundColor>4282664004</BackgroundColor>
     </Appearance>
     <Function ID="4294967295"/>
+    <Action>Toggle</Action>
+   </Button>
+   <Button Caption="New HUE Matrix 0" ID="4">
+    <WindowState Visible="True" X="765" Y="58" Width="83" Height="83"/>
+    <Appearance>
+     <BackgroundColor>4282664004</BackgroundColor>
+    </Appearance>
+    <Function ID="0"/>
     <Action>Toggle</Action>
    </Button>
    <AudioTriggers AudioProfileID="1" Caption="Audio Trigger 1" ID="0">
@@ -869,14 +877,6 @@
     <Mapping Source="Volume" Type="3" DmxScale="1" DmxFloor="0" BeatHoldMs="80" WidgetID="8"/>
     <Mapping Source="KickPower" Type="3" DmxScale="1" DmxFloor="0" BeatHoldMs="80" WidgetID="5"/>
    </AudioTriggers>
-   <Button Caption="New HUE Matrix 0" ID="4">
-    <WindowState Visible="True" X="765" Y="58" Width="83" Height="83"/>
-    <Appearance>
-     <BackgroundColor>4282664004</BackgroundColor>
-    </Appearance>
-    <Function ID="0"/>
-    <Action>Toggle</Action>
-   </Button>
   </Frame>
  </VirtualConsole>
  <FlowConsole>

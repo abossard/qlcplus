@@ -21,6 +21,8 @@
 #include "fixture.h"
 #include "function_stub.h"
 
+#include <QThread>
+
 Function_Stub::Function_Stub(Doc* doc) : Function(doc, Function::Type(0xDEADBEEF))
 {
     m_writeCalls = 0;
@@ -78,6 +80,9 @@ void Function_Stub::write(MasterTimer* timer, QList<Universe *> universes)
 {
     Q_UNUSED(timer);
     Q_UNUSED(universes);
+
+    if (m_writeSleepUs > 0)
+        QThread::usleep(m_writeSleepUs);
 
     incrementElapsed();
     m_writeCalls++;
