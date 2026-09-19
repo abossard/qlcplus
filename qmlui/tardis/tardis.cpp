@@ -68,7 +68,7 @@ Tardis::Tardis(QQuickView *view, Doc *doc, NetworkManager *netMgr,
                FixtureManager *fxMgr, FunctionManager *funcMgr, ContextManager *ctxMgr, SimpleDesk *sDesk,
                ShowManager *showMgr, VirtualConsole *vc, QObject *parent)
     : QThread(parent)
-    , m_running(false)
+    , m_running(true)
     , m_view(view)
     , m_doc(doc)
     , m_networkManager(netMgr)
@@ -275,8 +275,6 @@ void Tardis::forwardActionToNetwork(int code, TardisAction &action, bool undo)
 
 void Tardis::run()
 {
-    m_running = true;
-
     while (m_running)
     {
         if (m_queueSem.tryAcquire(1, 1000) == false)

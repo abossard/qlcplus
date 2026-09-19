@@ -24,6 +24,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
 import { timingLaunchOptions } from "./launch-options.mjs";
+import { buildProject } from "./build-project.mjs";
 
 const EXT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -331,16 +332,7 @@ async function startBuild() {
     (async () => {
         let code = 0;
         try {
-            if (!existsSync(BUILD_DIR)) {
-                try { mkdirSync(BUILD_DIR, { recursive: true }); } catch (e) { /* ignore */ }
-            }
-            if (!existsSync(join(BUILD_DIR, "CMakeCache.txt"))) {
-                broadcast({ type: "log", stream: "build", line: "Configuring (cmake .. -Dqmlui=ON)…" });
-                code = await runStep("cmake", ["..", "-Dqmlui=ON"], BUILD_DIR);
-            }
-            if (code === 0) {
-                code = await runStep("cmake", ["--build", ".", "--target", "qlcplus5", "-j8"], BUILD_DIR);
-            }
+            code = await buildProject(BUILD_DIR, runStep);
         } catch (e) {
             broadcast({ type: "log", stream: "build", line: "exception: " + e.message, err: true });
             code = 1;
@@ -632,7 +624,7 @@ function buildCanvas() {
             },
             {
                 name: "rebuild",
-                description: "Rebuild qlcplus5 (configures the build dir first if needed). Returns immediately; build runs async — poll 'status' or read 'tail_log' type=build.",
+                description: "Rebuild all configured targets, including the app, plugins and resources (configures first if needed). Returns immediately; poll 'status' or read 'tail_log' type=build.",
                 handler: async () => startBuild(),
             },
             {

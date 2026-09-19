@@ -182,6 +182,42 @@ Rectangle
                     onClicked: if (checked && widgetRef) widgetRef.actionType = VCButton.StopAll
                 }
 
+                // row 5
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Freeze (toggle)")
+                }
+
+                CustomCheckBox
+                {
+                    objectName: "freezeActionCheckBox"
+                    implicitWidth: UISettings.iconSizeMedium
+                    implicitHeight: implicitWidth
+                    ButtonGroup.group: pressBehaviourGroup
+                    checked: widgetRef ? widgetRef.actionType === VCButton.Freeze : false
+                    onClicked: if (checked && widgetRef) widgetRef.actionType = VCButton.Freeze
+                }
+
+                // row 6
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Freeze (while pressed)")
+                }
+
+                CustomCheckBox
+                {
+                    objectName: "freezeHoldActionCheckBox"
+                    implicitWidth: UISettings.iconSizeMedium
+                    implicitHeight: implicitWidth
+                    ButtonGroup.group: pressBehaviourGroup
+                    checked: widgetRef ? widgetRef.actionType === VCButton.FreezeHold : false
+                    onClicked: if (checked && widgetRef) widgetRef.actionType = VCButton.FreezeHold
+                }
+
               } // GridLayout
         } // SectionBox
 

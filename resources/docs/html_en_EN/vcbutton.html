@@ -107,6 +107,31 @@ by double clicking the button itself.
     <LI>Stop All Functions: When you click the button, all the Functions that are running
     in QLC+  will be stopped immediately. It is possible to specify a fade out time
     to wait for all the intensity channels to reach a zero level</LI>
+    <LI>Freeze (v5): Choose <B>Freeze (toggle)</B> to latch the current lighting
+    look on or off with each press, or <B>Freeze (while pressed)</B> to hold it
+    until release. Both behaviors work with mouse, touch, keyboard and mapped
+    external-controller pressure. Positive pressure means press; zero means release.
+    Functions keep running in the background, so releasing Freeze does not resume
+    them from the point where you froze the lights. Neither mode needs an attached Function.
+    You can still read the live values in the DMX monitor.
+    <P>
+    Grand Master and Blackout remain available. Clearing Blackout restores the
+    held look at the current Grand Master setting. The Grand Master keeps its
+    normal channel and value modes; passthrough can still prevent it from dimming
+    below the input level. Audio, video and controller feedback keep running.
+    </P>
+    <P>
+    The latch and momentary state are separate. Like Flash, releasing any
+    while-pressed button clears momentary Freeze even if you hold another button,
+    but it does not clear a latch. Buttons show the state of their selected
+    mode. Removing a button or changing pages preserves the latch; cancelling a
+    held button releases its momentary activation. Saving preserves the action
+    and mappings, but loading or clearing a workspace resets both states.
+    Separately paused outputs retain their pause after Freeze,
+    which can restore an older brightness level if the Grand Master has changed.
+    Holding DMX values does not stop fixture-internal movement or programs.
+    </P>
+    </LI>
    </UL>
   </TD>
  </TR>

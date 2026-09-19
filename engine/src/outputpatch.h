@@ -20,14 +20,60 @@
 #ifndef OUTPUTPATCH_H
 #define OUTPUTPATCH_H
 
+#include <QByteArray>
+#include <QVector>
 #include <QObject>
+#include <QHash>
 #include <QMap>
+
+#include "channelmodifier.h"
 
 class QLCIOPlugin;
 
 /** @addtogroup engine Engine
  * @{
  */
+
+/**
+ * Everything needed to render a submitted DMX frame again at a later time.
+ *
+ * The published bytes alone are not enough: a zero or clamped Grand Master
+ * destroys information that a later Grand Master change has to bring back.
+ * All arrays are implicitly shared copies of the Universe buffers, so
+ * retaining one only costs a reference until the Universe writes again.
+ */
+struct OutputSource
+{
+    /** Number of channels the frame covered */
+    ushort usedChannels = 0;
+    /** Channel values before Grand Master, modifiers and passthrough */
+    QByteArray preGM;
+    /** Preserved non-HTP values, published instead of the look during blackout */
+    QByteArray blackout;
+    /** Channel capability mask, needed by the Grand Master Intensity mode */
+    QByteArray mask;
+    /** Passthrough input values. Empty when the universe was not in passthrough */
+    QByteArray passthrough;
+    /** The channel modifiers that were in effect, held by value: a modifier
+     *  object can be edited in place, so a pointer would not be a snapshot */
+    QHash<int, ChannelModifier> modifiers;
+
+    /**
+     * Zero the channel classes Blackout suppresses, keeping the rest.
+     *
+     * Applied to an already composed frame, so the retained values are the
+     * rendered ones rather than the raw pre-GM blackout buffer. A channel
+     * with no captured capability is suppressed: an unclassified channel
+     * must not keep emitting light.
+     */
+    QByteArray blackoutSuppressed(const QByteArray &frame) const;
+
+    bool isValid() const
+    {
+        return usedChannels > 0 && preGM.size() >= int(usedChannels)
+               && mask.size() >= int(usedChannels);
+    }
+};
 
 #define KOutputNone QObject::tr("None")
 
@@ -120,8 +166,31 @@ public:
     void setBlackout(bool blackout);
 
     /** Write the contents of a 512 channel value buffer to the plugin.
-      * Called periodically by OutputMap. No need to call manually. */
-    void dump(quint32 universe, const QByteArray &data, bool dataChanged);
+      * Called periodically by OutputMap. No need to call manually.
+      * $source describes how $data was composed, so a later global freeze
+      * can render the same look again with the live Grand Master. */
+    void dump(quint32 universe, const QByteArray &data, bool dataChanged,
+              const OutputSource &source = OutputSource());
+
+    /** Write a frame composed outside the normal pipeline, while the
+      * workspace-global freeze holds the look. The held frame already
+      * reflects this patch's pause state, so the pause buffer is bypassed.
+      * $unblackened is the same frame before blackout suppression: a pause
+      * requested while frozen pins that, so thaw resumes the frame the
+      * operator could see rather than a later live one.
+      * The change flag is derived from the effective bytes, plus $forceChanged
+      * for the transitions that a byte comparison cannot see. */
+    void dumpHeld(quint32 universe, const QByteArray &data,
+                  const QByteArray &unblackened, bool forceChanged);
+
+    /** The source of the frame this patch last published */
+    const OutputSource &heldSource() const;
+
+    /** Forget every trace of what this patch published, including the legacy
+      * pause bytes. A re-patched line or a replaced workspace has no history
+      * of its own and must not republish a look that belonged to the previous
+      * output. The pause flag itself is a user setting and is left alone. */
+    void releasePublicationHistory();
 
 signals:
     void pausedChanged(bool paused);
@@ -132,6 +201,10 @@ private:
     QByteArray m_pauseBuffer;
     bool m_paused;
     bool m_blackout;
+    /** The source of the frame this patch last published */
+    OutputSource m_source;
+    /** The last frame published while the global freeze was active */
+    QByteArray m_heldFrame;
 };
 
 /** @} */

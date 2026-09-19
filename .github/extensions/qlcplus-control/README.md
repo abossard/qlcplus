@@ -6,7 +6,8 @@ as agent-callable actions.
 
 ## What it does
 
-- **Rebuild** — runs `cmake --build . --target qlcplus5 -j8`, auto-running
+- **Rebuild** runs `cmake --build . -j8` for all configured targets, including
+  the app, I/O plugins and resources. It auto-runs
   `cmake .. -Dqmlui=ON` first if the `build/` dir isn't configured yet. Output
   streams live into the **Build output** tab.
 - **Start / Stop / Restart** — launches the binary and terminates it (SIGTERM).
@@ -68,10 +69,10 @@ Timing intervals must be positive safe integers. An unchecked timing option
 explicitly disables diagnostics even if the extension inherited an enabled
 `QLCPLUS_TIMING_DIAG` environment variable.
 
-Validate launch-option handling with:
+Validate build coverage and launch-option handling with:
 
 ```bash
-node --test .github/extensions/qlcplus-control/launch-options.test.mjs
+node --test .github/extensions/qlcplus-control/*.test.mjs
 ```
 
 ## Notes

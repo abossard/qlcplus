@@ -173,6 +173,17 @@ VCBridgeV5::VCBridgeV5(Doc *doc, VirtualConsole *vc)
 {
 }
 
+/** MCP action text is the lower-cased canonical action name reported by queries. */
+static VCButton::ButtonAction buttonActionFromMcp(const QString &action)
+{
+    if (action == "flash") return VCButton::Flash;
+    if (action == "blackout") return VCButton::Blackout;
+    if (action == "stopall") return VCButton::StopAll;
+    if (action == "freeze") return VCButton::Freeze;
+    if (action == "freezehold") return VCButton::FreezeHold;
+    return VCButton::Toggle;
+}
+
 QRect VCBridgeV5::snapRect(const QRect &rect) const
 {
     qreal s = m_vc->snappingSize();
@@ -294,16 +305,9 @@ int VCBridgeV5::addButton(int parentID, const QRect &geometry,
         if (functionID != Function::invalidId())
             button->setFunctionID(functionID);
 
-        if (action == "flash")
-            button->setActionType(VCButton::Flash);
-        else if (action == "blackout")
-            button->setActionType(VCButton::Blackout);
-        else if (action == "stopall")
-        {
-            button->setActionType(VCButton::StopAll);
-            if (stopAllFadeTime > 0)
-                button->setStopAllFadeOutTime(stopAllFadeTime);
-        }
+        button->setActionType(buttonActionFromMcp(action));
+        if (action == "stopall" && stopAllFadeTime > 0)
+            button->setStopAllFadeOutTime(stopAllFadeTime);
     }
     return widget->id();
 }
@@ -1248,10 +1252,7 @@ bool VCBridgeV5::setButtonAction(int widgetID, const QString &action)
     VCButton *button = qobject_cast<VCButton*>(widget);
     if (!button) return false;
 
-    if (action == "flash") button->setActionType(VCButton::Flash);
-    else if (action == "blackout") button->setActionType(VCButton::Blackout);
-    else if (action == "stopall") button->setActionType(VCButton::StopAll);
-    else button->setActionType(VCButton::Toggle);
+    button->setActionType(buttonActionFromMcp(action));
     return true;
 }
 
@@ -1517,13 +1518,7 @@ bool VCBridgeV5::configureButton(int widgetID, const ButtonConfig &config)
     if (config.functionID.has_value())
         button->setFunctionID(config.functionID.value());
     if (config.action.has_value())
-    {
-        const QString &a = config.action.value();
-        if (a == "flash") button->setActionType(VCButton::Flash);
-        else if (a == "blackout") button->setActionType(VCButton::Blackout);
-        else if (a == "stopall") button->setActionType(VCButton::StopAll);
-        else button->setActionType(VCButton::Toggle);
-    }
+        button->setActionType(buttonActionFromMcp(config.action.value()));
     if (config.startupIntensityEnabled.has_value())
         button->setStartupIntensityEnabled(config.startupIntensityEnabled.value());
     if (config.startupIntensity.has_value())

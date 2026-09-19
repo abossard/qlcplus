@@ -404,9 +404,9 @@ namespace VCValidate
         if (item.contains("action"))
         {
             auto v = item["action"].get<std::string>();
-            if (!isValidEnum(v, {"toggle", "flash", "blackout", "stopall"}))
+            if (!isValidEnum(v, {"toggle", "flash", "blackout", "stopall", "freeze", "freezehold"}))
                 return mkErr("action", "invalid value '" + v +
-                    "'. Must be one of: toggle, flash, blackout, stopall");
+                    "'. Must be one of: toggle, flash, blackout, stopall, freeze, freezehold");
         }
 
         // mode (slider)

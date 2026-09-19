@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+
 #include "vc_tool_surface_test.h"
 #include "tool_registry.h"
 #include "vcbridge.h"
@@ -94,6 +96,22 @@ public:
         ++configurationCalls;
         if (details.contains(widgetID) && config.clickAndGoType)
             details[widgetID].clickAndGoType = *config.clickAndGoType;
+        return true;
+    }
+    bool setWidgetCaption(int widgetID, const QString &caption) override
+    {
+        if (!details.contains(widgetID))
+            return false;
+        ++configurationCalls;
+        details[widgetID].caption = caption;
+        return true;
+    }
+    bool setButtonAction(int widgetID, const QString &action) override
+    {
+        if (!details.contains(widgetID))
+            return false;
+        ++configurationCalls;
+        details[widgetID].action = action;
         return true;
     }
 
@@ -281,6 +299,128 @@ void VCToolSurface_Test::invalidChildPageIndex_rejectedBeforeCreateOrUpsert()
     {
         QVERIFY(!bridge.details.contains(100));
     }
+}
+
+void VCToolSurface_Test::buttonActions_advertisedInSchemas_data()
+{
+    QTest::addColumn<QString>("toolName");
+    QTest::addColumn<QString>("action");
+
+    for (const char *tool : {"vc_create_widgets", "vc_update_widgets"})
+        for (const char *action : {"toggle", "flash", "blackout", "stopall", "freeze", "freezehold"})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(tool).arg(action)))
+                << QString(tool) << QString(action);
+}
+
+void VCToolSurface_Test::buttonActions_advertisedInSchemas()
+{
+    QFETCH(QString, toolName);
+    QFETCH(QString, action);
+
+    TestVCBridge bridge;
+    fastmcpp::tools::ToolManager tm;
+    registerVCCreateTools(tm, m_doc, &bridge);
+    registerVCUpdateTools(tm, m_doc, &bridge);
+
+    const Json properties = itemProperties(tm.input_schema_for(toolName.toStdString()));
+    QVERIFY2(properties.contains("action"), toolName.toUtf8().constData());
+    const Json advertised = properties.at("action").at("enum");
+    QVERIFY2(std::find(advertised.begin(), advertised.end(), Json(action.toStdString())) != advertised.end(),
+             advertised.dump().c_str());
+}
+
+void VCToolSurface_Test::freezeAction_captionUpsertKeepsIdentity()
+{
+    TestVCBridge bridge;
+    VCBridge::WidgetDetails existing;
+    existing.id = 200;
+    existing.type = "Button";
+    existing.parentID = 42;
+    existing.caption = "Hold the look";
+    existing.action = "toggle";
+    bridge.details.insert(existing.id, existing);
+
+    fastmcpp::tools::ToolManager tm;
+    registerVCCreateTools(tm, m_doc, &bridge);
+    registerVCUpdateTools(tm, m_doc, &bridge);
+
+    // A caption-matched create keeps the widget's identity and its action.
+    const Json created = parsedToolResult(tm.invoke("vc_create_widgets", {{"items", Json::array({{
+        {"type", "button"}, {"parentID", 42}, {"caption", "Hold the look"}, {"action", "freeze"}
+    }})}}));
+    QCOMPARE(created[0]["status"].get<std::string>(), std::string("existing"));
+    QCOMPARE(created[0]["widgetID"].get<int>(), 200);
+    QCOMPARE(bridge.creationCalls, 0);
+    QCOMPARE(bridge.details.value(200).action, QString("toggle"));
+
+    // An explicit update is what changes it.
+    const Json updated = parsedToolResult(tm.invoke("vc_update_widgets", {{"items", Json::array({{
+        {"widgetID", 200}, {"action", "freeze"}
+    }})}}));
+    QVERIFY2(!updated[0].contains("error"), updated.dump().c_str());
+    QCOMPARE(bridge.details.value(200).action, QString("freeze"));
+}
+
+void VCToolSurface_Test::invalidButtonAction_rejectedBeforeMutation_data()
+{
+    QTest::addColumn<QByteArray>("arguments");
+
+    // Each batch pairs a rejected item with a valid sibling. The rejected item also
+    // carries a caption change, so a mutation before validation would be visible.
+    QTest::newRow("update-unknown-action") << QByteArray(
+        R"({"items":[{"widgetID":100,"action":"frezee","caption":"Renamed"},)"
+        R"({"widgetID":101,"caption":"Sibling Renamed"}]})");
+    QTest::newRow("update-cross-type-action") << QByteArray(
+        R"({"items":[{"widgetID":102,"action":"freeze","caption":"Renamed"},)"
+        R"({"widgetID":101,"caption":"Sibling Renamed"}]})");
+    QTest::newRow("update-uppercase-action") << QByteArray(
+        R"({"items":[{"widgetID":100,"action":"Freeze","caption":"Renamed"},)"
+        R"({"widgetID":101,"caption":"Sibling Renamed"}]})");
+}
+
+void VCToolSurface_Test::invalidButtonAction_rejectedBeforeMutation()
+{
+    QFETCH(QByteArray, arguments);
+
+    TestVCBridge bridge;
+    VCBridge::WidgetDetails button;
+    button.id = 100;
+    button.type = "Button";
+    button.caption = "Original Button";
+    button.action = "toggle";
+    bridge.details.insert(button.id, button);
+
+    VCBridge::WidgetDetails sibling;
+    sibling.id = 101;
+    sibling.type = "Button";
+    sibling.caption = "Original Sibling";
+    sibling.action = "toggle";
+    bridge.details.insert(sibling.id, sibling);
+
+    VCBridge::WidgetDetails slider;
+    slider.id = 102;
+    slider.type = "Slider";
+    slider.caption = "Original Slider";
+    bridge.details.insert(slider.id, slider);
+
+    fastmcpp::tools::ToolManager tm;
+    registerVCUpdateTools(tm, m_doc, &bridge);
+
+    const Json result = parsedToolResult(
+        tm.invoke("vc_update_widgets", Json::parse(arguments.constData())));
+
+    QVERIFY(result.is_array());
+    QCOMPARE(result.size(), size_t(2));
+    QVERIFY2(result[0].contains("error"), result.dump().c_str());
+
+    // The rejected item mutated nothing, not even its valid caption field.
+    QCOMPARE(bridge.details.value(100).caption, QString("Original Button"));
+    QCOMPARE(bridge.details.value(100).action, QString("toggle"));
+    QCOMPARE(bridge.details.value(102).caption, QString("Original Slider"));
+
+    // The valid sibling in the same batch still applied.
+    QVERIFY2(!result[1].contains("error"), result.dump().c_str());
+    QCOMPARE(bridge.details.value(101).caption, QString("Sibling Renamed"));
 }
 
 void VCToolSurface_Test::setupVCTools_remainRegistered()

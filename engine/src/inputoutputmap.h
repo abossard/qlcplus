@@ -141,6 +141,71 @@ private:
     bool m_blackout;
 
     /*********************************************************************
+     * Freeze
+     *********************************************************************/
+public:
+    /**
+     * Get the effective workspace-global lighting freeze state.
+     *
+     * Freeze is held while the persistent latch is on OR while the shared
+     * momentary flag is held. Output rendering follows this aggregate.
+     *
+     * @return true if the lighting output is held, otherwise false
+     */
+    bool isFrozen() const;
+
+    /** The persistent latch component of the freeze state */
+    bool frozenLatch() const;
+
+    /** The shared while-pressed component of the freeze state */
+    bool frozenMomentary() const;
+
+    /**
+     * Set the persistent freeze latch.
+     *
+     * This sets the latch only. It never clears a held momentary Freeze, and
+     * while a momentary Freeze is held it does not change the effective state,
+     * so the held look is not re-captured.
+     *
+     * @param frozen If true, latch the current look, otherwise release the latch
+     */
+    void setFrozen(bool frozen);
+
+    /**
+     * Set the single shared while-pressed freeze flag.
+     *
+     * Matching Flash, there is one shared flag rather than a per-control set:
+     * any release clears it even if another control is still held. Clearing it
+     * never clears the persistent latch.
+     *
+     * @param held If true, hold the current look, otherwise release the hold
+     */
+    void setFrozenMomentary(bool held);
+
+signals:
+    /**
+     * Signal that is sent when the effective freeze state is changed.
+     * Emitted on aggregate edges only.
+     *
+     * @param frozen true if the lighting output is held, otherwise false
+     */
+    void frozenChanged(bool frozen);
+
+    /** Signal that is sent when the persistent latch is changed */
+    void frozenLatchChanged(bool latched);
+
+    /** Signal that is sent when the shared momentary flag is changed */
+    void frozenMomentaryChanged(bool held);
+
+private:
+    /** Apply the effective freeze state after a component changed */
+    void updateFrozenState(bool wasFrozen);
+
+    /** Freeze components. Runtime only, never saved, both reset with the universes. */
+    bool m_frozenLatch;
+    bool m_frozenMomentary;
+
+    /*********************************************************************
      * Universes
      *********************************************************************/
 public:

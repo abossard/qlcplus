@@ -21,8 +21,10 @@
 #define IOPLUGINSTUB_H
 
 #include <QStringList>
+#include <QSemaphore>
 #include <QString>
 #include <QList>
+#include <QPair>
 
 #include "qlcioplugin.h"
 
@@ -76,6 +78,19 @@ public:
 
     /** Fake universe buffer */
     QByteArray m_universe;
+
+    /** Log of (output line, dataChanged) for every writeUniverse call */
+    QList <QPair<quint32, bool> > m_writeLog;
+
+    /** The exact bytes handed to writeUniverse, one entry per call */
+    QList <QByteArray> m_writeFrames;
+
+    /** Barrier used to hold a publishing thread inside writeUniverse, so a
+      * test can observe what another thread can and cannot do meanwhile.
+      * Set m_gatedOutput to the line to block; -1 disables the barrier. */
+    int m_gatedOutput = -1;
+    QSemaphore m_gateEntered;
+    QSemaphore m_gateRelease;
 
     /*********************************************************************
      * Inputs

@@ -424,7 +424,7 @@ void VCValidation_Test::updateValidation_barsNumberOnButton_rejected()
 
 void VCValidation_Test::valueValidation_validAction()
 {
-    for (const char *a : {"toggle", "flash", "blackout", "stopall"})
+    for (const char *a : {"toggle", "flash", "blackout", "stopall", "freeze", "freezehold"})
     {
         Json item = {{"action", a}};
         auto err = VCValidate::validateFieldValues(item, VCType::Button);

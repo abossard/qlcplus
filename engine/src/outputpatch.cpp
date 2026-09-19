@@ -26,8 +26,23 @@
 
 #include "qlcioplugin.h"
 #include "outputpatch.h"
+#include "universe.h"
 
 #define GRACE_MS 1
+
+QByteArray OutputSource::blackoutSuppressed(const QByteArray &frame) const
+{
+    QByteArray suppressed = frame;
+    const uchar *capabilities = reinterpret_cast<const uchar *>(mask.constData());
+
+    for (int channel = 0; channel < suppressed.size(); channel++)
+    {
+        if (channel >= mask.size() || (capabilities[channel] & Universe::HTP))
+            suppressed[channel] = char(0);
+    }
+
+    return suppressed;
+}
 
 /*****************************************************************************
  * Initialization
@@ -100,6 +115,10 @@ bool OutputPatch::reconnect()
             QMap<QString, QVariant>::iterator it = m_parametersCache.begin();
             for (; it != m_parametersCache.end(); it++)
                 m_plugin->setParameter(m_universe, m_pluginLine, QLCIOPlugin::Output, it.key(), it.value());
+
+            // the reopened line faces a receiver with no cache, so the next
+            // published frame has to be reported as a full refresh
+            m_heldFrame.clear();
         }
         return ret;
     }
@@ -205,7 +224,8 @@ void OutputPatch::setBlackout(bool blackout)
     emit blackoutChanged(m_blackout);
 }
 
-void OutputPatch::dump(quint32 universe, const QByteArray& data, bool dataChanged)
+void OutputPatch::dump(quint32 universe, const QByteArray& data, bool dataChanged,
+                       const OutputSource &source)
 {
     /* Don't do anything if there is no plugin and/or output line. */
     if (m_plugin != NULL && m_pluginLine != QLCIOPlugin::invalidLine())
@@ -213,13 +233,54 @@ void OutputPatch::dump(quint32 universe, const QByteArray& data, bool dataChange
         if (m_paused)
         {
             if (m_pauseBuffer.isNull())
+            {
                 m_pauseBuffer.append(data);
+                // remember where the buffered frame came from, so a later
+                // freeze holds the paused look and not the live one
+                m_source = source;
+            }
 
-            m_plugin->writeUniverse(universe, m_pluginLine, m_pauseBuffer, dataChanged);
+            // The pause buffer is kept unblackened so it can be restored
+            // intact, but a paused output must not defeat Blackout.
+            const QByteArray frame = m_blackout ? m_source.blackoutSuppressed(m_pauseBuffer)
+                                                : m_pauseBuffer;
+
+            m_plugin->writeUniverse(universe, m_pluginLine, frame, dataChanged);
         }
         else
         {
+            m_source = source;
             m_plugin->writeUniverse(universe, m_pluginLine, data, dataChanged);
         }
     }
+}
+
+void OutputPatch::dumpHeld(quint32 universe, const QByteArray &data,
+                           const QByteArray &unblackened, bool forceChanged)
+{
+    if (m_plugin == NULL || m_pluginLine == QLCIOPlugin::invalidLine())
+        return;
+
+    // A pause requested while the look is held pins the frame on stage, so
+    // thaw resumes that instead of whatever the producers reached meanwhile.
+    // The buffer is stored unblackened, like every other pause capture.
+    if (m_paused && m_pauseBuffer.isNull())
+        m_pauseBuffer.append(unblackened);
+
+    const bool dataChanged = forceChanged || data != m_heldFrame;
+    m_heldFrame = data;
+
+    m_plugin->writeUniverse(universe, m_pluginLine, data, dataChanged);
+}
+
+const OutputSource &OutputPatch::heldSource() const
+{
+    return m_source;
+}
+
+void OutputPatch::releasePublicationHistory()
+{
+    m_source = OutputSource();
+    m_heldFrame.clear();
+    m_pauseBuffer.clear();
 }

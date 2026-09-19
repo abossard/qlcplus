@@ -122,7 +122,7 @@ public:
     struct ButtonConfig
     {
         std::optional<quint32> functionID;
-        std::optional<QString> action;         // "toggle"/"flash"/"blackout"/"stopall"
+        std::optional<QString> action;         // "toggle"/"flash"/"blackout"/"stopall"/"freeze"/"freezehold"
         std::optional<QString> iconPath;
         std::optional<bool> startupIntensityEnabled;
         std::optional<qreal> startupIntensity; // 0.0-1.0
@@ -244,7 +244,7 @@ public:
         QString caption;
         QRect geometry;
         quint32 functionID = 0;
-        QString action;          // Button only: toggle/flash/blackout/stopall
+        QString action;          // Button only: toggle/flash/blackout/stopall/freeze/freezehold
         QString sliderMode;      // Slider only: level/playback/submaster/grandmaster
         QList<QPair<quint32, quint32>> channels;  // Slider level-mode channels
         QList<InputMapping> inputMappings;

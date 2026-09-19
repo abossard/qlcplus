@@ -102,8 +102,20 @@ public:
 
     /** @reimp – when a Flash button is hidden (e.g. a multipage frame switches
      *  page) while pressed, its release event never arrives, so release the
-     *  flash here to avoid the button staying stuck on. */
+     *  flash here to avoid the button staying stuck on. A held while-pressed
+     *  Freeze button drops its activation for the same reason. */
     void setVisible(bool isVisible) override;
+
+    /** @reimp – a disabled control stops receiving input, so a held
+     *  while-pressed Freeze activation must be dropped. */
+    void setDisabled(bool disable) override;
+
+private:
+    /** Drop this button's while-pressed Freeze activation, if it holds one.
+     *  Used wherever the control can stop receiving its release event. */
+    void releaseHeldActivation();
+
+public:
 
 signals:
     void functionIDChanged(quint32 id);
@@ -117,6 +129,14 @@ protected slots:
 
     /** Basically the same as slotFunctionStopped() but for flash signal */
     void slotFunctionFlashing(quint32 fid, bool state);
+
+    /** Handler for the persistent workspace-global freeze latch. Latched Freeze
+     *  buttons display the latch, never the aggregate freeze state. */
+    void slotFrozenLatchChanged(bool latched);
+
+    /** Handler for the shared momentary freeze flag. While-pressed Freeze
+     *  buttons all mirror it, as every Flash button mirrors Function::flashing. */
+    void slotFrozenMomentaryChanged(bool held);
 
 private:
     FunctionParent functionParent() const;
@@ -178,8 +198,13 @@ public:
      * Flash: Keep the function running as long as the button is kept down.
      * Blackout: Toggle blackout on/off.
      * StopAll: Stop all functions (panic button).
+     * Freeze: Invert the persistent workspace-global freeze latch.
+     * FreezeHold: Hold the shared momentary freeze flag while pressed.
+     *
+     * Append new actions at the end: the numeric values are persisted in
+     * Tardis undo records and in saved workspaces.
      */
-    enum ButtonAction { Toggle, Flash, Blackout, StopAll };
+    enum ButtonAction { Toggle, Flash, Blackout, StopAll, Freeze, FreezeHold };
     Q_ENUM(ButtonAction)
 
     ButtonAction actionType() const;
@@ -234,6 +259,16 @@ public:
 public slots:
     /** @reimp */
     void slotInputValueChanged(quint8 id, uchar value) override;
+
+private:
+    /** Last pressure state seen on the external control, so that key auto-repeat
+     *  and duplicate non-zero pressure toggle Freeze only on the press edge. */
+    bool m_inputPressed;
+
+    /** True while this specific button holds the shared momentary Freeze flag.
+     *  The visible state mirrors the shared component, so it cannot tell whether
+     *  this button is the one holding it. */
+    bool m_holdsMomentaryFreeze;
 
     /*********************************************************************
      * Load & Save

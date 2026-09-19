@@ -19,6 +19,11 @@ private slots:
     void childPageIndex_createAndUpsert_preservesCurrentPage();
     void invalidChildPageIndex_rejectedBeforeCreateOrUpsert_data();
     void invalidChildPageIndex_rejectedBeforeCreateOrUpsert();
+    void buttonActions_advertisedInSchemas_data();
+    void buttonActions_advertisedInSchemas();
+    void freezeAction_captionUpsertKeepsIdentity();
+    void invalidButtonAction_rejectedBeforeMutation_data();
+    void invalidButtonAction_rejectedBeforeMutation();
     void setupVCTools_remainRegistered();
 
 private:

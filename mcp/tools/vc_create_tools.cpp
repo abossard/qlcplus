@@ -128,7 +128,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"enableButtonVisible", {{"type", "boolean"}, {"description", "Frame: show enable button"}}},
                 {"soloframeMixing", {{"type", "boolean"}, {"description", "SoloFrame: allow mixing"}}},
                 {"excludeMonitoredFunctions", {{"type", "boolean"}, {"description", "SoloFrame: exclude monitored functions"}}},
-                {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall"}}, {"description", "Button action type"}}},
+                {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall", "freeze", "freezehold"}}, {"description", "Button action type. freeze toggles the workspace-global freeze latch; freezehold holds freeze while pressed."}}},
                 {"stopAllFadeTime", {{"type", "integer"}, {"description", "Button: fade time in ms for stopall action"}}},
                 {"iconPath", {{"type", "string"}, {"description", "Button: icon file path"}}},
                 {"keySequence", {{"type", "string"}, {"description", "Button: keyboard shortcut (e.g. 'Ctrl+A')"}}},

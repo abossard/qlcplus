@@ -18,6 +18,8 @@
 */
 #include <QSignalSpy>
 #include <QtTest>
+#include <atomic>
+#include <thread>
 #include <array>
 #include <cmath>
 #include "../doc/audio_test_capture.h"
@@ -26,17 +28,24 @@
 #include "audioframe.h"
 
 #define private public
+#define protected public
 #include "iopluginstub.h"
 #include "inputoutputmap_test.h"
 #include "inputoutputmap.h"
+#include "channelmodifier.h"
 #include "qlcinputsource.h"
+#include "chaserstep.h"
 #include "grandmaster.h"
 #include "outputpatch.h"
 #include "inputpatch.h"
 #include "qlcconfig.h"
 #include "universe.h"
+#include "fixture.h"
+#include "chaser.h"
+#include "scene.h"
 #include "qlcfile.h"
 #include "doc.h"
+#undef protected
 #undef private
 
 #define TESTPLUGINDIR "../iopluginstub"
@@ -845,6 +854,1490 @@ void InputOutputMap_Test::blackout()
 
         offset += 512;
     }
+}
+
+/****************************************************************************
+ * Freeze: hold the lighting output of every universe
+ ****************************************************************************/
+
+/** Publish one universe exactly the way the worker thread does after a tick */
+static void dumpUniverse(Universe *universe, bool dataChanged = true)
+{
+    const QByteArray postGM = universe->postGMValues()->mid(0, universe->usedChannels());
+    universe->dumpOutput(postGM, dataChanged);
+}
+
+/** Patch two universes to two stub output lines and give them a nonuniform
+ *  mix of HTP intensity and LTP channels, so held values cannot be confused
+ *  with a uniformly filled buffer. */
+static void patchTwoUniverses(InputOutputMap &iom, IOPluginStub *stub)
+{
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    iom.setOutputPatch(1, stub->name(), "", stub->outputs().at(1), 1);
+
+    QList<Universe *> unis = iom.claimUniverses();
+    unis[0]->setChannelCapability(10, QLCChannel::Intensity);
+    unis[0]->setChannelCapability(11, QLCChannel::Pan);
+    unis[0]->setChannelCapability(12, QLCChannel::Intensity);
+    unis[1]->setChannelCapability(20, QLCChannel::Intensity);
+    unis[1]->setChannelCapability(21, QLCChannel::Colour);
+    iom.releaseUniverses();
+}
+
+/** Write a complete look and publish it. HTP channels are cleared first,
+ *  the way processFaders() does at the start of every tick. */
+static void writeLook(QList<Universe *> unis, uchar u0ch10, uchar u0ch11,
+                      uchar u0ch12, uchar u1ch20, uchar u1ch21)
+{
+    unis[0]->zeroIntensityChannels();
+    unis[1]->zeroIntensityChannels();
+    unis[0]->write(10, u0ch10);
+    unis[0]->write(11, u0ch11);
+    unis[0]->write(12, u0ch12);
+    unis[1]->write(20, u1ch20);
+    unis[1]->write(21, u1ch21);
+}
+
+void InputOutputMap_Test::freezeHoldsLastSubmittedLook()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    QVERIFY(iom.isFrozen() == false);
+
+    /* Look A reaches the plugin */
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(33));
+
+    QSignalSpy frozenSpy(&iom, SIGNAL(frozenChanged(bool)));
+    iom.setFrozen(true);
+    QVERIFY(iom.isFrozen() == true);
+    QCOMPARE(frozenSpy.count(), 1);
+    QCOMPARE(frozenSpy.at(0).at(0).toBool(), true);
+
+    /* Look B: the producers keep running, the output must not follow */
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(33));
+
+    /* A repeated enable request must not re-capture the newer look */
+    iom.setFrozen(true);
+    QCOMPARE(frozenSpy.count(), 1);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(90));
+}
+
+/* Expected bytes below are worked out by hand from the Grand Master rules,
+   not recomputed the way the engine does:
+   Reduce scales by value/255 and rounds with floor(v * f + 0.5),
+   Limit clamps to the Grand Master value, and the Intensity channel mode
+   leaves LTP channels alone. */
+/* Rubber-duck trap 2: the snapshot has to be the frame the receivers really
+   saw, not whatever the producers composed after it. */
+/* C1-1: a while-pressed control holds the look for as long as it is held */
+void InputOutputMap_Test::freezeMomentaryHoldsAndReleases()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    QSignalSpy aggregateSpy(&iom, SIGNAL(frozenChanged(bool)));
+    QSignalSpy momentarySpy(&iom, SIGNAL(frozenMomentaryChanged(bool)));
+    QSignalSpy latchSpy(&iom, SIGNAL(frozenLatchChanged(bool)));
+
+    iom.setFrozenMomentary(true);
+    QVERIFY(iom.isFrozen() == true);
+    QVERIFY(iom.frozenMomentary() == true);
+    QVERIFY(iom.frozenLatch() == false);
+    QCOMPARE(aggregateSpy.count(), 1);
+    QCOMPARE(momentarySpy.count(), 1);
+    QCOMPARE(latchSpy.count(), 0);
+
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    iom.setFrozenMomentary(false);
+    QVERIFY(iom.isFrozen() == false);
+    QVERIFY(iom.frozenMomentary() == false);
+    QCOMPARE(aggregateSpy.count(), 2);
+    QCOMPARE(momentarySpy.count(), 2);
+    QCOMPARE(latchSpy.count(), 0);
+
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(5));
+}
+
+/* C1-2: any release clears the shared momentary flag, never the latch, and
+   the latch keeps the original snapshot rather than capturing a new one */
+void InputOutputMap_Test::freezeMomentaryReleaseKeepsLatch()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setFrozen(true);
+    QVERIFY(iom.frozenLatch() == true);
+    QVERIFY(iom.frozenMomentary() == false);
+
+    writeLook(unis, 150, 60, 20, 80, 30);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    QSignalSpy aggregateSpy(&iom, SIGNAL(frozenChanged(bool)));
+
+    /* A while-pressed control is used on top of the latch */
+    iom.setFrozenMomentary(true);
+    QCOMPARE(aggregateSpy.count(), 0);
+
+    writeLook(unis, 100, 40, 30, 70, 20);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    /* Releasing it must leave the latch, and the original snapshot, alone */
+    iom.setFrozenMomentary(false);
+    QVERIFY(iom.isFrozen() == true);
+    QVERIFY(iom.frozenLatch() == true);
+    QVERIFY(iom.frozenMomentary() == false);
+    QCOMPARE(aggregateSpy.count(), 0);
+
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+
+    iom.setFrozen(false);
+    QCOMPARE(aggregateSpy.count(), 1);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+}
+
+/* C0-4: pressing the latch while a momentary hold is active flips the latch
+   only. The effective state does not change, so nothing is re-captured. */
+void InputOutputMap_Test::freezeLatchPressWhileMomentaryDoesNotRecapture()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setFrozenMomentary(true);
+
+    writeLook(unis, 150, 60, 20, 80, 30);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    QSignalSpy aggregateSpy(&iom, SIGNAL(frozenChanged(bool)));
+    QSignalSpy latchSpy(&iom, SIGNAL(frozenLatchChanged(bool)));
+
+    iom.setFrozen(true);
+    QVERIFY(iom.frozenLatch() == true);
+    QVERIFY(iom.frozenMomentary() == true);
+    QCOMPARE(latchSpy.count(), 1);
+    QCOMPARE(latchSpy.at(0).at(0).toBool(), true);
+    QCOMPARE(aggregateSpy.count(), 0);
+
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    iom.setFrozenMomentary(false);
+    QVERIFY(iom.isFrozen() == true);
+    QCOMPARE(aggregateSpy.count(), 0);
+
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+}
+
+/* Both components are runtime state and are cleared with the universes */
+void InputOutputMap_Test::freezeResetClearsBothComponents()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setFrozen(true);
+    iom.setFrozenMomentary(true);
+    QVERIFY(iom.frozenLatch() == true);
+    QVERIFY(iom.frozenMomentary() == true);
+
+    stub->m_writeLog.clear();
+    iom.resetUniverses();
+
+    QVERIFY(iom.frozenLatch() == false);
+    QVERIFY(iom.frozenMomentary() == false);
+    QVERIFY(iom.isFrozen() == false);
+    QCOMPARE(stub->m_writeLog.count(), 0);
+}
+
+void InputOutputMap_Test::freezeHoldsLastSubmittedNotUnsentFrame()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    /* Look A is submitted to the plugin */
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    /* Look B is composed but never submitted */
+    writeLook(unis, 5, 1, 255, 250, 240);
+
+    iom.setFrozen(true);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(33));
+}
+
+/* Rubber-duck trap 1: a patch paused while the Grand Master was fully down
+   must still be able to reveal its look when the Grand Master comes back,
+   which its published bytes alone could never do. */
+void InputOutputMap_Test::freezeHoldsPausedSourceAcrossGrandMaster()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    iom.setGrandMasterValueMode(GrandMaster::Reduce);
+    iom.setGrandMasterChannelMode(GrandMaster::Intensity);
+    iom.setGrandMasterValue(0);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+
+    /* The pause buffer and its provenance are both captured on this dump */
+    pausedPatch->setPaused(true);
+    writeLook(unis, 150, 60, 20, 90, 33);
+    dumpUniverse(unis[0]);
+
+    /* The live patch moves on, the paused one must not follow */
+    writeLook(unis, 100, 40, 30, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setFrozen(true);
+    iom.setGrandMasterValue(255);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(40));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(150));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(60));
+
+    /* Thaw returns the paused patch to its legacy buffer, captured at zero
+       Grand Master. The level step is the documented consequence. */
+    iom.setFrozen(false);
+    dumpUniverse(unis[0]);
+
+    QVERIFY(pausedPatch->paused() == true);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(60));
+}
+
+/* Rubber-duck trap 1, second half: pausing while blacked out buffers
+   blackout bytes, but the source behind them is still the look. */
+void InputOutputMap_Test::freezePausedDuringBlackoutHoldsItsSource()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setBlackout(true);
+    pausedPatch->setPaused(true);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+
+    iom.setFrozen(true);
+
+    /* Producers move on while hidden, then blackout is cleared */
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+    iom.setBlackout(false);
+
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+}
+
+/* Rubber-duck trap 3: switching AllChannels -> Intensity leaves the live
+   post-GM buffer holding scaled non-intensity bytes. Freeze makes that
+   visible, so thaw must recompose rather than step back to the stale value. */
+void InputOutputMap_Test::freezeThawRecomposesAfterChannelModeChange()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    iom.setGrandMasterValueMode(GrandMaster::Reduce);
+    iom.setGrandMasterChannelMode(GrandMaster::AllChannels);
+    iom.setGrandMasterValue(128);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(39));
+
+    iom.setFrozen(true);
+
+    /* Intensity only: the held LTP channel must stop being scaled */
+    iom.setGrandMasterChannelMode(GrandMaster::Intensity);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+
+    /* Thaw must land on the same value, not on the stale scaled one */
+    iom.setFrozen(false);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+}
+
+void InputOutputMap_Test::freezeAppliesLiveGrandMaster_data()
+{
+    QTest::addColumn<int>("captureGM");
+    QTest::addColumn<int>("liveGM");
+    QTest::addColumn<int>("valueMode");
+    QTest::addColumn<int>("channelMode");
+    QTest::addColumn<int>("expectedIntensity");   // captured 200
+    QTest::addColumn<int>("expectedLTP");         // captured 77
+    QTest::addColumn<int>("expectedLowIntensity");// captured 13
+
+    QTest::newRow("reduce intensity, dimmed after capture")
+            << 255 << 128 << int(GrandMaster::Reduce) << int(GrandMaster::Intensity)
+            << 100 << 77 << 7;
+    QTest::newRow("reduce all channels, dimmed after capture")
+            << 255 << 128 << int(GrandMaster::Reduce) << int(GrandMaster::AllChannels)
+            << 100 << 39 << 7;
+    QTest::newRow("limit intensity")
+            << 255 << 100 << int(GrandMaster::Limit) << int(GrandMaster::Intensity)
+            << 100 << 77 << 13;
+    QTest::newRow("limit all channels")
+            << 255 << 50 << int(GrandMaster::Limit) << int(GrandMaster::AllChannels)
+            << 50 << 50 << 13;
+    QTest::newRow("captured at zero, raised to full")
+            << 0 << 255 << int(GrandMaster::Reduce) << int(GrandMaster::Intensity)
+            << 200 << 77 << 13;
+    QTest::newRow("captured dimmed, raised to full")
+            << 64 << 255 << int(GrandMaster::Reduce) << int(GrandMaster::Intensity)
+            << 200 << 77 << 13;
+    QTest::newRow("reduced to zero after capture")
+            << 255 << 0 << int(GrandMaster::Reduce) << int(GrandMaster::Intensity)
+            << 0 << 77 << 0;
+}
+
+void InputOutputMap_Test::freezeAppliesLiveGrandMaster()
+{
+    QFETCH(int, captureGM);
+    QFETCH(int, liveGM);
+    QFETCH(int, valueMode);
+    QFETCH(int, channelMode);
+    QFETCH(int, expectedIntensity);
+    QFETCH(int, expectedLTP);
+    QFETCH(int, expectedLowIntensity);
+
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    /* Capture the look under the Grand Master that was set at that time */
+    iom.setGrandMasterValueMode(GrandMaster::Reduce);
+    iom.setGrandMasterChannelMode(GrandMaster::Intensity);
+    iom.setGrandMasterValue(uchar(captureGM));
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    if (captureGM == 0)
+    {
+        /* Proves the held source cannot be the published bytes: everything
+           the Grand Master scaled away has to come back later */
+        QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+        QCOMPARE(uchar(stub->m_universe[12]), uchar(0));
+    }
+
+    iom.setFrozen(true);
+
+    /* Producers keep running and the Grand Master keeps being operated */
+    writeLook(unis, 5, 1, 255, 250, 240);
+    iom.setGrandMasterValueMode(GrandMaster::ValueMode(valueMode));
+    iom.setGrandMasterChannelMode(GrandMaster::ChannelMode(channelMode));
+    iom.setGrandMasterValue(uchar(liveGM));
+
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(expectedIntensity));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(expectedLTP));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(expectedLowIntensity));
+
+    /* A second universe holds its own look through the same Grand Master */
+    QVERIFY(uchar(stub->m_universe[512 + 20]) != uchar(250));
+    QVERIFY(uchar(stub->m_universe[512 + 21]) != uchar(240));
+}
+
+void InputOutputMap_Test::freezeBlackoutOverridesHeldLook()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    iom.setFrozen(true);
+
+    /* Producers move on to a look that must never be published */
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    /* Blackout wins over the held look, using the existing channel classes:
+       intensity goes dark, the held LTP value stays */
+    iom.setBlackout(true);
+    QVERIFY(iom.blackout() == true);
+    QVERIFY(iom.isFrozen() == true);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(33));
+
+    /* Producers keep writing while blacked out and frozen */
+    writeLook(unis, 7, 2, 9, 11, 13);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+
+    /* Clearing blackout restores the held look, not the producers' look */
+    iom.setBlackout(false);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(13));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(33));
+
+    /* Clearing blackout restores it under the live Grand Master */
+    iom.setGrandMasterValue(128);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(7));
+
+    iom.setFrozen(false);
+    iom.setGrandMasterValue(255);
+
+    /* The other order: blackout first, then freeze. The hidden look is
+       captured, so clearing blackout reveals it rather than zeros. */
+    writeLook(unis, 111, 55, 22, 44, 66);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    iom.setBlackout(true);
+    iom.setFrozen(true);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(55));
+
+    writeLook(unis, 3, 4, 5, 6, 7);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    iom.setBlackout(false);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(111));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(55));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(22));
+}
+
+/* Owner decision 1: frozen Blackout must suppress the RENDERED held look,
+   retaining rendered non-HTP values, not the raw pre-GM blackout buffer. */
+void InputOutputMap_Test::freezeBlackoutSuppressesRenderedHeldLook()
+{
+    ChannelModifier invert;
+    QList<QPair<uchar, uchar> > map;
+    map << qMakePair(uchar(0), uchar(255)) << qMakePair(uchar(255), uchar(0));
+    invert.setModifierMap(map);
+
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    QVERIFY(iom.setInputPatch(0, stub->name(), "", stub->inputs().at(0), 0));
+    iom.setUniversePassthrough(0, true);
+    stub->emitValueChanged(UINT_MAX, 0, 11, 200);
+    iom.flushInputs();
+
+    unis[0]->setChannelModifier(11, &invert);
+
+    iom.setGrandMasterValueMode(GrandMaster::Reduce);
+    iom.setGrandMasterChannelMode(GrandMaster::AllChannels);
+    iom.setGrandMasterValue(128);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    /* 77 -> reduce at 128/255 -> 39 -> inverted -> 216 -> passthrough floor 200 */
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(216));
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(7));
+
+    iom.setFrozen(true);
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(216));
+
+    /* Blackout suppresses the HTP classes of the rendered held look and
+       retains the rendered non-HTP value, not the raw captured 77 */
+    iom.setBlackout(true);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(216));
+
+    iom.setBlackout(false);
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(216));
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+}
+
+/* Owner decision 2, non-frozen half: a locally paused output may not defeat
+   Blackout. Its unblackened pause buffer is preserved and suppressed on the
+   way out, so clearing Blackout restores exactly what it was holding. */
+void InputOutputMap_Test::pausedPatchRespectsBlackout()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    pausedPatch->setPaused(true);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    iom.setBlackout(true);
+    QVERIFY(iom.isFrozen() == false);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+
+    /* The pause buffer itself is untouched, so it comes back intact */
+    iom.setBlackout(false);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+    QVERIFY(pausedPatch->paused() == true);
+}
+
+/* Owner decision 2, thaw half: no bright paused buffer may leak on thaw
+   while Blackout is still active. */
+void InputOutputMap_Test::freezePausedThawUnderBlackoutStaysDark()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    /* Bright look A is pinned by a local pause before Freeze */
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    pausedPatch->setPaused(true);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    iom.setFrozen(true);
+    iom.setBlackout(true);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+
+    /* Thaw while Blackout remains on: the rig must stay dark */
+    iom.setFrozen(false);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+
+    /* Clearing Blackout restores the pinned look A, unblackened */
+    iom.setBlackout(false);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+}
+
+void InputOutputMap_Test::freezeThawPublishesLatestLook()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    /* A second output patch on universe 0, paused before Freeze */
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+    QCOMPARE(iom.outputPatchesCount(0), 2);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    /* Look A, then look B which the paused patch keeps */
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    pausedPatch->setPaused(true);
+    writeLook(unis, 160, 60, 20, 80, 30);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(160));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(160));
+
+    /* Look C reaches the live patch only */
+    writeLook(unis, 100, 40, 30, 70, 20);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(160));
+
+    iom.setFrozen(true);
+
+    /* Look D: each patch holds its own source, the paused one holds B */
+    writeLook(unis, 50, 20, 40, 60, 10);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(30));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(160));
+    QCOMPARE(uchar(stub->m_universe[1024 + 12]), uchar(20));
+
+    /* The Grand Master dims both held sources, including the paused one */
+    iom.setGrandMasterValue(128);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(50));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(15));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(40));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(80));
+    QCOMPARE(uchar(stub->m_universe[1024 + 12]), uchar(10));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(60));
+
+    iom.setGrandMasterValue(255);
+
+    /* Thaw jumps to the look the producers reached, with no restart.
+       The independent pause survives and resumes its own buffer. */
+    iom.setFrozen(false);
+    QVERIFY(iom.isFrozen() == false);
+    QVERIFY(pausedPatch->paused() == true);
+
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(50));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(20));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(40));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(60));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(10));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(160));
+    QCOMPARE(uchar(stub->m_universe[1024 + 12]), uchar(20));
+}
+
+void InputOutputMap_Test::freezeResetClearsLatchAndHeldLook()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QSignalSpy frozenSpy(&iom, SIGNAL(frozenChanged(bool)));
+    iom.setFrozen(true);
+    QCOMPARE(frozenSpy.count(), 1);
+
+    /* A replaced workspace releases the latch and forgets the held look,
+       without first publishing anything from the workspace being discarded */
+    stub->m_writeLog.clear();
+    iom.resetUniverses();
+    QVERIFY(iom.isFrozen() == false);
+    QCOMPARE(stub->m_writeLog.count(), 0);
+    QCOMPARE(frozenSpy.count(), 2);
+    QCOMPARE(frozenSpy.at(1).at(0).toBool(), false);
+
+    /* Freezing again before any new frame was submitted must not resurrect
+       the look that belonged to the discarded workspace */
+    iom.setFrozen(true);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[512 + 21]), uchar(0));
+}
+
+void InputOutputMap_Test::freezeCoversUniverseAddedWhileFrozen()
+{
+    InputOutputMap iom(m_doc, 1);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    QList<Universe *> unis = iom.universes();
+    unis[0]->setChannelCapability(10, QLCChannel::Intensity);
+    unis[0]->write(10, 200);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    iom.setFrozen(true);
+
+    /* A universe added while the workspace is frozen must not leak live
+       output. It has no publication history, so it holds zero until thaw. */
+    QVERIFY(iom.addUniverse());
+    iom.setOutputPatch(1, stub->name(), "", stub->outputs().at(1), 1);
+
+    Universe *added = iom.universe(1);
+    QVERIFY(added != NULL);
+    added->setChannelCapability(20, QLCChannel::Intensity);
+    added->write(20, 222);
+    dumpUniverse(added);
+
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(0));
+
+    /* Thaw releases it together with the rest of the workspace */
+    iom.setFrozen(false);
+    dumpUniverse(added);
+    QCOMPARE(uchar(stub->m_universe[512 + 20]), uchar(222));
+}
+
+/** The dataChanged flags the plugin received for one output line */
+static QList<bool> changeFlagsFor(IOPluginStub *stub, quint32 output)
+{
+    QList<bool> flags;
+    for (int i = 0; i < stub->m_writeLog.count(); i++)
+    {
+        if (stub->m_writeLog.at(i).first == output)
+            flags << stub->m_writeLog.at(i).second;
+    }
+    return flags;
+}
+
+void InputOutputMap_Test::freezeKeepsPublishingRefreshes()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+    stub->m_writeLog.clear();
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0], unis[0]->hasChanged());
+    dumpUniverse(unis[1], unis[1]->hasChanged());
+
+    iom.setFrozen(true);
+
+    /* The producers keep moving. Refresh callbacks must keep coming, but
+       after the freeze edge the held bytes never change, so the frames
+       must be reported clean even though the live values are changing. */
+    stub->m_writeLog.clear();
+    for (int tick = 0; tick < 3; tick++)
+    {
+        writeLook(unis, uchar(200 - tick * 10), uchar(77 - tick), 13, uchar(90 - tick), 33);
+        dumpUniverse(unis[0], unis[0]->hasChanged());
+        dumpUniverse(unis[1], unis[1]->hasChanged());
+    }
+
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true << false << false);
+    QCOMPARE(changeFlagsFor(stub, 1), QList<bool>() << true << false << false);
+
+    /* A Grand Master move changes the held bytes, so it must be reported */
+    stub->m_writeLog.clear();
+    iom.setGrandMasterValue(128);
+    dumpUniverse(unis[0], unis[0]->hasChanged());
+    dumpUniverse(unis[0], unis[0]->hasChanged());
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true << false);
+
+    /* Blackout and its release both change the effective bytes */
+    stub->m_writeLog.clear();
+    iom.setBlackout(true);
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true);
+
+    stub->m_writeLog.clear();
+    iom.setBlackout(false);
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true);
+
+    /* Thaw must report a change even though the generator went static
+       and the live bytes happen to match the held ones */
+    stub->m_writeLog.clear();
+    iom.setFrozen(false);
+    dumpUniverse(unis[0], unis[0]->hasChanged());
+    dumpUniverse(unis[0], unis[0]->hasChanged());
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true << false);
+}
+
+void InputOutputMap_Test::freezeHoldsCapturedModifierAndPassthrough()
+{
+    /* Inverting modifier: getValue(v) == 255 - v */
+    ChannelModifier invert;
+    QList<QPair<uchar, uchar> > map;
+    map << qMakePair(uchar(0), uchar(255)) << qMakePair(uchar(255), uchar(0));
+    invert.setModifierMap(map);
+    QCOMPARE(invert.getValue(13), uchar(242));
+    QCOMPARE(invert.getValue(7), uchar(248));
+
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    /* Passthrough feeds an HTP floor onto the LTP channel 11 */
+    QVERIFY(iom.setInputPatch(0, stub->name(), "", stub->inputs().at(0), 0));
+    iom.setUniversePassthrough(0, true);
+    stub->emitValueChanged(UINT_MAX, 0, 11, 90);
+    iom.flushInputs();
+
+    unis[0]->setChannelModifier(12, &invert);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    dumpUniverse(unis[1]);
+
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(90));   // passthrough floor wins over 77
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(242));  // 13 inverted
+
+    iom.setFrozen(true);
+
+    /* Configuration changes after the capture must not reach the held look */
+    unis[0]->setChannelModifier(12, NULL);
+    stub->emitValueChanged(UINT_MAX, 0, 11, 200);
+    iom.flushInputs();
+    writeLook(unis, 5, 1, 255, 250, 240);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(242));
+
+    /* The live Grand Master still runs upstream of the captured modifier:
+       13 -> reduce at 128/255 -> 7 -> inverted -> 248 */
+    iom.setGrandMasterValue(128);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(248));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(90));
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+}
+
+/* Rubber-duck trap 4: qmlui/fixturemanager.cpp:2693 edits an existing
+   ChannelModifier in place, so holding a pointer to one is not a snapshot. */
+void InputOutputMap_Test::freezeHoldsModifierValuesNotPointer()
+{
+    ChannelModifier invert;
+    QList<QPair<uchar, uchar> > map;
+    map << qMakePair(uchar(0), uchar(255)) << qMakePair(uchar(255), uchar(0));
+    invert.setModifierMap(map);
+    QCOMPARE(invert.getValue(13), uchar(242));
+
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    unis[0]->setChannelModifier(12, &invert);
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(242));
+
+    iom.setFrozen(true);
+
+    /* The operator edits the modifier template itself while the look is held */
+    QList<QPair<uchar, uchar> > identity;
+    identity << qMakePair(uchar(0), uchar(0)) << qMakePair(uchar(255), uchar(255));
+    invert.setModifierMap(identity);
+    QCOMPARE(invert.getValue(13), uchar(13));
+
+    dumpUniverse(unis[0]);
+
+    /* The held look must keep the mapping that was captured */
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(242));
+}
+
+/* Rubber-duck trap 3: reopening a line gives a receiver with no cache, so the
+   next held frame has to be reported as a change even if the bytes match. */
+void InputOutputMap_Test::freezeReconnectForcesFullRefresh()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    QList<Universe *> unis = iom.universes();
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+
+    iom.setFrozen(true);
+    dumpUniverse(unis[0]);   // freeze edge, reported as a change
+
+    /* The held look has settled: further frames are clean */
+    stub->m_writeLog.clear();
+    dumpUniverse(unis[0]);
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << false);
+
+    QVERIFY(unis[0]->outputPatch(0)->reconnect());
+
+    stub->m_writeLog.clear();
+    dumpUniverse(unis[0]);
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << true);
+
+    /* and it settles again afterwards */
+    stub->m_writeLog.clear();
+    dumpUniverse(unis[0]);
+    QCOMPARE(changeFlagsFor(stub, 0), QList<bool>() << false);
+}
+
+void InputOutputMap_Test::freezeRepatchedOutputHoldsZero()
+{
+    InputOutputMap iom(m_doc, 1);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    QList<Universe *> unis = iom.universes();
+    unis[0]->setChannelCapability(10, QLCChannel::Intensity);
+    unis[0]->write(10, 200);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    iom.setFrozen(true);
+
+    /* Moving the universe to another output line gives that line no history,
+       so it must not inherit the look the previous line was holding */
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(3), 3);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[1536 + 10]), uchar(0));
+
+    iom.setFrozen(false);
+    unis[0]->zeroIntensityChannels();
+    unis[0]->write(10, 111);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[1536 + 10]), uchar(111));
+}
+
+/* Owner decision 3: a pause requested while the look is held must pin the
+   frame the operator can actually see, not a later live one. */
+void InputOutputMap_Test::freezePauseDuringFreezePinsHeldFrame()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    iom.setFrozen(true);
+
+    /* Producers move on, the held look A stays on stage */
+    writeLook(unis, 150, 60, 20, 80, 30);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    /* The operator pauses this output while looking at A */
+    pausedPatch->setPaused(true);
+    dumpUniverse(unis[0]);
+
+    writeLook(unis, 100, 40, 30, 70, 20);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    /* Thaw: the live patch jumps to C, the paused one keeps the pinned A */
+    iom.setFrozen(false);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(100));
+    QCOMPARE(uchar(stub->m_universe[12]), uchar(30));
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(77));
+    QCOMPARE(uchar(stub->m_universe[1024 + 12]), uchar(13));
+}
+
+/* Owner decision 6: when the live output extent grows during Freeze the held
+   frame is zero-extended, so the advertised and published lengths agree and
+   channels patched while frozen stay dark instead of undefined. */
+void InputOutputMap_Test::freezeExtendsHeldFrameWhenExtentGrows()
+{
+    InputOutputMap iom(m_doc, 1);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    QList<Universe *> unis = iom.universes();
+    unis[0]->setChannelCapability(10, QLCChannel::Intensity);
+    unis[0]->write(10, 200);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+
+    iom.setFrozen(true);
+
+    /* A sentinel beyond the captured extent proves the frame really grew */
+    stub->m_universe[40] = char(0xAA);
+
+    unis[0]->setChannelCapability(40, QLCChannel::Intensity);
+    unis[0]->write(40, 255);
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[40]), uchar(0));
+}
+
+/* Owner decision 5: a workspace reset must discard ALL per-publication
+   history, including a paused patch's legacy bytes, so nothing from the old
+   workspace can be republished. */
+void InputOutputMap_Test::freezeResetClearsPausedPatchHistory()
+{
+    InputOutputMap iom(m_doc, 2);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    patchTwoUniverses(iom, stub);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+
+    QList<Universe *> unis = iom.universes();
+    OutputPatch *pausedPatch = unis[0]->outputPatch(1);
+    QVERIFY(pausedPatch != NULL);
+
+    writeLook(unis, 200, 77, 13, 90, 33);
+    dumpUniverse(unis[0]);
+    pausedPatch->setPaused(true);
+    dumpUniverse(unis[0]);
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(200));
+
+    iom.setFrozen(true);
+    iom.resetUniverses();
+    QVERIFY(iom.isFrozen() == false);
+
+    /* Nothing from the discarded workspace may reach the plugin again */
+    stub->m_writeFrames.clear();
+    dumpUniverse(unis[0]);
+
+    QCOMPARE(uchar(stub->m_universe[1024 + 10]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[1024 + 11]), uchar(0));
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(0));
+
+    foreach (const QByteArray &frame, stub->m_writeFrames)
+        QCOMPARE(frame.count(char(200)), 0);
+}
+
+/* Owner decision 4: a main-thread Blackout request may not interleave with a
+   publication that is already in progress. The barrier holds the publishing
+   thread inside writeUniverse while Blackout is requested from this thread. */
+void InputOutputMap_Test::blackoutIsSerializedAgainstPublication()
+{
+    InputOutputMap iom(m_doc, 1);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+    stub->m_writeFrames.clear();
+
+    /* Two patches, so a flag flipped mid-publication would tear the frame
+       across them: one patch blacked out and the other not. */
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(2), 2, false, 1);
+    QCOMPARE(iom.outputPatchesCount(0), 2);
+
+    QList<Universe *> unis = iom.universes();
+    unis[0]->setChannelCapability(10, QLCChannel::Intensity);
+    unis[0]->setChannelCapability(11, QLCChannel::Pan);
+    unis[0]->write(10, 200);
+    unis[0]->write(11, 77);
+
+    Universe *universe = unis[0];
+    stub->m_gatedOutput = 0;
+
+    /* A publishing thread enters writeUniverse for the first patch and is
+       held there, before the second patch has been published */
+    std::thread publisher([universe]() { universe->dumpOutput(); });
+    QVERIFY(stub->m_gateEntered.tryAcquire(1, 5000));
+
+    /* Blackout is requested while that publication is still in progress */
+    std::atomic<bool> blackoutDone(false);
+    std::thread blackoutRequest([&iom, &blackoutDone]() {
+        iom.setBlackout(true);
+        blackoutDone = true;
+    });
+    QTest::qWait(150);
+    QVERIFY(blackoutDone.load() == false);
+    QCOMPARE(stub->m_writeFrames.count(), 0);
+
+    stub->m_gateRelease.release(1);     // first patch of the live frame
+    publisher.join();
+
+    QVERIFY(stub->m_gateEntered.tryAcquire(1, 5000));
+    stub->m_gateRelease.release(1);     // first patch of the blacked out frame
+    blackoutRequest.join();
+    stub->m_gatedOutput = -1;
+
+    /* Four coherent writes: a whole live frame, then a whole dark one.
+       No frame may be a mixture of the two states. */
+    QCOMPARE(stub->m_writeFrames.count(), 4);
+    QCOMPARE(uchar(stub->m_writeFrames.at(0).at(10)), uchar(200));
+    QCOMPARE(uchar(stub->m_writeFrames.at(1).at(10)), uchar(200));
+    QCOMPARE(uchar(stub->m_writeFrames.at(2).at(10)), uchar(0));
+    QCOMPARE(uchar(stub->m_writeFrames.at(3).at(10)), uchar(0));
+    QCOMPARE(uchar(stub->m_writeFrames.at(1).at(11)), uchar(77));
+    QCOMPARE(uchar(stub->m_writeFrames.at(3).at(11)), uchar(77));
+}
+
+/* C0-3 through the real playback seam: an actual Chaser keeps stepping
+   through MasterTimer while the look is held, and the frames are composed
+   and published by Universe::processFaders, not by the test. */
+void InputOutputMap_Test::freezeHoldsWhileChaserKeepsRunning()
+{
+    /* Uses the fixture Doc: a second IOPluginCache would load the same plugin
+       instance and unload it from under this one on destruction. */
+    Doc &doc = *m_doc;
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (doc.ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+
+    InputOutputMap *iom = doc.inputOutputMap();
+    QVERIFY(iom->setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0));
+
+    Fixture *fxi = new Fixture(&doc);
+    fxi->setAddress(0);
+    fxi->setUniverse(0);
+    fxi->setChannels(1);
+    doc.addFixture(fxi);
+
+    Scene *sceneA = new Scene(&doc);
+    sceneA->setValue(fxi->id(), 0, 200);
+    doc.addFunction(sceneA);
+    Scene *sceneB = new Scene(&doc);
+    sceneB->setValue(fxi->id(), 0, 120);
+    doc.addFunction(sceneB);
+    Scene *sceneC = new Scene(&doc);
+    sceneC->setValue(fxi->id(), 0, 60);
+    doc.addFunction(sceneC);
+
+    Chaser *chaser = new Chaser(&doc);
+    chaser->setDurationMode(Chaser::PerStep);
+    chaser->setFadeInMode(Chaser::PerStep);
+    chaser->setFadeOutMode(Chaser::PerStep);
+    foreach (Scene *scene, QList<Scene *>() << sceneA << sceneB << sceneC)
+    {
+        ChaserStep step(scene->id());
+        step.fadeIn = 0;
+        step.fadeOut = 0;
+        step.hold = 100;
+        step.duration = 100;
+        chaser->addStep(step);
+    }
+    doc.addFunction(chaser);
+
+    Universe *universe = iom->universes().at(0);
+
+    chaser->start(doc.masterTimer(), FunctionParent::master());
+
+    /* Let the chaser settle on its first look */
+    for (int tick = 0; tick < 3; tick++)
+    {
+        doc.masterTimer()->timerTick();
+        universe->processFaders(MasterTimer::tick());
+    }
+    QCOMPARE(uchar(stub->m_universe[0]), uchar(200));
+
+    iom->setFrozen(true);
+
+    /* The chaser keeps running for several steps while the look is held */
+    for (int tick = 0; tick < 20; tick++)
+    {
+        doc.masterTimer()->timerTick();
+        universe->processFaders(MasterTimer::tick());
+        QCOMPARE(uchar(stub->m_universe[0]), uchar(200));
+    }
+
+    /* It really progressed: the live composition moved off the held value */
+    QVERIFY(chaser->isRunning());
+    const uchar liveValue = universe->preGMValue(0);
+    QVERIFY2(liveValue != 200,
+             qPrintable(QString("chaser did not progress, live value %1").arg(liveValue)));
+
+    /* Thaw lands on whatever the chaser reached, with no restart */
+    iom->setFrozen(false);
+    doc.masterTimer()->timerTick();
+    universe->processFaders(MasterTimer::tick());
+
+    QCOMPARE(uchar(stub->m_universe[0]), universe->preGMValue(0));
+    QVERIFY(uchar(stub->m_universe[0]) != uchar(200));
+    QVERIFY(chaser->isRunning());
+
+    chaser->stop(FunctionParent::master());
+    doc.masterTimer()->timerTick();
+    universe->processFaders(MasterTimer::tick());
+
+    iom->setOutputPatch(0, KOutputNone, "", KOutputNone, QLCIOPlugin::invalidLine());
+    doc.clearContents();
+}
+
+/* The submitted bytes and the retained provenance must describe the same
+   frame. A producer that advances while the frame is inside the plugin must
+   not change what was submitted, nor what a later Freeze holds. */
+void InputOutputMap_Test::publishedFrameAndHeldSourceAgree()
+{
+    InputOutputMap iom(m_doc, 1);
+
+    IOPluginStub *stub = static_cast<IOPluginStub *>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    stub->m_universe.fill(char(0));
+    stub->m_writeFrames.clear();
+
+    iom.setOutputPatch(0, stub->name(), "", stub->outputs().at(0), 0);
+    Universe *universe = iom.universes().at(0);
+    universe->setChannelCapability(10, QLCChannel::Intensity);
+    universe->setChannelCapability(11, QLCChannel::Pan);
+    universe->write(10, 200);
+    universe->write(11, 77);
+
+    stub->m_gatedOutput = 0;
+    std::thread publisher([universe]() { universe->dumpOutput(); });
+    QVERIFY(stub->m_gateEntered.tryAcquire(1, 5000));
+
+    /* Producers reach B while the frame for A is still inside the plugin */
+    universe->zeroIntensityChannels();
+    universe->write(10, 99);
+    universe->write(11, 42);
+
+    stub->m_gateRelease.release(1);
+    publisher.join();
+    stub->m_gatedOutput = -1;
+
+    /* What the plugin received is A, not a frame mutated under it */
+    QCOMPARE(stub->m_writeFrames.count(), 1);
+    QCOMPARE(uchar(stub->m_writeFrames.at(0).at(10)), uchar(200));
+    QCOMPARE(uchar(stub->m_writeFrames.at(0).at(11)), uchar(77));
+
+    /* ...and Freeze holds exactly that submitted frame */
+    iom.setFrozen(true);
+    dumpUniverse(universe);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(200));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(77));
+
+    iom.setFrozen(false);
+    dumpUniverse(universe);
+    QCOMPARE(uchar(stub->m_universe[10]), uchar(99));
+    QCOMPARE(uchar(stub->m_universe[11]), uchar(42));
 }
 
 void InputOutputMap_Test::grandMaster()

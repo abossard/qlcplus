@@ -53,10 +53,13 @@ Universe::Universe(quint32 id, GrandMaster *gm, QObject *parent)
     , m_grandMaster(gm)
     , m_passthrough(false)
     , m_monitor(false)
+    , m_frozen(false)
+    , m_forceDumpChanged(false)
     , m_inputPatch(NULL)
     , m_fbPatch(NULL)
     , m_channelsMask(new QByteArray(UNIVERSE_SIZE, char(0)))
     , m_modifiedZeroValues(new QByteArray(UNIVERSE_SIZE, char(0)))
+    , m_modifierCount(0)
     , m_running(false)
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     , m_fadersMutex(QMutex::Recursive)
@@ -158,18 +161,24 @@ void Universe::setPassthrough(bool enable)
 
     disconnectInputPatch();
 
-    if (enable && m_passthroughValues.isNull())
     {
-        // When passthrough is disabled, we don't release the array, since it's only ~512 B and
-        // we would have to synchronize with other threads
+        // guards the short snapshot copy in currentSource() against this
+        // buffer being replaced underneath it
+        QMutexLocker outputLocker(&m_outputMutex);
 
-        // When enabling passthrough, make sure the array is allocated BEFORE m_passthrough is set to
-        // true. That way we only have to check for m_passthrough, and do not need to check
-        // m_passthroughValues.isNull()
-        m_passthroughValues.reset(new QByteArray(UNIVERSE_SIZE, char(0)));
+        if (enable && m_passthroughValues.isNull())
+        {
+            // When passthrough is disabled, we don't release the array, since it's only ~512 B and
+            // we would have to synchronize with other threads
+
+            // When enabling passthrough, make sure the array is allocated BEFORE m_passthrough is set to
+            // true. That way we only have to check for m_passthrough, and do not need to check
+            // m_passthroughValues.isNull()
+            m_passthroughValues.reset(new QByteArray(UNIVERSE_SIZE, char(0)));
+        }
+
+        m_passthrough = enable;
     }
-
-    m_passthrough = enable;
 
     connectInputPatch();
 
@@ -189,6 +198,33 @@ void Universe::setMonitor(bool enable)
 bool Universe::monitor() const
 {
     return m_monitor;
+}
+
+void Universe::setFrozen(bool frozen)
+{
+    QMutexLocker outputLocker(&m_outputMutex);
+
+    /* Repeated requests must not re-capture the held look */
+    if (m_frozen == frozen)
+        return;
+
+    m_frozen = frozen;
+    m_forceDumpChanged = true;
+
+    if (frozen == false)
+    {
+        // The Grand Master channel mode may have changed while the look was
+        // held. The live post-GM buffer is only refreshed for the channel
+        // classes the mode covers, so recompose before publishing live again,
+        // otherwise thaw would step back to a stale non-intensity value.
+        for (int channel = 0; channel < int(m_usedChannels); channel++)
+            updatePostGMValue(channel);
+    }
+}
+
+bool Universe::frozen() const
+{
+    return m_frozen;
 }
 
 void Universe::slotGMValueChanged()
@@ -360,12 +396,26 @@ void Universe::processFaders(uint elapsedMs)
     foreach (const QSharedPointer<GenericFader> &fader, activeFaders)
         fader->write(this, elapsedMs);
 
-    bool dataChanged = hasChanged();
-    const QByteArray postGM = QByteArray::fromRawData(m_postGMValues->constData(), m_usedChannels);
-    dumpOutput(postGM, dataChanged);
+    /* One immutable publication object: the bytes that go on the wire are
+       rendered from the very source that is retained as their provenance,
+       so a producer advancing meanwhile cannot make the two disagree. */
+    QByteArray frame;
+    bool dataChanged = false;
+    {
+        QMutexLocker outputLocker(&m_outputMutex);
+
+        const OutputSource source = currentSource();
+        frame = renderHeldFrame(source);
+        dataChanged = (frame != m_lastPublishedFrame);
+
+        m_lastPublishedSource = source;
+        m_lastPublishedFrame = frame;
+
+        dumpOutputLocked(source, frame, dataChanged);
+    }
 
     if (dataChanged)
-        emit universeWritten(id(), QByteArray(postGM.constData(), postGM.size()));
+        emit universeWritten(id(), frame);
 }
 
 void Universe::run()
@@ -402,6 +452,8 @@ void Universe::run()
 
 void Universe::reset()
 {
+    QMutexLocker outputLocker(&m_outputMutex);
+
     m_preGMValues->fill(0);
     m_blackoutValues->fill(0);
 
@@ -411,7 +463,13 @@ void Universe::reset()
         m_postGMValues->fill(0);
 
     m_modifiers.fill(NULL, UNIVERSE_SIZE);
+    m_modifierCount = 0;
     m_passthrough = false; // not releasing m_passthroughValues, see comment in setPassthrough
+
+    // the contents are gone, so no output patch may still hold anything
+    // from them, including its legacy pause bytes
+    foreach (OutputPatch *op, m_outputPatchList)
+        op->releasePublicationHistory();
 }
 
 void Universe::reset(int address, int range)
@@ -536,7 +594,12 @@ uchar Universe::preGMValue(int address) const
 
 uchar Universe::applyGM(int channel, uchar value)
 {
-    if ((m_grandMaster->channelMode() == GrandMaster::Intensity && m_channelsMask->at(channel) & Intensity) ||
+    return applyGMValue(uchar(m_channelsMask->at(channel)), value);
+}
+
+uchar Universe::applyGMValue(uchar channelMask, uchar value) const
+{
+    if ((m_grandMaster->channelMode() == GrandMaster::Intensity && (channelMask & Intensity)) ||
         (m_grandMaster->channelMode() == GrandMaster::AllChannels))
     {
         if (m_grandMaster->valueMode() == GrandMaster::Limit)
@@ -546,6 +609,69 @@ uchar Universe::applyGM(int channel, uchar value)
     }
 
     return value;
+}
+
+OutputSource Universe::currentSource() const
+{
+    OutputSource source;
+
+    /* Owning copies, not implicit sharing: writeMultiple() and friends keep a
+       detached raw pointer across their loop, so a shared buffer could still
+       be written through after the snapshot was taken. */
+    source.usedChannels = m_usedChannels;
+    source.preGM = QByteArray(m_preGMValues->constData(), m_usedChannels);
+    source.blackout = QByteArray(m_blackoutValues->constData(), m_usedChannels);
+    source.mask = QByteArray(m_channelsMask->constData(), m_usedChannels);
+
+    // held by value, since a modifier object can be edited while the look is
+    // held. The scan only runs when modifiers are actually in use.
+    if (m_modifierCount > 0)
+    {
+        for (int channel = 0; channel < int(m_usedChannels); channel++)
+        {
+            ChannelModifier *modifier = m_modifiers.at(channel);
+            if (modifier != NULL)
+                source.modifiers.insert(channel, *modifier);
+        }
+    }
+
+    if (m_passthrough && !m_passthroughValues.isNull())
+        source.passthrough = QByteArray(m_passthroughValues->constData(), m_usedChannels);
+
+    return source;
+}
+
+QByteArray Universe::renderHeldFrame(const OutputSource &source) const
+{
+    QByteArray frame(source.usedChannels, char(0));
+
+    const uchar *preGM = reinterpret_cast<const uchar *>(source.preGM.constData());
+    const uchar *mask = reinterpret_cast<const uchar *>(source.mask.constData());
+    const uchar *passthrough = source.passthrough.size() >= int(source.usedChannels)
+            ? reinterpret_cast<const uchar *>(source.passthrough.constData()) : NULL;
+    const bool hasModifiers = source.modifiers.isEmpty() == false;
+
+    for (int channel = 0; channel < int(source.usedChannels); channel++)
+    {
+        uchar value = preGM[channel];
+
+        if (value != 0)
+            value = applyGMValue(mask[channel], value);
+
+        if (hasModifiers)
+        {
+            QHash<int, ChannelModifier>::const_iterator modifier = source.modifiers.constFind(channel);
+            if (modifier != source.modifiers.constEnd())
+                value = modifier.value().getValue(value);
+        }
+
+        if (passthrough != NULL && value < passthrough[channel]) // HTP merge
+            value = passthrough[channel];
+
+        frame[channel] = char(value);
+    }
+
+    return frame;
 }
 
 uchar Universe::applyModifiers(int channel, uchar value)
@@ -644,14 +770,25 @@ bool Universe::setOutputPatch(QLCIOPlugin *plugin, quint32 output, int index)
         if (plugin == NULL || output == QLCIOPlugin::invalidLine())
         {
             // need to delete an existing patch
-            OutputPatch *patch = m_outputPatchList.takeAt(index);
+            OutputPatch *patch = NULL;
+            {
+                QMutexLocker outputLocker(&m_outputMutex);
+                patch = m_outputPatchList.takeAt(index);
+            }
             delete patch;
             emit outputPatchesCountChanged();
             return true;
         }
 
         OutputPatch *patch = m_outputPatchList.at(index);
-        bool result = patch->set(plugin, output);
+        bool result = false;
+        {
+            QMutexLocker outputLocker(&m_outputMutex);
+            // a re-patched line has no publication history of its own, and the
+            // close/open must not race a publication through the old line
+            patch->releasePublicationHistory();
+            result = patch->set(plugin, output);
+        }
         emit outputPatchChanged();
         return result;
     }
@@ -663,7 +800,10 @@ bool Universe::setOutputPatch(QLCIOPlugin *plugin, quint32 output, int index)
         // add a new patch
         OutputPatch *patch = new OutputPatch(m_id, this);
         bool result = patch->set(plugin, output);
-        m_outputPatchList.append(patch);
+        {
+            QMutexLocker outputLocker(&m_outputMutex);
+            m_outputPatchList.append(patch);
+        }
         emit outputPatchesCountChanged();
         return result;
     }
@@ -731,18 +871,105 @@ OutputPatch *Universe::feedbackPatch() const
 
 void Universe::dumpOutput(const QByteArray &data, bool dataChanged)
 {
+    QMutexLocker outputLocker(&m_outputMutex);
+
+    const OutputSource source = currentSource();
+    m_lastPublishedSource = source;
+    m_lastPublishedFrame = data;
+
+    dumpOutputLocked(source, data, dataChanged);
+}
+
+void Universe::dumpOutput()
+{
+    QMutexLocker outputLocker(&m_outputMutex);
+    republishLastSubmitted();
+}
+
+void Universe::setBlackout(bool blackout)
+{
+    QMutexLocker outputLocker(&m_outputMutex);
+
+    foreach (OutputPatch *op, m_outputPatchList)
+    {
+        if (op != NULL)
+            op->setBlackout(blackout);
+    }
+
+    republishLastSubmitted();
+}
+
+void Universe::republishLastSubmitted()
+{
+    /* Reuse what was last submitted rather than sampling the live arrays: a
+       worker may be part way through composing the next frame. */
+    if (m_lastPublishedSource.isValid() && m_lastPublishedFrame.isEmpty() == false)
+    {
+        dumpOutputLocked(m_lastPublishedSource, m_lastPublishedFrame, true);
+        return;
+    }
+
+    const OutputSource source = currentSource();
+    dumpOutputLocked(source, renderHeldFrame(source), true);
+}
+
+void Universe::reconnectOutputPatches(QLCIOPlugin *plugin)
+{
+    QMutexLocker outputLocker(&m_outputMutex);
+
+    foreach (OutputPatch *op, m_outputPatchList)
+    {
+        if (op != NULL && op->plugin() == plugin)
+            op->reconnect();
+    }
+}
+
+void Universe::dumpOutputLocked(const OutputSource &source, const QByteArray &data, bool dataChanged)
+{
     if (m_outputPatchList.count() == 0)
         return;
+
+    const bool frozen = m_frozen;
+    const bool forceChanged = m_forceDumpChanged.exchange(false);
 
     foreach (OutputPatch *op, m_outputPatchList)
     {
         if (m_totalChannelsChanged == true)
             op->setPluginParameter(PLUGIN_UNIVERSECHANNELS, m_totalChannels);
 
-        if (op->blackout())
-            op->dump(m_id, *m_blackoutValues, dataChanged);
+        if (frozen)
+        {
+            const OutputSource &held = op->heldSource();
+            QByteArray rendered;
+
+            if (held.isValid() == false)
+                // an output with no history of its own holds zero until thaw
+                rendered = QByteArray(m_usedChannels, char(0));
+            else
+                rendered = renderHeldFrame(held);
+
+            // the live extent can grow while the look is held: keep the held
+            // bytes and extend with zeros so newly used channels stay dark
+            if (rendered.size() < int(m_usedChannels))
+                rendered.append(QByteArray(int(m_usedChannels) - rendered.size(), char(0)));
+
+            // render the held look first, then suppress the blackout classes,
+            // so the retained values are the rendered ones
+            const QByteArray frame = op->blackout() ? held.blackoutSuppressed(rendered)
+                                                    : rendered;
+
+            op->dumpHeld(m_id, frame, rendered, forceChanged);
+        }
+        else if (op->blackout())
+        {
+            // owned bytes captured with the source, so they cannot be
+            // rewritten while the plugin is reading them
+            op->dump(m_id, source.blackout, dataChanged || forceChanged, source);
+        }
         else
-            op->dump(m_id, data, dataChanged);
+        {
+            op->dump(m_id, data, dataChanged || forceChanged, source);
+        }
     }
     m_totalChannelsChanged = false;
 }
@@ -763,6 +990,10 @@ void Universe::slotInputValueChanged(quint32 universe, quint32 channel, uchar va
         {
             if (channel >= UNIVERSE_SIZE)
                 return;
+
+            // passthrough values feed the snapshot, so this off-worker write
+            // must not land in the middle of the short copy
+            QMutexLocker outputLocker(&m_outputMutex);
 
             if (channel >= m_usedChannels)
                 m_usedChannels = channel + 1;
@@ -810,6 +1041,10 @@ void Universe::setChannelCapability(ushort channel, QLCChannel::Group group, Cha
 {
     if (channel >= (ushort)m_channelsMask->length())
         return;
+
+    // the capability mask feeds the snapshot, so this main-thread config
+    // change must not land in the middle of the short copy
+    QMutexLocker outputLocker(&m_outputMutex);
 
     if (Utils::vectorRemove(m_intensityChannels, channel))
         m_intensityChannelsChanged = true;
@@ -887,6 +1122,15 @@ void Universe::setChannelModifier(ushort channel, ChannelModifier *modifier)
 {
     if (channel >= (ushort)m_modifiers.count())
         return;
+
+    // modifiers feed the snapshot, so this main-thread config change must
+    // not land in the middle of the short copy
+    QMutexLocker outputLocker(&m_outputMutex);
+
+    if (m_modifiers.at(channel) == NULL && modifier != NULL)
+        m_modifierCount++;
+    else if (m_modifiers.at(channel) != NULL && modifier == NULL)
+        m_modifierCount--;
 
     m_modifiers[channel] = modifier;
 

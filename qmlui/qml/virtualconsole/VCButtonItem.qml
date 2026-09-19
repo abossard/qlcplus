@@ -141,6 +141,11 @@ VCWidgetItem
             if (virtualConsole.editMode)
                 return;
 
+            // Both Freeze modes acted on press/release already.
+            if (buttonObj.actionType === VCButton.Freeze ||
+                buttonObj.actionType === VCButton.FreezeHold)
+                return;
+
             if (buttonObj.actionType === VCButton.Toggle || buttonObj.actionType === VCButton.Blackout)
             {
                 buttonObj.requestStateChange(btnState === VCButton.Active ? false : true)
@@ -156,15 +161,32 @@ VCWidgetItem
             if (virtualConsole.editMode)
                 return;
 
-            if (buttonObj.actionType === VCButton.Flash)
+            if (buttonObj.actionType === VCButton.Flash ||
+                buttonObj.actionType === VCButton.FreezeHold)
                 buttonObj.requestStateChange(true)
+            else if (buttonObj.actionType === VCButton.Freeze)
+                buttonObj.requestStateChange(btnState !== VCButton.Active)
         }
         onReleased:
         {
+            // A while-pressed Freeze must be released even if edit mode was
+            // entered while the button was held.
+            if (buttonObj.actionType === VCButton.FreezeHold)
+            {
+                buttonObj.requestStateChange(false)
+                return;
+            }
+
             if (virtualConsole.editMode)
                 return;
 
             if (buttonObj.actionType === VCButton.Flash)
+                buttonObj.requestStateChange(false)
+        }
+        onCanceled:
+        {
+            // A stolen pointer grab delivers no release event.
+            if (buttonObj.actionType === VCButton.FreezeHold)
                 buttonObj.requestStateChange(false)
         }
     }
@@ -181,12 +203,25 @@ VCWidgetItem
             if (virtualConsole.editMode)
                 return;
 
-            if (buttonObj.actionType === VCButton.Flash)
+            if (buttonObj.actionType === VCButton.Flash ||
+                buttonObj.actionType === VCButton.FreezeHold)
                 buttonObj.requestStateChange(true)
+            else if (buttonObj.actionType === VCButton.Freeze)
+                buttonObj.requestStateChange(btnState !== VCButton.Active)
         }
         onReleased:
         {
+            if (buttonObj.actionType === VCButton.FreezeHold)
+            {
+                buttonObj.requestStateChange(false)
+                return;
+            }
+
             if (virtualConsole.editMode)
+                return;
+
+            // The latch already inverted on the press edge
+            if (buttonObj.actionType === VCButton.Freeze)
                 return;
 
             if (buttonObj.actionType === VCButton.Flash)
@@ -198,6 +233,11 @@ VCWidgetItem
                 buttonObj.requestStateChange(true)
                 blink.start()
             }
+        }
+        onCanceled:
+        {
+            if (buttonObj.actionType === VCButton.FreezeHold)
+                buttonObj.requestStateChange(false)
         }
     }
 

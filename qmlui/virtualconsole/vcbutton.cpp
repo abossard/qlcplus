@@ -37,6 +37,8 @@
 #define KXMLQLCVCButtonActionToggle     QStringLiteral("Toggle")
 #define KXMLQLCVCButtonActionBlackout   QStringLiteral("Blackout")
 #define KXMLQLCVCButtonActionStopAll    QStringLiteral("StopAll")
+#define KXMLQLCVCButtonActionFreeze     QStringLiteral("Freeze")
+#define KXMLQLCVCButtonActionFreezeHold QStringLiteral("FreezeHold")
 
 #define KXMLQLCVCButtonFlashOverride    QStringLiteral("Override")
 #define KXMLQLCVCButtonFlashForceLTP    QStringLiteral("ForceLTP")
@@ -60,14 +62,26 @@ VCButton::VCButton(Doc *doc, QObject *parent)
     , m_stopAllFadeOutTime(0)
     , m_startupIntensityEnabled(false)
     , m_startupIntensity(1.0)
+    , m_inputPressed(false)
+    , m_holdsMomentaryFreeze(false)
 {
     setType(VCWidget::ButtonWidget);
+
+    if (m_doc != nullptr)
+    {
+        connect(m_doc->inputOutputMap(), &InputOutputMap::frozenLatchChanged,
+                this, &VCButton::slotFrozenLatchChanged);
+        connect(m_doc->inputOutputMap(), &InputOutputMap::frozenMomentaryChanged,
+                this, &VCButton::slotFrozenMomentaryChanged);
+    }
 
     registerExternalControl(INPUT_PRESSURE_ID, tr("Pressure"), true);
 }
 
 VCButton::~VCButton()
 {
+    releaseHeldActivation();
+
     if (m_item)
         delete m_item;
 }
@@ -367,6 +381,40 @@ void VCButton::setState(ButtonState state)
     updateFeedback();
 }
 
+void VCButton::slotFrozenLatchChanged(bool latched)
+{
+    if (actionType() != Freeze)
+        return;
+
+    setState(latched ? Active : Inactive);
+}
+
+void VCButton::slotFrozenMomentaryChanged(bool held)
+{
+    if (actionType() != FreezeHold)
+        return;
+
+    setState(held ? Active : Inactive);
+}
+
+void VCButton::releaseHeldActivation()
+{
+    // A held control that goes away never receives its release event, so it
+    // must drop its own activation. Only this button's own hold counts: the
+    // visible state mirrors the shared component, so an unpressed button would
+    // otherwise release a hold belonging to another control.
+    if (actionType() == FreezeHold && m_holdsMomentaryFreeze)
+        requestStateChange(false);
+}
+
+void VCButton::setDisabled(bool disable)
+{
+    if (disable)
+        releaseHeldActivation();
+
+    VCWidget::setDisabled(disable);
+}
+
 void VCButton::setVisible(bool isVisible)
 {
     // A Flash button relies on a release event to unflash. When it gets hidden
@@ -374,6 +422,9 @@ void VCButton::setVisible(bool isVisible)
     // comes, leaving the button stuck on and the function flashed. Release it.
     if (isVisible == false && actionType() == Flash && state() == Active)
         requestStateChange(false);
+
+    if (isVisible == false)
+        releaseHeldActivation();
 
     VCWidget::setVisible(isVisible);
 }
@@ -457,6 +508,23 @@ void VCButton::requestStateChange(bool pressed)
                 m_doc->masterTimer()->fadeAndStopAll(stopAllFadeOutTime());
         }
         break;
+        case Freeze:
+        {
+            // Desired-state command: WebAccess, audio triggers and Tardis all
+            // pass the latch state they want. The physical pointer, touch, key
+            // and controller adapters invert the latch on the press edge and
+            // never call this on release.
+            m_doc->inputOutputMap()->setFrozen(pressed);
+        }
+        break;
+        case FreezeHold:
+        {
+            // One shared momentary flag, Flash-style: any release clears it
+            // even while another control is held, and it never touches the latch.
+            m_holdsMomentaryFreeze = pressed;
+            m_doc->inputOutputMap()->setFrozenMomentary(pressed);
+        }
+        break;
         default:
         break;
     }
@@ -481,8 +549,26 @@ void VCButton::setActionType(ButtonAction actionType)
 
     Tardis::instance()->enqueueAction(Tardis::VCButtonSetActionType, id(), m_actionType, actionType);
 
+    // Reconfiguring must not strand this button's hold, and the next action
+    // must start from a disarmed press edge.
+    releaseHeldActivation();
+    m_inputPressed = false;
+
+    ButtonAction previous = m_actionType;
     m_actionType = actionType;
     emit actionTypeChanged(actionType);
+
+    // Configuring, copying or loading a Freeze button displays its own mode's
+    // component. It must never change either component.
+    if (m_doc == nullptr)
+        return;
+
+    if (m_actionType == Freeze)
+        setState(m_doc->inputOutputMap()->frozenLatch() ? Active : Inactive);
+    else if (m_actionType == FreezeHold)
+        setState(m_doc->inputOutputMap()->frozenMomentary() ? Active : Inactive);
+    else if (previous == Freeze || previous == FreezeHold)
+        setState(Inactive);
 }
 
 QString VCButton::actionToString(VCButton::ButtonAction action)
@@ -493,6 +579,10 @@ QString VCButton::actionToString(VCButton::ButtonAction action)
         return QString(KXMLQLCVCButtonActionBlackout);
     else if (action == StopAll)
         return QString(KXMLQLCVCButtonActionStopAll);
+    else if (action == Freeze)
+        return QString(KXMLQLCVCButtonActionFreeze);
+    else if (action == FreezeHold)
+        return QString(KXMLQLCVCButtonActionFreezeHold);
     else
         return QString(KXMLQLCVCButtonActionToggle);
 }
@@ -505,6 +595,10 @@ VCButton::ButtonAction VCButton::stringToAction(const QString& str)
         return Blackout;
     else if (str == KXMLQLCVCButtonActionStopAll)
         return StopAll;
+    else if (str == KXMLQLCVCButtonActionFreeze)
+        return Freeze;
+    else if (str == KXMLQLCVCButtonActionFreezeHold)
+        return FreezeHold;
     else
         return Toggle;
 }
@@ -580,12 +674,27 @@ void VCButton::slotInputValueChanged(quint8 id, uchar value)
     if (id != INPUT_PRESSURE_ID)
         return;
 
-    if (actionType() == Flash)
+    if (actionType() == Flash || actionType() == FreezeHold)
     {
+        // Hold while pressed. The state guard makes duplicate non-zero pressure
+        // idempotent, and zero pressure releases.
         if (state() == Inactive && value > 0)
             requestStateChange(true);
         else if (state() == Active && value == 0)
             requestStateChange(false);
+    }
+    else if (actionType() == Freeze)
+    {
+        // Invert the latch on the press edge only: key auto-repeat and duplicate
+        // non-zero pressure must not flip it twice. A release re-arms the edge
+        // without touching the latch.
+        bool pressed = value > 0;
+        if (pressed == m_inputPressed)
+            return;
+
+        m_inputPressed = pressed;
+        if (pressed)
+            requestStateChange(state() != Active);
     }
     else
     {

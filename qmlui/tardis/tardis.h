@@ -21,6 +21,8 @@
 #define TARDIS_H
 
 #include <QThread>
+
+#include <atomic>
 #include <QQueue>
 #include <QMutex>
 #include <QVariant>
@@ -343,7 +345,7 @@ private:
     /** The singleton Tardis instance */
     static Tardis* s_instance;
     /** Thread running status flag */
-    bool m_running;
+    std::atomic<bool> m_running;
 
     /** Reference to the QML view root */
     QQuickView *m_view;

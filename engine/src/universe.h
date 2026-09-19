@@ -29,6 +29,7 @@
 #include <atomic>
 
 #include "inputpatch.h"
+#include "outputpatch.h"
 #include "qlcchannel.h"
 
 class QXmlStreamReader;
@@ -156,6 +157,19 @@ public:
 
     uchar applyPassthrough(int channel, uchar value);
 
+    /**
+     * Hold or release this universe's lighting output.
+     *
+     * While frozen, every output patch keeps publishing the source of the
+     * frame it last submitted, re-rendered with the live Grand Master.
+     * Faders, functions and DMX sources keep running and writing untouched.
+     * Enabling twice does not re-capture the look.
+     */
+    void setFrozen(bool frozen);
+
+    /** Returns true while this universe's output is held */
+    bool frozen() const;
+
 protected slots:
     /**
      * Called every time the Grand Master changed value
@@ -173,8 +187,30 @@ protected:
      */
     uchar applyGM(int channel, uchar value);
 
+    /**
+     * Apply Grand Master to a value whose channel capabilities are already
+     * known. Used to render both live and held frames through one rule.
+     */
+    uchar applyGMValue(uchar channelMask, uchar value) const;
+
     uchar applyModifiers(int channel, uchar value);
     void updatePostGMValue(int channel);
+
+    /** Snapshot of everything this universe needs to render its output again */
+    OutputSource currentSource() const;
+
+    /** Render a retained source with the live Grand Master, the captured
+     *  modifiers and the captured passthrough values, in that order */
+    QByteArray renderHeldFrame(const OutputSource &source) const;
+
+    /** Republish the last submitted frame after a control change.
+     *  The publication lock must be held. */
+    void republishLastSubmitted();
+
+    /** Publish to every output patch. The publication lock must be held.
+     *  $source is the provenance of $data: they must describe the same frame,
+     *  so this never builds a source of its own. */
+    void dumpOutputLocked(const OutputSource &source, const QByteArray &data, bool dataChanged);
 
 signals:
     void nameChanged();
@@ -191,6 +227,19 @@ protected:
     bool m_passthrough;
     /** Flag to monitor the universe changes */
     bool m_monitor;
+    /** Flag that holds the output at the last submitted look */
+    std::atomic<bool> m_frozen;
+    /** Forces the next published frame to report a change. Set on the freeze
+     *  and thaw edges, where the effective bytes change even though the live
+     *  values may not have. */
+    std::atomic<bool> m_forceDumpChanged;
+    /** Serializes publication against freeze changes and patch replacement */
+    QMutex m_outputMutex;
+    /** The source and bytes of the last live composition this universe
+     *  published. Control-edge republications reuse them instead of sampling
+     *  arrays that a worker may be part way through writing. */
+    OutputSource m_lastPublishedSource;
+    QByteArray m_lastPublishedFrame;
 
     /************************************************************************
      * Patches
@@ -206,6 +255,22 @@ public:
 
     /** Add/Remove/Replace an output patch on this Universe */
     bool setOutputPatch(QLCIOPlugin *plugin, quint32 output, int index = 0);
+
+    /**
+     * Set the blackout state of every output patch and publish the result.
+     *
+     * Both happen under the publication lock, so a publication already in
+     * progress cannot come out half blacked out across patches.
+     */
+    void setBlackout(bool blackout);
+
+    /**
+     * Reconnect every output patch bound to $plugin.
+     *
+     * Holds the publication lock across the close/open, so no worker can
+     * publish through a line while it is being torn down and reopened.
+     */
+    void reconnectOutputPatches(QLCIOPlugin *plugin);
 
     /** Sets a feedback patch for this Universe */
     bool setFeedbackPatch(QLCIOPlugin *plugin, quint32 output);
@@ -239,6 +304,15 @@ public:
      * A flag indicates if data has changed since previous iteration
      */
     void dumpOutput(const QByteArray& data, bool dataChanged);
+
+    /**
+     * Publish this universe's current values.
+     *
+     * Composing the bytes and the retained source inside the publication lock
+     * keeps both describing the same instant. A caller that copies the values
+     * first cannot promise that, because the worker may advance in between.
+     */
+    void dumpOutput();
 
     void flushInput();
 
@@ -324,6 +398,10 @@ protected:
     /** Modified channels with the non-modified value at 0.
      *  This is used for ranged initialization operations. */
     QScopedPointer<QByteArray> m_modifiedZeroValues;
+
+    /** Number of channels that currently carry a modifier, so a snapshot can
+     *  skip the scan entirely in the common case of none */
+    int m_modifierCount;
 
     /************************************************************************
      * Faders

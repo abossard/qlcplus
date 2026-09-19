@@ -48,6 +48,8 @@ InputOutputMap::InputOutputMap(const Doc *doc, quint32 universes)
     : QObject(NULL)
     , m_doc(doc)
     , m_blackout(false)
+    , m_frozenLatch(false)
+    , m_frozenMomentary(false)
     , m_universeChanged(false)
     , m_localProfilesLoaded(false)
     , m_currentBPM(0)
@@ -123,15 +125,9 @@ bool InputOutputMap::setBlackout(bool blackout)
     // without mutex locking
     foreach (Universe *universe, m_universeArray)
     {
-        for (int i = 0; i < universe->outputPatchesCount(); i++)
-        {
-            OutputPatch *op = universe->outputPatch(i);
-            if (op != NULL)
-                op->setBlackout(blackout);
-        }
-
-        const QByteArray postGM = universe->postGMValues()->mid(0, universe->usedChannels());
-        universe->dumpOutput(postGM, true);
+        // flag mutation and publication happen together under the universe's
+        // publication lock, so no frame comes out half blacked out
+        universe->setBlackout(blackout);
     }
 
     emit blackoutChanged(m_blackout);
@@ -148,6 +144,67 @@ void InputOutputMap::requestBlackout(BlackoutRequest blackout)
 bool InputOutputMap::blackout() const
 {
     return m_blackout;
+}
+
+/*****************************************************************************
+ * Freeze
+ *****************************************************************************/
+
+bool InputOutputMap::isFrozen() const
+{
+    return m_frozenLatch || m_frozenMomentary;
+}
+
+bool InputOutputMap::frozenLatch() const
+{
+    return m_frozenLatch;
+}
+
+bool InputOutputMap::frozenMomentary() const
+{
+    return m_frozenMomentary;
+}
+
+void InputOutputMap::setFrozen(bool frozen)
+{
+    if (m_frozenLatch == frozen)
+        return;
+
+    const bool wasFrozen = isFrozen();
+    m_frozenLatch = frozen;
+
+    emit frozenLatchChanged(m_frozenLatch);
+    updateFrozenState(wasFrozen);
+}
+
+void InputOutputMap::setFrozenMomentary(bool held)
+{
+    if (m_frozenMomentary == held)
+        return;
+
+    const bool wasFrozen = isFrozen();
+    m_frozenMomentary = held;
+
+    emit frozenMomentaryChanged(m_frozenMomentary);
+    updateFrozenState(wasFrozen);
+}
+
+void InputOutputMap::updateFrozenState(bool wasFrozen)
+{
+    const bool frozen = isFrozen();
+
+    /* A component moved without changing the effective state, for instance
+       latching while a while-pressed control is held. Nothing is published
+       and nothing is re-captured, so the held look survives untouched. */
+    if (frozen == wasFrozen)
+        return;
+
+    // like blackout, freeze is an atomic setting per universe,
+    // so it's safe to do it without mutex locking here
+    foreach (Universe *universe, m_universeArray)
+        universe->setFrozen(frozen);
+
+    emit frozenChanged(frozen);
 }
 
 /*****************************************************************************
@@ -184,6 +241,7 @@ bool InputOutputMap::addUniverse(quint32 id)
             while (id > universesCount())
             {
                 uni = new Universe(universesCount(), m_grandMaster);
+                uni->setFrozen(isFrozen());
                 connect(m_doc->masterTimer(), SIGNAL(tickReady()), uni, SLOT(tick()), Qt::QueuedConnection);
                 connect(uni, SIGNAL(universeWritten(quint32,QByteArray)), this, SIGNAL(universeWritten(quint32,QByteArray)));
                 m_universeArray.append(uni);
@@ -191,6 +249,8 @@ bool InputOutputMap::addUniverse(quint32 id)
         }
 
         uni = new Universe(id, m_grandMaster);
+        // a universe created while the workspace is frozen must not leak live output
+        uni->setFrozen(isFrozen());
         connect(m_doc->masterTimer(), SIGNAL(tickReady()), uni, SLOT(tick()), Qt::QueuedConnection);
         connect(uni, SIGNAL(universeWritten(quint32,QByteArray)), this, SIGNAL(universeWritten(quint32,QByteArray)));
         m_universeArray.append(uni);
@@ -338,6 +398,12 @@ void InputOutputMap::resetUniverses()
         for (int i = 0; i < m_universeArray.size(); i++)
             m_universeArray.at(i)->reset();
     }
+
+    /* Freeze is runtime state: a replaced workspace starts released. The latch
+       drops only after the values and the held looks are gone, so no tick in
+       between can publish the workspace being discarded. */
+    setFrozenMomentary(false);
+    setFrozen(false);
 
     /* Reset Grand Master parameters */
     setGrandMasterValue(255);
@@ -816,15 +882,7 @@ void InputOutputMap::slotPluginConfigurationChanged(QLCIOPlugin* plugin)
     for (quint32 i = 0; i < universesCount(); i++)
     {
         Universe *universe = m_universeArray.at(i);
-        for (int oi = 0; oi < universe->outputPatchesCount(); oi++)
-        {
-            OutputPatch* op = universe->outputPatch(oi);
-
-            if (op != NULL && op->plugin() == plugin)
-            {
-                /*success = */ op->reconnect();
-            }
-        }
+        universe->reconnectOutputPatches(plugin);
 
         InputPatch* ip = m_universeArray.at(i)->inputPatch();
 
