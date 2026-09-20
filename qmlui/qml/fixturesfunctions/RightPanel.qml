@@ -34,6 +34,29 @@ SidePanel
     property int selectedItemsCount: functionManager.selectedFunctionCount + functionManager.selectedFolderCount
     property bool inShowManager: false
 
+    function confirmDeleteSelectedItems()
+    {
+        if (!(selectedItemsCount && !functionManager.isEditing))
+            return
+
+        var selNames = functionManager.selectedItemNames()
+        deleteItemsPopup.message = qsTr("Are you sure you want to delete the following items?") + "\n" + selNames
+        deleteItemsPopup.open()
+    }
+
+    Connections
+    {
+        target: contextManager
+        enabled: mainView.currentContext === "FIXANDFUNC"
+                 && !rightSidePanel.inShowManager
+                 && !mainView.shortcutsBlocked()
+                 && (qlcplus.accessMask & App.AC_FunctionEditing)
+        function onRequestFunctionsDeletion()
+        {
+            confirmDeleteSelectedItems()
+        }
+    }
+
     function createFunctionAndEditor(fType)
     {
         var i
@@ -129,16 +152,6 @@ SidePanel
         }
     }
 
-    function requestDeleteSelectedItems()
-    {
-        if (!(selectedItemsCount && !functionManager.isEditing))
-            return
-
-        var selNames = functionManager.selectedItemNames()
-        deleteItemsPopup.message = qsTr("Are you sure you want to delete the following items?") + "\n" + selNames
-        deleteItemsPopup.open()
-    }
-
     function requestCloneSelectedFunctions()
     {
         if (functionManager.selectedFunctionCount && !functionManager.isEditing)
@@ -154,7 +167,7 @@ SidePanel
                  && (qlcplus.accessMask & App.AC_FunctionEditing)
                  && rightSidePanel.selectedItemsCount > 0
                  && !functionManager.isEditing
-        onActivated: rightSidePanel.requestDeleteSelectedItems()
+        onActivated: rightSidePanel.confirmDeleteSelectedItems()
     }
 
     Shortcut
@@ -356,11 +369,12 @@ SidePanel
                 faColor: "crimson"
                 tooltip: ShortcutUtils.withShortcut(qsTr("Delete the selected functions"), "Delete")
                 counter: selectedItemsCount && !functionManager.isEditing
-                onClicked: rightSidePanel.requestDeleteSelectedItems()
+                onClicked: confirmDeleteSelectedItems()
 
                 CustomPopupDialog
                 {
                     id: deleteItemsPopup
+                    objectName: "deleteItemsPopup"
                     title: qsTr("Delete items")
                     onAccepted:
                     {

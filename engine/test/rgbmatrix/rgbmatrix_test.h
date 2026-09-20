@@ -45,6 +45,10 @@ private slots:
     void property();
     void loadSave();
 
+    void repeatedFadeTarget_data();
+    void repeatedFadeTarget();
+    void initialFadePlayback_data();
+    void initialFadePlayback();
     void beatStepAdvanceDiagnostic();
 
 private:

@@ -30,7 +30,6 @@ Popup
 {
     id: menuRoot
     padding: 0
-    closePolicy: submenuItem !== null ? Popup.CloseOnEscape : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
 
     property var submenuItem: null
     property int flagSize: UISettings.iconSizeDefault * 1.5
@@ -316,16 +315,19 @@ Popup
        NOTE: it is deliberately NOT a child of fileMenuEntry, unlike the other
        submenus here. A ContextMenuEntry sibling below it in the column grabs
        the hover for the whole area, leaving only the first row of the submenu
-       reachable. Parenting to menuRoot avoids that entirely */
+       reachable. Parenting to menuRoot avoids that entirely.
+       A Popup is not an Item, so the parent is its contentItem */
     SubMenu
     {
         id: fileMenu
+        objectName: "actionsFileMenu"
         parent: menuRoot.contentItem
         x: actionsMenuEntries.width
         y: fileMenuEntry.y
         // stay open while the recent files list, which belongs to one of the
         // entries inside here, is the active submenu
-        visible: submenuItem === fileMenu || submenuItem === recentMenu
+        visible: menuRoot.compactMode &&
+                 (submenuItem === fileMenu || submenuItem === recentMenu)
     }
 
     Column
@@ -518,6 +520,7 @@ Popup
             SubMenu
             {
                 id: networkMenu
+                objectName: "actionsNetworkMenu"
                 parent: netEntry
                 x: netEntry.width
                 visible: submenuItem === networkMenu

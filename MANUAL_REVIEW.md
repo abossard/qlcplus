@@ -1509,3 +1509,71 @@ Automated: all 22 final upstream QXF blobs match the captured source, map member
 | Cue lists and fixture editor | | | | |
 | VDJ/Perform timing | | | | |
 | Fixture hardware | | | | |
+
+## 28. September 2026 upstream integration through 4024f2d13
+
+**Context:** Merged 11 upstream commits from `01377699e` through `4024f2d13`.
+The integration retains the fork's shortcut guards, persistent views, MCP tools,
+matrix diagnostics, and bounded float controls. It also registers upstream's
+Eurolite LED IP PIX Strobe RGB CW+WW definition in the fixture map.
+
+All checks below await human review. The `rgbmatrix_test` and
+`upstreamintegration_test` regressions cover fade state, text-key routing,
+deletion confirmation, and menu dismissal. Fixture validation covers XML and
+channel definitions, not physical output.
+
+### 28.1 Text editing and deletion confirmation
+
+- ☐ Rename a function inline and edit a multiline text field. Place the cursor inside the text and use Delete, Backspace, select-all, cut, paste, and undo. Confirm only the text changes and no project item disappears.
+- ☐ Select functions and folders outside an editor. Use Delete and the toolbar minus button. Each should open one confirmation dialog with the selected names. Cancel must preserve the items; confirm must delete only the selection.
+- ☐ Visit Show Manager, then return to Fixtures & Functions and repeat deletion. Confirm no second dialog appears from the hidden panel.
+- ☐ Repeat the shortcut guards in §10.2 with a popup open and in restricted access mode. In Scene/EFX editors, Delete should still act on the editor selection rather than the project function.
+
+### 28.2 Actions menu dismissal
+
+- ☐ Open Recent files, Network, and Language submenus, then click outside the Actions menu. Confirm the menu and submenu close without a crash.
+- ☐ Repeat in compact mode with File and its nested Recent files submenu. Hover between entries, select the last row, dismiss with Escape, and reopen.
+- ☐ Repeat §27.1 navigation and unsaved-project checks. Confirm menu shortcuts and persistent fork views still work after dismissing a submenu.
+
+### 28.3 Floating presets, edge selection, and palette preview
+
+- ☐ Open the Presets tool and drag its fixture/channel header. Confirm the floating tool follows the pointer, stays usable, and still selects the intended channel on a click.
+- ☐ Hover near each end of a capability range. Confirm the highlighted edge selects the exact minimum or maximum, while the middle varies smoothly. Include a range whose minimum is not zero.
+- ☐ Edit a palette through the tool and select low, middle, and high values. Confirm the preview matches the selected DMX level without jumps or duplicate updates.
+- ☐ Scroll through long capability lists and dismiss/reopen the tool. Confirm the fork's wheel handling does not scroll the view behind it.
+
+### 28.4 Fixture capability and mode editing
+
+- ☐ In a channel with enough capabilities to scroll, edit the last visible row. Confirm it stays visible when the preset editor opens.
+- ☐ Add a capability at the bottom, edit its values, then delete it. Confirm the list stays near the edited position. Repeat until no capabilities remain.
+- ☐ Switch between single-value and two-value presets with different units. Confirm both controls display the current units and values without clipping.
+- ☐ Drag a mode channel below the last row. Confirm the insertion line appears and the channel appends at the end. Repeat from the main channel list and cancel a drag outside the target.
+- ☐ Reopen the fixture editor and confirm the saved order and capabilities. Repeat the internal versus desktop drag checks in §27.4.
+
+### 28.5 RGBMatrix fade continuity [DMX]
+
+- ☐ Use an RGB Matrix with a fade-out longer than its step duration. Run a pattern that requests the same zero value over several steps. Confirm the light reaches blackout instead of repeatedly restarting the fade.
+- ☐ Repeat with a sustained nonzero target, then a different target. Confirm sustained values fade smoothly and changed values respond without a jump.
+- ☐ Start a matrix with a black first cell while that fixture is already lit. Confirm its configured fade-out runs from the live level, rather than snapping to blackout. Repeat with a zero fade-out for an immediate blackout.
+- ☐ Compare Time and Beats timing and repeat §23.3 for HUEMatrix. Confirm fork audio effects, bounded float controls, and timing diagnostics remain usable.
+
+### 28.6 Incoming fixture catalog and output [DMX]
+
+Definitions: Betopper LB150; Chauvet Followspot 400G, Intimidator Scan 360,
+Kinta HP, MiniSphere 3, and Scorpion Storm RGBY; ETC ColorSource Fresnel V
+(updated) and Fresnel V MAX; Eliminator Lighting Stryker Spot; Eurolite LED IP
+PIX Strobe RGB CW+WW and LED Party Panel RGB+UV V2; Shehds LED Spot 100W.
+
+- ☐ Find these models and their modes in the fixture browser. Confirm the fork's Stairville Beam Ball 100 Quad LED remains available.
+- ☐ With matching equipment, verify channel order, color, dimmer, shutter, movement, and special ranges. Check all six modes of the Eurolite IP PIX definition.
+
+### 28.7 Sign-off
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Text editing and confirmation | | | | |
+| Actions menus | | | | |
+| Presets and palette preview | | | | |
+| Fixture editor | | | | |
+| Matrix fades and fork controls | | | | |
+| Fixture hardware | | | | |

@@ -20,6 +20,7 @@
 
 #include <QtTest>
 #include <QSet>
+#include <QScopeGuard>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
@@ -43,6 +44,9 @@
 #include "../common/resource_paths.h"
 
 #include "timingdiagnostics.h"
+#include "fadechannel.h"
+#include "genericfader.h"
+#include "rgbplain.h"
 
 namespace
 {
@@ -403,6 +407,95 @@ void RGBMatrix_Test::loadSave()
     xmlReader.readNextStartElement();
     QVERIFY(mtx2.loadXML(xmlReader) == false); // Not an RGBMatrix node
 
+}
+
+void RGBMatrix_Test::repeatedFadeTarget_data()
+{
+    QTest::addColumn<int>("target");
+    QTest::addColumn<int>("nextTarget");
+    QTest::newRow("continue-fade-out") << 0 << 0;
+    QTest::newRow("continue-fade-in") << 220 << 220;
+    QTest::newRow("change-to-fade-out") << 220 << 0;
+    QTest::newRow("change-to-fade-in") << 0 << 180;
+}
+
+void RGBMatrix_Test::repeatedFadeTarget()
+{
+    QFETCH(int, target);
+    QFETCH(int, nextTarget);
+    RGBMatrix matrix(m_doc);
+    matrix.setFadeOutSpeed(1200);
+    FadeChannel channel;
+    channel.setStart(30);
+    channel.setCurrent(90);
+    channel.setTarget(target);
+    channel.setElapsed(200);
+    channel.setFadeTime(800);
+    channel.setReady(false);
+
+    matrix.updateFaderValues(channel, nextTarget, 600);
+
+    const bool unchanged = target == nextTarget;
+    QCOMPARE(channel.start(), quint32(unchanged ? 30 : 90));
+    QCOMPARE(channel.current(), quint32(90));
+    QCOMPARE(channel.target(), quint32(nextTarget));
+    QCOMPARE(channel.elapsed(), uint(unchanged ? 200 : 0));
+    QCOMPARE(channel.fadeTime(), uint(unchanged ? 800 : nextTarget == 0 ? 1200 : 600));
+    QVERIFY(!channel.isReady());
+}
+
+void RGBMatrix_Test::initialFadePlayback_data()
+{
+    QTest::addColumn<int>("current");
+    QTest::addColumn<int>("target");
+    QTest::addColumn<uint>("fadeOut");
+    QTest::addColumn<int>("firstOutput");
+    QTest::newRow("cold-black-fades-from-live") << 200 << 0 << uint(1200) << 197;
+    QTest::newRow("cold-nonzero-target") << 40 << 220 << uint(1200) << 44;
+    QTest::newRow("already-dark") << 0 << 0 << uint(1200) << 0;
+    QTest::newRow("instant-black") << 200 << 0 << uint(0) << 0;
+}
+
+void RGBMatrix_Test::initialFadePlayback()
+{
+    QFETCH(int, current);
+    QFETCH(int, target);
+    QFETCH(uint, fadeOut);
+    QFETCH(int, firstOutput);
+    Doc doc(nullptr);
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(1);
+    QVERIFY(doc.addFixture(fixture));
+    auto *group = new FixtureGroup(&doc);
+    group->setSize(QSize(1, 1));
+    QVERIFY(doc.addFixtureGroup(group));
+    group->assignFixture(fixture->id());
+    const auto universes = doc.inputOutputMap()->universes();
+    Universe *universe = universes.first();
+    universe->write(0, current);
+
+    RGBMatrix matrix(&doc);
+    matrix.setFixtureGroup(group->id());
+    matrix.setControlMode(RGBMatrix::ControlModeDimmer);
+    matrix.setAlgorithm(new RGBPlain(&doc));
+    matrix.setColor(0, QColor(target, target, target));
+    matrix.setDuration(MasterTimer::tick());
+    matrix.setFadeInSpeed(800);
+    matrix.setFadeOutSpeed(fadeOut);
+    matrix.preRun(doc.masterTimer());
+    const auto cleanup = qScopeGuard([&]() { matrix.postRun(doc.masterTimer(), universes); });
+
+    for (int elapsed = 20; elapsed <= 1200; elapsed += 20)
+    {
+        matrix.write(doc.masterTimer(), universes);
+        auto fader = matrix.m_fadersMap.value(universe->id());
+        QVERIFY(fader);
+        universe->zeroIntensityChannels();
+        fader->write(universe, 20);
+        if (elapsed == 20)
+            QCOMPARE(universe->preGMValue(0), uchar(firstOutput));
+    }
+    QCOMPARE(universe->preGMValue(0), uchar(target));
 }
 
 /* C2-3: the ordinary between-beat step advance must advance the step the same

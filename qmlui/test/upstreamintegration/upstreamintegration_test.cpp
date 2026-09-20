@@ -18,9 +18,11 @@
 #include <algorithm>
 
 #include "app.h"
+#include "contextmanager.h"
 #include "doc.h"
 #include "djmanager.h"
 #include "fixture.h"
+#include "functionmanager.h"
 #include "inputoutputmap.h"
 #include "mastertimer.h"
 #include "performfsm.h"
@@ -42,6 +44,12 @@ class UpstreamIntegration_Test : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void textInputDeletion_data();
+    void textInputDeletion();
+    void functionDeletionConfirmation_data();
+    void functionDeletionConfirmation();
+    void actionsSubmenuDismissal_data();
+    void actionsSubmenuDismissal();
     void mixedAuthoring_data();
     void mixedAuthoring();
     void fileOpenGuard_data();
@@ -90,6 +98,155 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::textInputDeletion_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<int>("key");
+    for (const QString &type : {QString("TextInput"), QString("TextEdit")})
+    {
+        QTest::newRow(qPrintable(type + "-delete")) << type << int(Qt::Key_Delete);
+        QTest::newRow(qPrintable(type + "-backspace")) << type << int(Qt::Key_Backspace);
+    }
+}
+
+void UpstreamIntegration_Test::textInputDeletion()
+{
+    QFETCH(QString, type);
+    QFETCH(int, key);
+    auto *context = m_app->rootContext()->contextProperty("contextManager").value<ContextManager*>();
+    QVERIFY(context);
+    context->setLastClickedType(App::FunctionDragItem);
+    QSignalSpy deletion(context, &ContextManager::requestFunctionsDeletion);
+    QQmlComponent component(m_app->engine());
+    component.setData(("import QtQuick\n" + type + " { text: \"ABCDE\" }").toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    auto *input = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY2(input, qPrintable(component.errorString()));
+    input->setParentItem(m_app->rootObject());
+    input->forceActiveFocus();
+    QCOMPARE(m_app->activeFocusItem(), input);
+    QVERIFY(input->setProperty("cursorPosition", 2));
+
+    QTest::keyClick(m_app.get(), Qt::Key(key));
+
+    QCOMPARE(input->property("text").toString(), key == Qt::Key_Delete ? QString("ABDE") : QString("ACDE"));
+    QCOMPARE(deletion.count(), 0);
+}
+
+void UpstreamIntegration_Test::functionDeletionConfirmation_data()
+{
+    QTest::addColumn<bool>("folder");
+    QTest::addColumn<bool>("accept");
+    for (bool folder : {false, true})
+        for (bool accept : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(folder).arg(accept))) << folder << accept;
+}
+
+void UpstreamIntegration_Test::functionDeletionConfirmation()
+{
+    QFETCH(bool, folder);
+    QFETCH(bool, accept);
+    auto *context = m_app->rootContext()->contextProperty("contextManager").value<ContextManager*>();
+    auto *manager = m_app->rootContext()->contextProperty("functionManager").value<FunctionManager*>();
+    QVERIFY(context);
+    QVERIFY(manager);
+    QVERIFY(QMetaObject::invokeMethod(m_app->rootObject(), "enableContext",
+                                     Q_ARG(QVariant, "SHOWMGR"), Q_ARG(QVariant, true)));
+    QTRY_COMPARE(m_app->rootObject()->findChildren<QObject*>("funcRightPanel").size(), 2);
+    QVERIFY(QMetaObject::invokeMethod(m_app->rootObject(), "enableContext",
+                                     Q_ARG(QVariant, "FIXANDFUNC"), Q_ARG(QVariant, true)));
+    QObject *panel = nullptr;
+    const auto panels = m_app->rootObject()->findChildren<QObject*>("funcRightPanel");
+    for (QObject *candidate : panels)
+        if (!candidate->property("inShowManager").toBool())
+            panel = candidate;
+    QVERIFY(panel);
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Delete confirmation");
+    if (folder)
+        scene->setPath("Delete folder");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 id = scene->id();
+    manager->updateFunctionsTree();
+    if (folder)
+        manager->selectFolder("Delete folder", false);
+    else
+        manager->selectFunctionID(id, false);
+    context->setLastClickedType(folder ? App::FolderDragItem : App::FunctionDragItem);
+    m_app->rootObject()->forceActiveFocus();
+    QObject *popup = panel->findChild<QObject*>("deleteItemsPopup");
+    QVERIFY(popup);
+    const auto cleanup = qScopeGuard([&]() {
+        QMetaObject::invokeMethod(popup, "close");
+        manager->deleteFunctions({id});
+    });
+    QSignalSpy opened(popup, SIGNAL(opened()));
+    QSignalSpy deletion(context, &ContextManager::requestFunctionsDeletion);
+    QKeyEvent event(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+
+    context->handleKeyPress(&event);
+
+    QCOMPARE(deletion.count(), 1);
+    QTRY_COMPARE(opened.count(), 1);
+    QCOMPARE(m_app->doc()->function(id), scene);
+    for (QObject *candidate : panels)
+    {
+        QObject *candidatePopup = candidate->findChild<QObject*>("deleteItemsPopup");
+        QVERIFY(candidatePopup);
+        QCOMPARE(candidatePopup->property("visible").toBool(), candidate == panel);
+    }
+    QVERIFY(QMetaObject::invokeMethod(popup, accept ? "accept" : "reject"));
+    QCOMPARE(m_app->doc()->function(id) == nullptr, accept);
+}
+
+void UpstreamIntegration_Test::actionsSubmenuDismissal_data()
+{
+    QTest::addColumn<bool>("compact");
+    QTest::newRow("normal") << false;
+    QTest::newRow("compact") << true;
+}
+
+void UpstreamIntegration_Test::actionsSubmenuDismissal()
+{
+    QFETCH(bool, compact);
+    QQmlExpression expression(qmlContext(m_app->rootObject()), m_app->rootObject(), "actionsMenu");
+    QObject *menu = expression.evaluate().value<QObject*>();
+    QVERIFY2(menu, qPrintable(expression.error().toString()));
+    const QVariant originalCompact = menu->property("compactMode");
+    const QSize originalSize = m_app->size();
+    const bool wasVisible = m_app->isVisible();
+    QVERIFY(menu->setProperty("compactMode", compact));
+    const auto cleanup = qScopeGuard([&]() {
+        QMetaObject::invokeMethod(menu, "close");
+        menu->setProperty("compactMode", originalCompact);
+        m_app->setVisible(wasVisible);
+        m_app->resize(originalSize);
+    });
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1200, 800);
+    QTRY_COMPARE(m_app->size(), QSize(1200, 800));
+    QVERIFY(QMetaObject::invokeMethod(menu, "open"));
+    QTRY_VERIFY(menu->property("opened").toBool());
+    QObject *submenu = menu->findChild<QObject*>(compact ? "actionsFileMenu" : "actionsNetworkMenu");
+    QVERIFY(submenu);
+    QVERIFY(menu->setProperty("submenuItem", QVariant::fromValue(submenu)));
+    QTRY_VERIFY(submenu->property("opened").toBool());
+    QVERIFY(submenu->property("z").toDouble() > menu->property("z").toDouble());
+    QVERIFY(submenu->property("width").toDouble() > 0);
+    QVERIFY(submenu->property("height").toDouble() > 0);
+    QSignalSpy frame(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QVERIFY(frame.wait());
+    QCOMPARE(m_app->size(), QSize(1200, 800));
+
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier,
+                      QPoint(m_app->width() - 2, m_app->height() - 2));
+
+    QTRY_VERIFY(!menu->property("visible").toBool());
+    QTRY_VERIFY(!submenu->property("visible").toBool());
 }
 
 void UpstreamIntegration_Test::mixedAuthoring_data()
