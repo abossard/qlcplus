@@ -22,6 +22,8 @@
 #include "doc.h"
 #include "djmanager.h"
 #include "fixture.h"
+#include "fixturegroup.h"
+#include "fixturemanager.h"
 #include "functionmanager.h"
 #include "inputoutputmap.h"
 #include "mastertimer.h"
@@ -60,6 +62,8 @@ private slots:
     void columnResize();
     void cueListResizeGuard_data();
     void cueListResizeGuard();
+    void fixtureGroupDrag_data();
+    void fixtureGroupDrag();
     void internalDragOverlay();
     void mixedPasteAndTiming_data();
     void mixedPasteAndTiming();
@@ -456,6 +460,99 @@ void UpstreamIntegration_Test::cueListResizeGuard()
     QVERIFY(!doc->isModified());
 }
 
+void UpstreamIntegration_Test::fixtureGroupDrag_data()
+{
+    QTest::addColumn<QString>("delegateFile");
+    QTest::addColumn<bool>("selected");
+    QTest::addColumn<bool>("present");
+    QTest::addColumn<bool>("control");
+    QTest::newRow("selected-absent-fixture") << "FixtureNodeDelegate.qml" << true << false << false;
+    QTest::newRow("selected-absent-group-ctrl") << "TreeNodeDelegate.qml" << true << false << true;
+    QTest::newRow("selected-present-head") << "FixtureHeadDelegate.qml" << true << true << false;
+    QTest::newRow("selected-present-fixture-ctrl") << "FixtureNodeDelegate.qml" << true << true << true;
+    QTest::newRow("unselected-replacement-group") << "TreeNodeDelegate.qml" << false << false << false;
+    QTest::newRow("same-id-distinct-heads-ctrl") << "FixtureHeadDelegate.qml" << true << false << true;
+}
+
+void UpstreamIntegration_Test::fixtureGroupDrag()
+{
+    QFETCH(QString, delegateFile);
+    QFETCH(bool, selected);
+    QFETCH(bool, present);
+    QFETCH(bool, control);
+    auto *doc = m_app->doc();
+    auto *manager = m_app->rootContext()->contextProperty("fixtureManager").value<FixtureManager*>();
+    QVERIFY(manager);
+    manager->groupsTreeModel();
+    auto *fixture = new Fixture(doc);
+    fixture->setChannels(3);
+    QVERIFY(doc->addFixture(fixture));
+    FixtureGroup group(doc);
+    group.setId(42);
+    group.setName("Drag group");
+    const auto cleanup = qScopeGuard([&]() { doc->deleteFixture(fixture->id()); });
+
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/FixtureGroupManager.qml"));
+    std::unique_ptr<QObject> panel(component.create(&context));
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    qobject_cast<QQuickItem*>(panel.get())->setParentItem(m_app->rootObject());
+    QQmlExpression rootExpression(qmlContext(panel.get()), panel.get(),
+            "groupListView.forceLayout(); groupListView.itemAtIndex(0).item");
+    QObject *root = nullptr;
+    QTRY_VERIFY2((root = rootExpression.evaluate().value<QObject*>()),
+                 qPrintable(rootExpression.error().toString()));
+
+    QQmlComponent delegate(m_app->engine(), QUrl("qrc:/" + delegateFile));
+    std::unique_ptr<QObject> subject(delegate.create(&context)), other(delegate.create(&context));
+    QVERIFY2(subject && other, qPrintable(delegate.errorString()));
+    const int type = delegateFile == "TreeNodeDelegate.qml" ? App::FixtureGroupDragItem
+            : delegateFile == "FixtureHeadDelegate.qml" ? App::HeadDragItem : App::FixtureDragItem;
+    const quint32 itemID = type == App::FixtureGroupDragItem ? group.id() : fixture->id();
+    for (QObject *item : {subject.get(), other.get()})
+    {
+        QVERIFY(item->setProperty("itemType", type));
+        QVERIFY(item->setProperty("itemID", itemID));
+        if (type == App::FixtureGroupDragItem)
+            QVERIFY(item->setProperty("cRef", QVariant::fromValue(&group)));
+        if (type == App::FixtureDragItem)
+            QVERIFY(item->setProperty("cRef", QVariant::fromValue(fixture)));
+        if (type == App::HeadDragItem)
+            QVERIFY(item->setProperty("headIndex", item == subject.get() ? 2 : 1));
+    }
+    QVERIFY(subject->setProperty("isSelected", selected));
+    context.setContextProperty("subject", subject.get());
+    context.setContextProperty("other", other.get());
+    QQmlExpression payload(qmlContext(panel.get()), panel.get(),
+            present ? "gfhcDragItem.itemsList = [other, subject]"
+                    : "gfhcDragItem.itemsList = [other]");
+    payload.evaluate();
+    QVERIFY2(!payload.hasError(), qPrintable(payload.error().toString()));
+
+    QVERIFY(QMetaObject::invokeMethod(root, "mouseEvent",
+            Q_ARG(int, int(App::Pressed)), Q_ARG(int, itemID), Q_ARG(int, type),
+            Q_ARG(QVariant, QVariant::fromValue(subject.get())),
+            Q_ARG(int, control ? int(Qt::ControlModifier) : 0)));
+
+    payload.setExpression("gfhcDragItem.itemsList");
+    const auto items = payload.evaluate().value<QJSValue>();
+    const bool retainOther = present || control;
+    QCOMPARE(items.property("length").toInt(), retainOther ? 2 : 1);
+    if (retainOther)
+        QCOMPARE(items.property(0).toQObject(), other.get());
+    QObject *actual = items.property(retainOther ? 1 : 0).toQObject();
+    QCOMPARE(actual, subject.get());
+    QCOMPARE(actual->property("itemType").toInt(), type);
+    QCOMPARE(actual->property("itemID").toUInt(), itemID);
+    if (type == App::HeadDragItem)
+        QCOMPARE(actual->property("headIndex").toInt(), 2);
+    else if (type == App::FixtureGroupDragItem)
+        QCOMPARE(actual->property("cRef").value<FixtureGroup*>(), &group);
+    else
+        QCOMPARE(actual->property("cRef").value<Fixture*>(), fixture);
+}
+
 void UpstreamIntegration_Test::internalDragOverlay()
 {
     QQmlComponent component(m_app->engine());
@@ -469,6 +566,29 @@ void UpstreamIntegration_Test::internalDragOverlay()
     QCOMPARE(overlay.evaluate().toInt(), -1);
     QVERIFY(QMetaObject::invokeMethod(widget.get(), "setDrag", Q_ARG(QVariant, false)));
     QCOMPARE(overlay.evaluate().toInt(), 100);
+
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent fixtures(m_app->engine(), QUrl("qrc:/FixtureGroupManager.qml"));
+    std::unique_ptr<QObject> panel(fixtures.create(&context));
+    QVERIFY2(panel, qPrintable(fixtures.errorString()));
+    qobject_cast<QQuickItem*>(panel.get())->setParentItem(m_app->rootObject());
+    QQmlExpression drag(qmlContext(panel.get()), panel.get(), QString());
+    const auto cleanup = qScopeGuard([&]() {
+        drag.setExpression("groupListView.dragActive = false; UISettings.internalDragActive = false");
+        drag.evaluate();
+    });
+    for (const QString &finish : {QString("drop"), QString("cancel")})
+    {
+        drag.setExpression("groupListView.dragActive = true");
+        drag.evaluate();
+        QVERIFY2(!drag.hasError(), qPrintable(drag.error().toString()));
+        QCOMPARE(overlay.evaluate().toInt(), -1);
+        drag.setExpression("gfhcDragItem.Drag." + finish + "(); groupListView.dragActive = false");
+        drag.evaluate();
+        QVERIFY2(!drag.hasError(), qPrintable(drag.error().toString()));
+        QCOMPARE(overlay.evaluate().toInt(), 100);
+    }
 }
 
 void UpstreamIntegration_Test::mixedPasteAndTiming_data()

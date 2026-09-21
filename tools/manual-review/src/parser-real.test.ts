@@ -27,6 +27,13 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(plan.sections.length).toBeGreaterThanOrEqual(5);
   });
 
+  it.skipIf(skip)('recognizes the upstream 30581dd38 review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '29');
+    expect(section?.cases.map(c => c.number)).toEqual(['29.1', '29.2', '29.3', '29.4', '29.5']);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([3, 2, 3, 1, 1]);
+    expect(section!.cases[3].tags).toEqual(['DMX']);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

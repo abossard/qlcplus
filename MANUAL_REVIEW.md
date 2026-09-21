@@ -1577,3 +1577,47 @@ PIX Strobe RGB CW+WW and LED Party Panel RGB+UV V2; Shehds LED Spot 100W.
 | Fixture editor | | | | |
 | Matrix fades and fork controls | | | | |
 | Fixture hardware | | | | |
+
+## 29. September 2026 upstream integration through 30581dd38
+
+Incoming commits: `966251555` (fixture-group dragging) and `30581dd38`
+(web keypad parsing). The fork retains its internal-drag overlay hook and adds
+rejection guards for malformed keypad numbers, invalid channels and ranges, and
+nonpositive BY steps.
+
+Automated checks: `node tests/test_keypad.js` executes the page script with a
+fake socket; `upstreamintegration_test fixtureGroupDrag internalDragOverlay`
+exercises native QML delegates and overlay state. These checks do not establish
+visual quality, physical output or human sign-off. All cases below await review.
+
+### 29.1 Fixture, group and head drag feedback
+
+- ☐ Select a fixture, then drag it into a Scene or fixture-group editor. Repeat with a group and a head from a multi-head fixture. Confirm the drag preview identifies the intended item and the target highlights where you expect.
+- ☐ Repeat a drag on an already selected row, then Ctrl-drag another selected row. Confirm selection feedback matches the resulting payload. Include two heads of the same fixture so their shared fixture ID does not hide a head-selection mistake.
+- ☐ Release outside the target and repeat the drag. Confirm cancellation leaves the interface usable, with no stuck preview or unexpected selection changes.
+
+### 29.2 Internal dragging and desktop-file overlay
+
+- ☐ Drag fixtures and groups over internal drop targets after switching between persistent fork views. Confirm the desktop-file overlay does not cover or intercept those targets.
+- ☐ Finish and cancel internal drags, then drag a desktop project file over the window. Confirm the file overlay returns and the unsaved-project confirmation still offers a safe cancellation.
+
+### 29.3 Web keypad readability and fork interaction
+
+- ☐ In the legacy web keypad, compose `25 AT FULL` with buttons and submit with keyboard Enter. Confirm word spacing, focus and text contrast remain readable on desktop and a narrow touch screen.
+- ☐ Type a spaced command and its compact equivalent, including `3 THRU 7 BY 2 AT 0 THRU 100` and `3T7 BY2 A0T100`. Follow with `AT ZERO` and `AT FULL`. Judge button feedback and command-entry flow; automation covers the numeric messages.
+- ☐ With a disposable project and outputs disconnected, compare the legacy web Simple Desk and the fork's `/vc/` view while entering keypad commands. Check displayed channel updates, navigation and reconnect feedback without disturbing a performance workspace.
+
+### 29.4 Physical keypad output [DMX]
+
+- ☐ On a safe test rig, verify channel 1 and channel 512, stepped ranges, FULL/ZERO and bounded relative changes against the patched fixtures. Confirm the intended fixtures respond. Automation has not verified hardware.
+
+### 29.5 Sign-off
+
+- ☐ Record failed or unavailable checks before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Fixture/group/head dragging | | | | |
+| Internal and desktop drag interaction | | | | |
+| Keypad and fork web views | | | | |
+| Physical output | | | | |
