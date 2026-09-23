@@ -118,11 +118,13 @@ public:
 
     /** Method invoked by the Virtual Console when an input signal is received.
      *  This is in charge of delivering the event to the children widgets expecting it. */
-    void inputValueChanged(quint32 inputSourceKey, uchar value);
+    void inputValueChanged(quint32 inputSourceKey, uchar value,
+                           ShowCommandOrigin origin = ShowCommandOrigin::Programmatic);
 
     /** Like inputValueChanged but for global dispatch to non-active pages.
      *  Uses isVisibleWithinPage instead of isEffectivelyVisible. */
-    void inputValueChangedGlobal(quint32 inputSourceKey, uchar value);
+    void inputValueChangedGlobal(quint32 inputSourceKey, uchar value,
+                                 ShowCommandOrigin origin = ShowCommandOrigin::Programmatic);
 
     /** Returns true if this page has any input source mapped for the given key */
     bool hasInputSourceForKey(quint32 inputSourceKey) const;

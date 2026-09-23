@@ -1590,6 +1590,16 @@ fake socket; `upstreamintegration_test fixtureGroupDrag internalDragOverlay`
 exercises native QML delegates and overlay state. These checks do not establish
 visual quality, physical output or human sign-off. All cases below await review.
 
+**Rechecked 2026-09-22:** `git fetch --no-tags upstream master` returned
+`30581dd38`, already included by merge `ae20bf3f8` on `mcp-server`.
+No new merge or compatibility refactor was needed.
+
+Built `qlcplus5` and the selected native test targets from the working tree,
+including the existing show-recording edits. Passed: upstream integration 68,
+web keypad 26, MCP query/filter 65, MCP validation 76, and MCP VC tool surface 35.
+All selected suites reported zero failures or skips. This does not replace
+separate acceptance of the show-recording work or the human checks below.
+
 ### 29.1 Fixture, group and head drag feedback
 
 - ☐ Select a fixture, then drag it into a Scene or fixture-group editor. Repeat with a group and a head from a multi-head fixture. Confirm the drag preview identifies the intended item and the target highlights where you expect.
@@ -1621,3 +1631,41 @@ visual quality, physical output or human sign-off. All cases below await review.
 | Internal and desktop drag interaction | | | | |
 | Keypad and fork web views | | | | |
 | Physical output | | | | |
+
+## 30. September 2026 upstream channel wizard through 6b2adfd5d
+
+Merged upstream `6b2adfd5d42eb68676511b0f2395d043e8ca5f40` as `f5fc023cb`.
+The fixture-editor wizard adds Lime, Indigo, RGBA, and RGBL choices.
+
+Automated checks on 2026-09-23: `cmake --build build --target qlcplus5
+upstreamintegration_test qlcchannel_test mcp_query_tools_test -j8` passed.
+Offscreen runs passed: `upstreamintegration_test channelWizard` (11),
+full `upstreamintegration_test` (77), `qlcchannel_test` (18), and
+`mcp_query_tools_test` (39). All exited 0 with zero failures or skips;
+QtTest totals include initialization and cleanup. Integration runs used
+`QT_QUICK_BACKEND=software`. In `tools/manual-review`,
+`npm test -- src/parser-real.test.ts` passed all 15 tests with no skips.
+The wizard test covers preview/cancel isolation,
+repeated channel groups, presets, capabilities, and channel XML reload.
+These results do not accept the separate show-recording work or establish
+visual quality, physical output, or human sign-off. All cases below await review.
+
+### 30.1 Choice visibility and preview readability
+
+- ☐ Open the fixture-editor channel wizard. Check that Lime and Indigo have distinguishable icons and that RGBA and RGBL labels remain readable in the dropdown.
+- ☐ Preview several groups of RGBA and RGBL channels at a normal window size. Check that the component labels and group numbers are easy to scan and the preview scrolls without obscuring rows.
+- ☐ Repeat at a compact or narrow window size. Check dropdown labels, preview text, and action buttons for clipping and overlap.
+
+### 30.2 Fixture-editor interaction
+
+- ☐ Open the wizard from an existing fixture definition, change the choice and amount, then cancel by button and Escape. Judge modal focus, cancellation feedback, and return to the unchanged editor.
+- ☐ Accept a composite group and continue editing channels. Check focus and navigation; repeat §28.4 for capability/mode editing and internal drag interaction.
+
+### 30.3 Sign-off
+
+- ☐ Record failed or unavailable checks before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Wizard choices and preview | | | | |
+| Focus, cancellation, and editing | | | | |

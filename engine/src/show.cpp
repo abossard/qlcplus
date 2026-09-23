@@ -22,6 +22,7 @@
 #include <QString>
 #include <QDebug>
 #include <QFile>
+#include <QHash>
 #include <QList>
 
 #include "showrunner.h"
@@ -113,6 +114,12 @@ bool Show::copyFrom(const Function* function)
     m_latestTrackId = show->m_latestTrackId;
     m_latestShowFunctionID = show->m_latestShowFunctionID;
 
+    /** A commanded target gets one private copy that every one of its clips
+     *  shares, so a command reaches each occurrence. An uncommanded target
+     *  keeps the existing copy-per-clip behaviour. */
+    const QList<quint32> commandedTargets = show->commandTrack().referencedFunctionIds();
+    QHash<quint32, quint32> copiedTargets;
+
     // create a copy of each track
     foreach (Track *track, show->tracks())
     {
@@ -128,11 +135,27 @@ bool Show::copyFrom(const Function* function)
             if (function == NULL)
                 continue;
 
-            /* Attempt to create a copy of the function to Doc */
-            Function* copy = function->createCopy(doc());
+            const bool commanded = commandedTargets.contains(function->id());
+            Function *copy = NULL;
+
+            if (commanded && copiedTargets.contains(function->id()))
+            {
+                copy = doc()->function(copiedTargets.value(function->id()));
+            }
+            else
+            {
+                /* Attempt to create a copy of the function to Doc */
+                copy = function->createCopy(doc());
+                if (copy != NULL)
+                {
+                    copy->setName(tr("Copy of %1").arg(function->name()));
+                    if (commanded)
+                        copiedTargets.insert(function->id(), copy->id());
+                }
+            }
+
             if (copy != NULL)
             {
-                copy->setName(tr("Copy of %1").arg(function->name()));
                 ShowFunction *showFunc = newTrack->createShowFunction(copy->id());
                 showFunc->setStartTime(sfunc->startTime());
                 showFunc->setDuration(sfunc->duration());
@@ -141,6 +164,14 @@ bool Show::copyFrom(const Function* function)
             }
         }
     }
+
+    ShowCommandTrack commands = show->commandTrack();
+    for (QHash<quint32, quint32>::const_iterator it = copiedTargets.constBegin();
+         it != copiedTargets.constEnd(); ++it)
+    {
+        commands.remapFunctionId(it.key(), it.value());
+    }
+    storeCommandTrack(commands);
 
     return Function::copyFrom(function);
 }
@@ -388,6 +419,120 @@ ShowFunction *Show::showFunction(quint32 id) const
     return NULL;
 }
 
+/*********************************************************************
+ * Command track
+ *********************************************************************/
+
+ShowCommandTrack Show::commandTrack() const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    return m_commandTrack;
+}
+
+QString Show::commandTargetError(const ShowCommandTrack &track) const
+{
+    Doc *document = doc();
+
+    foreach (quint32 functionId, track.referencedFunctionIds())
+    {
+        if (id() != Function::invalidId() && functionId == id())
+            return tr("A Show cannot command itself");
+
+        if (document != NULL && document->function(functionId) == NULL)
+            return tr("Unknown command target %1").arg(functionId);
+    }
+
+    return QString();
+}
+
+bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                           QString *error)
+{
+    const QString reason = commandTargetError(track);
+    if (reason.isEmpty() == false)
+    {
+        if (error != NULL)
+            *error = reason;
+        return false;
+    }
+
+    ShowCommandTrack accepted = track;
+    /** The extent is authored, but it cannot cut authored commands short.
+     *  Nothing is appended past the last command: a trailing Start at the
+     *  extent ends the Show right there, which is the user's choice */
+    if (accepted.extent() < accepted.lastCommandTime())
+        accepted.setExtent(accepted.lastCommandTime());
+
+    storeCommandTrack(accepted, alreadyApplied);
+
+    if (error != NULL)
+        error->clear();
+
+    emit commandTrackChanged();
+    return true;
+}
+
+void Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied)
+{
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        m_commandTrack = track;
+        /** Ids published earlier in this traversal are still waiting for the
+         *  cursor to reach them, so they must survive a newer publication */
+        m_commandAppliedIds.unite(alreadyApplied);
+    }
+
+    m_commandTrackRevision.fetch_add(1, std::memory_order_release);
+}
+
+quint64 Show::commandTrackRevision() const
+{
+    return m_commandTrackRevision.load(std::memory_order_acquire);
+}
+
+ShowCommandTrack Show::commandTrackSnapshot(QSet<quint32> *alreadyApplied) const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    if (alreadyApplied != NULL)
+        *alreadyApplied = m_commandAppliedIds;
+
+    return m_commandTrack;
+}
+
+void Show::commandTraversalRestarted()
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_commandAppliedIds.clear();
+}
+
+void Show::setCommandRecording(bool enabled)
+{
+    m_commandRecording.store(enabled, std::memory_order_relaxed);
+}
+
+bool Show::commandRecording() const
+{
+    return m_commandRecording.load(std::memory_order_relaxed);
+}
+
+void Show::setCommandPosition(quint32 ms)
+{
+    m_commandPosition.store(ms, std::memory_order_relaxed);
+}
+
+quint32 Show::commandPosition() const
+{
+    /** An externally driven Show has exactly one authoritative clock: the one
+     *  the host pushes. It stays readable while the Show is idle or paused,
+     *  and it is what the runtime consumes anyway, so the two never disagree.
+     *  Function::isRunning() is deliberately not consulted here - it belongs
+     *  to the MasterTimer, not to callers on the UI thread. */
+    if (m_syncSource != 0)
+        return externalElapsedTime();
+
+    return m_commandPosition.load(std::memory_order_relaxed);
+}
+
 /*****************************************************************************
  * Load & Save
  *****************************************************************************/
@@ -409,6 +554,10 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
 
     foreach (Track *track, m_tracks)
         track->saveXML(doc);
+
+    const ShowCommandTrack commands = commandTrack();
+    if (commands.isEmpty() == false || commands.extent() > 0)
+        commands.saveXML(doc);
 
     /* End the <Function> tag */
     doc->writeEndElement();
@@ -446,6 +595,23 @@ bool Show::loadXML(QXmlStreamReader &root)
             if (trk->loadXML(root) == true)
                 addTrack(trk, trk->id());
         }
+        else if (root.name() == KXMLShowCommandTrack)
+        {
+            ShowCommandTrack parsed;
+            QString error;
+            if (parsed.loadXML(root, &error) == false)
+            {
+                qWarning() << Q_FUNC_INFO << "Invalid command track:" << error;
+                // leave the reader at the end of this Show, not inside it
+                while (root.readNextStartElement())
+                    root.skipCurrentElement();
+                return false;
+            }
+
+            /** Targets are not resolved here: the functions a Show commands may
+             *  still be further down the workspace. postLoad() diagnoses them. */
+            storeCommandTrack(parsed);
+        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown Show tag:" << root.name();
@@ -463,6 +629,16 @@ void Show::postLoad()
         if (track->postLoad(doc()))
             doc()->setModified();
     }
+
+    /** An unresolved command target is reported and kept: dropping it would
+     *  silently destroy authored data that a later workspace fix could use */
+    const ShowCommandTrack commands = commandTrack();
+    foreach (quint32 functionId, commands.referencedFunctionIds())
+    {
+        if (doc()->function(functionId) == NULL)
+            qWarning() << Q_FUNC_INFO << "Show" << name()
+                       << "commands an unknown function:" << functionId;
+    }
 }
 
 bool Show::contains(quint32 functionId) const
@@ -479,7 +655,7 @@ bool Show::contains(quint32 functionId) const
             return true;
     }
 
-    return false;
+    return commandTrack().referencedFunctionIds().contains(functionId);
 }
 
 QList<quint32> Show::components() const
@@ -488,6 +664,12 @@ QList<quint32> Show::components() const
 
     foreach (Track* track, m_tracks)
         ids.append(track->components());
+
+    foreach (quint32 functionId, commandTrack().referencedFunctionIds())
+    {
+        if (ids.contains(functionId) == false)
+            ids.append(functionId);
+    }
 
     return ids;
 }
@@ -499,6 +681,7 @@ QList<quint32> Show::components() const
 void Show::preRun(MasterTimer* timer)
 {
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
+    m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
     m_runningChildren.clear();
     if (m_runner != NULL)

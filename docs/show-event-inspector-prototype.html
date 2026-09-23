@@ -1,0 +1,288 @@
+<!doctype html>
+<!-- THROWAWAY UI PROTOTYPE. Question: How should a read-only, bounded, memory-only incoming-event inspector fit inside the Show editor?
+     Three layouts on this file: ?variant=A (docked log), B (side inspector), C (trace workspace). No QLC+ connection. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,">
+<title>QLC+ Show event inspector · UI prototype</title>
+<style>
+:root{color-scheme:dark;--bg:#161616;--panel:#232323;--line:#404040;--muted:#b0b0b0;--text:#eeeeec;--teal:#87d5c7;--amber:#e9bc78;--red:#ff9898}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,input,select{font:inherit;color:inherit;background:#292929;border:1px solid #666;border-radius:2px;min-height:29px}
+button{padding:4px 10px;cursor:pointer}button:hover{background:#373737}button:disabled{opacity:.5;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+input,select{padding:3px 7px}h1,h2,h3,p{margin:0}h1{font-size:16px}h2{font-size:13px}h3{font-size:12px;font-weight:600}
+.muted{color:var(--muted)}.mono,time{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-variant-numeric:tabular-nums}
+.simulation{height:29px;padding:5px 14px;background:#392d1c;color:#ffcf89;border-bottom:1px solid #70532e;font-size:12px;font-weight:650;display:flex;justify-content:space-between}
+.tabs{height:39px;display:flex;align-items:stretch;background:#232323;border-bottom:1px solid #444}
+.brand{padding:8px 16px;font-weight:750;color:#fff;border-right:1px solid #444}.tab{display:flex;align-items:center;padding:0 16px;color:#c1c1c1}
+.tab.active{border-bottom:3px solid #ffe000;color:#fff;background:#303030}
+.show-head{height:48px;display:flex;align-items:center;gap:14px;padding:6px 14px;border-bottom:1px solid var(--line)}
+.show-title{flex:1}.show-title small{font-size:12px;color:var(--muted)}.rec{color:var(--red);font-size:12px;white-space:nowrap}
+.inspector-toggle[aria-expanded=true]{border-color:var(--teal);color:var(--teal)}
+.demo-controls{height:37px;display:flex;align-items:center;gap:10px;padding:4px 14px;border-bottom:1px solid var(--line);font-size:12px}
+.demo-controls button{min-height:26px;padding:2px 8px}.demo-controls .scope{margin-left:auto;color:var(--muted)}
+.workspace{height:calc(100dvh - 218px);min-height:420px;margin:10px 12px 0;display:grid;gap:10px}
+.timeline{border:1px solid var(--line);background:#1c1c1c;min-width:0;overflow:hidden;display:flex;flex-direction:column}
+.timeline-head{height:34px;display:flex;align-items:center;gap:12px;padding:0 10px;border-bottom:1px solid var(--line);background:var(--panel)}
+.timeline-head time{margin-left:auto;color:var(--teal)}.timeline-grid{position:relative;flex:1;min-height:122px}
+.ruler,.lane{display:grid;grid-template-columns:136px minmax(0,1fr)}.ruler{height:25px;color:var(--muted);font-size:12px}
+.ruler>span{padding:4px 8px;border-right:1px solid var(--line)}.ticks{display:flex;justify-content:space-between;padding:4px 9px}
+.lane{height:42px;border-top:1px solid #353535}.lane-name{padding:4px 9px;border-right:1px solid var(--line);background:#252525;font-size:12px;line-height:16px}
+.lane-name small{color:var(--muted);font-size:11px}.track{position:relative;background:#202020}
+.clip{position:absolute;top:7px;height:27px;padding:4px 7px;background:#354c47;border:1px solid #647f77;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px}
+.lane:nth-child(3) .clip{background:#3a4050;border-color:#737e97}.lane:nth-child(4) .clip{background:#51452f;border-color:#8d7856}
+.playhead-track{position:absolute;left:136px;right:0;top:0;bottom:0;pointer-events:none;overflow:hidden}
+.playhead{position:absolute;top:0;bottom:0;border-left:1px solid var(--teal);transition:left .85s linear}
+.playhead:before{content:"";position:absolute;top:0;left:-4px;border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid var(--teal)}
+.timeline-note,.capture-rule{padding:7px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.show-context{display:none;margin-top:16px;border-top:1px solid var(--line);padding:14px 10px;color:var(--muted)}
+.show-context h3{color:var(--text);margin-bottom:8px}.show-context p{margin-top:10px}
+.inspector{min-width:0;min-height:0;background:#1b1b1b;border:1px solid #555;display:flex;flex-direction:column;overflow:hidden}
+.panel-head{display:flex;align-items:center;gap:9px;padding:5px 9px;min-height:36px;background:#2a3332;border-bottom:1px solid #4c5c58}
+.panel-head .capture-label{font-size:12px;color:var(--teal);margin-left:auto}.panel-head button{min-height:25px;padding:1px 8px}
+.filters{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap}
+.filters input{flex:1;min-width:105px;width:170px}.filters select{max-width:140px}.filters button{white-space:nowrap}
+.inspector-body{flex:1;min-height:0;display:flex;flex-direction:column}
+.events{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-color:#696969 #202020}
+table{width:100%;border-collapse:collapse;font-size:12px;text-align:left;table-layout:fixed}
+th{position:sticky;top:0;z-index:1;background:#303030;color:#c4c4c4;font-weight:500}
+th,td{border-bottom:1px solid #383838;padding:6px 8px;vertical-align:top;overflow-wrap:anywhere}
+th:nth-child(1){width:48px}th:nth-child(2){width:103px}th:nth-child(3){width:127px}th:nth-child(5){width:172px}
+tr.selected{background:#263d38}tr:hover{background:#303634}
+.row-action{display:block;width:100%;text-align:left;border:0;background:none;min-height:0;padding:0;color:var(--text);line-height:1.45}
+.row-action:hover{background:none;text-decoration:underline}.row-action small{display:block;color:var(--muted);font-size:11px}
+.stage{display:block;color:var(--muted);font-size:11px}.outcome{font-weight:550}.ok{color:var(--teal)}.warn{color:var(--amber)}.error{color:var(--red)}
+.new{animation:arrive .7s ease-out}@keyframes arrive{from{background:#3e554b}to{background:transparent}}
+.retention{font-size:12px;padding:5px 9px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
+.details{min-height:0;overflow:auto;border-top:1px solid #58615d;padding:9px 12px;background:#242424;font-size:12px}
+.detail-heading{display:flex;gap:9px;align-items:baseline;margin-bottom:6px}.detail-heading h3{font-size:13px}.detail-heading span{color:var(--teal)}
+.chain{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0 10px}
+.chain button{font-size:12px;padding:3px 6px;min-height:24px;background:#292f2d;border-color:#58615d}
+.chain button[aria-pressed=true]{border-color:var(--teal);color:var(--teal)}.chain .reason{display:none}
+dl{display:grid;grid-template-columns:138px minmax(0,1fr);margin:0;gap:5px 10px}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere}
+.proof-note{color:var(--amber);margin-top:9px}.empty{padding:18px;color:var(--muted)}
+.closed-notice{display:none;border:1px solid var(--line);background:#232323;padding:24px;align-items:center;justify-content:center;flex-direction:column;gap:12px;text-align:center}
+.closed-notice button{min-height:38px;padding:6px 18px}.closed-notice h2{font-size:16px}
+.switcher{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:#e6e5dc;color:#171717;padding:5px;border:1px solid #fff;border-radius:5px;z-index:10;font-size:12px}
+.switcher button{background:#d3d3ca;border-color:#aaa;color:#171717;width:35px;font-size:18px;line-height:22px}.switcher button:hover{background:white}
+.switcher span{min-width:192px;text-align:center}.switcher small{display:block;font-size:10px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+body[data-variant=A] .workspace{grid-template-rows:204px minmax(0,1fr)}
+body[data-variant=A] .details{max-height:126px;flex-shrink:0}
+body[data-variant=A] .lane{height:36px}
+body[data-variant=A] .clip{top:4px;height:26px}
+body[data-variant=A] .row-action small{display:none}
+body[data-variant=A] th,body[data-variant=A] td{padding:4px 8px}
+body[data-variant=A] .stage{display:inline;margin-left:7px}
+body[data-variant=A] dl{grid-template-columns:110px minmax(0,1fr) 125px minmax(0,1fr)}
+body[data-variant=B] .workspace{grid-template-columns:minmax(0,1fr) 395px}
+body[data-variant=B] .timeline-grid{flex:0}
+body[data-variant=B] .show-context{display:block}
+body[data-variant=B] .filters input{width:100%;order:3;flex-basis:100%}
+body[data-variant=B] .details{flex:1}
+body[data-variant=B] .events{flex:1.05}
+body[data-variant=B] .retention{display:block}
+body[data-variant=B] .retention>span{display:block}
+.event-list{margin:0;padding:0;list-style:none}.event-list li{border-bottom:1px solid #424242}
+.event-list button{border:0;border-radius:0;width:100%;padding:8px 10px;text-align:left;background:none;font-size:12px}
+.event-list button.selected{background:#263d38}.event-list button:hover{background:#303634}
+.list-meta{display:flex;justify-content:space-between;color:var(--muted);margin-bottom:3px}
+.list-action{display:block}.list-outcome{display:flex;justify-content:space-between;gap:10px;margin-top:3px}
+body[data-variant=C] .workspace{grid-template-rows:171px minmax(0,1fr)}
+body[data-variant=C] .lane{height:34px}
+body[data-variant=C] .clip{top:3px;height:26px}
+body[data-variant=C] .timeline-note{display:none}
+body[data-variant=C] .inspector-body{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(300px,1fr)}
+body[data-variant=C] .details{border-top:0;border-left:1px solid #58615d}
+body[data-variant=C] .chain{display:flex;flex-direction:column;gap:0;border-left:1px solid #63736b;margin-left:4px}
+body[data-variant=C] .chain button{margin:0 0 5px 10px;text-align:left}
+body[data-variant=C] .chain .reason{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+body[data-variant=C] th:nth-child(1){width:39px}body[data-variant=C] th:nth-child(2){width:87px}
+body[data-variant=C] th:nth-child(3){width:92px}body[data-variant=C] th:nth-child(5){width:122px}
+body.closed .inspector{display:none}body.closed .closed-notice{display:flex}
+@media(max-height:750px){body[data-variant=A] .workspace{grid-template-rows:171px minmax(0,1fr)}body[data-variant=A] .details{max-height:112px}.timeline-note{display:none}}
+@media(max-width:980px){.tab{padding:0 10px}.demo-controls .scope{display:none}.show-head{gap:8px}.workspace{margin-left:8px;margin-right:8px}
+ body[data-variant=B] .workspace{grid-template-columns:minmax(0,1fr) 365px}.ruler,.lane{grid-template-columns:112px minmax(0,1fr)}.playhead-track{left:112px}
+ body[data-variant=C] .inspector-body{grid-template-columns:minmax(0,1fr) 300px}th,td{padding:5px}
+ body[data-variant=C] th:nth-child(3){width:76px}body[data-variant=C] th:nth-child(5){width:106px}.rec{font-size:11px}}
+@media(max-width:730px){.simulation{height:auto;min-height:29px}.simulation span:last-child{display:none}.tabs{overflow-x:auto;white-space:nowrap}.rec{display:none}
+ .workspace{height:700px;min-height:0}body[data-variant=B] .workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:172px minmax(0,1fr)}
+ body[data-variant=B] .show-context{display:none}body[data-variant=C] .inspector-body{grid-template-columns:minmax(0,1fr)}body[data-variant=C] .details{max-height:170px;border-top:1px solid var(--line)}
+ body[data-variant=A] dl{grid-template-columns:110px minmax(0,1fr)}.events table{min-width:580px}.demo-controls .muted{display:none}.show-head small{font-size:11px}}
+@media(prefers-reduced-motion:reduce){*,*:before{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body data-variant="A">
+<div class="simulation"><span>SIMULATION · UI PROTOTYPE · no live output</span><span>Throwaway website · memory only</span></div>
+<nav class="tabs" aria-label="QLC+ context, non-interactive prototype tabs">
+ <span class="brand">QLC+</span><span class="tab">Fixtures</span><span class="tab">Functions</span><span class="tab active" aria-current="page">Show editor</span><span class="tab">Virtual Console</span><span class="tab">DJ</span>
+</nav>
+<header class="show-head">
+ <div class="show-title"><h1>Night Drive <span class="muted">/ Show 7</span></h1><small>Show editor · function lanes + recorded commands</small></div>
+ <span class="rec">● REC ARMED · simulated</span>
+ <button id="openInspector" class="inspector-toggle" aria-expanded="true" aria-controls="inspector">Event inspector</button>
+</header>
+<div class="demo-controls">
+ <strong>Demo controls</strong><button id="burst">Burst (80)</button><span class="muted">1 event / 900 ms while open</span>
+ <span class="scope">Recording / playback flow only. Not app or DMX telemetry.</span>
+</div>
+<main class="workspace">
+ <section class="timeline" aria-label="Illustrative Show timeline, read only">
+  <div class="timeline-head"><h2>Show timeline</h2><span class="muted">120 BPM</span><time id="playTime">00:05.000</time></div>
+  <div class="timeline-grid">
+   <div class="ruler"><span>Function / ID</span><div class="ticks mono"><span>00:00</span><span>00:06</span><span>00:12</span><span>00:18</span><span>00:24</span></div></div>
+   <div class="lane"><div class="lane-name">Night Drive<small> · Collection 12</small></div><div class="track"><span class="clip" style="left:8%;width:38%">Opening look</span><span class="clip" style="left:58%;width:32%">Return</span></div></div>
+   <div class="lane"><div class="lane-name">Blue wash<small> · Scene 21</small></div><div class="track"><span class="clip" style="left:0;width:24%">Blue wash</span><span class="clip" style="left:37%;width:37%">Cool transition</span></div></div>
+   <div class="lane"><div class="lane-name">Slow orbit<small> · EFX 31</small></div><div class="track"><span class="clip" style="left:17%;width:48%">Slow orbit · 8 beats</span><span class="clip" style="left:77%;width:20%">Orbit</span></div></div>
+   <div class="playhead-track"><div class="playhead" id="playhead" style="left:20.83%"></div></div>
+  </div>
+  <div class="timeline-note">Illustrative clips. The inspector never edits, deletes, or plays this Show.</div>
+  <div class="show-context"><h3>Editor stays in view</h3><p>Night Drive · Show ID 7<br>Collection 12 / Scene 21 / EFX 31</p><p>Read the incoming action beside the timeline, then inspect why it was recorded, ignored, or rejected.</p><p>Authored commands and playback requests are different evidence. Neither proves physical output.</p></div>
+ </section>
+ <section class="inspector" id="inspector" aria-label="Read-only Show event inspector">
+  <div class="panel-head"><h2 id="panelTitle">Event inspector</h2><span class="capture-label" id="captureLabel"></span><button id="closeInspector" aria-label="Close inspector and stop capture">Close ×</button></div>
+  <div class="capture-rule">Read-only · memory capture only while open · resets on reopen</div>
+  <div class="filters" aria-label="Display filters, capture is unaffected">
+   <select id="source" aria-label="Filter by source"><option value="">All sources</option><option>MIDI</option><option>VC slider</option><option>Audio</option><option>Programmatic</option><option>Playback</option><option>Transport</option><option>VC native</option></select>
+   <select id="outcome" aria-label="Filter by outcome"><option value="">All outcomes</option><option>Received</option><option>Recordable</option><option>Recorded</option><option>Ignored</option><option>Rejected</option><option>Requested</option><option>Skipped</option><option>Restore</option></select>
+   <input id="search" type="search" placeholder="Find action, target, trace…" aria-label="Filter event text">
+   <button id="follow" aria-pressed="true">Following live</button>
+  </div>
+  <div class="inspector-body">
+   <div class="events" id="events" tabindex="0" aria-label="Captured events, chronological arrival order"></div>
+   <aside class="details" id="details" aria-label="Selected event and causal trace"></aside>
+  </div>
+  <div class="retention"><span id="counts"></span><span>60 event demo limit; oldest events evicted. <span title="Production capacity is decided separately.">Not a product limit.</span></span></div>
+ </section>
+ <section class="closed-notice" id="closedNotice"><h2>Capture stopped.</h2><p>No events collected while closed.</p><p class="muted">Reopening starts a new session. Nothing is backfilled.</p><button id="reopen">Open event inspector · new capture</button></section>
+</main>
+<div class="switcher" aria-label="Prototype layout switcher">
+ <button id="previous" aria-label="Previous layout">←</button><span><strong id="variantName"></strong><small>Compare layouts · ← / →</small></span><button id="next" aria-label="Next layout">→</button>
+</div>
+<div id="status" class="sr-only" role="status" aria-live="polite"></div>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ const names = {A:'Docked log',B:'Side inspector',C:'Trace workspace'};
+ let variant = new URLSearchParams(location.search).get('variant') || 'A';
+ if (!names[variant]) variant = 'A';
+ let open = false, timer = null, session = 0, events = [], total = 0, evicted = 0;
+ let sampleIndex = 0, stageIndex = 0, selected = null, follow = true, renderedTotal = 0;
+ const input = ['Input','Received','Incoming event observed. A decision has not yet been recorded.'];
+ const record = ['Decision','Recordable','User origin, valid destination, and a supported command. Recording FSM accepts the action.'];
+ const samples = [
+  {source:'MIDI',origin:'User / controller',action:'Start',target:'Night Drive (Collection)',fn:12,value:'pressed',time:5000,command:101,before:'none → Start #101',steps:[input,record,['Show change','Recorded','Committed command #101 to Show 7. This is authored data, not proof that a collection started.']]},
+  {source:'VC slider',origin:'User / slider gesture',action:'SetIntensity',target:'Night Drive',fn:12,value:'0.65',time:6500,command:102,before:'authored 0.25 → 0.65 · command #102',steps:[input,record,['Show change','Recorded','Committed SetIntensity #102 with the original user-input origin.'],['Playback request','Requested','Requested intensity 0.65 for function 12. Physical output is not observed.']],request:'SetIntensity(12, 0.65) issued; not physically verified'},
+  {source:'Audio',origin:'Audio mapping / non-user',action:'SetIntensity',target:'Night Drive',fn:12,value:'0.42',time:7000,steps:[input,['Ignored','Ignored','Non-user input. Audio mapping is visible here but cannot author a Show command.']]},
+  {source:'Programmatic',origin:'Programmatic / display feedback',action:'VC display feedback',target:'Night Drive',fn:12,value:'0.65',time:7800,steps:[input,['Ignored','Ignored','Display feedback is not a new user gesture. No recording echo and no Show change.']]},
+  {source:'Playback',origin:'Show playback / command #96',action:'SetIntensity',target:'Night Drive',fn:12,value:'0.70',time:9000,steps:[input,['Decision','Skipped','Target function 12 is stopped in this sample. Do not start it implicitly.'],['Playback request','Skipped','No setter issued: target stopped. The authored command remains unchanged.']]},
+  {source:'MIDI',origin:'User / controller',action:'Start',target:'Missing function',fn:999,value:'pressed',time:9800,steps:[input,['Rejected','Rejected','Function 999 does not exist. Validation rejected the action; Show 7 is unchanged.']]},
+  {source:'Transport',origin:'Show clock / backward seek',action:'Restore authored intensity',target:'Night Drive',fn:12,value:'0.25',time:4500,steps:[input,['Decision','Restore','Clock moved backward. Latest authored value at 00:04.500 is 0.25 from existing command #94. Do not replay historical Start commands.'],['Playback request','Requested','Requested restore of 0.25 for the running sample target. No historical Start replay and no Show mutation.']],request:'Restore SetIntensity(12, 0.25); no historical Start replay; no physical proof'},
+  {source:'MIDI',origin:'User / controller',action:'Start',target:'Blue wash',fn:21,value:'pressed',time:11000,command:103,before:'none → Start #103',steps:[input,record,['Show change','Recorded','Committed Start #103. Same Show timestamp as the following slider trace; arrival sequence breaks the tie.'],['Playback request','Requested','Start(21) requested. Issuing a request is not confirmation of physical output.']],request:'Start(21) issued; not physically verified'},
+  {source:'VC slider',origin:'User / slider gesture',action:'SetIntensity',target:'Night Drive',fn:12,value:'0.50',time:11000,command:104,before:'authored 0.65 → 0.50 · command #104',steps:[input,record,['Show change','Recorded','Committed SetIntensity #104 after the MIDI trace at the same Show timestamp. Stable arrival order is preserved.']]},
+  {source:'VC native',origin:'User / native effect control',action:'SetWidth',target:'Slow orbit',fn:31,value:'0.35',time:12000,steps:[input,['Ignored','Ignored','Native EFX width has no authored command mapping. Recording no-op, not a recorded commit. No playback request is issued by this prototype.']]}
+ ];
+ const stamp = ms => `${String(Math.floor(ms/60000)).padStart(2,'0')}:${(ms/1000%60).toFixed(3).padStart(6,'0')}`;
+ const tone = outcome => ['Recorded','Requested','Recordable','Restore'].includes(outcome) ? 'ok' : outcome === 'Rejected' ? 'error' : ['Ignored','Skipped'].includes(outcome) ? 'warn' : '';
+ function produce() {
+  if (!open) return;
+  const sample = samples[sampleIndex % samples.length], cycle = Math.floor(sampleIndex / samples.length);
+  const [stage,outcome,reason] = sample.steps[stageIndex], command = sample.command ? sample.command + cycle * 10 : null;
+  const rewrite = text => (text || '').replace(/#10([1-4])/g, (_, n) => `#${100 + Number(n) + cycle * 10}`);
+  events.push({seq:++total,trace:`S${session}-T${String(sampleIndex+1).padStart(3,'0')}`,source:sample.source,origin:sample.origin,action:sample.action,target:sample.target,fn:sample.fn,value:sample.value,time:sample.time,arrival:new Date().toISOString().slice(11,23),stage,outcome,reason:rewrite(reason),command:stage === 'Show change' ? command : null,before:stage === 'Show change' ? rewrite(sample.before) : 'none at this stage',request:stage === 'Playback request' && outcome === 'Requested' ? sample.request : null});
+  if (events.length > 60) {events.shift(); evicted++;}
+  if (++stageIndex === sample.steps.length) {stageIndex = 0; sampleIndex++;}
+  $('playTime').textContent = stamp(sample.time); $('playhead').style.left = `${sample.time / 24000 * 100}%`;
+ }
+ function renderEvents() {
+  const area = $('events'), scroll = area.scrollTop, focused = document.activeElement?.dataset?.seq;
+  const query = $('search').value.toLowerCase(), source = $('source').value, outcome = $('outcome').value;
+  const shown = events.filter(e => (!source || e.source === source) && (!outcome || e.outcome === outcome) && (!query || JSON.stringify(e).toLowerCase().includes(query)));
+  const action = e => `${e.action} · ${e.target}<small>Function ${e.fn} · ${e.trace}</small>`;
+  if (variant === 'B') {
+   area.innerHTML = `<ol class="event-list">${shown.map(e => `<li class="${e.seq > renderedTotal ? 'new' : ''}"><button data-seq="${e.seq}" class="${e.seq === selected ? 'selected' : ''}" aria-pressed="${e.seq === selected}"><span class="list-meta"><span class="mono">#${e.seq} · ${stamp(e.time)}</span><span>${e.source}</span></span><span class="list-action">${e.action} · ${e.target} / ${e.fn}</span><span class="list-outcome"><span>${e.stage}</span><span class="outcome ${tone(e.outcome)}">${e.outcome}</span></span></button></li>`).join('')}</ol>`;
+  } else {
+   area.innerHTML = `<table><thead><tr><th>Seq</th><th>Show time</th><th>Source</th><th>Action &amp; target</th><th>Outcome</th></tr></thead><tbody>${shown.map(e => `<tr class="${e.seq === selected ? 'selected' : ''} ${e.seq > renderedTotal ? 'new' : ''}"><td class="mono">${e.seq}</td><td class="mono">${stamp(e.time)}</td><td>${e.source}</td><td><button class="row-action" data-seq="${e.seq}" aria-pressed="${e.seq === selected}" aria-label="Inspect event ${e.seq}, ${e.action}, ${e.outcome}">${action(e)}</button></td><td><span class="outcome ${tone(e.outcome)}">${e.outcome}</span><span class="stage">${e.stage}</span></td></tr>`).join('')}</tbody></table>`;
+  }
+  if (!shown.length) area.innerHTML += '<p class="empty">No matching events. Filters affect display only; capture continues.</p>';
+  if (focused) area.querySelector(`[data-seq="${focused}"]`)?.focus({preventScroll:true});
+  area.scrollTop = follow ? area.scrollHeight : scroll;
+  renderedTotal = total;
+  $('counts').textContent = `${shown.length} visible / ${events.length} retained · ${total} captured · ${evicted} evicted`;
+  $('follow').textContent = follow ? 'Following live' : 'Follow live'; $('follow').setAttribute('aria-pressed', follow);
+ }
+ function renderDetails() {
+  const focused = $('details').contains(document.activeElement) ? document.activeElement.dataset.seq : null;
+  const event = events.find(e => e.seq === selected);
+  if (!event) {
+   $('details').innerHTML = `<h3>${selected === null ? 'Select an event' : `Event #${selected} aged out`}</h3><p class="muted">${selected === null ? 'Read its input, decision, authored change, and playback request.' : 'The 60 event demo buffer evicted this event. Selection was not moved to another row.'}</p>`;
+   return;
+  }
+  const trace = events.filter(e => e.trace === event.trace);
+  const partialTrace = trace[0].stage !== 'Input' ? 'Earlier events in this trace were evicted. ' : '';
+  const filteredTrace = trace.some(e => !$('events').querySelector(`[data-seq="${e.seq}"]`)) ? 'Related events hidden by filters are included in these details. ' : '';
+  const commands = trace.filter(e => e.command).map(e => `#${e.command}`).join(', ') || 'none';
+  const requests = trace.filter(e => e.request).map(e => e.request).join('; ') || 'none issued in the retained trace';
+  $('details').innerHTML = `<div class="detail-heading"><h3>Event #${event.seq}</h3><span class="mono">${event.trace}</span><span class="muted">read only</span></div>
+   <div class="chain" aria-label="Retained causal chain">${trace.map(e => `<button data-seq="${e.seq}" aria-pressed="${e.seq === selected}">#${e.seq} ${e.stage} · ${e.outcome}<span class="reason">${e.reason}</span></button>`).join('')}</div>
+   <dl><dt>Arrival / Show time</dt><dd class="mono">${event.arrival} UTC / ${stamp(event.time)}</dd><dt>Destination / target</dt><dd>Night Drive · Show 7 / ${event.target} · function ${event.fn}</dd>
+   <dt>Input origin / value</dt><dd>${event.origin} / ${event.value}</dd><dt>Decision reason</dt><dd>${event.reason}</dd><dt>Authored commands</dt><dd>${commands} (retained trace)</dd><dt>Before → after</dt><dd>${event.before}</dd>
+   <dt>Playback / transport</dt><dd>${requests}</dd></dl><p class="proof-note">${partialTrace}${filteredTrace}Requests are not physical-output verification. Only retained outcomes appear above.</p>`;
+  if (focused) $('details').querySelector(`[data-seq="${focused}"]`)?.focus({preventScroll:true});
+ }
+ function render() {renderEvents(); renderDetails();}
+ function startCapture() {
+  if (open) return;
+  open = true; session++; events = []; total = 0; evicted = 0; sampleIndex = 0; stageIndex = 0; selected = null; renderedTotal = 0; follow = true;
+  $('source').value = ''; $('outcome').value = ''; $('search').value = '';
+  document.body.classList.remove('closed'); $('openInspector').setAttribute('aria-expanded','true'); $('burst').disabled = false;
+  $('captureLabel').textContent = `New session ${session} · capturing`;
+  produce(); produce(); produce(); selected = 3; render();
+  timer = setInterval(() => {produce(); render();}, 900);
+  $('status').textContent = `New capture session ${session}. Fresh simulated events only. Capture is memory-only.`;
+ }
+ function closeCapture() {
+  if (!open) return;
+  open = false; clearInterval(timer); timer = null; events = []; selected = null;
+  $('events').replaceChildren(); $('details').replaceChildren();
+  document.body.classList.add('closed'); $('openInspector').setAttribute('aria-expanded','false'); $('burst').disabled = true;
+  $('status').textContent = 'Capture stopped. No events collected while closed. Reopen for a new session.';
+  $('reopen').focus();
+ }
+ function setVariant(key) {
+  variant = key; document.body.dataset.variant = key; $('variantName').textContent = `${key} · ${names[key]}`;
+  $('panelTitle').textContent = key === 'C' ? 'Event trace workspace' : 'Event inspector';
+  const url = new URL(location.href); url.searchParams.set('variant', key);
+  try {history.replaceState(null, '', url);} catch { /* Some file:// browsers disallow history updates. Layout still switches. */ }
+  if (open) render();
+  $('status').textContent = `${names[key]}. ${open ? `Session ${session}, ${events.length} retained, ${evicted} evicted. Same capture.` : 'Capture remains stopped.'}`;
+ }
+ function cycle(direction) {setVariant(['A','B','C'][('ABC'.indexOf(variant)+direction+3)%3]);}
+ $('openInspector').onclick = () => {startCapture(); $('closeInspector').focus();};
+ $('reopen').onclick = () => {startCapture(); $('closeInspector').focus();};
+ $('closeInspector').onclick = closeCapture;
+ $('burst').onclick = () => {if (!open) return; for (let i=0;i<80;i++) produce(); render(); $('status').textContent = `80 simulated events generated. ${evicted} events evicted. Show unchanged by inspector.`;};
+ $('previous').onclick = () => cycle(-1); $('next').onclick = () => cycle(1);
+ $('follow').onclick = () => {follow = true; renderEvents();};
+ ['source','outcome','search'].forEach(id => $(id).addEventListener('input', renderEvents));
+ $('events').addEventListener('scroll', () => {
+  const area = $('events'); follow = area.scrollHeight - area.scrollTop - area.clientHeight < 8;
+  $('follow').textContent = follow ? 'Following live' : 'Follow live'; $('follow').setAttribute('aria-pressed', follow);
+ });
+ $('inspector').addEventListener('click', event => {
+  const button = event.target.closest('button[data-seq]');
+  if (button) {selected = Number(button.dataset.seq); render();}
+ });
+ document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && open) {event.preventDefault(); closeCapture(); return;}
+  if (event.target.closest('input,select,textarea,[contenteditable]') || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {event.preventDefault(); cycle(event.key === 'ArrowLeft' ? -1 : 1);}
+ });
+ Object.defineProperty(window, 'demoState', {get:() => ({open,retained:events.length,total,evicted,variant,timerActive:timer !== null})});
+ setVariant(variant); startCapture();
+})();
+</script>
+</body>
+</html>

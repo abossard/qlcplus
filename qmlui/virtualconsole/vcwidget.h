@@ -29,6 +29,7 @@
 
 #include "qlcfile.h"
 #include "doc.h"
+#include "showcommandtrack.h"
 
 #define KXMLQLCVCCaption    QStringLiteral("Caption")
 #define KXMLQLCVCFrameStyle QStringLiteral("FrameStyle")    // LEGACY
@@ -623,6 +624,24 @@ public slots:
      *  (e.g. extra press) */
     void slotInputSourceValueChanged(quint32 universe, quint32 channel, uchar value);
 
+public:
+    /** Deliver an input value while remembering where it actually came from.
+     *
+     *  The shared slot above is reached by mapped controllers, key sequences,
+     *  synthetic source updates, scripts and tests alike, so it carries no
+     *  provenance of its own. Only the ingress that produced the event knows,
+     *  and only it may say. */
+    void deliverInput(quint8 id, uchar value, ShowCommandOrigin origin);
+
+    /** Same, for a source that processes the raw value itself (relative knobs,
+     *  encoders, extra press/release) and emits its own. The detour through the
+     *  source must not lose where the movement came from. */
+    void deliverSourceUpdate(QLCInputSource *source, uchar value, ShowCommandOrigin origin);
+
+    /** Provenance of the input currently being delivered, Programmatic when
+     *  nothing is being delivered from a known ingress. */
+    ShowCommandOrigin inputOrigin() const;
+
 signals:
     void externalControlsChanged();
     void inputSourcesListChanged();
@@ -630,12 +649,14 @@ signals:
 protected:
     /** The list of input sources that can control this widget */
     QList <QSharedPointer<QLCInputSource> > m_inputSources;
-
     /** The map of key sequences that can control this widget,
      *  arranged by sequence / control ID */
     QMap <QKeySequence, quint32> m_keySequenceMap;
 
     QVariantList m_sourcesList;
+
+    /** Provenance of the input currently being delivered by an ingress */
+    ShowCommandOrigin m_inputOrigin = ShowCommandOrigin::Programmatic;
 
     /*********************************************************************
      * Load & Save

@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QQmlComponent>
+#include <QScopedValueRollback>
 
 #include "qlcinputchannel.h"
 #include "inputpatch.h"
@@ -1092,6 +1093,26 @@ void VCWidget::slotInputSourceValueChanged(quint32 universe, quint32 channel, uc
 
     QLCInputSource *source = qobject_cast<QLCInputSource*>(sender());
     slotInputValueChanged(source->id(), value);
+}
+
+void VCWidget::deliverInput(quint8 id, uchar value, ShowCommandOrigin origin)
+{
+    QScopedValueRollback<ShowCommandOrigin> provenance(m_inputOrigin, origin);
+    slotInputValueChanged(id, value);
+}
+
+void VCWidget::deliverSourceUpdate(QLCInputSource *source, uchar value, ShowCommandOrigin origin)
+{
+    if (source == nullptr)
+        return;
+
+    QScopedValueRollback<ShowCommandOrigin> provenance(m_inputOrigin, origin);
+    source->updateInputValue(value);
+}
+
+ShowCommandOrigin VCWidget::inputOrigin() const
+{
+    return m_inputOrigin;
 }
 
 void VCWidget::sendFeedback(int value, quint8 id, SourceValueType type)

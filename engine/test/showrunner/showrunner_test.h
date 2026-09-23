@@ -66,6 +66,29 @@ private slots:
     void pausedPerformAdoptionKeepsAudioPaused();
     void nativeAudioNormalStopPreservesFade();
 
+    // Command track playback (C14-7..C14-13, C14-16)
+    void commandPlaybackAppliesAuthoredOrder();
+    void commandCollectionControlsItsChildren();
+    void commandExternalAdvanceAppliesCrossedEvents_data();
+    void commandExternalAdvanceAppliesCrossedEvents();
+    void commandExternalBackwardRestoresAuthoredValues();
+    void commandStopReleasesOnlyShowOwner();
+    void commandStopRetiresSupersededClipDeadline();
+    void commandSeekRestoresValuesWithoutTriggers();
+    void commandLiveInputDoesNotEchoButLoopReplays();
+    void commandExtentAndRecordingKeepAlive_data();
+    void commandExtentAndRecordingKeepAlive();
+    void commandIntensityAfterNaturalCompletion();
+    void commandIntensityOnManuallyStoppedTarget();
+    void commandPositionFollowsTransport_data();
+    void commandPositionFollowsTransport();
+    void commandLiveMarkSuppressesOnlyItsOwnEvent();
+
+    // GPT runtime review: confirmed defects, expected red until fixed
+    void commandIntensityIgnoresRecycledOverrideId();
+    void commandIntensityIgnoresStaleClipQueueEntry();
+    void commandSuppressedLiveStopRetiresClipDeadline();
+
 private:
     Doc *m_doc;
     Show *m_show;

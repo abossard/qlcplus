@@ -24,6 +24,7 @@
 #include "qlcmacros.h"
 #include "vcbutton.h"
 #include "chaser.h"
+#include "showcommandrecorder.h"
 #include "tardis.h"
 #include "doc.h"
 
@@ -429,6 +430,87 @@ void VCButton::setVisible(bool isVisible)
     VCWidget::setVisible(isVisible);
 }
 
+void VCButton::requestUserStateChange(bool pressed)
+{
+    // The QML pointer and touch handlers are the only callers of this overload.
+    requestUserStateChange(pressed, ShowCommandOrigin::Pointer);
+}
+
+/** Only a person operating a control authors anything, and only their input may
+ *  change how a control resolves while recording. */
+static bool isUserOrigin(ShowCommandOrigin origin)
+{
+    return origin == ShowCommandOrigin::Pointer ||
+           origin == ShowCommandOrigin::Midi ||
+           origin == ShowCommandOrigin::Keyboard;
+}
+
+void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
+{
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    const bool authoring = recorder != nullptr && recorder->isAuthoring() && isUserOrigin(origin);
+    Function *f = m_doc->function(m_functionID);
+
+    if (authoring == false || actionType() != Toggle || f == nullptr)
+    {
+        requestStateChange(pressed);
+        if (authoring && actionType() != Toggle)
+            recorder->reportUnsupported(tr("%1 buttons").arg(actionToString(actionType())));
+        return;
+    }
+
+    if (hasSoloParent())
+    {
+        // Starting inside a Solo Frame also stops its siblings. Recording the
+        // start alone would replay something the operator never saw.
+        requestStateChange(pressed);
+        recorder->reportUnsupported(tr("buttons inside a Solo Frame"));
+        return;
+    }
+
+    // Resolve first, then apply exactly that. A button monitoring a Function the
+    // Show itself started reads as "on" to the operator, so their first click is
+    // a stop; requestStateChange() would restart it instead.
+    const bool stopIntent = state() != Inactive;
+    if (stopIntent && state() == Monitoring)
+    {
+        f->stop(functionParent());
+        resetIntensityOverrideAttribute();
+        setState(Inactive);
+        Tardis::instance()->enqueueAction(Tardis::VCButtonSetPressed, id(), false, pressed);
+    }
+    else
+    {
+        requestStateChange(pressed);
+    }
+
+    QVector<ShowCommandInput> resolved;
+    ShowCommandInput command;
+    command.origin = origin;
+    command.functionId = m_functionID;
+    command.action = stopIntent ? ShowCommandAction::Stop : ShowCommandAction::Start;
+    resolved.append(command);
+
+    // A button that starts its Function at a reduced intensity needs that value
+    // recorded as its own ordered step: Start carries no value.
+    if (stopIntent == false)
+    {
+        const qreal startIntensity = startupIntensityEnabled() ? startupIntensity() * intensity()
+                                                               : intensity();
+        if (qFuzzyCompare(startIntensity, qreal(1.0)) == false)
+        {
+            ShowCommandInput value;
+            value.origin = origin;
+            value.functionId = m_functionID;
+            value.action = ShowCommandAction::SetIntensity;
+            value.intensity = CLAMP(startIntensity, qreal(0), qreal(1));
+            resolved.append(value);
+        }
+    }
+
+    recorder->submitUserInput(resolved);
+}
+
 void VCButton::requestStateChange(bool pressed)
 {
     qDebug() << "Requested button state" << pressed;
@@ -679,9 +761,9 @@ void VCButton::slotInputValueChanged(quint8 id, uchar value)
         // Hold while pressed. The state guard makes duplicate non-zero pressure
         // idempotent, and zero pressure releases.
         if (state() == Inactive && value > 0)
-            requestStateChange(true);
+            requestUserStateChange(true, inputOrigin());
         else if (state() == Active && value == 0)
-            requestStateChange(false);
+            requestUserStateChange(false, inputOrigin());
     }
     else if (actionType() == Freeze)
     {
@@ -694,14 +776,15 @@ void VCButton::slotInputValueChanged(quint8 id, uchar value)
 
         m_inputPressed = pressed;
         if (pressed)
-            requestStateChange(state() != Active);
+            requestUserStateChange(state() != Active, inputOrigin());
     }
     else
     {
-        if (value > 0 && state() == Inactive)
-            requestStateChange(true);
-        else if (value > 0 && state() == Active)
-            requestStateChange(false);
+        // A monitored button looks lit to the operator, so a press has to reach
+        // the resolver like any other. The old Inactive/Active guards swallowed
+        // it and left the control dead.
+        if (value > 0)
+            requestUserStateChange(state() == Inactive, inputOrigin());
     }
 }
 

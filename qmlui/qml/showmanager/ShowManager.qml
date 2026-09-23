@@ -234,6 +234,19 @@ Rectangle
 
             IconButton
             {
+                id: commandListButton
+                z: 2
+                width: parent.height - 6
+                height: width
+                faSource: FontAwesome.fa_list_ol
+                faColor: showCommandRecorder && showCommandRecorder.recording
+                         ? "#e74c3c" : UISettings.fgMain
+                checkable: true
+                tooltip: qsTr("Recorded commands")
+            }
+
+            IconButton
+            {
                 id: colPickButton
                 z: 2
                 width: parent.height - 6
@@ -1019,4 +1032,18 @@ Rectangle
         width: timelineHeader.width
         orientation: Qt.Horizontal
     }
+    // Recorded command list of the current Show. Editing is deliberately small:
+    // move an event, change a value, delete it, set where playback ends.
+    ShowCommandList
+    {
+        visible: commandListButton.checked
+        z: 20
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.topMargin: UISettings.iconSizeMedium * 2
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: UISettings.iconSizeMedium
+        width: showMgrContainer.width / 3
+    }
+
 }

@@ -22,6 +22,7 @@
 
 #include "showrunner.h"
 #include "audio.h"
+#include "chaser.h"
 #include "function.h"
 #include "track.h"
 #include "show.h"
@@ -51,6 +52,8 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     , m_syncBeatsTime(0)
     , m_totalRunTime(0)
     , m_totalRunBeats(0)
+    , m_commandRevision(std::numeric_limits<quint64>::max())
+    , m_pendingCommandSeek(NoCommandSeek)
 {
     Q_ASSERT(m_doc != NULL);
     Q_ASSERT(showID != Show::invalidId());
@@ -127,6 +130,14 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
 #endif
     m_runningQueue.clear();
 
+    /** Commands are traversed from the cursor the Show actually starts at:
+     *  everything before it is history whose values get restored, never
+     *  triggers that get replayed */
+    refreshCommandTrack();
+    m_commandState.playing = true;
+    m_commandState = ShowCommandFsm::seek(m_commandTrack, m_commandState, startTime).state;
+    m_pendingCommandSeek = startTime;
+
     qDebug() << "ShowRunner created";
 }
 
@@ -168,6 +179,12 @@ void ShowRunner::stop()
         Function *f = m_runningQueue.at(i).first;
         f->stop(functionParent());
     }
+
+    stopCommandOwnedFunctions();
+    m_commandState = ShowCommandState();
+    m_pendingCommandSeek = NoCommandSeek;
+    if (m_show != NULL)
+        m_show->commandTraversalRestarted();
 
     m_runningQueue.clear();
     m_seekRestartFunctions.clear();
@@ -383,14 +400,26 @@ void ShowRunner::write(MasterTimer *timer)
         }
     }
 
-    // Phase 3. Check if this is the end of the Show. A Show can mix
+    // Phase 3. Apply the commands this position is due for. They run after the
+    // clip phases, so for the same millisecond a command is the newer intent.
+    refreshCommandTrack();
+    processCommands(seekRestartPending);
+    if (m_show != NULL)
+        m_show->setCommandPosition(m_elapsedTime);
+
+    // Phase 4. Check if this is the end of the Show. A Show can mix
     // time-based and beat-based tracks, so it is only really over once
     // both the time-based and the beat-based timelines have completed.
     // While there are beat-based Functions but no beat has been detected
     // yet, the beat timeline hasn't even started, so it can't be "done".
-    bool timeDone = m_elapsedTime >= m_totalRunTime;
+    // An authored command extent and an armed recorder extend that end.
+    bool timeDone = m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent();
     bool beatsDone = m_beatFunctions.isEmpty() ||
                       (beatSynced && m_elapsedBeats >= m_totalRunBeats);
+
+    // an armed recorder keeps a command-only or very short Show alive
+    if (m_show != NULL && m_show->commandRecording())
+        timeDone = false;
 
     if (timeDone && beatsDone)
     {
@@ -495,6 +524,207 @@ void ShowRunner::seekTo(quint32 newTime)
         else
             break;
     }
+
+    /** A jump ends this traversal: command-owned playback is released and the
+     *  live no-echo suppression of the previous pass is over. The authored
+     *  values of the destination are restored once its clips are scheduled. */
+    stopCommandOwnedFunctions();
+    if (m_show != NULL)
+        m_show->commandTraversalRestarted();
+    m_pendingCommandSeek = newTime;
+}
+
+/************************************************************************
+ * Commands
+ ************************************************************************/
+
+void ShowRunner::refreshCommandTrack()
+{
+    if (m_show == NULL)
+        return;
+
+    const quint64 revision = m_show->commandTrackRevision();
+    if (revision == m_commandRevision)
+        return;
+
+    m_commandRevision = revision;
+
+    QSet<quint32> alreadyApplied;
+    m_commandTrack = m_show->commandTrackSnapshot(&alreadyApplied);
+
+    /** The recorder executed these live, so the traversal owes them nothing.
+     *  The transition logic drops each one again as soon as the playhead
+     *  consumes its time, and a seek clears them for the next traversal. */
+    m_commandState.consumedLiveEventIds.unite(alreadyApplied);
+    retireLiveStopDeadlines(alreadyApplied);
+}
+
+void ShowRunner::processCommands(bool traversalStalled)
+{
+    if (m_show == NULL)
+        return;
+
+    /** A seek that is still waiting for a Function to finish stopping has not
+     *  resumed the traversal yet. Consuming commands now would swallow the
+     *  ones authored exactly at the destination. */
+    if (traversalStalled)
+        return;
+
+    m_commandStartedThisTick.clear();
+
+    if (m_pendingCommandSeek != NoCommandSeek)
+    {
+        const quint32 destination = quint32(m_pendingCommandSeek);
+        m_pendingCommandSeek = NoCommandSeek;
+
+        const ShowCommandTransition restored =
+                ShowCommandFsm::seek(m_commandTrack, m_commandState, destination);
+        m_commandState = restored.state;
+
+        // values only: historical Start/Stop are never replayed by a seek
+        for (const ShowCommand &cmd : restored.effects)
+            applyCommandEffect(cmd);
+    }
+
+    m_commandState.playing = true;
+    const ShowCommandTransition played =
+            ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
+    m_commandState = played.state;
+
+    for (const ShowCommand &cmd : played.effects)
+        applyCommandEffect(cmd);
+}
+
+void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
+{
+    if (m_show == NULL || cmd.functionId == m_show->id())
+        return;
+
+    Function *f = m_doc->function(cmd.functionId);
+    if (f == NULL)
+        return;
+
+    switch (cmd.action)
+    {
+        case ShowCommandAction::Start:
+        {
+            /** Native ownership rules decide the rest: a target this Show
+             *  already plays gains no second activation, and one somebody else
+             *  started keeps its own progress instead of being reset */
+            if (commandTargetActive(f) == false)
+                prepareCommandStart(f);
+
+            f->start(m_doc->masterTimer(), functionParent());
+            m_commandOwnedFunctions.insert(cmd.functionId);
+            m_commandStartedThisTick.insert(cmd.functionId);
+        }
+        break;
+
+        case ShowCommandAction::Stop:
+        {
+            f->stop(functionParent());
+            m_commandOwnedFunctions.remove(cmd.functionId);
+            retireClipDeadline(cmd.functionId);
+        }
+        break;
+
+        case ShowCommandAction::SetIntensity:
+            applyCommandIntensity(f, cmd.intensity);
+        break;
+    }
+}
+
+void ShowRunner::prepareCommandStart(Function *f)
+{
+    if (f->type() != Function::ChaserType && f->type() != Function::SequenceType)
+        return;
+
+    Chaser *chaser = qobject_cast<Chaser *>(f);
+    if (chaser == NULL)
+        return;
+
+    ChaserAction action;
+    action.m_action = ChaserSetStepIndex;
+    action.m_stepIndex = 0;
+    action.m_masterIntensity = 1.0;
+    action.m_stepIntensity = 1.0;
+    action.m_fadeMode = Chaser::FromFunction;
+    chaser->setAction(action);
+}
+
+bool ShowRunner::commandTargetActive(const Function *function) const
+{
+    /** Queued during this very tick: the timer starts it at the end of the
+     *  tick, so it is not observable as running yet */
+    if (m_commandStartedThisTick.contains(function->id()))
+        return true;
+
+    /** Otherwise ask the Function itself, on the thread that owns that state.
+     *  Scheduler membership is not liveness: a queued clip end outlives a
+     *  target the user shut down in the middle of its clip. */
+    return function->isRunning() && function->stopped() == false;
+}
+
+void ShowRunner::applyCommandIntensity(Function *f, qreal value)
+{
+    // a value on a stopped target does nothing, and never starts it
+    if (commandTargetActive(f) == false)
+        return;
+
+    /** The native Intensity override is Single: requesting it returns the one
+     *  shared handle for that attribute and applies the value in the same
+     *  call. Caching the identifier would only risk driving whatever attribute
+     *  inherits that number after a reset. */
+    f->requestAttributeOverride(Function::Intensity, value);
+}
+
+void ShowRunner::retireClipDeadline(quint32 functionId)
+{
+    for (int i = m_runningQueue.count() - 1; i >= 0; i--)
+    {
+        const Function *queued = m_runningQueue.at(i).first;
+        if (queued != NULL && queued->id() == functionId)
+            m_runningQueue.removeAt(i);
+    }
+}
+
+void ShowRunner::retireLiveStopDeadlines(const QSet<quint32> &liveIds)
+{
+    if (liveIds.isEmpty())
+        return;
+
+    for (const ShowCommand &cmd : m_commandTrack.commands())
+    {
+        if (cmd.action != ShowCommandAction::Stop)
+            continue;
+
+        if (liveIds.contains(cmd.id) == false || m_retiredLiveStopIds.contains(cmd.id))
+            continue;
+
+        // bookkeeping only: the recorder already performed the Stop itself
+        m_retiredLiveStopIds.insert(cmd.id);
+        retireClipDeadline(cmd.functionId);
+    }
+}
+
+void ShowRunner::stopCommandOwnedFunctions()
+{
+    const QSet<quint32> owned = m_commandOwnedFunctions;
+    m_commandOwnedFunctions.clear();
+    m_commandStartedThisTick.clear();
+    m_retiredLiveStopIds.clear();
+
+    foreach (quint32 functionId, owned)
+    {
+        Function *f = m_doc->function(functionId);
+        if (f != NULL)
+            f->stop(functionParent());
+    }
+}
+
+quint32 ShowRunner::commandExtent() const
+{
+    return m_commandTrack.extent();
 }
 
 void ShowRunner::syncPerformAudioSuppression()

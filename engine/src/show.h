@@ -27,6 +27,7 @@
 #include <limits>
 
 #include "function.h"
+#include "showcommandtrack.h"
 #include "track.h"
 
 class QXmlStreamReader;
@@ -205,6 +206,74 @@ public:
 protected:
     /** Latest assigned unique ShowFunction ID */
     quint32 m_latestShowFunctionID;
+
+    /*********************************************************************
+     * Command track
+     *********************************************************************/
+public:
+    /** Thread-safe copy of the authored command track */
+    ShowCommandTrack commandTrack() const;
+
+    /**
+     * Validate and publish a command track. The candidate is rejected as a
+     * whole, so a failed edit never replaces valid data.
+     *
+     * @param track the authored commands and playback extent. An extent below
+     *              the last authored command is raised to it; nothing is ever
+     *              appended past the last command.
+     * @param alreadyApplied ids the caller executed live during the current
+     *              traversal. They are remembered until the runtime starts
+     *              another traversal, so a lagging cursor cannot echo them.
+     * @param error filled with the reason when the track is rejected
+     */
+    bool setCommandTrack(const ShowCommandTrack &track,
+                         const QSet<quint32> &alreadyApplied = QSet<quint32>(),
+                         QString *error = nullptr);
+
+    /** Transient recording intent. It keeps a command-only or short Show
+     *  playing and is never stored in the workspace. */
+    void setCommandRecording(bool enabled);
+    bool commandRecording() const;
+
+    /** Authoritative elapsed milliseconds of this Show, never editor ruler
+     *  beats. Safe from any thread: an externally synced Show reports the
+     *  clock its host pushes, including while paused or idle, and an
+     *  autonomous one reports the position its runtime last reached. */
+    quint32 commandPosition() const;
+
+signals:
+    /** Emitted when the authored command data changed */
+    void commandTrackChanged();
+
+private:
+    friend class ShowRunner;
+
+    /** Publication counter, so the runtime can skip unchanged snapshots */
+    quint64 commandTrackRevision() const;
+
+    /** Runtime snapshot: the published track plus the live ids to skip */
+    ShowCommandTrack commandTrackSnapshot(QSet<quint32> *alreadyApplied) const;
+
+    /** The runtime began another traversal (seek, loop or stop), so live
+     *  no-echo suppression from the previous one is over */
+    void commandTraversalRestarted();
+
+    /** The runtime reports the authoritative position */
+    void setCommandPosition(quint32 ms);
+
+    /** Publish without target validation, for loading and copying */
+    void storeCommandTrack(const ShowCommandTrack &track,
+                           const QSet<quint32> &alreadyApplied = QSet<quint32>());
+
+    /** Empty when every command target is usable */
+    QString commandTargetError(const ShowCommandTrack &track) const;
+
+    mutable QMutex m_commandTrackMutex;
+    ShowCommandTrack m_commandTrack;
+    QSet<quint32> m_commandAppliedIds;
+    std::atomic<quint64> m_commandTrackRevision{0};
+    std::atomic_bool m_commandRecording{false};
+    std::atomic<quint32> m_commandPosition{0};
 
     /*********************************************************************
      * Save & Load

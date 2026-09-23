@@ -21,6 +21,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
+#include "showcommandtrack.h"
 #include "show_test.h"
 #include "show.h"
 
@@ -362,5 +363,352 @@ void Show_Test::syncSource()
     m_doc->deleteFunction(show->id());
 }
 
+
+/*****************************************************************************
+ * Command track
+ *****************************************************************************/
+
+static QString showXML(const QString &body)
+{
+    return QStringLiteral("<Function Type=\"Show\" ID=\"700\" Name=\"Commanded\">%1</Function>").arg(body);
+}
+
+static bool loadShow(Show &show, const QString &xml)
+{
+    QXmlStreamReader reader(xml);
+    reader.readNextStartElement();
+    return show.loadXML(reader);
+}
+
+static QString saveShow(const Show &show)
+{
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    show.saveXML(&writer);
+    return xml;
+}
+
+void Show_Test::commandTrackRoundtrip()
+{
+    Scene *first = new Scene(m_doc);
+    m_doc->addFunction(first);
+    Scene *second = new Scene(m_doc);
+    m_doc->addFunction(second);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    ShowCommandTrack track;
+    QString error;
+    QVERIFY2(track.insert(ShowCommand::start(1, 0, first->id()), &error), qPrintable(error));
+    // equal time: authored order must survive the roundtrip
+    QVERIFY2(track.insert(ShowCommand::setIntensity(2, 0, first->id(), 0.25), &error), qPrintable(error));
+    QVERIFY2(track.insert(ShowCommand::start(3, 0, second->id()), &error), qPrintable(error));
+    QVERIFY2(track.insert(ShowCommand::setIntensity(4, 4500, second->id(), 1.0), &error), qPrintable(error));
+    QVERIFY2(track.insert(ShowCommand::stop(5, 900, first->id()), &error), qPrintable(error));
+    track.setExtent(6000);
+    QVERIFY2(show.setCommandTrack(track, {}, &error), qPrintable(error));
+
+    Show reloaded(m_doc);
+    QVERIFY(loadShow(reloaded, saveShow(show)));
+
+    const ShowCommandTrack savedTrack = show.commandTrack();
+    const ShowCommandTrack readTrack = reloaded.commandTrack();
+    const QVector<ShowCommand> &saved = savedTrack.commands();
+    const QVector<ShowCommand> &read = readTrack.commands();
+    QCOMPARE(read.count(), saved.count());
+    for (int i = 0; i < saved.count(); i++)
+        QCOMPARE(read.at(i), saved.at(i));
+
+    QCOMPARE(read.at(0).id, quint32(1));
+    QCOMPARE(read.at(1).id, quint32(2));
+    QCOMPARE(read.at(2).id, quint32(3));
+    QCOMPARE(read.at(1).intensity, 0.25);
+    // later authored, but earlier in time: ordering is (time, authored order)
+    QCOMPARE(read.at(3).id, quint32(5));
+    QCOMPARE(read.at(3).time, quint32(900));
+    QVERIFY(read.at(3).action == ShowCommandAction::Stop);
+    QCOMPARE(read.at(4).id, quint32(4));
+    QCOMPARE(read.at(4).time, quint32(4500));
+    QCOMPARE(read.at(4).intensity, 1.0);
+    QCOMPARE(readTrack.extent(), quint32(6000));
+}
+
+void Show_Test::commandTrackLegacyShow()
+{
+    Show legacy(m_doc);
+    QVERIFY(loadShow(legacy, showXML("<TimeDivision Type=\"Time\" BPM=\"120\"/>")));
+    QVERIFY(legacy.commandTrack().isEmpty());
+    QCOMPARE(legacy.commandTrack().extent(), quint32(0));
+
+    // an untouched Show must keep writing exactly the legacy document
+    QVERIFY(saveShow(legacy).contains("CommandTrack") == false);
+}
+
+void Show_Test::commandTrackInvalidLoad_data()
+{
+    QTest::addColumn<QString>("commandTrack");
+
+    QTest::newRow("unsupported version")
+        << "<CommandTrack Version=\"2\" Extent=\"100\"/>";
+    QTest::newRow("duplicate id")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"0\" Action=\"Start\" Function=\"5\"/>"
+           "<Command ID=\"1\" Time=\"50\" Action=\"Stop\" Function=\"5\"/></CommandTrack>";
+    QTest::newRow("unknown action")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"0\" Action=\"Blink\" Function=\"5\"/></CommandTrack>";
+    QTest::newRow("infinite intensity")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"0\" Action=\"SetIntensity\" Function=\"5\" Value=\"inf\"/></CommandTrack>";
+    QTest::newRow("nan intensity")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"0\" Action=\"SetIntensity\" Function=\"5\" Value=\"nan\"/></CommandTrack>";
+    QTest::newRow("intensity out of range")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"0\" Action=\"SetIntensity\" Function=\"5\" Value=\"1.5\"/></CommandTrack>";
+    QTest::newRow("time out of range")
+        << "<CommandTrack Version=\"1\" Extent=\"100\">"
+           "<Command ID=\"1\" Time=\"4294967295\" Action=\"Start\" Function=\"5\"/></CommandTrack>";
+    QTest::newRow("unknown element")
+        << "<CommandTrack Version=\"1\" Extent=\"100\"><Lane ID=\"1\"/></CommandTrack>";
+}
+
+void Show_Test::commandTrackInvalidLoad()
+{
+    QFETCH(QString, commandTrack);
+
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    ShowCommandTrack valid;
+    QVERIFY(valid.insert(ShowCommand::start(9, 120, target->id())));
+    valid.setExtent(3000);
+    QVERIFY(show.setCommandTrack(valid));
+
+    QVERIFY(loadShow(show, showXML(commandTrack)) == false);
+
+    // the previously valid track must be untouched
+    QCOMPARE(show.commandTrack().count(), 1);
+    QCOMPARE(show.commandTrack().commands().first().id, quint32(9));
+    QCOMPARE(show.commandTrack().extent(), quint32(3000));
+}
+
+void Show_Test::commandTrackUnresolvedTargetSurvivesLoad()
+{
+    Show show(m_doc);
+    QVERIFY(loadShow(show, showXML("<CommandTrack Version=\"1\" Extent=\"800\">"
+                                   "<Command ID=\"1\" Time=\"100\" Action=\"Start\" Function=\"424242\"/>"
+                                   "</CommandTrack>")));
+    QCOMPARE(show.commandTrack().count(), 1);
+
+    // a forward reference is diagnosed, never silently dropped
+    show.postLoad();
+    QCOMPARE(show.commandTrack().count(), 1);
+    QCOMPARE(show.commandTrack().commands().first().functionId, quint32(424242));
+}
+
+void Show_Test::commandTrackRejectedEdit_data()
+{
+    QTest::addColumn<bool>("selfTarget");
+
+    QTest::newRow("self recursive target") << true;
+    QTest::newRow("missing target") << false;
+}
+
+void Show_Test::commandTrackRejectedEdit()
+{
+    QFETCH(bool, selfTarget);
+
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    ShowCommandTrack valid;
+    QVERIFY(valid.insert(ShowCommand::start(1, 0, target->id())));
+    QVERIFY(show.setCommandTrack(valid));
+
+    ShowCommandTrack broken;
+    QVERIFY(broken.insert(ShowCommand::start(1, 0, selfTarget ? show.id() : quint32(424243))));
+
+    QString error;
+    QSignalSpy changed(&show, &Show::commandTrackChanged);
+    QVERIFY(show.setCommandTrack(broken, {}, &error) == false);
+    QVERIFY(error.isEmpty() == false);
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(show.commandTrack().commands().first().functionId, target->id());
+}
+
+void Show_Test::commandTrackExtent_data()
+{
+    QTest::addColumn<quint32>("authored");
+    QTest::addColumn<quint32>("expected");
+
+    QTest::newRow("raised to last event") << quint32(100) << quint32(900);
+    QTest::newRow("trailing start not extended") << quint32(900) << quint32(900);
+    QTest::newRow("explicit longer extent") << quint32(5000) << quint32(5000);
+}
+
+void Show_Test::commandTrackExtent()
+{
+    QFETCH(quint32, authored);
+    QFETCH(quint32, expected);
+
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, target->id())));
+    QVERIFY(track.insert(ShowCommand::start(2, 900, target->id())));
+    track.setExtent(authored);
+
+    QString error;
+    QVERIFY2(show.setCommandTrack(track, {}, &error), qPrintable(error));
+    QCOMPARE(show.commandTrack().extent(), expected);
+}
+
+void Show_Test::commandTrackCopyAndReferences()
+{
+    Scene *clipped = new Scene(m_doc);
+    clipped->setName("Clipped");
+    m_doc->addFunction(clipped);
+    Scene *external = new Scene(m_doc);
+    external->setName("External");
+    m_doc->addFunction(external);
+
+    Show show(m_doc);
+    show.setID(700);
+    Track *t = new Track(clipped->id(), &show);
+    ShowFunction *sf = new ShowFunction(show.getLatestShowFunctionId());
+    sf->setFunctionID(clipped->id());
+    sf->setStartTime(0);
+    sf->setDuration(1000);
+    t->addShowFunction(sf);
+    show.addTrack(t);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 100, clipped->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, external->id(), 0.5)));
+    track.setExtent(2000);
+    QVERIFY(show.setCommandTrack(track));
+
+    QVERIFY(show.contains(clipped->id()));
+    QVERIFY(show.contains(external->id()));
+    QVERIFY(show.components().contains(external->id()));
+
+    Show copy(m_doc);
+    QVERIFY(copy.copyFrom(&show));
+
+    const quint32 copiedClip = copy.tracks().first()->showFunctions().first()->functionID();
+    QVERIFY(copiedClip != clipped->id());
+    QCOMPARE(copy.commandTrack().count(), 2);
+    // a command target that was deep copied with its clip follows the copy
+    QCOMPARE(copy.commandTrack().commands().at(0).functionId, copiedClip);
+    // a target owned by nobody else stays shared
+    QCOMPARE(copy.commandTrack().commands().at(1).functionId, external->id());
+    QCOMPARE(copy.commandTrack().extent(), quint32(2000));
+    // the source Show is untouched
+    QCOMPARE(show.commandTrack().commands().at(0).functionId, clipped->id());
+}
+
+void Show_Test::commandTrackCopyReusesOneClonePerTarget()
+{
+    Scene *commanded = new Scene(m_doc);
+    commanded->setName("Commanded");
+    m_doc->addFunction(commanded);
+    Scene *plain = new Scene(m_doc);
+    plain->setName("Plain");
+    m_doc->addFunction(plain);
+
+    Show show(m_doc);
+    show.setID(701);
+    Track *t = new Track(commanded->id(), &show);
+    // the same two functions appear in two clips each
+    for (quint32 start : {quint32(100), quint32(500)})
+    {
+        ShowFunction *commandedClip = new ShowFunction(show.getLatestShowFunctionId());
+        commandedClip->setFunctionID(commanded->id());
+        commandedClip->setStartTime(start);
+        commandedClip->setDuration(200);
+        t->addShowFunction(commandedClip);
+
+        ShowFunction *plainClip = new ShowFunction(show.getLatestShowFunctionId());
+        plainClip->setFunctionID(plain->id());
+        plainClip->setStartTime(start);
+        plainClip->setDuration(200);
+        t->addShowFunction(plainClip);
+    }
+    show.addTrack(t);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::stop(1, 180, commanded->id())));
+    track.setExtent(1000);
+    QVERIFY(show.setCommandTrack(track));
+
+    Show copy(m_doc);
+    QVERIFY(copy.copyFrom(&show));
+
+    QList<quint32> commandedClones;
+    QList<quint32> plainClones;
+    foreach (ShowFunction *sf, copy.tracks().first()->showFunctions())
+    {
+        Function *copied = m_doc->function(sf->functionID());
+        QVERIFY2(copied != NULL, "every copied clip must resolve in the Doc");
+        if (copied->name().contains("Commanded"))
+            commandedClones.append(sf->functionID());
+        else
+            plainClones.append(sf->functionID());
+    }
+
+    const quint32 commandTarget = copy.commandTrack().commands().first().functionId;
+
+    QCOMPARE(commandedClones.count(), 2);
+    QCOMPARE(plainClones.count(), 2);
+    QVERIFY(commandedClones.first() != commanded->id());
+    // one clone serves every clip of a commanded target, so the command
+    // reaches the first occurrence as well as the last
+    QVERIFY2(commandedClones.at(0) == commandedClones.at(1),
+             "every clip of a commanded target must share one copy");
+    QCOMPARE(commandTarget, commandedClones.first());
+    QVERIFY(m_doc->function(commandTarget) != NULL);
+    // an uncommanded target keeps its existing per-clip copy behaviour
+    QVERIFY(plainClones.at(0) != plainClones.at(1));
+}
+
+void Show_Test::commandRecordingAndPosition()
+{
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+
+    QCOMPARE(show->commandRecording(), false);
+    show->setCommandRecording(true);
+    QCOMPARE(show->commandRecording(), true);
+
+    // an externally driven Show reports the external clock while it is not running
+    show->setSyncSource(1);
+    show->setExternalElapsedTime(7200);
+    QCOMPARE(show->commandPosition(), quint32(7200));
+
+    show->setCommandRecording(false);
+    QCOMPARE(show->commandRecording(), false);
+
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, target->id())));
+    QSignalSpy changed(show, &Show::commandTrackChanged);
+    QVERIFY(show->setCommandTrack(track));
+    QCOMPARE(changed.count(), 1);
+
+    m_doc->deleteFunction(show->id());
+}
 
 QTEST_APPLESS_MAIN(Show_Test)

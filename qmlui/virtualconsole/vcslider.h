@@ -192,6 +192,40 @@ public:
     int value() const;
     void setValue(int value, bool setDMX = true, bool updateFeedback = true);
 
+    /**
+     *  Real user input: a drag on this slider/knob or a mapped external
+     *  controller value that already passed pickup. Applies the value live
+     *  exactly once, exactly as before.
+     *
+     *  Adjust execution is deferred to the engine tick, so this only appends an
+     *  immutable intent (target, value, Show time, provenance) to the widget's
+     *  input-intent queue. The native execution seam pops one intent per
+     *  executed value and publishes it as a queued value signal; it never calls
+     *  the recorder, the console or any other UI object from the timer thread.
+     *  A later programmatic or audio value therefore cannot be recorded as the
+     *  user's, and the authored timestamp stays the input time.
+     *
+     *  setValue() stays the programmatic entry point (audio triggers, scripts,
+     *  web access, Tardis, engine feedback) and never authors anything. */
+    Q_INVOKABLE void requestUserValue(int value, bool updateFeedback = true);
+
+    /** Same, for an ingress that knows where the value came from. Nothing
+     *  upgrades an unknown origin: a route that cannot say is not the user. */
+    void requestUserValue(int value, bool updateFeedback, ShowCommandOrigin origin);
+
+private slots:
+    /** Hand the commands resolved at the last engine execution to the recorder.
+     *  One queued notification per batch: the engine thread never touches the
+     *  recorder, the console or any other UI object. */
+    void slotDeliverResolvedCommands();
+
+    /** The take this slider captured a gesture for is closing. Settle what is
+     *  still pending and hand over whatever the engine already resolved, into
+     *  that take, without touching the engine or its timing. */
+    void slotSettlePendingIntent(quint64 takeId);
+
+public:
+
     /** Get/Set the external input values catching */
     bool catchValues() const;
     void setCatchValues(bool enable);
@@ -215,6 +249,40 @@ signals:
     void rangeHighLimitChanged();
 
 protected:
+    /** One accepted user movement, captured at input and never mutated after.
+     *  The engine executes Adjust values on its own tick and coalesces whatever
+     *  arrived meanwhile, so the target, the effective value, the Show time,
+     *  the provenance and the take all travel with the intent instead of being
+     *  read back later from widget state that audio or a script may have moved. */
+    struct UserAdjustIntent
+    {
+        bool valid = false;
+        quint32 functionId = 0;
+        int value = 0;
+        qreal fraction = 0.0;
+        quint32 timeMs = 0;
+        ShowCommandOrigin origin = ShowCommandOrigin::Programmatic;
+        quint64 takeId = 0;
+    };
+
+    /** One command resolved from an accepted movement, waiting to be handed to
+     *  the recorder on the main thread. */
+    struct ResolvedUserCommand
+    {
+        int action = 0;
+        quint32 functionId = 0;
+        qreal intensity = 0.0;
+        quint32 timeMs = 0;
+        int origin = 0;
+        quint64 takeId = 0;
+    };
+
+    /** The latest accepted user movement, mirroring the engine's own last value
+     *  wins coalescing, and what has been resolved from earlier ones but not
+     *  handed over yet. Both guarded by m_levelValueMutex. */
+    UserAdjustIntent m_userIntent;
+    QVector<ResolvedUserCommand> m_resolvedCommands;
+
     int m_value;
     qreal m_rangeLowLimit;
     qreal m_rangeHighLimit;
@@ -449,6 +517,19 @@ protected:
 
     /** writeDMX for Adjust mode */
     void writeDMXAdjust(MasterTimer* timer, QList<Universe*> universes);
+
+    /** Publish the captured user intent as resolved commands, using the native
+     *  state this execution started from. Engine thread, called with
+     *  m_levelValueMutex held. */
+    void publishUserIntent(bool wasStopped);
+
+    /** Turn one captured intent into ordered commands, queued for delivery.
+     *  Called with m_levelValueMutex held. */
+    void resolveIntent(const UserAdjustIntent &intent, bool wasStopped);
+
+    /** Take the resolved commands out and give them to the recorder. Main
+     *  thread: the lock is only held while the batch is moved out. */
+    void drainResolvedCommands();
 
 private:
     /** Map used to lookup a GenericFader instance for a Universe ID */

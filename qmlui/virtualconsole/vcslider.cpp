@@ -30,6 +30,7 @@
 #include "genericfader.h"
 #include "fadechannel.h"
 #include "qlcmacros.h"
+#include "showcommandrecorder.h"
 #include "vcslider.h"
 #include "function.h"
 #include "tardis.h"
@@ -461,6 +462,54 @@ qreal VCSlider::attributeValueToSliderValue(qreal value)
         fraction = SCALE(value, m_attributeMinValue, m_attributeMaxValue, m_rangeLowLimit, m_rangeHighLimit);
 
     return fraction;
+}
+
+void VCSlider::requestUserValue(int value, bool updateFeedback)
+{
+    // The QML slider and knob handlers are the only callers of this overload.
+    requestUserValue(value, updateFeedback, ShowCommandOrigin::Pointer);
+}
+
+void VCSlider::requestUserValue(int value, bool updateFeedback, ShowCommandOrigin origin)
+{
+    const bool userInput = origin == ShowCommandOrigin::Pointer ||
+                           origin == ShowCommandOrigin::Midi ||
+                           origin == ShowCommandOrigin::Keyboard;
+
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder != nullptr && recorder->isAuthoring() && userInput)
+    {
+        if (sliderMode() != Adjust || m_controlledAttributeIndex != Function::Intensity ||
+            m_doc->function(m_controlledFunctionId) == nullptr)
+        {
+            recorder->reportUnsupported(tr("%1 sliders").arg(sliderModeToString(sliderMode())));
+        }
+        else if (value != m_value)
+        {
+            // The engine keeps the latest value and drops what it replaced, so
+            // the take follows exactly the same coalescing.
+            connect(recorder, &ShowCommandRecorder::takeAboutToFinalize,
+                    this, &VCSlider::slotSettlePendingIntent,
+                    Qt::ConnectionType(Qt::UniqueConnection));
+
+            UserAdjustIntent intent;
+            intent.valid = true;
+            intent.functionId = m_controlledFunctionId;
+            intent.value = value;
+            // The widget intensity and the range can be changed by anything
+            // before the engine runs, so the effective value is captured here.
+            intent.fraction = CLAMP(SCALE(qreal(value), m_rangeLowLimit, m_rangeHighLimit,
+                                          qreal(0), qreal(1.0)), qreal(0), qreal(1.0)) * intensity();
+            intent.timeMs = quint32(qMax(0, recorder->position()));
+            intent.origin = origin;
+            intent.takeId = recorder->takeId();
+
+            QMutexLocker locker(&m_levelValueMutex);
+            m_userIntent = intent;
+        }
+    }
+
+    setValue(value, true, updateFeedback);
 }
 
 void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
@@ -1426,6 +1475,9 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
     if (function == nullptr)
         return;
 
+    // Native state before this execution: what a recorded Start or Stop must agree with
+    const bool wasStopped = function->stopped();
+
     qreal fraction = m_value;
 
     qDebug() << "Adjust Function attribute" << m_controlledAttributeIndex << "to" << fraction;
@@ -1441,6 +1493,7 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
                 function->stop(functionParent());
                 m_controlledAttributeId = Function::invalidAttributeId();
                 m_adjustChangeCounter--;
+                publishUserIntent(wasStopped);
                 return;
             }
         }
@@ -1464,6 +1517,110 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
     adjustFunctionAttribute(function, fraction * intensity());
 
     m_adjustChangeCounter--;
+
+    publishUserIntent(wasStopped);
+}
+
+void VCSlider::publishUserIntent(bool wasStopped)
+{
+    // Engine thread, m_levelValueMutex held by the caller.
+    if (m_userIntent.valid == false)
+        return;
+
+    const UserAdjustIntent intent = m_userIntent;
+    m_userIntent = UserAdjustIntent();
+
+    resolveIntent(intent, wasStopped);
+
+    // One queued notification for the whole batch. The commands stay here
+    // until the main thread takes them, so closing a take in between still
+    // finds them.
+    QMetaObject::invokeMethod(this, "slotDeliverResolvedCommands", Qt::QueuedConnection);
+}
+
+void VCSlider::resolveIntent(const UserAdjustIntent &intent, bool wasStopped)
+{
+    if (intent.valid == false || intent.functionId != m_controlledFunctionId)
+        return;
+
+    const auto append = [&](ShowCommandAction action, qreal intensity)
+    {
+        ResolvedUserCommand command;
+        command.action = int(action);
+        command.functionId = intent.functionId;
+        command.intensity = intensity;
+        command.timeMs = intent.timeMs;
+        command.origin = int(intent.origin);
+        command.takeId = intent.takeId;
+        m_resolvedCommands.append(command);
+    };
+
+    if (intent.value == 0)
+    {
+        // Zero is the native stop. A target that was not playing needs nothing.
+        if (wasStopped == false)
+            append(ShowCommandAction::Stop, 0.0);
+        return;
+    }
+
+    // The movement that natively starts a stopped target carries its own start;
+    // every later movement is only a value.
+    if (wasStopped)
+        append(ShowCommandAction::Start, 0.0);
+
+    append(ShowCommandAction::SetIntensity, intent.fraction);
+}
+
+void VCSlider::drainResolvedCommands()
+{
+    QVector<ResolvedUserCommand> batch;
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        batch.swap(m_resolvedCommands);
+    }
+
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder == nullptr)
+        return;
+
+    for (const ResolvedUserCommand &command : batch)
+        recorder->slotResolvedUserCommand(command.action, command.functionId, command.intensity,
+                                          command.timeMs, command.origin, command.takeId);
+}
+
+void VCSlider::slotDeliverResolvedCommands()
+{
+    drainResolvedCommands();
+}
+
+void VCSlider::slotSettlePendingIntent(quint64 takeId)
+{
+    // UI thread, while the take is still the current one.
+    UserAdjustIntent intent;
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        if (m_userIntent.valid && m_userIntent.takeId == takeId)
+        {
+            intent = m_userIntent;
+            m_userIntent = UserAdjustIntent();
+        }
+    }
+
+    if (intent.valid)
+    {
+        Function *function = m_doc->function(intent.functionId);
+        if (function != nullptr)
+        {
+            // The engine has not executed this movement, so the native state it
+            // would have seen is still the current one. Nothing here touches
+            // the engine.
+            QMutexLocker locker(&m_levelValueMutex);
+            resolveIntent(intent, function->stopped());
+        }
+    }
+
+    // Whatever the engine already resolved is handed over now, into this take.
+    drainResolvedCommands();
 }
 
 /*********************************************************************
@@ -1503,7 +1660,9 @@ void VCSlider::slotInputValueChanged(quint8 id, uchar value)
                     break;
                 }
             }
-            setValue(scaledValue, true, false);
+            // Accepted external input: pickup filtering already happened above,
+            // so this is the user's actual intent.
+            requestUserValue(scaledValue, false, inputOrigin());
             m_lastInputValue = scaledValue;
         break;
         case INPUT_SLIDER_RESET_ID:

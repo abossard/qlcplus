@@ -30,3 +30,4 @@ TimeEditTool 0.1 ../TimeEditTool.qml
 TreeNodeDelegate 0.1 ../TreeNodeDelegate.qml
 WindowLoader 0.1 ../WindowLoader.qml
 ZoomItem 0.1 ../ZoomItem.qml
+ShowCommandList 0.1 ShowCommandList.qml

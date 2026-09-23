@@ -32,8 +32,10 @@
 #undef private
 #include "fixture.h"
 #include "show.h"
+#include "showcommandtrack.h"
 #include "track.h"
 #include "scene.h"
+#include "collection.h"
 #include "doc.h"
 #include "inputoutputmap.h"
 #include "showrunner_test.h"
@@ -945,6 +947,917 @@ void ShowRunner_Test::nativeAudioNormalStopPreservesFade()
     QCOMPARE(audio->m_audio_out, renderer);
     QVERIFY(renderer->m_fadeStep < 0);
     QVERIFY(!renderer->m_userStop);
+}
+
+/*****************************************************************************
+ * Command track playback
+ *****************************************************************************/
+
+namespace
+{
+
+Fixture *makeFixture(Doc &doc, int channels)
+{
+    auto *fixture = new Fixture(&doc);
+    fixture->setUniverse(0);
+    fixture->setAddress(0);
+    fixture->setChannels(quint32(channels));
+    doc.addFixture(fixture);
+    return fixture;
+}
+
+Scene *makeScene(Doc &doc, quint32 fixtureId, quint32 channel, uchar value)
+{
+    auto *scene = new Scene(&doc);
+    scene->setValue(fixtureId, channel, value);
+    doc.addFunction(scene);
+    return scene;
+}
+
+uchar sampleChannel(Doc &doc, int channel)
+{
+    QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    universes[0]->processFaders(MasterTimer::tick());
+    const uchar value = universes[0]->preGMValue(channel);
+    doc.inputOutputMap()->releaseUniverses(false);
+    return value;
+}
+
+/** Ticks needed for the runner to process an elapsed time of exactly ms */
+int ticksToReach(quint32 ms)
+{
+    return int(ms / MasterTimer::tick()) + 1;
+}
+
+}
+
+void ShowRunner_Test::commandPlaybackAppliesAuthoredOrder()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, scene->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 0, scene->id(), 0.5)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(3, 100, scene->id(), 0.25)));
+    QVERIFY(track.insert(ShowCommand::stop(4, 200, scene->id())));
+    track.setExtent(400);
+    QString error;
+    QVERIFY2(show->setCommandTrack(track, {}, &error), qPrintable(error));
+
+    QSignalSpy finished(show, &Show::showFinished);
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(0);
+    const bool startedAtZero = scene->isRunning();
+    const uchar firstValue = sampleChannel(doc, 0);
+
+    advanceTo(100);
+    const uchar secondValue = sampleChannel(doc, 0);
+
+    advanceTo(240);
+    const bool runningAfterStop = scene->isRunning();
+    const int finishedBeforeExtent = finished.count();
+
+    advanceTo(400);
+    const int finishedAtExtent = finished.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY2(startedAtZero, "a Start command must start its target through the Show");
+    QCOMPARE(firstValue, uchar(100));  // 200 * 0.5
+    QCOMPARE(secondValue, uchar(50));  // 200 * 0.25
+    QCOMPARE(runningAfterStop, false);
+    QCOMPARE(finishedBeforeExtent, 0);
+    QCOMPARE(finishedAtExtent, 1);
+}
+
+void ShowRunner_Test::commandCollectionControlsItsChildren()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *first = makeScene(doc, fixture->id(), 0, 200);
+    Scene *second = makeScene(doc, fixture->id(), 1, 120);
+    auto *collection = new Collection(&doc);
+    collection->addFunction(first->id());
+    collection->addFunction(second->id());
+    doc.addFunction(collection);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, collection->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 0, collection->id(), 0.5)));
+    QVERIFY(track.insert(ShowCommand::stop(3, 400, collection->id())));
+    QVERIFY(track.setExtent(600));
+    QVERIFY(show->setCommandTrack(track));
+
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < ticksToReach(100); ++i)
+        timer->timerTick();
+    const bool bothStarted = first->isRunning() && second->isRunning();
+    const uchar firstValue = sampleChannel(doc, 0);
+    const uchar secondValue = sampleChannel(doc, 1);
+    for (int i = ticksToReach(100); i < ticksToReach(500); ++i)
+        timer->timerTick();
+    const bool anyStillRunning = collection->isRunning() ||
+                                 first->isRunning() || second->isRunning();
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY(bothStarted);
+    QCOMPARE(firstValue, uchar(100));
+    QCOMPARE(secondValue, uchar(60));
+    QVERIFY(!anyStillRunning);
+    QCOMPARE(show->commandTrack().referencedFunctionIds(), QList<quint32>{collection->id()});
+}
+
+void ShowRunner_Test::commandExternalAdvanceAppliesCrossedEvents_data()
+{
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::newRow("single-forward-jump-or-delayed-update") << QList<quint32>{400};
+    QTest::newRow("incremental-updates") << QList<quint32>{100, 150, 200, 250, 300, 350, 400};
+}
+
+void ShowRunner_Test::commandExternalAdvanceAppliesCrossedEvents()
+{
+    QFETCH(QList<quint32>, positions);
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 3);
+    Scene *sustained = makeScene(doc, fixture->id(), 0, 200);
+    Scene *released = makeScene(doc, fixture->id(), 1, 200);
+    Scene *future = makeScene(doc, fixture->id(), 2, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setSyncSource(ShowRunner::External);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 100, sustained->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 150, sustained->id(), 0.25)));
+    QVERIFY(track.insert(ShowCommand::start(3, 200, released->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(4, 300, sustained->id(), 0.6)));
+    QVERIFY(track.insert(ShowCommand::stop(5, 350, released->id())));
+    QVERIFY(track.insert(ShowCommand::start(6, 800, future->id())));
+    QVERIFY(track.setExtent(1000));
+    QVERIFY(show->setCommandTrack(track));
+
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    for (quint32 position : positions)
+    {
+        show->setExternalElapsedTime(position);
+        timer->timerTick();
+        timer->timerTick();
+    }
+    const bool sustainedRunning = sustained->isRunning();
+    const bool releasedRunning = released->isRunning();
+    const bool futureRunning = future->isRunning();
+    const uchar recordedValue = sampleChannel(doc, 0);
+
+    sustained->requestAttributeOverride(Function::Intensity, 0.9);
+    show->setExternalElapsedTime(400);
+    timer->timerTick();
+    show->setExternalElapsedTime(450);
+    timer->timerTick();
+    const uchar manualValue = sampleChannel(doc, 0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY(sustainedRunning);
+    QVERIFY(!releasedRunning);
+    QVERIFY(!futureRunning);
+    QCOMPARE(recordedValue, uchar(120));
+    QCOMPARE(manualValue, uchar(180));
+}
+
+void ShowRunner_Test::commandExternalBackwardRestoresAuthoredValues()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 3);
+    Scene *triggered = makeScene(doc, fixture->id(), 0, 200);
+    Scene *valued = makeScene(doc, fixture->id(), 1, 200);
+    Scene *withoutEarlierValue = makeScene(doc, fixture->id(), 2, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setSyncSource(ShowRunner::External);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 100, triggered->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, valued->id(), 0.25)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(3, 400, valued->id(), 0.75)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(4, 500, withoutEarlierValue->id(), 0.9)));
+    QVERIFY(track.setExtent(1000));
+    QVERIFY(show->setCommandTrack(track));
+
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    valued->start(timer, manualOwner);
+    withoutEarlierValue->start(timer, manualOwner);
+    timer->timerTick();
+    QSignalSpy starts(triggered, &Function::running);
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    show->setExternalElapsedTime(600);
+    timer->timerTick();
+    timer->timerTick();
+    const uchar forwardValue = sampleChannel(doc, 1);
+    const int forwardStarts = starts.count();
+
+    show->setExternalElapsedTime(300);
+    timer->timerTick();
+    timer->timerTick();
+    const uchar restoredValue = sampleChannel(doc, 1);
+    const uchar retainedValue = sampleChannel(doc, 2);
+    const bool historicalTriggerRunning = triggered->isRunning();
+    const int startsAfterBackward = starts.count();
+
+    show->stop(FunctionParent::master());
+    valued->stop(manualOwner);
+    withoutEarlierValue->stop(manualOwner);
+    timer->timerTick();
+
+    QCOMPARE(forwardValue, uchar(150));
+    QCOMPARE(forwardStarts, 1);
+    QCOMPARE(restoredValue, uchar(50));
+    QCOMPARE(retainedValue, uchar(180));
+    QVERIFY(!historicalTriggerRunning);
+    QCOMPARE(startsAfterBackward, 1);
+}
+
+void ShowRunner_Test::commandStopReleasesOnlyShowOwner()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, scene->id())));
+    QVERIFY(track.insert(ShowCommand::stop(2, 100, scene->id())));
+    track.setExtent(400);
+    QVERIFY(show->setCommandTrack(track));
+
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    scene->start(timer, manualOwner);
+    timer->timerTick();
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(200);
+    const bool stillRunningForManualOwner = scene->isRunning();
+
+    scene->stop(manualOwner);
+    timer->timerTick();
+    const bool stoppedWithLastOwner = scene->isRunning();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY2(stillRunningForManualOwner,
+             "a recorded Stop must release only this Show's playback");
+    QCOMPARE(stoppedWithLastOwner, false);
+}
+
+void ShowRunner_Test::commandStopRetiresSupersededClipDeadline()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(100);
+    item->setDuration(200); // ordinary clip 100 - 300
+    track->addShowFunction(item);
+    show->addTrack(track);
+
+    ShowCommandTrack commands;
+    QVERIFY(commands.insert(ShowCommand::stop(1, 180, scene->id())));
+    QVERIFY(commands.insert(ShowCommand::start(2, 220, scene->id())));
+    QVERIFY(commands.insert(ShowCommand::stop(3, 350, scene->id())));
+    commands.setExtent(600);
+    QVERIFY(show->setCommandTrack(commands));
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(140);
+    const bool runningFromClip = scene->isRunning();
+
+    advanceTo(200);
+    const bool stoppedByCommand = scene->isRunning();
+
+    advanceTo(260);
+    const bool restartedByCommand = scene->isRunning();
+
+    advanceTo(320); // past the superseded clip deadline of 300
+    const bool survivedOldDeadline = scene->isRunning();
+
+    advanceTo(380);
+    const bool stoppedByLastCommand = scene->isRunning();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY(runningFromClip);
+    QCOMPARE(stoppedByCommand, false);
+    QVERIFY(restartedByCommand);
+    QVERIFY2(survivedOldDeadline,
+             "the superseded clip end must not terminate a later command activation");
+    QCOMPARE(stoppedByLastCommand, false);
+}
+
+void ShowRunner_Test::commandSeekRestoresValuesWithoutTriggers()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 3);
+    Scene *triggered = makeScene(doc, fixture->id(), 0, 200);
+    Scene *valued = makeScene(doc, fixture->id(), 1, 200);
+    Scene *atBoundary = makeScene(doc, fixture->id(), 2, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 100, triggered->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, valued->id(), 0.25)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(3, 400, valued->id(), 0.75)));
+    QVERIFY(track.insert(ShowCommand::start(4, 600, atBoundary->id())));
+    track.setExtent(2000);
+    QVERIFY(show->setCommandTrack(track));
+
+    // an independent owner keeps the value target running across the seek
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    valued->start(timer, manualOwner);
+    timer->timerTick();
+
+    QSignalSpy boundaryStarts(atBoundary, &Function::running);
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+
+    show->requestSeek(600);
+    timer->timerTick();
+
+    const bool historicalStartReplayed = triggered->isRunning();
+    const uchar restoredValue = sampleChannel(doc, 1);
+    const int boundaryStartsAfterSeek = boundaryStarts.count();
+
+    for (int i = 0; i < 5; i++)
+        timer->timerTick();
+    const int boundaryStartsLater = boundaryStarts.count();
+
+    show->stop(FunctionParent::master());
+    valued->stop(manualOwner);
+    timer->timerTick();
+
+    QCOMPARE(historicalStartReplayed, false);
+    QCOMPARE(restoredValue, uchar(150));  // 200 * 0.75, the latest value before 600
+    QCOMPARE(boundaryStartsAfterSeek, 1); // the command at the destination runs once
+    QCOMPARE(boundaryStartsLater, 1);
+}
+
+void ShowRunner_Test::commandLiveInputDoesNotEchoButLoopReplays()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *first = makeScene(doc, fixture->id(), 0, 200);
+    Scene *second = makeScene(doc, fixture->id(), 1, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack empty;
+    empty.setExtent(2000);
+    QVERIFY(show->setCommandTrack(empty));
+
+    QSignalSpy firstStarts(first, &Function::running);
+    QSignalSpy secondStarts(second, &Function::running);
+
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick(); // consumed through 40ms
+
+    // the recorder authored and executed two live inputs at 50ms, published
+    // separately: neither may echo back through the lagging cursor
+    ShowCommandTrack live;
+    live.setExtent(2000);
+    QVERIFY(live.insert(ShowCommand::start(1, 50, first->id())));
+    QVERIFY(show->setCommandTrack(live, {1}));
+    QVERIFY(live.insert(ShowCommand::start(2, 50, second->id())));
+    QVERIFY(show->setCommandTrack(live, {2}));
+
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    const int echoedFirst = firstStarts.count();
+    const int echoedSecond = secondStarts.count();
+
+    // a later traversal must replay them
+    show->requestSeek(0);
+    timer->timerTick();
+    for (int i = 0; i < 5; i++)
+        timer->timerTick();
+    const int replayedFirst = firstStarts.count();
+    const int replayedSecond = secondStarts.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(echoedFirst, 0);
+    QCOMPARE(echoedSecond, 0);
+    QCOMPARE(replayedFirst, 1);
+    QCOMPARE(replayedSecond, 1);
+}
+
+void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
+{
+    QTest::addColumn<quint32>("extent");
+    QTest::addColumn<bool>("recording");
+    QTest::addColumn<quint32>("position");
+    QTest::addColumn<bool>("expectFinished");
+
+    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << true;
+    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false;
+    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << true;
+    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false;
+}
+
+void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
+{
+    QFETCH(quint32, extent);
+    QFETCH(bool, recording);
+    QFETCH(quint32, position);
+    QFETCH(bool, expectFinished);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    if (extent > 0)
+    {
+        ShowCommandTrack track;
+        track.setExtent(extent);
+        QVERIFY(show->setCommandTrack(track));
+    }
+    show->setCommandRecording(recording);
+
+    QSignalSpy finished(show, &Show::showFinished);
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < ticksToReach(position); i++)
+        timer->timerTick();
+
+    const int finishedCount = finished.count();
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(finishedCount > 0, expectFinished);
+}
+
+void ShowRunner_Test::commandIntensityAfterNaturalCompletion()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+
+    // a Scene with nothing to output stops itself on its first write: the
+    // Show never asked it to stop, so this is a natural completion
+    auto *selfCompleting = new Scene(&doc);
+    doc.addFunction(selfCompleting);
+    Scene *coOwned = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, selfCompleting->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 0, selfCompleting->id(), 0.5)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(3, 300, selfCompleting->id(), 0.4)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(4, 300, coOwned->id(), 0.4)));
+    track.setExtent(800);
+    QString error;
+    QVERIFY2(show->setCommandTrack(track, {}, &error), qPrintable(error));
+
+    // an unrelated owner keeps its own target and its own override
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    coOwned->start(timer, manualOwner);
+    timer->timerTick();
+    QVERIFY(coOwned->requestAttributeOverride(Function::Intensity, 0.5)
+            != Function::invalidAttributeId());
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(0);
+    const qreal ownedIntensity = selfCompleting->getAttributeValue(Function::Intensity);
+
+    advanceTo(200);
+    const bool completedNaturally = !selfCompleting->isRunning();
+
+    // the completed run handed its override identifier back: somebody else now
+    // holds the very number this runner used
+    const int recycled = selfCompleting->requestAttributeOverride(Function::Intensity, 0.5);
+    auto *witness = new Scene(&doc);
+    doc.addFunction(witness);
+    const int firstIdOfAnyRun = witness->requestAttributeOverride(Function::Intensity, 1.0);
+
+    advanceTo(320);
+    const qreal completedIntensity = selfCompleting->getAttributeValue(Function::Intensity);
+    const qreal coOwnedIntensity = coOwned->getAttributeValue(Function::Intensity);
+
+    show->stop(FunctionParent::master());
+    coOwned->stop(manualOwner);
+    timer->timerTick();
+
+    QCOMPARE(ownedIntensity, 0.5);
+    QVERIFY2(completedNaturally, "the target must finish on its own");
+    QCOMPARE(recycled, firstIdOfAnyRun);
+    // the value lands nowhere: a stopped target is a no-op, and the recycled
+    // handle now belongs to somebody else
+    QCOMPARE(completedIntensity, 0.5);
+    // the native Intensity override is Single, so a running co-owned target
+    // takes the newest value instead of mixing per owner
+    QCOMPARE(coOwnedIntensity, 0.4);
+}
+
+void ShowRunner_Test::commandIntensityOnManuallyStoppedTarget()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, scene->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, scene->id(), 0.5)));
+    track.setExtent(600);
+    QVERIFY(show->setCommandTrack(track));
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(0);
+    QVERIFY(scene->isRunning());
+
+    // the user stops the target in the middle of playback
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+    ticks++;
+
+    advanceTo(300);
+    const bool resurrected = scene->isRunning();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY2(resurrected == false,
+             "an intensity command must never restart a manually stopped target");
+}
+
+void ShowRunner_Test::commandPositionFollowsTransport_data()
+{
+    QTest::addColumn<bool>("external");
+    QTest::addColumn<quint32>("whileRunning");
+    QTest::addColumn<quint32>("whilePaused");
+
+    // an autonomous transport freezes on pause, an external one keeps reporting
+    // the source clock the host is still pushing
+    QTest::newRow("autonomous freezes") << false << quint32(40) << quint32(40);
+    QTest::newRow("external follows the source") << true << quint32(1000) << quint32(5000);
+}
+
+void ShowRunner_Test::commandPositionFollowsTransport()
+{
+    QFETCH(bool, external);
+    QFETCH(quint32, whileRunning);
+    QFETCH(quint32, whilePaused);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    track.setExtent(4000);
+    QVERIFY(show->setCommandTrack(track));
+
+    if (external)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->setExternalElapsedTime(1000);
+    }
+
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    const quint32 runningPosition = show->commandPosition();
+
+    show->setPause(true);
+    show->setExternalElapsedTime(5000);
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    const quint32 pausedPosition = show->commandPosition();
+
+    show->setPause(false);
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(runningPosition, whileRunning);
+    QCOMPARE(pausedPosition, whilePaused);
+}
+
+void ShowRunner_Test::commandLiveMarkSuppressesOnlyItsOwnEvent()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *live = makeScene(doc, fixture->id(), 0, 200);
+    Scene *authored = makeScene(doc, fixture->id(), 1, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack empty;
+    empty.setExtent(2000);
+    QVERIFY(show->setCommandTrack(empty));
+
+    QSignalSpy liveStarts(live, &Function::running);
+    QSignalSpy authoredStarts(authored, &Function::running);
+
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick(); // consumed through 40ms
+
+    /** One event was executed live by the recorder, the other was put at the
+     *  very same millisecond by the editor. The mark is metadata about one id,
+     *  so it may not consume the cursor and swallow its neighbour. */
+    ShowCommandTrack track;
+    track.setExtent(2000);
+    QVERIFY(track.insert(ShowCommand::start(1, 50, live->id())));
+    QVERIFY(track.insert(ShowCommand::start(2, 50, authored->id())));
+    QVERIFY(show->setCommandTrack(track, {1}));
+
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+
+    const int liveEchoes = liveStarts.count();
+    const int authoredRuns = authoredStarts.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(liveEchoes, 0);
+    QCOMPARE(authoredRuns, 1);
+}
+
+void ShowRunner_Test::commandIntensityIgnoresRecycledOverrideId()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 0, scene->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 0, scene->id(), 0.5)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(3, 300, scene->id(), 0.4)));
+    track.setExtent(800);
+    QString error;
+    QVERIFY2(show->setCommandTrack(track, {}, &error), qPrintable(error));
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(0);
+    advanceTo(200);
+
+    /** The target drops its overrides and somebody else claims the recycled
+     *  identifier for a different attribute, all between two Show ticks. The
+     *  target never stops, so a cached handle survives any liveness check. */
+    scene->resetAttributes();
+    const int recycled = scene->requestAttributeOverride(Scene::ParentIntensity, 0.5);
+    QVERIFY(recycled != Function::invalidAttributeId());
+
+    advanceTo(320);
+    const qreal intensity = scene->getAttributeValue(Function::Intensity);
+    const qreal parentIntensity = scene->getAttributeValue(Scene::ParentIntensity);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(intensity, 0.4);
+    QVERIFY2(qFuzzyCompare(parentIntensity, 0.5),
+             "an intensity command must never drive another attribute");
+}
+
+void ShowRunner_Test::commandIntensityIgnoresStaleClipQueueEntry()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(100);
+    item->setDuration(200); // ordinary clip 100 - 300
+    track->addShowFunction(item);
+    show->addTrack(track);
+
+    ShowCommandTrack commands;
+    QVERIFY(commands.insert(ShowCommand::setIntensity(1, 200, scene->id(), 0.5)));
+    commands.setExtent(600);
+    QVERIFY(show->setCommandTrack(commands));
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(140);
+    const bool runningFromClip = scene->isRunning();
+
+    // the user shuts the target down completely, while its clip entry, and
+    // therefore its queued end, is still sitting in the scheduler
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+    ticks++;
+
+    advanceTo(240);
+    const bool resurrected = scene->isRunning();
+    const qreal afterCommand = scene->getAttributeValue(Function::Intensity);
+
+    // a later manual restart must not inherit anything the command left behind
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 42);
+    scene->start(timer, manualOwner);
+    timer->timerTick();
+    ticks++;
+    const qreal afterRestart = scene->getAttributeValue(Function::Intensity);
+
+    show->stop(FunctionParent::master());
+    scene->stop(manualOwner);
+    timer->timerTick();
+
+    QVERIFY(runningFromClip);
+    QCOMPARE(resurrected, false);
+    QVERIFY2(qFuzzyCompare(afterCommand, 1.0),
+             "a stale clip entry must not make a stopped target look active");
+    QVERIFY2(qFuzzyCompare(afterRestart, 1.0),
+             "a manual restart must not inherit a command override");
+}
+
+void ShowRunner_Test::commandSuppressedLiveStopRetiresClipDeadline()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *clips = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(100);
+    item->setDuration(200); // ordinary clip 100 - 300
+    clips->addShowFunction(item);
+    show->addTrack(clips);
+
+    ShowCommandTrack track;
+    track.setExtent(600);
+    QVERIFY(show->setCommandTrack(track));
+
+    int ticks = 0;
+    auto advanceTo = [&](quint32 ms) {
+        const int target = ticksToReach(ms);
+        while (ticks < target)
+        {
+            timer->timerTick();
+            ticks++;
+        }
+    };
+
+    show->start(timer, FunctionParent::master());
+    advanceTo(140);
+    const bool runningFromClip = scene->isRunning();
+
+    /** The recorder executed this Stop live and publishes it marked, so the
+     *  runtime must not execute it again - but the superseded clip end is
+     *  scheduler bookkeeping that still has to be retired. */
+    scene->stop(FunctionParent(FunctionParent::Function, show->id()));
+    QVERIFY(track.insert(ShowCommand::stop(1, 180, scene->id())));
+    QVERIFY(show->setCommandTrack(track, {1}));
+
+    advanceTo(200);
+    const bool stoppedLive = scene->isRunning();
+
+    QVERIFY(track.insert(ShowCommand::start(2, 220, scene->id())));
+    QVERIFY(track.insert(ShowCommand::stop(3, 350, scene->id())));
+    QVERIFY(show->setCommandTrack(track));
+
+    advanceTo(240);
+    const bool restartedByCommand = scene->isRunning();
+
+    // another publication re-offers the same live id: retirement is once-only
+    // and must not touch the activation that is running now
+    QVERIFY(show->setCommandTrack(track));
+
+    advanceTo(320); // past the superseded clip deadline of 300
+    const bool survivedOldDeadline = scene->isRunning();
+
+    advanceTo(380);
+    const bool stoppedByAuthoredStop = scene->isRunning();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QVERIFY(runningFromClip);
+    QCOMPARE(stoppedLive, false);
+    QVERIFY(restartedByCommand);
+    QVERIFY2(survivedOldDeadline,
+             "a suppressed live Stop must still retire the superseded clip end");
+    QCOMPARE(stoppedByAuthoredStop, false);
 }
 
 QTEST_APPLESS_MAIN(ShowRunner_Test)

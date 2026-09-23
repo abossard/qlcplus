@@ -148,11 +148,11 @@ VCWidgetItem
 
             if (buttonObj.actionType === VCButton.Toggle || buttonObj.actionType === VCButton.Blackout)
             {
-                buttonObj.requestStateChange(btnState === VCButton.Active ? false : true)
+                buttonObj.requestUserStateChange(btnState === VCButton.Active ? false : true)
             }
             else if (buttonObj.actionType !== VCButton.Flash)
             {
-                buttonObj.requestStateChange(true)
+                buttonObj.requestUserStateChange(true)
                 blink.start()
             }
         }
@@ -163,9 +163,9 @@ VCWidgetItem
 
             if (buttonObj.actionType === VCButton.Flash ||
                 buttonObj.actionType === VCButton.FreezeHold)
-                buttonObj.requestStateChange(true)
+                buttonObj.requestUserStateChange(true)
             else if (buttonObj.actionType === VCButton.Freeze)
-                buttonObj.requestStateChange(btnState !== VCButton.Active)
+                buttonObj.requestUserStateChange(btnState !== VCButton.Active)
         }
         onReleased:
         {
@@ -173,7 +173,7 @@ VCWidgetItem
             // entered while the button was held.
             if (buttonObj.actionType === VCButton.FreezeHold)
             {
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
                 return;
             }
 
@@ -181,13 +181,13 @@ VCWidgetItem
                 return;
 
             if (buttonObj.actionType === VCButton.Flash)
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
         }
         onCanceled:
         {
             // A stolen pointer grab delivers no release event.
             if (buttonObj.actionType === VCButton.FreezeHold)
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
         }
     }
 
@@ -205,15 +205,15 @@ VCWidgetItem
 
             if (buttonObj.actionType === VCButton.Flash ||
                 buttonObj.actionType === VCButton.FreezeHold)
-                buttonObj.requestStateChange(true)
+                buttonObj.requestUserStateChange(true)
             else if (buttonObj.actionType === VCButton.Freeze)
-                buttonObj.requestStateChange(btnState !== VCButton.Active)
+                buttonObj.requestUserStateChange(btnState !== VCButton.Active)
         }
         onReleased:
         {
             if (buttonObj.actionType === VCButton.FreezeHold)
             {
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
                 return;
             }
 
@@ -225,19 +225,19 @@ VCWidgetItem
                 return;
 
             if (buttonObj.actionType === VCButton.Flash)
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
             else if (buttonObj.actionType === VCButton.Toggle || buttonObj.actionType === VCButton.Blackout)
-                buttonObj.requestStateChange(btnState === VCButton.Active ? false : true)
+                buttonObj.requestUserStateChange(btnState === VCButton.Active ? false : true)
             else
             {
-                buttonObj.requestStateChange(true)
+                buttonObj.requestUserStateChange(true)
                 blink.start()
             }
         }
         onCanceled:
         {
             if (buttonObj.actionType === VCButton.FreezeHold)
-                buttonObj.requestStateChange(false)
+                buttonObj.requestUserStateChange(false)
         }
     }
 

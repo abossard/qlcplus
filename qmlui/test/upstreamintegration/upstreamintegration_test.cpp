@@ -21,13 +21,17 @@
 #include "contextmanager.h"
 #include "doc.h"
 #include "djmanager.h"
+#include "editorview.h"
 #include "fixture.h"
+#include "fixtureeditor.h"
 #include "fixturegroup.h"
 #include "fixturemanager.h"
 #include "functionmanager.h"
 #include "inputoutputmap.h"
 #include "mastertimer.h"
 #include "performfsm.h"
+#include "qlccapability.h"
+#include "qlcfixturedef.h"
 #include "scene.h"
 #include "show.h"
 #include "showfunction.h"
@@ -52,6 +56,8 @@ private slots:
     void functionDeletionConfirmation();
     void actionsSubmenuDismissal_data();
     void actionsSubmenuDismissal();
+    void channelWizard_data();
+    void channelWizard();
     void mixedAuthoring_data();
     void mixedAuthoring();
     void fileOpenGuard_data();
@@ -251,6 +257,152 @@ void UpstreamIntegration_Test::actionsSubmenuDismissal()
 
     QTRY_VERIFY(!menu->property("visible").toBool());
     QTRY_VERIFY(!submenu->property("visible").toBool());
+}
+
+void UpstreamIntegration_Test::channelWizard_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<int>("amount");
+    QTest::addColumn<QStringList>("components");
+    QTest::addColumn<QList<int>>("colours");
+    QTest::addColumn<QList<int>>("presets");
+    QTest::newRow("Lime-2") << QString("Lime") << 2 << QStringList{"Channel"}
+        << QList<int>{QLCChannel::Lime} << QList<int>{QLCChannel::IntensityLime};
+    QTest::newRow("Indigo-3") << QString("Indigo") << 3 << QStringList{"Channel"}
+        << QList<int>{QLCChannel::Indigo} << QList<int>{QLCChannel::IntensityIndigo};
+    QTest::newRow("RGBA-2") << QString("RGBA") << 2 << QStringList{"Red", "Green", "Blue", "Amber"}
+        << QList<int>{QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue, QLCChannel::Amber}
+        << QList<int>{QLCChannel::IntensityRed, QLCChannel::IntensityGreen, QLCChannel::IntensityBlue, QLCChannel::IntensityAmber};
+    QTest::newRow("RGBL-3") << QString("RGBL") << 3 << QStringList{"Red", "Green", "Blue", "Lime"}
+        << QList<int>{QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue, QLCChannel::Lime}
+        << QList<int>{QLCChannel::IntensityRed, QLCChannel::IntensityGreen, QLCChannel::IntensityBlue, QLCChannel::IntensityLime};
+    QTest::newRow("RGB-2") << QString("RGB") << 2 << QStringList{"Red", "Green", "Blue"}
+        << QList<int>{QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue}
+        << QList<int>{QLCChannel::IntensityRed, QLCChannel::IntensityGreen, QLCChannel::IntensityBlue};
+    QTest::newRow("RGBW-2") << QString("RGBW") << 2 << QStringList{"Red", "Green", "Blue", "White"}
+        << QList<int>{QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue, QLCChannel::White}
+        << QList<int>{QLCChannel::IntensityRed, QLCChannel::IntensityGreen, QLCChannel::IntensityBlue, QLCChannel::IntensityWhite};
+    QTest::newRow("RGBAW-2") << QString("RGBAW") << 2 << QStringList{"Red", "Green", "Blue", "Amber", "White"}
+        << QList<int>{QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue, QLCChannel::Amber, QLCChannel::White}
+        << QList<int>{QLCChannel::IntensityRed, QLCChannel::IntensityGreen, QLCChannel::IntensityBlue, QLCChannel::IntensityAmber, QLCChannel::IntensityWhite};
+    QTest::newRow("UV-2") << QString("UV") << 2 << QStringList{"Channel"}
+        << QList<int>{QLCChannel::UV} << QList<int>{QLCChannel::IntensityUV};
+    QTest::newRow("Dimmer-2") << QString("Dimmer") << 2 << QStringList{"Channel"}
+        << QList<int>{QLCChannel::NoColour} << QList<int>{QLCChannel::IntensityDimmer};
+}
+
+void UpstreamIntegration_Test::channelWizard()
+{
+    QFETCH(QString, type);
+    QFETCH(int, amount);
+    QFETCH(QStringList, components);
+    QFETCH(QList<int>, colours);
+    QFETCH(QList<int>, presets);
+    QLCFixtureDef original;
+    auto *seed = new QLCChannel();
+    seed->setName("Existing " + type);
+    seed->setGroup(QLCChannel::Shutter);
+    seed->setControlByte(QLCChannel::LSB);
+    seed->setDefaultValue(17);
+    QVERIFY(seed->addCapability(new QLCCapability(0, 31, "Closed")));
+    QVERIFY(seed->addCapability(new QLCCapability(32, 255, "Open")));
+    QVERIFY(original.addChannel(seed));
+    QString seedXML;
+    QXmlStreamWriter seedWriter(&seedXML);
+    QVERIFY(seed->saveXML(&seedWriter));
+    const QVariant previousEditor = m_app->rootContext()->contextProperty("fixtureEditor");
+    FixtureEditor fixtureEditor(m_app.get(), m_app->doc());
+    const auto restoreEditor = qScopeGuard([&]() {
+        m_app->rootContext()->setContextProperty("fixtureEditor", previousEditor);
+    });
+    // Destroy the copied definition after its editor.
+    std::unique_ptr<QLCFixtureDef> edited;
+    EditorView editor(m_app.get(), 0, &original);
+    edited.reset(editor.fixtureDefinition());
+    QVERIFY(!editor.isModified());
+    QSignalSpy changed(&editor, &EditorView::hasChanged);
+    QSignalSpy channelsChanged(&editor, &EditorView::channelsChanged);
+    QQmlContext context(qmlContext(m_app->rootObject()));
+    context.setContextProperty("fixtureEditorView", m_app->rootObject());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/PopupChannelWizard.qml"));
+    std::unique_ptr<QObject> popup(component.create(&context));
+    QVERIFY2(popup, qPrintable(component.errorString()));
+    QVERIFY(popup->setProperty("editorView", QVariant::fromValue(&editor)));
+    const auto cleanup = qScopeGuard([&]() { QMetaObject::invokeMethod(popup.get(), "close"); });
+    QQmlExpression comboExpression(qmlContext(popup.get()), popup.get(), "chTypesCombo");
+    QObject *combo = comboExpression.evaluate().value<QObject*>();
+    QVERIFY2(combo, qPrintable(comboExpression.error().toString()));
+    QQmlExpression amountExpression(qmlContext(popup.get()), popup.get(), "amountSpin");
+    QObject *spin = amountExpression.evaluate().value<QObject*>();
+    QVERIFY2(spin, qPrintable(amountExpression.error().toString()));
+    QQmlExpression selectionExpression(qmlContext(popup.get()), popup.get(),
+        QString("chTypesCombo.model.findIndex(item => item.mLabel === '%1')").arg(type));
+    const int selection = selectionExpression.evaluate().toInt();
+    QVERIFY2(!selectionExpression.hasError(), qPrintable(selectionExpression.error().toString()));
+    QVERIFY2(selection >= 0, qPrintable("Missing wizard choice: " + type));
+    QStringList names;
+    for (int i = 1; i <= amount; ++i)
+        for (const QString &name : components)
+            names.append(QString("%1 %2").arg(name).arg(i));
+
+    for (bool accept : {false, true})
+    {
+        QVERIFY(QMetaObject::invokeMethod(popup.get(), "open"));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        QVERIFY(combo->setProperty("currentIndex", selection));
+        QVERIFY(spin->setProperty("value", amount));
+        QQmlExpression previewExpression(qmlContext(popup.get()), popup.get(),
+                                        "itemsList.map(item => item.name)");
+        const QStringList preview = previewExpression.evaluate().toStringList();
+        QVERIFY2(!previewExpression.hasError(), qPrintable(previewExpression.error().toString()));
+        QCOMPARE(preview, names);
+        QCOMPARE(edited->channels().size(), 1);
+        QVERIFY(!editor.isModified());
+        QCOMPARE(changed.count(), 0);
+        QCOMPARE(channelsChanged.count(), 0);
+        QString previewXML;
+        QXmlStreamWriter previewWriter(&previewXML);
+        QVERIFY(edited->channels().first()->saveXML(&previewWriter));
+        QCOMPARE(previewXML, seedXML);
+        QVERIFY(QMetaObject::invokeMethod(popup.get(), accept ? "accept" : "reject"));
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        QCOMPARE(edited->channels().size(), accept ? names.size() + 1 : 1);
+        QCOMPARE(editor.isModified(), accept);
+        QString preservedXML;
+        QXmlStreamWriter preservedWriter(&preservedXML);
+        QVERIFY(edited->channels().first()->saveXML(&preservedWriter));
+        QCOMPARE(preservedXML, seedXML);
+    }
+
+    QCOMPARE(channelsChanged.count(), names.size());
+    QVERIFY(changed.count() > 0);
+    for (int i = 0; i < names.size(); ++i)
+    {
+        const QLCChannel *channel = edited->channels().at(i + 1);
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        QVERIFY(channel->saveXML(&writer));
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        QLCChannel reloaded;
+        QVERIFY(reloaded.loadXML(reader));
+        QVERIFY(!reader.hasError());
+        for (const QLCChannel *actual : {channel, static_cast<const QLCChannel *>(&reloaded)})
+        {
+            QCOMPARE(actual->name(), names.at(i));
+            QCOMPARE(actual->group(), QLCChannel::Intensity);
+            QCOMPARE(actual->colour(), colours.at(i % components.size()));
+            QCOMPARE(actual->preset(), presets.at(i % components.size()));
+            QCOMPARE(actual->controlByte(), QLCChannel::MSB);
+            QCOMPARE(actual->capabilities().size(), 1);
+            const QLCCapability *cap = actual->capabilities().first();
+            QCOMPARE(cap->min(), 0);
+            QCOMPARE(cap->max(), 255);
+            QCOMPARE(cap->preset(), QLCCapability::Custom);
+            QCOMPARE(cap->name(), names.at(i) + (type == "Dimmer" ? " (0 - 100%)" : " intensity (0 - 100%)"));
+        }
+    }
 }
 
 void UpstreamIntegration_Test::mixedAuthoring_data()

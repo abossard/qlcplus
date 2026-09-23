@@ -56,6 +56,7 @@ set(SRC_FILES
     sceneeditor.cpp sceneeditor.h
     scripteditor.cpp scripteditor.h
     showmanager.cpp showmanager.h
+    showcommandrecorder.cpp showcommandrecorder.h
     simpledesk.cpp simpledesk.h
     tardis/networkmanager.cpp tardis/networkmanager.h
     tardis/networkpacketizer.cpp tardis/networkpacketizer.h

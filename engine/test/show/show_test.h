@@ -40,6 +40,20 @@ private slots:
     void save();
     void syncSource();
 
+    // Command track (C14-1, C14-2, C14-13, C14-14)
+    void commandTrackRoundtrip();
+    void commandTrackLegacyShow();
+    void commandTrackInvalidLoad_data();
+    void commandTrackInvalidLoad();
+    void commandTrackUnresolvedTargetSurvivesLoad();
+    void commandTrackRejectedEdit_data();
+    void commandTrackRejectedEdit();
+    void commandTrackExtent_data();
+    void commandTrackExtent();
+    void commandTrackCopyAndReferences();
+    void commandTrackCopyReusesOneClonePerTarget();
+    void commandRecordingAndPosition();
+
 private:
     Doc *m_doc;
 };

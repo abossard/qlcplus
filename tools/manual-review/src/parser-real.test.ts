@@ -34,6 +34,14 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases[3].tags).toEqual(['DMX']);
   });
 
+  it('recognizes the upstream 6b2adfd5d channel wizard review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '30');
+    expect(section?.title).toContain('6b2adfd5d');
+    expect(section?.cases.map(c => c.number)).toEqual(['30.1', '30.2', '30.3']);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([3, 2, 1]);
+    expect(section!.cases.map(c => c.tags)).toEqual([[], [], []]);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

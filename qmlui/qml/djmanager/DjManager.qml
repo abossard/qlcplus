@@ -131,6 +131,51 @@ Rectangle
                     }
                 }
 
+                // Record toggle: arms command recording on the resolved Show
+                Switch {
+                    id: recordSwitch
+                    text: "Record"
+                    checked: showCommandRecorder ? showCommandRecorder.recording : false
+                    onToggled: {
+                        if (showCommandRecorder)
+                            showCommandRecorder.recording = checked
+                    }
+                    contentItem: Text {
+                        text: recordSwitch.text
+                        color: recordSwitch.checked ? "#e74c3c" : "#ccc"
+                        font.pixelSize: 13
+                        font.bold: recordSwitch.checked
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: recordSwitch.indicator.width + 6
+                    }
+                }
+
+                Text {
+                    visible: showCommandRecorder && showCommandRecorder.recording
+                    text: {
+                        if (!showCommandRecorder)
+                            return ""
+                        var target = showCommandRecorder.targetName
+                        return "REC: " + showCommandRecorder.phaseName +
+                               (target.length > 0 ? " - " + target : " - waiting for a show")
+                    }
+                    color: showCommandRecorder && showCommandRecorder.phase === 2
+                           ? "#e74c3c" : "#f1c40f"
+                    font.pixelSize: 13
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 260
+                }
+
+                Text {
+                    visible: showCommandRecorder && showCommandRecorder.lastError.length > 0
+                    text: showCommandRecorder ? showCommandRecorder.lastError : ""
+                    color: "#e67e22"
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: 260
+                }
+
                 // Deck count selector (default 2; parameter for the future)
                 Text { text: "Decks"; color: "#aaa"; font.pixelSize: 12 }
                 ComboBox {

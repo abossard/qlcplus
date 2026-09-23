@@ -22,6 +22,7 @@
 
 #include <QObject>
 #include <QMutex>
+#include <QHash>
 #include <QMap>
 #include <QSet>
 
@@ -29,6 +30,7 @@
 #include <limits>
 
 #include <function.h>
+#include <showcommandtrack.h>
 
 class ShowFunction;
 class Function;
@@ -152,6 +154,62 @@ private:
                                      QSet<quint32> &deferred,
                                      quint32 elapsed);
     void applyTrackIntensity(ShowFunction *sf, Function *f);
+
+    /************************************************************************
+     * Commands
+     ************************************************************************/
+
+    /** Re-read the published track only when the Show republished it */
+    void refreshCommandTrack();
+
+    /** Apply the commands this position is due for, in authored order.
+     *  A stalled seek restart postpones the whole traversal by a tick. */
+    void processCommands(bool traversalStalled);
+
+    void applyCommandEffect(const ShowCommand &cmd);
+
+    /** Keep the initialization a Virtual Console Start performs (chaser step
+     *  reset), without depending on the UI layer */
+    void prepareCommandStart(Function *f);
+
+    /** Absolute authored intensity on a target that is already playing. A
+     *  stopped target is a no-op: commands never resurrect one. */
+    void applyCommandIntensity(Function *f, qreal value);
+
+    /** Drop a superseded ordinary clip end for this target, so it cannot
+     *  terminate a later command activation */
+    void retireClipDeadline(quint32 functionId);
+
+    /** Retire the deadlines of live Stop events the recorder already executed.
+     *  They never reach applyCommandEffect(), but their scheduler bookkeeping
+     *  still has to happen - once per traversal, per id. */
+    void retireLiveStopDeadlines(const QSet<quint32> &liveIds);
+
+    void stopCommandOwnedFunctions();
+    bool commandTargetActive(const Function *function) const;
+    quint32 commandExtent() const;
+
+    ShowCommandTrack m_commandTrack;
+    ShowCommandState m_commandState;
+
+    /** Revision of the snapshot in m_commandTrack */
+    quint64 m_commandRevision;
+
+    /** Function ids this runner started through a command */
+    QSet<quint32> m_commandOwnedFunctions;
+
+    /** Targets started during the current tick. The timer runs them at the end
+     *  of it, so they are not observable as running yet. */
+    QSet<quint32> m_commandStartedThisTick;
+
+    /** Live Stop ids whose superseded clip end was already retired */
+    QSet<quint32> m_retiredLiveStopIds;
+
+    static constexpr quint64 NoCommandSeek = std::numeric_limits<quint64>::max();
+
+    /** Destination whose authored values are restored once the clips of the
+     *  destination have been scheduled */
+    quint64 m_pendingCommandSeek;
 
 private:
     FunctionParent functionParent() const;

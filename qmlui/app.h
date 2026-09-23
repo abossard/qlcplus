@@ -28,6 +28,7 @@
 
 class MainView2D;
 class ShowManager;
+class ShowCommandRecorder;
 class SimpleDesk;
 class UiManager;
 class ActionManager;
@@ -262,6 +263,7 @@ private:
     InputOutputManager *m_ioManager;
     VirtualConsole *m_virtualConsole;
     ShowManager *m_showManager;
+    ShowCommandRecorder *m_showCommandRecorder;
     SimpleDesk *m_simpleDesk;
     ActionManager *m_actionManager;
     VideoProvider *m_videoProvider;

@@ -49,6 +49,25 @@
 #include "doc.h"
 #include "app.h"
 
+namespace
+{
+/** Provenance of a mapped external event, taken from the plugin actually
+ *  patched to its input universe. Only a MIDI control surface is a person
+ *  operating something: ArtNet, E1.31, OSC, loopback and audio-driven feeds
+ *  reach the very same dispatch and must not be mistaken for user input. */
+ShowCommandOrigin inputOriginForUniverse(Doc *doc, quint32 universe)
+{
+    if (doc == nullptr)
+        return ShowCommandOrigin::Programmatic;
+
+    InputPatch *patch = doc->inputOutputMap()->inputPatch(universe);
+    if (patch != nullptr && patch->pluginName() == QLatin1String("MIDI"))
+        return ShowCommandOrigin::Midi;
+
+    return ShowCommandOrigin::Programmatic;
+}
+}
+
 #define KXMLQLCVCProperties             QStringLiteral("Properties")
 #define KXMLQLCVCPropertiesSize         QStringLiteral("Size")
 #define KXMLQLCVCPropertiesSizeWidth    QStringLiteral("Width")
@@ -1594,7 +1613,8 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
         VCPage *activePage = page(activePageIndex);
         if (activePage == nullptr)
             return;
-        activePage->inputValueChanged(inputSourceKey, value);
+        const ShowCommandOrigin origin = inputOriginForUniverse(m_doc, universe);
+        activePage->inputValueChanged(inputSourceKey, value, origin);
 
         // Inherit mode: if the active page doesn't have a mapping for this key,
         // also dispatch to all Normal pages (global pool fallback)
@@ -1606,7 +1626,7 @@ void VirtualConsole::slotInputValueChanged(quint32 universe, quint32 channel, uc
                 if (i != activePageIndex &&
                     m_pages.at(i)->externalInputMode() == VCPage::Normal)
                 {
-                    m_pages.at(i)->inputValueChangedGlobal(inputSourceKey, value);
+                    m_pages.at(i)->inputValueChangedGlobal(inputSourceKey, value, origin);
                 }
             }
         }

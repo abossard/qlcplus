@@ -74,6 +74,7 @@ add_library(${module_name} SHARED
     scriptwrapper.h
     sequence.cpp sequence.h
     show.cpp show.h
+    showcommandtrack.cpp showcommandtrack.h
     showfunction.cpp showfunction.h
     showrunner.cpp showrunner.h
     timingdiagnostics.cpp timingdiagnostics.h

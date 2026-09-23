@@ -46,6 +46,7 @@
 #include "uimanager.h"
 #include "simpledesk.h"
 #include "showmanager.h"
+#include "showcommandrecorder.h"
 #include "fixtureeditor.h"
 #include "modelselector.h"
 #include "folderbrowser.h"
@@ -211,6 +212,26 @@ void App::startup()
     m_showManager = new ShowManager(this, m_doc);
     connect(m_showManager, &ShowManager::itemClicked, m_contextManager, &ContextManager::setLastClickedType);
 
+    // Command recording. The recorder only ever reads transport events; the
+    // Virtual Console reaches it through its instance, like Tardis.
+    m_showCommandRecorder = new ShowCommandRecorder(m_doc, this);
+    rootContext()->setContextProperty("showCommandRecorder", m_showCommandRecorder);
+    connect(m_showManager, &ShowManager::currentShowIDChanged,
+            m_showCommandRecorder, [this](int showID)
+    {
+        m_showCommandRecorder->setResolvedShow(quint32(showID));
+    });
+    connect(m_showManager, &ShowManager::isPlayingChanged,
+            m_showCommandRecorder, [this](bool playing)
+    {
+        m_showCommandRecorder->setPlaying(playing && !m_showManager->isPaused());
+    });
+    connect(m_showManager, &ShowManager::isPausedChanged,
+            m_showCommandRecorder, [this](bool paused)
+    {
+        m_showCommandRecorder->setPlaying(m_showManager->isPlaying() && !paused);
+    });
+
     m_networkManager = new NetworkManager(this, m_doc, m_virtualConsole, m_simpleDesk);
     rootContext()->setContextProperty("networkManager", m_networkManager);
 
@@ -281,6 +302,14 @@ void App::startup()
     // Perform FSM drives the Show Manager read-only state: while Perform is
     // engaged (Armed/Live/Suspended), the Show Manager blocks all mutations.
     // Single writer — nothing else may call setReadOnly.
+    if (m_vdjBridge != nullptr && m_showCommandRecorder != nullptr)
+    {
+        // Perform resolves a Show for the playing deck without the Show Manager
+        // being open, so Record follows the same target.
+        connect(m_vdjBridge->performFsm(), &PerformFsm::activeShowChanged,
+                m_showCommandRecorder, &ShowCommandRecorder::setResolvedShow);
+    }
+
     if (m_vdjBridge != nullptr && m_showManager != nullptr)
     {
         PerformFsm *performFsm = m_vdjBridge->performFsm();

@@ -131,7 +131,7 @@ VCWidgetItem
                                  (sliderMode === VCSlider.GrandMaster ? grandMasterHandleGradientHover : defaultGradientHover)
             trackColor: sliderMode === VCSlider.Submaster ? "#77DD73" : defaultTrackColor
 
-            onMoved: if (sliderObj) sliderObj.value = valueAt(position)
+            onMoved: if (sliderObj) sliderObj.requestUserValue(valueAt(position))
         }
 
         QLCPlusKnob
@@ -146,7 +146,7 @@ VCWidgetItem
             to: sliderObj ? sliderObj.rangeHighLimit : 255
             value: sliderValue
 
-            onMoved: if (sliderObj) sliderObj.value = value
+            onMoved: if (sliderObj) sliderObj.requestUserValue(value)
         }
 
         // widget name text box

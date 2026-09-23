@@ -97,6 +97,22 @@ public:
      *  the attached Function, if any */
     Q_INVOKABLE void requestStateChange(bool pressed);
 
+    /**
+     *  Real user input: a pointer/touch gesture on this button, a mapped
+     *  external controller event or a key sequence. Resolves what the user
+     *  asked for, applies it live exactly once and offers the resolved command
+     *  to the recorder.
+     *
+     *  The provenance comes from the ingress that delivered the event, never
+     *  from the shared input slot, which scripts, synthetic sources and audio
+     *  reach as well. requestStateChange() stays the programmatic entry point
+     *  and never authors anything. */
+    Q_INVOKABLE void requestUserStateChange(bool pressed);
+
+    /** Same, for an ingress that knows where the event came from. Nothing
+     *  upgrades an unknown origin: a route that cannot say is not the user. */
+    void requestUserStateChange(bool pressed, ShowCommandOrigin origin);
+
     /** @reimp */
     void notifyFunctionStarting(VCWidget *widget, quint32 fid, qreal fIntensity, bool excludeMonitored) override;
 
