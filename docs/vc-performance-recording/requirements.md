@@ -39,9 +39,29 @@ Pause and Stop halt command dispatch, not VC-started effects. Leave live busking
 
 ## Editing
 
-**C0-9:** Provide one ordered **Time / Control / Action / Value** list. Show control identity, caption and current binding; distinguish legacy function commands and slider-position values from function-intensity values. Filtering by control changes visibility, not event order.
+**C0-9:** Place the ordered **Time / Control / Action / Value** list in a **Recordings** tab inside the Show editor, sharing its selected Show, playhead and transport. Show control identity, caption and current binding; distinguish legacy function commands and slider-position values from function-intensity values. Filtering changes visibility, not event order.
 
-Permit exact-value edits, retiming and batch deletion only while playback has stopped and Record is off. Paused playback does not permit editing. Validate the whole edit before publication, with one undo unit tied to its Show ID.
+Single-click selects a row; double-click edits its time, state or value cell. Enter commits, Escape cancels. Permit edits only while playback has stopped and REC is off; paused playback does not qualify. Validate the whole edit before publication.
+
+Delete selected events without a confirmation dialog. Show the deleted count and an Undo action. Each edit or batch deletion has one undo unit tied to its Show ID.
+
+## Recording workflow and saving
+
+| ID | Requirement |
+|---|---|
+| C2-1 | REC enables capture without starting or moving playback. Capture accepted changes at the current cursor even while stopped or paused; with no Show, wait for one. Shared REC controls in the performance views show the same bound Show and Playing/Paused/Stopped state and allow disarming from the VC. |
+| C2-2 | While REC is armed, lock manual Show selection. Keep navigation to the VC and other views available. Disarm before selecting another Show; never redirect capture behind the displayed target. |
+| C2-3 | Save a consistent snapshot of accepted events and the capture extent while leaving REC and playback unchanged. Include accepted deferred input up to the save boundary. Later recorded events make the workspace unsaved again. |
+| C2-4 | New/Open/Exit while REC is armed uses Save / Discard / Cancel with an active-recording notice. Cancel preserves the current session. On proceeding, finish capture before saving/discarding and replacing/closing the workspace; failed saving must not proceed or lose pending work. |
+
+## Debug panel
+
+| ID | Requirement |
+|---|---|
+| C2-5 | Open one shared docked bottom debug panel from Show editor, DJ or the shared REC control. Keep the performance view visible. Its Events and Referenced controls tabs are read-only. Collect bounded, memory-only event history while the whole panel is open, regardless of tab. Closing/hiding it stops capture and discards history; reopening starts fresh. |
+| C2-6 | Show a nonmodal Problems indicator beside REC with a count and latest failure reason. Clicking opens the relevant debug view; do not interrupt each failure with a popup or toast. While the panel is closed, retain only this summary of failed operations, not detailed event history or a background control scan. |
+
+Opening the panel begins detailed capture from that moment; the Problems summary cannot reconstruct earlier event history.
 
 ## Referenced controls
 
@@ -50,10 +70,8 @@ Permit exact-value edits, retiming and batch deletion only while playback has st
 | C1-1 | Before playback, list every unique persistent VC identity referenced anywhere in the selected Show. Group repeated references and expected roles. Keep the inventory independent of event-log retention or clearing; legacy function commands do not imply VC references. |
 | C1-2 | Show configuration suitability using the replay resolver: Ready, Missing control, Ambiguous identity, Incompatible type/role, Disabled, or Unbound/missing binding where applicable. Preserve multiple per-role issues. Ready does not mean running, connected hardware or verified output. |
 | C1-3 | While the inspector is visible, refresh after command-track changes and VC add/remove/rename/rebind/mode/enable changes, including binding-target availability. Leave authored gestures unchanged. |
-| C1-4 | On close, hide, unload or workspace reset, detach view observation and reject stale callbacks. Reopen against current configuration. Playback must still validate destinations with the inspector closed. |
+| C1-4 | On whole-panel close/hide, unload or workspace reset, detach reference-view observation and reject stale callbacks. Reopen against current configuration. Playback must still validate destinations with the inspector closed. |
 
 The read-only table shows control caption or an available recorded hint, persistent identity, expected roles, current binding, reference count and status reason. Provide All/Problems counts, a Problems filter and missing-first ordering. Virtualize rendered rows without truncating the reference inventory.
 
 Level-channel and GrandMaster controls need no Function target. Keep missing gestures intact; optional Locate navigation must not play, delete, fix or rebind controls.
-
-The separate debug-event inspector remains memory-only, read-only and active only while open. This change adds its referenced-controls view, not a persistent diagnostic store.

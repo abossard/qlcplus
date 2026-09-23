@@ -38,4 +38,8 @@ This prevents a deleted destination from redirecting playback to an unrelated re
 
 Add versioned, discriminated VC state records beside existing function commands. Old records lack a control identity, so automatic conversion would guess their destination. Preserve their existing target, ownership and seek behavior.
 
-The user chose one event list and rejected extra lanes before implementation.
+## Keep editing and diagnostics distinct
+
+The user chose a Recordings tab in the Show editor and rejected extra lanes. A shared docked debug panel supplies read-only Events and Referenced controls; it is not a second editor.
+
+REC arms capture independently of Play. Save checkpoints the current capture without interrupting busking. Performance views share the same target/status controls so the operator can disarm without leaving the VC.

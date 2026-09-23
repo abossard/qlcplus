@@ -8,6 +8,12 @@
 
 Keep value calculations in the FSM. Let the adapter publish accepted data and let the GUI executor invoke controls. UI notifications do not authorize another recording.
 
+## Shared workflow state
+
+Show editor, VC and DJ controls send intent to one recording state. Derive target labels, edit permission and REC indicators from it; do not introduce a recording session per view.
+
+Treat Save as a checkpoint, not a stop/start command. Separate its accepted-data boundary from later input so successful saving does not clear newer unsaved changes.
+
 ## Reuse the native control path
 
 Keep provenance through input normalization and deferred execution; generic setters also receive audio and feedback updates. Query the existing VC state when applying a command, then use native start/stop/value effects to reach the requested state. The recorder keeps no running-function mirror or output-correction loop.
@@ -27,6 +33,8 @@ Distinguish queued work from attempted execution. Preserve due actions or report
 Share pure target/role/binding resolution between replay and the referenced-controls view. Derive the view from Show references and a GUI-thread configuration snapshot.
 
 Use native change notifications while the view is open. Avoid polling, a background status registry and output scans.
+
+Keep the operation-failure summary separate from detailed diagnostic capture. Hidden views retain no event history.
 
 ## Small extensions
 
