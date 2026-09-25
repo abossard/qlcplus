@@ -42,6 +42,14 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.map(c => c.tags)).toEqual([[], [], []]);
   });
 
+  it('recognizes the upstream 82e541d7a video editor review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '31');
+    expect(section?.title).toContain('82e541d7a');
+    expect(section?.cases.map(c => c.number)).toEqual(['31.1', '31.2', '31.3']);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([2, 3, 1]);
+    expect(section!.cases.map(c => c.tags)).toEqual([[], [], []]);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

@@ -1669,3 +1669,44 @@ visual quality, physical output, or human sign-off. All cases below await review
 |------|--------|------|-------------|-------|
 | Wizard choices and preview | | | | |
 | Focus, cancellation, and editing | | | | |
+
+## 31. September 2026 upstream video editor through 82e541d7a
+
+Upstream `82e541d7a47f4a3311e00fa37a777d96e3fcafd5` moves URL-field
+selection and focus from editor construction to URL-dialog opening.
+The production `VideoEditor.qml` is unchanged from upstream.
+
+Automated checks on 2026-09-25: built `qlcplus5`, `upstreamintegration_test`,
+and `video_test`. Passed: focused `videoEditorUrlDialog` (4), full upstream
+integration (79), video (5), and `npm test -- src/parser-real.test.ts` (16).
+All completed with zero failures or skips; QtTest totals include setup and
+cleanup. The native tests used offscreen/software rendering. Integration
+tests ran from an isolated directory under `build`, avoiding the existing
+workspace files in the repository root. The same focused test reproduced
+the editor-opening recursion and freeze before the merge.
+
+These runs include the existing uncommitted recording code and do not
+separately accept that work.
+All checks below await human review. Automated editor construction,
+popup focus, cancel/reopen and URL confirmation checks do not establish
+visual quality or human sign-off.
+
+### 31.1 Video-editor opening and navigation
+
+- ☐ In a disposable workspace, create a Video function and open its editor. Confirm the editor appears without freezing, flashing a URL dialog, or leaving the interface dimmed.
+- ☐ Open an existing Video function, return to the function list, visit the fork's persistent Show Manager and Virtual Console views, then reopen the editor. Confirm navigation and the editor controls remain usable without a stray focus indicator.
+
+### 31.2 URL-dialog focus and editing
+
+- ☐ Click "Set a URL". Confirm the field has visible keyboard focus and its text is selected. Type a replacement without clicking the field; check that selection, text contrast, and buttons are readable at normal and compact window sizes.
+- ☐ Edit the URL, cancel with the Cancel button, then repeat using Escape. Reopen after each cancellation. Confirm the editor still displays the previously accepted source, the reopened field is selected and ready for typing, and no dim overlay remains after closing.
+- ☐ Enter a known local test-media URL and confirm with OK. Check that the source label and preview reflect the chosen media. Return to another fork view and reopen the editor; judge focus and navigation feedback without disturbing a performance workspace.
+
+### 31.3 Sign-off
+
+- ☐ Record failed or unavailable checks before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Editor opening and fork navigation | | | | |
+| URL focus, cancellation, and confirmation | | | | |

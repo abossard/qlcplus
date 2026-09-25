@@ -43,6 +43,8 @@
 #include "universe.h"
 #include "vccuelist.h"
 #include "vdjbridge.h"
+#include "video.h"
+#include "videoeditor.h"
 
 class UpstreamIntegration_Test : public QObject
 {
@@ -58,6 +60,8 @@ private slots:
     void actionsSubmenuDismissal();
     void channelWizard_data();
     void channelWizard();
+    void videoEditorUrlDialog_data();
+    void videoEditorUrlDialog();
     void mixedAuthoring_data();
     void mixedAuthoring();
     void fileOpenGuard_data();
@@ -108,6 +112,77 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::videoEditorUrlDialog_data()
+{
+    QTest::addColumn<bool>("escape");
+    QTest::newRow("cancel") << false;
+    QTest::newRow("escape") << true;
+}
+
+void UpstreamIntegration_Test::videoEditorUrlDialog()
+{
+    QFETCH(bool, escape);
+    const QString originalUrl = "https://example.invalid/original.png";
+    const QString cancelledUrl = "https://example.invalid/cancelled.png";
+    const QString acceptedUrl = "https://example.invalid/accepted.png";
+    auto *video = new Video(m_app->doc());
+    video->setSourceUrl(originalUrl);
+    QVERIFY(m_app->doc()->addFunction(video));
+    const quint32 id = video->id();
+    const bool wasVisible = m_app->isVisible();
+    const auto cleanup = qScopeGuard([&]() {
+        m_app->doc()->deleteFunction(id);
+        m_app->setVisible(wasVisible);
+    });
+    const QVariant previousEditor = m_app->rootContext()->contextProperty("videoEditor");
+    VideoEditor backend(m_app.get(), m_app->doc());
+    backend.setFunctionID(id);
+    const auto restoreEditor = qScopeGuard([&]() {
+        m_app->rootContext()->setContextProperty("videoEditor", previousEditor);
+    });
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->rootObject()->forceActiveFocus();
+    QQmlContext context(qmlContext(m_app->rootObject()));
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/VideoEditor.qml"));
+    std::unique_ptr<QObject> object(component.create(&context));
+    auto *editor = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY2(editor, qPrintable(component.errorString()));
+    editor->setParentItem(m_app->rootObject());
+    QQmlExpression expression(qmlContext(editor), editor, "getUrlDialog");
+    QObject *popup = expression.evaluate().value<QObject*>();
+    QVERIFY2(popup, qPrintable(expression.error().toString()));
+    const auto closePopup = qScopeGuard([&]() { QMetaObject::invokeMethod(popup, "close"); });
+    auto *input = popup->property("contentItem").value<QQuickItem*>();
+    QVERIFY(input);
+    QVERIFY(!popup->property("visible").toBool());
+    QVERIFY(m_app->activeFocusItem() != input);
+
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    QTRY_COMPARE(m_app->activeFocusItem(), input);
+    QCOMPARE(input->property("selectedText").toString(), QString("http://"));
+    QVERIFY(input->setProperty("text", cancelledUrl));
+    QVERIFY(input->setProperty("cursorPosition", cancelledUrl.size()));
+    if (escape)
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+    else
+        QVERIFY(QMetaObject::invokeMethod(popup, "reject"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QCOMPARE(video->sourceUrl(), originalUrl);
+
+    m_app->rootObject()->forceActiveFocus();
+    QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+    QTRY_VERIFY(popup->property("opened").toBool());
+    QTRY_COMPARE(m_app->activeFocusItem(), input);
+    QCOMPARE(input->property("selectedText").toString(), cancelledUrl);
+    QVERIFY(input->setProperty("text", acceptedUrl));
+    QVERIFY(QMetaObject::invokeMethod(popup, "accept"));
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QCOMPARE(video->sourceUrl(), acceptedUrl);
 }
 
 void UpstreamIntegration_Test::textInputDeletion_data()
