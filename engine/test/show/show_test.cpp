@@ -21,6 +21,10 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
+#define private public
+#include "mastertimer.h"
+#undef private
+#include "collection.h"
 #include "showcommandtrack.h"
 #include "show_test.h"
 #include "show.h"
@@ -450,7 +454,7 @@ void Show_Test::commandTrackInvalidLoad_data()
     QTest::addColumn<QString>("commandTrack");
 
     QTest::newRow("unsupported version")
-        << "<CommandTrack Version=\"2\" Extent=\"100\"/>";
+        << "<CommandTrack Version=\"3\" Extent=\"100\"/>";
     QTest::newRow("duplicate id")
         << "<CommandTrack Version=\"1\" Extent=\"100\">"
            "<Command ID=\"1\" Time=\"0\" Action=\"Start\" Function=\"5\"/>"
@@ -542,6 +546,34 @@ void Show_Test::commandTrackRejectedEdit()
     QVERIFY(error.isEmpty() == false);
     QCOMPARE(changed.count(), 0);
     QCOMPARE(show.commandTrack().commands().first().functionId, target->id());
+}
+
+void Show_Test::commandTrackControlStatesNeedNoFunction()
+{
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    const QUuid button(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
+    const QUuid fader(QStringLiteral("{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}"));
+    ShowCommandTrack mixed;
+    QVERIFY(mixed.insert(ShowCommand::start(1, 0, target->id())));
+    QVERIFY(mixed.insert(ShowCommand::setButtonState(2, 100, button, true)));
+    QVERIFY(mixed.insert(ShowCommand::setSliderPosition(3, 200, fader, ShowControlRole::GrandMasterSlider,
+                                                        QString(), 0.5)));
+
+    QString error;
+    QVERIFY2(show.setCommandTrack(mixed, {}, &error), qPrintable(error));
+    QCOMPARE(show.commandTrack().count(), 3);
+
+    // a control state never excuses an unknown function command
+    ShowCommandTrack broken = mixed;
+    QVERIFY(broken.insert(ShowCommand::stop(4, 300, quint32(424243))));
+    QVERIFY(show.setCommandTrack(broken, {}, &error) == false);
+    QVERIFY(error.contains(QStringLiteral("424243")));
+    QCOMPARE(show.commandTrack().count(), 3);
 }
 
 void Show_Test::commandTrackExtent_data()
@@ -681,6 +713,86 @@ void Show_Test::commandTrackCopyReusesOneClonePerTarget()
     QVERIFY(m_doc->function(commandTarget) != NULL);
     // an uncommanded target keeps its existing per-clip copy behaviour
     QVERIFY(plainClones.at(0) != plainClones.at(1));
+}
+
+void Show_Test::commandTrackEditWaitsForStoppedPlayback_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<bool>("stopped");
+
+    QTest::newRow("never started") << QStringLiteral("idle") << true;
+    QTest::newRow("start accepted, not run yet") << QStringLiteral("queued") << false;
+    QTest::newRow("running") << QStringLiteral("running") << false;
+    QTest::newRow("paused") << QStringLiteral("paused") << false;
+    QTest::newRow("stop requested, not run yet") << QStringLiteral("stopping") << false;
+    QTest::newRow("started again before the stop ran") << QStringLiteral("restarted") << false;
+    QTest::newRow("started by a Collection on the timer") << QStringLiteral("collection") << false;
+    QTest::newRow("stopped and ended") << QStringLiteral("ended") << true;
+    QTest::newRow("restart ended too") << QStringLiteral("restart ended") << true;
+}
+
+void Show_Test::commandTrackEditWaitsForStoppedPlayback()
+{
+    QFETCH(QString, state);
+    QFETCH(bool, stopped);
+
+    Doc doc(this);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandTrack track;
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    Collection *collection = new Collection(&doc);
+    QVERIFY(doc.addFunction(collection));
+    QVERIFY(collection->addFunction(show->id()));
+
+    const auto start = [&]() { show->start(timer, FunctionParent::master()); };
+    const auto stop = [&]() { show->stop(FunctionParent::master()); };
+    if (state == QLatin1String("collection"))
+    {
+        collection->start(timer, FunctionParent::master());
+        timer->timerTick();
+        QVERIFY(!show->stopped());
+    }
+    else if (state != QLatin1String("idle"))
+    {
+        start();
+        if (state != QLatin1String("queued"))
+            timer->timerTick();
+        if (state == QLatin1String("paused"))
+            show->setPause(true);
+        if (state == QLatin1String("stopping") || state == QLatin1String("restarted") ||
+            state.contains(QLatin1String("ended")))
+            stop();
+        if (state == QLatin1String("restarted") || state == QLatin1String("restart ended"))
+        {
+            start();
+            timer->timerTick();
+        }
+        if (state == QLatin1String("restart ended"))
+            stop();
+        if (state.contains(QLatin1String("ended")))
+            timer->timerTick();
+    }
+
+    // the edit and a start are decided under one lock: while any accepted
+    // start has not ended, the Show refuses the edit and keeps its track
+    QCOMPARE(show->commandPlaybackStopped(), stopped);
+    ShowCommandTrack edited = show->commandTrack();
+    QVERIFY(edited.insert(ShowCommand::start(0, 1000, collection->id())));
+    QSignalSpy published(show, &Show::commandTrackChanged);
+    QString error;
+    QCOMPARE(show->setStoppedCommandTrack(edited, &error), stopped);
+    QCOMPARE(error.isEmpty(), stopped);
+    QCOMPARE(show->commandTrack().count(), stopped ? 1 : 0);
+    QCOMPARE(published.count(), stopped ? 1 : 0);
+
+    collection->stop(FunctionParent::master());
+    stop();
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    QVERIFY(show->commandPlaybackStopped());
 }
 
 void Show_Test::commandRecordingAndPosition()

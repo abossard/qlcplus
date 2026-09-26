@@ -66,6 +66,15 @@ private slots:
 
     void existingActions_qmlPointerPathUnchanged_data();
     void existingActions_qmlPointerPathUnchanged();
+
+    void applyRecordedState_monitoringOnSurvivesCollectionStop();
+    void applyRecordedState_reachesRecordedState_data();
+    void applyRecordedState_reachesRecordedState();
+
+    void recordingId_persistsButNeverCopies();
+    void recordingId_malformedLoadRejectedAndPreserved_data();
+    void recordingId_malformedLoadRejectedAndPreserved();
+    void recordingId_malformedControlDroppedFromFrame();
 };
 
 #endif // VCBUTTON_TEST_H

@@ -46,6 +46,10 @@ public:
 
     /** Write the current project to fileName. */
     virtual bool saveWorkspace(const QString &fileName) = 0;
+
+    /** Command recording is armed. Saving keeps it armed; replacing the
+     *  project ends it and discards what it has not saved. */
+    virtual bool isRecording() const = 0;
 };
 
 #endif // WORKSPACEBRIDGE_H

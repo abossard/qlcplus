@@ -287,6 +287,12 @@ QList<quint32> MasterTimer::runningFunctionIds() const
     return ids;
 }
 
+bool MasterTimer::isStartQueued(const Function *function) const
+{
+    QMutexLocker locker(const_cast<QMutex*>(&m_functionListMutex));
+    return m_startQueue.contains(const_cast<Function*>(function));
+}
+
 void MasterTimer::timerTickFunctions(QList<Universe *> universes)
 {
     // List of m_functionList indices that should be removed at the end of this

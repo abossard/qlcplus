@@ -35,13 +35,21 @@ private slots:
     void replaceEditsOnlyTheAddressedCommand();
     void retimeMovesOneCommand();
     void removeLeavesTheRestUntouched();
+    void removedHighestIdIsNotReused();
     void extentIsAuthoredIndependently();
     void referencedTargetsAndRemap();
+    void referencedControlsGroupRepeatedRecords();
+    void groupsPartitionAndRegroup_data();
+    void groupsPartitionAndRegroup();
 
     // serialization
     void saveWritesNamedVersionedFields();
     void saveLoadRoundTripPreservesOrderAndValues();
+    void controlStatesSaveAsVersionTwoAndRoundTrip();
     void loadReplacesPreviousContents();
+    void equalTimeOrderSurvivesMovingAwayAndBack_data();
+    void equalTimeOrderSurvivesMovingAwayAndBack();
+    void equalTimeOrderSavesOnlyWhatFileOrderCannotTell();
     void loadIsTransactional_data();
     void loadIsTransactional();
     void loadLeavesReaderUsableAfterFailure();
@@ -65,6 +73,15 @@ private slots:
     void recordingIsGatedByPhaseAndTransport();
     void liveCommandDoesNotEchoUntilTheNextTraversal();
     void liveInputMarksOnlyItsOwnEvent();
+    void controlStateInputAuthorsVcRecord();
+
+    // VC state calculations
+    void buttonOpReachesDesiredState_data();
+    void buttonOpReachesDesiredState();
+    void sliderTargetMapsIntoCurrentRange_data();
+    void sliderTargetMapsIntoCurrentRange();
+    void resolveControlReportsSuitability_data();
+    void resolveControlReportsSuitability();
 };
 
 #endif // SHOWCOMMANDTRACK_TEST_H

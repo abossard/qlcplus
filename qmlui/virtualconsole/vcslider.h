@@ -20,6 +20,8 @@
 #ifndef VCSLIDER_H
 #define VCSLIDER_H
 
+#include <atomic>
+
 #include "vcwidget.h"
 #include "treemodel.h"
 #include "dmxsource.h"
@@ -195,15 +197,11 @@ public:
     /**
      *  Real user input: a drag on this slider/knob or a mapped external
      *  controller value that already passed pickup. Applies the value live
-     *  exactly once, exactly as before.
+     *  exactly once, as a request the recorder executes at once or after the
+     *  crossed replay work of this slider.
      *
-     *  Adjust execution is deferred to the engine tick, so this only appends an
-     *  immutable intent (target, value, Show time, provenance) to the widget's
-     *  input-intent queue. The native execution seam pops one intent per
-     *  executed value and publishes it as a queued value signal; it never calls
-     *  the recorder, the console or any other UI object from the timer thread.
-     *  A later programmatic or audio value therefore cannot be recorded as the
-     *  user's, and the authored timestamp stays the input time.
+     *  While recording, the recorder records the accepted position before
+     *  executing or deferring it, stamped with its acceptance time.
      *
      *  setValue() stays the programmatic entry point (audio triggers, scripts,
      *  web access, Tardis, engine feedback) and never authors anything. */
@@ -213,16 +211,50 @@ public:
      *  upgrades an unknown origin: a route that cannot say is not the user. */
     void requestUserValue(int value, bool updateFeedback, ShowCommandOrigin origin);
 
-private slots:
-    /** Hand the commands resolved at the last engine execution to the recorder.
-     *  One queued notification per batch: the engine thread never touches the
-     *  recorder, the console or any other UI object. */
-    void slotDeliverResolvedCommands();
+    enum RecordedWriteOutcome { RecordedWriteApplied, RecordedWriteSuperseded, RecordedWriteCancelled };
+    /** What the retiring write did to the Function it captured */
+    enum RecordedWriteEffect { RecordedWriteNoEffect, RecordedWriteStarted, RecordedWriteStopped };
 
-    /** The take this slider captured a gesture for is closing. Settle what is
-     *  still pending and hand over whatever the engine already resolved, into
-     *  that take, without touching the engine or its timing. */
-    void slotSettlePendingIntent(quint64 takeId);
+    /** Replay a recorded 0..1 position into the current range, without undo
+     *  history. Returns the value generation still waiting for its native
+     *  write, reported once through recordedWriteRetired(), or 0 when nothing
+     *  is left to wait for. */
+    quint64 applyRecordedPosition(qreal position);
+
+    /** No action: the generation of a write this slider still owes, reported
+     *  like a replayed one, or 0 when none is pending or none can come */
+    quint64 awaitPendingWrite();
+
+signals:
+    /** A generation returned by applyRecordedPosition() was written, Applied,
+     *  or overtaken by a newer value in the same write, Superseded.
+     *  effect: that write started or stopped functionId, the Function it
+     *  captured, which takes native effect only once the timer ran it;
+     *  otherwise RecordedWriteNoEffect and Function::invalidId(). */
+    void recordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect);
+
+private:
+    /** setValue() without undo history. With replay, the new generation is
+     *  published and awaited in one step and returned, so its write and the
+     *  start it causes are always reported. */
+    quint64 applyValue(int value, bool setDMX, bool updateFeedback, bool replay = false);
+
+    /** Report the replayed generations already written. With cancelPending
+     *  the configuration they were bound to changed, so the ones still
+     *  waiting are reported Cancelled now: a write may never come. */
+    void reportRecordedWrites(bool cancelPending);
+
+    /** m_levelValueMutex held: the awaited replays become Cancelled reports
+     *  for the next reportRecordedWrites(), so no later write can claim them.
+     *  A setter calls this before publishing its new configuration. */
+    void cancelRecordedWritesLocked();
+
+    /** A Level slider's channels are its binding: an awaited replay is
+     *  cancelled under the same boundary before new ones are published */
+    void setLevelChannels(const QList<SceneValue> &channels);
+    /** What the last cancel changed on the control, notified with its reports */
+    bool m_cancelReverted = false;
+    bool m_cancelLatched = false;
 
 public:
 
@@ -249,40 +281,6 @@ signals:
     void rangeHighLimitChanged();
 
 protected:
-    /** One accepted user movement, captured at input and never mutated after.
-     *  The engine executes Adjust values on its own tick and coalesces whatever
-     *  arrived meanwhile, so the target, the effective value, the Show time,
-     *  the provenance and the take all travel with the intent instead of being
-     *  read back later from widget state that audio or a script may have moved. */
-    struct UserAdjustIntent
-    {
-        bool valid = false;
-        quint32 functionId = 0;
-        int value = 0;
-        qreal fraction = 0.0;
-        quint32 timeMs = 0;
-        ShowCommandOrigin origin = ShowCommandOrigin::Programmatic;
-        quint64 takeId = 0;
-    };
-
-    /** One command resolved from an accepted movement, waiting to be handed to
-     *  the recorder on the main thread. */
-    struct ResolvedUserCommand
-    {
-        int action = 0;
-        quint32 functionId = 0;
-        qreal intensity = 0.0;
-        quint32 timeMs = 0;
-        int origin = 0;
-        quint64 takeId = 0;
-    };
-
-    /** The latest accepted user movement, mirroring the engine's own last value
-     *  wins coalescing, and what has been resolved from earlier ones but not
-     *  handed over yet. Both guarded by m_levelValueMutex. */
-    UserAdjustIntent m_userIntent;
-    QVector<ResolvedUserCommand> m_resolvedCommands;
-
     int m_value;
     qreal m_rangeLowLimit;
     qreal m_rangeHighLimit;
@@ -362,8 +360,35 @@ signals:
 protected:
     QList <SceneValue> m_levelChannels;
 
-    QMutex m_levelValueMutex;
-    bool m_levelValueChanged;
+    mutable QMutex m_levelValueMutex;
+    /** Every change the engine must write bumps m_valueGeneration, every
+     *  write catches m_writtenGeneration up with it. Changed under
+     *  m_levelValueMutex, readable without it. */
+    std::atomic<quint64> m_valueGeneration{0};
+    std::atomic<quint64> m_writtenGeneration{0};
+    /** The value of the last write, or the feedback shown since, under
+     *  m_levelValueMutex */
+    int m_writtenValue = 0;
+    /** The latest awaited replay value, under m_levelValueMutex, and the
+     *  override latch it found. A cancel puts back what it changed. */
+    int m_replayValue = 0;
+    bool m_replayPriorOverriding = false;
+    /** A cancel restored the value while feedback was suppressed */
+    bool m_feedbackStale = false;
+    /** Replayed generations waiting for their write, and written ones not
+     *  reported yet with their outcome, under m_levelValueMutex */
+    QVector<quint64> m_replayGenerations;
+    struct RecordedWrite
+    {
+        quint64 generation;
+        int outcome;
+        quint32 functionId;
+        int effect;
+    };
+    QVector<RecordedWrite> m_retiredGenerations;
+
+    /** The engine wrote the current value. m_levelValueMutex held. */
+    void markWritten(quint32 functionId = Function::invalidId(), int effect = RecordedWriteNoEffect);
 
     bool m_monitorEnabled;
     uchar m_monitorValue;
@@ -446,6 +471,14 @@ public:
 
     Q_INVOKABLE void flashFunction(bool on);
 
+    /** A user's reset or flash, from its button (Pointer) or a mapped input:
+     *  applied live like resetting the override and flashFunction(), never
+     *  recorded, so a recording reports it */
+    Q_INVOKABLE void requestUserReset();
+    void requestUserReset(ShowCommandOrigin origin);
+    Q_INVOKABLE void requestUserFlash(bool on);
+    void requestUserFlash(bool on, ShowCommandOrigin origin);
+
     /** Get the list of the available attributes for the Function to control */
     QStringList availableAttributes() const;
 
@@ -474,7 +507,6 @@ protected slots:
 
 protected:
     quint32 m_controlledFunctionId;
-    int m_adjustChangeCounter;
     int m_controlledAttributeIndex;
     int m_controlledAttributeId;
     qreal m_attributeMinValue;
@@ -517,19 +549,6 @@ protected:
 
     /** writeDMX for Adjust mode */
     void writeDMXAdjust(MasterTimer* timer, QList<Universe*> universes);
-
-    /** Publish the captured user intent as resolved commands, using the native
-     *  state this execution started from. Engine thread, called with
-     *  m_levelValueMutex held. */
-    void publishUserIntent(bool wasStopped);
-
-    /** Turn one captured intent into ordered commands, queued for delivery.
-     *  Called with m_levelValueMutex held. */
-    void resolveIntent(const UserAdjustIntent &intent, bool wasStopped);
-
-    /** Take the resolved commands out and give them to the recorder. Main
-     *  thread: the lock is only held while the batch is moved out. */
-    void drainResolvedCommands();
 
 private:
     /** Map used to lookup a GenericFader instance for a Universe ID */

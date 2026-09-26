@@ -24,11 +24,13 @@
 #include <QQuickView>
 #include <QQuickItem>
 #include <QObject>
+#include <QPointer>
 #include "doc.h"
 
 class MainView2D;
 class ShowManager;
 class ShowCommandRecorder;
+class ShowEventModel;
 class SimpleDesk;
 class UiManager;
 class ActionManager;
@@ -212,10 +214,24 @@ protected:
     bool event(QEvent *event) override;
 
 private:
+    bool ownsShowKey(QKeyEvent *event) const;
+    QQuickItem *showKeyOwner() const;
+    struct KeyOwner
+    {
+        QPointer<QQuickItem> item;
+        Qt::KeyboardModifiers modifiers;
+        quint32 showId;
+        bool local;
+        bool cancelled = false;
+        QVariant revision;
+    };
+    QHash<int, KeyOwner> m_keyOwners;
     /** Returns true if the event is a text-editing shortcut and a text input has focus */
     bool isTextInputShortcut(QKeyEvent *e) const;
     /** Returns true if the current QML active-focus item is a text input or text edit */
     bool isTextInputFocused() const;
+    /** Closing asks first: unsaved changes or an armed recording, unless forced */
+    bool closingNeedsConfirmation() const;
 
 protected slots:
     void slotSceneGraphInitialized();
@@ -263,7 +279,8 @@ private:
     InputOutputManager *m_ioManager;
     VirtualConsole *m_virtualConsole;
     ShowManager *m_showManager;
-    ShowCommandRecorder *m_showCommandRecorder;
+    ShowCommandRecorder *m_showCommandRecorder = nullptr;
+    ShowEventModel *m_showEvents = nullptr;
     SimpleDesk *m_simpleDesk;
     ActionManager *m_actionManager;
     VideoProvider *m_videoProvider;

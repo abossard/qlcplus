@@ -99,9 +99,10 @@ public:
 
     /**
      *  Real user input: a pointer/touch gesture on this button, a mapped
-     *  external controller event or a key sequence. Resolves what the user
-     *  asked for, applies it live exactly once and offers the resolved command
-     *  to the recorder.
+     *  external controller event or a key sequence. Resolves the desired
+     *  state once, which the recorder records while recording, then applies
+     *  it live exactly once, at once or after the crossed replay work it
+     *  depends on. Other action types are reported as not recordable.
      *
      *  The provenance comes from the ingress that delivered the event, never
      *  from the shared input slot, which scripts, synthetic sources and audio
@@ -112,6 +113,17 @@ public:
     /** Same, for an ingress that knows where the event came from. Nothing
      *  upgrades an unknown origin: a route that cannot say is not the user. */
     void requestUserStateChange(bool pressed, ShowCommandOrigin origin);
+
+    /**
+     *  Replay of a recorded Toggle state: reach On/Off from the current state
+     *  with at most one native start or stop, never a pair of synthetic clicks.
+     *  Leaves no Tardis entry and authors nothing. Returns the op performed. */
+    ShowCommandFsm::ShowButtonOp applyRecordedState(bool on);
+
+    /** User input reaching the Toggle state it was normalized to when
+     *  accepted: the desired-state op, or the native Solo Frame takeover,
+     *  with the normal live Tardis entry */
+    void applyUserState(bool on);
 
     /** @reimp */
     void notifyFunctionStarting(VCWidget *widget, quint32 fid, qreal fIntensity, bool excludeMonitored) override;
@@ -156,6 +168,10 @@ protected slots:
 
 private:
     FunctionParent functionParent() const;
+
+    /** The native Toggle start and stop, shared by live input and replay */
+    void startToggleFunction(Function *f);
+    void stopToggleFunction(Function *f);
 
 protected:
     /** The ID of the Function that this button is controlling */

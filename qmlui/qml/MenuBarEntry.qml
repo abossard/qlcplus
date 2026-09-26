@@ -44,6 +44,9 @@ Button
     property int iconRotation: 0
     property string tooltip: ""
 
+    // the label is painted by the content item, not from the Button text
+    Accessible.name: entryText
+
     property Gradient bgGradient: defBgGradient
     property Gradient selGradient: defSelectionGradient
     property Gradient pressedGradient: defPressedGradient

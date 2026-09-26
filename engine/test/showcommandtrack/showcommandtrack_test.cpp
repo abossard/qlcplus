@@ -25,6 +25,15 @@
 Q_DECLARE_METATYPE(ShowCommand)
 Q_DECLARE_METATYPE(ShowCommandOrigin)
 Q_DECLARE_METATYPE(ShowCommandAction)
+Q_DECLARE_METATYPE(ShowCommandFsm::ShowButtonNative)
+Q_DECLARE_METATYPE(ShowCommandFsm::ShowButtonOp)
+Q_DECLARE_METATYPE(ShowControlStatus)
+Q_DECLARE_METATYPE(QVector<ShowControlSnapshot>)
+
+static const QUuid kControlA(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
+static const QUuid kControlB(QStringLiteral("{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}"));
+/** Output sentinel no valid mapping row produces: a rejected mapping must leave it as is */
+static const int kUntouched = 7777;
 
 /** Scrambled insertion order on purpose: two equal-time pairs and three targets */
 static ShowCommandTrack fixtureTrack()
@@ -94,6 +103,66 @@ static QString idsOf(const QVector<ShowCommand> &commands)
     return ids.join(QLatin1Char(','));
 }
 
+void ShowCommandTrack_Test::groupsPartitionAndRegroup_data()
+{
+    QTest::addColumn<bool>("roundTrip");
+    QTest::newRow("authored") << false;
+    QTest::newRow("xml") << true;
+}
+
+void ShowCommandTrack_Test::groupsPartitionAndRegroup()
+{
+    QFETCH(bool, roundTrip);
+    const QVector<ShowCommand> samples = {
+        ShowCommand::setSliderPosition(90, 1000, kControlA, ShowControlRole::LevelSlider, {}, .2),
+        ShowCommand::setSliderPosition(3, 1100, kControlA, ShowControlRole::LevelSlider, {}, .8),
+        ShowCommand::setSliderPosition(70, 1300, kControlA, ShowControlRole::LevelSlider, {}, .4),
+        ShowCommand::setButtonState(8, 1300, kControlB, true),
+        ShowCommand::setSliderPosition(2, 1400, kControlA, ShowControlRole::LevelSlider, {}, .3),
+        ShowCommand::setSliderPosition(51, 1600, kControlA, ShowControlRole::LevelSlider, {}, .5),
+        ShowCommand::setSliderPosition(19, 1600, kControlB, ShowControlRole::LevelSlider, {}, .7),
+        ShowCommand::start(1, 1700, 42),
+        ShowCommand::setSliderPosition(4, 1800, kControlA, ShowControlRole::AdjustSlider, "Intensity", .6),
+        ShowCommand::setSliderPosition(5, 1900, kControlA, ShowControlRole::AdjustSlider, "Width", .9),
+        ShowCommand::setSliderPosition(6, 999000, kControlA, ShowControlRole::AdjustSlider, "Width", .1)
+    };
+    ShowCommandTrack track;
+    for (const auto &sample : samples)
+        QVERIFY(track.insert(sample));
+    if (roundTrip)
+        QVERIFY(fromXml(toXml(track), &track));
+    const QString original = toXml(track);
+    auto groups = track.groups();
+    QCOMPARE(groups.size(), 7);
+    QCOMPARE(groups[0].eventIds, (QVector<quint32>{90, 3, 70}));
+    QCOMPARE(groups[0].startTime, 1000U);
+    QCOMPARE(groups[0].endTime, 1300U);
+    QCOMPARE(groups[0].action, ShowCommandAction::SetSliderPosition);
+    QCOMPARE(groups[0].controlId, kControlA);
+    QCOMPARE(groups[1].eventIds, (QVector<quint32>{8}));
+    QCOMPARE(groups[2].eventIds, (QVector<quint32>{2, 51}));
+    QCOMPARE(groups[3].eventIds, (QVector<quint32>{19}));
+    QCOMPARE(groups[4].eventIds, (QVector<quint32>{1}));
+    QCOMPARE(groups[5].eventIds, (QVector<quint32>{4}));
+    QCOMPARE(groups[6].eventIds, (QVector<quint32>{5, 6}));
+    QCOMPARE(toXml(track), original);
+
+    QVERIFY(track.retime(8, 1200));
+    groups = track.groups();
+    QCOMPARE(groups[0].eventIds, (QVector<quint32>{90, 3}));
+    QCOMPARE(groups[2].eventIds, (QVector<quint32>{70, 2, 51}));
+    QVERIFY(track.retime(8, 1300));
+    QVERIFY(track.remove(8));
+    QCOMPARE(track.groups()[0].eventIds, (QVector<quint32>{90, 3, 70, 2, 51}));
+    auto barrier = samples[3];
+    barrier.order = 3;
+    QVERIFY(track.restore(barrier));
+    QVERIFY(track.retime(70, 2000));
+    QVERIFY(track.retime(70, 1300));
+    QCOMPARE(track.groups()[0].eventIds, (QVector<quint32>{90, 3, 70}));
+    QCOMPARE(toXml(track), original);
+}
+
 void ShowCommandTrack_Test::commandValidation_data()
 {
     QTest::addColumn<ShowCommand>("command");
@@ -128,6 +197,69 @@ void ShowCommandTrack_Test::commandValidation_data()
     ShowCommand unknownAction = ShowCommand::start(16, 700, 42);
     unknownAction.action = static_cast<ShowCommandAction>(9);
     QTest::newRow("action outside the enum") << unknownAction << false;
+
+    // VC state records name a control, never a Function
+    QTest::newRow("button on") << ShowCommand::setButtonState(20, 800, kControlA, true) << true;
+    QTest::newRow("button off") << ShowCommand::setButtonState(21, 800, kControlA, false) << true;
+    QTest::newRow("level slider")
+        << ShowCommand::setSliderPosition(22, 900, kControlB, ShowControlRole::LevelSlider,
+                                          QString(), 0.25) << true;
+    QTest::newRow("adjust slider")
+        << ShowCommand::setSliderPosition(23, 900, kControlB, ShowControlRole::AdjustSlider,
+                                          QStringLiteral("Intensity"), 0.75) << true;
+    QTest::newRow("submaster at zero")
+        << ShowCommand::setSliderPosition(24, 900, kControlB, ShowControlRole::SubmasterSlider,
+                                          QString(), 0.0) << true;
+    QTest::newRow("grand master at full")
+        << ShowCommand::setSliderPosition(25, 900, kControlB, ShowControlRole::GrandMasterSlider,
+                                          QString(), 1.0) << true;
+
+    QTest::newRow("button without control")
+        << ShowCommand::setButtonState(26, 800, QUuid(), true) << false;
+    ShowCommand buttonWithFunction = ShowCommand::setButtonState(27, 800, kControlA, true);
+    buttonWithFunction.functionId = 42;
+    QTest::newRow("button with function") << buttonWithFunction << false;
+    ShowCommand buttonAsSlider = ShowCommand::setButtonState(28, 800, kControlA, true);
+    buttonAsSlider.role = ShowControlRole::LevelSlider;
+    QTest::newRow("button with slider role") << buttonAsSlider << false;
+    ShowCommand buttonWithPosition = ShowCommand::setButtonState(29, 800, kControlA, false);
+    buttonWithPosition.position = 0.5;
+    QTest::newRow("button carrying a position") << buttonWithPosition << false;
+    QTest::newRow("slider with button role")
+        << ShowCommand::setSliderPosition(30, 900, kControlB, ShowControlRole::ToggleButton,
+                                          QString(), 0.5) << false;
+    QTest::newRow("slider without role")
+        << ShowCommand::setSliderPosition(31, 900, kControlB, ShowControlRole::None,
+                                          QString(), 0.5) << false;
+    QTest::newRow("level slider with attribute")
+        << ShowCommand::setSliderPosition(32, 900, kControlB, ShowControlRole::LevelSlider,
+                                          QStringLiteral("Intensity"), 0.5) << false;
+    QTest::newRow("adjust slider without attribute")
+        << ShowCommand::setSliderPosition(33, 900, kControlB, ShowControlRole::AdjustSlider,
+                                          QString(), 0.5) << false;
+    QTest::newRow("slider above one")
+        << ShowCommand::setSliderPosition(34, 900, kControlB, ShowControlRole::LevelSlider,
+                                          QString(), 1.5) << false;
+    QTest::newRow("slider nan")
+        << ShowCommand::setSliderPosition(35, 900, kControlB, ShowControlRole::LevelSlider,
+                                          QString(), qQNaN()) << false;
+    ShowCommand sliderOn = ShowCommand::setSliderPosition(36, 900, kControlB,
+                                                          ShowControlRole::LevelSlider, QString(), 0.5);
+    sliderOn.on = true;
+    QTest::newRow("slider carrying a button state") << sliderOn << false;
+
+    ShowCommand legacyWithControl = ShowCommand::start(37, 700, 42);
+    legacyWithControl.controlId = kControlA;
+    QTest::newRow("function command with control") << legacyWithControl << false;
+    ShowCommand legacyWithRole = ShowCommand::stop(38, 700, 42);
+    legacyWithRole.role = ShowControlRole::ToggleButton;
+    QTest::newRow("function command with role") << legacyWithRole << false;
+    ShowCommand legacyWithAttribute = ShowCommand::setIntensity(39, 700, 42, 0.5);
+    legacyWithAttribute.attribute = QStringLiteral("Intensity");
+    QTest::newRow("function command with attribute") << legacyWithAttribute << false;
+    ShowCommand legacyWithState = ShowCommand::start(40, 700, 42);
+    legacyWithState.on = true;
+    QTest::newRow("function command with button state") << legacyWithState << false;
 }
 
 void ShowCommandTrack_Test::commandValidation()
@@ -201,18 +333,19 @@ void ShowCommandTrack_Test::retimeMovesOneCommand()
     ShowCommandTrack track = fixtureTrack();
     QString error;
 
+    // an event keeps its equal-time place: 7 was inserted before 10 and 11
     QVERIFY(track.retime(7, 4200, &error));
     QVERIFY(error.isEmpty());
-    QCOMPARE(idsOf(track), QVector<quint32>({8, 9, 10, 11, 7}));
-    QCOMPARE(track.commands().at(4).time, 4200u);
-    QCOMPARE(track.commands().at(4).functionId, 12u);
-    QVERIFY(track.commands().at(4).action == ShowCommandAction::Start);
+    QCOMPARE(idsOf(track), QVector<quint32>({8, 9, 7, 10, 11}));
+    QCOMPARE(track.commands().at(2).time, 4200u);
+    QCOMPARE(track.commands().at(2).functionId, 12u);
+    QVERIFY(track.commands().at(2).action == ShowCommandAction::Start);
     QCOMPARE(track.lastCommandTime(), 4200u);
 
     QVERIFY(!track.retime(99, 100, &error));
     QVERIFY(!error.isEmpty());
     QVERIFY(!track.retime(7, ShowCommand::InvalidId, &error));
-    QCOMPARE(track.commands().at(4).time, 4200u);
+    QCOMPARE(track.commands().at(2).time, 4200u);
 }
 
 void ShowCommandTrack_Test::removeLeavesTheRestUntouched()
@@ -228,6 +361,21 @@ void ShowCommandTrack_Test::removeLeavesTheRestUntouched()
     QVERIFY(!track.remove(9, &error));
     QVERIFY(!error.isEmpty());
     QCOMPARE(track.count(), 4);
+}
+
+void ShowCommandTrack_Test::removedHighestIdIsNotReused()
+{
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 0, 12)));
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 300, kControlA, true)));
+    QVERIFY(track.insert(ShowCommand::stop(2, 600, 12)));
+
+    QVERIFY(track.remove(2));
+    QCOMPARE(track.nextEventId(), 3u);
+
+    // the high water mark travels with the value
+    const ShowCommandTrack copy = track;
+    QCOMPARE(copy.nextEventId(), 3u);
 }
 
 void ShowCommandTrack_Test::extentIsAuthoredIndependently()
@@ -285,6 +433,36 @@ void ShowCommandTrack_Test::referencedTargetsAndRemap()
     QCOMPARE(track.referencedFunctionIds(), QList<quint32>({30, 77}));
 }
 
+void ShowCommandTrack_Test::referencedControlsGroupRepeatedRecords()
+{
+    const QUuid level(QStringLiteral("{c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b}"));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(0, 900, kControlA, false)));
+    QVERIFY(track.insert(ShowCommand::start(1, 100, 12)));
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(2, 200, level, ShowControlRole::LevelSlider,
+                                                        QString(), 0.3)));
+    QVERIFY(track.insert(ShowCommand::setButtonState(3, 100, kControlA, true)));
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(4, 400, kControlB, ShowControlRole::AdjustSlider,
+                                                        QStringLiteral("Intensity"), 0.6)));
+    QVERIFY(track.insert(ShowCommand::setButtonState(5, 1200, kControlA, true)));
+
+    const QVector<ShowControlReference> refs = track.referencedControls();
+
+    // authored order of first reference, legacy commands imply none
+    QCOMPARE(refs.count(), 3);
+    QCOMPARE(refs.at(0).controlId, kControlA);
+    QCOMPARE(int(refs.at(0).role), int(ShowControlRole::ToggleButton));
+    QCOMPARE(refs.at(0).count, 3);
+    QCOMPARE(refs.at(1).controlId, level);
+    QCOMPARE(int(refs.at(1).role), int(ShowControlRole::LevelSlider));
+    QCOMPARE(refs.at(1).count, 1);
+    QCOMPARE(refs.at(2).controlId, kControlB);
+    QCOMPARE(int(refs.at(2).role), int(ShowControlRole::AdjustSlider));
+    QCOMPARE(refs.at(2).attribute, QStringLiteral("Intensity"));
+    QCOMPARE(refs.at(2).count, 1);
+    QCOMPARE(track.referencedFunctionIds(), QList<quint32>({12}));
+}
+
 void ShowCommandTrack_Test::saveWritesNamedVersionedFields()
 {
     ShowCommandTrack track;
@@ -325,6 +503,47 @@ void ShowCommandTrack_Test::saveLoadRoundTripPreservesOrderAndValues()
     QCOMPARE(toXml(loaded), toXml(saved));
 }
 
+void ShowCommandTrack_Test::controlStatesSaveAsVersionTwoAndRoundTrip()
+{
+    const QUuid level(QStringLiteral("{c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b}"));
+    ShowCommandTrack saved;
+    // equal times mixing both kinds: insertion order is the saved order
+    QVERIFY(saved.insert(ShowCommand::start(0, 0, 12)));
+    QVERIFY(saved.insert(ShowCommand::setButtonState(1, 500, kControlA, true)));
+    QVERIFY(saved.insert(ShowCommand::setSliderPosition(2, 500, kControlB, ShowControlRole::AdjustSlider,
+                                                        QStringLiteral("Intensity"), 0.123456789012345)));
+    QVERIFY(saved.insert(ShowCommand::setIntensity(3, 500, 12, 0.4)));
+    QVERIFY(saved.insert(ShowCommand::setButtonState(4, 500, kControlA, false)));
+    QVERIFY(saved.insert(ShowCommand::setSliderPosition(5, 800, level, ShowControlRole::LevelSlider,
+                                                        QString(), 1.0)));
+    saved.setExtent(9000);
+
+    const QString xml = toXml(saved);
+    QCOMPARE(xml,
+             QStringLiteral("<CommandTrack Version=\"2\" Extent=\"9000\">"
+                            "<Command ID=\"0\" Time=\"0\" Action=\"Start\" Function=\"12\"/>"
+                            "<Command ID=\"1\" Time=\"500\" Action=\"SetButtonState\" "
+                            "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"ToggleButton\" State=\"On\"/>"
+                            "<Command ID=\"2\" Time=\"500\" Action=\"SetSliderPosition\" "
+                            "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"AdjustSlider\" "
+                            "Value=\"0.123456789012345\" Attribute=\"Intensity\"/>"
+                            "<Command ID=\"3\" Time=\"500\" Action=\"SetIntensity\" Function=\"12\" Value=\"0.4\"/>"
+                            "<Command ID=\"4\" Time=\"500\" Action=\"SetButtonState\" "
+                            "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"ToggleButton\" State=\"Off\"/>"
+                            "<Command ID=\"5\" Time=\"800\" Action=\"SetSliderPosition\" "
+                            "Control=\"{c3d4e5f6-0718-4293-a4b5-c6d7e8f90a1b}\" Role=\"LevelSlider\" Value=\"1\"/>"
+                            "</CommandTrack>"));
+
+    ShowCommandTrack loaded;
+    QString error = QStringLiteral("untouched");
+    QVERIFY(fromXml(xml, &loaded, &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(idsOf(loaded), QVector<quint32>({0, 1, 2, 3, 4, 5}));
+    for (int i = 0; i < saved.count(); i++)
+        QVERIFY(loaded.commands().at(i) == saved.commands().at(i));
+    QCOMPARE(toXml(loaded), xml);
+}
+
 void ShowCommandTrack_Test::loadReplacesPreviousContents()
 {
     const ShowCommandTrack empty;
@@ -362,7 +581,84 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
         << track("Version=\"1\" Comment=\"hand edited\"", start) << true << 1;
 
     QTest::newRow("missing version") << track("Extent=\"30000\"", start) << false << 5;
-    QTest::newRow("future version") << track("Version=\"2\"", start) << false << 5;
+    QTest::newRow("future version") << track("Version=\"3\"", start) << false << 5;
+
+    const QString button = QStringLiteral(
+        "<Command ID=\"2\" Time=\"1200\" Action=\"SetButtonState\" "
+        "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"ToggleButton\" State=\"On\"/>");
+    auto vc = [](const QString &attrs)
+    { return QStringLiteral("<Command ID=\"3\" Time=\"1300\" %1/>").arg(attrs); };
+    const QString control = QStringLiteral("Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\"");
+
+    QTest::newRow("v2 function commands only") << track("Version=\"2\"", start) << true << 1;
+    QTest::newRow("v2 mixed")
+        << track("Version=\"2\"", start + button + vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"AdjustSlider\" Value=\"0.25\" Attribute=\"Intensity\"").arg(control)))
+        << true << 3;
+    QTest::newRow("v1 with control state") << track("Version=\"1\"", start + button) << false << 5;
+    QTest::newRow("unknown role")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"Crossfader\" Value=\"0.5\"").arg(control))) << false << 5;
+    QTest::newRow("malformed control")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Control=\"not-a-uuid\" Role=\"ToggleButton\" State=\"On\""))) << false << 5;
+    QTest::newRow("control with trailing garbage")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}junk\" "
+               "Role=\"ToggleButton\" State=\"On\""))) << false << 5;
+    QTest::newRow("control with unclosed brace")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa\" "
+               "Role=\"ToggleButton\" State=\"On\""))) << false << 5;
+    QTest::newRow("null control")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Control=\"{00000000-0000-0000-0000-000000000000}\" "
+               "Role=\"ToggleButton\" State=\"On\""))) << false << 5;
+    QTest::newRow("unbraced control")
+        << track("Version=\"2\"", start + vc(QStringLiteral(
+               "Action=\"SetButtonState\" Control=\"0A9B8C7D-6E5F-4A3B-9C1D-5566778899AA\" "
+               "Role=\"ToggleButton\" State=\"On\""))) << true << 2;
+    QTest::newRow("missing control")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Role=\"ToggleButton\" State=\"On\""))) << false << 5;
+    QTest::newRow("missing role")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" %1 State=\"On\"").arg(control))) << false << 5;
+    QTest::newRow("malformed state")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" %1 Role=\"ToggleButton\" State=\"Maybe\"").arg(control))) << false << 5;
+    QTest::newRow("missing state")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" %1 Role=\"ToggleButton\"").arg(control))) << false << 5;
+    QTest::newRow("malformed position")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"LevelSlider\" Value=\"half\"").arg(control))) << false << 5;
+    QTest::newRow("missing position")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"LevelSlider\"").arg(control))) << false << 5;
+    QTest::newRow("position above one")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"LevelSlider\" Value=\"1.01\"").arg(control))) << false << 5;
+    QTest::newRow("control state with function")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" Function=\"12\" %1 Role=\"ToggleButton\" State=\"On\"").arg(control)))
+        << false << 5;
+    QTest::newRow("button carrying a position")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetButtonState\" %1 Role=\"ToggleButton\" State=\"On\" Value=\"0.5\"").arg(control)))
+        << false << 5;
+    QTest::newRow("slider carrying a state")
+        << track("Version=\"2\"", vc(QStringLiteral(
+               "Action=\"SetSliderPosition\" %1 Role=\"LevelSlider\" Value=\"0.5\" State=\"On\"").arg(control)))
+        << false << 5;
+    QTest::newRow("function command with control")
+        << track("Version=\"2\"", QStringLiteral(
+               "<Command ID=\"1\" Time=\"1200\" Action=\"Start\" Function=\"12\" %1/>").arg(control))
+        << false << 5;
+    QTest::newRow("function command with state")
+        << track("Version=\"2\"", QStringLiteral(
+               "<Command ID=\"1\" Time=\"1200\" Action=\"Start\" Function=\"12\" State=\"On\"/>"))
+        << false << 5;
     QTest::newRow("non numeric version") << track("Version=\"one\"", start) << false << 5;
     QTest::newRow("extent overflow") << track("Version=\"1\" Extent=\"4294967296\"", start) << false << 5;
     QTest::newRow("extent sentinel") << track("Version=\"1\" Extent=\"4294967295\"", start) << false << 5;
@@ -423,6 +719,107 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
         << track("Version=\"1\"", start + QStringLiteral("<Clip ID=\"2\"/>")) << false << 5;
     QTest::newRow("wrong root")
         << QStringLiteral("<Track Version=\"1\"/>") << false << 5;
+    QTest::newRow("equal-time order on some commands only")
+        << track("Version=\"1\"", QStringLiteral(
+               "<Command ID=\"1\" Time=\"1200\" Action=\"Start\" Function=\"12\" Order=\"4\"/>"
+               "<Command ID=\"2\" Time=\"1200\" Action=\"Stop\" Function=\"12\"/>")) << false << 5;
+    QTest::newRow("equal-time order used twice")
+        << track("Version=\"1\"", QStringLiteral(
+               "<Command ID=\"1\" Time=\"1200\" Action=\"Start\" Function=\"12\" Order=\"4\"/>"
+               "<Command ID=\"2\" Time=\"1300\" Action=\"Stop\" Function=\"12\" Order=\"4\"/>")) << false << 5;
+    QTest::newRow("equal-time order not a number")
+        << track("Version=\"1\"", QStringLiteral(
+               "<Command ID=\"1\" Time=\"1200\" Action=\"Start\" Function=\"12\" Order=\"first\"/>")) << false << 5;
+}
+
+namespace
+{
+/** Ties at 1.7 s whose ids run against their order (A = 9 before B = 2),
+ *  inserted out of time order */
+ShowCommandTrack tieTrack()
+{
+    ShowCommandTrack track;
+    track.insert(ShowCommand::setIntensity(9, 1700, 12, 0.25));
+    track.insert(ShowCommand::setIntensity(2, 1700, 12, 0.75));
+    track.insert(ShowCommand::stop(5, 2500, 12));
+    track.insert(ShowCommand::start(0, 1200, 12));
+    return track;
+}
+} // namespace
+
+void ShowCommandTrack_Test::equalTimeOrderSurvivesMovingAwayAndBack_data()
+{
+    QTest::addColumn<quint32>("moved");
+    QTest::addColumn<quint32>("away");
+    QTest::addColumn<bool>("reload");
+
+    QTest::newRow("A to an empty later time") << 9u << 5000u << false;
+    QTest::newRow("B to an empty later time") << 2u << 5000u << false;
+    QTest::newRow("A onto a later tie") << 9u << 2500u << false;
+    QTest::newRow("B onto a later tie") << 2u << 2500u << false;
+    QTest::newRow("B earlier, saved and loaded in between") << 2u << 1000u << true;
+    QTest::newRow("A later, saved and loaded in between") << 9u << 5000u << true;
+}
+
+void ShowCommandTrack_Test::equalTimeOrderSurvivesMovingAwayAndBack()
+{
+    QFETCH(quint32, moved);
+    QFETCH(quint32, away);
+    QFETCH(bool, reload);
+
+    ShowCommandTrack track = tieTrack();
+    QCOMPARE(idsOf(track), QVector<quint32>({0, 9, 2, 5}));
+
+    QVERIFY(track.retime(moved, away));
+    if (away == 2500)
+        QCOMPARE(idsOf(track), moved == 9 ? QVector<quint32>({0, 2, 9, 5}) : QVector<quint32>({0, 9, 2, 5}));
+    if (reload)
+    {
+        const QString xml = toXml(track);
+        QVERIFY(xml.contains(QLatin1String("Order=")));
+        ShowCommandTrack loaded;
+        QVERIFY(fromXml(xml, &loaded));
+        QCOMPARE(idsOf(loaded), idsOf(track));
+        QCOMPARE(toXml(loaded), xml);
+        track = loaded;
+    }
+
+    // back where it was: in its old place among its ties, not by id or last
+    QVERIFY(track.retime(moved, 1700));
+    QCOMPARE(idsOf(track), QVector<quint32>({0, 9, 2, 5}));
+
+}
+
+void ShowCommandTrack_Test::equalTimeOrderSavesOnlyWhatFileOrderCannotTell()
+{
+    // file order says it all: the document stays exactly the legacy one
+    ShowCommandTrack plain;
+    QVERIFY(plain.insert(ShowCommand::start(0, 1200, 12)));
+    QVERIFY(plain.insert(ShowCommand::setIntensity(9, 1700, 12, 0.25)));
+    QVERIFY(plain.insert(ShowCommand::setIntensity(2, 1700, 12, 0.75)));
+    QVERIFY(plain.retime(9, 1700));
+    QVERIFY(!toXml(plain).contains(QLatin1String("Order=")));
+    // it cannot once a later event holds an earlier order
+    QVERIFY(plain.retime(0, 2000));
+    QVERIFY(toXml(plain).contains(QLatin1String("Order=")));
+
+    // an older document has no order: its file order is the equal-time order
+    const QString legacy = QStringLiteral(
+        "<CommandTrack Version=\"1\" Extent=\"2500\">"
+        "<Command ID=\"9\" Time=\"1700\" Action=\"SetIntensity\" Function=\"12\" Value=\"0.25\"/>"
+        "<Command ID=\"2\" Time=\"1700\" Action=\"SetIntensity\" Function=\"12\" Value=\"0.75\"/>"
+        "<Command ID=\"5\" Time=\"2500\" Action=\"Stop\" Function=\"12\"/>"
+        "</CommandTrack>");
+    ShowCommandTrack loaded;
+    QVERIFY(fromXml(legacy, &loaded));
+    QCOMPARE(idsOf(loaded), QVector<quint32>({9, 2, 5}));
+    QCOMPARE(toXml(loaded), legacy);
+    QVERIFY(loaded.retime(9, 3000));
+    QVERIFY(loaded.retime(9, 1700));
+    QCOMPARE(idsOf(loaded), QVector<quint32>({9, 2, 5}));
+    // and the next new event still goes last among its ties
+    QVERIFY(loaded.insert(ShowCommand::start(1, 1700, 12)));
+    QCOMPARE(idsOf(loaded), QVector<quint32>({9, 2, 1, 5}));
 }
 
 void ShowCommandTrack_Test::loadIsTransactional()
@@ -730,6 +1127,8 @@ void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput_data()
         << ShowCommandOrigin::Keyboard << ShowCommandAction::Start << 0.0 << 12u << true << false;
     QTest::newRow("keyboard stop")
         << ShowCommandOrigin::Keyboard << ShowCommandAction::Stop << 0.0 << 30u << true << false;
+    QTest::newRow("osc intensity")
+        << ShowCommandOrigin::Osc << ShowCommandAction::SetIntensity << 0.375 << 12u << true << false;
 
     // input the recorder is not meant to author is ignored, not reported
     QTest::newRow("audio mapping")
@@ -946,6 +1345,179 @@ void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
     const ShowCommandState marked = ShowCommandFsm::userInput(track, state, input).state;
     QVERIFY(!marked.consumedLiveEventIds.isEmpty());
     QVERIFY(ShowCommandFsm::seek(track, marked, 0).state.consumedLiveEventIds.isEmpty());
+}
+
+void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
+{
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(4, 100, 12)));
+
+    ShowCommandState state = ShowCommandFsm::setResolvedShow(
+        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    state = ShowCommandFsm::setPlaying(state, true);
+    state = ShowCommandFsm::advance(track, state, 2750).state;
+
+    ShowCommandInput input;
+    input.origin = ShowCommandOrigin::Midi;
+    input.action = ShowCommandAction::SetSliderPosition;
+    input.controlId = kControlB;
+    input.role = ShowControlRole::AdjustSlider;
+    input.attribute = QStringLiteral("Intensity");
+    input.position = 0.625;
+
+    const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
+    QVERIFY2(step.error.isEmpty(), qPrintable(step.error));
+    QCOMPARE(step.authored.count(), 1);
+    QVERIFY(step.authored.first() == ShowCommand::setSliderPosition(
+                5, 2750, kControlB, ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.625));
+    QCOMPARE(step.state.consumedLiveEventIds, QSet<quint32>({5}));
+    QVERIFY(step.effects.isEmpty());
+
+    // a button state offered with a slider role is explained, not authored
+    ShowCommandInput malformed;
+    malformed.origin = ShowCommandOrigin::Pointer;
+    malformed.action = ShowCommandAction::SetButtonState;
+    malformed.controlId = kControlA;
+    malformed.role = ShowControlRole::LevelSlider;
+    malformed.on = true;
+
+    const ShowCommandTransition rejected = ShowCommandFsm::userInput(track, state, malformed);
+    QVERIFY(rejected.authored.isEmpty());
+    QVERIFY(!rejected.error.isEmpty());
+    QVERIFY(rejected.state == state);
+}
+
+void ShowCommandTrack_Test::buttonOpReachesDesiredState_data()
+{
+    using Native = ShowCommandFsm::ShowButtonNative;
+    using Op = ShowCommandFsm::ShowButtonOp;
+
+    QTest::addColumn<Native>("native");
+    QTest::addColumn<bool>("on");
+    QTest::addColumn<Op>("op");
+
+    QTest::newRow("inactive on")    << Native::Inactive   << true  << Op::Start;
+    QTest::newRow("inactive off")   << Native::Inactive   << false << Op::None;
+    QTest::newRow("active on")      << Native::Active     << true  << Op::None;
+    QTest::newRow("active off")     << Native::Active     << false << Op::Stop;
+    // monitoring is neither satisfied on nor satisfied off
+    QTest::newRow("monitoring on")  << Native::Monitoring << true  << Op::Start;
+    QTest::newRow("monitoring off") << Native::Monitoring << false << Op::Stop;
+}
+
+void ShowCommandTrack_Test::buttonOpReachesDesiredState()
+{
+    QFETCH(ShowCommandFsm::ShowButtonNative, native);
+    QFETCH(bool, on);
+    QFETCH(ShowCommandFsm::ShowButtonOp, op);
+
+    QCOMPARE(ShowCommandFsm::buttonOp(native, on), op);
+}
+
+void ShowCommandTrack_Test::sliderTargetMapsIntoCurrentRange_data()
+{
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal inf = std::numeric_limits<qreal>::infinity();
+    const qreal dblMax = std::numeric_limits<qreal>::max();
+    const qreal intMax = qreal(INT_MAX);
+    const qreal intMin = qreal(INT_MIN);
+
+    QTest::addColumn<qreal>("position");
+    QTest::addColumn<qreal>("low");
+    QTest::addColumn<qreal>("high");
+    QTest::addColumn<bool>("ok");
+    QTest::addColumn<int>("value");
+
+    QTest::newRow("half of 0..100")       << 0.5   << 0.0  << 100.0 << true  << 50;
+    // 25 captured in 0..50 is 0.5, so a widened range keeps the relative place
+    QTest::newRow("25 of 0..50 widened")  << 25.0 / 50.0 << 0.0 << 100.0 << true << 50;
+    QTest::newRow("third of 0..255")      << 0.333 << 0.0  << 255.0 << true  << 85;
+    QTest::newRow("offset range top")     << 1.0   << 20.0 << 80.0  << true  << 80;
+    QTest::newRow("int max top")          << 1.0   << 0.0  << intMax << true  << INT_MAX;
+    QTest::newRow("int min bottom")       << 0.0   << intMin << 0.0 << true  << INT_MIN;
+    QTest::newRow("reversed range")       << 0.5   << 100.0 << 0.0  << false << kUntouched;
+    QTest::newRow("empty range")          << 0.5   << 40.0 << 40.0  << false << kUntouched;
+    QTest::newRow("nan position")         << nan   << 0.0  << 100.0 << false << kUntouched;
+    QTest::newRow("infinite bound")       << 0.5   << 0.0  << inf   << false << kUntouched;
+    QTest::newRow("position above one")   << 1.25  << 0.0  << 100.0 << false << kUntouched;
+    QTest::newRow("negative position")    << -0.1  << 0.0  << 100.0 << false << kUntouched;
+    QTest::newRow("high above int")       << 1.0   << 0.0  << intMax + 1.0 << false << kUntouched;
+    QTest::newRow("span overflows")       << 0.5   << -dblMax << dblMax << false << kUntouched;
+    QTest::newRow("low below int")        << 0.0   << intMin - 1.0 << 0.0 << false << kUntouched;
+}
+
+void ShowCommandTrack_Test::sliderTargetMapsIntoCurrentRange()
+{
+    QFETCH(qreal, position);
+    QFETCH(qreal, low);
+    QFETCH(qreal, high);
+    QFETCH(bool, ok);
+    QFETCH(int, value);
+
+    int target = kUntouched;
+    QCOMPARE(ShowCommandFsm::sliderTarget(position, low, high, &target), ok);
+    QCOMPARE(target, value);
+}
+
+void ShowCommandTrack_Test::resolveControlReportsSuitability_data()
+{
+    using Role = ShowControlRole;
+    const QString intensity = QStringLiteral("Intensity");
+    const ShowCommand button = ShowCommand::setButtonState(1, 100, kControlA, true);
+    const ShowCommand adjust = ShowCommand::setSliderPosition(2, 200, kControlB, Role::AdjustSlider, intensity, 0.5);
+    const ShowCommand level = ShowCommand::setSliderPosition(3, 300, kControlB, Role::LevelSlider, QString(), 0.5);
+    const ShowCommand master = ShowCommand::setSliderPosition(4, 400, kControlB, Role::GrandMasterSlider,
+                                                              QString(), 0.5);
+    const ShowCommand submaster = ShowCommand::setSliderPosition(5, 500, kControlB, Role::SubmasterSlider,
+                                                                 QString(), 0.5);
+
+    QTest::addColumn<ShowCommand>("expected");
+    QTest::addColumn<QVector<ShowControlSnapshot>>("matches");
+    QTest::addColumn<ShowControlStatus>("status");
+
+    QTest::newRow("button ready") << button
+        << QVector<ShowControlSnapshot>({{Role::ToggleButton, QString(), true, true}}) << ShowControlStatus::Ready;
+    QTest::newRow("adjust ready") << adjust
+        << QVector<ShowControlSnapshot>({{Role::AdjustSlider, intensity, true, true}}) << ShowControlStatus::Ready;
+    QTest::newRow("level ready without function") << level
+        << QVector<ShowControlSnapshot>({{Role::LevelSlider, QString(), true, false}}) << ShowControlStatus::Ready;
+    QTest::newRow("grand master ready without function") << master
+        << QVector<ShowControlSnapshot>({{Role::GrandMasterSlider, QString(), true, false}})
+        << ShowControlStatus::Ready;
+    QTest::newRow("submaster ready without function") << submaster
+        << QVector<ShowControlSnapshot>({{Role::SubmasterSlider, QString(), true, false}})
+        << ShowControlStatus::Ready;
+    QTest::newRow("missing") << button << QVector<ShowControlSnapshot>() << ShowControlStatus::Missing;
+    QTest::newRow("ambiguous") << level
+        << QVector<ShowControlSnapshot>({{Role::LevelSlider, QString(), true, false},
+                                         {Role::LevelSlider, QString(), true, false}})
+        << ShowControlStatus::Ambiguous;
+    QTest::newRow("role changed") << button
+        << QVector<ShowControlSnapshot>({{Role::LevelSlider, QString(), true, true}})
+        << ShowControlStatus::Incompatible;
+    QTest::newRow("attribute changed") << adjust
+        << QVector<ShowControlSnapshot>({{Role::AdjustSlider, QStringLiteral("Speed"), true, true}})
+        << ShowControlStatus::Incompatible;
+    QTest::newRow("disabled") << level
+        << QVector<ShowControlSnapshot>({{Role::LevelSlider, QString(), false, false}})
+        << ShowControlStatus::Disabled;
+    QTest::newRow("button unbound") << button
+        << QVector<ShowControlSnapshot>({{Role::ToggleButton, QString(), true, false}})
+        << ShowControlStatus::Unbound;
+    QTest::newRow("adjust unbound") << adjust
+        << QVector<ShowControlSnapshot>({{Role::AdjustSlider, intensity, true, false}})
+        << ShowControlStatus::Unbound;
+}
+
+void ShowCommandTrack_Test::resolveControlReportsSuitability()
+{
+    QFETCH(ShowCommand, expected);
+    QFETCH(QVector<ShowControlSnapshot>, matches);
+    QFETCH(ShowControlStatus, status);
+
+    QString reason = QStringLiteral("untouched");
+    QCOMPARE(ShowCommandFsm::resolveControl(expected, matches, &reason), status);
+    QCOMPARE(reason.isEmpty(), status == ShowControlStatus::Ready);
 }
 
 QTEST_APPLESS_MAIN(ShowCommandTrack_Test)

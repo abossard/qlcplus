@@ -436,84 +436,119 @@ void VCButton::requestUserStateChange(bool pressed)
     requestUserStateChange(pressed, ShowCommandOrigin::Pointer);
 }
 
-/** Only a person operating a control authors anything, and only their input may
- *  change how a control resolves while recording. */
-static bool isUserOrigin(ShowCommandOrigin origin)
-{
-    return origin == ShowCommandOrigin::Pointer ||
-           origin == ShowCommandOrigin::Midi ||
-           origin == ShowCommandOrigin::Keyboard;
-}
-
 void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
 {
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
-    const bool authoring = recorder != nullptr && recorder->isAuthoring() && isUserOrigin(origin);
     Function *f = m_doc->function(m_functionID);
 
-    if (authoring == false || actionType() != Toggle || f == nullptr)
+    if (actionType() != Toggle || f == nullptr)
     {
-        requestStateChange(pressed);
-        if (authoring && actionType() != Toggle)
-            recorder->reportUnsupported(tr("%1 buttons").arg(actionToString(actionType())));
-        return;
-    }
-
-    if (hasSoloParent())
-    {
-        // Starting inside a Solo Frame also stops its siblings. Recording the
-        // start alone would replay something the operator never saw.
-        requestStateChange(pressed);
-        recorder->reportUnsupported(tr("buttons inside a Solo Frame"));
-        return;
-    }
-
-    // Resolve first, then apply exactly that. A button monitoring a Function the
-    // Show itself started reads as "on" to the operator, so their first click is
-    // a stop; requestStateChange() would restart it instead.
-    const bool stopIntent = state() != Inactive;
-    if (stopIntent && state() == Monitoring)
-    {
-        f->stop(functionParent());
-        resetIntensityOverrideAttribute();
-        setState(Inactive);
-        Tardis::instance()->enqueueAction(Tardis::VCButtonSetPressed, id(), false, pressed);
-    }
-    else
-    {
-        requestStateChange(pressed);
-    }
-
-    QVector<ShowCommandInput> resolved;
-    ShowCommandInput command;
-    command.origin = origin;
-    command.functionId = m_functionID;
-    command.action = stopIntent ? ShowCommandAction::Stop : ShowCommandAction::Start;
-    resolved.append(command);
-
-    // A button that starts its Function at a reduced intensity needs that value
-    // recorded as its own ordered step: Start carries no value.
-    if (stopIntent == false)
-    {
-        const qreal startIntensity = startupIntensityEnabled() ? startupIntensity() * intensity()
-                                                               : intensity();
-        if (qFuzzyCompare(startIntensity, qreal(1.0)) == false)
         {
-            ShowCommandInput value;
-            value.origin = origin;
-            value.functionId = m_functionID;
-            value.action = ShowCommandAction::SetIntensity;
-            value.intensity = CLAMP(startIntensity, qreal(0), qreal(1));
-            resolved.append(value);
+            // traced below as this input, not as a direct code request
+            const ShowCommandRecorder::TracedCall traced;
+            requestStateChange(pressed);
         }
+        if (recorder != nullptr && actionType() != Toggle)
+            recorder->reportUnsupported(tr("%1 buttons").arg(actionToString(actionType())), origin, this);
+        else
+            ShowCommandRecorder::traceInput(this, origin, ShowEventLog::Outcome::Ignored,
+                                            QT_TRANSLATE_NOOP("ShowCommandRecorder", "no function bound"));
+        return;
     }
 
-    recorder->submitUserInput(resolved);
+    // The native click, resolved once from what the button shows now: a
+    // monitored Function gets the button's own activation, an Active button
+    // stops, unless inside a Solo Frame it takes over what a Collection started.
+    // A request that waits behind replay applies this state, not another click.
+    const bool on = state() != Active || (hasSoloParent() && f->startedAsChild());
+    if (recorder == nullptr)
+    {
+        applyUserState(on);
+        return;
+    }
+
+    ShowControlRequest request;
+    request.control = this;
+    request.role = ShowControlRole::ToggleButton;
+    request.on = on;
+    request.origin = origin;
+    recorder->requestUserControl(request);
+}
+
+void VCButton::applyUserState(bool on)
+{
+    Function *f = m_doc->function(m_functionID);
+    if (actionType() != Toggle || f == nullptr)
+        return;
+
+    if (on && state() == Active && hasSoloParent() && f->startedAsChild())
+        startToggleFunction(f);
+    else
+        applyRecordedState(on);
+
+    Tardis::instance()->enqueueAction(Tardis::VCButtonSetPressed, id(), false, on);
+}
+
+ShowCommandFsm::ShowButtonOp VCButton::applyRecordedState(bool on)
+{
+    using ShowCommandFsm::ShowButtonOp;
+    if (actionType() != Toggle)
+        return ShowButtonOp::None;
+
+    Function *f = m_doc->function(m_functionID);
+    if (f == nullptr)
+        return ShowButtonOp::None;
+
+    using ShowCommandFsm::ShowButtonNative;
+    const ShowButtonNative native = state() == Active ? ShowButtonNative::Active
+                                  : state() == Monitoring ? ShowButtonNative::Monitoring
+                                                          : ShowButtonNative::Inactive;
+    const ShowButtonOp op = ShowCommandFsm::buttonOp(native, on);
+    switch (op)
+    {
+        case ShowButtonOp::Start: startToggleFunction(f); break;
+        case ShowButtonOp::Stop: stopToggleFunction(f); break;
+        case ShowButtonOp::None: break;
+    }
+    return op;
+}
+
+void VCButton::startToggleFunction(Function *f)
+{
+    adjustFunctionIntensity(f, intensity());
+
+    // starting a Chaser is a special case, since it is necessary
+    // to use Chaser Actions to properly start the first
+    // Chaser step with the right intensity
+    if (f->type() == Function::ChaserType || f->type() == Function::SequenceType)
+    {
+        ChaserAction action;
+        action.m_action = ChaserSetStepIndex;
+        action.m_stepIndex = 0;
+        action.m_masterIntensity = intensity();
+        action.m_stepIntensity = 1.0;
+        action.m_fadeMode = Chaser::FromFunction;
+
+        Chaser *chaser = qobject_cast<Chaser*>(f);
+        chaser->setAction(action);
+    }
+
+    f->start(m_doc->masterTimer(), functionParent());
+    setState(Active);
+    emit functionStarting(this, m_functionID);
+}
+
+void VCButton::stopToggleFunction(Function *f)
+{
+    f->stop(functionParent());
+    resetIntensityOverrideAttribute();
+    setState(Inactive);
 }
 
 void VCButton::requestStateChange(bool pressed)
 {
     qDebug() << "Requested button state" << pressed;
+    ShowCommandRecorder::traceDirectRequest(this, pressed ? 1 : 0);
 
     switch(actionType())
     {
@@ -527,35 +562,9 @@ void VCButton::requestStateChange(bool pressed)
             // started by a different function (a chaser or collection), turn other
             // functions off and start this one.
             if (state() == Active && !(hasSoloParent() && f->startedAsChild()))
-            {
-                f->stop(functionParent());
-                resetIntensityOverrideAttribute();
-                setState(Inactive);
-            }
+                stopToggleFunction(f);
             else
-            {
-                adjustFunctionIntensity(f, intensity());
-
-                // starting a Chaser is a special case, since it is necessary
-                // to use Chaser Actions to properly start the first
-                // Chaser step with the right intensity
-                if (f->type() == Function::ChaserType || f->type() == Function::SequenceType)
-                {
-                    ChaserAction action;
-                    action.m_action = ChaserSetStepIndex;
-                    action.m_stepIndex = 0;
-                    action.m_masterIntensity = intensity();
-                    action.m_stepIntensity = 1.0;
-                    action.m_fadeMode = Chaser::FromFunction;
-
-                    Chaser *chaser = qobject_cast<Chaser*>(f);
-                    chaser->setAction(action);
-                }
-
-                f->start(m_doc->masterTimer(), functionParent());
-                setState(Active);
-                emit functionStarting(this, m_functionID);
-            }
+                startToggleFunction(f);
         }
         break;
         case Flash:
@@ -797,6 +806,13 @@ bool VCButton::loadXML(QXmlStreamReader &root)
     if (root.name() != KXMLQLCVCButton)
     {
         qWarning() << Q_FUNC_INFO << "Button node not found";
+        return false;
+    }
+
+    // skipping keeps an enclosing frame reading from the next sibling
+    if (loadXMLRecordingId(root) == false)
+    {
+        root.skipCurrentElement();
         return false;
     }
 

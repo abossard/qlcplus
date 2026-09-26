@@ -59,9 +59,11 @@ public:
     QStringList loadCalls;
     int newCalls = 0;
     bool succeed = true;
+    bool recording = false;
     Doc *doc = nullptr;   // set to make save/load actually touch disk
 
     QString currentFileName() const override { return fileName; }
+    bool isRecording() const override { return recording; }
 
     bool newWorkspace() override
     {
@@ -69,6 +71,7 @@ public:
         if (!succeed) return false;
         if (doc) doc->clearContents();
         fileName.clear();
+        recording = false;
         return true;
     }
 
@@ -87,6 +90,7 @@ public:
             doc->resetModified();
         }
         fileName = path;
+        recording = false;
         return true;
     }
 
@@ -545,7 +549,7 @@ void McpWorkspaceTools_Test::saveWorkspace_existingOtherFile_needsOverwrite()
 
     Json refused = invoke(m_doc, &bridge, "save_workspace", Json{{"path", other.toStdString()}});
 
-    // App::saveXML removes the target before renaming over it, so this would
+    // App::saveXML replaces the target with the new file, so this would
     // have destroyed an unrelated project.
     QVERIFY2(refused.contains("error"), refused.dump().c_str());
     QVERIFY(bridge.saveCalls.isEmpty());
@@ -640,6 +644,64 @@ void McpWorkspaceTools_Test::guardFlags_nonBoolean_rejected()
 
     QVERIFY2(result.contains("error"), result.dump().c_str());
     QCOMPARE(bridge.newCalls, 0);
+}
+
+void McpWorkspaceTools_Test::replacement_activeRecording_needsDiscard_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QString>("flag");
+    QTest::addColumn<bool>("proceeds");
+
+    // a saved, clean project: only the armed recording is at stake
+    for (const QString &tool : {QStringLiteral("new_workspace"), QStringLiteral("load_workspace")})
+    {
+        QTest::newRow(qPrintable(tool + QStringLiteral(", no flag"))) << tool << QString() << false;
+        QTest::newRow(qPrintable(tool + QStringLiteral(", discardUnsaved false")))
+            << tool << QStringLiteral("false") << false;
+        QTest::newRow(qPrintable(tool + QStringLiteral(", discardUnsaved true")))
+            << tool << QStringLiteral("true") << true;
+    }
+}
+
+void McpWorkspaceTools_Test::replacement_activeRecording_needsDiscard()
+{
+    QFETCH(QString, tool);
+    QFETCH(QString, flag);
+    QFETCH(bool, proceeds);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath("next.qxw");
+    QVERIFY(writeWorkspaceFile(path));
+    FakeWorkspaceBridge bridge;
+    bridge.fileName = dir.filePath("current.qxw");
+    bridge.recording = true;
+    QVERIFY(!m_doc->isModified());
+
+    Json args = Json::object();
+    if (tool == QLatin1String("load_workspace"))
+        args["path"] = path.toStdString();
+    if (!flag.isEmpty())
+        args["discardUnsaved"] = flag == QLatin1String("true");
+    Json result = invoke(m_doc, &bridge, tool.toStdString().c_str(), args);
+
+    const int replaced = bridge.newCalls + int(bridge.loadCalls.count());
+    if (proceeds)
+    {
+        QVERIFY2(!result.contains("error"), result.dump().c_str());
+        QCOMPARE(replaced, 1);
+        QVERIFY(!bridge.recording);
+    }
+    else
+    {
+        QVERIFY2(result.contains("error"), result.dump().c_str());
+        QVERIFY2(QString::fromStdString(result.value("error", std::string())).contains("recording"),
+                 result.dump().c_str());
+        QCOMPARE(result.value("recording", false), true);
+        QCOMPARE(replaced, 0);
+        QVERIFY(bridge.recording);
+        QCOMPARE(bridge.fileName, dir.filePath("current.qxw"));
+    }
 }
 
 QTEST_MAIN(McpWorkspaceTools_Test)

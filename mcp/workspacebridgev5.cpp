@@ -19,6 +19,7 @@
 
 #include "workspacebridgev5.h"
 #include "app.h"
+#include "showcommandrecorder.h"
 
 WorkspaceBridgeV5::WorkspaceBridgeV5(App *app)
     : m_app(app)
@@ -43,4 +44,10 @@ bool WorkspaceBridgeV5::loadWorkspace(const QString &fileName)
 bool WorkspaceBridgeV5::saveWorkspace(const QString &fileName)
 {
     return m_app->saveWorkspace(fileName);
+}
+
+bool WorkspaceBridgeV5::isRecording() const
+{
+    const ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    return recorder != nullptr && recorder->isRecording();
 }

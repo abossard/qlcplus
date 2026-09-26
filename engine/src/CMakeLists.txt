@@ -75,6 +75,7 @@ add_library(${module_name} SHARED
     sequence.cpp sequence.h
     show.cpp show.h
     showcommandtrack.cpp showcommandtrack.h
+    showeventlog.cpp showeventlog.h
     showfunction.cpp showfunction.h
     showrunner.cpp showrunner.h
     timingdiagnostics.cpp timingdiagnostics.h

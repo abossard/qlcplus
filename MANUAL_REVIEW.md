@@ -1691,6 +1691,24 @@ All checks below await human review. Automated editor construction,
 popup focus, cancel/reopen and URL confirmation checks do not establish
 visual quality or human sign-off.
 
+Refresh on 2026-09-26: `mcp-server` HEAD `7d86d5d02` already contains the
+fetched upstream `82e541d7a` (ancestry check passed; zero incoming commits).
+No new merge or refactor was needed. The video-editor patch remains exact
+upstream; the fork-only layout adapter is unchanged. This comparison proves
+structural preservation, not runtime layout behavior.
+
+A fresh targeted build completed successfully. The selected integration
+checks `videoEditorUrlDialog`, `textInputDeletion`, and
+`actionsSubmenuDismissal` passed all eight behavioral rows (10 QtTest passes
+including setup/cleanup); `video_test` passed all five checks. Both runs had
+zero failures or skips and used offscreen/software rendering with an owned
+cwd, settings, and temporary directories under
+`build/upstream-verification-2026-09-26/`, which also retains the logs.
+These runs include the current uncommitted recording work, without accepting
+it. Desktop focus/layout quality, codec playback, hardware/DMX, and live MCP
+compatibility remain unverified. All six human checks and sign-off below
+remain pending.
+
 ### 31.1 Video-editor opening and navigation
 
 - ☐ In a disposable workspace, create a Video function and open its editor. Confirm the editor appears without freezing, flashing a URL dialog, or leaving the interface dimmed.

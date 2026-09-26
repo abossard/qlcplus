@@ -34,6 +34,44 @@ Rectangle
     color: "transparent"
 
     property string contextName: "SHOWMGR"
+    readonly property bool showKeyScope: true
+    property string keyboardFeedback: ""
+
+    Keys.onPressed: (event) =>
+    {
+        if ((event.key === Qt.Key_Left || event.key === Qt.Key_Right)
+            && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.AltModifier))
+        {
+            keyboardFeedback = recordings.amountReason
+            if (keyboardFeedback === "")
+                keyboardFeedback = showManager.shiftSelectedItems(event.key === Qt.Key_Left ? -1 : 1,
+                    recordings.stepMs, Boolean(event.modifiers & Qt.AltModifier))
+        }
+        else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier)
+            requestPlayShow()
+        else if (event.modifiers === Qt.ControlModifier && event.key === Qt.Key_C)
+        {
+            if (editorTab === 0 && !recordingLane.activeFocus)
+                requestCopyItems()
+            else
+                keyboardFeedback = qsTr("Recording Copy/Paste is not available.")
+        }
+        else if (event.modifiers === Qt.ControlModifier && event.key === Qt.Key_V)
+        {
+            if (editorTab === 0 && !recordingLane.activeFocus)
+                requestPasteItems()
+            else
+                keyboardFeedback = qsTr("Recording Copy/Paste is not available.")
+        }
+        else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
+        {
+            if (editorTab === 0 && !recordingLane.activeFocus && canEdit)
+                showManager.deleteShowItems(showManager.selectedItemRefs())
+        }
+        else
+            return
+        event.accepted = true
+    }
 
     property int trackHeight: UISettings.mediumItemHeight
     property int trackWidth: UISettings.bigItemHeight * 1.6
@@ -43,15 +81,76 @@ Rectangle
     property int headerHeight: UISettings.iconSizeMedium
     property real xViewOffset: 0
 
-    property int showID: showManager.currentShowID
+    property real showID: showManager.currentShowID
     property int selectedTrackIndex: -1
+    // 0: the timeline, 1: the recorded commands of the same Show
+    property int editorTab: 0
+    property var recordingReturnIds: []
+    property real recordingReturnShow: -1
+
+    function returnToTimeline()
+    {
+        editorTab = 0
+        if (recordingReturnShow === showID && recordingReturnIds.length)
+        {
+            recordings.selectedIds = recordingReturnIds.filter(function(id) {
+                return recordings.rowsById[id] !== undefined
+            })
+            Qt.callLater(recordingLane.focusSelection)
+        }
+    }
 
     // single QML gate for every mutating affordance; the C++ side enforces
     // the same rule authoritatively (VDJ Perform mode = read only)
     readonly property bool canEdit: showManager.isEditing && !showManager.readOnly
 
     onShowIDChanged: renderAndCenter()
-    Component.onCompleted: renderAndCenter()
+    Component.onCompleted:
+    {
+        renderAndCenter()
+        forceActiveFocus()
+        if (showCommandRecorder)
+            showCommandRecorder.setRowsObserved(visible)
+    }
+    onVisibleChanged: {
+        if (showCommandRecorder)
+            showCommandRecorder.setRowsObserved(visible)
+        if (visible)
+            forceActiveFocus()
+    }
+    Component.onDestruction: if (showCommandRecorder) showCommandRecorder.setRowsObserved(false)
+    readonly property bool hasRecordings: showCommandRecorder
+        && (showCommandRecorder.groups.length > 0 || recordings.deletedCount > 0)
+
+    Rectangle
+    {
+        objectName: "showKeyboardFocus"
+        property var target: qlcplus.activeFocusItem
+        readonly property bool local: {
+            for (var item = target; item; item = item.parent)
+                if (item === showMgrContainer)
+                    return target !== showMgrContainer
+            return false
+        }
+        property rect frame: {
+            showContents.contentY; xViewOffset; rightPanel.width; showMgrContainer.width
+            if (!target)
+                return Qt.rect(0, 0, 0, 0)
+            target.x; target.y
+            return target.mapToItem(showMgrContainer, Qt.rect(0, 0, target.width, target.height))
+        }
+        x: frame.x
+        y: frame.y
+        width: frame.width
+        height: frame.height
+        visible: local && target.visible
+        enabled: false
+        color: "transparent"
+        border.color: "#f1c40f"
+        border.width: 2
+        z: 100
+        Accessible.ignored: true
+    }
 
     function requestPlayShow()
     {
@@ -106,6 +205,15 @@ Rectangle
         function onReadOnlyChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
         function onIsPlayingChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
         function onIsPausedChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
+        function onSelectedItemsCountChanged(count)
+        {
+            if (count > 0)
+            {
+                recordings.selectedIds = []
+                if (recordingLane.activeFocus)
+                    showMgrContainer.forceActiveFocus()
+            }
+        }
     }
 
     function zoomTimeline(zoomIn)
@@ -134,6 +242,7 @@ Rectangle
     {
         sequence: "Space"
         enabled: mainView.currentContext === "SHOWMGR"
+                 && !recordingLane.activeFocus
                  && !mainView.shortcutsBlocked()
                  && (qlcplus.accessMask & App.AC_ShowManager)
         onActivated: showMgrContainer.requestPlayShow()
@@ -183,7 +292,7 @@ Rectangle
     {
         id: topBar
         width: showMgrContainer.width - rightPanel.width
-        height: UISettings.iconSizeDefault
+        height: UISettings.iconSizeDefault * 2
         z: 5
         gradient: Gradient
         {
@@ -194,7 +303,10 @@ Rectangle
         RowLayout
         {
             id: topBarRowLayout
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: UISettings.iconSizeDefault
             y: 1
 
             spacing: 4
@@ -232,17 +344,32 @@ Rectangle
                 }
             }
 
-            IconButton
+            RecordControl { Layout.fillHeight: true }
+
+            ButtonGroup { id: editorTabGroup }
+
+            MenuBarEntry
             {
-                id: commandListButton
-                z: 2
-                width: parent.height - 6
-                height: width
-                faSource: FontAwesome.fa_list_ol
-                faColor: showCommandRecorder && showCommandRecorder.recording
-                         ? "#e74c3c" : UISettings.fgMain
-                checkable: true
-                tooltip: qsTr("Recorded commands")
+                id: timelineTabButton
+                objectName: "timelineTab"
+                entryText: qsTr("Timeline")
+                checked: showMgrContainer.editorTab === 0
+                ButtonGroup.group: editorTabGroup
+                focusPolicy: Qt.StrongFocus
+                onClicked: showMgrContainer.returnToTimeline()
+            }
+
+            MenuBarEntry
+            {
+                id: recordingsTabButton
+                KeyNavigation.backtab: timelineTabButton
+                KeyNavigation.tab: editorTab === 1 ? recordings.firstFocus : colPickButton
+                objectName: "recordingsTab"
+                focusPolicy: Qt.StrongFocus
+                entryText: qsTr("Recordings")
+                checked: showMgrContainer.editorTab === 1
+                ButtonGroup.group: editorTabGroup
+                onClicked: showMgrContainer.editorTab = 1
             }
 
             IconButton
@@ -419,6 +546,9 @@ Rectangle
                 property int currentTime: showManager.currentTime
 
                 label: "00:00:00.00"
+                Accessible.role: Accessible.StaticText
+                Accessible.name: label
+                Accessible.id: "showTime"
 
                 onCurrentTimeChanged:
                 {
@@ -436,6 +566,7 @@ Rectangle
                 bgColor: showManager.isPaused ? "green" :
                          (showManager.isPlaying ? "darkorange" : UISettings.bgLight)
                 tooltip: ShortcutUtils.withShortcut((showManager.isPlaying && !showManager.isPaused) ? qsTr("Pause") : qsTr("Play or resume"), "Space")
+                Accessible.name: (showManager.isPlaying && !showManager.isPaused) ? qsTr("Pause") : qsTr("Play or resume")
                 checkable: false
                 enabled: canEdit
                 onClicked: showMgrContainer.requestPlayShow()
@@ -450,6 +581,7 @@ Rectangle
                 bgColor: showManager.isPlaying ? "red" : UISettings.bgLight
                 tooltip: ShortcutUtils.withShortcut(qsTr("Stop or rewind"),
                     Qt.platform.os === "osx" ? "Meta+Space" : "Ctrl+Space")
+                Accessible.name: qsTr("Stop or rewind")
                 checkable: false
                 enabled: canEdit
                 onClicked: showMgrContainer.requestStopShow()
@@ -554,6 +686,56 @@ Rectangle
                 onZoomInClicked: showMgrContainer.zoomTimeline(true)
             }
         }
+        RowLayout
+        {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: UISettings.iconSizeDefault
+            spacing: 6
+            RobotoText { label: qsTr("Move by") }
+            CustomComboBox
+            {
+                id: moveStep
+                objectName: "moveStep"
+                focusPolicy: Qt.StrongFocus
+                Layout.preferredWidth: UISettings.bigItemHeight * 1.7
+                model: [ qsTr("Bar"), qsTr("Half bar"), qsTr("Quarter bar"), qsTr("Time delta (s)") ]
+                currentIndex: recordings.stepIndex
+                onCurrentIndexChanged: {
+                    recordings.stepIndex = currentIndex
+                    keyboardFeedback = ""
+                    recordings.moveError = ""
+                }
+                KeyNavigation.tab: timeDelta.visible ? timeDelta : null
+            }
+            CustomTextEdit
+            {
+                id: timeDelta
+                objectName: "moveTimeDelta"
+                visible: recordings.stepIndex === 3
+                Layout.preferredWidth: UISettings.bigItemHeight
+                placeholderText: qsTr("Seconds")
+                Accessible.name: qsTr("Move by time delta in seconds")
+                text: recordings.timeDeltaText
+                onTextChanged: {
+                    recordings.timeDeltaText = text
+                    keyboardFeedback = ""
+                    recordings.moveError = ""
+                }
+            }
+            RobotoText
+            {
+                objectName: "timelineKeyboardFeedback"
+                Layout.fillWidth: true
+                label: keyboardFeedback || recordings.moveError || recordings.amountReason
+                    || qsTr("Left/Right: move selection. %1: adjust scheduling end.")
+                        .arg(ShortcutUtils.display("Alt+Left/Right"))
+                labelColor: keyboardFeedback || recordings.moveError || recordings.amountReason
+                    ? "#f1c40f" : UISettings.fgMain
+                fontSize: UISettings.textSizeDefault * 0.7
+            }
+        }
     } // top bar
 
     RightPanel
@@ -579,6 +761,7 @@ Rectangle
     {
         y: topBar.height
         z: 5
+        visible: showMgrContainer.editorTab === 0
         width: trackWidth + verticalDivider.width
         height: showMgrContainer.headerHeight
         color: UISettings.bgStrong
@@ -643,6 +826,7 @@ Rectangle
         x: trackWidth + verticalDivider.width
         y: topBar.height
         z: 4
+        visible: showMgrContainer.editorTab === 0
         height: showMgrContainer.headerHeight
         width: showMgrContainer.width - trackWidth - verticalDivider.width - rightPanel.width
 
@@ -665,6 +849,30 @@ Rectangle
             headerHeight: showMgrContainer.headerHeight
             cursorHeight: showMgrContainer.height - topBar.height - (bottomPanel.visible ? bottomPanel.height : 0)
             duration: showManager.showDuration
+            enabled: canEdit
+
+            // the playhead as an accessible slider in Show milliseconds: Qt
+            // reads and writes value, from, to and stepSize
+            property real value: currentTime
+            readonly property real from: 0
+            // the ruler's end; beat divisions store beats, the value is ms
+            readonly property real to: Math.max(currentTime, msMode ? Math.max(0, duration) + 300000
+                : TimeUtils.posToBeatMs(TimeUtils.beatsToSize(Math.max(0, duration) + 300000, tickSize, beatsDivision),
+                                        tickSize, bpmNumber, beatsDivision))
+            readonly property real stepSize: showManager.timeBasedDivision ? 1000 : 60000 / Math.max(1, showManager.bpmNumber)
+            Accessible.role: Accessible.Slider
+            Accessible.name: qsTr("Playhead position")
+            Accessible.id: "showPlayheadPosition"
+            Accessible.description: TimeUtils.msToString(currentTime)
+
+            // a written value is a seek request; the value always shows the cursor
+            onValueChanged:
+            {
+                if (Math.round(value) === currentTime)
+                    return
+                showManager.requestSeek(Math.round(value))
+                value = Qt.binding(function() { return currentTime })
+            }
 
             onCursorPositionChanged: showMgrContainer.followPlayhead()
 
@@ -688,6 +896,7 @@ Rectangle
         id: showContents
         y: topBar.height + headerHeight
         z: 3 // below timelineHeader
+        visible: showMgrContainer.editorTab === 0
         width: parent.width - rightPanel.width
         height: showMgrContainer.height - topBar.height - headerHeight - (bottomPanel.visible ? bottomPanel.height : 0)
         clip: true
@@ -699,7 +908,7 @@ Rectangle
         contentHeight: totalTracksHeight > height ? totalTracksHeight : height
         //contentWidth: timelineHeader.contentWidth
 
-        property real totalTracksHeight: (tracksBox.count + 2) * trackHeight
+        property real totalTracksHeight: (tracksBox.count + 2 + (hasRecordings ? 1 : 0)) * trackHeight
 
         Rectangle
         {
@@ -728,6 +937,75 @@ Rectangle
 
                             onTrackSelected: showMgrContainer.selectedTrackIndex = index
                         }
+                }
+                Rectangle
+                {
+                    visible: hasRecordings
+                    width: trackWidth
+                    height: trackHeight
+                    color: UISettings.bgMedium
+                    RobotoText
+                    {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        y: 2
+                        label: qsTr("Recordings") + " (" + recordings.selectedIds.length + ")"
+                    }
+                    Row
+                    {
+                        anchors.bottom: parent.bottom
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: 2
+                        IconButton
+                        {
+                            width: UISettings.listItemHeight
+                            height: width
+                            faSource: FontAwesome.fa_backward
+                            Accessible.id: "recordingMoveEarlier"
+                            Accessible.name: qsTr("Move selected recordings earlier")
+                            tooltip: Accessible.name
+                            enabled: recordings.editable && recordings.amountReason === "" && recordings.selectedIds.length > 0
+                            onClicked: recordings.moveSelected(-1)
+                        }
+                        IconButton
+                        {
+                            width: UISettings.listItemHeight
+                            height: width
+                            faSource: FontAwesome.fa_forward
+                            Accessible.id: "recordingMoveLater"
+                            Accessible.name: qsTr("Move selected recordings later")
+                            tooltip: Accessible.name
+                            enabled: recordings.editable && recordings.amountReason === "" && recordings.selectedIds.length > 0
+                            onClicked: recordings.moveSelected(1)
+                        }
+                        GenericButton
+                        {
+                            activeFocusOnTab: true
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    if (!event.isAutoRepeat)
+                                        clicked(Qt.LeftButton)
+                                    event.accepted = true
+                                }
+                            }
+                            width: UISettings.listItemHeight * 2
+                            height: UISettings.listItemHeight
+                            label: qsTr("Snap")
+                            Accessible.id: "recordingSnap"
+                            enabled: recordings.editable && recordings.grid !== null && recordings.selectedIds.length > 0
+                            onClicked: recordings.snapSelected()
+                        }
+                        IconButton
+                        {
+                            width: UISettings.listItemHeight
+                            height: width
+                            faSource: FontAwesome.fa_trash
+                            Accessible.id: "recordingDelete"
+                            Accessible.name: qsTr("Delete %1 selected recording samples").arg(recordings.selectedIds.length)
+                            tooltip: Accessible.name
+                            enabled: recordings.editable && recordings.selectedIds.length > 0
+                            onClicked: recordings.deleteSelected()
+                        }
+                    }
                 }
             }
         }
@@ -899,6 +1177,62 @@ Rectangle
                 visible: showManager.snapGuideX >= 0
             }
 
+            ShowRecordingLane
+            {
+                id: recordingLane
+                y: tracksBox.count * trackHeight
+                height: trackHeight
+                width: itemsArea.contentWidth
+                z: 3
+                visible: hasRecordings
+                editor: recordings
+                showId: showMgrContainer.showID
+                onReveal: (ids) =>
+                {
+                    showMgrContainer.recordingReturnIds = ids.slice()
+                    showMgrContainer.recordingReturnShow = showID
+                    showMgrContainer.editorTab = 1
+                    recordings.revealMembers(ids)
+                }
+
+                Row
+                {
+                    visible: hasRecordings && (recordings.deletedCount > 0 || showCommandRecorder.lastError.length > 0)
+                    x: xViewOffset + 4
+                    y: recordingLane.height
+                    z: 4
+                    spacing: 6
+                    RobotoText
+                    {
+                        Accessible.role: Accessible.StaticText
+                        Accessible.id: "recordingEditFeedback"
+                        Accessible.name: label
+                        label: recordings.deletedCount > 0 ? qsTr("Deleted %n event(s)", "", recordings.deletedCount)
+                                                           : showCommandRecorder.lastError
+                    }
+                    GenericButton
+                    {
+                        activeFocusOnTab: true
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (!event.isAutoRepeat)
+                                    clicked(Qt.LeftButton)
+                                event.accepted = true
+                            }
+                        }
+                        visible: recordings.deletedCount > 0
+                        height: UISettings.listItemHeight
+                        label: qsTr("Undo")
+                        Accessible.id: "recordingDeleteUndo"
+                        onClicked:
+                        {
+                            if (tardis.undoCommandEdit(recordings.deletedSerial))
+                                recordings.deletedCount = 0
+                        }
+                    }
+                }
+            }
+
             DropArea
             {
                 id: newFuncDrop
@@ -945,7 +1279,7 @@ Rectangle
             {
                 id: newTrackBox
                 x: xViewOffset
-                y: tracksBox.count * trackHeight
+                y: (tracksBox.count + (hasRecordings ? 1 : 0)) * trackHeight
                 height: trackHeight
                 width: itemsArea.width
                 color: "transparent"
@@ -1026,24 +1360,24 @@ Rectangle
     CustomScrollBar
     {
         id: horScrollBar
+        visible: showMgrContainer.editorTab === 0
         x: timelineHeader.x
         y: showMgrContainer.height - height
         z: 10
         width: timelineHeader.width
         orientation: Qt.Horizontal
     }
-    // Recorded command list of the current Show. Editing is deliberately small:
-    // move an event, change a value, delete it, set where playback ends.
+    // the Recordings tab: the recorded commands of the selected Show, with
+    // the same REC control, playhead and transport in the top bar
     ShowCommandList
     {
-        visible: commandListButton.checked
-        z: 20
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: UISettings.iconSizeMedium * 2
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: UISettings.iconSizeMedium
-        width: showMgrContainer.width / 3
+        previousFocus: recordingsTabButton
+        id: recordings
+        visible: showMgrContainer.editorTab === 1 && showManager.isEditing
+        y: topBar.height
+        z: 4
+        width: showMgrContainer.width - rightPanel.width
+        height: showMgrContainer.height - topBar.height - (bottomPanel.visible ? bottomPanel.height : 0)
     }
 
 }

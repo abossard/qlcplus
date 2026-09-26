@@ -39,6 +39,7 @@
 #include <QtMath>
 #include <QFileInfo>
 #include <QFileOpenEvent>
+#include <QSaveFile>
 #include <QDir>
 #include <unistd.h>
 
@@ -47,6 +48,7 @@
 #include "simpledesk.h"
 #include "showmanager.h"
 #include "showcommandrecorder.h"
+#include "showeventmodel.h"
 #include "fixtureeditor.h"
 #include "modelselector.h"
 #include "folderbrowser.h"
@@ -133,11 +135,17 @@ App::App()
     connect(this, &App::screenChanged, this, &App::slotScreenChanged);
     connect(this, SIGNAL(closing(QQuickCloseEvent*)), this, SLOT(slotClosing()));
     connect(this, &App::sceneGraphInitialized, this, &App::slotSceneGraphInitialized);
+    connect(this, &QQuickWindow::activeFocusItemChanged, this, [this]() {
+        for (auto &owner : m_keyOwners)
+            if (owner.local && owner.item != showKeyOwner())
+                owner.cancelled = true;
+    });
     qApp->installEventFilter(this);
 }
 
 App::~App()
 {
+    disconnect(this, &QQuickWindow::activeFocusItemChanged, this, nullptr);
     QSettings settings;
 
     stopAllFunctions();
@@ -215,7 +223,10 @@ void App::startup()
     // Command recording. The recorder only ever reads transport events; the
     // Virtual Console reaches it through its instance, like Tardis.
     m_showCommandRecorder = new ShowCommandRecorder(m_doc, this);
+    m_showCommandRecorder->setVirtualConsole(m_virtualConsole);
     rootContext()->setContextProperty("showCommandRecorder", m_showCommandRecorder);
+    m_showEvents = new ShowEventModel(m_doc, m_showCommandRecorder, this);
+    rootContext()->setContextProperty("showEvents", m_showEvents);
     connect(m_showManager, &ShowManager::currentShowIDChanged,
             m_showCommandRecorder, [this](int showID)
     {
@@ -288,6 +299,13 @@ void App::startup()
             m_vdjBridge->attachOS2LPlugin(os2l);
     }
 
+    // Perform resolves a Show for the playing deck without the Show Manager
+    // being open, so Record follows the same target. Connected before the DJ
+    // Manager's own follower: the recorder hands a bound take over first, and
+    // the Show Manager's selection lock then lets the displayed Show follow.
+    if (m_showCommandRecorder != nullptr)
+        m_showCommandRecorder->followPerform(m_vdjBridge->performFsm());
+
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,
                                 m_vdjBridge ? m_vdjBridge->showFactory() : nullptr, this);
@@ -302,14 +320,6 @@ void App::startup()
     // Perform FSM drives the Show Manager read-only state: while Perform is
     // engaged (Armed/Live/Suspended), the Show Manager blocks all mutations.
     // Single writer — nothing else may call setReadOnly.
-    if (m_vdjBridge != nullptr && m_showCommandRecorder != nullptr)
-    {
-        // Perform resolves a Show for the playing deck without the Show Manager
-        // being open, so Record follows the same target.
-        connect(m_vdjBridge->performFsm(), &PerformFsm::activeShowChanged,
-                m_showCommandRecorder, &ShowCommandRecorder::setResolvedShow);
-    }
-
     if (m_vdjBridge != nullptr && m_showManager != nullptr)
     {
         PerformFsm *performFsm = m_vdjBridge->performFsm();
@@ -522,6 +532,48 @@ int App::defaultMask() const
 
 void App::keyPressEvent(QKeyEvent *e)
 {
+    auto held = m_keyOwners.find(e->key());
+    bool firstPress = false;
+    if (held != m_keyOwners.end() && held->cancelled && !e->isAutoRepeat())
+    {
+        m_keyOwners.erase(held);
+        held = m_keyOwners.end();
+    }
+    const bool local = ownsShowKey(e);
+    const bool mayTransfer = ((e->modifiers() == Qt::NoModifier
+                             || e->modifiers() == Qt::ShiftModifier
+                             || e->modifiers() == Qt::AltModifier)
+        && (e->key() == Qt::Key_Left || e->key() == Qt::Key_Right
+            || e->key() == Qt::Key_Space || e->key() == Qt::Key_Return
+            || e->key() == Qt::Key_Enter || e->key() == Qt::Key_F2
+            || e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace))
+        || (e->modifiers() == Qt::ControlModifier
+            && (e->key() == Qt::Key_A || e->key() == Qt::Key_C
+                || e->key() == Qt::Key_V || e->key() == Qt::Key_X));
+    if (held == m_keyOwners.end() && (local || mayTransfer))
+    {
+        held = m_keyOwners.insert(e->key(), {showKeyOwner(), e->modifiers(),
+            m_showManager ? quint32(m_showManager->currentShowID()) : Function::invalidId(),
+            local, false, {}});
+        firstPress = true;
+    }
+    if (held != m_keyOwners.end() && held->local)
+    {
+        if (held->item != showKeyOwner() || !held->item || !held->item->isVisible()
+            || (!firstPress && held->revision != held->item->property("showKeyRevision"))
+            || (m_showManager && held->showId != quint32(m_showManager->currentShowID())))
+            held->cancelled = true;
+        if (!held->cancelled)
+        {
+            e->setModifiers(held->modifiers);
+            QQuickView::keyPressEvent(e);
+            if (firstPress && held->item)
+                held->revision = held->item->property("showKeyRevision");
+        }
+        e->accept();
+        return;
+    }
+
     // If a text input item (e.g. an inline name being edited) currently has
     // focus, let it handle the key press first (e.g. Delete/Backspace to edit
     // text) instead of triggering global shortcuts like function/item deletion
@@ -589,6 +641,33 @@ bool App::isTextInputFocused() const
 
 void App::keyReleaseEvent(QKeyEvent *e)
 {
+    auto held = m_keyOwners.find(e->key());
+    if (held != m_keyOwners.end())
+    {
+        const KeyOwner owner = held.value();
+        if (!e->isAutoRepeat())
+            m_keyOwners.erase(held);
+        if (owner.local)
+        {
+            if (owner.item)
+            {
+                QKeyEvent release(QEvent::KeyRelease, e->key(), owner.modifiers,
+                                  e->text(), e->isAutoRepeat(), e->count());
+                QCoreApplication::sendEvent(owner.item, &release);
+            }
+            e->accept();
+            return;
+        }
+        if (owner.item != activeFocusItem() || owner.modifiers != e->modifiers())
+        {
+            QKeyEvent release(QEvent::KeyRelease, e->key(), owner.modifiers,
+                              e->text(), e->isAutoRepeat(), e->count());
+            if (m_contextManager)
+                m_contextManager->handleKeyRelease(&release);
+            e->accept();
+            return;
+        }
+    }
     e->ignore();
 
     if (m_contextManager && !isTextInputShortcut(e))
@@ -608,9 +687,23 @@ void App::mousePressEvent(QMouseEvent *e)
 
 bool App::event(QEvent *event)
 {
+    if (event->type() == QEvent::ShortcutOverride)
+    {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (m_keyOwners.contains(key->key()) || ownsShowKey(key))
+        {
+            key->accept();
+            return true;
+        }
+    }
+    if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut)
+    {
+        for (auto &owner : m_keyOwners)
+            owner.cancelled = true;
+    }
     if (event->type() == QEvent::Close)
     {
-        if (m_doc->isModified() && m_forceQuit == false)
+        if (closingNeedsConfirmation())
         {
             QMetaObject::invokeMethod(rootObject(), "saveBeforeExit");
             event->ignore();
@@ -620,11 +713,61 @@ bool App::event(QEvent *event)
     return QQuickView::event(event);
 }
 
+bool App::ownsShowKey(QKeyEvent *event) const
+{
+    QQuickItem *focus = activeFocusItem();
+    QQuickItem *scope = focus;
+    while (scope && !scope->property("showKeyScope").toBool())
+        scope = scope->parentItem();
+    // Popup content is visually reparented to the window overlay. Its QObject
+    // ancestry still identifies the Show-local dialog that owns the input.
+    if (!scope)
+        for (QObject *parent = focus; parent; parent = parent->parent())
+            if (parent->property("showKeyScope").toBool())
+            {
+                scope = qobject_cast<QQuickItem *>(parent);
+                break;
+            }
+    if (!scope || !scope->isVisible())
+        return false;
+
+    const int key = event->key();
+    const auto modifiers = event->modifiers();
+    if ((focus->flags() & QQuickItem::ItemAcceptsInputMethod)
+        && (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
+            || key == Qt::Key_Down || key == Qt::Key_Home || key == Qt::Key_End
+            || key == Qt::Key_Delete || key == Qt::Key_Backspace))
+        return true;
+    // Save, Undo and application/context shortcuts keep their existing route.
+    if (modifiers & (Qt::ControlModifier | Qt::MetaModifier))
+        return (modifiers == Qt::ControlModifier
+                && (key == Qt::Key_A || key == Qt::Key_C || key == Qt::Key_V || key == Qt::Key_X));
+    if (modifiers & ~(Qt::ShiftModifier | Qt::AltModifier))
+        return false;
+    if (modifiers & Qt::AltModifier)
+        return key == Qt::Key_Left || key == Qt::Key_Right;
+    if (focus->flags() & QQuickItem::ItemAcceptsInputMethod)
+        return true;
+    return key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
+        || key == Qt::Key_Down || key == Qt::Key_Space || key == Qt::Key_Return
+        || key == Qt::Key_Enter || key == Qt::Key_F2 || key == Qt::Key_Delete
+        || key == Qt::Key_Backspace || key == Qt::Key_Tab || key == Qt::Key_Backtab
+        || key == Qt::Key_Escape || key == Qt::Key_Home || key == Qt::Key_End;
+}
+
+QQuickItem *App::showKeyOwner() const
+{
+    for (QQuickItem *item = activeFocusItem(); item; item = item->parentItem())
+        if (item->property("showKeyOwner").toBool())
+            return item;
+    return activeFocusItem();
+}
+
 bool App::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::Quit)
     {
-        if (m_doc && m_doc->isModified() && rootObject() && m_forceQuit == false)
+        if (m_doc && rootObject() && closingNeedsConfirmation())
         {
             QMetaObject::invokeMethod(rootObject(), "saveBeforeExit");
             event->ignore();
@@ -645,6 +788,14 @@ bool App::eventFilter(QObject *obj, QEvent *event)
     }
 
     return QQuickView::eventFilter(obj, event);
+}
+
+bool App::closingNeedsConfirmation() const
+{
+    if (m_forceQuit)
+        return false;
+
+    return m_doc->isModified() || (m_showCommandRecorder != nullptr && m_showCommandRecorder->isRecording());
 }
 
 void App::slotSceneGraphInitialized()
@@ -862,6 +1013,11 @@ void App::initDoc()
 
 void App::clearDocument()
 {
+    /* The user decided about the recording already: nothing of it may reach
+       the next workspace */
+    if (m_showCommandRecorder != nullptr)
+        m_showCommandRecorder->discardRecording();
+
     if (m_videoProvider)
     {
         delete m_videoProvider;
@@ -1249,6 +1405,7 @@ bool App::saveWorkspace(const QString &fileName)
 
     /* Set the workspace path before saving the new XML. In this way local files
        can be loaded even if the workspace file will be moved */
+    const QString previousPath = m_doc->workspacePath();
     m_doc->setWorkspacePath(QFileInfo(localFilename).absolutePath());
 
     if (saveXML(localFilename) == QFile::NoError)
@@ -1263,6 +1420,7 @@ bool App::saveWorkspace(const QString &fileName)
         return true;
     }
 
+    m_doc->setWorkspacePath(previousPath);
     return false;
 }
 
@@ -1391,17 +1549,22 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
 
 QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 {
-#if defined(Q_OS_ANDROID)
-    const QString outputFileName(fileName);
-#else
-    QString tempFileName(fileName);
-    tempFileName += ".temp";
-    const QString outputFileName(tempFileName);
-#endif
+    /* A save stores the recording's accepted input and ends its Shows at their
+       content; recording and playback go on. The Doc is marked unmodified
+       below, so nothing accepted may be left unpublished. */
+    if (autosave == false && m_showCommandRecorder != nullptr && m_showCommandRecorder->checkpoint() == false)
+        return QFile::AbortError;
 
-    QFile file(outputFileName);
+#if defined(Q_OS_ANDROID)
+    QFile file(fileName);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) == false)
         return file.error();
+#else
+    /* The existing file is replaced only once the new one is complete */
+    QSaveFile file(fileName);
+    if (file.open(QIODevice::WriteOnly) == false)
+        return file.error();
+#endif
 
     QXmlStreamWriter doc(&file);
     doc.setAutoFormatting(true);
@@ -1442,29 +1605,23 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 
     if (doc.hasError())
     {
-        qWarning() << Q_FUNC_INFO << "Error writing XML to" << outputFileName;
+        qWarning() << Q_FUNC_INFO << "Error writing XML to" << fileName;
+#if defined(Q_OS_ANDROID)
         file.close();
-#if !defined(Q_OS_ANDROID)
-        file.remove();
+#else
+        file.cancelWriting();
 #endif
         return QFile::WriteError;
     }
 
+#if defined(Q_OS_ANDROID)
     file.close();
     if (file.error() != QFile::NoError)
         return file.error();
-
-#if !defined(Q_OS_ANDROID)
-    // Save to actual requested file name
-    QFile currFile(fileName);
-    if (currFile.exists() && !currFile.remove())
+#else
+    if (file.commit() == false)
     {
-        qWarning() << "Could not erase" << fileName;
-        return currFile.error();
-    }
-    if (!file.rename(fileName))
-    {
-        qWarning() << "Could not rename" << tempFileName << "to" << fileName;
+        qWarning() << Q_FUNC_INFO << "Could not save" << fileName;
         return file.error();
     }
 #endif

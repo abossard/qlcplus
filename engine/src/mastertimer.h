@@ -112,6 +112,9 @@ public:
     /** Get a thread-safe copy of running function IDs */
     QList<quint32> runningFunctionIds() const;
 
+    /** Thread-safe: function waits in the start queue for its next preRun */
+    bool isStartQueued(const Function *function) const;
+
 signals:
     /** Tells that the list of running functions has changed */
     void functionListChanged();

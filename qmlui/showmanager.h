@@ -60,6 +60,7 @@ class ShowManager final : public PreviewContext
     Q_PROPERTY(double snapGuideX READ snapGuideX WRITE setSnapGuideX NOTIFY snapGuideXChanged)
     Q_PROPERTY(bool isPlaying READ isPlaying NOTIFY isPlayingChanged)
     Q_PROPERTY(bool isPaused READ isPaused NOTIFY isPausedChanged)
+    Q_PROPERTY(bool pausing READ pausing NOTIFY pausingChanged)
     Q_PROPERTY(int showDuration READ showDuration NOTIFY showDurationChanged)
 
     Q_PROPERTY(Show::TimeDivision timeDivision READ timeDivision WRITE setTimeDivision NOTIFY timeDivisionChanged)
@@ -101,7 +102,8 @@ public:
     bool readOnly() const;
     void setReadOnly(bool readOnly);
 
-    /** Set the ID of the Show Function to edit */
+    /** Set the ID of the Show Function to edit. Rejected, changing nothing,
+     *  while a recording take is bound to another Show */
     void setCurrentShowID(int currentShowID);
 
     /** Return the name of the Show Function being edited */
@@ -148,6 +150,9 @@ public:
     /** Flag that indicates if the Show playback is currently paused */
     bool isPaused() const;
 
+    /** Paused, while the Show still completes crossed work it owes */
+    bool pausing() const;
+
 signals:
     void currentShowIDChanged(int currentShowID);
     void isEditingChanged();
@@ -158,10 +163,14 @@ signals:
     void snapGuideXChanged();
     void isPlayingChanged(bool playing);
     void isPausedChanged(bool paused);
+    void pausingChanged(bool pausing);
     void showDurationChanged(int showDuration);
 
 private:
     void setPlaybackState(bool playing, bool paused);
+
+    /** pausing follows the current Show: paused while it owes crossed work */
+    void updatePausing();
 
     /** Track if cursor is interactively being moved during pause */
     bool m_cursorMovedDuringPause;
@@ -169,6 +178,7 @@ private:
     /** Cached playback state for immediate UI updates */
     bool m_isPlaying;
     bool m_isPaused;
+    bool m_pausing = false;
 
     /** A reference to the Show Function being edited */
     Show *m_currentShow;
@@ -370,6 +380,8 @@ public:
 
     /** Set the duration of a ShowFunction item (if not overlapping) */
     Q_INVOKABLE bool setShowItemDuration(ShowFunction *sf, int duration);
+    /** Apply a common real-time delta to the exact selection, or return a refusal reason. */
+    Q_INVOKABLE QString shiftSelectedItems(int direction, double milliseconds, bool endpoint);
 
     /** Insert a time segment in a ShowFunction item, applying type-specific rules */
     Q_INVOKABLE bool insertShowItemTime(ShowFunction *sf, int length);
@@ -431,6 +443,7 @@ protected slots:
     void slotShowFinished();
     void slotShowStarted();
     void slotShowStopped();
+    void slotCommandWorkDrained();
 
 private:
     // Timeline mapping helpers

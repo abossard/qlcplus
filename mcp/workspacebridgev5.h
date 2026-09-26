@@ -33,6 +33,7 @@ public:
     bool newWorkspace() override;
     bool loadWorkspace(const QString &fileName) override;
     bool saveWorkspace(const QString &fileName) override;
+    bool isRecording() const override;
 
 private:
     App *m_app;

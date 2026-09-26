@@ -168,7 +168,7 @@ FlowWidgetItem
             faSource: FontAwesome.fa_xmark
             faColor: UISettings.bgControl
             bgColor: sliderObj && sliderObj.isOverriding ? "red" : UISettings.bgLight
-            onClicked: if (sliderObj) sliderObj.isOverriding = false
+            onClicked: if (sliderObj) sliderObj.requestUserReset()
         }
 
         IconButton
@@ -178,8 +178,8 @@ FlowWidgetItem
             faSource: FontAwesome.fa_star
             faColor: "deepskyblue"
             tooltip: qsTr("Flash the controlled Function")
-            onPressed: { if (sliderObj) sliderObj.flashFunction(true) }
-            onReleased: { if (sliderObj) sliderObj.flashFunction(false) }
+            onPressed: { if (sliderObj) sliderObj.requestUserFlash(true) }
+            onReleased: { if (sliderObj) sliderObj.requestUserFlash(false) }
         }
     }
 

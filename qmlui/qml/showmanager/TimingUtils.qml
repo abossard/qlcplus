@@ -53,6 +53,19 @@ Rectangle
     property bool isBeatBased: tempoType === QLCFunction.Beats
     property int beatsDivision: showManager.beatsDivision > 0 ? showManager.beatsDivision : 4
 
+    component TimingButton: GenericButton
+    {
+        activeFocusOnTab: true
+        border.color: activeFocus ? "#f1c40f" : UISettings.bgStrong
+        Keys.onPressed: (event) => {
+            if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                if (!event.isAutoRepeat)
+                    clicked(Qt.LeftButton)
+                event.accepted = true
+            }
+        }
+    }
+
     function refreshSelection()
     {
         selectedItems = showManager.selectedItemRefs()
@@ -233,7 +246,15 @@ Rectangle
         {
             activeTarget = target
             activeField = fieldId
+            Qt.callLater(function() {
+                (isBeatBased ? overlayBarsSpin : overlayHoursSpin).forceActiveFocus()
+            })
         }
+    }
+
+    function focusFirst()
+    {
+        (hasSelection ? startTimeButton : tempoSpin).forceActiveFocus()
     }
 
     function alignStartToCursor()
@@ -445,6 +466,8 @@ Rectangle
 
                     CustomSpinBox
                     {
+                        id: tempoSpin
+                        focusPolicy: Qt.StrongFocus
                         Layout.fillWidth: true
                         from: 0
                         to: 999
@@ -467,7 +490,7 @@ Rectangle
                 {
                     width: panelContainer.width
 
-                    GenericButton
+                    TimingButton
                     {
                         width: parent.width
                         enabled: hasSelection && !showManager.readOnly
@@ -475,7 +498,7 @@ Rectangle
                         onClicked: alignStartToCursor()
                     }
 
-                    GenericButton
+                    TimingButton
                     {
                         width: parent.width
                         enabled: hasSelection && !showManager.readOnly
@@ -527,9 +550,11 @@ Rectangle
                             label: qsTr("Start time")
                         }
 
-                        GenericButton
+                        TimingButton
                         {
                             id: startTimeButton
+                            focusPolicy: Qt.StrongFocus
+                            objectName: "timingStartButton"
                             Layout.fillWidth: true
                             opacity: activeField === fieldStart ? 0 : 1
                             enabled: hasSelection && activeField !== fieldStart && !showManager.readOnly
@@ -544,9 +569,10 @@ Rectangle
                             label: qsTr("End time")
                         }
 
-                        GenericButton
+                        TimingButton
                         {
                             id: endTimeButton
+                            focusPolicy: Qt.StrongFocus
                             Layout.fillWidth: true
                             opacity: activeField === fieldEnd ? 0 : 1
                             enabled: hasSelection && activeField !== fieldEnd && !showManager.readOnly
@@ -561,9 +587,10 @@ Rectangle
                             label: qsTr("Duration")
                         }
 
-                        GenericButton
+                        TimingButton
                         {
                             id: durationButton
+                            focusPolicy: Qt.StrongFocus
                             Layout.fillWidth: true
                             opacity: activeField === fieldDuration ? 0 : 1
                             enabled: hasSelection && activeField !== fieldDuration && !showManager.readOnly
@@ -605,7 +632,7 @@ Rectangle
                             label: qsTr("Length")
                         }
 
-                        GenericButton
+                        TimingButton
                         {
                             id: lengthButton
                             Layout.fillWidth: true
@@ -618,7 +645,7 @@ Rectangle
                         }
                     }
 
-                    GenericButton
+                    TimingButton
                     {
                         id: insertButton
                         anchors.top: cutInsertGrid.bottom
@@ -630,7 +657,7 @@ Rectangle
                         onClicked: insertTime()
                     }
 
-                    GenericButton
+                    TimingButton
                     {
                         id: cutButton
                         anchors.top: insertButton.bottom
@@ -649,6 +676,13 @@ Rectangle
     Item
     {
         id: timeEditOverlay
+        Keys.onEscapePressed: {
+            var previous = activeTarget
+            activeField = fieldNone
+            activeTarget = null
+            if (previous)
+                Qt.callLater(function() { previous.forceActiveFocus() })
+        }
         visible: panelContainer.isOverlayField(activeField) && activeTarget && panelContainer.overlayHost
         z: 2
 
@@ -661,6 +695,7 @@ Rectangle
             CustomSpinBox
             {
                 id: overlayHoursSpin
+                objectName: "timingHours"
                 Layout.fillWidth: true
                 Layout.preferredHeight: timeEditOverlay.height
                 from: (panelContainer.isTimingField(activeField) && hasMultipleSelection) ? -999 : 0
@@ -694,6 +729,7 @@ Rectangle
             CustomSpinBox
             {
                 id: overlayMillisSpin
+                objectName: "timingMillis"
                 Layout.fillWidth: true
                 Layout.preferredHeight: timeEditOverlay.height
                 from: (panelContainer.isTimingField(activeField) && hasMultipleSelection) ? -999 : 0

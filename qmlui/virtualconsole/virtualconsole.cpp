@@ -52,8 +52,8 @@
 namespace
 {
 /** Provenance of a mapped external event, taken from the plugin actually
- *  patched to its input universe. Only a MIDI control surface is a person
- *  operating something: ArtNet, E1.31, OSC, loopback and audio-driven feeds
+ *  patched to its input universe. Only a MIDI or OSC control surface is a
+ *  person operating something: ArtNet, E1.31, loopback and audio-driven feeds
  *  reach the very same dispatch and must not be mistaken for user input. */
 ShowCommandOrigin inputOriginForUniverse(Doc *doc, quint32 universe)
 {
@@ -63,6 +63,8 @@ ShowCommandOrigin inputOriginForUniverse(Doc *doc, quint32 universe)
     InputPatch *patch = doc->inputOutputMap()->inputPatch(universe);
     if (patch != nullptr && patch->pluginName() == QLatin1String("MIDI"))
         return ShowCommandOrigin::Midi;
+    if (patch != nullptr && patch->pluginName() == QLatin1String("OSC"))
+        return ShowCommandOrigin::Osc;
 
     return ShowCommandOrigin::Programmatic;
 }
@@ -597,6 +599,7 @@ void VirtualConsole::addWidgetToMap(VCWidget* widget)
         if (!m_widgetsMap.contains(widget->id()))
         {
             m_widgetsMap.insert(widget->id(), widget);
+            emit widgetsChanged();
             return;
         }
 
@@ -616,6 +619,7 @@ void VirtualConsole::addWidgetToMap(VCWidget* widget)
     qDebug() << Q_FUNC_INFO << "id=" << wid;
     widget->setID(wid);
     m_widgetsMap.insert(wid, widget);
+    emit widgetsChanged();
 }
 
 void VirtualConsole::removeWidgetFromMap(VCWidget *widget)
@@ -623,7 +627,8 @@ void VirtualConsole::removeWidgetFromMap(VCWidget *widget)
     if (widget == nullptr)
         return;
 
-    m_widgetsMap.remove(widget->id());
+    if (m_widgetsMap.remove(widget->id()) > 0)
+        emit widgetsChanged();
 }
 
 VCWidget *VirtualConsole::widget(quint32 id) const
@@ -632,6 +637,20 @@ VCWidget *VirtualConsole::widget(quint32 id) const
         return nullptr;
 
     return m_widgetsMap.value(id, nullptr);
+}
+
+QList<VCWidget *> VirtualConsole::widgetsByRecordingId(const QUuid &id) const
+{
+    QList<VCWidget *> matches;
+    if (id.isNull())
+        return matches;
+
+    for (VCWidget *widget : m_widgetsMap)
+    {
+        if (widget->recordingId() == id)
+            matches.append(widget);
+    }
+    return matches;
 }
 
 void VirtualConsole::setWidgetSelection(quint32 wID, QQuickItem *item, bool enable, bool multi)
@@ -1012,6 +1031,8 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
         delete w;
     }
     m_itemsMap.clear();
+    if (IDList.isEmpty() == false)
+        emit widgetsChanged();
 }
 
 void VirtualConsole::selectAll()

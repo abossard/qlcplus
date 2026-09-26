@@ -109,17 +109,29 @@ std::optional<std::string> liveOutputGuard(Doc *doc, const Json &args)
 
 /**
  * Both load and new throw away whatever is in memory. Refuse when the project
- * has unsaved edits unless the caller says so explicitly — an agent cannot see
- * the "unsaved changes" dialog a human would get here.
+ * has unsaved edits, or while command recording is armed (replacing the project
+ * ends it, even after a save), unless the caller says so explicitly — an agent
+ * cannot see the dialog a human would get here.
  */
-std::optional<std::string> unsavedGuard(Doc *doc, const Json &args, const char *action)
+std::optional<std::string> unsavedGuard(Doc *doc, WorkspaceBridge *wsBridge, const Json &args, const char *action)
 {
     if (args.contains("discardUnsaved") && !args.at("discardUnsaved").is_boolean())
         return Json({{"error", "discardUnsaved must be a boolean"}}).dump();
-    if (!doc->isModified())
+    const bool recording = wsBridge->isRecording();
+    if (!doc->isModified() && !recording)
         return std::nullopt;
     if (args.value("discardUnsaved", false))
         return std::nullopt;
+
+    if (recording)
+    {
+        return Json({
+            {"error", std::string("command recording is active — turn Record off first, or pass "
+                                  "discardUnsaved:true to end it and ") + action + " anyway"},
+            {"recording", true},
+            {"modified", doc->isModified()}
+        }).dump();
+    }
 
     return Json({
         {"error", std::string("workspace has unsaved changes — save_workspace first, or pass "
@@ -198,8 +210,8 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
                     return Json({{"error", "workspace has never been saved — provide a path"}}).dump();
             }
 
-            // App::saveXML removes the target before renaming the new file over
-            // it, so an unrelated project at this path would be destroyed.
+            // App::saveXML replaces the target with the new file, so an
+            // unrelated project at this path would be destroyed.
             const QString target = path.endsWith(QStringLiteral(".qxw")) ? path : path + ".qxw";
             const QString current = wsBridge->currentFileName();
             if (QFileInfo::exists(target) && target != current && !args.value("overwrite", false))
@@ -243,7 +255,8 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
         Json{{"type", "object"}, {"properties", {
             {"path", {{"type", "string"}, {"description", "Absolute path of the .qxw project to open"}}},
             {"discardUnsaved", {{"type", "boolean"}, {"description",
-                "Required to proceed when the current workspace has unsaved changes. Default false."}}},
+                "Required to proceed when the current workspace has unsaved changes or command "
+                "recording is active (saving keeps recording). Default false."}}},
             {"interruptLiveOutput", {{"type", "boolean"}, {"description",
                 "Required to proceed while functions are running. Default false."}}}
         }}, {"required", {"path"}}},
@@ -262,7 +275,7 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
 
             if (auto guard = workspaceFileGuard(localPath))
                 return *guard;
-            if (auto guard = unsavedGuard(doc, args, "load"))
+            if (auto guard = unsavedGuard(doc, wsBridge, args, "load"))
                 return *guard;
             if (auto guard = liveOutputGuard(doc, args))
                 return *guard;
@@ -280,8 +293,8 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
         std::nullopt,
         std::string("Open a .qxw project, replacing everything currently loaded. The file is "
                      "validated as a workspace first, because loading clears the current project "
-                     "before parsing and cannot roll back. Refuses on unsaved changes unless "
-                     "discardUnsaved is true, and while functions are running unless "
+                     "before parsing and cannot roll back. Refuses on unsaved changes or active "
+                     "command recording unless discardUnsaved is true, and while functions are running unless "
                      "interruptLiveOutput is true. The loaded project's startup function, if it "
                      "has one, begins playing."),
         std::nullopt
@@ -293,7 +306,8 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
         "new_workspace",
         Json{{"type", "object"}, {"properties", {
             {"discardUnsaved", {{"type", "boolean"}, {"description",
-                "Required to proceed when the current workspace has unsaved changes. Default false."}}},
+                "Required to proceed when the current workspace has unsaved changes or command "
+                "recording is active (saving keeps recording). Default false."}}},
             {"interruptLiveOutput", {{"type", "boolean"}, {"description",
                 "Required to proceed while functions are running. Default false."}}}
         }}},
@@ -303,7 +317,7 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
             auto err = validateFields(args, {"discardUnsaved", "interruptLiveOutput"});
             if (!err.empty()) return err;
 
-            if (auto guard = unsavedGuard(doc, args, "reset"))
+            if (auto guard = unsavedGuard(doc, wsBridge, args, "reset"))
                 return *guard;
             if (auto guard = liveOutputGuard(doc, args))
                 return *guard;
@@ -316,7 +330,7 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
         },
         std::nullopt,
         std::string("Discard the current project and start an empty workspace. Refuses on unsaved "
-                     "changes unless discardUnsaved is true, and while functions are running "
+                     "changes or active command recording unless discardUnsaved is true, and while functions are running "
                      "unless interruptLiveOutput is true."),
         std::nullopt
     )

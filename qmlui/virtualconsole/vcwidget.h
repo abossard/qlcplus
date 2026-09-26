@@ -26,6 +26,7 @@
 #include <QColor>
 #include <QRect>
 #include <QFont>
+#include <QUuid>
 
 #include "qlcfile.h"
 #include "doc.h"
@@ -35,6 +36,7 @@
 #define KXMLQLCVCFrameStyle QStringLiteral("FrameStyle")    // LEGACY
 
 #define KXMLQLCVCWidgetID           QStringLiteral("ID")
+#define KXMLQLCVCWidgetRecordingID  QStringLiteral("RecordingID")
 #define KXMLQLCVCWidgetPage         QStringLiteral("Page")
 #define KXMLQLCVCWidgetAppearance   QStringLiteral("Appearance")
 
@@ -173,8 +175,16 @@ public:
      */
     static quint32 invalidId();
 
+    /** Persistent identity a VC performance recording refers to. Null until a
+     *  recording first needs it; never copied, so a copy gets its own. Only
+     *  buttons and sliders load it back. */
+    QUuid recordingId() const;
+    /** The existing identity, or a fresh one that marks the workspace modified */
+    QUuid ensureRecordingId();
+
 private:
     quint32 m_id;
+    QUuid m_recordingId;
 
     /*********************************************************************
      * Type
@@ -667,6 +677,13 @@ public:
 
 protected:
     bool loadXMLCommon(QXmlStreamReader &root);
+
+    /**
+     * Read the RecordingID attribute of this widget's XML tag. An absent one
+     * leaves the identity alone; a malformed or null one fails without
+     * changing it.
+     */
+    bool loadXMLRecordingId(QXmlStreamReader &root);
 
     /**
      * Read this widget's appearance XML tag, to load properties

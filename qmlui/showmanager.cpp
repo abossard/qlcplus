@@ -26,6 +26,7 @@
 #include "showmanager.h"
 #include "audio.h"
 #include "sequence.h"
+#include "showcommandrecorder.h"
 #include "tardis.h"
 #include "chaser.h"
 #include "scene.h"
@@ -118,6 +119,13 @@ void ShowManager::setReadOnly(bool readOnly)
 
 void ShowManager::setCurrentShowID(int currentShowID)
 {
+    // while a take is bound, only the automatic handover moves the Show,
+    // and it reaches the recorder first
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder != nullptr && recorder->isRecording() && recorder->boundShowId() != Function::invalidId() &&
+        recorder->boundShowId() != quint32(currentShowID))
+        return;
+
     if (m_currentShow != nullptr)
     {
         if (m_currentShow->id() == (quint32)currentShowID)
@@ -125,6 +133,10 @@ void ShowManager::setCurrentShowID(int currentShowID)
             setPlaybackState(m_currentShow->isRunning(), m_currentShow->isPaused());
             if (m_currentShow->syncSource() == ShowRunner::External)
                 slotTimeChanged(m_currentShow->externalElapsedTime());
+            // armed without a take, e.g. after an automatic gap: selecting the
+            // displayed Show is the first manual selection
+            if (recorder != nullptr && recorder->isRecording() && recorder->boundShowId() == Function::invalidId())
+                emit currentShowIDChanged(currentShowID);
             return;
         }
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));
@@ -133,6 +145,7 @@ void ShowManager::setCurrentShowID(int currentShowID)
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
+        disconnect(m_currentShow, &Show::commandWorkDrained, this, &ShowManager::slotCommandWorkDrained);
     }
 
     m_currentShow = qobject_cast<Show*>(m_doc->function(currentShowID));
@@ -151,6 +164,7 @@ void ShowManager::setCurrentShowID(int currentShowID)
         // playback may be started externally (VDJ Perform mode): track it
         connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
+        connect(m_currentShow, &Show::commandWorkDrained, this, &ShowManager::slotCommandWorkDrained);
         emit showDurationChanged(m_currentShow->totalDuration());
         emit showNameChanged(m_currentShow->name());
         emit bpmNumberChanged(m_currentShow->timeDivisionBPM());
@@ -559,6 +573,14 @@ void ShowManager::setCurrentTime(int currentTime)
         m_cursorMovedDuringPause = true;
 
     m_currentTime = currentTime;
+
+    // a stopped or paused cursor is where accepted input happens, without any
+    // seek; a running or externally driven clock stays authoritative
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder != nullptr && m_currentShow != nullptr && m_currentShow->syncSource() == ShowRunner::Autonomous &&
+        (m_currentShow->isRunning() == false || m_currentShow->isPaused()))
+        recorder->setHostCursor(m_currentShow->id(), quint32(qMax(0, currentTime)));
+
     emit currentTimeChanged(currentTime);
 }
 
@@ -724,6 +746,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         connect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         connect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         connect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
+        connect(m_currentShow, &Show::commandWorkDrained, this, &ShowManager::slotCommandWorkDrained);
         emit currentShowIDChanged(m_currentShow->id());
         emit showNameChanged(m_currentShow->name());
         emit isEditingChanged();
@@ -1105,6 +1128,104 @@ bool ShowManager::setShowItemDuration(ShowFunction *sf, int duration)
     sf->setDuration(duration);
 
     return true;
+}
+
+QString ShowManager::shiftSelectedItems(int direction, double milliseconds, bool endpoint)
+{
+    if (m_readOnly || !isEditing())
+        return tr("The Show is read only");
+    if (!m_currentShow || m_selectedItems.isEmpty())
+        return tr("Select timeline items first");
+    if (!std::isfinite(milliseconds) || milliseconds <= 0 || milliseconds > INT_MAX
+        || (direction != -1 && direction != 1))
+        return tr("Choose a positive Move by time delta");
+
+    struct Target
+    {
+        ShowFunction *item;
+        Track *track;
+        quint32 start;
+        quint32 duration;
+        double unitsPerMs;
+    };
+    QList<Target> targets;
+    for (const SelectedShowItem &selected : std::as_const(m_selectedItems))
+    {
+        ShowFunction *sf = selected.m_showFunc;
+        Track *track = nullptr;
+        for (Track *candidate : m_currentShow->tracks())
+            if (candidate->showFunctions().contains(sf))
+                track = candidate;
+        if (!track)
+            return tr("A selected item no longer belongs to this Show");
+        Function *function = m_doc->function(sf->functionID());
+        if (!function || sf->isLocked())
+            return tr("A selected item is locked or its Function is missing");
+        const bool beats = function->tempoType() == Function::Beats;
+        if (beats && bpmNumber() <= 0)
+            return tr("Beat-based items need a Show tempo");
+        const double scale = beats ? bpmNumber() / 60.0 : 1.0;
+        const double amount = milliseconds * scale;
+        if (!std::isfinite(amount) || amount > INT_MAX)
+            return tr("The time delta exceeds the item's native range");
+        const qint64 delta = direction * qRound64(amount);
+        if (delta == 0)
+            return tr("The time delta is smaller than this item's native unit");
+        if (endpoint && (sf->duration() == 0 || sf->duration() > INT_MAX))
+            return tr("End adjustment needs a finite explicit scheduling duration");
+        const qint64 start = qint64(sf->startTime()) + (endpoint ? 0 : delta);
+        const qint64 duration = qint64(sf->duration()) + (endpoint ? delta : 0);
+        if (start < 0 || start > INT_MAX || duration < (endpoint ? (beats ? 125 : 1) : 0)
+            || duration > INT_MAX || start + duration > INT_MAX)
+            return tr("The selection would exceed the timeline bounds or minimum duration");
+        targets.append({sf, track, quint32(start), quint32(duration), scale});
+    }
+
+    // Compare the final selection, not an intermediate state where its neighbours
+    // have not moved yet. Publish nothing until every target passes.
+    for (const Target &target : std::as_const(targets))
+    {
+        const double start = target.start / target.unitsPerMs;
+        const double end = (double(target.start) + target.duration) / target.unitsPerMs;
+        for (ShowFunction *other : target.track->showFunctions())
+        {
+            if (other == target.item)
+                continue;
+            Function *function = m_doc->function(other->functionID());
+            if (!function)
+                continue;
+            double scale = function->tempoType() == Function::Beats ? bpmNumber() / 60.0 : 1.0;
+            if (scale <= 0)
+                return tr("Beat-based items need a Show tempo");
+            quint32 otherStart = other->startTime(), otherDuration = other->duration();
+            for (const Target &replacement : std::as_const(targets))
+                if (replacement.item == other)
+                {
+                    otherStart = replacement.start;
+                    otherDuration = replacement.duration;
+                    break;
+                }
+            if (start < (double(otherStart) + otherDuration) / scale && otherStart / scale < end)
+                return tr("The selection would overlap another item");
+        }
+    }
+    for (const Target &target : std::as_const(targets))
+    {
+        if (endpoint)
+        {
+            Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetDuration,
+                target.item->id(), target.item->duration(), target.duration);
+            target.item->setDuration(target.duration);
+        }
+        else
+        {
+            Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetStartTime,
+                target.item->id(), target.item->startTime(), target.start);
+            target.item->setStartTime(target.start);
+        }
+    }
+    m_doc->setModified();
+    return {};
 }
 
 quint32 ShowManager::itemRelativeTimeFromCursor(const ShowFunction *sf, int cursorTime) const
@@ -1657,6 +1778,7 @@ void ShowManager::resetContents()
         disconnect(m_currentShow, SIGNAL(showFinished()), this, SLOT(slotShowFinished()));
         disconnect(m_currentShow, SIGNAL(running(quint32)), this, SLOT(slotShowStarted()));
         disconnect(m_currentShow, SIGNAL(stopped(quint32)), this, SLOT(slotShowStopped()));
+        disconnect(m_currentShow, &Show::commandWorkDrained, this, &ShowManager::slotCommandWorkDrained);
     }
 
     m_currentShow = nullptr;
@@ -1793,17 +1915,14 @@ void ShowManager::playShow()
 
     if (m_currentShow->isPaused())
     {
+        // a moved cursor is a seek of the running traversal, never a restart:
+        // requested first, so no paused tick sees the old traversal resume
         if (m_cursorMovedDuringPause)
         {
-            m_currentShow->stop(FunctionParent::master());
-            m_currentShow->stopAndWait();
             m_cursorMovedDuringPause = false;
-            m_currentShow->start(m_doc->masterTimer(), FunctionParent::master(), m_currentTime);
+            m_currentShow->requestSeek(quint32(m_currentTime));
         }
-        else
-        {
-            m_currentShow->setPause(false);
-        }
+        m_currentShow->setPause(false);
 
         setPlaybackState(true, false);
         return;
@@ -1827,12 +1946,7 @@ void ShowManager::stopShow()
     }
 
     setPlaybackState(false, false);
-
-    if (m_currentTime != 0)
-    {
-        m_currentTime = 0;
-        emit currentTimeChanged(m_currentTime);
-    }
+    setCurrentTime(0);
 }
 
 bool ShowManager::isPlaying() const
@@ -1843,6 +1957,21 @@ bool ShowManager::isPlaying() const
 bool ShowManager::isPaused() const
 {
     return m_isPaused;
+}
+
+bool ShowManager::pausing() const
+{
+    return m_pausing;
+}
+
+void ShowManager::updatePausing()
+{
+    const bool pausing = m_isPaused && m_currentShow != nullptr && m_currentShow->commandWorkPending();
+    if (m_pausing == pausing)
+        return;
+
+    m_pausing = pausing;
+    emit pausingChanged(m_pausing);
 }
 
 QColor ShowManager::itemsColor() const
@@ -2039,6 +2168,13 @@ void ShowManager::slotShowStopped()
     setPlaybackState(false, false);
 }
 
+void ShowManager::slotCommandWorkDrained()
+{
+    // queued from the timer thread: a Show no longer selected changes nothing
+    if (sender() == m_currentShow)
+        updatePausing();
+}
+
 void ShowManager::setPlaybackState(bool playing, bool paused)
 {
     if (playing == false)
@@ -2055,6 +2191,7 @@ void ShowManager::setPlaybackState(bool playing, bool paused)
         m_isPaused = paused;
         emit isPausedChanged(m_isPaused);
     }
+    updatePausing();
 }
 
 bool ShowManager::checkOverlapping(Track *track, ShowFunction *sourceFunc,

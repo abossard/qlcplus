@@ -186,6 +186,8 @@ SidePanel
     {
         if (item.hasOwnProperty("functionID"))
             item.functionID = ID
+        if (inShowManager && loaderSource === "qrc:/TimingUtils.qml" && timeToolButton.activeFocus)
+            Qt.callLater(item.focusFirst)
     }
 
     FileDialog
@@ -276,6 +278,8 @@ SidePanel
             IconButton
             {
                 id: funcManagerButton
+                Accessible.id: "functionManagerToggle"
+                Accessible.name: qsTr("Function Manager")
                 z: 2
                 width: iconSize
                 height: iconSize
@@ -297,13 +301,15 @@ SidePanel
             IconButton
             {
                 id: timeToolButton
+                objectName: "timingSettingsButton"
                 visible: inShowManager
                 z: 2
                 width: iconSize
                 height: iconSize
                 faSource: FontAwesome.fa_stopwatch
                 faColor: "turquoise"
-                tooltip: ShortcutUtils.withShortcut(qsTr("Timing Settings"), "Ctrl+]")
+                tooltip: qsTr("Timing Settings") + "\n"
+                    + ShortcutUtils.withShortcut(qsTr("Toggle the open panel"), "Ctrl+]")
                 checkable: true
                 onToggled:
                 {

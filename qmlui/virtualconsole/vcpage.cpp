@@ -23,6 +23,7 @@
 #include <QXmlStreamWriter>
 
 #include "previewcontext.h"
+#include "showcommandrecorder.h"
 
 VCPage::VCPage(QQuickView *view, Doc *doc, VirtualConsole *vc, int pageIndex, QObject *parent)
     : VCFrame(doc, vc, parent)
@@ -284,6 +285,21 @@ QList<quint32> VCPage::pageInputSources()
     return list;
 }
 
+namespace
+{
+/** Diagnostics: why page dispatch did not pass a mapped input on */
+void traceRejectedInput(VCWidget *widget, bool visible, bool enabled, bool samePage, ShowCommandOrigin origin)
+{
+    if (ShowEventLog::generation() == 0)
+        return;
+    const char *reason = !visible ? QT_TRANSLATE_NOOP("ShowCommandRecorder", "control not visible")
+                       : !enabled ? QT_TRANSLATE_NOOP("ShowCommandRecorder", "control disabled")
+                       : !samePage ? QT_TRANSLATE_NOOP("ShowCommandRecorder", "input mapped to another page")
+                                   : QT_TRANSLATE_NOOP("ShowCommandRecorder", "control is being edited");
+    ShowCommandRecorder::traceInput(widget, origin, ShowEventLog::Outcome::Ignored, reason);
+}
+} // namespace
+
 void VCPage::inputValueChanged(quint32 inputSourceKey, uchar value, ShowCommandOrigin origin)
 {
     /** Here is where the magic happens.
@@ -313,6 +329,11 @@ void VCPage::inputValueChanged(quint32 inputSourceKey, uchar value, ShowCommandO
             else
                 match.second->deliverInput(match.first->id(), value, origin);
         }
+        else
+        {
+            traceRejectedInput(match.second, passVisibility, passDisable,
+                               match.first->page() == match.second->page(), origin);
+        }
     }
 }
 
@@ -336,6 +357,11 @@ void VCPage::inputValueChangedGlobal(quint32 inputSourceKey, uchar value, ShowCo
                 match.second->deliverSourceUpdate(match.first.data(), value, origin);
             else
                 match.second->deliverInput(match.first->id(), value, origin);
+        }
+        else
+        {
+            traceRejectedInput(match.second, passVisibility, passDisable,
+                               match.first->page() == match.second->page(), origin);
         }
     }
 }
@@ -477,6 +503,10 @@ void VCPage::handleKeyEvent(QKeySequence &seq, bool pressed)
             // TODO: match frame page??
             match.second->deliverInput(match.first, pressed ? 255 : 0, ShowCommandOrigin::Keyboard);
         }
+        else
+        {
+            traceRejectedInput(match.second, passVisibility, passDisable, true, ShowCommandOrigin::Keyboard);
+        }
     }
 }
 
@@ -494,6 +524,10 @@ void VCPage::handleKeyEventGlobal(QKeySequence &seq, bool pressed)
             match.second->isEditing() == false)
         {
             match.second->deliverInput(match.first, pressed ? 255 : 0, ShowCommandOrigin::Keyboard);
+        }
+        else
+        {
+            traceRejectedInput(match.second, passVisibility, passDisable, true, ShowCommandOrigin::Keyboard);
         }
     }
 }

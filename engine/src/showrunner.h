@@ -68,6 +68,10 @@ public:
 
     void write(MasterTimer *timer);
 
+    /** While paused: dispatch the crossed work still owed, and nothing else.
+     *  Work a seek or stop cancelled is dropped instead of waited for. */
+    void drainCommands();
+
     /** Set the time source for show progression. */
     void setSyncSource(SyncSource source);
 
@@ -141,7 +145,8 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    void seekTo(quint32 newTime);
+    /** requested: consuming Show::requestSeek, not an external clock jump */
+    void seekTo(quint32 newTime, bool requested);
 
     void syncPerformAudioSuppression();
     bool isAudioFunction(const Function *function) const;
@@ -162,11 +167,26 @@ private:
     /** Re-read the published track only when the Show republished it */
     void refreshCommandTrack();
 
+    /** Drop the owed work of a traversal a discarded seek request cancelled.
+     *  The position, owned playback and live ids stay: no seek happens. */
+    void dropDiscardedTraversal();
+
     /** Apply the commands this position is due for, in authored order.
      *  A stalled seek restart postpones the whole traversal by a tick. */
     void processCommands(bool traversalStalled);
 
+    /** A new traversal catches up on its prefix, rather than restoring legacy
+     *  values, when the track holds any VC record and an executor applies them */
+    bool commandCatchUp() const;
+
     void applyCommandEffect(const ShowCommand &cmd);
+
+    /** Crossed effects in authored order: legacy ones run here, contiguous VC
+     *  runs go to the GUI as one batch, and whatever follows a batch waits
+     *  until it is acknowledged. While catching up, whatever follows a legacy
+     *  Start or Stop also waits until its target settled. Retried on every
+     *  write. */
+    void dispatchCommandEffects(const QVector<ShowCommand> &effects);
 
     /** Keep the initialization a Virtual Console Start performs (chaser step
      *  reset), without depending on the UI layer */
@@ -194,6 +214,10 @@ private:
 
     /** Revision of the snapshot in m_commandTrack */
     quint64 m_commandRevision;
+    /** The Show traversal this runner last began, or saw when created */
+    quint64 m_commandTraversal = 0;
+    /** The Show run this runner belongs to: the next Stop retires it */
+    quint64 m_commandRun = 0;
 
     /** Function ids this runner started through a command */
     QSet<quint32> m_commandOwnedFunctions;
@@ -210,6 +234,29 @@ private:
     /** Destination whose authored values are restored once the clips of the
      *  destination have been scheduled */
     quint64 m_pendingCommandSeek;
+
+    /** Crossed effects waiting behind an unacknowledged VC batch */
+    QVector<ShowCommand> m_commandRemainder;
+    /** Seq of that batch, 0 when nothing is held */
+    quint64 m_heldControlBatch = 0;
+    /** This traversal still dispatches its catch-up prefix */
+    bool m_commandCatchUp = false;
+    /** The target of the last catch-up Start or Stop, whose native effect
+     *  everything after it waits for; InvalidId when nothing waits */
+    quint32 m_settlingFunction = ShowCommand::InvalidId;
+    bool m_settlingStart = false;
+    /** m_settlingFunction reached its native state, with no start of it still queued */
+    bool commandSettled() const;
+    /** Tell the Show what this traversal still owes, once more after it drained */
+    void publishCommandWork();
+    bool m_commandWorkPublished = false;
+    /** Functions legacy and clip effects started or stopped since the last
+     *  VC batch of this traversal: the next batch carries them as
+     *  engineStarted/engineStopped, the latest effect per function */
+    QVector<quint32> m_engineStarted;
+    QVector<quint32> m_engineStopped;
+    void noteEngineStart(const Function *f);
+    void noteEngineStop(const Function *f);
 
 private:
     FunctionParent functionParent() const;

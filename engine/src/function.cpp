@@ -1365,6 +1365,7 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
     m_overrideDuration = overrideDuration;
     m_overrideTempoType = overrideTempoType == Original ? tempoType() : overrideTempoType;
 
+    startRequested();
     m_stop = false;
     timer->startFunction(this);
 }
@@ -1381,24 +1382,27 @@ void Function::stop(FunctionParent source, bool preserveAttributes)
 {
     qDebug() << "Function stop(). Name:" << m_name << "ID: " << m_id << "source:" << source.type() << source.id();
 
-    QMutexLocker sourcesLocker(&m_sourcesMutex);
+    {
+        QMutexLocker sourcesLocker(&m_sourcesMutex);
 
-    if ((source.id() == id() && source.type() == FunctionParent::Function) ||
-        (source.type() == FunctionParent::Master) ||
-        (source.type() == FunctionParent::ManualVCWidget))
-    {
-        m_sources.clear();
-    }
-    else
-    {
-        m_sources.removeAll(source);
-    }
+        if ((source.id() == id() && source.type() == FunctionParent::Function) ||
+            (source.type() == FunctionParent::Master) ||
+            (source.type() == FunctionParent::ManualVCWidget))
+        {
+            m_sources.clear();
+        }
+        else
+        {
+            m_sources.removeAll(source);
+        }
 
-    if (m_sources.size() == 0)
-    {
+        if (m_sources.size() != 0)
+            return;
+
         m_stop = true;
         m_preserveAttributes = preserveAttributes;
     }
+    stopRequested();
 }
 
 bool Function::stopped() const

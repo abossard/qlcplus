@@ -51,6 +51,12 @@ Column
     signal pathChanged(string oldPath, string newPath)
     signal itemsDropped(string path)
 
+    function clickNode(mouseMods)
+    {
+        nodeLabel.forceActiveFocus()
+        nodeContainer.mouseEvent(App.Clicked, cRef ? cRef.id : -1, nodeContainer.itemType,
+                                 nodeContainer, mouseMods)
+    }
 
     function getItemAtPos(x, y)
     {
@@ -69,6 +75,19 @@ Column
         color: nodeIconImg.visible ? "transparent" : UISettings.sectionHeader
         width: nodeContainer.width
         height: UISettings.listItemHeight
+
+        // the accessible press is a double click: select, then expand or collapse
+        Accessible.role: Accessible.ListItem
+        Accessible.name: nodeLabel.text
+        Accessible.description: isExpanded ? qsTr("Expanded") : qsTr("Collapsed")
+        Accessible.id: "functionFolder-" + nodePath
+        Accessible.selectable: true
+        Accessible.selected: isSelected
+        Accessible.onPressAction:
+        {
+            nodeContainer.clickNode(0)
+            nodeContainer.mouseEvent(App.DoubleClicked, cRef ? cRef.id : -1, nodeContainer.itemType, nodeContainer, 0)
+        }
 
         // selection rectangle
         Rectangle
@@ -153,12 +172,7 @@ Column
 
             onPressed: (mouse) => nodeContainer.mouseEvent(App.Pressed, cRef ? cRef.id : -1, nodeContainer.itemType,
                                                 nodeContainer, mouse.modifiers)
-            onClicked: (mouse) =>
-            {
-                nodeLabel.forceActiveFocus()
-                nodeContainer.mouseEvent(App.Clicked, cRef ? cRef.id : -1, nodeContainer.itemType,
-                                         nodeContainer, mouse.modifiers)
-            }
+            onClicked: (mouse) => nodeContainer.clickNode(mouse.modifiers)
             onDoubleClicked: (mouse) => nodeContainer.mouseEvent(App.DoubleClicked, cRef ? cRef.id : -1,
                                                                  nodeContainer.itemType, nodeContainer, mouse.modifiers)
         }

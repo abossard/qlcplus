@@ -87,7 +87,6 @@ VCSlider::VCSlider(Doc *doc, QObject *parent)
     , m_rangeLowLimit(0)
     , m_rangeHighLimit(UCHAR_MAX)
     , m_lastInputValue(-1)
-    , m_levelValueChanged(false)
     , m_monitorEnabled(false)
     , m_monitorValue(0)
     , m_isOverriding(false)
@@ -99,7 +98,6 @@ VCSlider::VCSlider(Doc *doc, QObject *parent)
     , m_cngPrimaryColor(QColor())
     , m_cngSecondaryColor(QColor())
     , m_controlledFunctionId(Function::invalidId())
-    , m_adjustChangeCounter(0)
     , m_controlledAttributeIndex(Function::invalidAttributeId())
     , m_controlledAttributeId(Function::invalidAttributeId())
     , m_attributeMinValue(0)
@@ -108,6 +106,10 @@ VCSlider::VCSlider(Doc *doc, QObject *parent)
 {
     setType(VCWidget::SliderWidget);
     setSliderMode(Adjust);
+
+    // a Function that is gone takes no write, so nothing replayed into it can complete
+    connect(m_doc, &Doc::functionRemoved, this, [this](quint32 fid)
+            { if (fid == m_controlledFunctionId) reportRecordedWrites(true); });
 
     registerExternalControl(INPUT_SLIDER_CONTROL_ID, tr("Slider Control"), false);
     registerExternalControl(INPUT_SLIDER_RESET_ID, tr("Reset Control"), false);
@@ -120,6 +122,7 @@ VCSlider::~VCSlider()
        is no longer necessary. But a normal deletion of a VCSlider in
        design mode must unregister the slider. */
     m_doc->masterTimer()->unregisterDMXSource(this);
+    reportRecordedWrites(true);
 
     // request to delete all the active faders
     removeActiveFaders();
@@ -198,7 +201,7 @@ void VCSlider::remapChannels(const QMap<SceneValue, SceneValue> &remapMap)
             newChannels.append(remapMap.value(key));
     }
 
-    m_levelChannels = newChannels;
+    setLevelChannels(newChannels);
     emit channelsCountChanged();
 }
 
@@ -276,6 +279,12 @@ void VCSlider::setSliderMode(SliderMode mode)
 {
     Q_ASSERT(mode >= Level && mode <= GrandMaster);
 
+    // no write may apply an awaited replay to the configuration published below
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        cancelRecordedWritesLocked();
+    }
+
     if (mode != m_sliderMode)
         Tardis::instance()->enqueueAction(Tardis::VCSliderSetMode, id(), m_sliderMode, mode);
 
@@ -316,6 +325,8 @@ void VCSlider::setSliderMode(SliderMode mode)
             setValue(UCHAR_MAX);
         break;
     }
+
+    reportRecordedWrites(true);
 }
 
 /*********************************************************************
@@ -472,44 +483,24 @@ void VCSlider::requestUserValue(int value, bool updateFeedback)
 
 void VCSlider::requestUserValue(int value, bool updateFeedback, ShowCommandOrigin origin)
 {
-    const bool userInput = origin == ShowCommandOrigin::Pointer ||
-                           origin == ShowCommandOrigin::Midi ||
-                           origin == ShowCommandOrigin::Keyboard;
-
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
-    if (recorder != nullptr && recorder->isAuthoring() && userInput)
+    if (recorder == nullptr)
     {
-        if (sliderMode() != Adjust || m_controlledAttributeIndex != Function::Intensity ||
-            m_doc->function(m_controlledFunctionId) == nullptr)
-        {
-            recorder->reportUnsupported(tr("%1 sliders").arg(sliderModeToString(sliderMode())));
-        }
-        else if (value != m_value)
-        {
-            // The engine keeps the latest value and drops what it replaced, so
-            // the take follows exactly the same coalescing.
-            connect(recorder, &ShowCommandRecorder::takeAboutToFinalize,
-                    this, &VCSlider::slotSettlePendingIntent,
-                    Qt::ConnectionType(Qt::UniqueConnection));
-
-            UserAdjustIntent intent;
-            intent.valid = true;
-            intent.functionId = m_controlledFunctionId;
-            intent.value = value;
-            // The widget intensity and the range can be changed by anything
-            // before the engine runs, so the effective value is captured here.
-            intent.fraction = CLAMP(SCALE(qreal(value), m_rangeLowLimit, m_rangeHighLimit,
-                                          qreal(0), qreal(1.0)), qreal(0), qreal(1.0)) * intensity();
-            intent.timeMs = quint32(qMax(0, recorder->position()));
-            intent.origin = origin;
-            intent.takeId = recorder->takeId();
-
-            QMutexLocker locker(&m_levelValueMutex);
-            m_userIntent = intent;
-        }
+        const ShowCommandRecorder::TracedCall traced;
+        setValue(value, true, updateFeedback);
+        return;
     }
 
-    setValue(value, true, updateFeedback);
+    ShowControlRequest request;
+    request.control = this;
+    request.role = sliderMode() == Level ? ShowControlRole::LevelSlider
+                 : sliderMode() == Adjust ? ShowControlRole::AdjustSlider
+                 : sliderMode() == Submaster ? ShowControlRole::SubmasterSlider
+                                             : ShowControlRole::GrandMasterSlider;
+    request.value = value;
+    request.updateFeedback = updateFeedback;
+    request.origin = origin;
+    recorder->requestUserControl(request);
 }
 
 void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
@@ -517,9 +508,133 @@ void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
     if (m_value == value)
         return;
 
+    // output-producing requests from code; feedback asks for no output
+    if (setDMX)
+        ShowCommandRecorder::traceDirectRequest(this, value);
     Tardis::instance()->enqueueAction(Tardis::VCSliderSetValue, id(), m_value, value);
 
-    m_value = value;
+    applyValue(value, setDMX, updateFeedback);
+}
+
+quint64 VCSlider::applyRecordedPosition(qreal position)
+{
+    int target = 0;
+    if (ShowCommandFsm::sliderTarget(position, m_rangeLowLimit, m_rangeHighLimit, &target) == false)
+        return 0;
+
+    const bool written = sliderMode() == Adjust ? m_doc->function(m_controlledFunctionId) != nullptr
+                                                : sliderMode() == Level;
+    if (written == false)
+    {
+        if (target != m_value)
+            applyValue(target, true, true);
+        return 0;
+    }
+
+    // published and awaited in one step, so its write is the one reported
+    if (target != m_value)
+        return applyValue(target, true, true, true);
+
+    // a matching position needs no action; a write still pending for it is
+    // waited on, nothing new is published
+    return awaitPendingWrite();
+}
+
+quint64 VCSlider::awaitPendingWrite()
+{
+    const bool written = sliderMode() == Adjust ? m_doc->function(m_controlledFunctionId) != nullptr
+                                                : sliderMode() == Level;
+    if (written == false)
+        return 0;
+
+    QMutexLocker locker(&m_levelValueMutex);
+    if (m_writtenGeneration >= m_valueGeneration)
+        return 0;
+    m_replayGenerations.append(m_valueGeneration);
+    m_replayValue = m_value;
+    m_replayPriorOverriding = m_isOverriding;
+    return m_valueGeneration;
+}
+
+void VCSlider::reportRecordedWrites(bool cancelPending)
+{
+    QVector<RecordedWrite> reports;
+    bool reverted = false;
+    bool latched = false;
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        if (cancelPending)
+            cancelRecordedWritesLocked();
+        reports.swap(m_retiredGenerations);
+        reverted = std::exchange(m_cancelReverted, false);
+        latched = std::exchange(m_cancelLatched, false);
+    }
+
+    if (latched && m_isOverriding != m_replayPriorOverriding)
+    {
+        m_isOverriding = m_replayPriorOverriding;
+        emit isOverridingChanged();
+    }
+
+    if (reverted)
+    {
+        emit valueChanged(m_value);
+        // a disabled control sends no feedback: resend on re-enable
+        if (isDisabled())
+            m_feedbackStale = true;
+        else
+            updateFeedback();
+    }
+
+    for (const RecordedWrite &report : std::as_const(reports))
+        emit recordedWriteRetired(report.generation, report.outcome, report.functionId, report.effect);
+}
+
+void VCSlider::cancelRecordedWritesLocked()
+{
+    for (quint64 generation : std::as_const(m_replayGenerations))
+    {
+        m_retiredGenerations.append({ generation, RecordedWriteCancelled, Function::invalidId(),
+                                      RecordedWriteNoEffect });
+        // Nothing newer arrived: the cancelled value is never written, and
+        // the control shows the output again, so the same value replayed or
+        // entered later is a change that writes. A newer monitor reading stays.
+        if (generation == m_valueGeneration)
+        {
+            m_writtenGeneration = generation;
+            m_cancelLatched = true;
+            if (m_value == m_replayValue)
+            {
+                m_cancelReverted = m_cancelReverted || m_value != m_writtenValue;
+                m_value = m_writtenValue;
+            }
+        }
+    }
+    m_replayGenerations.clear();
+}
+
+quint64 VCSlider::applyValue(int value, bool setDMX, bool updateFeedback, bool replay)
+{
+    quint64 generation = 0;
+    const bool wasOverriding = m_isOverriding;
+    {
+        // the engine sees a value only together with its generation. Output
+        // is dirtied only by values meant for DMX, so feedback of a monitor
+        // or of the controlled attribute is shown, never written back.
+        QMutexLocker locker(&m_levelValueMutex);
+        m_value = value;
+        if (setDMX)
+            m_valueGeneration++;
+        else if (m_writtenGeneration == m_valueGeneration)
+            m_writtenValue = value;
+        if (replay)
+        {
+            generation = m_valueGeneration;
+            m_replayGenerations.append(generation);
+            m_replayValue = value;
+            m_replayPriorOverriding = wasOverriding;
+        }
+    }
 
     switch(sliderMode())
     {
@@ -541,17 +656,15 @@ void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
             m_doc->inputOutputMap()->setGrandMasterValue(value);
         break;
         case Adjust:
-            m_adjustChangeCounter++;
         break;
     }
 
     emit valueChanged(value);
 
-    if (setDMX)
-        m_levelValueChanged = true;
-
     if (updateFeedback)
         this->updateFeedback();
+
+    return generation;
 }
 
 void VCSlider::setRangeLowLimit(qreal value)
@@ -640,28 +753,47 @@ void VCSlider::setIsOverriding(bool enable)
     emit isOverridingChanged();
 }
 
+void VCSlider::setLevelChannels(const QList<SceneValue> &channels)
+{
+    if (channels == m_levelChannels)
+        return;
+
+    const bool binding = sliderMode() == Level;
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        if (binding)
+            cancelRecordedWritesLocked();
+        m_levelChannels = channels;
+    }
+    if (binding)
+        reportRecordedWrites(false);
+}
+
 void VCSlider::addLevelChannel(quint32 fixture, quint32 channel)
 {
     SceneValue lch(fixture, channel);
 
     if (m_levelChannels.contains(lch) == false)
-        m_levelChannels.append(lch);
+        setLevelChannels(m_levelChannels + QList<SceneValue>{ lch });
 }
 
 void VCSlider::removeLevelChannel(quint32 fixture, quint32 channel)
 {
-    SceneValue lch(fixture, channel);
-    m_levelChannels.removeAll(lch);
+    QList<SceneValue> channels = m_levelChannels;
+    channels.removeAll(SceneValue(fixture, channel));
+    setLevelChannels(channels);
 }
 
 void VCSlider::clearLevelChannels()
 {
-    m_levelChannels.clear();
+    setLevelChannels(QList<SceneValue>());
 }
 
 QList<SceneValue> VCSlider::levelChannels() const
 {
-    return m_levelChannels;
+    // the timer iterates the list mutably under the lock: a shared copy would make it detach mid-loop
+    QMutexLocker locker(&m_levelValueMutex);
+    return QList<SceneValue>(m_levelChannels.cbegin(), m_levelChannels.cend());
 }
 
 QVariant VCSlider::groupsTreeModel()
@@ -1001,6 +1133,12 @@ void VCSlider::setControlledFunction(quint32 fid)
     if (m_controlledFunctionId == fid)
         return;
 
+    // no write may apply an awaited replay to the binding published below
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        cancelRecordedWritesLocked();
+    }
+
     /* Attaching a function is meaningful only in Adjust mode, so switch
      * to it right away. Note this is done only when a valid function is
      * provided, to avoid recursion when Submaster/GrandMaster modes
@@ -1059,6 +1197,8 @@ void VCSlider::setControlledFunction(quint32 fid)
     Tardis::instance()->enqueueAction(Tardis::VCSliderSetFunctionID, id(),
                                       current ? current->id() : Function::invalidId(),
                                       function ? function->id() : Function::invalidId());
+
+    reportRecordedWrites(true);
 }
 
 void VCSlider::adjustIntensity(qreal val)
@@ -1077,13 +1217,14 @@ void VCSlider::adjustIntensity(qreal val)
     else if (sliderMode() == Level)
     {
         // force channel levels refresh
-        m_levelValueChanged = true;
+        QMutexLocker locker(&m_levelValueMutex);
+        m_valueGeneration++;
     }
 }
 
 void VCSlider::slotControlledFunctionAttributeChanged(int attrIndex, qreal fraction)
 {
-    if (attrIndex != m_controlledAttributeIndex || m_adjustChangeCounter)
+    if (attrIndex != m_controlledAttributeIndex || m_writtenGeneration < m_valueGeneration)
         return;
 
     qreal newValue = fraction;
@@ -1124,7 +1265,8 @@ void VCSlider::slotControlledFunctionRunning(quint32 fid)
     // When the controlled function starts (externally or otherwise), immediately
     // apply the override attribute at the current slider value so the function
     // honours the slider position from the very first tick.
-    m_adjustChangeCounter++;
+    QMutexLocker locker(&m_levelValueMutex);
+    m_valueGeneration++;
 }
 
 int VCSlider::controlledAttribute() const
@@ -1140,6 +1282,12 @@ void VCSlider::setControlledAttribute(int attributeIndex)
     Function *function = m_doc->function(m_controlledFunctionId);
     if (function == nullptr || attributeIndex >= function->attributes().count())
         return;
+
+    // no write may apply an awaited replay to the attribute published below
+    {
+        QMutexLocker locker(&m_levelValueMutex);
+        cancelRecordedWritesLocked();
+    }
 
     function->releaseAttributeOverride(m_controlledAttributeId);
     m_controlledAttributeId = Function::invalidAttributeId();
@@ -1185,6 +1333,8 @@ void VCSlider::setControlledAttribute(int attributeIndex)
     emit attributeMaxValueChanged();
 
     setValue(newValue, false, true);
+
+    reportRecordedWrites(true);
 }
 
 void VCSlider::adjustFunctionAttribute(Function *f, qreal value)
@@ -1229,6 +1379,30 @@ void VCSlider::flashFunction(bool on)
     adjustFunctionAttribute(function, on ? 1.0 : m_adjustFlashPreviousValue);
 
     Tardis::instance()->enqueueAction(Tardis::VCSliderButtonPress, id(), !on, on);
+}
+
+void VCSlider::requestUserReset()
+{
+    requestUserReset(ShowCommandOrigin::Pointer);
+}
+
+void VCSlider::requestUserReset(ShowCommandOrigin origin)
+{
+    setIsOverriding(false);
+    if (ShowCommandRecorder *recorder = ShowCommandRecorder::instance())
+        recorder->reportUnsupported(tr("slider reset input"), origin, this);
+}
+
+void VCSlider::requestUserFlash(bool on)
+{
+    requestUserFlash(on, ShowCommandOrigin::Pointer);
+}
+
+void VCSlider::requestUserFlash(bool on, ShowCommandOrigin origin)
+{
+    flashFunction(on);
+    if (ShowCommandRecorder *recorder = ShowCommandRecorder::instance(); recorder != nullptr && on)
+        recorder->reportUnsupported(tr("slider flash input"), origin, this);
 }
 
 QStringList VCSlider::availableAttributes() const
@@ -1335,7 +1509,7 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
         }
     }
 
-    if (m_monitorEnabled == true && m_levelValueChanged == false)
+    if (m_monitorEnabled == true && m_writtenGeneration == m_valueGeneration)
     {
         bool mixedDMXlevels = false;
         int monitorSliderValue = -1;
@@ -1397,7 +1571,7 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
         }
     }
 
-    if (m_levelValueChanged)
+    if (m_writtenGeneration < m_valueGeneration)
     {
         for (SceneValue &scv : m_levelChannels)
         {
@@ -1459,7 +1633,7 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
             fc->setElapsed(0);
         }
     }
-    m_levelValueChanged = false;
+    markWritten();
 }
 
 void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
@@ -1468,15 +1642,14 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
 
     QMutexLocker locker(&m_levelValueMutex);
 
-    if (m_adjustChangeCounter == 0)
+    if (m_writtenGeneration == m_valueGeneration)
         return;
 
     Function *function = m_doc->function(m_controlledFunctionId);
     if (function == nullptr)
         return;
 
-    // Native state before this execution: what a recorded Start or Stop must agree with
-    const bool wasStopped = function->stopped();
+    bool started = false;
 
     qreal fraction = m_value;
 
@@ -1492,8 +1665,7 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
             {
                 function->stop(functionParent());
                 m_controlledAttributeId = Function::invalidAttributeId();
-                m_adjustChangeCounter--;
-                publishUserIntent(wasStopped);
+                markWritten(function->id(), RecordedWriteStopped);
                 return;
             }
         }
@@ -1508,119 +1680,37 @@ void VCSlider::writeDMXAdjust(MasterTimer* timer, QList<Universe *> ua)
                                 0, 0, Function::defaultSpeed(), Function::defaultSpeed());
 #endif
                 function->start(timer, functionParent());
+                started = true;
                 qDebug() << "Function started";
             }
-            emit functionStarting(this, m_controlledFunctionId, fraction);
+            emit functionStarting(this, function->id(), fraction);
         }
     }
 
     adjustFunctionAttribute(function, fraction * intensity());
 
-    m_adjustChangeCounter--;
-
-    publishUserIntent(wasStopped);
+    if (started)
+        markWritten(function->id(), RecordedWriteStarted);
+    else
+        markWritten();
 }
 
-void VCSlider::publishUserIntent(bool wasStopped)
+void VCSlider::markWritten(quint32 functionId, int effect)
 {
-    // Engine thread, m_levelValueMutex held by the caller.
-    if (m_userIntent.valid == false)
+    const quint64 written = m_valueGeneration;
+    m_writtenGeneration = written;
+    m_writtenValue = m_value;
+
+    if (m_replayGenerations.isEmpty())
         return;
 
-    const UserAdjustIntent intent = m_userIntent;
-    m_userIntent = UserAdjustIntent();
-
-    resolveIntent(intent, wasStopped);
-
-    // One queued notification for the whole batch. The commands stay here
-    // until the main thread takes them, so closing a take in between still
-    // finds them.
-    QMetaObject::invokeMethod(this, "slotDeliverResolvedCommands", Qt::QueuedConnection);
-}
-
-void VCSlider::resolveIntent(const UserAdjustIntent &intent, bool wasStopped)
-{
-    if (intent.valid == false || intent.functionId != m_controlledFunctionId)
-        return;
-
-    const auto append = [&](ShowCommandAction action, qreal intensity)
-    {
-        ResolvedUserCommand command;
-        command.action = int(action);
-        command.functionId = intent.functionId;
-        command.intensity = intensity;
-        command.timeMs = intent.timeMs;
-        command.origin = int(intent.origin);
-        command.takeId = intent.takeId;
-        m_resolvedCommands.append(command);
-    };
-
-    if (intent.value == 0)
-    {
-        // Zero is the native stop. A target that was not playing needs nothing.
-        if (wasStopped == false)
-            append(ShowCommandAction::Stop, 0.0);
-        return;
-    }
-
-    // The movement that natively starts a stopped target carries its own start;
-    // every later movement is only a value.
-    if (wasStopped)
-        append(ShowCommandAction::Start, 0.0);
-
-    append(ShowCommandAction::SetIntensity, intent.fraction);
-}
-
-void VCSlider::drainResolvedCommands()
-{
-    QVector<ResolvedUserCommand> batch;
-    {
-        QMutexLocker locker(&m_levelValueMutex);
-        batch.swap(m_resolvedCommands);
-    }
-
-    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
-    if (recorder == nullptr)
-        return;
-
-    for (const ResolvedUserCommand &command : batch)
-        recorder->slotResolvedUserCommand(command.action, command.functionId, command.intensity,
-                                          command.timeMs, command.origin, command.takeId);
-}
-
-void VCSlider::slotDeliverResolvedCommands()
-{
-    drainResolvedCommands();
-}
-
-void VCSlider::slotSettlePendingIntent(quint64 takeId)
-{
-    // UI thread, while the take is still the current one.
-    UserAdjustIntent intent;
-    {
-        QMutexLocker locker(&m_levelValueMutex);
-        if (m_userIntent.valid && m_userIntent.takeId == takeId)
-        {
-            intent = m_userIntent;
-            m_userIntent = UserAdjustIntent();
-        }
-    }
-
-    if (intent.valid)
-    {
-        Function *function = m_doc->function(intent.functionId);
-        if (function != nullptr)
-        {
-            // The engine has not executed this movement, so the native state it
-            // would have seen is still the current one. Nothing here touches
-            // the engine.
-            QMutexLocker locker(&m_levelValueMutex);
-            resolveIntent(intent, function->stopped());
-        }
-    }
-
-    // Whatever the engine already resolved is handed over now, into this take.
-    drainResolvedCommands();
+    // one write retires every older change
+    for (quint64 generation : std::as_const(m_replayGenerations))
+        m_retiredGenerations.append({ generation,
+                                      generation == written ? RecordedWriteApplied : RecordedWriteSuperseded,
+                                      functionId, effect });
+    m_replayGenerations.clear();
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(false); }, Qt::QueuedConnection);
 }
 
 /*********************************************************************
@@ -1657,6 +1747,10 @@ void VCSlider::slotInputValueChanged(quint8 id, uchar value)
                      scaledValue > currentValue + VALUE_CATCHING_THRESHOLD))
                 {
                     m_lastInputValue = scaledValue;
+                    ShowCommandRecorder::traceInput(this, inputOrigin(), ShowEventLog::Outcome::Ignored,
+                                                    QT_TRANSLATE_NOOP("ShowCommandRecorder",
+                                                                      "pickup: outside the catch threshold"),
+                                                    scaledValue);
                     break;
                 }
             }
@@ -1667,10 +1761,10 @@ void VCSlider::slotInputValueChanged(quint8 id, uchar value)
         break;
         case INPUT_SLIDER_RESET_ID:
             if (value)
-                setIsOverriding(false);
+                requestUserReset(inputOrigin());
         break;
         case INPUT_SLIDER_FLASH_ID:
-            flashFunction(value ? true : false);
+            requestUserFlash(value ? true : false, inputOrigin());
         break;
     }
 }
@@ -1686,6 +1780,16 @@ void VCSlider::setDisabled(bool disable)
         m_lastInputValue = -1;
 
     VCWidget::setDisabled(disable);
+
+    if (disable)
+    {
+        reportRecordedWrites(true);
+    }
+    else if (m_feedbackStale)
+    {
+        m_feedbackStale = false;
+        updateFeedback();
+    }
 }
 
 void VCSlider::setVisible(bool isVisible)
@@ -1709,6 +1813,13 @@ bool VCSlider::loadXML(QXmlStreamReader &root)
     if (root.name() != KXMLQLCVCSlider)
     {
         qWarning() << Q_FUNC_INFO << "Slider node not found";
+        return false;
+    }
+
+    // skipping keeps an enclosing frame reading from the next sibling
+    if (loadXMLRecordingId(root) == false)
+    {
+        root.skipCurrentElement();
         return false;
     }
 

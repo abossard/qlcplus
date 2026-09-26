@@ -893,6 +893,15 @@ public:
 
     bool startedAsChild() const;
 
+protected:
+    /** Called by start() on the calling thread when it accepts a start from
+     *  a stopped state, before the start is queued, outside every Function lock */
+    virtual void startRequested() {}
+
+    /** Called by stop() on the calling thread once no source is left, after
+     *  the stop flag is set and outside every Function lock */
+    virtual void stopRequested() {}
+
 private:
     /** Running state flags. The rules are:
      *  - m_stop resets also m_paused

@@ -21,13 +21,93 @@
 #define SHOWCOMMANDRECORDER_H
 
 #include <QObject>
+#include <QPointer>
 #include <QVariantList>
+#include <QHash>
 #include <QVector>
+#include <climits>
+#include <functional>
 
 #include "showcommandtrack.h"
+#include "showeventlog.h"
+#include "scenevalue.h"
+#include "show.h"
 
-class Show;
 class Doc;
+class PerformFsm;
+class VCButton;
+class VCWidget;
+class VirtualConsole;
+
+/** What a control's native operation acts on: its replay snapshot plus the
+ *  destination it writes, the bound Function or the Level channels */
+struct ShowControlConfiguration
+{
+    ShowControlSnapshot snapshot;
+    quint32 functionId = ShowCommand::InvalidId;
+    QList<SceneValue> levelChannels;
+
+    bool operator==(const ShowControlConfiguration &other) const
+    {
+        return snapshot.role == other.snapshot.role && snapshot.attribute == other.snapshot.attribute &&
+               snapshot.enabled == other.snapshot.enabled && snapshot.bound == other.snapshot.bound &&
+               functionId == other.functionId && levelChannels == other.levelChannels;
+    }
+    bool operator!=(const ShowControlConfiguration &other) const { return !(*this == other); }
+};
+
+/** One event an editor edit changed: what it was and what it became, each
+ *  with its equal-time order. Absent before means nothing carried the id
+ *  (not an edit here), absent after a deletion. */
+struct ShowCommandEditEntry
+{
+    quint32 id = ShowCommand::InvalidId;
+    bool hasBefore = false;
+    ShowCommand before;
+    bool hasAfter = false;
+    ShowCommand after;
+};
+
+/** One undo step of the Recordings editor: an ID-addressed delta of one Show */
+struct ShowCommandEdit
+{
+    quint32 showId = ShowCommand::InvalidId;
+    int serial = 0;
+    QVector<ShowCommandEditEntry> entries;
+};
+Q_DECLARE_METATYPE(ShowCommandEdit)
+
+/** Diagnostics: the facts one input or operation began with while the debug
+ *  panel observed it, kept with its later outcomes so they never report the
+ *  Show, take or caption current at completion. Empty (generation 0) when
+ *  the panel was closed. */
+struct ShowTraceCause
+{
+    quint64 generation = 0;
+    quint64 trace = 0;
+    quint32 showId = ShowCommand::InvalidId;
+    quint64 take = 0;
+    int origin = -1;
+    quint32 widgetId = ShowCommand::InvalidId;
+    QUuid controlId;
+    QString control;
+};
+
+/** One accepted user control request. Immutable once the recorder stamped it:
+ *  a deferred request executes exactly what was accepted, or not at all. */
+struct ShowControlRequest
+{
+    QPointer<VCWidget> control;
+    ShowControlRole role = ShowControlRole::None;
+    bool on = false;            //!< ToggleButton: the desired state, normalized at acceptance
+    int value = 0;              //!< sliders: the accepted value
+    bool updateFeedback = true; //!< sliders
+    ShowCommandOrigin origin = ShowCommandOrigin::Pointer;
+    quint32 acceptedTimeMs = 0;
+    quint64 epoch = 0;
+    ShowControlConfiguration accepted; //!< the control's configuration at acceptance
+    ShowTraceCause cause; //!< diagnostics at acceptance
+};
 
 /**
  * Recording controller for the Show command track.
@@ -51,11 +131,15 @@ class ShowCommandRecorder : public QObject
     Q_PROPERTY(bool recording READ isRecording WRITE setRecordingProperty NOTIFY stateChanged)
     Q_PROPERTY(int phase READ phaseValue NOTIFY stateChanged)
     Q_PROPERTY(QString phaseName READ phaseName NOTIFY stateChanged)
-    Q_PROPERTY(QString targetName READ targetName NOTIFY stateChanged)
+    Q_PROPERTY(QString targetName READ targetName NOTIFY targetNameChanged)
     Q_PROPERTY(int position READ position NOTIFY positionChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QVariantList commands READ commands NOTIFY commandsChanged)
+    Q_PROPERTY(QVariantList groups READ groups NOTIFY commandsChanged)
     Q_PROPERTY(int extent READ extent NOTIFY commandsChanged)
+    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY editGateChanged)
+    Q_PROPERTY(int lastEditSerial READ lastEditSerial NOTIFY commandsChanged)
+    Q_PROPERTY(QVariantList referencedControls READ referencedControls NOTIFY referencesChanged)
 
 public:
     explicit ShowCommandRecorder(Doc *doc, QObject *parent = nullptr);
@@ -63,6 +147,36 @@ public:
 
     /** The app-owned instance, or nullptr when no UI is running */
     static ShowCommandRecorder *instance();
+
+    /** The controls that recorded VC states replay into */
+    void setVirtualConsole(VirtualConsole *vc);
+
+    /** Replay batches the executor is still working through */
+    int pendingControlRuns() const { return m_controlRuns.count(); }
+
+    /** Accepted user input on a Toggle button or a slider. Executes at once,
+     *  unless it depends on crossed replay work still owed or on an earlier
+     *  queued request; then it waits in order. Stamped here with its
+     *  acceptance time, request epoch and the control's configuration: a
+     *  request whose control changed it meanwhile is cancelled and reported.
+     *  While authoring, its desired state is recorded first, once. */
+    void requestUserControl(ShowControlRequest request);
+
+    /** Save boundary: publish the accepted input no Show has taken yet, and
+     *  end those Shows and the take's Show at their content. Waits for no queued request; recording and
+     *  playback go on. False, keeping every candidate, when a Show rejects it. */
+    bool checkpoint();
+
+    /** Drop the accepted input no Show has taken */
+    void discardUnpublished();
+
+    /** Workspace replacement: disarm without publishing anything, drop the
+     *  accepted input no Show has taken and forget the resolved Show and
+     *  cursor. Needs nothing to validate. */
+    void discardRecording();
+
+    /** Requests waiting behind replay work, oldest first */
+    const QVector<ShowControlRequest> &pendingUserRequests() const { return m_userRequests; }
 
     /*********************************************************************
      * Transport and binding
@@ -80,8 +194,16 @@ public:
     bool setRecording(bool on);
 
     /** The Show currently resolved by the host (Show Manager selection or the
-     *  Perform FSM's active show). A different Show suspends recording. */
+     *  Perform FSM's active show). While a take is bound, a different Show is
+     *  an automatic handover: the take checkpoints and Record rearms on the new
+     *  Show, or waits armed when none is resolved. A take that cannot be saved
+     *  disarms, keeps its accepted input and returns false. */
     bool setResolvedShow(quint32 showId);
+
+    /** Follow the Show an engaged Perform resolves, the automatic source of
+     *  handovers. Connect before any Show Manager follower, so a bound take
+     *  moves before the Show Manager's selection lock is asked. */
+    void followPerform(PerformFsm *fsm);
 
     /** Playing state, fed by the existing transport events (Perform FSM, Show
      *  Manager playback state). The recorder never reads the runtime's own
@@ -107,36 +229,50 @@ public:
     /** The bound Show's own authoritative position. There is no second
      *  transport here: a paused Show simply keeps reporting its frozen time. */
     int position() const;
+
+    /** A stopped or paused host moved its cursor on a Show: input accepted on
+     *  it is stamped there until that Show's clock moves. Seeks nothing. */
+    void setHostCursor(quint32 showId, quint32 ms);
     QString lastError() const;
 
     /*********************************************************************
      * Input seam
      *********************************************************************/
 public:
-    /** Offer one resolved user command. The control has already applied it
-     *  live; this only authors and publishes. Returns true when a command was
-     *  stored. Programmatic, audio and replay origins never author.
-     *
-     *  Always invoked on the UI thread: a control whose native execution is
-     *  deferred publishes its captured intent as a queued value signal rather
-     *  than calling in from the timer thread. */
+    /** Offer one resolved user command at the current position. Returns true
+     *  when a command was stored. Programmatic, audio and replay origins never
+     *  author. UI thread. */
     bool submitUserInput(const ShowCommandInput &input);
 
     /** A supported compound gesture: ordered commands from one user action,
      *  authored at the same position in the given order. */
     bool submitUserInput(const QVector<ShowCommandInput> &inputs);
 
-public slots:
-    /** A control whose native execution is deferred publishing one resolved
-     *  command, queued from the engine thread with the Show time it was
-     *  captured at. */
-    void slotResolvedUserCommand(int action, quint32 functionId, qreal intensity,
-                                 quint32 timeMs, int origin, quint64 takeId);
+    /** User input on a control or mode that cannot be recorded. Live control
+     *  is unaffected; the user sees why nothing was stored. */
+    void reportUnsupported(const QString &what, ShowCommandOrigin origin, VCWidget *control = nullptr);
 
-public:
-    /** A control or mode this slice cannot record faithfully. Live control is
-     *  unaffected; the user sees why nothing was stored. */
-    void reportUnsupported(const QString &what);
+    /** Diagnostics only: mapped input a route did not hand to recording or
+     *  to its control. Returns at once while the debug panel is closed. */
+    static void traceInput(VCWidget *control, ShowCommandOrigin origin, ShowEventLog::Outcome outcome,
+                           const char *reason, int value = INT_MIN);
+
+    /** Diagnostics only: a direct code request (WebAccess, native undo)
+     *  reached an output-producing native control operation. Nothing while
+     *  the panel is closed or inside a TracedCall. */
+    static void traceDirectRequest(VCWidget *control, int value);
+
+    /** Diagnostics: native control operations called within its scope belong
+     *  to an input the caller traces itself (user, Audio), so they add no
+     *  direct code request. GUI thread. */
+    class TracedCall
+    {
+    public:
+        TracedCall();
+        ~TracedCall();
+    private:
+        bool m_previous;
+    };
 
 
     /*********************************************************************
@@ -146,34 +282,86 @@ public:
     /** The tracked Show's authored commands */
     const ShowCommandTrack &track() const;
 
-    /** Editable view for the Show command editor */
+    /** Rows of the Recordings editor, in track order: time, control
+     *  identity, caption and current binding, action and value */
     QVariantList commands() const;
-
-    /** Functions a command may target, for the editor's target chooser */
-    QVariantList availableTargets() const;
+    QVariantList groups() const;
     int extent() const;
 
-    Q_INVOKABLE bool setExtent(int ms);
-    Q_INVOKABLE bool setCommandAction(quint32 id, const QString &action);
-    Q_INVOKABLE bool setCommandTarget(quint32 id, quint32 functionId);
-    Q_INVOKABLE bool retimeCommand(quint32 id, int ms);
-    Q_INVOKABLE bool setCommandIntensity(quint32 id, qreal value);
-    Q_INVOKABLE bool removeCommand(quint32 id);
+    /** Why the Show's recordings cannot be edited now, empty when they can:
+     *  REC must be off and its playback fully stopped, not paused, pausing,
+     *  queued to start or still finishing a stop */
+    bool editAllowed(quint32 showId, QString *reason = nullptr) const;
+    /** editAllowed() for the tracked Show */
+    QString editBlockedReason() const;
+
+    /** Editor edits. Each names the Show its row belongs to and is refused
+     *  when that is no longer the tracked Show, when editing is not allowed,
+     *  or when any result is invalid; then nothing changes. A change is one
+     *  undo step and marks the project modified; a no-op is neither. */
+    Q_INVOKABLE bool retimeCommand(quint32 showId, quint32 id, qreal ms);
+    /** Intensity of SetIntensity, position of SetSliderPosition, 0..1 */
+    Q_INVOKABLE bool setCommandValue(quint32 showId, quint32 id, qreal value);
+    Q_INVOKABLE bool setCommandState(quint32 showId, quint32 id, bool on);
+    /** The editor's cell text: field time (seconds), value (percent) or state (On/Off) */
+    Q_INVOKABLE bool editCommandText(quint32 showId, quint32 id, const QString &field, const QString &text);
+    Q_INVOKABLE bool removeCommands(quint32 showId, const QVariantList &ids);
+    /** Move the events by one shared delta: direction times stepMs rounded once */
+    Q_INVOKABLE bool moveCommands(quint32 showId, const QVariantList &ids, int direction, qreal stepMs);
+    /** Put the earliest event on the nearest beat anchorMs + k * beatMs, the
+     *  others by the same delta */
+    Q_INVOKABLE bool snapCommands(quint32 showId, const QVariantList &ids, qreal beatMs, qreal anchorMs);
+    /** Legacy function commands only */
+    Q_INVOKABLE bool setCommandAction(quint32 showId, quint32 id, const QString &action);
+    Q_INVOKABLE bool setCommandTarget(quint32 showId, quint32 id, quint32 functionId);
+
+    /** While the editor shows the rows, their controls' and functions' own
+     *  change notifications refresh them (commandsChanged) */
+    Q_INVOKABLE void setRowsObserved(bool observed);
+
+    /** Referenced controls view: one row per VC identity the tracked Show's
+     *  records name, problems first, each expected role with its count and
+     *  its suitability through the replay resolver. Configuration only: Ready
+     *  says nothing about running functions, hardware or output. */
+    QVariantList referencedControls() const;
+
+    /** While the debug panel is open, the controls and functions the track
+     *  names refresh referencedControls (referencesChanged). Independent of
+     *  the editor's setRowsObserved. */
+    void setReferencesObserved(bool observed);
+
+    /** The serial of the last edit step, which Tardis can undo by it */
+    int lastEditSerial() const { return m_editSerial; }
+
+    /** Tardis: undo or redo one editor step on its own Show. Refused, leaving
+     *  every event alone, when editing is not allowed or when an event it
+     *  names is no longer what the step left; the reason is lastError. */
+    bool applyHistoryEdit(const QVariant &edit, bool undo);
 
 signals:
-    /** The current take is about to be closed. A control holding an accepted
-     *  input that the engine has not executed yet settles it now, into this
-     *  take, before the binding changes. */
-    void takeAboutToFinalize(quint64 takeId);
-
     void stateChanged();
+    /** The tracked Show changed or was renamed */
+    void targetNameChanged();
     void positionChanged();
     void lastErrorChanged();
     void commandsChanged();
+    void editGateChanged();
+    void referencesChanged();
 
 private slots:
     /** Someone else published a track for the tracked Show */
     void slotCommandTrackChanged();
+
+    /** Replay executor: a Show published crossed VC batches */
+    void slotControlBatchesReady();
+    void slotFunctionReceiptReady(quint64 traversal, quint64 opId);
+    void slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect);
+    void slotCommandTraversalCancelled();
+    void slotFunctionAdded(quint32 id);
+    /** A Show's playback began or ended: the edit gate follows it */
+    void slotShowPlayback();
+    /** Follow the controls and functions the current rows show */
+    void observeRowSources();
 
     /** The bound Show's own clock moved. A backward move ends the segment:
      *  accepted input settles into it, its end becomes a floor for the Show's
@@ -185,6 +373,9 @@ private:
      *  recording, otherwise the resolved one. */
     quint32 trackedShowId() const;
     Show *trackedShow() const;
+    /** The Show time input on this Show is accepted at now: the host cursor
+     *  moved on its stopped or paused autonomous clock, else its position */
+    quint32 acceptancePosition(const Show *show) const;
 
     /** Reload the track value from the tracked Show */
     void reloadTrack();
@@ -194,36 +385,131 @@ private:
      *  from the tick that later executes the effect. */
     void syncPosition(Show *show);
 
-    /** Commit an accepted transition: store the authored commands, extend the
-     *  authored lifetime and publish the track together with the traversal
-     *  metadata that keeps live input from echoing back. */
-    /** Author at an explicit Show time, for input whose execution was deferred */
+    /** Author at an explicit Show time: the acceptance time of the input */
     bool authorAt(const QVector<ShowCommandInput> &inputs, quint32 positionMs);
 
+    /** Commit an accepted transition: keep the authored commands and publish
+     *  them with the traversal metadata that keeps live input from echoing back */
     bool commit(const ShowCommandTransition &transition, Show *show);
 
-    /** The single place that hands a candidate track to the Show */
-    bool publishTrack(const ShowCommandTrack &candidate,
-                      const QSet<quint32> &alreadyApplied, Show *show);
+    /** The single place that hands a candidate track to the Show, with the
+     *  ids executed live in appliedTraversal. Fills error when it rejects it;
+     *  reporting it is the caller's. */
+    bool publishTrack(const ShowCommandTrack &candidate, const QSet<quint32> &alreadyApplied,
+                      quint64 appliedTraversal, Show *show, QString *error, bool onlyStopped = false);
 
-    /** Editor publication: no live ids, errors are the user's to see */
-    bool publishEdit(const ShowCommandTrack &candidate);
+    /** The Show an editor edit of showId may change, nullptr (reported) if none */
+    Show *editableShow(quint32 showId);
+    /** Editor publication of the candidate: the delta of the affected ids
+     *  becomes one undo step. No live ids, errors are the user's to see. */
+    bool publishEdit(Show *show, ShowCommandTrack candidate, const QVector<quint32> &affected);
+    /** Replace one command, for the value and state edits */
+    bool replaceCommand(quint32 showId, quint32 id, const std::function<QString(ShowCommand &)> &change);
+    /** Move the events by delta ms, keeping their order among themselves */
+    bool shiftCommands(Show *show, const QVector<quint32> &ids, qint64 delta);
     bool editFailed(const QString &error);
 
-    /** Close the take on the bound Show: settle what is still pending and give
-     *  the Show the duration that was actually captured. False when the Show
-     *  rejected it, in which case nothing about the take changes. */
-    bool finalizeTake();
+    /** Hand a Show the accepted input it has not taken yet, if any, ending at
+     *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
+    bool publishUnpublished(Show *show, QString *error);
 
-    /** The duration the Show must keep: what was authored before this take,
-     *  plus the end of every segment already captured. */
-    quint32 extentFloor() const;
+    /** checkpoint() without reporting: error names the last rejection */
+    bool publishAccepted(QString *error);
 
     void setError(const QString &error);
+
+    /** Diagnostics while the debug panel is open. A request traces only in
+     *  the observation it was accepted in; the rest in the current one. */
+    ShowEventLog::Entry traceEntry(quint64 generation, ShowEventLog::Phase phase,
+                                   ShowEventLog::Outcome outcome, const QString &reason) const;
+    /** The facts of an input or operation beginning now, while observed */
+    ShowTraceCause newCause(ShowCommandOrigin origin, VCWidget *control) const;
+    ShowTraceCause newCause() const;
+    /** An entry of that cause, empty generation when it is not the current observation */
+    ShowEventLog::Entry causeEntry(const ShowTraceCause &cause, ShowEventLog::Phase phase,
+                                   ShowEventLog::Outcome outcome, const QString &reason) const;
+    void traceRequest(const ShowControlRequest &request, ShowEventLog::Phase phase,
+                      ShowEventLog::Outcome outcome, const QString &reason) const;
+    /** The recorder's decision on the input being authored now */
+    void traceDecision(ShowEventLog::Outcome outcome, const QString &reason, const ShowCommandInput *input) const;
+    void traceCommand(const ShowTraceCause &cause, ShowEventLog::Phase phase, ShowEventLog::Outcome outcome,
+                      const ShowCommand *before, const ShowCommand *after, quint32 showId, const QString &reason,
+                      const QString &action = QString()) const;
+    void traceExtent(const ShowTraceCause &cause, quint32 showId, quint32 before, quint32 after,
+                     const QString &reason) const;
+    /** What a successful publication changed: one entry per changed command and the extent */
+    void traceTrackDelta(const ShowTraceCause &cause, const ShowCommandTrack &before, const ShowCommandTrack &after,
+                         quint32 showId, const QString &reason) const;
+    /** The cause of the input or operation being handled now */
+    ShowTraceCause currentCause() const;
+    /** checkpoint() as one observed operation of its own */
+    bool publishCheckpoint(QString *error);
+    /** The explicit operation (checkpoint, handover) being handled now */
+    const ShowTraceCause *m_operation = nullptr;
+    void traceTransport(ShowEventLog::Outcome outcome, const QString &action, const QString &value,
+                        const QString &reason = QString()) const;
+    /** A failed operation: the Problems summary, and lastError */
+    void reportFailure(const QString &error, ShowEventLog::View view = ShowEventLog::View::Events);
+    /** The request being captured, for the entries it causes */
+    const ShowControlRequest *m_tracedRequest = nullptr;
+
+    /** Take a new recording state: a new take on the Show it tracks */
+    void enterRecordingState(const ShowCommandState &next);
+
+    /** One Show's batch while the executor works through it */
+    struct ControlRun
+    {
+        QPointer<Show> show;
+        ShowControlBatch batch;
+        int next = 0;
+        quint64 waitingOp = 0;
+        /** Slider writes (widget id, generation) the run waits to see
+         *  retired, then the native effects they must have taken: the starts
+         *  and stops those writes made, or a start one may have queued before
+         *  anything waited */
+        QVector<QPair<quint32, quint64>> waitingWrites;
+        QVector<ShowFunctionExpectation> barrier;
+        /** Starts and stops the runner made before this batch, waited on only
+         *  by an op that depends on them */
+        QVector<QPair<ShowControlCoupling, ShowCommandFsm::ShowButtonOp>> engineDone;
+        /** Applied ops whose native effect nothing has waited for yet */
+        QVector<QPair<ShowControlCoupling, ShowCommandFsm::ShowButtonOp>> unsettled;
+    };
+
+    /** Replay executor: every Show hands its batches here, selected or not */
+    void attachShow(Show *show);
+    /** Re-resolved by identity at every step, nullptr unless Ready */
+    VCWidget *resolveControl(const ShowCommand &cmd) const;
+    ShowControlConfiguration configurationOf(VCWidget *widget) const;
+    /** What the control's native operation acts on now, for display */
+    QString bindingText(VCWidget *widget) const;
+    /** control may be nullptr for a start that no control made */
+    ShowControlCoupling couplingOf(VCWidget *control, quint32 functionId) const;
+    /** Apply until an op must wait for a receipt. True once the run is over:
+     *  acknowledged, or abandoned to a later traversal. */
+    bool continueControlRun(ControlRun &run);
+
+    /** While authoring, record an accepted request's desired state at its
+     *  acceptance time, before it executes or waits */
+    void captureUserRequest(ShowControlRequest &request);
+    /** Execute the queued requests nothing owed or earlier holds back */
+    void drainUserRequests();
+    /** The request at index depends on crossed work still owed or on an earlier request */
+    bool userRequestWaits(int index) const;
+    /** A workspace reset or a Show deletion ends every accepted request */
+    void dropUserRequests();
+    void slotFunctionRemoved(quint32 id);
 
     static ShowCommandRecorder *s_instance;
 
     Doc *m_doc;
+    VirtualConsole *m_vc = nullptr;
+    QVector<ControlRun> m_controlRuns;
+    QVector<ShowControlRequest> m_userRequests;
+    quint64 m_requestEpoch = 0;
+    bool m_drainingRequests = false;
+    quint64 m_lastReceiptOp = 0;
+    QVector<QPointer<Show>> m_attachedShows;
     ShowCommandState m_state;
     ShowCommandTrack m_track;
     quint32 m_trackedShowId = ShowCommand::InvalidId;
@@ -231,7 +517,28 @@ private:
     bool m_publishing = false;
     quint64 m_takeId = 0;
     quint32 m_clockPosition = 0;
-    quint32 m_authoredExtentFloor = 0;
+    quint32 m_hostCursorShowId = ShowCommand::InvalidId;
+    quint32 m_hostCursor = 0;
+    /** Accepted input a Show rejected, kept for the next publication */
+    struct Unpublished
+    {
+        quint32 showId;
+        ShowCommand command;
+        quint64 traversal; //!< the traversal it ran live in
+        ShowTraceCause cause; //!< diagnostics of the input it came from
+    };
+    QVector<Unpublished> m_unpublished;
+    /** Per Show ID, the event ids and equal-time orders issued in this
+     *  workspace so far: a Show restored from XML (native undo of its
+     *  deletion) keeps them unissued, since the editor's undo history may
+     *  still name them */
+    QHash<quint32, QPair<quint32, quint32>> m_eventIdFloors;
+    void rememberEventIds(const Show *show);
+    int m_editSerial = 0;
+    bool m_rowsObserved = false;
+    bool m_referencesObserved = false;
+    bool m_rowsRefreshPending = false;
+    QVector<QMetaObject::Connection> m_rowSources;
 };
 
 #endif // SHOWCOMMANDRECORDER_H

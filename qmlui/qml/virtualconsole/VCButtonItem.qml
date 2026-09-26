@@ -74,6 +74,24 @@ VCWidgetItem
         id: activeBorder
         x: 1
         y: 1
+        // the painted button face is the accessible button; it takes no input
+        // itself, so its enabled state only reports the widget's
+        enabled: buttonObj ? !buttonObj.isDisabled : false
+        Accessible.role: Accessible.Button
+        Accessible.name: buttonObj ? buttonObj.caption : ""
+        Accessible.id: buttonObj ? "vcButton-" + buttonObj.id : ""
+        Accessible.description: btnState === VCButton.Active ? qsTr("Active")
+                              : btnState === VCButton.Monitoring ? qsTr("Monitoring") : qsTr("Inactive")
+        Accessible.checkable: btnAction === VCButton.Toggle
+        Accessible.checked: btnState === VCButton.Active
+        Accessible.onPressAction:
+        {
+            if (!buttonMouseArea.enabled)
+                return;
+            buttonRoot.userPressed()
+            buttonRoot.userReleased()
+            buttonRoot.userClicked()
+        }
         width: parent.width - 2
         height: parent.height - 2
         color: "transparent"
@@ -131,58 +149,66 @@ VCWidgetItem
         }
     }
 
+    // one pointer click, shared by the mouse and the accessible press action
+    function userPressed()
+    {
+        if (virtualConsole.editMode)
+            return;
+
+        if (buttonObj.actionType === VCButton.Flash ||
+            buttonObj.actionType === VCButton.FreezeHold)
+            buttonObj.requestUserStateChange(true)
+        else if (buttonObj.actionType === VCButton.Freeze)
+            buttonObj.requestUserStateChange(btnState !== VCButton.Active)
+    }
+
+    function userReleased()
+    {
+        // A while-pressed Freeze must be released even if edit mode was
+        // entered while the button was held.
+        if (buttonObj.actionType === VCButton.FreezeHold)
+        {
+            buttonObj.requestUserStateChange(false)
+            return;
+        }
+
+        if (virtualConsole.editMode)
+            return;
+
+        if (buttonObj.actionType === VCButton.Flash)
+            buttonObj.requestUserStateChange(false)
+    }
+
+    function userClicked()
+    {
+        if (virtualConsole.editMode)
+            return;
+
+        // Both Freeze modes acted on press/release already.
+        if (buttonObj.actionType === VCButton.Freeze ||
+            buttonObj.actionType === VCButton.FreezeHold)
+            return;
+
+        if (buttonObj.actionType === VCButton.Toggle || buttonObj.actionType === VCButton.Blackout)
+        {
+            buttonObj.requestUserStateChange(btnState === VCButton.Active ? false : true)
+        }
+        else if (buttonObj.actionType !== VCButton.Flash)
+        {
+            buttonObj.requestUserStateChange(true)
+            blink.start()
+        }
+    }
+
     WheelEater { anchors.fill: parent; z: 1 }
     MouseArea
     {
+        id: buttonMouseArea
         anchors.fill: parent
         enabled: buttonObj && !buttonObj.isDisabled
-        onClicked:
-        {
-            if (virtualConsole.editMode)
-                return;
-
-            // Both Freeze modes acted on press/release already.
-            if (buttonObj.actionType === VCButton.Freeze ||
-                buttonObj.actionType === VCButton.FreezeHold)
-                return;
-
-            if (buttonObj.actionType === VCButton.Toggle || buttonObj.actionType === VCButton.Blackout)
-            {
-                buttonObj.requestUserStateChange(btnState === VCButton.Active ? false : true)
-            }
-            else if (buttonObj.actionType !== VCButton.Flash)
-            {
-                buttonObj.requestUserStateChange(true)
-                blink.start()
-            }
-        }
-        onPressed:
-        {
-            if (virtualConsole.editMode)
-                return;
-
-            if (buttonObj.actionType === VCButton.Flash ||
-                buttonObj.actionType === VCButton.FreezeHold)
-                buttonObj.requestUserStateChange(true)
-            else if (buttonObj.actionType === VCButton.Freeze)
-                buttonObj.requestUserStateChange(btnState !== VCButton.Active)
-        }
-        onReleased:
-        {
-            // A while-pressed Freeze must be released even if edit mode was
-            // entered while the button was held.
-            if (buttonObj.actionType === VCButton.FreezeHold)
-            {
-                buttonObj.requestUserStateChange(false)
-                return;
-            }
-
-            if (virtualConsole.editMode)
-                return;
-
-            if (buttonObj.actionType === VCButton.Flash)
-                buttonObj.requestUserStateChange(false)
-        }
+        onClicked: buttonRoot.userClicked()
+        onPressed: buttonRoot.userPressed()
+        onReleased: buttonRoot.userReleased()
         onCanceled:
         {
             // A stolen pointer grab delivers no release event.

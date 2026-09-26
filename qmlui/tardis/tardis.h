@@ -184,6 +184,8 @@ public:
         ShowManagerItemSetStartTime,
         ShowManagerItemSetDuration,
         ShowManagerItemSetTrack,
+        /** One Recordings editor step: an ID-addressed ShowCommandEdit of objID */
+        ShowManagerCommandEdit,
 
         /* Simple Desk actions */
         SimpleDeskSetChannel = 0xC000,
@@ -307,6 +309,10 @@ public:
 
     /** Redo an action or a batch of actions taken from history */
     Q_INVOKABLE void redoAction();
+
+    /** Undo the latest step only if it is the Recordings editor step with
+     *  that serial, so a stale Undo prompt never undoes something else */
+    Q_INVOKABLE bool undoCommandEdit(int serial);
 
     /** Begin a batch: all actions enqueued until the matching endBatch()
      *  share one timestamp and collapse into a single undo step.

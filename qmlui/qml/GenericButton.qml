@@ -50,6 +50,11 @@ Rectangle
 
     signal clicked(int mouseButton)
 
+    Accessible.role: Accessible.Button
+    Accessible.name: label
+    Accessible.description: tooltip
+    Accessible.onPressAction: if (enabled) btnRoot.clicked(Qt.LeftButton)
+
     /* Record the original height to perform the "auto height" calculation later */
     Component.onCompleted: originalHeight = height
 

@@ -47,6 +47,7 @@
 #include "vccuelist.h"
 #include "vcbutton.h"
 #include "vcslider.h"
+#include "showcommandrecorder.h"
 #include "app.h"
 #include "doc.h"
 #include "oscaudiosource.h"
@@ -2698,6 +2699,8 @@ void VCAudioTriggers::checkWidgetFunctionality(BandMapping &bm, const TriggerSta
     VCWidget *widget = bm.widget;
     if (widget == nullptr)
         return;
+    // traced as Audio below, not as direct code requests
+    const ShowCommandRecorder::TracedCall traced;
 
     switch (widget->type())
     {
@@ -2708,16 +2711,30 @@ void VCAudioTriggers::checkWidgetFunctionality(BandMapping &bm, const TriggerSta
                 return;
 
             if (ts.firedThisFrame && button->state() == VCButton::Inactive)
+            {
+                ShowCommandRecorder::traceInput(button, ShowCommandOrigin::Audio, ShowEventLog::Outcome::Ignored,
+                                                QT_TRANSLATE_NOOP("ShowCommandRecorder", "audio trigger is not recorded"), 1);
                 button->requestStateChange(true);
+            }
             else if (ts.releasedThisFrame && button->state() != VCButton::Inactive)
+            {
+                ShowCommandRecorder::traceInput(button, ShowCommandOrigin::Audio, ShowEventLog::Outcome::Ignored,
+                                                QT_TRANSLATE_NOOP("ShowCommandRecorder", "audio trigger is not recorded"), 0);
                 button->requestStateChange(false);
+            }
         }
         break;
         case VCWidget::SliderWidget:
         {
             VCSlider *slider = qobject_cast<VCSlider *>(widget);
             if (slider != nullptr)
+            {
+                if (ShowEventLog::generation() != 0 && bm.m_value != slider->value())
+                    ShowCommandRecorder::traceInput(slider, ShowCommandOrigin::Audio, ShowEventLog::Outcome::Ignored,
+                                                    QT_TRANSLATE_NOOP("ShowCommandRecorder", "audio level is not recorded"),
+                                                    bm.m_value);
                 slider->setValue(bm.m_value, true, true);
+            }
         }
         break;
         case VCWidget::SpeedWidget:

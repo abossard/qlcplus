@@ -1,6 +1,6 @@
 # Record VC commands through current bindings
 
-Status: accepted design, implementation pending. Updated: 2026-09-25.
+Status: implemented; native/offscreen integration verified. Updated: 2026-09-26.
 
 [Requirements](../vc-performance-recording/requirements.md)
 
@@ -46,13 +46,15 @@ Add versioned, discriminated VC commands beside existing function commands. Old 
 
 ## Keep editing and diagnostics distinct
 
-The user chose a Recordings tab in the Show editor and rejected extra lanes. A shared docked debug panel supplies read-only Events and Referenced controls; it is not a second editor.
+The initial editor used a Recordings tab without extra lanes. The September 2026 recording-timeline request supersedes that presentation choice: one Recordings lane displays derived groups alongside function clips, while the table remains the sample editor. Adjacent slider samples join only when control UUID, role and attribute match; every other saved command is a barrier. Regrouping changes no samples or XML and never widens the selected event IDs. A shared docked debug panel supplies read-only Events and Referenced controls; it is not a second editor.
+
+The user requires stable equal-time order: moving an event away and back restores its original place among tied events, including unselected peers. Appending every moved event after existing ties was rejected; Undo alone does not satisfy this rule.
 
 REC arms capture independently of Play. Save checkpoints the current capture without interrupting busking. Performance views share the same target/status controls so the operator can disarm without leaving the VC.
 
 ## Record through a DJ set
 
-The user chose automatic recording handover when VirtualDJ changes Shows: finalize A and rearm on B, while manual Show selection stays locked. This replaces the earlier fixed-target/suspend proposal for automatic handovers.
+The user chose automatic recording handover when VirtualDJ changes Shows: finalize A and rearm on B. If REC is armed without a bound Show, allow the first manual selection, then lock manual selection while bound. This replaces the earlier fixed-target/suspend proposal for automatic handovers.
 
 REC permits runtime growth past an old Show end. Save and finalization use the latest remaining clip or command, so waiting before disarming does not add saved duration.
 

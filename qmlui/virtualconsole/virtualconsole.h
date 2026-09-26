@@ -182,6 +182,10 @@ public:
      *  On invalid $id, NULL is returned */
     VCWidget *widget(quint32 id) const;
 
+    /** Every widget carrying the persistent recording $id. More than one means
+     *  the identity is ambiguous; an unknown or null $id returns none. */
+    QList<VCWidget *> widgetsByRecordingId(const QUuid &id) const;
+
     Q_INVOKABLE void setWidgetSelection(quint32 wID, QQuickItem *item, bool enable, bool multi);
 
     /** Resets the currently selected widgets selection list */
@@ -239,6 +243,9 @@ signals:
     void selectedWidgetChanged();
 
     void selectedWidgetsCountChanged();
+    /** A widget joined or left the widget map: created, pasted, loaded,
+     *  restored by undo, or deleted */
+    void widgetsChanged();
 
 protected:
     /** Create a new widget ID */

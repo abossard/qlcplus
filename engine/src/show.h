@@ -25,6 +25,8 @@
 #include <QSet>
 #include <atomic>
 #include <limits>
+#include <memory>
+#include <optional>
 
 #include "function.h"
 #include "showcommandtrack.h"
@@ -36,6 +38,29 @@ class ShowRunner;
 /** @addtogroup engine_functions Functions
  * @{
  */
+
+/** A contiguous run of crossed VC state records, handed to the GUI executor.
+ *  The runner holds everything crossed after it until it is acknowledged. */
+struct ShowControlBatch
+{
+    quint64 traversal = 0; //!< stamped when the playhead crossed the records
+    quint64 seq = 0;
+    bool restore = false;
+    QVector<ShowCommand> commands;
+    QVector<quint32> engineStarted;
+    QVector<quint32> engineStopped;
+};
+
+/** One native effect a receipt waits for */
+struct ShowFunctionExpectation
+{
+    quint32 functionId = ShowCommand::InvalidId;
+    bool expectLive = true;
+    /** A Collection whose start starts functionId: judged once that start ran */
+    quint32 causeFunctionId = ShowCommand::InvalidId;
+};
+
+struct ShowReceiptState;
 
 class Show final : public Function
 {
@@ -124,7 +149,9 @@ public:
         return m_externalElapsedTime.load(std::memory_order_relaxed);
     }
 
-    /** Request a local seek for an already-running autonomous Show. */
+    /** Request a local seek for an already-running autonomous Show. Crossed
+     *  VC work of the current traversal is cancelled at once. Ignored, with
+     *  nothing cancelled, while an external clock owns the position. */
     void requestSeek(quint32 ms);
 
     /** Transient runtime suppression for Audio functions while Perform owns
@@ -224,11 +251,28 @@ public:
      * @param alreadyApplied ids the caller executed live during the current
      *              traversal. They are remembered until the runtime starts
      *              another traversal, so a lagging cursor cannot echo them.
+     *              While the Show is stopped they are history instead: the
+     *              traversal begins when a start is accepted, and replays them.
      * @param error filled with the reason when the track is rejected
      */
     bool setCommandTrack(const ShowCommandTrack &track,
                          const QSet<quint32> &alreadyApplied = QSet<quint32>(),
                          QString *error = nullptr);
+
+    /** Same, for ids executed live in appliedTraversal: under the track lock
+     *  they stay live ids only while it is still the current traversal, and
+     *  are history a later one replays otherwise */
+    bool setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                         quint64 appliedTraversal, QString *error);
+
+    /** Any thread: no start was accepted that has not ended yet. Queued,
+     *  running, paused and stopping all count as playing. */
+    bool commandPlaybackStopped() const;
+
+    /** An editor edit: published only if commandPlaybackStopped() holds as it
+     *  is stored, decided under the same lock that accepts a start, so either
+     *  the edit is in before the start or the start wins and it is refused */
+    bool setStoppedCommandTrack(const ShowCommandTrack &track, QString *error);
 
     /** Transient recording intent. It keeps a command-only or short Show
      *  playing and is never stored in the workspace. */
@@ -241,9 +285,53 @@ public:
      *  autonomous one reports the position its runtime last reached. */
     quint32 commandPosition() const;
 
+    /** Any thread: batches and receipts of an older traversal are cancelled */
+    quint64 commandTraversal() const;
+
+    /** GUI thread: a VC executor applies this Show's batches while attached.
+     *  With none, crossed VC records are dropped. */
+    void attachControlExecutor(bool attach);
+
+    /** GUI thread: the VC batches crossed since the last call, in order */
+    QVector<ShowControlBatch> takeControlBatches();
+
+    /** GUI thread: the batch is applied. A batch of an earlier traversal is
+     *  ignored, the runner already dropped what was waiting behind it. */
+    void acknowledgeControlBatch(quint64 traversal, quint64 seq);
+
+    /** GUI thread: report functionReceiptReady(traversal, opId) once every
+     *  expectation holds, judged by the timer thread after a tick's starts.
+     *  A later traversal cancels it without a report. */
+    void requestFunctionReceipt(quint64 traversal, quint64 opId,
+                                const QVector<ShowFunctionExpectation> &expectations);
+
+    /** Any thread: crossed work of the current traversal is still owed, a VC
+     *  batch not acknowledged yet, effects queued behind it, or a catch-up
+     *  Start/Stop settling. Pause completes once this is false. */
+    bool commandWorkPending() const;
+
+    /** Any thread: the crossed commands of the current traversal not handed
+     *  to the executor or not run yet, in order: queued VC batches, what waits
+     *  behind the held batch, and a catch-up Start/Stop still settling */
+    QVector<ShowCommand> pendingCommandWork() const;
+
 signals:
+    /** Emitted from the timer thread when the owed crossed work of the
+     *  runner ran or was dropped */
+    void commandWorkDrained();
+
     /** Emitted when the authored command data changed */
     void commandTrackChanged();
+
+    /** Emitted from the timer thread when a VC batch was published */
+    void controlBatchesReady();
+
+    /** Emitted from the timer thread when a requested receipt holds */
+    void functionReceiptReady(quint64 traversal, quint64 opId);
+
+    /** Emitted from the GUI or timer thread, outside every Show lock, when a
+     *  seek or stop cancelled the crossed VC work */
+    void commandTraversalCancelled();
 
 private:
     friend class ShowRunner;
@@ -254,16 +342,67 @@ private:
     /** Runtime snapshot: the published track plus the live ids to skip */
     ShowCommandTrack commandTrackSnapshot(QSet<quint32> *alreadyApplied) const;
 
-    /** The runtime began another traversal (seek, loop or stop), so live
-     *  no-echo suppression from the previous one is over */
-    void commandTraversalRestarted();
+    /** The runtime began another traversal (seek, loop or stop) after the
+     *  one it last saw, so live no-echo suppression from that one is over.
+     *  Returns the stamp the runner keeps. Consuming a requested seek keeps
+     *  what was published since the request, and a retired runner changes
+     *  nothing: the newer Play owns it */
+    quint64 commandTraversalRestarted(quint64 traversal, bool requested);
 
     /** The runtime reports the authoritative position */
     void setCommandPosition(quint32 ms);
 
-    /** Publish without target validation, for loading and copying */
-    void storeCommandTrack(const ShowCommandTrack &track,
-                           const QSet<quint32> &alreadyApplied = QSet<quint32>());
+    /** With m_commandTrackMutex held: start a traversal, dropping the
+     *  outbox and every pending receipt */
+    void cancelControlWork();
+
+    /** Stamp and queue a VC batch for the GUI, returning its seq, or 0 when
+     *  a requested seek or stop already cancelled it, run was retired, or
+     *  traversal is no longer the current one.
+     *  owedAfter is the work left behind it, published in the same step */
+    quint64 publishControlBatch(quint64 run, quint64 traversal, const QVector<ShowCommand> &commands,
+                                const QVector<ShowCommand> &owedAfter,
+                                const QVector<quint32> &engineStarted = QVector<quint32>(),
+                                const QVector<quint32> &engineStopped = QVector<quint32>());
+
+    /** Timer thread: the runner's owed work, besides its held batch seq.
+     *  Nothing is owed once run's work is cancelled or traversal ended. */
+    void setCommandWork(quint64 run, quint64 traversal, quint64 heldSeq, const QVector<ShowCommand> &owed);
+    bool hasControlExecutor() const { return m_controlExecutors.load(std::memory_order_acquire) > 0; }
+    bool controlBatchAcknowledged(quint64 seq) const;
+
+    /** The run a runner belongs to, the count of Stops when it was created */
+    quint64 commandRun() const { return m_commandStops.load(std::memory_order_acquire); }
+
+    /** A Stop retired the runner of this run, even when a newer Play followed */
+    bool runRetired(quint64 run) const;
+
+    /** A requested seek or stop is ending the current traversal, or run was retired */
+    bool controlWorkCancelled(quint64 run) const;
+
+    /** run's work of traversal may claim its next operation: no Stop retired
+     *  run, and no seek, stop or discard has ended traversal since */
+    bool commandTraversalCurrent(quint64 run, quint64 traversal) const;
+
+    /** A seek request cancelled *traversal, and a sync source change discarded
+     *  it: nothing will restart run's traversal, so its owed work is dropped.
+     *  Sets *traversal to the current one then. */
+    bool commandTraversalDiscarded(quint64 run, quint64 *traversal) const;
+
+    /** Timer thread: functionId reached what a Start (expectLive) or a Stop
+     *  of it waits for, judged like a receipt expectation */
+    bool functionSettled(quint32 functionId, bool expectLive) const;
+
+    bool publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                             std::optional<quint64> appliedTraversal, QString *error,
+                             bool onlyStopped = false);
+
+    /** Publish without target validation, for loading and copying. With
+     *  onlyStopped, false and nothing stored unless commandPlaybackStopped(). */
+    bool storeCommandTrack(const ShowCommandTrack &track,
+                           const QSet<quint32> &alreadyApplied = QSet<quint32>(),
+                           std::optional<quint64> appliedTraversal = std::nullopt,
+                           bool onlyStopped = false);
 
     /** Empty when every command target is usable */
     QString commandTargetError(const ShowCommandTrack &track) const;
@@ -274,6 +413,36 @@ private:
     std::atomic<quint64> m_commandTrackRevision{0};
     std::atomic_bool m_commandRecording{false};
     std::atomic<quint32> m_commandPosition{0};
+    std::atomic<int> m_controlExecutors{0};
+    /** Set by every Stop until preRun replaces the runner: a Play accepted
+     *  meanwhile belongs to the next runner, so the retired one must not tick */
+    std::atomic_bool m_runnerRetired{false};
+    /** Counts every Stop, so preRun can tell one landed while it installed
+     *  the runner. Changed with m_commandTrackMutex held */
+    std::atomic<quint64> m_commandStops{0};
+
+    /** Guarded by m_commandTrackMutex: starts accepted, the accepted starts
+     *  the current run began with, and those whose run ended */
+    quint64 m_startsAccepted = 0;
+    quint64 m_startsRunning = 0;
+    quint64 m_startsEnded = 0;
+
+    /** Guarded by m_commandTrackMutex */
+    quint64 m_commandTraversal = 0;
+    /** Live ids of the traversal a pending requested seek ends: removed when
+     *  it is consumed, kept when a sync source change discards it */
+    QSet<quint32> m_requestedSeekIds;
+    quint64 m_lastControlSeq = 0;
+    quint64 m_ackedControlSeq = 0;
+    QVector<ShowControlBatch> m_controlBatches;
+    /** The runner's owed work, current only for m_commandWorkTraversal */
+    quint64 m_commandWorkTraversal = 0;
+    quint64 m_commandWorkHeldSeq = 0;
+    QVector<ShowCommand> m_commandWork;
+
+    /** Shared with the timer-thread observers of pending receipts, so a
+     *  callback in flight outlives this Show */
+    std::shared_ptr<ShowReceiptState> m_receipts;
 
     /*********************************************************************
      * Save & Load
@@ -311,6 +480,13 @@ public:
     /** @reimp */
     void postRun(MasterTimer* timer, QList<Universe*> universes) override;
 
+protected:
+    /** @reimp */
+    void startRequested() override;
+
+    /** @reimp */
+    void stopRequested() override;
+
 protected slots:
     /** Called whenever one of this function's child functions stops */
     void slotChildStopped(quint32 fid);
@@ -322,6 +498,8 @@ signals:
 
 protected:
     ShowRunner *m_runner;
+    /** Timer thread: the pause state the runner last applied */
+    bool m_runnerPaused = false;
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

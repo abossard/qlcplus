@@ -54,6 +54,18 @@ Rectangle
     signal destruction(int ID, var qItem)
     signal mouseEvent(int type, int iID, int iType, var qItem, int mouseMods)
 
+    // the accessible press opens the function, like a double click: select, then open
+    Accessible.role: Accessible.ListItem
+    Accessible.name: cRef ? cRef.name : textLabel
+    Accessible.id: cRef ? "function-" + cRef.id : ""
+    Accessible.selectable: true
+    Accessible.selected: isSelected
+    Accessible.onPressAction:
+    {
+        funcDelegate.mouseEvent(App.Clicked, cRef ? cRef.id : -1, cRef ? cRef.type : -1, funcDelegate, 0)
+        funcDelegate.mouseEvent(App.DoubleClicked, cRef ? cRef.id : -1, cRef ? cRef.type : -1, funcDelegate, 0)
+    }
+
     Component.onDestruction:
     {
         if (cRef)

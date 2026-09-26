@@ -30,6 +30,102 @@
 #include "show.h"
 #include "doc.h"
 
+/** Pending function receipts of one Show. Every field is guarded by mutex;
+ *  the observers exist only while a request is pending. */
+struct ShowReceiptState
+{
+    struct Request
+    {
+        quint64 opId = 0;
+        QVector<ShowFunctionExpectation> expectations;
+        QSet<quint32> started; //!< functionStarted seen since the request
+        QSet<quint32> stopped; //!< a cause's Function::stopped seen since the request
+        QVector<QMetaObject::Connection> connections;
+    };
+
+    QMutex mutex;
+    Show *show = nullptr; //!< cleared by the Show destructor
+    quint64 traversal = 0;
+    QVector<Request> pending;
+    QVector<QMetaObject::Connection> timerConnections;
+
+    Request *find(quint64 opId)
+    {
+        for (Request &request : pending)
+        {
+            if (request.opId == opId)
+                return &request;
+        }
+        return nullptr;
+    }
+
+    void cancelAll()
+    {
+        for (const Request &request : pending)
+        {
+            for (const QMetaObject::Connection &c : request.connections)
+                QObject::disconnect(c);
+        }
+        pending.clear();
+        for (const QMetaObject::Connection &c : timerConnections)
+            QObject::disconnect(c);
+        timerConnections.clear();
+    }
+
+    /** Timer thread, after the start queue drained. Reads only what the
+     *  timer owns, like ShowRunner::commandTargetActive. */
+    static bool holds(const Doc *doc, const Request &request, const ShowFunctionExpectation &e)
+    {
+        if (e.causeFunctionId != ShowCommand::InvalidId)
+        {
+            if (request.stopped.contains(e.causeFunctionId))
+                return true;
+            const Function *cause = doc->function(e.causeFunctionId);
+            // ended, possibly before this request observed it
+            if (cause == nullptr || (cause->stopped() && !cause->isRunning()))
+                return true;
+            // the drain that ran the cause's preRun also started or refused its members
+            if (!request.started.contains(e.causeFunctionId) && !cause->isRunning())
+                return false;
+        }
+
+        const Function *f = doc->function(e.functionId);
+        if (f == nullptr)
+            return true;
+        // whenever it was armed: a start ran, or already ran and ended; a
+        // stop landed, or another owner kept or restarted the function
+        if (e.expectLive)
+            return f->isRunning() || f->stopped();
+        return !f->isRunning() || !f->stopped();
+    }
+
+    void evaluate(const Doc *doc)
+    {
+        QMutexLocker locker(&mutex);
+        for (int i = 0; i < pending.count(); )
+        {
+            const Request &request = pending.at(i);
+            bool done = true;
+            for (const ShowFunctionExpectation &e : request.expectations)
+                done = done && holds(doc, request, e);
+            if (!done)
+            {
+                i++;
+                continue;
+            }
+
+            for (const QMetaObject::Connection &c : request.connections)
+                QObject::disconnect(c);
+            if (show != nullptr)
+                emit show->functionReceiptReady(traversal, request.opId);
+            pending.removeAt(i);
+        }
+
+        if (pending.isEmpty())
+            cancelAll();
+    }
+};
+
 #define KXMLQLCShowTimeDivision QStringLiteral("TimeDivision")
 #define KXMLQLCShowTimeType     QStringLiteral("Type")
 #define KXMLQLCShowTimeBPM      QStringLiteral("BPM")
@@ -45,8 +141,10 @@ Show::Show(Doc* doc) : Function(doc, Function::ShowType)
     , m_performAudioSuppressed(false)
     , m_latestTrackId(0)
     , m_latestShowFunctionID(0)
+    , m_receipts(std::make_shared<ShowReceiptState>())
     , m_runner(NULL)
 {
+    m_receipts->show = this;
     setName(tr("New Show"));
 
     // Clear attributes here. I want attributes to be mapped
@@ -56,6 +154,11 @@ Show::Show(Doc* doc) : Function(doc, Function::ShowType)
 
 Show::~Show()
 {
+    {
+        QMutexLocker locker(&m_receipts->mutex);
+        m_receipts->show = nullptr;
+        m_receipts->cancelAll();
+    }
     m_tracks.clear();
 }
 
@@ -256,7 +359,16 @@ Show::TimeDivision Show::stringToTempo(const QString& tempo)
 
 void Show::setSyncSource(int source)
 {
-    m_syncSource = source;
+    {
+        // a seek request lives only under the source it was made under
+        QMutexLocker locker(&m_commandTrackMutex);
+        if (source != m_syncSource)
+        {
+            m_requestedSeekTime.store(NoSeekRequested, std::memory_order_release);
+            m_requestedSeekIds.clear();
+        }
+        m_syncSource = source;
+    }
     if (m_runner != NULL)
         m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
 }
@@ -269,7 +381,33 @@ void Show::setExternalElapsedTime(quint32 ms)
 
 void Show::requestSeek(quint32 ms)
 {
-    m_requestedSeekTime.store(ms, std::memory_order_release);
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        // an external clock owns the position: the request is ignored, and
+        // so the crossed work it would have ended stays valid
+        if (m_syncSource != ShowRunner::Autonomous)
+            return;
+        m_requestedSeekIds.unite(m_commandAppliedIds);
+        cancelControlWork();
+        // after the cancellation, so the runner consuming it publishes anew
+        m_requestedSeekTime.store(ms, std::memory_order_release);
+    }
+    emit commandTraversalCancelled();
+}
+
+void Show::stopRequested()
+{
+    // whoever stops it, crossed VC work and live exclusions of this traversal
+    // end at once, even for a start the timer never ran
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        m_commandStops++;
+        m_runnerRetired.store(true, std::memory_order_release);
+        m_commandAppliedIds.clear();
+        m_requestedSeekIds.clear();
+        cancelControlWork();
+    }
+    emit commandTraversalCancelled();
 }
 
 void Show::setPerformAudioSuppressed(bool suppress)
@@ -448,6 +586,35 @@ QString Show::commandTargetError(const ShowCommandTrack &track) const
 bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
                            QString *error)
 {
+    return publishCommandTrack(track, alreadyApplied, std::nullopt, error);
+}
+
+bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                           quint64 appliedTraversal, QString *error)
+{
+    return publishCommandTrack(track, alreadyApplied, appliedTraversal, error);
+}
+
+bool Show::commandPlaybackStopped() const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    return m_startsEnded == m_startsAccepted;
+}
+
+bool Show::setStoppedCommandTrack(const ShowCommandTrack &track, QString *error)
+{
+    return publishCommandTrack(track, QSet<quint32>(), std::nullopt, error, true);
+}
+
+void Show::startRequested()
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_startsAccepted++;
+}
+
+bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                               std::optional<quint64> appliedTraversal, QString *error, bool onlyStopped)
+{
     const QString reason = commandTargetError(track);
     if (reason.isEmpty() == false)
     {
@@ -463,7 +630,12 @@ bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &a
     if (accepted.extent() < accepted.lastCommandTime())
         accepted.setExtent(accepted.lastCommandTime());
 
-    storeCommandTrack(accepted, alreadyApplied);
+    if (storeCommandTrack(accepted, alreadyApplied, appliedTraversal, onlyStopped) == false)
+    {
+        if (error != NULL)
+            *error = tr("Recordings can be edited once playback has fully stopped");
+        return false;
+    }
 
     if (error != NULL)
         error->clear();
@@ -472,17 +644,25 @@ bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &a
     return true;
 }
 
-void Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied)
+bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                             std::optional<quint64> appliedTraversal, bool onlyStopped)
 {
     {
         QMutexLocker locker(&m_commandTrackMutex);
+        if (onlyStopped && m_startsEnded != m_startsAccepted)
+            return false;
         m_commandTrack = track;
         /** Ids published earlier in this traversal are still waiting for the
-         *  cursor to reach them, so they must survive a newer publication */
-        m_commandAppliedIds.unite(alreadyApplied);
+         *  cursor to reach them, so they must survive a newer publication.
+         *  A stopped Show has no traversal: accepting a start begins the next
+         *  one, and what was executed before it is history Play replays.
+         *  So is what ran in a traversal that has ended since. */
+        if (stopped() == false && appliedTraversal.value_or(m_commandTraversal) == m_commandTraversal)
+            m_commandAppliedIds.unite(alreadyApplied);
     }
 
     m_commandTrackRevision.fetch_add(1, std::memory_order_release);
+    return true;
 }
 
 quint64 Show::commandTrackRevision() const
@@ -499,10 +679,206 @@ ShowCommandTrack Show::commandTrackSnapshot(QSet<quint32> *alreadyApplied) const
     return m_commandTrack;
 }
 
-void Show::commandTraversalRestarted()
+quint64 Show::commandTraversalRestarted(quint64 traversal, bool requested)
+{
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        if (m_runnerRetired.load(std::memory_order_acquire))
+            return traversal;
+        if (requested && traversal != m_commandTraversal)
+            return m_commandTraversal;
+        m_commandAppliedIds.clear();
+        cancelControlWork();
+        traversal = m_commandTraversal;
+    }
+    emit commandTraversalCancelled();
+    return traversal;
+}
+
+void Show::cancelControlWork()
+{
+    m_commandTraversal++;
+    m_controlBatches.clear();
+
+    QMutexLocker receiptLocker(&m_receipts->mutex);
+    m_receipts->traversal = m_commandTraversal;
+    m_receipts->cancelAll();
+}
+
+quint64 Show::commandTraversal() const
 {
     QMutexLocker locker(&m_commandTrackMutex);
-    m_commandAppliedIds.clear();
+    return m_commandTraversal;
+}
+
+quint64 Show::publishControlBatch(quint64 run, quint64 traversal, const QVector<ShowCommand> &commands,
+                                  const QVector<ShowCommand> &owedAfter,
+                                  const QVector<quint32> &engineStarted,
+                                  const QVector<quint32> &engineStopped)
+{
+    quint64 seq;
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        // crossed while a GUI seek or stop was taking effect, or by a traversal
+        // a source switch discarded: never stamped as the current one
+        if (controlWorkCancelled(run) || traversal != m_commandTraversal)
+            return 0;
+
+        ShowControlBatch batch;
+        batch.traversal = m_commandTraversal;
+        batch.seq = seq = ++m_lastControlSeq;
+        batch.commands = commands;
+        batch.engineStarted = engineStarted;
+        batch.engineStopped = engineStopped;
+        m_controlBatches.append(batch);
+        // the owed work moves into the outbox in the same step
+        m_commandWorkTraversal = m_commandTraversal;
+        m_commandWorkHeldSeq = seq;
+        m_commandWork = owedAfter;
+    }
+    emit controlBatchesReady();
+    return seq;
+}
+
+bool Show::runRetired(quint64 run) const
+{
+    // the flag covers a Stop while preRun installed this runner, the count a
+    // newer Play clearing the flag
+    return m_runnerRetired.load(std::memory_order_acquire) ||
+           m_commandStops.load(std::memory_order_acquire) != run;
+}
+
+bool Show::controlWorkCancelled(quint64 run) const
+{
+    return runRetired(run) || stopped() ||
+           m_requestedSeekTime.load(std::memory_order_acquire) != NoSeekRequested;
+}
+
+bool Show::commandTraversalCurrent(quint64 run, quint64 traversal) const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    return runRetired(run) == false && traversal == m_commandTraversal;
+}
+
+bool Show::commandTraversalDiscarded(quint64 run, quint64 *traversal) const
+{
+    // one lock with requestSeek(), which cancels and stores the request together
+    QMutexLocker locker(&m_commandTrackMutex);
+    if (*traversal == m_commandTraversal || controlWorkCancelled(run))
+        return false;
+    *traversal = m_commandTraversal;
+    return true;
+}
+
+bool Show::functionSettled(quint32 functionId, bool expectLive) const
+{
+    ShowFunctionExpectation expectation;
+    expectation.functionId = functionId;
+    expectation.expectLive = expectLive;
+    return ShowReceiptState::holds(doc(), ShowReceiptState::Request(), expectation);
+}
+
+bool Show::controlBatchAcknowledged(quint64 seq) const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    return m_ackedControlSeq >= seq;
+}
+
+void Show::attachControlExecutor(bool attach)
+{
+    m_controlExecutors.fetch_add(attach ? 1 : -1, std::memory_order_acq_rel);
+}
+
+QVector<ShowControlBatch> Show::takeControlBatches()
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    return std::exchange(m_controlBatches, QVector<ShowControlBatch>());
+}
+
+void Show::acknowledgeControlBatch(quint64 traversal, quint64 seq)
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    if (traversal == m_commandTraversal && seq > m_ackedControlSeq)
+        m_ackedControlSeq = seq;
+}
+
+void Show::requestFunctionReceipt(quint64 traversal, quint64 opId,
+                                  const QVector<ShowFunctionExpectation> &expectations)
+{
+    Doc *document = doc();
+    MasterTimer *timer = document->masterTimer();
+    const std::shared_ptr<ShowReceiptState> state = m_receipts;
+
+    QMutexLocker locker(&state->mutex);
+    if (traversal != state->traversal)
+        return;
+
+    // observe first, so nothing between here and the next tick is missed
+    if (state->timerConnections.isEmpty())
+    {
+        state->timerConnections.append(connect(timer, &MasterTimer::functionStarted,
+            [state](quint32 id)
+            {
+                QMutexLocker l(&state->mutex);
+                for (ShowReceiptState::Request &request : state->pending)
+                    request.started.insert(id);
+            }));
+        state->timerConnections.append(connect(timer, &MasterTimer::tickReady,
+            [state, document]() { state->evaluate(document); }));
+    }
+
+    ShowReceiptState::Request request;
+    request.opId = opId;
+    request.expectations = expectations;
+    // the functions themselves are judged by state, only a cause needs its stop seen
+    for (const ShowFunctionExpectation &e : expectations)
+    {
+        Function *cause = document->function(e.causeFunctionId);
+        if (cause == nullptr)
+            continue;
+        request.connections.append(connect(cause, qOverload<quint32>(&Function::stopped), [state, opId](quint32 id)
+        {
+            QMutexLocker l(&state->mutex);
+            if (ShowReceiptState::Request *pending = state->find(opId))
+                pending->stopped.insert(id);
+        }));
+    }
+    state->pending.append(request);
+}
+
+bool Show::commandWorkPending() const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    if (m_commandWorkTraversal != m_commandTraversal)
+        return false;
+    return m_commandWorkHeldSeq > m_ackedControlSeq || m_commandWork.isEmpty() == false;
+}
+
+QVector<ShowCommand> Show::pendingCommandWork() const
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    QVector<ShowCommand> work;
+    for (const ShowControlBatch &batch : m_controlBatches)
+        work += batch.commands;
+    if (m_commandWorkTraversal == m_commandTraversal)
+        work += m_commandWork;
+    return work;
+}
+
+void Show::setCommandWork(quint64 run, quint64 traversal, quint64 heldSeq, const QVector<ShowCommand> &owed)
+{
+    bool drained;
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        const bool wasOwed = m_commandWorkHeldSeq != 0 || m_commandWork.isEmpty() == false;
+        const bool cancelled = controlWorkCancelled(run) || traversal != m_commandTraversal;
+        m_commandWorkTraversal = m_commandTraversal;
+        m_commandWorkHeldSeq = cancelled ? 0 : heldSeq;
+        m_commandWork = cancelled ? QVector<ShowCommand>() : owed;
+        drained = wasOwed && m_commandWorkHeldSeq == 0 && m_commandWork.isEmpty();
+    }
+    if (drained)
+        emit commandWorkDrained();
 }
 
 void Show::setCommandRecording(bool enabled)
@@ -680,6 +1056,12 @@ QList<quint32> Show::components() const
 
 void Show::preRun(MasterTimer* timer)
 {
+    quint64 stops;
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        stops = m_commandStops;
+        m_startsRunning = m_startsAccepted;
+    }
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
@@ -690,7 +1072,14 @@ void Show::preRun(MasterTimer* timer)
         delete m_runner;
     }
 
+    {
+        // a Stop while installing wins: this runner is retired from the start
+        QMutexLocker locker(&m_commandTrackMutex);
+        if (m_commandStops == stops)
+            m_runnerRetired.store(false, std::memory_order_release);
+    }
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
+    m_runnerPaused = false;
     m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
     m_runner->setExternalElapsedTime(externalElapsedTime());
     int i = 0;
@@ -704,8 +1093,8 @@ void Show::preRun(MasterTimer* timer)
 
 void Show::setPause(bool enable)
 {
-    if (m_runner != NULL)
-        m_runner->setPause(enable);
+    // like Chaser: the runner and its clips follow at the next write, on the
+    // timer thread that owns them
     Function::setPause(enable);
 }
 
@@ -713,12 +1102,35 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
 {
     Q_UNUSED(universes);
 
-    if (isPaused())
+    if (m_runnerRetired.load(std::memory_order_acquire))
         return;
 
+    const bool paused = isPaused();
+    if (paused != m_runnerPaused)
+    {
+        m_runnerPaused = paused;
+        m_runner->setPause(paused);
+    }
+
+    // paused: finish what was already crossed, without clock, clips or seeks
+    if (paused)
+    {
+        m_runner->drainCommands();
+        return;
+    }
+
     m_runner->setExternalElapsedTime(externalElapsedTime());
-    const quint64 seekTime = m_requestedSeekTime.exchange(NoSeekRequested,
-                                                         std::memory_order_acquire);
+    quint64 seekTime;
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        seekTime = m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
+        // an external clock ignores it; consumed, what it ends is history
+        if (seekTime != NoSeekRequested && m_syncSource == ShowRunner::Autonomous)
+            m_commandAppliedIds.subtract(m_requestedSeekIds);
+        else
+            seekTime = NoSeekRequested;
+        m_requestedSeekIds.clear();
+    }
     if (seekTime != NoSeekRequested)
         m_runner->requestSeek(quint32(seekTime));
     m_runner->write(timer);
@@ -732,6 +1144,11 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
         m_runner->stop();
         delete m_runner;
         m_runner = NULL;
+    }
+    {
+        // a start accepted after this run began keeps the Show playing
+        QMutexLocker locker(&m_commandTrackMutex);
+        m_startsEnded = m_startsRunning;
     }
     Function::postRun(timer, universes);
 }

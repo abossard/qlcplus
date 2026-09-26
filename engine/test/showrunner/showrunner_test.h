@@ -83,11 +83,46 @@ private slots:
     void commandPositionFollowsTransport_data();
     void commandPositionFollowsTransport();
     void commandLiveMarkSuppressesOnlyItsOwnEvent();
+    void commandLiveIdsNeedTheirTraversal_data();
+    void commandLiveIdsNeedTheirTraversal();
 
     // GPT runtime review: confirmed defects, expected red until fixed
     void commandIntensityIgnoresRecycledOverrideId();
     void commandIntensityIgnoresStaleClipQueueEntry();
     void commandSuppressedLiveStopRetiresClipDeadline();
+
+    // Function receipts judge native state, whatever the arming order
+    void functionReceiptSeesStartThatAlreadyFinished();
+    void functionReceiptStopCompletesWhenAnotherOwnerRestarts();
+    void functionReceiptShowDeletedWhilePending();
+    void functionReceiptCauseEndedBeforeArming();
+
+    // Without a GUI executor VC records drop as before, legacy work and the end run
+    void commandControlRecordWithoutExecutorIsDropped();
+    void commandCancelledPublicationDropsLegacyRemainder_data();
+    void commandCancelledPublicationDropsLegacyRemainder();
+
+    void commandSeekWithoutExecutorRestoresLegacyValues();
+
+    // Serial catch-up: Play at a new position runs the prefix through native dispatch
+    void commandCatchUpEligibilityCoversWholeTrack_data();
+    void commandCatchUpEligibilityCoversWholeTrack();
+    void commandCatchUpSettlesLegacyStartStop_data();
+    void commandCatchUpSettlesLegacyStartStop();
+    void commandCatchUpBoundaries_data();
+    void commandCatchUpBoundaries();
+    void commandCatchUpPrefixStopEndsDestinationClip();
+    void commandCancelledCatchUpRunsNoLegacyRemainder_data();
+    void commandCancelledCatchUpRunsNoLegacyRemainder();
+    void commandCatchUpNaturalEndDrains();
+
+    // Pause settles already crossed work without advancing
+    void commandPausedDrainsCrossedWork_data();
+    void commandPausedDrainsCrossedWork();
+    void commandCrossedWorkVisibleBeforeItsFirstOperation();
+    void pauseReachesClipsOnTheTimerThread();
+    void commandIgnoredSeekStrandsNothing_data();
+    void commandIgnoredSeekStrandsNothing();
 
 private:
     Doc *m_doc;

@@ -67,6 +67,8 @@ private slots:
     void newWorkspace_runningFunctions_refused();
     void guardFlags_nonBoolean_rejected_data();
     void guardFlags_nonBoolean_rejected();
+    void replacement_activeRecording_needsDiscard_data();
+    void replacement_activeRecording_needsDiscard();
 
     // real file I/O
     void saveThenLoad_roundTripsThroughDisk();

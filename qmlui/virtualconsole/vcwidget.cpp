@@ -207,6 +207,21 @@ quint32 VCWidget::id() const
     return m_id;
 }
 
+QUuid VCWidget::recordingId() const
+{
+    return m_recordingId;
+}
+
+QUuid VCWidget::ensureRecordingId()
+{
+    if (m_recordingId.isNull())
+    {
+        m_recordingId = QUuid::createUuid();
+        setDocModified();
+    }
+    return m_recordingId;
+}
+
 quint32 VCWidget::invalidId()
 {
     return UINT_MAX;
@@ -1256,6 +1271,25 @@ bool VCWidget::loadXMLCommon(QXmlStreamReader &root)
     return true;
 }
 
+bool VCWidget::loadXMLRecordingId(QXmlStreamReader &root)
+{
+    QXmlStreamAttributes attrs = root.attributes();
+    if (!attrs.hasAttribute(KXMLQLCVCWidgetRecordingID))
+        return true;
+
+    const QString text = attrs.value(KXMLQLCVCWidgetRecordingID).toString();
+    const QUuid id = ShowCommand::controlIdFromString(text);
+    if (id.isNull())
+    {
+        qWarning() << Q_FUNC_INFO << "Invalid RecordingID" << text << "on widget"
+                   << attrs.value(KXMLQLCVCCaption).toString() << attrs.value(KXMLQLCVCWidgetID).toString();
+        return false;
+    }
+
+    m_recordingId = id;
+    return true;
+}
+
 bool VCWidget::loadXMLAppearance(QXmlStreamReader &root)
 {
     if (root.device() == nullptr || root.hasError())
@@ -1463,6 +1497,10 @@ bool VCWidget::saveXMLCommon(QXmlStreamWriter *doc) const
     /* ID */
     if (id() != VCWidget::invalidId())
         doc->writeAttribute(KXMLQLCVCWidgetID, QString::number(id()));
+
+    /* Recording identity */
+    if (!m_recordingId.isNull())
+        doc->writeAttribute(KXMLQLCVCWidgetRecordingID, m_recordingId.toString());
 
     /* Page */
     if (page() != 0)

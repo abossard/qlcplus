@@ -185,6 +185,7 @@ Rectangle
                             property string contextName: "PAGE-" + index
 
                             entryText: wObj ? wObj.caption : qsTr("Page " + index)
+                            Accessible.id: "vcPage-" + index
                             mFontSize: UISettings.textSizeDefault
                             //editable: true
                             checked: index === virtualConsole.selectedPage ? true : false
@@ -243,6 +244,8 @@ Rectangle
 
                 // filler
                 Rectangle { Layout.fillWidth: true }
+
+                RecordControl { Layout.fillHeight: true }
 
                 IconButton
                 {

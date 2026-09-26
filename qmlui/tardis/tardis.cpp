@@ -28,6 +28,7 @@
 #include "fixturemanager.h"
 #include "functionmanager.h"
 #include "contextmanager.h"
+#include "showcommandrecorder.h"
 #include "showmanager.h"
 #include "mainview2d.h"
 #include "mainview3d.h"
@@ -63,6 +64,43 @@
 #define TARDIS_MAX_ACTIONS_NUMBER   100
 
 Tardis* Tardis::s_instance = nullptr;
+
+/* The one rule for what an undo step is, used to count, coalesce, undo,
+ * redo, truncate and evict. A native step is what lies within
+ * TARDIS_ACTION_INTERTIME of its newest action (a batch shares one
+ * timestamp), taken from the newest end of the history down, as Undo always
+ * did. A Recordings editor step is always a step of its own. */
+static bool isEditorStep(const TardisAction &action)
+{
+    return action.m_action == Tardis::ShowManagerCommandEdit;
+}
+
+/* Within the window of newest; timestamps only grow along the history */
+static bool inWindow(const TardisAction &newest, const TardisAction &older)
+{
+    return older.m_timestamp >= newest.m_timestamp ||
+           newest.m_timestamp - older.m_timestamp <= TARDIS_ACTION_INTERTIME;
+}
+
+/* The oldest index of the step whose newest action is at top */
+static int stepBottom(const QList<TardisAction> &history, int top)
+{
+    int bottom = top;
+    if (isEditorStep(history.at(top)))
+        return bottom;
+    while (bottom > 0 && !isEditorStep(history.at(bottom - 1)) &&
+           inWindow(history.at(top), history.at(bottom - 1)))
+        bottom--;
+    return bottom;
+}
+
+static int stepCount(const QList<TardisAction> &history)
+{
+    int steps = 0;
+    for (int top = int(history.count()) - 1; top >= 0; top = stepBottom(history, top) - 1)
+        steps++;
+    return steps;
+}
 
 Tardis::Tardis(QQuickView *view, Doc *doc, NetworkManager *netMgr,
                FixtureManager *fxMgr, FunctionManager *funcMgr, ContextManager *ctxMgr, SimpleDesk *sDesk,
@@ -172,16 +210,24 @@ void Tardis::undoAction()
     if (m_historyIndex == -1 || m_history.isEmpty())
         return;
 
+    if (m_history.at(m_historyIndex).m_action == ShowManagerCommandEdit)
+    {
+        // checked against the current events before the history moves: a
+        // refused step stays where it is
+        ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+        m_busy = true;
+        if (recorder != nullptr && recorder->applyHistoryEdit(m_history.at(m_historyIndex).m_newValue, true))
+            m_historyIndex--;
+        m_busy = false;
+        return;
+    }
+
     m_busy = true;
 
-    quint64 refTimestamp = m_history.at(m_historyIndex).m_timestamp;
-
-    while (1)
+    const int bottom = stepBottom(m_history, m_historyIndex);
+    while (m_historyIndex >= bottom)
     {
         TardisAction action = m_history.at(m_historyIndex);
-
-        if (refTimestamp - action.m_timestamp > TARDIS_ACTION_INTERTIME)
-            break;
 
         qDebug() << "Undo action" << actionToString(action.m_action);
 
@@ -191,9 +237,6 @@ void Tardis::undoAction()
 
         /* If there are active network connections, send the action there too */
         forwardActionToNetwork(code, action, true);
-
-        if (m_historyIndex == -1)
-            break;
     }
 
     qDebug() << "History index:" << m_historyIndex;
@@ -210,13 +253,25 @@ void Tardis::redoAction()
     if (m_history.isEmpty() || m_historyIndex == m_history.count() - 1)
         return;
 
-    bool done = false;
+    if (m_history.at(m_historyIndex + 1).m_action == ShowManagerCommandEdit)
+    {
+        // see undoAction()
+        ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+        m_busy = true;
+        if (recorder != nullptr && recorder->applyHistoryEdit(m_history.at(m_historyIndex + 1).m_newValue, false))
+            m_historyIndex++;
+        m_busy = false;
+        return;
+    }
 
     m_busy = true;
 
-    quint64 refTimestamp = m_history.at(m_historyIndex + 1).m_timestamp;
+    // the step Undo took last: the one starting right above the index
+    int top = int(m_history.count()) - 1;
+    while (stepBottom(m_history, top) > m_historyIndex + 1)
+        top = stepBottom(m_history, top) - 1;
 
-    while (!done)
+    while (m_historyIndex < top)
     {
         m_historyIndex++;
 
@@ -227,18 +282,25 @@ void Tardis::redoAction()
 
         /* If there are active network connections, send the action there too */
         forwardActionToNetwork(code, action);
-
-        /* Check if I am processing a batch of actions or a single one */
-        if (m_historyIndex == m_history.count() - 1 ||
-            action.m_timestamp - refTimestamp > TARDIS_ACTION_INTERTIME)
-        {
-            done = true;
-        }
     }
 
     qDebug() << "History index:" << m_historyIndex;
 
     m_busy = false;
+}
+
+bool Tardis::undoCommandEdit(int serial)
+{
+    if (m_historyIndex < 0 || m_historyIndex >= m_history.count())
+        return false;
+
+    const TardisAction &latest = m_history.at(m_historyIndex);
+    if (latest.m_action != ShowManagerCommandEdit || latest.m_newValue.value<ShowCommandEdit>().serial != serial)
+        return false;
+
+    const int index = m_historyIndex;
+    undoAction();
+    return m_historyIndex != index;
 }
 
 void Tardis::resetHistory()
@@ -251,7 +313,8 @@ void Tardis::resetHistory()
 
 void Tardis::forwardActionToNetwork(int code, TardisAction &action, bool undo)
 {
-    if (m_networkManager->connectionsCount() == 0)
+    // a Recordings editor step has no wire form: it stays local
+    if (m_networkManager->connectionsCount() == 0 || action.m_action == ShowManagerCommandEdit)
         return;
 
     TardisAction netAction = action;
@@ -284,7 +347,6 @@ void Tardis::run()
         }
 
         TardisAction action;
-        bool match = false;
 
         {
             QMutexLocker locker(&m_queueMutex);
@@ -305,29 +367,16 @@ void Tardis::run()
         /* If the history index is halfway, it means I need to remove
          * all the actions after the last undo operation before
          * pushing a new one */
-        if (m_historyIndex >= 0 && m_historyIndex != m_history.count())
+        /* A new action drops every undone step */
+        while (m_history.count() - 1 > m_historyIndex)
+            m_history.removeLast();
+
+        if (m_history.count() && isEditorStep(action) == false)
         {
-            int count = m_history.count();
-            qint64 refTimestamp = m_history.last().m_timestamp;
-
-            for (int i = m_historyIndex + 1; i < count; i++)
-            {
-                if (refTimestamp - m_history.last().m_timestamp > TARDIS_ACTION_INTERTIME)
-                {
-                    refTimestamp = m_history.last().m_timestamp;
-                    m_historyCount--;
-                }
-                m_history.removeLast();
-
-            }
-        }
-
-        if (m_history.count())
-        {
-            // scan history from the last item to find a match
+            // scan the step the action joins, from its newest item, to find a match
             for (int i = m_history.count() - 1; i >= 0; i--)
             {
-                if (action.m_timestamp - m_history.at(i).m_timestamp > TARDIS_ACTION_INTERTIME)
+                if (isEditorStep(m_history.at(i)) || inWindow(action, m_history.at(i)) == false)
                     break;
 
                 if (action.m_action == m_history.at(i).m_action &&
@@ -335,27 +384,26 @@ void Tardis::run()
                     action.m_oldValue == m_history.at(i).m_newValue)
                 {
                     //qDebug() << "Found match at" << i << action.m_oldValue << m_history.at(i).m_newValue;
+                    // merged into the newest place, so timestamps keep growing
                     action.m_oldValue = m_history.at(i).m_oldValue;
-                    m_history.replace(i, action);
-                    match = true;
+                    m_history.removeAt(i);
                     break;
                 }
             }
         }
 
-        if (m_history.isEmpty() || action.m_timestamp - m_history.last().m_timestamp > TARDIS_ACTION_INTERTIME)
-            m_historyCount++;
-
-        if (match == false)
-            m_history.append(action);
+        m_history.append(action);
+        m_historyCount = stepCount(m_history);
 
         /* So long and thanks for all the fish */
-        if (m_historyCount > TARDIS_MAX_ACTIONS_NUMBER)
+        while (m_historyCount > TARDIS_MAX_ACTIONS_NUMBER && m_history.isEmpty() == false)
         {
-            qint64 refTimestamp = m_history.first().m_timestamp;
-            while (m_history.first().m_timestamp - refTimestamp < TARDIS_ACTION_INTERTIME)
-                m_history.removeFirst();
-            m_historyCount = TARDIS_MAX_ACTIONS_NUMBER;
+            // the oldest step, whole: the steps above it keep their bounds
+            int top = int(m_history.count()) - 1;
+            while (stepBottom(m_history, top) > 0)
+                top = stepBottom(m_history, top) - 1;
+            m_history.erase(m_history.begin(), m_history.begin() + top + 1);
+            m_historyCount--;
         }
 
         m_historyIndex = m_history.count() - 1;

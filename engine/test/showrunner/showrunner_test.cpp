@@ -28,10 +28,10 @@
 #include "showrunner.h"
 #include "mastertimer.h"
 #include "universe.h"
+#include "show.h"
 #undef protected
 #undef private
 #include "fixture.h"
-#include "show.h"
 #include "showcommandtrack.h"
 #include "track.h"
 #include "scene.h"
@@ -61,6 +61,21 @@ public:
         return maxSize;
     }
     int bitrate() override { return 1536; }
+};
+
+/** A clip that remembers the thread its pause reached it on */
+class PauseProbeFunction final : public Function
+{
+public:
+    explicit PauseProbeFunction(Doc *doc) : Function(doc, Function::SceneType) {}
+
+    void setPause(bool enable) override
+    {
+        pauseThread.store(QThread::currentThread());
+        Function::setPause(enable);
+    }
+
+    std::atomic<QThread *> pauseThread{nullptr};
 };
 
 static AudioRendererNull *attachNullRenderer(Audio *audio, bool start)
@@ -1671,6 +1686,72 @@ void ShowRunner_Test::commandLiveMarkSuppressesOnlyItsOwnEvent()
     QCOMPARE(authoredRuns, 1);
 }
 
+void ShowRunner_Test::commandLiveIdsNeedTheirTraversal_data()
+{
+    QTest::addColumn<bool>("seekBeforeAccept");
+    QTest::addColumn<bool>("seekBeforePublish");
+    QTest::addColumn<int>("starts");
+
+    QTest::newRow("accepted in the current traversal") << false << false << 0;
+    // a stale traversal at publication, given to the public API: this does
+    // not reproduce the recorder's thread race, it pins the locked decision
+    QTest::newRow("traversal ended before publication") << false << true << 1;
+    QTest::newRow("accepted after a consumed seek") << true << false << 0;
+}
+
+void ShowRunner_Test::commandLiveIdsNeedTheirTraversal()
+{
+    QFETCH(bool, seekBeforeAccept);
+    QFETCH(bool, seekBeforePublish);
+    QFETCH(int, starts);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *live = makeScene(doc, fixture->id(), 0, 200);
+
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack empty;
+    empty.setExtent(2000);
+    QVERIFY(show->setCommandTrack(empty));
+
+    QSignalSpy liveStarts(live, &Function::running);
+
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick(); // consumed through 40ms
+
+    // each seek is consumed before the input is accepted or published
+    if (seekBeforeAccept)
+    {
+        show->requestSeek(0);
+        timer->timerTick();
+    }
+    // the recorder executed the input live in this traversal
+    const quint64 accepted = show->commandTraversal();
+    if (seekBeforePublish)
+    {
+        show->requestSeek(0);
+        timer->timerTick();
+    }
+
+    ShowCommandTrack track;
+    track.setExtent(2000);
+    QVERIFY(track.insert(ShowCommand::start(1, 50, live->id())));
+    QVERIFY(show->setCommandTrack(track, {1}, accepted, nullptr));
+
+    for (int i = 0; i < 6; i++)
+        timer->timerTick();
+    const int played = liveStarts.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(played, starts);
+}
+
 void ShowRunner_Test::commandIntensityIgnoresRecycledOverrideId()
 {
     Doc doc(nullptr);
@@ -1858,6 +1939,1125 @@ void ShowRunner_Test::commandSuppressedLiveStopRetiresClipDeadline()
     QVERIFY2(survivedOldDeadline,
              "a suppressed live Stop must still retire the superseded clip end");
     QCOMPARE(stoppedByAuthoredStop, false);
+}
+
+void ShowRunner_Test::functionReceiptSeesStartThatAlreadyFinished()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    // nothing to output: it stops itself on its first write
+    auto *selfCompleting = new Scene(&doc);
+    doc.addFunction(selfCompleting);
+    QSignalSpy ran(selfCompleting, &Function::running);
+    QSignalSpy ended(selfCompleting, qOverload<quint32>(&Function::stopped));
+    selfCompleting->start(timer, FunctionParent::master());
+    for (int i = 0; i < 4 && ended.isEmpty(); i++)
+        timer->timerTick();
+    QCOMPARE(ran.count(), 1);
+    QCOMPARE(ended.count(), 1);
+
+    // the start op is only armed once its function has come and gone
+    QSignalSpy receipts(show, &Show::functionReceiptReady);
+    ShowFunctionExpectation started;
+    started.functionId = selfCompleting->id();
+    show->requestFunctionReceipt(0, 1, { started });
+    timer->timerTick();
+
+    QCOMPARE(receipts.count(), 1);
+}
+
+void ShowRunner_Test::functionReceiptStopCompletesWhenAnotherOwnerRestarts()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    scene->start(timer, FunctionParent::master());
+    timer->timerTick();
+    QVERIFY(scene->isRunning());
+
+    QSignalSpy receipts(show, &Show::functionReceiptReady);
+    scene->stop(FunctionParent::master());
+    ShowFunctionExpectation stopped;
+    stopped.functionId = scene->id();
+    stopped.expectLive = false;
+    show->requestFunctionReceipt(0, 1, { stopped });
+    // another owner takes it over before the stop lands
+    scene->start(timer, FunctionParent(FunctionParent::AutoVCWidget, 42));
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+
+    QVERIFY(scene->isRunning());
+    QCOMPARE(receipts.count(), 1);
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::functionReceiptShowDeletedWhilePending()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowFunctionExpectation started;
+    started.functionId = scene->id();
+    show->requestFunctionReceipt(0, 1, { started });
+    const std::weak_ptr<ShowReceiptState> receipts = show->m_receipts;
+    QVERIFY(doc.deleteFunction(show->id()));
+
+    // the start the receipt waited for happens after its Show is gone
+    scene->start(timer, FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY(scene->isRunning());
+    // no observer outlives the Show: nothing holds its receipt state
+    QVERIFY(receipts.expired());
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::functionReceiptCauseEndedBeforeArming()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *child = makeScene(doc, fixture->id(), 0, 200);
+    auto *collection = new Collection(&doc);
+    collection->addFunction(child->id());
+    doc.addFunction(collection);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    QSignalSpy ended(collection, qOverload<quint32>(&Function::stopped));
+    collection->start(timer, FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    collection->stop(FunctionParent::master());
+    for (int i = 0; i < 4 && ended.isEmpty(); i++)
+        timer->timerTick();
+    QCOMPARE(ended.count(), 1);
+
+    // the child OFF is only armed once its Collection has come and gone
+    QSignalSpy receipts(show, &Show::functionReceiptReady);
+    ShowFunctionExpectation childOff;
+    childOff.functionId = child->id();
+    childOff.expectLive = false;
+    childOff.causeFunctionId = collection->id();
+    show->requestFunctionReceipt(0, 1, { childOff });
+    timer->timerTick();
+
+    QCOMPARE(receipts.count(), 1);
+}
+
+void ShowRunner_Test::commandControlRecordWithoutExecutorIsDropped()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+
+    // no Virtual Console attached to this Show applies the button record
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 0, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::start(2, 100, scene->id())));
+    QVERIFY(track.setExtent(400));
+    QString error;
+    QVERIFY2(show->setCommandTrack(track, {}, &error), qPrintable(error));
+
+    QSignalSpy finished(show, &Show::showFinished);
+    show->start(timer, FunctionParent::master());
+    for (int i = 0; i < ticksToReach(100); i++)
+        timer->timerTick();
+    const bool legacyApplied = scene->isRunning();
+    for (int i = 0; i < ticksToReach(600) && finished.isEmpty(); i++)
+        timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY(legacyApplied);
+    QCOMPARE(finished.count(), 1);
+    QVERIFY(!show->isRunning());
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCancelledPublicationDropsLegacyRemainder_data()
+{
+    QTest::addColumn<bool>("seekPending");
+
+    QTest::newRow("seek pending") << true;
+    QTest::newRow("show stopped") << false;
+}
+
+void ShowRunner_Test::commandCancelledPublicationDropsLegacyRemainder()
+{
+    QFETCH(bool, seekPending);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.setExtent(2000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+
+    // the crossing is dispatched while the cancellation is taking effect
+    if (seekPending)
+        show->requestSeek(1500);
+    else
+        show->stop(FunctionParent::master());
+    QSignalSpy started(scene, &Function::running);
+    show->m_runner->dispatchCommandEffects({
+        ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true),
+        ShowCommand::start(2, 100, scene->id()) });
+    timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY2(started.isEmpty(), "the cancelled traversal's legacy remainder must not run");
+    show->attachControlExecutor(false);
+    show->stop(FunctionParent::master());
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandSeekWithoutExecutorRestoresLegacyValues()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *target = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, target->id(), 0.3)));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+
+    target->start(timer, FunctionParent::master());
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    show->requestSeek(1000);
+    for (int i = 0; i < 5; i++)
+        timer->timerTick();
+
+    // no VC executor: the seek restores legacy values inline, as before
+    QVERIFY(show->takeControlBatches().isEmpty());
+    QCOMPARE(target->getAttributeValue(Function::Intensity), qreal(0.3));
+    QVERIFY(show->isRunning());
+
+    show->stop(FunctionParent::master());
+    target->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCatchUpEligibilityCoversWholeTrack_data()
+{
+    QTest::addColumn<bool>("executor");
+    QTest::addColumn<bool>("started");
+
+    // the only VC record lies after the destination
+    QTest::newRow("executor attached, Start replayed") << true << true;
+    QTest::newRow("no executor, legacy seek") << false << false;
+}
+
+void ShowRunner_Test::commandCatchUpEligibilityCoversWholeTrack()
+{
+    QFETCH(bool, executor);
+    QFETCH(bool, started);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 10000, scene->id())));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 100000, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(200000));
+    QVERIFY(show->setCommandTrack(track));
+    if (executor)
+        show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() {
+        if (executor)
+            show->attachControlExecutor(false);
+    });
+
+    show->start(timer, FunctionParent::master(), 50000);
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+
+    QCOMPARE(scene->isRunning(), started);
+
+    show->stop(FunctionParent::master());
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCatchUpSettlesLegacyStartStop_data()
+{
+    QTest::addColumn<QString>("rig");
+    QTest::addColumn<QString>("outcome");
+
+    // name=state[@intensity]/running() count/stopped() count, after Play at 5s
+    QTest::newRow("start, stop, start, then .8") << QStringLiteral("serial")
+        << QStringLiteral("F=on@0.8/2/1,G=off/0/0");
+    QTest::newRow("same, over a destination clip of F") << QStringLiteral("clip")
+        << QStringLiteral("F=on@0.8/2/1,G=off/0/0");
+    QTest::newRow("another owner keeps F through the Stop") << QStringLiteral("owner")
+        << QStringLiteral("F=on@0.8/0/0,G=off/0/0");
+    QTest::newRow("a start that ends at once, then the next") << QStringLiteral("ends")
+        << QStringLiteral("F=off/1/1,G=on@1/1/0");
+    QTest::newRow("a start already owned, then the next") << QStringLiteral("owned")
+        << QStringLiteral("F=on@1/1/0,G=on@1/1/0");
+    QTest::newRow("seek during the wait") << QStringLiteral("seek")
+        << QStringLiteral("F=off/1/1,G=off/0/0");
+    QTest::newRow("stop during the wait") << QStringLiteral("stop")
+        << QStringLiteral("F=off/1/1,G=off/0/0");
+    // Play at 200ms; a clip queues F again at 240, just after the Stop retired it
+    QTest::newRow("a clip restart queued behind the Stop") << QStringLiteral("pending clip")
+        << QStringLiteral("F=on@0.8/2/1,G=off/0/0");
+    // F runs ahead of the Show; the Stop drops its last owner after F's write,
+    // and another owner queues a restart of the still running F before the next tick
+    QTest::newRow("a restart queued for the still running F") << QStringLiteral("running restart")
+        << QStringLiteral("F=on@0.8/1/1,G=off/0/0");
+    // the Stop leaves F to its other owner, which stops and restarts it before the next tick
+    QTest::newRow("the remaining owner restarts F") << QStringLiteral("owner restart")
+        << QStringLiteral("F=on@0.8/1/1,G=off/0/0");
+}
+
+void ShowRunner_Test::commandCatchUpSettlesLegacyStartStop()
+{
+    QFETCH(QString, rig);
+    QFETCH(QString, outcome);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    // with nothing to output a Scene stops itself on its first write
+    Scene *f = rig == QStringLiteral("ends") ? new Scene(&doc) : makeScene(doc, fixture->id(), 0, 200);
+    if (rig == QStringLiteral("ends"))
+        doc.addFunction(f);
+    Scene *g = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    if (rig == QStringLiteral("clip") || rig == QStringLiteral("pending clip"))
+    {
+        auto *clips = new Track(Function::invalidId());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(f->id());
+        item->setStartTime(rig == QStringLiteral("clip") ? 0 : 240);
+        item->setDuration(100000);
+        clips->addShowFunction(item);
+        show->addTrack(clips);
+    }
+
+    ShowCommandTrack track;
+    if (rig == QStringLiteral("pending clip") || rig == QStringLiteral("running restart") ||
+        rig == QStringLiteral("owner restart"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 10, f->id())));
+        QVERIFY(track.insert(ShowCommand::stop(2, 20, f->id())));
+        QVERIFY(track.insert(ShowCommand::setIntensity(3, 30, f->id(), 0.8)));
+    }
+    else if (rig == QStringLiteral("serial") || rig == QStringLiteral("clip"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+        QVERIFY(track.insert(ShowCommand::stop(2, 2000, f->id())));
+        QVERIFY(track.insert(ShowCommand::start(3, 3000, f->id())));
+        QVERIFY(track.insert(ShowCommand::setIntensity(4, 4000, f->id(), 0.8)));
+    }
+    else if (rig == QStringLiteral("owner"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+        QVERIFY(track.insert(ShowCommand::stop(2, 2000, f->id())));
+        QVERIFY(track.insert(ShowCommand::setIntensity(3, 3000, f->id(), 0.8)));
+    }
+    else
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+        if (rig == QStringLiteral("owned"))
+            QVERIFY(track.insert(ShowCommand::start(2, 1500, f->id())));
+        QVERIFY(track.insert(ShowCommand::start(3, 2000, g->id())));
+    }
+    // the VC record that makes this a catch-up traversal lies after the destination
+    QVERIFY(track.insert(ShowCommand::setButtonState(9, 100000, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(200000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+
+    const FunctionParent owner(FunctionParent::AutoVCWidget, 42);
+    const FunctionParent restarter(FunctionParent::AutoVCWidget, 43);
+    if (rig == QStringLiteral("owner") || rig == QStringLiteral("running restart") ||
+        rig == QStringLiteral("owner restart"))
+    {
+        f->start(timer, owner);
+        timer->timerTick();
+    }
+    QSignalSpy fStarts(f, &Function::running);
+    QSignalSpy fStops(f, qOverload<quint32>(&Function::stopped));
+    QSignalSpy gStarts(g, &Function::running);
+    QSignalSpy gStops(g, qOverload<quint32>(&Function::stopped));
+
+    const bool early = rig == QStringLiteral("pending clip") || rig == QStringLiteral("running restart") ||
+                       rig == QStringLiteral("owner restart");
+    show->start(timer, FunctionParent::master(), early ? 200 : 5000);
+    timer->timerTick();
+    if (rig == QStringLiteral("running restart"))
+    {
+        // the Show's Start made it an owner; the first owner lets go
+        f->stop(owner);
+        timer->timerTick();
+        QVERIFY(f->isRunning() && f->stopped());
+        f->start(timer, restarter);
+    }
+    else if (rig == QStringLiteral("owner restart"))
+    {
+        // the Stop released the Show's share only
+        timer->timerTick();
+        QVERIFY(f->isRunning() && !f->stopped());
+        f->stop(owner);
+        f->start(timer, owner);
+    }
+    if (rig == QStringLiteral("seek"))
+        show->requestSeek(0);
+    else if (rig == QStringLiteral("stop"))
+        show->stop(FunctionParent::master());
+    for (int i = 0; i < 10; i++)
+        timer->timerTick();
+
+    const auto state = [](Function *function, const QSignalSpy &starts, const QSignalSpy &stops) {
+        QString text = function->isRunning() ? QStringLiteral("on@") +
+                       QString::number(function->getAttributeValue(Function::Intensity)) : QStringLiteral("off");
+        return text + QStringLiteral("/%1/%2").arg(starts.count()).arg(stops.count());
+    };
+    QCOMPARE(QStringLiteral("F=") + state(f, fStarts, fStops) + QStringLiteral(",G=") + state(g, gStarts, gStops),
+             outcome);
+
+    show->stop(FunctionParent::master());
+    f->stop(FunctionParent::master());
+    g->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCatchUpBoundaries_data()
+{
+    QTest::addColumn<QString>("rig");
+    QTest::addColumn<QString>("midway");
+    QTest::addColumn<QString>("outcome");
+
+    // name=state[@intensity]/running() count/stopped() count
+    QTest::newRow("D=0 runs its records once") << QStringLiteral("zero") << QString()
+        << QStringLiteral("F=on@0.5/1/0,G=off/0/0");
+    QTest::newRow("records at the destination run once") << QStringLiteral("destination") << QString()
+        << QStringLiteral("F=on@1/1/0,G=on@1/1/0");
+    QTest::newRow("unmoved resume runs no prefix") << QStringLiteral("resume")
+        << QStringLiteral("F=off/1/1,G=off/0/0") << QStringLiteral("F=off/1/1,G=off/0/0");
+    QTest::newRow("paused move is inert until Play") << QStringLiteral("paused move")
+        << QStringLiteral("F=off/0/0,G=off/0/0") << QStringLiteral("F=on@1/1/0,G=off/0/0");
+    QTest::newRow("ordinary crossing runs in its own tick") << QStringLiteral("crossing")
+        << QStringLiteral("F=on@0.8/1/0,G=off/0/0") << QStringLiteral("F=on@0.8/1/0,G=off/0/0");
+    QTest::newRow("live id authored during the restart wait") << QStringLiteral("stalled live")
+        << QString() << QStringLiteral("F=on@1/2/1,G=off/0/0");
+    QTest::newRow("live id of the previous traversal replays") << QStringLiteral("previous live")
+        << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
+    // Play, a live id, Stop, Play again: all accepted before the first tick
+    QTest::newRow("live id of an aborted Play replays") << QStringLiteral("aborted play")
+        << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
+    // a runner exists, then Stop and Play are accepted before its next tick
+    QTest::newRow("live id after restarting a running Show") << QStringLiteral("restart")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    QTest::newRow("live id after two rapid restarts") << QStringLiteral("restart twice")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    QTest::newRow("live id between two rapid restarts replays") << QStringLiteral("restart aborted")
+        << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
+    QTest::newRow("seek during the restarted catch-up replays the live id") << QStringLiteral("restart seek")
+        << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
+    QTest::newRow("stop during the restarted catch-up") << QStringLiteral("restart stop")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    QTest::newRow("live id authored after a requested seek") << QStringLiteral("requested seek live")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    // External: requestSeek is ignored, the external clock moves on its own
+    QTest::newRow("external loop after an ignored seek replays the live id") << QStringLiteral("external loop")
+        << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
+    QTest::newRow("ignored external seek keeps the live id") << QStringLiteral("external ignored seek")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    // test access: the retired runner's seek lands after Stop, Play and a live id
+    QTest::newRow("retired runner seek in flight") << QStringLiteral("retired seek")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    // Stop, Play and a live id land while preRun installs the first runner
+    QTest::newRow("stop inside preRun") << QStringLiteral("stop inside prerun")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    // a seek request pending across a sync source switch is discarded
+    QTest::newRow("autonomous request dropped by external") << QStringLiteral("switch to external")
+        << QString() << QStringLiteral("F=off/0/0,G=off/0/0");
+    QTest::newRow("external request dropped by autonomous") << QStringLiteral("switch to autonomous")
+        << QString() << QStringLiteral("F=on@1/1/0,G=off/0/0");
+}
+
+void ShowRunner_Test::commandCatchUpBoundaries()
+{
+    QFETCH(QString, rig);
+    QFETCH(QString, midway);
+    QFETCH(QString, outcome);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *f = makeScene(doc, fixture->id(), 0, 200);
+    Scene *g = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    if (rig == QStringLiteral("stalled live"))
+    {
+        auto *clips = new Track(Function::invalidId());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(f->id());
+        item->setStartTime(0);
+        item->setDuration(100000);
+        clips->addShowFunction(item);
+        show->addTrack(clips);
+    }
+
+    ShowCommandTrack track;
+    if (rig == QStringLiteral("zero"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 0, f->id())));
+        QVERIFY(track.insert(ShowCommand::setIntensity(2, 0, f->id(), 0.5)));
+    }
+    else if (rig == QStringLiteral("destination"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+        QVERIFY(track.insert(ShowCommand::start(2, 2000, g->id())));
+    }
+    else if (rig == QStringLiteral("resume"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+        QVERIFY(track.insert(ShowCommand::stop(2, 1500, f->id())));
+    }
+    else if (rig == QStringLiteral("paused move"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1000, f->id())));
+    }
+    else if (rig == QStringLiteral("switch to autonomous"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 1100, f->id())));
+    }
+    else if (rig == QStringLiteral("crossing"))
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 101, f->id())));
+        QVERIFY(track.insert(ShowCommand::stop(2, 102, f->id())));
+        QVERIFY(track.insert(ShowCommand::start(3, 103, f->id())));
+        QVERIFY(track.insert(ShowCommand::setIntensity(4, 104, f->id(), 0.8)));
+    }
+    // the VC record that makes these catch-up traversals lies far ahead
+    QVERIFY(track.insert(ShowCommand::setButtonState(9, 100000, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(200000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+
+    QSignalSpy fStarts(f, &Function::running);
+    QSignalSpy fStops(f, qOverload<quint32>(&Function::stopped));
+    QSignalSpy gStarts(g, &Function::running);
+    QSignalSpy gStops(g, qOverload<quint32>(&Function::stopped));
+    const auto state = [&]() {
+        const auto one = [](Function *function, const QSignalSpy &starts, const QSignalSpy &stops) {
+            QString text = function->isRunning() ? QStringLiteral("on@") +
+                           QString::number(function->getAttributeValue(Function::Intensity)) : QStringLiteral("off");
+            return text + QStringLiteral("/%1/%2").arg(starts.count()).arg(stops.count());
+        };
+        return QStringLiteral("F=") + one(f, fStarts, fStops) + QStringLiteral(",G=") + one(g, gStarts, gStops);
+    };
+    const auto ticks = [timer](int count) {
+        for (int i = 0; i < count; i++)
+            timer->timerTick();
+    };
+    // what the recorder publishes for an input it just executed live
+    const auto authorLive = [&](quint32 time) {
+        QVERIFY(track.insert(ShowCommand::start(5, time, g->id())));
+        QVERIFY(show->setCommandTrack(track, { 5 }));
+    };
+
+    QString reached;
+    if (rig == QStringLiteral("zero") || rig == QStringLiteral("crossing") ||
+        rig == QStringLiteral("paused move") || rig == QStringLiteral("stalled live") ||
+        rig == QStringLiteral("previous live") || rig == QStringLiteral("aborted play") ||
+        rig.startsWith(QStringLiteral("restart")) || rig == QStringLiteral("requested seek live") ||
+        rig.startsWith(QStringLiteral("external")) || rig == QStringLiteral("retired seek") ||
+        rig.startsWith(QStringLiteral("switch")) || rig == QStringLiteral("stop inside prerun"))
+    {
+        if (rig.startsWith(QStringLiteral("external")) || rig == QStringLiteral("switch to autonomous"))
+            show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+    }
+    else
+        show->start(timer, FunctionParent::master(), 2000);
+    if (rig == QStringLiteral("aborted play"))
+    {
+        authorLive(0);
+        show->stop(FunctionParent::master());
+        show->start(timer, FunctionParent::master());
+    }
+
+    if (rig.startsWith(QStringLiteral("restart")))
+    {
+        ticks(5);
+        for (int i = 0; i < (rig == QStringLiteral("restart twice") ? 2 : 1); i++)
+        {
+            show->stop(FunctionParent::master());
+            show->start(timer, FunctionParent::master());
+        }
+        authorLive(0);
+        if (rig == QStringLiteral("restart aborted"))
+        {
+            show->stop(FunctionParent::master());
+            show->start(timer, FunctionParent::master());
+        }
+        ticks(1);
+        if (rig == QStringLiteral("restart seek"))
+            show->requestSeek(0);
+        else if (rig == QStringLiteral("restart stop"))
+            show->stop(FunctionParent::master());
+    }
+
+    if (rig == QStringLiteral("resume"))
+    {
+        ticks(5);
+        reached = state();
+        show->setPause(true);
+        ticks(3);
+        show->setPause(false);
+    }
+    else if (rig == QStringLiteral("paused move"))
+    {
+        ticks(2);
+        show->setPause(true);
+        show->requestSeek(2000);
+        ticks(5);
+        reached = state();
+        show->setPause(false);
+    }
+    else if (rig == QStringLiteral("crossing"))
+    {
+        ticks(ticksToReach(120));
+        reached = state();
+    }
+    else if (rig == QStringLiteral("stalled live"))
+    {
+        ticks(5);
+        show->requestSeek(1000);
+        // the clip's Scene is still finishing its stop, so the traversal waits
+        ticks(1);
+        authorLive(1000);
+    }
+    else if (rig.startsWith(QStringLiteral("external")))
+    {
+        show->setExternalElapsedTime(1000);
+        ticks(2);
+        if (rig == QStringLiteral("external ignored seek"))
+            authorLive(1100);
+        show->requestSeek(1500);
+        ticks(1);
+        if (rig == QStringLiteral("external loop"))
+        {
+            authorLive(1000);
+            show->setExternalElapsedTime(0);
+            ticks(1);
+        }
+        show->setExternalElapsedTime(1200);
+    }
+    else if (rig == QStringLiteral("stop inside prerun"))
+    {
+        // Function::preRun emits running() before the runner is installed
+        bool once = true;
+        QObject::connect(show, &Function::running, show, [&]() {
+            if (!std::exchange(once, false))
+                return;
+            show->stop(FunctionParent::master());
+            show->start(timer, FunctionParent::master());
+            authorLive(0);
+        }, Qt::DirectConnection);
+        ticks(1);
+    }
+    else if (rig == QStringLiteral("switch to external"))
+    {
+        ticks(5);
+        const quint32 at = show->commandPosition();
+        authorLive(at + 200);
+        show->requestSeek(1500);
+        // the runner is one tick past its reported position: no backward jump
+        show->setExternalElapsedTime(at + MasterTimer::tick());
+        show->setSyncSource(ShowRunner::External);
+        ticks(1);
+        show->setExternalElapsedTime(at + 300);
+    }
+    else if (rig == QStringLiteral("switch to autonomous"))
+    {
+        show->setExternalElapsedTime(1000);
+        ticks(2);
+        authorLive(1150);
+        show->requestSeek(0);
+        show->setSyncSource(ShowRunner::Autonomous);
+    }
+    else if (rig == QStringLiteral("retired seek"))
+    {
+        ticks(5);
+        ShowRunner *retired = show->m_runner;
+        show->stop(FunctionParent::master());
+        show->start(timer, FunctionParent::master());
+        authorLive(0);
+        retired->seekTo(0, true);
+    }
+    else if (rig == QStringLiteral("requested seek live"))
+    {
+        ticks(5);
+        // accepted after the seek request, before the runner consumes it
+        show->requestSeek(0);
+        authorLive(0);
+    }
+    else if (rig == QStringLiteral("previous live"))
+    {
+        ticks(3);
+        authorLive(500);
+        ticks(1);
+        show->requestSeek(0);
+        ticks(ticksToReach(600));
+    }
+    ticks(10);
+
+    QCOMPARE(reached, midway);
+    QCOMPARE(state(), outcome);
+
+    show->stop(FunctionParent::master());
+    f->stop(FunctionParent::master());
+    g->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCatchUpPrefixStopEndsDestinationClip()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *f = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *clips = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(f->id());
+    item->setStartTime(100);
+    item->setDuration(400); // clip 100 - 500
+    clips->addShowFunction(item);
+    show->addTrack(clips);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::stop(1, 20, f->id())));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 100000, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(200000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+    QSignalSpy starts(f, &Function::running);
+    QSignalSpy stops(f, qOverload<quint32>(&Function::stopped));
+
+    // the destination clip is scheduled first, then the prefix Stop lands on it
+    show->start(timer, FunctionParent::master(), 200);
+    for (int i = 0; i < 5; i++)
+        timer->timerTick();
+    const bool runningAt300 = f->isRunning();
+    for (int i = 0; i < 20; i++)
+        timer->timerTick();
+
+    QCOMPARE(runningAt300, false);
+    QVERIFY(!f->isRunning());
+    QCOMPARE(starts.count(), 1);
+    QCOMPARE(stops.count(), 1);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCancelledCatchUpRunsNoLegacyRemainder_data()
+{
+    QTest::addColumn<bool>("seekPending");
+
+    QTest::newRow("seek") << true;
+    QTest::newRow("stop") << false;
+}
+
+void ShowRunner_Test::commandCancelledCatchUpRunsNoLegacyRemainder()
+{
+    QFETCH(bool, seekPending);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *target = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, target->id(), 0.3)));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+
+    target->start(timer, FunctionParent::master());
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    show->requestSeek(1000);
+    timer->timerTick();
+    const QVector<ShowControlBatch> published = show->takeControlBatches();
+    QCOMPARE(published.count(), 1);
+    QCOMPARE(published.first().commands.count(), 1);
+
+    // acknowledged, then cancelled before the timer consumes the acknowledgement
+    show->acknowledgeControlBatch(published.first().traversal, published.first().seq);
+    if (seekPending)
+        show->requestSeek(1500);
+    else
+        show->stop(FunctionParent::master());
+    show->m_runner->dispatchCommandEffects({});
+    timer->timerTick();
+
+    QCOMPARE(target->getAttributeValue(Function::Intensity), qreal(1.0));
+
+    show->stop(FunctionParent::master());
+    target->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCatchUpNaturalEndDrains()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *f = makeScene(doc, fixture->id(), 0, 200);
+    Scene *g = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 100, f->id())));
+    QVERIFY(track.insert(ShowCommand::stop(2, 200, f->id())));
+    QVERIFY(track.insert(ShowCommand::setButtonState(3, 250, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::start(4, 300, g->id())));
+    QVERIFY(track.setExtent(300));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+    QSignalSpy finished(show, &Show::showFinished);
+    QSignalSpy fStarts(f, &Function::running);
+    QSignalSpy fStops(f, qOverload<quint32>(&Function::stopped));
+    QSignalSpy gStarts(g, &Function::running);
+    int gLiveAtFinish = -1;
+    QObject probe;
+    connect(show, &Show::showFinished, &probe, [&]() { gLiveAtFinish = int(g->isRunning() && !g->stopped()); });
+
+    // Play at the extent: the whole content is prefix, and it holds the end
+    show->start(timer, FunctionParent::master(), 300);
+    int batches = 0;
+    int finishedWhileOwed = 0;
+    for (int i = 0; i < 20 && finished.isEmpty(); i++)
+    {
+        timer->timerTick();
+        for (const ShowControlBatch &batch : show->takeControlBatches())
+        {
+            batches++;
+            finishedWhileOwed += finished.count();
+            show->acknowledgeControlBatch(batch.traversal, batch.seq);
+        }
+    }
+    timer->timerTick();
+
+    QCOMPARE(finished.count(), 1);
+    QCOMPARE(finishedWhileOwed, 0);
+    // the final Start settled natively before the Show ended
+    QCOMPARE(gLiveAtFinish, 1);
+    QCOMPARE(batches, 1);
+    QCOMPARE(fStarts.count(), 1);
+    QCOMPARE(fStops.count(), 1);
+    QCOMPARE(gStarts.count(), 1);
+
+    f->stop(FunctionParent::master());
+    g->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandPausedDrainsCrossedWork_data()
+{
+    QTest::addColumn<bool>("seekWhilePaused");
+    QTest::addColumn<int>("fStarted");
+
+    QTest::newRow("acknowledged") << false << 1;
+    QTest::newRow("seek requested, then acknowledged") << true << 0;
+}
+
+void ShowRunner_Test::commandPausedDrainsCrossedWork()
+{
+    QFETCH(bool, seekWhilePaused);
+    QFETCH(int, fStarted);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *f = makeScene(doc, fixture->id(), 0, 200);
+    Scene *g = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::start(2, 100, f->id())));
+    QVERIFY(track.insert(ShowCommand::start(3, 260, g->id())));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+    QSignalSpy fStarts(f, &Function::running);
+    QSignalSpy gStarts(g, &Function::running);
+
+    show->start(timer, FunctionParent::master());
+    QVector<ShowControlBatch> published;
+    for (int i = 0; i < ticksToReach(100) + 1 && published.isEmpty(); i++)
+    {
+        timer->timerTick();
+        published = show->takeControlBatches();
+    }
+    QCOMPARE(published.count(), 1);
+    timer->timerTick();
+    QCOMPARE(fStarts.count(), 0);
+
+    // Pause while F waits behind the batch, which the GUI finishes afterwards
+    show->setPause(true);
+    const quint32 pausedAt = show->commandPosition();
+    const bool pendingWhilePaused = show->commandWorkPending();
+    QSignalSpy drained(show, &Show::commandWorkDrained);
+    // a cancelled traversal is dropped, never waited for
+    if (seekWhilePaused)
+        show->requestSeek(1500);
+    show->acknowledgeControlBatch(published.first().traversal, published.first().seq);
+    for (int i = 0; i < 5; i++)
+        timer->timerTick();
+
+    QCOMPARE(fStarts.count(), fStarted);
+    QCOMPARE(gStarts.count(), 0);
+    QCOMPARE(show->commandPosition(), pausedAt);
+    QVERIFY(pendingWhilePaused);
+    QVERIFY(!show->commandWorkPending());
+    QCOMPARE(drained.count(), 1);
+
+    // the seek waits for Resume
+    show->setPause(false);
+    timer->timerTick();
+    timer->timerTick();
+    QCOMPARE(show->commandPosition() >= 1500, seekWhilePaused);
+
+    show->stop(FunctionParent::master());
+    f->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandCrossedWorkVisibleBeforeItsFirstOperation()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *a = makeScene(doc, fixture->id(), 0, 200);
+    Scene *f = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setIntensity(1, 100, a->id(), 0.5)));
+    QVERIFY(track.insert(ShowCommand::start(2, 100, f->id())));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+
+    a->start(timer, FunctionParent::master());
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+
+    // the GUI looks while the first crossed operation takes native effect
+    QVector<ShowCommand> owedDuringFirst;
+    bool looked = false;
+    QObject probe;
+    connect(a, &Function::attributeChanged, &probe, [&]() {
+        if (!looked)
+            owedDuringFirst = show->pendingCommandWork();
+        looked = true;
+    }, Qt::DirectConnection);
+    for (int i = 0; i < ticksToReach(100) && !looked; i++)
+        timer->timerTick();
+
+    QVERIFY(looked);
+    QVERIFY(std::any_of(owedDuringFirst.cbegin(), owedDuringFirst.cend(), [&](const ShowCommand &cmd) {
+        return cmd.action == ShowCommandAction::Start && cmd.functionId == f->id();
+    }));
+
+    QObject::disconnect(a, nullptr, &probe, nullptr);
+    show->stop(FunctionParent::master());
+    a->stop(FunctionParent::master());
+    f->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::pauseReachesClipsOnTheTimerThread()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *clip = new PauseProbeFunction(&doc);
+    doc.addFunction(clip);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *clips = new Track(Function::invalidId());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(clip->id());
+    item->setStartTime(0);
+    item->setDuration(60000);
+    clips->addShowFunction(item);
+    show->addTrack(clips);
+
+    timer->start();
+    show->start(timer, FunctionParent::master());
+    QTRY_VERIFY(clip->isRunning());
+
+    // the timer thread owns the runner's clip queue, which a paused tick drains into
+    show->setPause(true);
+    QTRY_VERIFY(clip->isPaused());
+    QThread *pausedOn = clip->pauseThread.load();
+    show->setPause(false);
+    QTRY_VERIFY(!clip->isPaused());
+    QThread *resumedOn = clip->pauseThread.load();
+
+    show->stop(FunctionParent::master());
+    QTRY_VERIFY(!show->isRunning());
+    timer->stop();
+
+    QVERIFY(pausedOn != nullptr && pausedOn != QThread::currentThread());
+    QVERIFY(resumedOn != nullptr && resumedOn != QThread::currentThread());
+}
+
+void ShowRunner_Test::commandIgnoredSeekStrandsNothing_data()
+{
+    QTest::addColumn<QString>("seek");
+    QTest::addColumn<bool>("liveAfterRequest");
+    QTest::addColumn<int>("fStarted");
+    QTest::addColumn<int>("liveStarted");
+    QTest::addColumn<bool>("prefixReplayed");
+
+    // cancelled, then discarded by the switch: its owed work is dropped, no seek or prefix
+    QTest::newRow("autonomous request, switched to external") << QStringLiteral("switched") << false << 0 << 0 << false;
+    QTest::newRow("switched, live id accepted after the request") << QStringLiteral("switched") << true << 0 << 0 << false;
+    // controls: an ordinary Autonomous seek catches up, its old live id is history
+    QTest::newRow("autonomous request consumed") << QStringLiteral("consumed") << false << 1 << 1 << true;
+    QTest::newRow("ignored under external") << QStringLiteral("external") << false << 1 << 0 << false;
+}
+
+void ShowRunner_Test::commandIgnoredSeekStrandsNothing()
+{
+    QFETCH(QString, seek);
+    QFETCH(bool, liveAfterRequest);
+    QFETCH(int, fStarted);
+    QFETCH(int, liveStarted);
+    QFETCH(bool, prefixReplayed);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 3);
+    Scene *f = makeScene(doc, fixture->id(), 0, 200);
+    Scene *g = makeScene(doc, fixture->id(), 1, 200);
+    Scene *live = makeScene(doc, fixture->id(), 2, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::start(2, 100, f->id())));
+    QVERIFY(track.insert(ShowCommand::start(3, 400, live->id())));
+    QVERIFY(track.insert(ShowCommand::start(4, 600, g->id())));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto detach = qScopeGuard([&]() { show->attachControlExecutor(false); });
+    QSignalSpy fStarts(f, &Function::running);
+    QSignalSpy liveStarts(live, &Function::running);
+    QSignalSpy gStarts(g, &Function::running);
+
+    if (seek == QLatin1String("external"))
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->setExternalElapsedTime(200);
+    }
+    show->start(timer, FunctionParent::master());
+    QVector<ShowControlBatch> published;
+    for (int i = 0; i < ticksToReach(200) && published.isEmpty(); i++)
+    {
+        timer->timerTick();
+        published = show->takeControlBatches();
+    }
+    QCOMPARE(published.count(), 1);
+    // the Start at 400 was executed live: it must not echo
+    if (!liveAfterRequest)
+        QVERIFY(show->setCommandTrack(track, { 3 }));
+
+    // the button batch and Start F are still owed
+    show->requestSeek(1500);
+    if (seek == QLatin1String("switched"))
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->setExternalElapsedTime(200);
+    }
+    if (liveAfterRequest)
+        QVERIFY(show->setCommandTrack(track, { 3 }));
+    show->acknowledgeControlBatch(published.first().traversal, published.first().seq);
+    int laterBatches = 0;
+    const auto tick = [&](int count) {
+        for (int i = 0; i < count; i++)
+        {
+            timer->timerTick();
+            for (const ShowControlBatch &batch : show->takeControlBatches())
+            {
+                laterBatches++;
+                show->acknowledgeControlBatch(batch.traversal, batch.seq);
+            }
+        }
+    };
+    tick(3);
+    if (seek != QLatin1String("consumed"))
+        show->setExternalElapsedTime(700);
+    tick(10);
+
+    // the later crossing applies, nothing of the cancelled traversal does
+    QCOMPARE(gStarts.count(), 1);
+    QCOMPARE(fStarts.count(), fStarted);
+    QCOMPARE(liveStarts.count(), liveStarted);
+    QCOMPARE(laterBatches > 0, prefixReplayed);
+    QCOMPARE(show->commandPosition() >= 1500, seek == QLatin1String("consumed"));
+    QVERIFY(!show->commandWorkPending());
+
+    show->stop(FunctionParent::master());
+    f->stop(FunctionParent::master());
+    g->stop(FunctionParent::master());
+    live->stop(FunctionParent::master());
+    timer->timerTick();
 }
 
 QTEST_APPLESS_MAIN(ShowRunner_Test)

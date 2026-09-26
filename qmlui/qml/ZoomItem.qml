@@ -58,6 +58,9 @@ Rectangle
         MouseArea
         {
             id: zoMouseArea
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Zoom out")
+            Accessible.onPressAction: itemRoot.zoomOutClicked()
             anchors.fill: parent
             hoverEnabled: true
             onClicked: itemRoot.zoomOutClicked()
@@ -94,6 +97,9 @@ Rectangle
         MouseArea
         {
             id: ziMouseArea
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("Zoom in")
+            Accessible.onPressAction: itemRoot.zoomInClicked()
             anchors.fill: parent
             hoverEnabled: true
             onClicked: itemRoot.zoomInClicked()

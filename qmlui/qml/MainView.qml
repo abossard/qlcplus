@@ -709,7 +709,7 @@ Rectangle
         active: false
         visible: currentContext === "FIXANDFUNC"
         width: parent.width
-        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0)
+        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0) - debugDock.dockHeight
         y: mainToolbar.visible ? mainToolbar.height : 0
     }
 
@@ -720,8 +720,27 @@ Rectangle
         active: visible
         visible: currentContext !== "FIXANDFUNC" && currentContext !== ""
         width: parent.width
-        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0)
+        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0) - debugDock.dockHeight
         y: mainToolbar.visible ? mainToolbar.height : 0
+    }
+
+    // The shared debug panel, docked below whichever view is shown: the
+    // view above keeps working. Observation needs the window to be shown.
+    ShowDebugPanel
+    {
+        id: debugDock
+        readonly property int dockHeight: visible ? height : 0
+        width: parent.width
+        height: Math.max(160, parent.height / 3)
+        y: parent.height - height
+    }
+
+    Binding
+    {
+        target: showEvents
+        when: showEvents !== null
+        property: "windowVisible"
+        value: mainView.Window.visibility !== Window.Minimized && mainView.Window.visibility !== Window.Hidden
     }
 
     PopupNetworkConnect { id: clientAccessPopup }

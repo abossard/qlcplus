@@ -1,6 +1,6 @@
 # VC performance recording: requirements
 
-Status: planned extension. The [existing function-command recording](../show-command-recording.md) remains supported.
+Status: implemented and verified through native/offscreen integration tests. Legacy function commands remain supported alongside VC commands; see [Show command tracks](../show-command-recording.md).
 
 [Engineering principles](core-principles.md) · [Architecture decision](../adr/0001-vc-performance-recording.md) · [Implementation plan](implementation-plan.md) · [Test strategy](test-strategy.md)
 
@@ -10,7 +10,7 @@ Record accepted commands from VC user interaction or external control input, the
 
 Support ordinary Toggle buttons, including SoloFrames, and the main values of Level, Adjust, Submaster and GrandMaster sliders. Report unsupported recording for Flash, global-action buttons, slider flash/reset inputs and other VC types; keep their live operation available.
 
-Use one editable event list. Support explicit QLC+ timeline seeks first; defer VirtualDJ seek-intent handling. Extra lanes, raw MIDI/OS2L capture, initial console snapshots and automatic conversion of old recordings are outside this change.
+Keep one editable event list. The recording-timeline extension also presents its samples in one Recordings lane, using chronological groups of adjacent same-UUID/role/attribute slider commands. Every other saved command breaks a run; time gaps and unrecorded gestures do not. Edits recompute groups without widening exact event-ID selection. Group movement preserves intervals, values and ordering, through the same stopped/REC-off edit gate and delta history. Support explicit QLC+ timeline seeks first; defer VirtualDJ seek-intent handling. Raw MIDI/OS2L capture, initial console snapshots and automatic conversion of old recordings remain outside this change.
 
 ## Capture and replay
 
@@ -55,7 +55,7 @@ Delete selected events without a confirmation dialog. Show the deleted count and
 
 | ID | Requirement |
 |---|---|
-| C3-1 | Offer movement steps of one bar, half a bar and a quarter bar. Left/Right moves selected events by one shared relative time delta, preserving spacing, target/value data and equal-time order. Do not intercept arrow keys while editing a cell. |
+| C3-1 | Offer movement steps of one bar, half a bar and a quarter bar. Left/Right moves selected events by one shared relative time delta, preserving spacing, target/value data and equal-time order. Moving an event away from and back to its original timestamp shall restore its original order among equal-time events, including unselected peers, without requiring Undo. Do not intercept arrow keys while editing a cell. |
 | C3-2 | A separate Snap action aligns the earliest selected event to the current Show grid and applies the same delta to the group. Use the Show's tempo, meter and grid offset. Reject the whole edit if any result is out of range; one move/snap has one undo unit. |
 
 Keep the existing single event list and stopped/REC-off editing gate. If no valid musical grid is available, explain why musical actions are unavailable; exact time editing remains available. Snap changes the group anchor, not each event's spacing.
@@ -65,7 +65,7 @@ Keep the existing single event list and stopped/REC-off editing gate. If no vali
 | ID | Requirement |
 |---|---|
 | C2-1 | REC enables capture without starting or moving playback. Capture at the current cursor even while stopped or paused; with no Show, bind the first valid resolved Show. Shared REC controls show the same target and transport state. While REC is armed, continue past the old end. On disarm, finalize the end at the latest remaining item, including existing clips and retained commands, without padding. |
-| C2-2 | While REC is armed, lock manual Show selection but allow other view navigation. Automatic DJ handover finishes capture on A and rearms on B with REC intent retained. Pre-boundary input belongs to A; later input belongs to B. If A cannot finalize, disarm and report, preserve its accepted data, and leave B playback/live controls working until the operator resolves the error and rearms. |
+| C2-2 | While REC is armed with no bound Show, allow the first manual Show selection; then lock manual selection while bound, but allow other view navigation. Automatic DJ handover finishes capture on A and rearms on B with REC intent retained. Pre-boundary input belongs to A; later input belongs to B. If A cannot finalize, disarm and report, preserve its accepted data, and leave B playback/live controls working until the operator resolves the error and rearms. |
 | C2-3 | Save one snapshot of events accepted through the save boundary and the content-derived end, leaving REC/playback unchanged. Runtime keepalive can advance beyond that end without padding the saved Show. Settle already-accepted deferred input, not future input. Later accepted events remain unsaved; failure retains pending work. |
 | C2-4 | New/Open/Exit while REC is armed uses Save / Discard / Cancel with an active-recording notice. Cancel preserves the current session. On proceeding, finish capture before saving/discarding and replacing/closing the workspace; failed saving must not proceed or lose pending work. |
 
@@ -76,7 +76,7 @@ Keep the existing single event list and stopped/REC-off editing gate. If no vali
 | C2-5 | Open one shared docked bottom debug panel from Show editor, DJ or the shared REC control. Keep the performance view visible. Its Events and Referenced controls tabs are read-only. Collect bounded, memory-only event history while the whole panel is open, regardless of tab. Closing/hiding it stops capture and discards history; reopening starts fresh. |
 | C2-6 | Show a nonmodal Problems indicator beside REC with a count and latest failure reason. Clicking opens the relevant debug view; do not interrupt each failure with a popup or toast. While the panel is closed, retain only this summary of failed operations, not detailed event history or a background control scan. |
 
-Opening the panel begins detailed capture from that moment; the Problems summary cannot reconstruct earlier event history.
+Opening the panel begins detailed capture from that moment; the Problems summary cannot reconstruct earlier event history. Command-track edits are observed for the selected recording target only; programmatic changes to other Shows do not appear.
 
 ## Referenced controls
 

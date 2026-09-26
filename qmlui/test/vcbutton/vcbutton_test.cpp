@@ -31,6 +31,7 @@
 #include <functional>
 #include <memory>
 
+#include "collection.h"
 #include "contextmanager.h"
 #include "doc.h"
 #include "fixturemanager.h"
@@ -49,6 +50,7 @@
 #include "vcbutton.h"
 #include "vcframe.h"
 #include "vcpage.h"
+#include "vcslider.h"
 #include "virtualconsole.h"
 
 namespace
@@ -121,7 +123,7 @@ QString saveButtonXml(const VCButton &button)
     return xml;
 }
 
-bool loadButtonXml(VCButton &button, const QString &xml)
+bool loadWidgetXml(VCWidget &widget, const QString &xml)
 {
     QBuffer buffer;
     buffer.setData(xml.toUtf8());
@@ -132,7 +134,44 @@ bool loadButtonXml(VCButton &button, const QString &xml)
         return false;
     if (!reader.readNextStartElement())
         return false;
-    return button.loadXML(reader) && !reader.hasError();
+    return widget.loadXML(reader) && !reader.hasError();
+}
+
+bool loadButtonXml(VCButton &button, const QString &xml)
+{
+    return loadWidgetXml(button, xml);
+}
+
+const QUuid kPriorIdentity(QStringLiteral("{3c9e7a1b-5d2f-4e8a-b6c4-d0f1e2a3b4c5}"));
+const QUuid kLoadedIdentity(QStringLiteral("{a7b8c9d0-e1f2-4a3b-8c5d-6e7f8091a2b3}"));
+
+/** A recordable control element; the RecordingID attribute only when withId */
+void writeControl(QXmlStreamWriter &writer, const QString &tag, quint32 id, const QString &caption,
+                  const QRect &geometry, bool withId, const QString &recordingId)
+{
+    writer.writeStartElement(tag);
+    writer.writeAttribute(KXMLQLCVCWidgetID, QString::number(id));
+    writer.writeAttribute(KXMLQLCVCCaption, caption);
+    if (withId)
+        writer.writeAttribute(KXMLQLCVCWidgetRecordingID, recordingId);
+    writer.writeStartElement(KXMLQLCWindowState);
+    writer.writeAttribute(KXMLQLCWindowStateX, QString::number(geometry.x()));
+    writer.writeAttribute(KXMLQLCWindowStateY, QString::number(geometry.y()));
+    writer.writeAttribute(KXMLQLCWindowStateWidth, QString::number(geometry.width()));
+    writer.writeAttribute(KXMLQLCWindowStateHeight, QString::number(geometry.height()));
+    writer.writeEndElement();
+    writer.writeEndElement();
+}
+
+QString controlXml(const QString &tag, quint32 id, const QString &caption, const QRect &geometry,
+                   bool withId, const QString &recordingId)
+{
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("VirtualConsole");
+    writeControl(writer, tag, id, caption, geometry, withId, recordingId);
+    writer.writeEndElement();
+    return xml;
 }
 
 /** The production render path: create the widget's QML item and hand it the
@@ -1224,6 +1263,273 @@ void VCButton_Test::existingActions_qmlPointerPathUnchanged()
 
     QCOMPARE(frozen.count(), 0);
     QVERIFY(!ioMap->isFrozen());
+}
+
+void VCButton_Test::applyRecordedState_monitoringOnSurvivesCollectionStop()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    doc.masterTimer()->start();
+    const auto stopTimer = qScopeGuard([&]() { doc.masterTimer()->stop(); });
+
+    // An empty Scene stops itself on its first write, so give it a channel.
+    Fixture *fixture = new Fixture(&doc);
+    fixture->setChannels(4);
+    fixture->setAddress(0);
+    fixture->setUniverse(0);
+    QVERIFY(doc.addFixture(fixture));
+    Scene *scene = new Scene(&doc);
+    scene->setValue(SceneValue(fixture->id(), 0, 200));
+    QVERIFY(doc.addFunction(scene));
+    Collection *collection = new Collection(&doc);
+    QVERIFY(doc.addFunction(collection));
+    QVERIFY(collection->addFunction(scene->id()));
+
+    VCButton button(&doc);
+    button.setFunctionID(scene->id());
+    ui.vc()->addWidgetToMap(&button);
+    const auto unmap = qScopeGuard([&]() { ui.vc()->removeWidgetFromMap(&button); });
+
+    collection->start(doc.masterTimer(), FunctionParent::master());
+    QTRY_VERIFY(scene->isRunning());
+    QTRY_COMPARE(button.state(), VCButton::Monitoring);
+
+    // Park the undo thread so a live action would stay visible in its queue.
+    Tardis *tardis = Tardis::instance();
+    tardis->m_running = false;
+    tardis->wait();
+    tardis->m_busy = false;
+    const auto rebusy = qScopeGuard([&]() { tardis->m_busy = true; });
+    const qsizetype queued = tardis->m_actionsQueue.count();
+
+    button.applyRecordedState(true);
+
+    QCOMPARE(button.state(), VCButton::Active);
+    QCOMPARE(tardis->m_actionsQueue.count(), queued);
+
+    collection->stop(FunctionParent::master());
+    QTRY_VERIFY(!collection->isRunning());
+    QTest::qWait(100);
+    QVERIFY(scene->isRunning());
+    QCOMPARE(button.state(), VCButton::Active);
+}
+
+void VCButton_Test::applyRecordedState_reachesRecordedState_data()
+{
+    QTest::addColumn<int>("initial");
+    QTest::addColumn<bool>("on");
+    QTest::addColumn<int>("expected");
+    QTest::addColumn<bool>("running");
+    QTest::addColumn<int>("starting");
+
+    QTest::newRow("inactive off")   << int(VCButton::Inactive)   << false << int(VCButton::Inactive) << false << 0;
+    QTest::newRow("inactive on")    << int(VCButton::Inactive)   << true  << int(VCButton::Active)   << true  << 1;
+    QTest::newRow("active on")      << int(VCButton::Active)     << true  << int(VCButton::Active)   << true  << 0;
+    QTest::newRow("active off")     << int(VCButton::Active)     << false << int(VCButton::Inactive) << false << 0;
+    QTest::newRow("monitoring off") << int(VCButton::Monitoring) << false << int(VCButton::Inactive) << false << 0;
+}
+
+void VCButton_Test::applyRecordedState_reachesRecordedState()
+{
+    QFETCH(int, initial);
+    QFETCH(bool, on);
+    QFETCH(int, expected);
+    QFETCH(bool, running);
+    QFETCH(int, starting);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    doc.masterTimer()->start();
+    const auto stopTimer = qScopeGuard([&]() { doc.masterTimer()->stop(); });
+
+    Fixture *fixture = new Fixture(&doc);
+    fixture->setChannels(4);
+    fixture->setAddress(0);
+    fixture->setUniverse(0);
+    QVERIFY(doc.addFixture(fixture));
+    Scene *scene = new Scene(&doc);
+    scene->setValue(SceneValue(fixture->id(), 0, 200));
+    QVERIFY(doc.addFunction(scene));
+    Collection *collection = new Collection(&doc);
+    QVERIFY(doc.addFunction(collection));
+    QVERIFY(collection->addFunction(scene->id()));
+
+    VCButton button(&doc);
+    button.setFunctionID(scene->id());
+    ui.vc()->addWidgetToMap(&button);
+    const auto unmap = qScopeGuard([&]() { ui.vc()->removeWidgetFromMap(&button); });
+
+    if (initial == VCButton::Active)
+        button.requestStateChange(true);
+    else if (initial == VCButton::Monitoring)
+        collection->start(doc.masterTimer(), FunctionParent::master());
+    QTRY_COMPARE(int(button.state()), initial);
+    QTRY_COMPARE(scene->isRunning(), initial != VCButton::Inactive);
+    const quint32 elapsed = scene->elapsed();
+
+    // A Solo Frame stops its other members on this signal.
+    QSignalSpy startingSpy(&button, &VCWidget::functionStarting);
+    button.applyRecordedState(on);
+
+    QCOMPARE(int(button.state()), expected);
+    QCOMPARE(startingSpy.count(), starting);
+    QTRY_COMPARE(scene->isRunning(), running);
+    if (initial == VCButton::Active && running)
+        QVERIFY(scene->elapsed() >= elapsed);
+}
+
+void VCButton_Test::recordingId_persistsButNeverCopies()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+
+    VCButton original(&doc);
+    original.setID(41);
+    QVERIFY(original.recordingId().isNull());
+    QVERIFY(!saveButtonXml(original).contains(QStringLiteral("RecordingID")));
+
+    doc.resetModified();
+    const QUuid identity = original.ensureRecordingId();
+    QVERIFY(!identity.isNull());
+    QVERIFY(doc.isModified());
+    QCOMPARE(original.ensureRecordingId(), identity);
+    QCOMPARE(original.recordingId(), identity);
+
+    const QString xml = saveButtonXml(original);
+    VCButton loaded(&doc);
+    VCButton twin(&doc);
+    QVERIFY(loadButtonXml(loaded, xml));
+    QVERIFY(loadButtonXml(twin, xml));
+    QCOMPARE(loaded.recordingId(), identity);
+    twin.setID(42);
+
+    VCFrame parent(&doc);
+    std::unique_ptr<VCWidget> copy(original.createCopy(&parent));
+    QVERIFY(copy != nullptr);
+    QVERIFY(copy->recordingId().isNull());
+
+    // a duplicated identity is reported as such, never resolved to one of them
+    ui.vc()->addWidgetToMap(&loaded);
+    ui.vc()->addWidgetToMap(&twin);
+    const auto unmap = qScopeGuard([&]() {
+        ui.vc()->removeWidgetFromMap(&loaded);
+        ui.vc()->removeWidgetFromMap(&twin);
+    });
+    QCOMPARE(ui.vc()->widgetsByRecordingId(identity).count(), 2);
+    QVERIFY(ui.vc()->widgetsByRecordingId(QUuid::createUuid()).isEmpty());
+    QVERIFY(ui.vc()->widgetsByRecordingId(QUuid()).isEmpty());
+}
+
+void VCButton_Test::recordingId_malformedLoadRejectedAndPreserved_data()
+{
+    QTest::addColumn<QString>("tag");
+    QTest::addColumn<bool>("withId");
+    QTest::addColumn<QString>("recordingId");
+    QTest::addColumn<bool>("ok");
+    QTest::addColumn<QUuid>("identity");
+
+    const QString braced = kLoadedIdentity.toString(QUuid::WithBraces);
+    for (const QString &tag : {KXMLQLCVCButton, KXMLQLCVCSlider})
+    {
+        const QByteArray name = tag.toLower().toUtf8();
+        QTest::addRow("%s trailing junk", name.constData())
+            << tag << true << braced + QStringLiteral("junk") << false << kPriorIdentity;
+        QTest::addRow("%s unclosed brace", name.constData())
+            << tag << true << braced.chopped(1) << false << kPriorIdentity;
+        QTest::addRow("%s truncated", name.constData())
+            << tag << true << braced.left(20) << false << kPriorIdentity;
+        QTest::addRow("%s null uuid", name.constData())
+            << tag << true << QUuid().toString(QUuid::WithBraces) << false << kPriorIdentity;
+        QTest::addRow("%s empty", name.constData())
+            << tag << true << QString() << false << kPriorIdentity;
+        QTest::addRow("%s valid braced", name.constData())
+            << tag << true << braced << true << kLoadedIdentity;
+        QTest::addRow("%s valid unbraced uppercase", name.constData())
+            << tag << true << kLoadedIdentity.toString(QUuid::WithoutBraces).toUpper() << true << kLoadedIdentity;
+        // a legacy control has no identity to offer, so the one it holds stays
+        QTest::addRow("%s absent", name.constData())
+            << tag << false << QString() << true << kPriorIdentity;
+    }
+}
+
+void VCButton_Test::recordingId_malformedLoadRejectedAndPreserved()
+{
+    QFETCH(QString, tag);
+    QFETCH(bool, withId);
+    QFETCH(QString, recordingId);
+    QFETCH(bool, ok);
+    QFETCH(QUuid, identity);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    std::unique_ptr<VCWidget> widget;
+    if (tag == KXMLQLCVCButton)
+        widget.reset(new VCButton(&doc));
+    else
+        widget.reset(new VCSlider(&doc));
+
+    const QRect before(10, 20, 30, 40);
+    QVERIFY(loadWidgetXml(*widget, controlXml(tag, 5, QStringLiteral("Before"), before, true,
+                                              kPriorIdentity.toString())));
+    QCOMPARE(widget->recordingId(), kPriorIdentity);
+
+    const QRect after(50, 60, 70, 80);
+    QCOMPARE(loadWidgetXml(*widget, controlXml(tag, 9, QStringLiteral("After"), after, withId, recordingId)), ok);
+    QCOMPARE(widget->recordingId(), identity);
+    // a rejected control is left exactly as it was, not half loaded
+    QCOMPARE(widget->caption(), ok ? QStringLiteral("After") : QStringLiteral("Before"));
+    QCOMPARE(widget->id(), ok ? 9u : 5u);
+    QCOMPARE(widget->geometry(), QRectF(ok ? after : before));
+}
+
+void VCButton_Test::recordingId_malformedControlDroppedFromFrame()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    const QUuid idA(QStringLiteral("{11d2e3f4-a5b6-4c7d-8e9f-a0b1c2d3e4f5}"));
+    const QUuid idB(QStringLiteral("{22e3f4a5-b6c7-4d8e-9fa0-b1c2d3e4f5a6}"));
+    const QUuid idC(QStringLiteral("{33f4a5b6-c7d8-4e9f-a0b1-c2d3e4f5a6b7}"));
+    const QRect frameGeometry(0, 0, 400, 300);
+    const QRect geometryA(1, 2, 30, 40);
+    const QRect geometryC(5, 6, 70, 80);
+
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("VirtualConsole");
+    writer.writeStartElement(KXMLQLCVCFrame);
+    writer.writeAttribute(KXMLQLCVCCaption, QStringLiteral("Parent"));
+    writer.writeStartElement(KXMLQLCWindowState);
+    writer.writeAttribute(KXMLQLCWindowStateX, QString::number(frameGeometry.x()));
+    writer.writeAttribute(KXMLQLCWindowStateY, QString::number(frameGeometry.y()));
+    writer.writeAttribute(KXMLQLCWindowStateWidth, QString::number(frameGeometry.width()));
+    writer.writeAttribute(KXMLQLCWindowStateHeight, QString::number(frameGeometry.height()));
+    writer.writeEndElement();
+    writeControl(writer, KXMLQLCVCButton, 11, QStringLiteral("A"), geometryA, true, idA.toString());
+    writeControl(writer, KXMLQLCVCSlider, 12, QStringLiteral("B"), QRect(111, 222, 333, 444), true,
+                 idB.toString() + QStringLiteral("junk"));
+    writeControl(writer, KXMLQLCVCButton, 13, QStringLiteral("C"), geometryC, true,
+                 idC.toString(QUuid::WithoutBraces));
+    writer.writeEndElement();
+    writer.writeEndElement();
+
+    VCFrame frame(&doc, ui.vc());
+    QVERIFY(loadWidgetXml(frame, xml));
+    // B's own WindowState is never read as the frame's
+    QCOMPARE(frame.geometry(), QRectF(frameGeometry));
+
+    QMap<QString, VCWidget *> byCaption;
+    for (VCWidget *child : frame.children(false))
+        byCaption.insert(child->caption(), child);
+    QCOMPARE(byCaption.keys(), QStringList({QStringLiteral("A"), QStringLiteral("C")}));
+    QCOMPARE(byCaption["A"]->id(), 11u);
+    QCOMPARE(byCaption["A"]->recordingId(), idA);
+    QCOMPARE(byCaption["A"]->geometry(), QRectF(geometryA));
+    QCOMPARE(byCaption["C"]->id(), 13u);
+    QCOMPARE(byCaption["C"]->recordingId(), idC);
+    QCOMPARE(byCaption["C"]->geometry(), QRectF(geometryC));
+    QVERIFY(ui.vc()->widget(12) == nullptr);
+    QVERIFY(ui.vc()->widgetsByRecordingId(idB).isEmpty());
+    QCOMPARE(ui.vc()->widgetsByRecordingId(idC).count(), 1);
 }
 
 QTEST_MAIN(VCButton_Test)

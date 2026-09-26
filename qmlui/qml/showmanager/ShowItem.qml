@@ -47,6 +47,57 @@ Item
     property string infoText: ""
     property string toolTipText: ""
 
+    Rectangle
+    {
+        id: selectionControl
+        objectName: "clipSelection"
+        activeFocusOnTab: true
+        x: Math.max(0, itemRoot.width - width)
+        width: Math.min(22, itemRoot.width)
+        height: 22
+        z: 10
+        color: UISettings.bgStrong
+        border.color: activeFocus ? "#f1c40f" : UISettings.fgMedium
+        border.width: activeFocus ? 2 : 1
+        Accessible.role: Accessible.CheckBox
+        Accessible.name: qsTr("Select %1").arg(funcRef ? funcRef.name : qsTr("clip"))
+        Accessible.description: qsTr("Space selects this clip. Leave this control for playback Space.")
+        Accessible.checked: itemRoot.isSelected
+        Text {
+            anchors.centerIn: parent
+            text: itemRoot.isSelected ? "✓" : "+"
+            color: UISettings.fgMain
+        }
+        Keys.onSpacePressed: (event) =>
+        {
+            var multi = showManager.multipleSelection
+                || (event.modifiers & (Qt.ControlModifier | Qt.ShiftModifier))
+            itemRoot.isSelected = multi ? !itemRoot.isSelected : true
+            showManager.setItemSelection(trackIndex, sfRef, itemRoot, itemRoot.isSelected, event.modifiers)
+        }
+        onActiveFocusChanged: if (activeFocus)
+        {
+            var horizontal = itemRoot.parent ? itemRoot.parent.parent : null
+            if (horizontal && horizontal.contentX !== undefined)
+            {
+                if (itemRoot.x < horizontal.contentX)
+                    horizontal.contentX = itemRoot.x
+                else if (itemRoot.x + x + width > horizontal.contentX + horizontal.width)
+                    horizontal.contentX = Math.max(0, itemRoot.x + x + width - horizontal.width)
+            }
+            for (var ancestor = itemRoot.parent; ancestor; ancestor = ancestor.parent)
+                if (ancestor.totalTracksHeight !== undefined)
+                {
+                    var top = itemRoot.mapToItem(ancestor.contentItem, 0, 0).y
+                    if (top < ancestor.contentY)
+                        ancestor.contentY = top
+                    else if (top + itemRoot.height > ancestor.contentY + ancestor.height)
+                        ancestor.contentY = top + itemRoot.height - ancestor.height
+                    break
+                }
+        }
+    }
+
     // mouse position within the item, used to place the tooltip
     property real tooltipX: 0
     property real tooltipY: 0
@@ -539,6 +590,12 @@ Item
             else
                 itemRoot.isSelected = true
             showManager.setItemSelection(trackIndex, sfRef, itemRoot, itemRoot.isSelected, mouse.modifiers)
+            for (var ancestor = itemRoot.parent; ancestor; ancestor = ancestor.parent)
+                if (ancestor.showKeyScope)
+                {
+                    ancestor.forceActiveFocus()
+                    break
+                }
         }
 
         onDoubleClicked: functionManager.setEditorFunction(sfRef.functionID, true, false)

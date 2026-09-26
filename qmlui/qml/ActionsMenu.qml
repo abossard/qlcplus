@@ -50,14 +50,24 @@ Popup
     function handleSaveAction()
     {
         if (qlcplus.fileName())
-            qlcplus.saveWorkspace(qlcplus.fileName())
+        {
+            if (!qlcplus.saveWorkspace(qlcplus.fileName()))
+                saveFailed()
+        }
         else
             openDialog(App.SaveAsMode)
     }
 
+    /** Replacing or closing the workspace asks first: it has unsaved changes,
+      * or a recording is armed even when everything is saved */
+    function replacementNeedsConfirmation()
+    {
+        return qlcplus.docModified || (showCommandRecorder ? showCommandRecorder.recording : false)
+    }
+
     function handleNewAction()
     {
-        if (qlcplus.docModified)
+        if (replacementNeedsConfirmation())
         {
             saveFirstPopup.action = "#NEW"
             saveFirstPopup.open()
@@ -70,7 +80,7 @@ Popup
 
     function handleOpenAction()
     {
-        if (qlcplus.docModified)
+        if (replacementNeedsConfirmation())
         {
             saveFirstPopup.action = "#OPEN"
             saveFirstPopup.open()
@@ -122,7 +132,7 @@ Popup
         if (!lowerPath.endsWith(".qxw") && !lowerPath.endsWith(".qxw.gz"))
             return
 
-        if (qlcplus.docModified)
+        if (replacementNeedsConfirmation())
         {
             saveFirstPopup.action = path
             saveFirstPopup.open()
@@ -139,18 +149,32 @@ Popup
         saveFirstPopup.open()
     }
 
-    function finishPendingAction()
+    /** Set when Save was chosen before Open: what is accepted while the file
+      * is chosen is saved too, before the workspace is replaced */
+    property bool saveBeforeOpen: false
+
+    function finishPendingAction(saved)
     {
         var action = saveFirstPopup.action
         saveFirstPopup.action = ""
         if (action === "#OPEN")
+        {
+            saveBeforeOpen = saved
             openDialog(App.OpenMode)
+        }
         else if (action === "#NEW")
             qlcplus.newWorkspace()
         else if (action === "#EXIT")
             qlcplus.exit(true)
         else if (action)
             qlcplus.loadWorkspace(action)
+    }
+
+    /** Nothing waiting on the save proceeds, and the user is told */
+    function saveFailed()
+    {
+        saveFirstPopup.action = ""
+        saveErrorPopup.open()
     }
 
     function setLanguage(lang)
@@ -199,9 +223,13 @@ Popup
         {
             case App.OpenMode:
             {
+                var saveFirst = saveBeforeOpen
+                saveBeforeOpen = false
                 if (dialogSelectedFile.toString().endsWith("qxf") ||
                     dialogSelectedFile.toString().endsWith("d4"))
                     qlcplus.loadFixture(dialogSelectedFile)
+                else if (saveFirst && qlcplus.docModified && !qlcplus.saveWorkspace(qlcplus.fileName()))
+                    saveFailed()
                 else
                     qlcplus.loadWorkspace(dialogSelectedFile)
                 qlcplus.workingPath = dialogCurrentFolder.toString()
@@ -211,7 +239,9 @@ Popup
             case App.SaveAsMode:
             {
                 if (qlcplus.saveWorkspace(dialogSelectedFile))
-                    finishPendingAction()
+                    finishPendingAction(true)
+                else
+                    saveFailed()
             }
             break
             case App.ImportMode:
@@ -240,7 +270,11 @@ Popup
             dialogCurrentFolder = currentFolder
             handleAccept()
         }
-        onRejected: saveFirstPopup.action = ""
+        onRejected:
+        {
+            saveFirstPopup.action = ""
+            saveBeforeOpen = false
+        }
     }
 
     PopupFolderBrowser
@@ -258,7 +292,11 @@ Popup
             dialogCurrentFolder = currentFolder
             handleAccept()
         }
-        onRejected: saveFirstPopup.action = ""
+        onRejected:
+        {
+            saveFirstPopup.action = ""
+            saveBeforeOpen = false
+        }
     }
 
     CustomPopupDialog
@@ -267,8 +305,12 @@ Popup
         objectName: "saveFirstPopup"
         width: mainView.width / 2
         height: mainView.height / 3
-        title: qsTr("Your project has changes")
-        message: qsTr("Do you wish to save the current project first?\nChanges will be lost if you don't save them.")
+        readonly property bool recording: showCommandRecorder ? showCommandRecorder.recording : false
+        title: recording ? qsTr("A recording is active") : qsTr("Your project has changes")
+        message: recording
+                 ? qsTr("Recording on %1 is armed.\nDo you wish to save the current project first?\nRecorded commands that are not saved will be lost.")
+                   .arg(showCommandRecorder.targetName.length > 0 ? showCommandRecorder.targetName : qsTr("no Show yet"))
+                 : qsTr("Do you wish to save the current project first?\nChanges will be lost if you don't save them.")
         standardButtons: Dialog.Yes | Dialog.No | Dialog.Cancel
 
         property string action: ""
@@ -281,7 +323,9 @@ Popup
                 if (qlcplus.fileName())
                 {
                     if (qlcplus.saveWorkspace(qlcplus.fileName()))
-                        menuRoot.finishPendingAction()
+                        menuRoot.finishPendingAction(true)
+                    else
+                        menuRoot.saveFailed()
                 }
                 else
                 {
@@ -291,7 +335,7 @@ Popup
             }
             else if (role === Dialog.No)
             {
-                menuRoot.finishPendingAction()
+                menuRoot.finishPendingAction(false)
             }
             else if (role === Dialog.Cancel)
             {
@@ -300,6 +344,16 @@ Popup
 
             action = ""
         }
+    }
+
+    CustomPopupDialog
+    {
+        id: saveErrorPopup
+        objectName: "saveErrorPopup"
+        height: mainView.height / 4
+        title: qsTr("Error")
+        message: qsTr("The project could not be saved. Nothing was replaced or closed.")
+        standardButtons: Dialog.Ok
     }
 
     background:
@@ -397,7 +451,7 @@ Popup
                                     entryText: modelData
                                     onClicked:
                                     {
-                                        if (qlcplus.docModified)
+                                        if (replacementNeedsConfirmation())
                                         {
                                             saveFirstPopup.open()
                                             saveFirstPopup.action = entryText

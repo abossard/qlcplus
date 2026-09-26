@@ -132,6 +132,25 @@ VCWidgetItem
             trackColor: sliderMode === VCSlider.Submaster ? "#77DD73" : defaultTrackColor
 
             onMoved: if (sliderObj) sliderObj.requestUserValue(valueAt(position))
+
+            // an accessible step is a user move, like a key: Qt's default
+            // step would only set the value. A value written by the
+            // platform is not routed: it cannot be told from feedback here
+            function accessibleStep(up)
+            {
+                if (!enabled)
+                    return
+                var old = value
+                if (up)
+                    increase()
+                else
+                    decrease()
+                if (value !== old)
+                    moved()
+            }
+            Accessible.name: sliderObj ? sliderObj.caption : ""
+            Accessible.onIncreaseAction: accessibleStep(true)
+            Accessible.onDecreaseAction: accessibleStep(false)
         }
 
         QLCPlusKnob
@@ -188,7 +207,7 @@ VCWidgetItem
             faSource: FontAwesome.fa_xmark
             faColor: UISettings.bgControl
             bgColor: sliderObj && sliderObj.isOverriding ? "red" : UISettings.bgLight
-            onClicked: if (sliderObj) sliderObj.isOverriding = false
+            onClicked: if (sliderObj) sliderObj.requestUserReset()
         }
 
         IconButton
@@ -201,12 +220,12 @@ VCWidgetItem
             onPressed:
             {
                 if (sliderObj)
-                    sliderObj.flashFunction(true)
+                    sliderObj.requestUserFlash(true)
             }
             onReleased:
             {
                 if (sliderObj)
-                    sliderObj.flashFunction(false)
+                    sliderObj.requestUserFlash(false)
             }
         }
 

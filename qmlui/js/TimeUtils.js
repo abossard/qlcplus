@@ -405,6 +405,22 @@ function posToBeatsMsOnTimeline(x, timescale, tickSize, bpmNumber)
 
 
 /**
+  * The musical grid of a Show: the length of a beat in milliseconds, the
+  * beats of a bar and the time of a downbeat. VDJ Beat uses the song's beat
+  * grid, the BPM markers the Show's tempo and meter from zero. null when the
+  * Show has no tempo or meter.
+  */
+function musicalGrid(vdjBeat, vdjGridValid, vdjBeatPeriodMs, vdjGridAnchorMs, bpmNumber, beatsDivision)
+{
+    if (vdjBeat)
+        return (vdjGridValid && vdjBeatPeriodMs > 0)
+                ? { beatMs: vdjBeatPeriodMs, beatsPerBar: 4, anchorMs: vdjGridAnchorMs } : null
+    if (bpmNumber > 0 && beatsDivision > 0)
+        return { beatMs: 60000 / bpmNumber, beatsPerBar: beatsDivision, anchorMs: 0 }
+    return null
+}
+
+/**
  * Return the average time between two taps given by a list of tap times.
  * It caculates the linear regression of the recorded tap times. The slope of the resulting 
  * linear function represents the average time between two taps.
