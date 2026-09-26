@@ -6,7 +6,7 @@ Status: planned extension. The [existing function-command recording](../show-com
 
 ## Scope
 
-Record accepted VC state changes and apply them through the controls' current compatible bindings.
+Record accepted commands from VC user interaction or external control input, then apply them through the controls' current compatible bindings. Slider/property changes are results, not recording sources.
 
 Support ordinary Toggle buttons, including SoloFrames, and the main values of Level, Adjust, Submaster and GrandMaster sliders. Report unsupported recording for Flash, global-action buttons, slider flash/reset inputs and other VC types; keep their live operation available.
 
@@ -16,14 +16,14 @@ Use one editable event list. Support explicit QLC+ timeline seeks first; defer V
 
 | ID | Requirement |
 |---|---|
-| C0-1 | Record the resulting button On/Off state and every accepted changed slider position from pointer, keyboard or MIDI input. Timestamp at the bound Show clock after mapping and pickup; store absolute slider position normalized to `0..1`. Exclude unchanged duplicate values, but retain rapid changes that native output processing may coalesce. |
-| C0-2 | Exclude audio, programmatic updates, Replay, automatic Collection-child changes and recording-off input. Retain accepted input across deferred delivery without duplication. A new pass adds changes and preserves existing later events. |
+| C0-1 | After mapping/pickup, normalize pointer, keyboard, MIDI or OSC input into a desired button On/Off or slider-position command. Record the eligible command before VC execution, with its accepted target and Show timestamp. Store slider position in `0..1`; exclude unchanged duplicates but retain accepted rapid commands even if native output later coalesces them. |
+| C0-2 | Decide capture eligibility, target and timestamp when GUI input passes mapping/pickup. Exclude audio, programmatic updates, Replay, automatic Collection-child changes and input accepted after Record-off. Publish earlier accepted input across deferred delivery without duplication. A new pass adds changes and preserves existing later events. |
 | C0-3 | Apply the recorded state through the control's current compatible configuration, using the button rules below. Rebinding a function or changing a range affects replay; type, action, mode or attribute-role changes are incompatible. MIDI remapping does not change the destination. Matching slider positions require no action. |
 | C0-4 | Report and skip missing, disabled, ambiguous or incompatible destinations without pausing the Show. Preserve the event; do not substitute a control by caption or reused numeric ID. Continue valid events. |
-| C0-5 | Save and reload legacy function commands and new VC states with distinct targets and preserved equal-time order. Retain legacy ownership and seek semantics. Reject unknown versions/actions and malformed data without replacing valid data. |
+| C0-5 | Save and reload legacy function commands and new VC commands with distinct targets and preserved equal-time order. Retain legacy ownership and legacy-only seek behavior. Mixed VC recordings use C0-7's serial catch-up in global recorded order. Reject unknown versions/actions and malformed data without replacing valid data. |
 | C0-6 | While Playing, process every crossed event once in saved order, including after late updates. Apply the state rules without reducing intermediate events. Do not infer a seek from the size of a clock update. |
-| C0-7 | On an explicit seek in either direction or Play from a stopped cursor, restore the latest recorded button and slider states at or before the destination once. With no earlier state for a control, leave it unchanged. Skip intermediate states and preserve the previous Playing/Paused state after a seek. |
-| C0-8 | Suspend dispatch during seeking and cancel stale work on stop, seek, unload or target removal. Pause holds pending work for resume. Complete valid loop-tail/end work before ending that pass; do not duplicate destination events after restoration. |
+| C0-7 | Cursor movement while Paused or Stopped applies nothing. On Play at a new position, execute the recording's commands from the start through that position once, in saved order, through normal native dispatch. Then continue with later events. Resume without repositioning does not repeat the prefix. Do not reduce, interpolate or infer missing commands. |
+| C0-8 | Suspend ordinary dispatch during seeking and cancel stale work on stop, seek, unload or target removal. Complete already-crossed commands in order before Pause completes. Queue conflicting manual requests behind that work, preserving their accepted target, time and desired value; unrelated controls stay usable. Complete the final event before ending a pass. Do not repeat destination events or block the GUI/lighting thread. |
 
 ### Button state application
 
@@ -35,7 +35,13 @@ Use one editable event list. Support explicit QLC+ timeline seeks first; defer V
 
 Monitoring is neither satisfied ON nor satisfied OFF. Apply the requested outcome without replaying two synthetic clicks.
 
-Pause and Stop halt command dispatch, not VC-started effects. Leave live busking alone between events; the next recorded event or explicit restoration can change the control. Do not reset latched controls or enforce recorded state continuously.
+Pause halts new ordinary dispatch after settling crossed work. Pause and Stop do not halt VC-started effects. Leave live busking alone between recorded commands.
+
+### Serial catch-up
+
+Apply commands without waiting their original time gaps, while respecting native completion order and keeping the UI responsive. Events at the destination execute once. A SoloFrame handles A ON, B ON, B OFF itself; the recorder must not duplicate its rules.
+
+Catch-up can start or stop earlier effects before reaching the cursor. Per-command idempotence still applies, but the final state being correct beforehand does not suppress the recorded prefix. Add no initial reset or console snapshot.
 
 ## Editing
 
@@ -43,15 +49,24 @@ Pause and Stop halt command dispatch, not VC-started effects. Leave live busking
 
 Single-click selects a row; double-click edits its time, state or value cell. Enter commits, Escape cancels. Permit edits only while playback has stopped and REC is off; paused playback does not qualify. Validate the whole edit before publication.
 
-Delete selected events without a confirmation dialog. Show the deleted count and an Undo action. Each edit or batch deletion has one undo unit tied to its Show ID.
+Delete selected events without a confirmation dialog. Show the deleted count and an Undo action. Each edit or batch deletion has one undo unit tied to its Show ID. Undo/redo obey the same edit gate and restore only that edit's ID-addressed delta, preserving later recordings and equal-time order. Reject conflicting replay without changing data or consuming history.
+
+### Musical movement
+
+| ID | Requirement |
+|---|---|
+| C3-1 | Offer movement steps of one bar, half a bar and a quarter bar. Left/Right moves selected events by one shared relative time delta, preserving spacing, target/value data and equal-time order. Do not intercept arrow keys while editing a cell. |
+| C3-2 | A separate Snap action aligns the earliest selected event to the current Show grid and applies the same delta to the group. Use the Show's tempo, meter and grid offset. Reject the whole edit if any result is out of range; one move/snap has one undo unit. |
+
+Keep the existing single event list and stopped/REC-off editing gate. If no valid musical grid is available, explain why musical actions are unavailable; exact time editing remains available. Snap changes the group anchor, not each event's spacing.
 
 ## Recording workflow and saving
 
 | ID | Requirement |
 |---|---|
-| C2-1 | REC enables capture without starting or moving playback. Capture accepted changes at the current cursor even while stopped or paused; with no Show, wait for one. Shared REC controls in the performance views show the same bound Show and Playing/Paused/Stopped state and allow disarming from the VC. |
-| C2-2 | While REC is armed, lock manual Show selection. Keep navigation to the VC and other views available. Disarm before selecting another Show; never redirect capture behind the displayed target. |
-| C2-3 | Save a consistent snapshot of accepted events and the capture extent while leaving REC and playback unchanged. Include accepted deferred input up to the save boundary. Later recorded events make the workspace unsaved again. |
+| C2-1 | REC enables capture without starting or moving playback. Capture at the current cursor even while stopped or paused; with no Show, bind the first valid resolved Show. Shared REC controls show the same target and transport state. While REC is armed, continue past the old end. On disarm, finalize the end at the latest remaining item, including existing clips and retained commands, without padding. |
+| C2-2 | While REC is armed, lock manual Show selection but allow other view navigation. Automatic DJ handover finishes capture on A and rearms on B with REC intent retained. Pre-boundary input belongs to A; later input belongs to B. If A cannot finalize, disarm and report, preserve its accepted data, and leave B playback/live controls working until the operator resolves the error and rearms. |
+| C2-3 | Save one snapshot of events accepted through the save boundary and the content-derived end, leaving REC/playback unchanged. Runtime keepalive can advance beyond that end without padding the saved Show. Settle already-accepted deferred input, not future input. Later accepted events remain unsaved; failure retains pending work. |
 | C2-4 | New/Open/Exit while REC is armed uses Save / Discard / Cancel with an active-recording notice. Cancel preserves the current session. On proceeding, finish capture before saving/discarding and replacing/closing the workspace; failed saving must not proceed or lose pending work. |
 
 ## Debug panel
@@ -75,3 +90,10 @@ Opening the panel begins detailed capture from that moment; the Problems summary
 The read-only table shows control caption or an available recorded hint, persistent identity, expected roles, current binding, reference count and status reason. Provide All/Problems counts, a Problems filter and missing-first ordering. Virtualize rendered rows without truncating the reference inventory.
 
 Level-channel and GrandMaster controls need no Function target. Keep missing gestures intact; optional Locate navigation must not play, delete, fix or rebind controls.
+
+## Native feedback correction
+
+| ID | Requirement |
+|---|---|
+| C4-1 | Adjust-slider attribute and stopped feedback shall update the displayed value and controller feedback without scheduling another lighting write. Preserve explicit user/replay output and the existing function-running reapply. This changes live behavior as well as recording. |
+| C4-2 | A feedback value accepted with no pending write shall become the cancellation rollback baseline without creating a write generation. Preserve genuine pending-input suppression and newer user/input values when cancelling replay. |

@@ -14,19 +14,31 @@ Show editor, VC and DJ controls send intent to one recording state. Derive targe
 
 Treat Save as a checkpoint, not a stop/start command. Separate its accepted-data boundary from later input so successful saving does not clear newer unsaved changes.
 
+Keep recording's runtime lifetime separate from persisted duration. Save and finalization use the last retained clip/command, not the time spent waiting with REC armed.
+
 ## Reuse the native control path
 
-Keep provenance through input normalization and deferred execution; generic setters also receive audio and feedback updates. Query the existing VC state when applying a command, then use native start/stop/value effects to reach the requested state. The recorder keeps no running-function mirror or output-correction loop.
+Capture the normalized input command before execution, with its source and acceptance time. Keep that provenance through deferred application; generic property notifications cannot authorize recording. Query existing VC state at application and use native start/stop/value effects. The recorder keeps no running-function mirror or output-correction loop.
+
+Separate display feedback from output requests. Attribute/stopped feedback updates a control's presentation; explicit input and the native function-start reapply remain output-producing operations.
 
 ## Transport intent
 
-Distinguish `PositionUpdated` during Playing from explicit `SeekRequested`. Advance processes crossed events; seek restoration reduces authored history to destination values. Elapsed-time differences cannot establish user intent.
+Distinguish ordinary Playing progress from cursor repositioning. Advance processes crossed events. Paused movement applies nothing; Play from the new cursor sends the recorded prefix through the same native dispatcher. Elapsed-time differences cannot establish user intent.
+
+Sequence commands rather than predicting their effects. Keep SoloFrame, Collection, ownership and feedback behavior in the native controls. Do not build a separate history reducer or simulated engine.
 
 ## Thread and lifetime ownership
 
 Keep QObject/widget access on the GUI thread. Send ordered values from the playback host with workspace, Show, session, traversal and destination identity; validate again before execution.
 
 Distinguish queued work from attempted execution. Preserve due actions or report dispatch failure under backpressure. Use the existing queue/thread mechanisms rather than per-event threads.
+
+A successful final traversal check claims one native operation. Cancellation rejects unclaimed work; an operation already claimed may finish. Recheck after any wait and before the next operation. Do not use future restoration as proof of cancellation.
+
+Order transport boundaries, accepted manual input and replay effects together. An older crossed replay must finish before Pause completes, rather than overwrite newer paused busking on Resume.
+
+Deferred user requests carry their accepted target, time, origin and desired value. Do not resolve a relative click again after waiting behind replay work.
 
 ## One validation rule
 
@@ -39,3 +51,5 @@ Keep the operation-failure summary separate from detailed diagnostic capture. Hi
 ## Small extensions
 
 Extend the existing command FSM, Show storage, event list and Tardis history. Add typed actions with defined validation and traversal behavior; avoid a general message framework or property bag.
+
+Undo accepted edit deltas by stable event identity. Preserve intervening capture and reject conflicts before history movement; do not restore an old whole-track snapshot.

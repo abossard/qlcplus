@@ -67,14 +67,22 @@ required.
 ## Recording and editing
 
 In the DJ view, enable Perform and REC. REC waits for a Show if none has resolved
-yet, then keeps that target. Use Toggle buttons and function-intensity Adjust
-sliders through the screen, keyboard bindings or a patched MIDI input.
-Unsupported recording modes leave live control available and display a reason.
+yet, then binds the first resolved Show. When Perform resolves another Show, the
+take on the previous one closes and REC continues on the new one; if the previous
+take cannot be saved, REC turns off and displays why. While a take is bound, the
+Show Manager keeps its Show selected.
+
+Toggle buttons, including those in Solo Frames, record their desired On/Off
+state. Level, Adjust, Submaster and Grand Master sliders record their position.
+Input counts from the screen, keyboard bindings or a patched MIDI or OSC input,
+stamped when it is accepted. Flash and global-action buttons and slider
+reset/flash inputs are not recorded; they keep working live and display a reason.
 
 Open the command view from the Show Manager toolbar to edit event time, action,
 target, intensity or playback extent, or delete an event. The workspace Save
-operation stores the track with its Show. Stop REC to finalize the captured
-duration before saving the completed recording.
+operation stores the track with its Show. The saved end is the last recorded
+command; time spent with REC armed is not saved. Stop REC before saving the
+completed recording.
 
 Recording is not an undo history of raw widget changes. Programmatic changes and
 audio mappings do not create events, and a recorded Collection launch does not
