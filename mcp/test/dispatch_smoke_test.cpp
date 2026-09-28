@@ -107,8 +107,10 @@ void DispatchSmoke_Test::dispatchSmoke_createRgbMatrices_type_data()
     QTest::newRow("default-hue") << QString() << QStringLiteral("Audio Spectrum Bars") << true << int(RGBAlgorithm::Script);
     QTest::newRow("explicit-hue") << QStringLiteral("HUEMatrix") << QStringLiteral("Audio Spectrum Bars") << true << int(RGBAlgorithm::Script);
     QTest::newRow("stock-script") << QStringLiteral("RGBMatrix") << QStringLiteral("Stripes") << false << int(RGBAlgorithm::Script);
+    QTest::newRow("stock-twinklefox") << QStringLiteral("RGBMatrix") << QStringLiteral("TwinkleFox") << false << int(RGBAlgorithm::Script);
     QTest::newRow("stock-audio") << QStringLiteral("RGBMatrix") << QStringLiteral("Audio Spectrum") << false << int(RGBAlgorithm::Audio);
     QTest::newRow("legacy-hue-stripes") << QStringLiteral("HUEMatrix") << QStringLiteral("Stripes") << true << int(RGBAlgorithm::Script);
+    QTest::newRow("legacy-hue-twinklefox") << QStringLiteral("HUEMatrix") << QStringLiteral("TwinkleFox") << true << int(RGBAlgorithm::Script);
     QTest::newRow("legacy-hue-audio") << QStringLiteral("HUEMatrix") << QStringLiteral("Audio Spectrum") << true << int(RGBAlgorithm::Audio);
     QTest::newRow("hue-fire") << QStringLiteral("HUEMatrix") << QStringLiteral("Audio Fire") << true << int(RGBAlgorithm::Script);
     QTest::newRow("case-insensitive-rgb") << QStringLiteral("rgbmatrix") << QStringLiteral("Stripes") << false << int(RGBAlgorithm::Script);

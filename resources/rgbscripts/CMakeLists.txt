@@ -1,53 +1,9 @@
 project(scripts)
 
-set(SCRIPT_FILES
-    alternate.js
-    balls.js
-    blinder.js
-    circles.js
-    circular.js
-    evenodd.js
-    fill.js
-    fillfromcenter.js
-    fillunfill.js
-    fillunfillfromcenter.js
-    fillunfillsquaresfromcenter.js
-    fireworks.js
-    flyingobjects.js
-    gradient.js
-    lines.js
-    marquee.js
-    noise.js
-    onebyone.js
-    opposite.js
-    plasma.js
-    randomcolumn.js
-    randomfillcolumn.js
-    randomfillrow.js
-    randomfillsingle.js
-    randompixelperrow.js
-    randompixelperrowmulticolor.js
-    randomrow.js
-    randomsingle.js
-    sinewave.js
-    snowbubbles.js
-    squares.js
-    squaresfromcenter.js
-    starfield.js
-    stripes.js
-    stripesfromcenter.js
-    strobe.js
-    verticalfall.js
-    waves.js
-)
+file(GLOB SCRIPT_FILES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*.js")
+list(REMOVE_ITEM SCRIPT_FILES "empty.js")
 
-# The engine tests resolve INTERNAL_SCRIPTDIR / INTERNAL_HUESCRIPTDIR relative to
-# their own build directory ("../../../resources/rgbscripts/"), so the scripts have to
-# exist inside the build tree or rgbscript, rgbmatrix, rgbalgorithm and huematrix
-# all fail in initTestCase. Nothing else populated it, so a fresh clone could not
-# run the suite. rgbscript_test also opens this CMakeLists.txt to check every
-# script is listed for delivery, so copy the file itself too -- and writable,
-# because it opens it ReadWrite.
+# Engine tests run from their build directories resolve scripts here.
 set(SCRIPTS_BUILD_DIR "${CMAKE_BINARY_DIR}/resources/rgbscripts")
 file(MAKE_DIRECTORY ${SCRIPTS_BUILD_DIR})
 file(COPY ${SCRIPT_FILES} CMakeLists.txt

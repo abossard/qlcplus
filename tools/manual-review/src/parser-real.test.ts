@@ -50,6 +50,14 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.map(c => c.tags)).toEqual([[], [], []]);
   });
 
+  it('recognizes the upstream 1ccdab841 3D and RGB script review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '32');
+    expect(section?.title).toContain('1ccdab841');
+    expect(section?.cases.map(c => c.number)).toEqual(['32.1', '32.2', '32.3', '32.4', '32.5']);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([3, 2, 3, 2, 1]);
+    expect(section!.cases.map(c => c.tags)).toEqual([[], [], [], ['DMX'], []]);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

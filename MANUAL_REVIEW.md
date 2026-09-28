@@ -1728,3 +1728,62 @@ remain pending.
 |------|--------|------|-------------|-------|
 | Editor opening and fork navigation | | | | |
 | URL focus, cancellation, and confirmation | | | | |
+
+## 32. September 2026 upstream 3D and RGB scripts through 1ccdab841
+
+The seven incoming commits through `1ccdab841c118b20058c89c04bee95df94e440f3`
+rebuild the frame graph after quality changes, apply selection transforms as
+relative deltas, preserve selection after dragging, and add 22 stock RGB
+scripts with expanded Lines controls. TwinkleFox derives frames from the
+matrix dimensions and step rather than prior calls.
+
+Automated checks on 2026-09-28: the configured `qlcplus5` build and focused
+test targets passed with the repository's normal warning policy. Native
+results were RGBScript 19, RGBAlgorithm 5, RGBMatrix 18, HUEMatrix 68,
+MCP query 7, MCP dispatch 20, MCP stage placement 32, upstream integration
+10, and upstream 3D 17. All 196 QtTest passes include setup/cleanup and had
+zero failures or skips. The new 3D tests failed against the previous
+production code, then passed after integration. They cover transform
+deltas, position locks, rotation wrap, and the frame-graph invocation
+boundary, not rendered shadows or native picking.
+
+Tests used offscreen/software rendering and isolated runtime/settings
+directories. Engine script tests ran from source-rooted working directories,
+not the build's stale HUE copies. These runs include the existing uncommitted
+recording code without accepting it. No running application was restarted
+and no live lighting was changed. All 11 checks below await human review.
+
+### 32.1 Quality changes and fork view behavior
+
+- ☐ In a disposable workspace, switch 3D quality from Low to High and back without leaving the view. Confirm spotlight and shadow passes appear or disappear as expected.
+- ☐ Repeat quality changes, leave 3D, and return. Check that the scene remains visible and FPS display behavior is unchanged.
+- ☐ Use both wheel and trackpad zoom. Confirm the fork's inertial zoom remains smooth and settles normally.
+
+### 32.2 Mixed placement and rotation
+
+- ☐ Drag mixed fixture and generic-item selections along each axis, including Shift depth movement. Keep locked positions fixed and confirm the selection remains after release.
+- ☐ Exercise single and multiple numeric edits in 2D and 3D. Check position deltas, rotation across 0/360 degrees, and undo/redo feedback.
+
+### 32.3 Stock effects and HUE separation
+
+- ☐ Browse Aurora, Confetti, ConnectDots, Eyes, Fire, Fire Flicker, Fireflies, Fractal, Juggle, Lantern, Lightning, Meteor, OrthoLines, Pacifica, Ripple, Shapes, Sinelon, Spark, Stage Pulse, Strum, TwinkleFox, and Water Flow. Compare non-square and strip previews for expected orientation and visual quality.
+- ☐ On a disposable copy of an existing Lines effect, inspect the legacy controls and expanded movement/lifecycle controls. Compare the resulting appearance without overwriting the original.
+- ☐ Assess TwinkleFox continuity. Check that the HUE picker still offers only HUE patterns and that a legacy HUE function referencing a stock script still loads, preserving saved originals.
+
+### 32.4 Physical effect mapping [DMX]
+
+Only perform these checks after separate authorization. Do not automatically
+start flashing effects or move hardware.
+
+- ☐ On an available multi-head rig, inspect effect mapping and direction against the preview.
+- ☐ Assess color, fades, and visual comfort for the new effects at safe output levels.
+
+### 32.5 Sign-off
+
+- ☐ Record failures, unavailable devices, untested platforms, and pending GPU/desktop checks before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Quality, placement, rotation, and zoom | | | | |
+| Stock effects and HUE compatibility | | | | |
+| Physical mapping and visual comfort | | | | |
