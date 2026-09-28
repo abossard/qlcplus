@@ -1762,12 +1762,12 @@ and no live lighting was changed. All 11 checks below await human review.
 ### 32.2 Mixed placement and rotation
 
 - ☐ Drag mixed fixture and generic-item selections along each axis, including Shift depth movement. Keep locked positions fixed and confirm the selection remains after release.
-- ☐ Exercise single and multiple numeric edits in 2D and 3D. Check position deltas, rotation across 0/360 degrees, and undo/redo feedback.
+- ☐ After dragging a single fixture or generic item in 3D, edit one numeric position axis without reselecting; confirm unedited axes stay at their displayed positions. Repeat numeric edits for single and mixed selections in 2D and 3D, checking relative deltas, rotation across 0/360 degrees, and undo/redo feedback.
 
 ### 32.3 Stock effects and HUE separation
 
 - ☐ Browse Aurora, Confetti, ConnectDots, Eyes, Fire, Fire Flicker, Fireflies, Fractal, Juggle, Lantern, Lightning, Meteor, OrthoLines, Pacifica, Ripple, Shapes, Sinelon, Spark, Stage Pulse, Strum, TwinkleFox, and Water Flow. Compare non-square and strip previews for expected orientation and visual quality.
-- ☐ On a disposable copy of an existing Lines effect, inspect the legacy controls and expanded movement/lifecycle controls. Compare the resulting appearance without overwriting the original.
+- ☐ On a disposable copy of an existing Lines effect, save and reload Slide=Up with Rollover=Yes, then duplicate Grow, Shrink, and Static variants with fade changes. Confirm rollover and lifecycle survive replay/copy and compare the legacy and expanded controls' appearance without overwriting the original.
 - ☐ Assess TwinkleFox continuity. Check that the HUE picker still offers only HUE patterns and that a legacy HUE function referencing a stock script still loads, preserving saved originals.
 
 ### 32.4 Physical effect mapping [DMX]

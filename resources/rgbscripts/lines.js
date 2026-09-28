@@ -230,14 +230,14 @@ var testAlgo;
       return algo.linesMovementSpeed;
     };
 
-    // Backward compatibility: linesSlide maps to linesMovement
+    // Legacy direction edits retain the independent rollover setting.
     algo.setSlide = function(_slide)
     {
-      if (_slide === "Up") { algo.linesSlide = 1; algo.setMovement("Up"); }
-      else if (_slide === "Down") { algo.linesSlide = 2; algo.setMovement("Down"); }
-      else if (_slide === "Left") { algo.linesSlide = 3; algo.setMovement("Left"); }
-      else if (_slide === "Right") { algo.linesSlide = 4; algo.setMovement("Right"); }
-      else { algo.linesSlide = 0; algo.setMovement("None"); }
+      if (_slide === "Up") { algo.linesSlide = 1; }
+      else if (_slide === "Down") { algo.linesSlide = 2; }
+      else if (_slide === "Left") { algo.linesSlide = 3; }
+      else if (_slide === "Right") { algo.linesSlide = 4; }
+      else { algo.linesSlide = 0; }
     };
 
     algo.getSlide = function()
@@ -278,23 +278,20 @@ var testAlgo;
       else { return "No"; }
     };
 
-    // Backward compatibility: fadeMode maps to linesLifecycle
+    // Legacy fade edits retain the lifecycle's size behavior.
     algo.setFade = function(_fade)
     {
       if (_fade === "Fade In")
       {
         algo.fadeMode = 1;
-        algo.setLifecycle("Static Fade In");
       }
       else if (_fade === "Fade Out")
       {
         algo.fadeMode = 2;
-        algo.setLifecycle("Static Fade Out");
       }
       else
       {
         algo.fadeMode = 0;
-        algo.setLifecycle("Static");
       }
     };
 

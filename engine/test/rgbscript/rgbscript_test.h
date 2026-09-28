@@ -44,6 +44,8 @@ private slots:
     void rgbMap();
     void floatBoundsDescriptor_data();
     void floatBoundsDescriptor();
+    void linesClone_data();
+    void linesClone();
     void runScripts();
 
 private:

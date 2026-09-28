@@ -74,6 +74,51 @@ void RGBScript_Test::cleanupTestCase()
     delete m_doc;
 }
 
+void RGBScript_Test::linesClone_data()
+{
+    QTest::addColumn<QString>("behavior");
+    QTest::addColumn<QString>("fade");
+    QTest::addColumn<bool>("fadeFirst");
+    const QStringList behaviors = {"Grow", "Shrink", "Static"};
+    const QStringList fades = {"Don't Fade", "Fade In", "Fade Out"};
+    for (const QString &behavior : behaviors)
+        for (const QString &fade : fades)
+            for (bool fadeFirst : {false, true})
+                QTest::newRow(qPrintable(behavior + "-" + fade + (fadeFirst ? "-fade-first" : "-fade-last")))
+                    << behavior << fade << fadeFirst;
+}
+
+void RGBScript_Test::linesClone()
+{
+    QFETCH(QString, behavior);
+    QFETCH(QString, fade);
+    QFETCH(bool, fadeFirst);
+    RGBScript script(m_doc);
+    QVERIFY(script.load(QDir(INTERNAL_SCRIPTDIR).filePath("lines.js")));
+    const QString lifecycle = behavior + (fade == "Don't Fade" ? "" : " " + fade);
+    QVERIFY(script.setProperty("linesMovement", "Up Loop"));
+    if (fadeFirst)
+    {
+        QVERIFY(script.setProperty("fadeMode", fade));
+        QVERIFY(script.setProperty("linesLifecycle", lifecycle));
+    }
+    else
+    {
+        QVERIFY(script.setProperty("linesLifecycle", behavior + " Fade Out"));
+        QVERIFY(script.setProperty("fadeMode", fade));
+    }
+    QCOMPARE(script.property("linesLifecycle"), lifecycle);
+    QCOMPARE(script.property("fadeMode"), fade);
+
+    QScopedPointer<RGBScript> copied(static_cast<RGBScript *>(script.clone()));
+    QVERIFY(copied);
+    QCOMPARE(copied->property("linesLifecycle"), lifecycle);
+    QCOMPARE(copied->property("fadeMode"), fade);
+    QCOMPARE(copied->property("linesMovement"), QString("Up Loop"));
+    QCOMPARE(copied->property("linesSlide"), QString("Up"));
+    QCOMPARE(copied->property("linesRollover"), QString("Yes"));
+}
+
 void RGBScript_Test::initial()
 {
     RGBScript script(m_doc);

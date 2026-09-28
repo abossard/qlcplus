@@ -98,6 +98,47 @@ void RGBMatrix_Test::cleanupTestCase()
     delete m_doc;
 }
 
+void RGBMatrix_Test::linesPropertyReplay_data()
+{
+    QTest::addColumn<QString>("slide");
+    QTest::addColumn<QString>("rollover");
+    QTest::addColumn<bool>("deferred");
+    for (bool deferred : {true, false})
+    {
+        const QByteArray suffix = deferred ? "-qmap" : "-slide-first";
+        QTest::newRow("up-loop" + suffix) << QString("Up") << QString("Yes") << deferred;
+        QTest::newRow("up" + suffix) << QString("Up") << QString("No") << deferred;
+        QTest::newRow("right-loop" + suffix) << QString("Right") << QString("Yes") << deferred;
+        QTest::newRow("none-loop" + suffix) << QString("None") << QString("Yes") << deferred;
+    }
+}
+
+void RGBMatrix_Test::linesPropertyReplay()
+{
+    QFETCH(QString, slide);
+    QFETCH(QString, rollover);
+    QFETCH(bool, deferred);
+    RGBMatrix matrix(m_doc);
+    if (deferred)
+    {
+        matrix.setProperty("linesSlide", slide);
+        matrix.setProperty("linesRollover", rollover);
+    }
+    auto *script = new RGBScript(m_doc);
+    QVERIFY(script->load(QDir(INTERNAL_SCRIPTDIR).filePath("lines.js")));
+    // Deferred properties replay in QMap order: rollover before slide.
+    matrix.setAlgorithm(script);
+    if (!deferred)
+    {
+        matrix.setProperty("linesSlide", slide);
+        matrix.setProperty("linesRollover", rollover);
+    }
+    QCOMPARE(script->property("linesSlide"), slide);
+    QCOMPARE(script->property("linesRollover"), rollover);
+    const QString movement = slide + (slide != "None" && rollover == "Yes" ? " Loop" : "");
+    QCOMPARE(script->property("linesMovement"), movement);
+}
+
 void RGBMatrix_Test::initial()
 {
     RGBMatrix mtx(m_doc);

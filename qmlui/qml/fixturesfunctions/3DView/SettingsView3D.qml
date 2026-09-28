@@ -94,6 +94,7 @@ Rectangle
     {
         isUpdating = true
         currentPosition = generic ? View3D.genericItemsPosition : contextManager.fixturesPosition
+        lastPosition = currentPosition
         isUpdating = false
     }
 

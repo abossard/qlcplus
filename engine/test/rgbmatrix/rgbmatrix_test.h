@@ -43,6 +43,8 @@ private slots:
     void copy();
     void previewMaps();
     void property();
+    void linesPropertyReplay_data();
+    void linesPropertyReplay();
     void loadSave();
 
     void repeatedFadeTarget_data();

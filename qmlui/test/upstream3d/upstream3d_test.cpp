@@ -1,4 +1,5 @@
 #include <QtTest>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QSettings>
@@ -43,6 +44,22 @@ public:
         events.append("rebuild");
     }
 };
+
+static QString qmlFunction(const QString &source, const QString &name)
+{
+    const int start = source.indexOf("function " + name + "(");
+    if (start < 0)
+        return {};
+    int depth = 0;
+    for (int i = source.indexOf('{', start); i < source.size(); ++i)
+    {
+        if (source[i] == '{')
+            ++depth;
+        if (source[i] == '}' && --depth == 0)
+            return source.mid(start, i - start + 1);
+    }
+    return {};
+}
 
 void Upstream3D_Test::initTestCase()
 {
@@ -137,6 +154,117 @@ void Upstream3D_Test::positionDeltas()
         for (int i = 0; i < generics; ++i)
             QCOMPARE(props->itemPosition(100 + i),
                      positions[1 - i] + (lockFirst && i == 0 ? QVector3D() : delta * step));
+    }
+}
+
+void Upstream3D_Test::positionCaller_data()
+{
+    QTest::addColumn<int>("fixtures");
+    QTest::addColumn<int>("generics");
+    QTest::addColumn<bool>("drag");
+    for (bool drag : {false, true})
+    {
+        const QByteArray suffix = drag ? "-drag" : "-no-drag";
+        QTest::newRow("fixture" + suffix) << 1 << 0 << drag;
+        QTest::newRow("generic" + suffix) << 0 << 1 << drag;
+        QTest::newRow("fixtures" + suffix) << 2 << 0 << drag;
+        QTest::newRow("generics" + suffix) << 0 << 2 << drag;
+        QTest::newRow("mixed" + suffix) << 1 << 1 << drag;
+        QTest::newRow("mixed-unequal" + suffix) << 2 << 1 << drag;
+    }
+}
+
+void Upstream3D_Test::positionCaller()
+{
+    QFETCH(int, fixtures);
+    QFETCH(int, generics);
+    QFETCH(bool, drag);
+    const QVector3D positions[] = {{100, 200, 300}, {-400, 5100, 900}};
+    const QVector3D dragDelta(25, -50, 75);
+    const QVector3D edits[] = {{10, 0, 0}, {0, -20, 0}, {0, 0, 30}};
+    const bool single = fixtures + generics == 1;
+    Doc *doc = m_app->doc();
+    MonitorProperties *props = doc->monitorProperties();
+    QList<quint32> fixtureIDs;
+    const auto cleanup = qScopeGuard([&]() {
+        m_context->resetFixtureSelection();
+        for (quint32 id : fixtureIDs)
+            doc->deleteFixture(id);
+        for (int i = 0; i < generics; ++i)
+        {
+            m_view->setItemSelection(100 + i, false, 0);
+            props->removeItem(100 + i);
+        }
+        Tardis::instance()->resetHistory();
+    });
+    for (int i = 0; i < fixtures; ++i)
+    {
+        auto *fixture = new Fixture(doc);
+        fixture->setChannels(1);
+        fixture->setAddress(i);
+        QVERIFY(doc->addFixture(fixture));
+        fixtureIDs.append(fixture->id());
+        props->setFixturePosition(fixture->id(), 0, 0, positions[i]);
+        m_context->setFixtureSelection(FixtureUtils::fixtureItemID(fixture->id(), 0, 0), -1, true);
+    }
+    for (int i = 0; i < generics; ++i)
+    {
+        props->setItemPosition(100 + i, positions[i]);
+        m_view->setItemSelection(100 + i, true, Qt::ControlModifier);
+    }
+
+    // Run the production caller functions without constructing the GPU view.
+    QFile sourceFile(QFINDTESTDATA("../../qml/fixturesfunctions/3DView/SettingsView3D.qml"));
+    QVERIFY(sourceFile.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(sourceFile.readAll());
+    const QString refresh = qmlFunction(source, "refreshPositionValues");
+    const QString update = qmlFunction(source, "updatePosition");
+    QVERIFY(!refresh.isEmpty());
+    QVERIFY(!update.isEmpty());
+    QQmlComponent component(m_app->engine());
+    component.setData((QStringLiteral(
+        "import QtQuick\nQtObject {\n"
+        "property int selFixturesCount: 0\n"
+        "property int selGenericCount: 0\n"
+        "property bool isUpdating: false\n"
+        "property vector3d currentPosition\n"
+        "property vector3d lastPosition\n") + refresh + "\n" + update + "\n}").toUtf8(),
+        QUrl::fromLocalFile(sourceFile.fileName()));
+    QScopedPointer<QObject> panel(component.create(m_app->rootContext()));
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    panel->setProperty("selFixturesCount", fixtures);
+    panel->setProperty("selGenericCount", generics);
+    QVector3D displayed = single ? positions[0] : QVector3D();
+    panel->setProperty("currentPosition", QVariant::fromValue(displayed));
+    panel->setProperty("lastPosition", QVariant::fromValue(displayed));
+    QVector3D totalDelta;
+    for (const QVector3D &edit : edits)
+    {
+        if (drag)
+        {
+            m_context->setFixturesPosition(dragDelta);
+            m_view->setGenericItemsPosition(dragDelta);
+            totalDelta += dragDelta;
+            // 3DView refreshes absolute fields only for a single selection.
+            if (single)
+            {
+                QVERIFY(QMetaObject::invokeMethod(panel.data(), "refreshPositionValues",
+                                                 Q_ARG(QVariant, generics == 1)));
+                displayed = panel->property("currentPosition").value<QVector3D>();
+                QCOMPARE(displayed, positions[0] + totalDelta);
+            }
+        }
+        displayed += edit;
+        QVERIFY(QMetaObject::invokeMethod(panel.data(), "updatePosition",
+                                         Q_ARG(QVariant, displayed.x()),
+                                         Q_ARG(QVariant, displayed.y()),
+                                         Q_ARG(QVariant, displayed.z())));
+        totalDelta += edit;
+        for (int i = 0; i < fixtures; ++i)
+            QCOMPARE(props->fixturePosition(fixtureIDs[i], 0, 0), positions[i] + totalDelta);
+        for (int i = 0; i < generics; ++i)
+            QCOMPARE(props->itemPosition(100 + i), positions[i] + totalDelta);
+        QCOMPARE(panel->property("lastPosition").value<QVector3D>(), displayed);
     }
 }
 

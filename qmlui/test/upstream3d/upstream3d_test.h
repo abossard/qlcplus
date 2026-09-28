@@ -16,6 +16,8 @@ private slots:
     void cleanupTestCase();
     void positionDeltas_data();
     void positionDeltas();
+    void positionCaller_data();
+    void positionCaller();
     void rotationDeltas_data();
     void rotationDeltas();
     void renderQuality_data();
