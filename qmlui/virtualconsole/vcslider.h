@@ -221,6 +221,9 @@ public:
      *  is left to wait for. */
     quint64 applyRecordedPosition(qreal position);
 
+    /** The same for a raw value of this slider, as a rollback restores it */
+    quint64 applyRecordedValue(int value);
+
     /** No action: the generation of a write this slider still owes, reported
      *  like a replayed one, or 0 when none is pending or none can come */
     quint64 awaitPendingWrite();

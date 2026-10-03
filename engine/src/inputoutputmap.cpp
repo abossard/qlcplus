@@ -500,6 +500,17 @@ bool InputOutputMap::setInputPatch(quint32 universe, const QString &pluginName,
 
     QMutexLocker locker(&m_universeMutex);
     InputPatch *currInPatch = m_universeArray.at(universe)->inputPatch();
+    QLCIOPlugin *plugin = m_doc->ioPluginCache()->plugin(pluginName);
+
+    /* An unknown plugin name is not a request to unpatch: keep any existing input */
+    if (plugin == NULL && input != QLCIOPlugin::invalidLine() &&
+        pluginName.isEmpty() == false && pluginName != KInputNone)
+    {
+        qWarning() << Q_FUNC_INFO << "Unknown input plugin" << pluginName << "for universe" << universe;
+        if (currInPatch != NULL)
+            return false;
+    }
+
     QLCInputProfile *currProfile = NULL;
     if (currInPatch != NULL)
     {
@@ -513,7 +524,6 @@ bool InputOutputMap::setInputPatch(quint32 universe, const QString &pluginName,
         }
     }
     InputPatch *ip = NULL;
-    QLCIOPlugin *plugin = m_doc->ioPluginCache()->plugin(pluginName);
 
     if (plugin != NULL)
     {

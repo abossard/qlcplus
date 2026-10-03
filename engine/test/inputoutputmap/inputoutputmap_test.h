@@ -44,6 +44,10 @@ private slots:
     void universe();
     void profiles();
     void setInputPatch();
+    void removeInputPatch_data();
+    void removeInputPatch();
+    void loadXMLInputPatch_data();
+    void loadXMLInputPatch();
     void setOutputPatch();
     void setMultipleOutputPatches();
     void slotValueChanged();

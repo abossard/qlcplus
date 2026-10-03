@@ -18,9 +18,9 @@ The first native tracer is a Collection starting a Scene whose button is Monitor
 | C0-4 | Delete/recreate numeric IDs, copy/reload controls, disable a target and change type/action/mode/attribute role. In particular, an intensity slider changed to GrandMaster must skip with a reason. Assert the Show continues valid events without substituting a target. |
 | C0-5 | XML round trip with Version 1 fixtures, mixed records and equal timestamps. Reject malformed values, unknown versions/actions and ambiguous identities without replacing valid data. Compare legacy targets, ordering and behavior. |
 | C0-6 | While Playing, advance from 9s to 12s across ON at 10s and OFF at 11s: process both, including after a late update. Include slider/button barriers and equal timestamps; observe native effects as well as request order. |
-| C0-7 | Paused/stopped cursor movement causes no effect. Play at the new cursor executes the prefix in saved order: A ON, B ON, B OFF leaves both Off through the native SoloFrame. Cover cold/backward starts, mixed ties, exact-destination once, cancellation/end, and resume without repositioning. Do not assert reduced-state equivalence or absence of intermediate activations. |
+| C0-7 | Paused/stopped cursor movement causes no effect. Superseded by C1 for seeks: Play at a cursor dispatches nothing before it (`play_fromStoppedCursor_runsOnlyFromTheCursor`); a requested forward seek plays its crossed interval in saved order, A ON, B ON, B OFF leaving both Off through the native SoloFrame (`jump_*`); a backward move rolls back only its window (`timelineRollback_data` rows a-o, `showrunner_test::commandJumpDispatchesOnlyItsWindow_data`, `commandBackwardRollsBackOwnLegacyEffects_data`). Cover mixed ties, exact-destination once, cancellation/end, and resume without repositioning. |
 | C0-8 | Cross/queue 30%, request Pause, then submit conflicting manual 55%: preserve its accepted time/value and apply it after older work, never before stale replay on Resume. An unrelated control still responds. Include late-posted batches, stop/seek/unload cancellation, final-event drain and no duplicate destination effect. |
-| C0-9 | Test select/double-click/Enter/Escape and immediate counted batch delete. Delete three events, record five, disarm, then undo: retain the five and restore the three in their original tie order. Test undo/redo gate, another selected Show, changed/deleted IDs and conflict rejection without consuming history. |
+| C0-9 | Test select/double-click/Enter/Escape and immediate counted batch delete. Delete three events, record five, disarm, then undo: retain the five and restore the three in their original tie order. Test another selected Show, changed/deleted IDs and conflict rejection without consuming history. The original undo/redo stopped gate is replaced by C5: `recordingsEditor_editsWhileLive_data` edits, undoes and redoes in every playing/paused/REC state. |
 | C0-10 | Pure FSM transitions: equal inputs yield equal next state/effects; rejected input preserves authored data. Confirm the pure interface carries no QObject or live engine access. |
 | C1-1 | Five gestures referencing three controls with counts `3/1/1`, duplicate captions with distinct identities, mixed status and no references. Exceed the event-log cap, then clear/evict log entries; the complete reference inventory remains queryable. |
 | C1-2 | Compare the shared resolver's view and replay results for each status and multiple expected roles. Include valid Level-channel and GrandMaster controls without Function bindings. |
@@ -52,8 +52,8 @@ after retime/delete/restore without changing raw samples or tie order.
 
 Production-QML tests in `showcommandrecorder_test` cover accessible group
 selection and sample drilldown, one-sample value editing, partial selection
-after regrouping, musical move/Snap and Undo, and pointer drag commit/cancellation
-on data or REC changes. Existing public recorder edit/gate/history tests cover
+after regrouping, musical move/Snap and Undo, and pointer drag commit/cancellation (a
+changed target cancels; REC starting no longer does, per C5). Existing public recorder edit/gate/history tests cover
 atomic bounds refusal, stale Show/IDs and later-capture preservation.
 The parent-editor observation test follows controls across both tabs and
 stops observing when the whole Show editor is hidden.
@@ -62,3 +62,7 @@ Offscreen tests do not establish Cocoa input or visible layout. Native proof
 uses the normal app on a task-owned workspace, unique AX targets and guarded
 foreground CGEvent input, saved XML and window-only screenshots. Original
 workspaces, routing and open-only diagnostic behavior must remain untouched.
+
+## Live recording time editing (C5)
+
+Engine: `showcommandtrack_test::retimeSelection_data` (exact anchors, rounding ties, reversal refusal, full 32-bit range with 64-bit products) and `liveOccurrence_data`; `showrunner_test` live-occurrence, moved live Stop, once-only retirement, edit-while-playing (per-tick old-or-new snapshots, unchanged traversal) and crossed/settling work rows. Recorder/App: `recordingsEditor_editsWhileLive_data`, `recordingsEditor_pasteWhileLive_data`, `recordingsEditor_editKeepsPendingCapture_data`, `recordingsEdit_previewCommitCancel_data`, `recordingsEdit_conflicts_data`, and the UI caller tests for drafts surviving capture, drag surviving capture, the span surface and handles, refused release, key continuation, press freezing, follow pause and Perform via the VdjBridge inputs. Mutation runs record which rows fail when each rule is removed. Native VirtualDJ and the real app remain a separate verification.

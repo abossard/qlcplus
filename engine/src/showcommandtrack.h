@@ -24,6 +24,7 @@
 #include <QString>
 #include <QVector>
 #include <QList>
+#include <QHash>
 #include <QSet>
 #include <QUuid>
 
@@ -195,6 +196,25 @@ struct ShowControlCoupling
     QVector<QPair<quint32, quint32>> memberSoloGroups;
 };
 
+/** How a selection is retimed: one delta for all, or a stretch of its span */
+enum class ShowRetimeKind : quint8
+{
+    Move,         //!< every selected time + delta
+    StretchEnd,   //!< latest selected time + delta, earliest pinned, scaled between
+    StretchStart  //!< earliest selected time + delta, latest pinned, scaled between
+};
+
+/** Why a selection retime was refused as a whole */
+enum class ShowRetimeRefusal : quint8
+{
+    None,
+    UnknownEvent, //!< nothing selected, or an id the track does not hold
+    NoSpan,       //!< a stretch of a selection whose events share one time
+    NoTargetSpan, //!< a stretch onto or past the pinned edge
+    OutOfRange,   //!< a time before 0 or past ShowCommand::MaxTime
+    Reordered     //!< rounding would put the selected events in another sequence
+};
+
 /**
  * The authored commands of one Show plus its authored playback extent.
  *
@@ -258,6 +278,15 @@ public:
     bool retime(quint32 id, quint32 time, QString *error = nullptr);
     bool remove(quint32 id, QString *error = nullptr);
 
+    /** Retimes the selected events into result, a copy of this track: only
+     *  their times change, every value, id and Order stays and so does every
+     *  unselected event, which they may cross. A stretch scales each offset
+     *  from the pinned edge by newSpan / oldSpan, rounding the distance half
+     *  away from the pin to a millisecond, so both edges land exactly. Refused whole, result left
+     *  alone, when the selected (time, Order) sequence would change. */
+    ShowRetimeRefusal retimeSelection(const QVector<quint32> &ids, ShowRetimeKind kind, qint64 deltaMs,
+                                      ShowCommandTrack *result) const;
+
     /** Sorted, unique Function targets referenced by this track's function
      *  commands. VC state records reference controls, not Functions. */
     QList<quint32> referencedFunctionIds() const;
@@ -289,6 +318,30 @@ enum class ShowRecordPhase : quint8
     Suspended //!< bound, but another Show is currently resolved
 };
 
+/** One occurrence the host executed live, fixed when it was captured */
+struct ShowLiveMark
+{
+    quint32 time = 0;
+    /** The Function a live Stop stopped, InvalidId for any other action:
+     *  its superseded clip end is retired once, whatever is edited later */
+    quint32 stopFunctionId = ShowCommand::InvalidId;
+
+    bool operator==(const ShowLiveMark &other) const
+    {
+        return time == other.time && stopFunctionId == other.stopFunctionId;
+    }
+};
+
+/** Live no-echo marks: event id -> the occurrence the host executed live.
+ *  A mark guards that occurrence only, never the id at another time. */
+using ShowLiveMarks = QHash<quint32, ShowLiveMark>;
+
+/** The live mark of a command as it was captured */
+inline ShowLiveMark liveMarkOf(const ShowCommand &cmd)
+{
+    return { cmd.time, cmd.action == ShowCommandAction::Stop ? cmd.functionId : ShowCommand::InvalidId };
+}
+
 /**
  * Transport and recording state. Deliberately holds no running functions, owners,
  * clips or engine observations - only what the transitions need.
@@ -302,10 +355,12 @@ struct ShowCommandState
     quint32 position = 0;                            //!< authoritative transport milliseconds
     quint32 consumedThrough = 0;                     //!< commands before this are history
 
-    /** Events authored live during this traversal, which the host already executed.
-     *  Traversal metadata of the cursor, not a registry of anything running: an id
-     *  is dropped again as soon as the playhead consumes its time. */
-    QSet<quint32> consumedLiveEventIds;
+    /** Events authored live during this traversal, which the host already executed,
+     *  at the time they were captured. Traversal metadata of the cursor, not a
+     *  registry of anything running: a command is skipped only while it still sits
+     *  at its mark's time, and a mark is dropped once the playhead consumes that
+     *  time, wherever its event has moved since. */
+    ShowLiveMarks consumedLiveEventIds;
 
     ShowRecordPhase phase() const;
     bool operator==(const ShowCommandState &other) const;
@@ -361,23 +416,20 @@ namespace ShowCommandFsm
     ShowCommandTransition advance(const ShowCommandTrack &track,
                                   const ShowCommandState &state, quint32 positionMs);
 
-    /** Jump or loop to positionMs. Effects restore the latest authored intensity
-     *  per target from before the destination; historical Start/Stop are not
-     *  replayed. Record intent and binding survive.
-     *
-     *  catchUp instead restores nothing: the next advance() to positionMs
-     *  returns every command up to and including it, once, in authored
-     *  order. The live ids of state are kept, the host cleared those of the
-     *  previous traversal when it restarted. */
-    ShowCommandTransition seek(const ShowCommandTrack &track,
-                               const ShowCommandState &state, quint32 positionMs,
-                               bool catchUp = false);
+    /** Reposition to positionMs: a backward jump or loop, Play from a cursor,
+     *  or an external clock's first sample. No effects: nothing before the
+     *  destination is replayed or restored, and commands at exactly
+     *  positionMs are due on the next advance(). Live marks of the previous
+     *  pass are cleared; Record intent and binding survive. A forward jump
+     *  is no seek: advance() plays the crossed interval. */
+    ShowCommandState seek(const ShowCommandState &state, quint32 positionMs);
 
     /** Offer real user input to the recorder. Authors at most one command at the
-     *  authoritative position and marks its id as consumed, so the freshly authored
-     *  command cannot echo back through advance() during this traversal while every
-     *  other due command still executes. The host has already executed the input
-     *  live, so this returns no effects. */
+     *  authoritative position and marks that occurrence, its id at its time, as
+     *  consumed, so the freshly authored command cannot echo back through
+     *  advance() during this traversal while every other due command still
+     *  executes. The host has already executed the input live, so this returns
+     *  no effects. */
     ShowCommandTransition userInput(const ShowCommandTrack &track,
                                     const ShowCommandState &state, const ShowCommandInput &input);
 

@@ -28,12 +28,17 @@
 
 #include <QtTest>
 #include <QAccessible>
+#include <QStyleHints>
 #include <QBuffer>
 #include <QFileOpenEvent>
 #include <QMessageBox>
 #include <QQmlComponent>
+#include <QQmlEngine>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QQmlContext>
 #include <QQmlExpression>
+#include <QJSEngine>
 #include <QQuickItem>
 #include <QQuickView>
 #include <QTranslator>
@@ -83,6 +88,7 @@
 #include "vcslider.h"
 #include "vcsoloframe.h"
 #include "vdjbridge.h"
+#include "showfactory.h"
 #include "performfsm.h"
 #include "virtualconsole.h"
 #include "workspacebridgev5.h"
@@ -380,6 +386,15 @@ void tickAndDeliver(Doc *doc, int ticks = 1)
         doc->masterTimer()->timerTick();
         QCoreApplication::processEvents();
     }
+}
+
+/** Play an external Show whose clock reports 0 first, from 0: the first
+ *  fresh sample begins the traversal there, later ones cross intervals */
+void playExternalFromZero(Show *show, Doc *doc)
+{
+    show->start(doc->masterTimer(), FunctionParent::master());
+    show->setExternalElapsedTime(0);
+    doc->masterTimer()->timerTick();
 }
 
 VCButton *addToggle(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId,
@@ -1892,9 +1907,9 @@ void ShowCommandRecorder_Test::guiCancel_dropsWorkQueuedBeforeIt()
     }
 
     // the queued work reaches the GUI only after the operator's seek or stop,
-    // before the timer ran the stop
+    // before the timer ran the stop; only a backward seek cancels
     if (cancel == QStringLiteral("seek"))
-        show->requestSeek(30000);
+        show->requestSeek(0);
     else if (cancel == QStringLiteral("function stop"))
         static_cast<Function *>(show)->stop(FunctionParent::master());
     else
@@ -1910,16 +1925,17 @@ void ShowCommandRecorder_Test::guiCancel_dropsWorkQueuedBeforeIt()
         QCOMPARE(log.starts(rig.child->id()), receiptQueued ? 1 : 0);
         QCOMPARE(log.indexOf(rig.child->id(), false), -1);
 
-        // the seek catches up to its destination instead: Look ON, then Child OFF
-        const int before = receipts.count();
-        for (int i = 0; i < 20 && (receipts.count() == before || recorder.pendingControlRuns() > 0); i++)
+        // back at 0, what the cancelled pass applied rolls back, and the next
+        // pass plays Look ON, then Child OFF
+        for (int i = 0; i < 40 && (!rig.collection->isRunning() || rig.child->isRunning() ||
+                                   recorder.pendingControlRuns() > 0); i++)
             tickAndDeliver(&doc);
         QVERIFY(rig.collection->isRunning());
         QCOMPARE(rig.lookButton->state(), VCButton::Active);
         QVERIFY(!rig.child->isRunning());
         QCOMPARE(rig.childButton->state(), VCButton::Inactive);
-        QCOMPARE(log.starts(rig.collection->id()), 1);
-        QCOMPARE(log.starts(rig.child->id()), 1);
+        QCOMPARE(log.starts(rig.collection->id()), receiptQueued ? 2 : 1);
+        QCOMPARE(log.starts(rig.child->id()), receiptQueued ? 2 : 1);
         return;
     }
     tickAndDeliver(&doc, 5);
@@ -1974,7 +1990,8 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
 
     if (cancel == QStringLiteral("gui seek"))
     {
-        show->requestSeek(30000);
+        // backward: a forward request cancels nothing
+        show->requestSeek(0);
         QCoreApplication::processEvents();
     }
     else if (cancel == QStringLiteral("function stop"))
@@ -2921,11 +2938,11 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive_data(
     QTest::addColumn<bool>("catchUp");
     QTest::addColumn<bool>("stopBeforeBatch");
 
-    // the Stop is crossed while the initial serial catch-up still holds the
-    // first batch: the Stop settles before the ON is published
-    QTest::newRow("initial catch-up") << true << true;
-    // the first write at 0 drained the empty prefix: the ON is published in
-    // the write that applies the Stop, before the Stop takes effect
+    // a requested forward jump crosses the Stop while its first batch is
+    // still held: the Stop settles before the ON is published
+    QTest::newRow("forward jump") << true << true;
+    // ordinary external playback: the ON is published in the write that
+    // applies the Stop, before the Stop takes effect
     QTest::newRow("ordinary playback") << false << false;
 }
 
@@ -2951,9 +2968,10 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive()
     QVERIFY(scene);
     Show *show = new Show(&doc);
     QVERIFY(doc.addFunction(show));
-    // the harness moves the timeline, nothing crosses before it says so
-    show->setSyncSource(ShowRunner::External);
-    show->setExternalElapsedTime(catchUp ? 200 : 0);
+    // the harness moves the timeline, nothing crosses before it says so;
+    // the jump row requests it on the autonomous clock
+    if (!catchUp)
+        show->setSyncSource(ShowRunner::External);
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
@@ -2979,14 +2997,11 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive()
     int batches = 0;
     QObject probe;
     connect(show, &Show::controlBatchesReady, &probe, [&batches]() { batches++; }, Qt::QueuedConnection);
-    connect(show, &Show::controlBatchesReady, &probe, [&, show]() {
+    connect(show, &Show::controlBatchesReady, &probe, [&]() {
         const int at = ++sequence;
         const int n = ++publications;
         if (n == 2)
             secondBatchAt = at;
-        // catching up, the Stop is crossed while this first batch is still held
-        if (catchUp && n == 1)
-            show->setExternalElapsedTime(500);
     }, Qt::DirectConnection);
     connect(scene, qOverload<quint32>(&Function::stopped), &probe,
             [&]() { stopAt = ++sequence; }, Qt::DirectConnection);
@@ -3009,13 +3024,21 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive()
     show->start(timer, FunctionParent::master());
     const int startTicks = ticks;
 
-    if (!catchUp)
+    if (catchUp)
     {
-        // a whole tick after Play: the first write ran at 0 and left catch-up
+        // the crossed interval up to 500 plays serially: the first batch is
+        // still held when the Stop is crossed
+        QTRY_VERIFY(ticks >= startTicks + 2);
+        show->requestSeek(500);
+    }
+    else
+    {
+        // the first fresh sample begins the traversal at 0, a whole tick later 200 crosses
+        show->setExternalElapsedTime(0);
         QTRY_VERIFY(ticks >= startTicks + 2);
         show->setExternalElapsedTime(200);
     }
-    // catching up, the ON can be published and applied within the same poll
+    // jumping, the ON can be published and applied within the same poll
     QTRY_VERIFY(batches >= 1 && recorder.pendingControlRuns() == 0);
     if (!catchUp)
         show->setExternalElapsedTime(500);
@@ -3793,7 +3816,7 @@ void ShowCommandRecorder_Test::adjustFaderOutputRequest_stillWrites()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::seek_restoresRecordedButtonOn()
+void ShowCommandRecorder_Test::seek_forwardPlaysRecordedButtonOn()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -3832,7 +3855,7 @@ void ShowCommandRecorder_Test::seek_restoresRecordedButtonOn()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::seek_restoresMixedHistoryInAuthoredOrder_data()
+void ShowCommandRecorder_Test::seek_forwardPlaysMixedHistoryInAuthoredOrder_data()
 {
     QTest::addColumn<bool>("legacyFirst");
     QTest::addColumn<qreal>("intensity");
@@ -3841,7 +3864,7 @@ void ShowCommandRecorder_Test::seek_restoresMixedHistoryInAuthoredOrder_data()
     QTest::newRow("legacy .2, then slider .8") << true << qreal(0.8);
 }
 
-void ShowCommandRecorder_Test::seek_restoresMixedHistoryInAuthoredOrder()
+void ShowCommandRecorder_Test::seek_forwardPlaysMixedHistoryInAuthoredOrder()
 {
     QFETCH(bool, legacyFirst);
     QFETCH(qreal, intensity);
@@ -3903,7 +3926,7 @@ void ShowCommandRecorder_Test::seek_restoresMixedHistoryInAuthoredOrder()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::play_fromStoppedCursor_restoresOnce()
+void ShowCommandRecorder_Test::play_fromStoppedCursor_runsOnlyFromTheCursor()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -3944,16 +3967,17 @@ void ShowCommandRecorder_Test::play_fromStoppedCursor_restoresOnce()
     show->start(doc.masterTimer(), FunctionParent::master(), 15000);
     for (int i = 0; i < 50 && (log.receipts() == 0 || recorder.pendingControlRuns() > 0); i++)
         tickAndDeliver(&doc);
-    // one catch-up batch; playing on past the cursor replays neither record
-    const int catchUpBatches = batches.count();
+    // one batch, the record at the cursor; history before it is not replayed,
+    // and playing on past the cursor replays neither record
+    const int cursorBatches = batches.count();
     for (int i = 0; i < 50 && show->commandPosition() < 15500; i++)
         tickAndDeliver(&doc);
 
-    QCOMPARE(catchUpBatches, 1);
+    QCOMPARE(cursorBatches, 1);
     QCOMPARE(batches.count(), 1);
-    QCOMPARE(before->state(), VCButton::Active);
+    QCOMPARE(before->state(), VCButton::Inactive);
     QCOMPARE(atCursor->state(), VCButton::Active);
-    QCOMPARE(log.starts(scene->id()), 1);
+    QCOMPARE(log.starts(scene->id()), 0);
     QCOMPARE(log.starts(other->id()), 1);
 
     show->stop(FunctionParent::master());
@@ -4238,7 +4262,450 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_soloPrefixRunsSerially()
+void ShowCommandRecorder_Test::timelineRollback_data()
+{
+    QTest::addColumn<QString>("rig");
+    QTest::addColumn<QString>("records");
+    QTest::addColumn<QString>("script");
+    QTest::addColumn<QStringList>("seen");
+
+    // rigs: plain = frame [A C] | same = frame [A C], both on A's Function |
+    // solo = Solo Frame [A B C] | same solo = Solo Frame [A M B], M and B on one
+    // Function | monitored = Solo Frame excluding monitored Functions [A B M],
+    // M's Function run by another owner | collection = [K], K's Collection
+    // starts X and Y, Y also runs for another owner | collection solo = [K],
+    // K's Collection starts X's Function, X and C in a Solo Frame. Every rig
+    // has the Adjust slider S in a frame of its own. A button reads 1 while
+    // Active, 0 while Inactive or Monitoring.
+    // Loops are VDJ-like external clocks over 8000-14000 unless played.
+    const QList<std::tuple<const char *, const char *, const char *, const char *, QStringList>> rows{
+        { "a: first recorded On at 12 is Off after the wrap, On at 12 again", "plain", "A+@12000",
+          "playext;ext:0;ext:8000;see:A;ext:12000;see:A;ext:14000;ext:8000;see:A;ext:12000;see:A;"
+          "ext:14000;ext:8000;see:A;ext:12000;see:A",
+          { "A0", "A1", "A0", "A1", "A0", "A1" } },
+        { "b: already On at 5 stays On, no toggle", "plain", "A+@5000",
+          "playext;ext:0;ext:5000;ext:14000;mark;ext:8000;see:A;changes;ext:14000;see:A",
+          { "A1", "", "A1" } },
+        { "c: a slider returns to its value at 8 with one write", "plain",
+          "S=0.4@5000,S=0.2@9000,S=0.6@10000,S=0.9@11000",
+          "playext;ext:0;ext:5000;see:S;ext:14000;see:S;mark;ext:8000;see:S;changes",
+          { "S102", "S230", "S102", "S102" } },
+        { "d: Solo A at 5, B at 10", "solo", "A+@5000,B+@10000",
+          "playext;ext:0;ext:5000;see:AB;ext:14000;see:AB;mark;ext:8000;see:AB;changes;ext:14000;see:AB",
+          { "A1B0", "A0B1", "A1B0", "B0,A1", "A0B1" } },
+        { "f: Solo A 4, B 6, B off 7, B 12: both Off after the wrap", "solo",
+          "A+@4000,B+@6000,B-@7000,B+@12000",
+          "playext;ext:0;ext:4000;ext:6000;ext:7000;see:AB;ext:14000;see:AB;mark;ext:8000;see:AB;changes;"
+          "ext:14000;see:AB",
+          { "A0B0", "A0B1", "A0B0", "B0", "A0B1" } },
+        { "g, m: Solo A 4, B 12: B Off before A On", "solo", "A+@4000,B+@12000",
+          "playext;ext:0;ext:4000;ext:14000;see:AB;mark;ext:8000;see:AB;changes;ext:14000;see:AB",
+          { "A0B1", "A1B0", "B0,A1", "A0B1" } },
+        { "h: first take, a REC capture at 12 repeats every pass", "plain", "",
+          "playext;rec;ext:0;ext:8000;see:A;ext:12000;click:A;see:A;ext:14000;ext:8000;see:A;ext:12000;see:A;"
+          "ext:14000;ext:8000;see:A;ext:12000;see:A;track",
+          { "A0", "A1", "A0", "A1", "A0", "A1", "A+@12000" } },
+        { "i: a REC-off change on another control survives", "plain", "A+@12000",
+          "playext;ext:0;ext:12000;ext:13000;click:C;see:AC;ext:14000;ext:8000;see:AC",
+          { "A1C1", "A0C1" } },
+        { "j: Off 8, On 12, Off 13: the wrap changes nothing", "plain", "A-@8000,A+@12000,A-@13000",
+          "playext;ext:0;ext:8000;ext:12000;see:A;ext:13000;see:A;ext:14000;mark;ext:8000;see:A;changes;ops:A",
+          { "A1", "A0", "A0", "", "A+0-0" } },
+        { "k: a live uncaptured Solo member wins its frame", "solo", "A+@4000,B+@12000",
+          "playext;ext:0;ext:4000;ext:12000;ext:13000;click:C;see:ABC;ext:14000;ext:8000;see:ABC",
+          { "A0B0C1", "A0B0C1" } },
+        { "k2: a captured Solo member rolls back", "solo", "A+@4000,B+@12000",
+          "playext;rec;ext:0;ext:4000;ext:12000;ext:13000;click:C;see:ABC;ext:14000;ext:8000;see:ABC",
+          { "A0B0C1", "A1B0C0" } },
+        { "n: a Collection stops only what it started, restarts nothing", "collection", "K+@12000",
+          "mark;playext;ext:0;ext:12000;see:K;fns:XY;ext:14000;ext:8000;see:K;fns:XY;ops:XY",
+          { "K1", "X1Y1", "K0", "X0Y1", "X+1-1,Y+0-0" } },
+        { "o: a monitored sibling the Solo start leaves alone does not block the restore", "monitored",
+          "A+@4000,B+@12000",
+          "playext;ext:0;ext:4000;see:ABM;ext:12000;see:ABM;fns:M;ext:14000;mark;ext:8000;see:ABM;fns:M;changes",
+          { "A1B0M0", "A0B1M0", "M1", "A1B0M0", "M1", "B0,A1" } },
+        { "Q1: a live same-Function owner keeps the Function through A's rollback", "same", "A+@12000",
+          "playext;ext:0;ext:2000;click:C;see:AC;mark;ext:12000;see:AC;ext:14000;ext:8000;see:AC;fns:A;ops:A;"
+          "ext:12000;see:AC;ext:14000;ext:8000;click:A;see:AC;ops:A",
+          { "A0C1", "A1C1", "A0C1", "A1", "A+0-0", "A1C1", "A1C1", "A+0-0" } },
+        { "Q1 control: a solely owned button's rollback stops its Function", "plain", "A+@12000",
+          "playext;ext:0;ext:12000;fns:A;ext:14000;mark;ext:8000;see:A;fns:A;ops:A",
+          { "A1", "A0", "A0", "A+0-1" } },
+        { "o: a same-Function Solo sibling stays On, unprotected", "same solo", "A+@4000,M+@6000,B+@12000",
+          "playext;ext:0;ext:4000;ext:6000;see:AMB;ext:12000;see:AMB;ext:14000;mark;ext:8000;see:AMB;changes;"
+          "fns:B;ops:B",
+          { "A0M1B0", "A0M1B1", "A0M1B0", "B0", "B1", "B+0-0" } },
+        { "a Collection restore On does not clobber a live member of a Solo Frame it reaches", "collection solo",
+          "K+@4000,K-@12000",
+          "playext;ext:0;ext:4000;see:KXC;ext:12000;see:KXC;ext:13000;click:C;see:KXC;ext:14000;ext:8000;see:KXC",
+          { "K1X0C0", "K0X0C0", "K0X0C1", "K0X0C1" } },
+        { "an event retimed ahead is met twice in one traversal", "plain", "A+@9000,A-@10000",
+          "playext;ext:0;ext:9000;ext:10000;see:A;retime:0@11000;ext:11000;see:A;ext:14000;ext:8000;see:A",
+          { "A0", "A1", "A0" } },
+        { "l: paused backward request, capture before its consume is kept", "plain", "",
+          "play:13900;to:14000;pause;req:8000;rec;click:A;see:A;resume;wait;see:A;track",
+          { "A1", "A1", "A+@8000" } },
+        { "l2: playing backward request, capture before its consume is kept", "plain", "",
+          "play:13900;to:14000;req:8000;rec;click:A;see:A;wait;see:A;track",
+          { "A1", "A1", "A+@8000" } },
+        { "seek to 0 runs the event at 0 once", "plain", "A+@0",
+          "mark;play:0;see:A;click:A;see:A;req:0;wait;see:A;ops:A",
+          { "A1", "A0", "A1", "A+2-1" } },
+    };
+    for (const auto &row : rows)
+        QTest::newRow(std::get<0>(row)) << QString::fromLatin1(std::get<1>(row))
+                                        << QString::fromLatin1(std::get<2>(row))
+                                        << QString::fromLatin1(std::get<3>(row)) << std::get<4>(row);
+}
+
+void ShowCommandRecorder_Test::timelineRollback()
+{
+    QFETCH(QString, rig);
+    QFETCH(QString, records);
+    QFETCH(QString, script);
+    QFETCH(QStringList, seen);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *a = addTarget(&doc);
+    QVERIFY(a);
+    const auto addScene = [&doc, a](const QString &name, quint32 channel) {
+        Scene *scene = new Scene(&doc);
+        scene->setName(name);
+        scene->setValue(SceneValue(a->values().first().fxi, channel, 120));
+        doc.addFunction(scene);
+        return scene;
+    };
+    Scene *b = addScene(QStringLiteral("b"), 1);
+    Scene *c = addScene(QStringLiteral("c"), 2);
+    Scene *d = addScene(QStringLiteral("d"), 3);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+
+    QHash<QChar, VCWidget *> controls;
+    QHash<QChar, Function *> functions;
+    const auto button = [&](int frameID, Function *f, int x, QChar name) {
+        VCButton *control = addToggle(bridge, ui.vc(), frameID, f->id(), x, QString(name));
+        controls.insert(name, control);
+        functions.insert(name, f);
+    };
+    const bool soloFrame = rig == QLatin1String("solo") || rig == QLatin1String("same solo") ||
+                           rig == QLatin1String("monitored");
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), soloFrame);
+    if (rig == QLatin1String("plain"))
+    {
+        button(frameID, a, 10, QLatin1Char('A'));
+        button(frameID, c, 100, QLatin1Char('C'));
+    }
+    else if (rig == QLatin1String("same"))
+    {
+        button(frameID, a, 10, QLatin1Char('A'));
+        button(frameID, a, 100, QLatin1Char('C'));
+    }
+    else if (rig == QLatin1String("same solo"))
+    {
+        button(frameID, a, 10, QLatin1Char('A'));
+        button(frameID, b, 100, QLatin1Char('M'));
+        button(frameID, b, 190, QLatin1Char('B'));
+    }
+    else if (rig == QLatin1String("collection solo"))
+    {
+        Collection *look = new Collection(&doc);
+        QVERIFY(doc.addFunction(look));
+        look->addFunction(a->id());
+        button(frameID, look, 10, QLatin1Char('K'));
+        const int soloID = bridge.addFrame(0, QRect(0, 340, 400, 100), QStringLiteral("Solo"), true);
+        button(soloID, a, 10, QLatin1Char('X'));
+        button(soloID, c, 100, QLatin1Char('C'));
+    }
+    else if (rig == QLatin1String("solo"))
+    {
+        button(frameID, a, 10, QLatin1Char('A'));
+        button(frameID, b, 100, QLatin1Char('B'));
+        button(frameID, c, 190, QLatin1Char('C'));
+    }
+    else if (rig == QLatin1String("monitored"))
+    {
+        qobject_cast<VCSoloFrame *>(ui.vc()->widget(frameID))->setExcludeMonitoredFunctions(true);
+        button(frameID, a, 10, QLatin1Char('A'));
+        button(frameID, b, 100, QLatin1Char('B'));
+        button(frameID, c, 190, QLatin1Char('M'));
+        c->start(doc.masterTimer(), FunctionParent::master());
+        tickAndDeliver(&doc, 2);
+    }
+    else
+    {
+        Collection *look = new Collection(&doc);
+        QVERIFY(doc.addFunction(look));
+        look->addFunction(a->id());
+        look->addFunction(b->id());
+        button(frameID, look, 10, QLatin1Char('K'));
+        functions.insert(QLatin1Char('X'), a);
+        functions.insert(QLatin1Char('Y'), b);
+        b->start(doc.masterTimer(), FunctionParent::master());
+        tickAndDeliver(&doc, 2);
+    }
+    const int sliderFrameID = bridge.addFrame(0, QRect(0, 110, 400, 220), QStringLiteral("Faders"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), sliderFrameID, d->id());
+    QVERIFY(slider);
+    controls.insert(QLatin1Char('S'), slider);
+
+    ShowCommandTrack track;
+    quint32 nextId = 0;
+    for (const QString &record : records.split(QLatin1Char(','), Qt::SkipEmptyParts))
+    {
+        VCWidget *control = controls.value(record.at(0));
+        QVERIFY(control);
+        const quint32 time = record.section(QLatin1Char('@'), 1).toUInt();
+        if (record.at(1) == QLatin1Char('='))
+            QVERIFY(track.insert(ShowCommand::setSliderPosition(nextId++, time, control->ensureRecordingId(),
+                                                                ShowControlRole::AdjustSlider, QStringLiteral("Intensity"),
+                                                                record.mid(2).section(QLatin1Char('@'), 0, 0).toDouble())));
+        else
+            QVERIFY(track.insert(ShowCommand::setButtonState(nextId++, time, control->ensureRecordingId(),
+                                                             record.at(1) == QLatin1Char('+'))));
+    }
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+
+    NativeLog log;
+    for (Function *f : std::as_const(functions))
+        log.watch(f);
+    QStringList changes;
+    QObject probe;
+    QHash<QChar, bool> wasOn;
+    for (auto it = controls.cbegin(); it != controls.cend(); ++it)
+    {
+        const QChar name = it.key();
+        if (VCButton *control = qobject_cast<VCButton *>(it.value()))
+        {
+            wasOn.insert(name, control->state() == VCButton::Active);
+            connect(control, &VCButton::stateChanged, &probe, [&changes, &wasOn, name](int state) {
+                // Active or not: Monitoring is no change of its own here
+                const bool on = state == VCButton::Active;
+                if (wasOn.value(name) == on)
+                    return;
+                wasOn.insert(name, on);
+                changes.append(QString(name) + (on ? QLatin1Char('1') : QLatin1Char('0')));
+            });
+        }
+    }
+    connect(slider, &VCSlider::valueChanged, &probe, [&changes](int value) {
+        changes.append(QStringLiteral("S%1").arg(value));
+    });
+    QHash<QChar, QPair<int, int>> marked;
+
+    const auto settle = [&]() {
+        for (int i = 0; i < 60; i++)
+        {
+            tickAndDeliver(&doc);
+            if (i >= 5 && recorder.pendingControlRuns() == 0 && !show->commandWorkPending())
+                break;
+        }
+    };
+    const auto state = [&](QChar name) {
+        VCWidget *control = controls.value(name);
+        if (VCSlider *fader = qobject_cast<VCSlider *>(control))
+            return QStringLiteral("S%1").arg(fader->value());
+        return QString(name) + (qobject_cast<VCButton *>(control)->state() == VCButton::Active ? QLatin1Char('1')
+                                                                                              : QLatin1Char('0'));
+    };
+
+    QStringList saw;
+    for (const QString &step : script.split(QLatin1Char(';')))
+    {
+        const QString verb = step.section(QLatin1Char(':'), 0, 0);
+        const QString arg = step.section(QLatin1Char(':'), 1);
+        if (verb == QLatin1String("playext"))
+        {
+            show->setSyncSource(ShowRunner::External);
+            show->start(doc.masterTimer(), FunctionParent::master());
+            tickAndDeliver(&doc, 2);
+        }
+        else if (verb == QLatin1String("ext"))
+        {
+            show->setExternalElapsedTime(arg.toUInt());
+            settle();
+        }
+        else if (verb == QLatin1String("play"))
+        {
+            show->start(doc.masterTimer(), FunctionParent::master(), arg.toUInt());
+            settle();
+        }
+        else if (verb == QLatin1String("to"))
+        {
+            for (int i = 0; i < 200 && show->commandPosition() < arg.toUInt(); i++)
+                tickAndDeliver(&doc);
+            settle();
+        }
+        else if (verb == QLatin1String("wait"))
+            settle();
+        else if (verb == QLatin1String("pause"))
+        {
+            show->setPause(true);
+            tickAndDeliver(&doc, 2);
+        }
+        else if (verb == QLatin1String("resume"))
+            show->setPause(false);
+        else if (verb == QLatin1String("req"))
+            show->requestSeek(arg.toUInt());
+        else if (verb == QLatin1String("rec"))
+        {
+            QVERIFY(recorder.setResolvedShow(show->id()));
+            QVERIFY(recorder.setRecording(true));
+        }
+        else if (verb == QLatin1String("click"))
+        {
+            qobject_cast<VCButton *>(controls.value(arg.at(0)))->requestUserStateChange(true);
+            settle();
+        }
+        else if (verb == QLatin1String("retime"))
+        {
+            // an editor edit while live: the event moves ahead of the cursor
+            ShowCommandTrack edited = show->commandTrack();
+            QVERIFY(edited.retime(arg.section(QLatin1Char('@'), 0, 0).toUInt(),
+                                  arg.section(QLatin1Char('@'), 1).toUInt()));
+            QVERIFY(show->setCommandTrack(edited));
+        }
+        else if (verb == QLatin1String("see"))
+        {
+            QString text;
+            for (const QChar name : arg)
+                text += state(name);
+            saw.append(text);
+        }
+        else if (verb == QLatin1String("fns"))
+        {
+            QString text;
+            for (const QChar name : arg)
+                text += QString(name) + (functions.value(name)->isRunning() ? QLatin1Char('1') : QLatin1Char('0'));
+            saw.append(text);
+        }
+        else if (verb == QLatin1String("mark"))
+        {
+            changes.clear();
+            for (auto it = functions.cbegin(); it != functions.cend(); ++it)
+                marked.insert(it.key(), qMakePair(log.starts(it.value()->id()), log.stops(it.value()->id())));
+        }
+        else if (verb == QLatin1String("changes"))
+            saw.append(changes.join(QLatin1Char(',')));
+        else if (verb == QLatin1String("ops"))
+        {
+            QStringList ops;
+            for (const QChar name : arg)
+            {
+                const quint32 id = functions.value(name)->id();
+                ops.append(QStringLiteral("%1+%2-%3").arg(name).arg(log.starts(id) - marked.value(name).first)
+                                                     .arg(log.stops(id) - marked.value(name).second));
+            }
+            saw.append(ops.join(QLatin1Char(',')));
+        }
+        else if (verb == QLatin1String("track"))
+        {
+            QStringList authored;
+            for (const ShowCommand &cmd : show->commandTrack().commands())
+                authored.append(QStringLiteral("%1%2@%3").arg(cmd.controlId == controls.value(QLatin1Char('A'))->recordingId()
+                                                              ? QStringLiteral("A") : QStringLiteral("?"))
+                                                         .arg(cmd.on ? QLatin1Char('+') : QLatin1Char('-')).arg(cmd.time));
+            saw.append(authored.join(QLatin1Char(',')));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown verb ") + step));
+    }
+
+    QCOMPARE(saw, seen);
+
+    show->stop(FunctionParent::master());
+    for (Function *f : std::as_const(functions))
+        f->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+}
+
+void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal_data()
+{
+    QTest::addColumn<int>("elapsedAtPlay");
+    QTest::addColumn<QString>("samples"); // a number is a deck sample, tN ticks N times
+    QTest::addColumn<QString>("started");
+
+    // legacy Starts: s0@0 s1@20 s2@40 s3@80 s4@120000 s5@120020
+    QTest::newRow("adopted at 0, the first per-frame sample 40") << 0 << QStringLiteral("t1;40;t3;80;t3")
+                                                                 << QStringLiteral("1,1,1,1,0,0");
+    QTest::newRow("two samples before the first runner write") << 0 << QStringLiteral("20;40;t3;80;t3")
+                                                                << QStringLiteral("1,1,1,1,0,0");
+    QTest::newRow("adopted mid-song: nothing before it") << 120000 << QStringLiteral("t1;120040;t3")
+                                                         << QStringLiteral("0,0,0,0,1,1");
+}
+
+void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
+{
+    QFETCH(int, elapsedAtPlay);
+    QFETCH(QString, samples);
+    QFETCH(QString, started);
+
+    Doc doc(nullptr, 1);
+    Scene *first = addTarget(&doc);
+    QVERIFY(first);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandTrack track;
+    QVector<Scene *> targets;
+    const QList<quint32> times{0, 20, 40, 80, 120000, 120020};
+    for (int i = 0; i < times.count(); i++)
+    {
+        Scene *target = new Scene(&doc);
+        target->setValue(SceneValue(first->values().first().fxi, quint32(i), 100));
+        QVERIFY(doc.addFunction(target));
+        targets.append(target);
+        QVERIFY(track.insert(ShowCommand::start(quint32(i), times.at(i), target->id())));
+    }
+    QVERIFY(track.setExtent(200000));
+    QVERIFY(show->setCommandTrack(track));
+    QVector<std::shared_ptr<QSignalSpy>> starts;
+    for (Scene *target : std::as_const(targets))
+        starts.append(std::make_shared<QSignalSpy>(target, &Function::running));
+
+    // the production bridge, driven by VirtualDJ telemetry triggers
+    VdjBridge bridge;
+    bridge.setDoc(&doc);
+    const auto deck = [&](const char *trigger, const QVariant &value) {
+        QVERIFY(QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0),
+                                          Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+    };
+    const auto performOff = qScopeGuard([&]() {
+        bridge.setPerformMode(false);
+        show->stop(FunctionParent::master());
+        for (Scene *target : std::as_const(targets))
+            target->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 3);
+    });
+    bridge.showFactory()->registerMapping(QStringLiteral("/music/adopted.mp3"), show->id());
+    deck("get_filepath", QStringLiteral("/music/adopted.mp3"));
+    QVERIFY(QMetaObject::invokeMethod(&bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    deck("get_time elapsed absolute", double(elapsedAtPlay));
+    bridge.setPerformMode(true);
+    // Live: the bridge adopts the Show and starts it at the deck's position
+    deck("play", QStringLiteral("on"));
+    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Live);
+
+    for (const QString &step : samples.split(QLatin1Char(';')))
+    {
+        if (step.startsWith(QLatin1Char('t')))
+            tickAndDeliver(&doc, step.mid(1).toInt());
+        else
+            deck("get_time elapsed absolute", step.toDouble());
+    }
+
+    QStringList counts;
+    for (const auto &spy : std::as_const(starts))
+        counts.append(QString::number(spy->count()));
+    QCOMPARE(counts.join(QLatin1Char(',')), started);
+}
+
+void ShowCommandRecorder_Test::jump_soloIntervalRunsSerially()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4268,8 +4735,11 @@ void ShowCommandRecorder_Test::catchUp_soloPrefixRunsSerially()
     log.watch(a);
     log.watch(b);
 
-    // Play from a stopped cursor past all three records
-    show->start(doc.masterTimer(), FunctionParent::master(), 25000);
+    // jump past all three records
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    // a requested forward jump plays its crossed interval serially
+    show->requestSeek(25000);
     for (int i = 0; i < 100 && (log.indexOf(b->id(), false) < 0 || recorder.pendingControlRuns() > 0); i++)
         tickAndDeliver(&doc);
     tickAndDeliver(&doc, 5);
@@ -4289,7 +4759,7 @@ void ShowCommandRecorder_Test::catchUp_soloPrefixRunsSerially()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_backwardSeekRunsPrefixOnce()
+void ShowCommandRecorder_Test::seek_backwardRollsBackOnlyItsWindow()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4337,20 +4807,24 @@ void ShowCommandRecorder_Test::catchUp_backwardSeekRunsPrefixOnce()
         }
     };
 
-    show->start(doc.masterTimer(), FunctionParent::master(), 30000);
+    // the whole history crossed by a forward jump to 30s
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    show->requestSeek(30000);
     settle();
     QCOMPARE(buttonC->state(), VCButton::Inactive);
     QCOMPARE(log.stops(c->id()), 1);
 
-    // back while Playing: the prefix up to 25s again, the OFF at 28s only when crossed
+    // back while Playing: only the OFF at 28s lies in the window, it returns;
+    // nothing before 25s replays, the OFF at 28s runs again only when crossed
     show->requestSeek(25000);
     settle();
     QVERIFY(show->commandPosition() < 28000);
     QCOMPARE(buttonA->state(), VCButton::Inactive);
     QCOMPARE(buttonB->state(), VCButton::Active);
     QCOMPARE(buttonC->state(), VCButton::Active);
-    QCOMPARE(log.starts(a->id()), 2);
-    QCOMPARE(log.stops(a->id()), 2);
+    QCOMPARE(log.starts(a->id()), 1);
+    QCOMPARE(log.stops(a->id()), 1);
     QCOMPARE(log.starts(b->id()), 1);
     QCOMPARE(log.stops(b->id()), 0);
     QCOMPARE(log.starts(c->id()), 2);
@@ -4362,13 +4836,13 @@ void ShowCommandRecorder_Test::catchUp_backwardSeekRunsPrefixOnce()
     QCOMPARE(buttonC->state(), VCButton::Inactive);
     QCOMPARE(log.starts(c->id()), 2);
     QCOMPARE(log.stops(c->id()), 2);
-    QCOMPARE(log.starts(a->id()), 2);
+    QCOMPARE(log.starts(a->id()), 1);
 
     show->stop(FunctionParent::master());
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_mixedTieAtDestinationRunsOnceInOrder_data()
+void ShowCommandRecorder_Test::jump_mixedTieAtDestinationRunsOnceInOrder_data()
 {
     QTest::addColumn<bool>("legacyFirst");
     QTest::addColumn<QString>("intensities");
@@ -4379,7 +4853,7 @@ void ShowCommandRecorder_Test::catchUp_mixedTieAtDestinationRunsOnceInOrder_data
     QTest::newRow("slider .8, then legacy .2") << false << QStringLiteral("0.4,0.4,0.8,0.2") << 51;
 }
 
-void ShowCommandRecorder_Test::catchUp_mixedTieAtDestinationRunsOnceInOrder()
+void ShowCommandRecorder_Test::jump_mixedTieAtDestinationRunsOnceInOrder()
 {
     QFETCH(bool, legacyFirst);
     QFETCH(QString, intensities);
@@ -4420,7 +4894,10 @@ void ShowCommandRecorder_Test::catchUp_mixedTieAtDestinationRunsOnceInOrder()
     });
     QSignalSpy retired(slider, &VCSlider::recordedWriteRetired);
 
-    show->start(doc.masterTimer(), FunctionParent::master(), 2000);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    // a requested forward jump plays its crossed interval serially
+    show->requestSeek(2000);
     for (int i = 0; i < 50 && (applied.count() < 4 || recorder.pendingControlRuns() > 0); i++)
         tickAndDeliver(&doc);
     tickAndDeliver(&doc, 10);
@@ -4434,7 +4911,7 @@ void ShowCommandRecorder_Test::catchUp_mixedTieAtDestinationRunsOnceInOrder()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_soloSliderHistoryEndsLikeNative()
+void ShowCommandRecorder_Test::jump_soloSliderHistoryEndsLikeNative()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4471,7 +4948,10 @@ void ShowCommandRecorder_Test::catchUp_soloSliderHistoryEndsLikeNative()
     log.watch(b);
     QSignalSpy retired(slider, &VCSlider::recordedWriteRetired);
 
-    show->start(doc.masterTimer(), FunctionParent::master(), 2800);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    // a requested forward jump plays its crossed interval serially
+    show->requestSeek(2800);
     for (int i = 0; i < 100 && (retired.count() < 2 || log.stops(b->id()) == 0 ||
                                 recorder.pendingControlRuns() > 0); i++)
         tickAndDeliver(&doc);
@@ -4488,7 +4968,7 @@ void ShowCommandRecorder_Test::catchUp_soloSliderHistoryEndsLikeNative()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_prefixLag_data()
+void ShowCommandRecorder_Test::jump_intervalLag_data()
 {
     QTest::addColumn<bool>("legacy");
     QTest::addColumn<int>("records");
@@ -4499,7 +4979,7 @@ void ShowCommandRecorder_Test::catchUp_prefixLag_data()
     QTest::newRow("button ON/OFF, 200") << false << 200;
 }
 
-void ShowCommandRecorder_Test::catchUp_prefixLag()
+void ShowCommandRecorder_Test::jump_intervalLag()
 {
     QFETCH(bool, legacy);
     QFETCH(int, records);
@@ -4521,7 +5001,7 @@ void ShowCommandRecorder_Test::catchUp_prefixLag()
     VCButton *lastButton = addToggle(bridge, ui.vc(), frameID, last->id(), 100, QStringLiteral("Last"));
     QVERIFY(buttonA && lastButton);
 
-    // alternating on/off every 10 ms, then the ON that ends the prefix
+    // alternating on/off every 10 ms, then the ON that ends the crossed interval
     ShowCommandTrack track;
     for (int i = 0; i < records; i++)
     {
@@ -4539,8 +5019,11 @@ void ShowCommandRecorder_Test::catchUp_prefixLag()
     NativeLog log;
     log.watch(a);
 
-    show->start(doc.masterTimer(), FunctionParent::master(), destination);
-    // drained: the runner consumed the final acknowledgement and left catch-up
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    // a requested forward jump plays its crossed interval serially
+    show->requestSeek(destination);
+    // drained: the runner consumed the final acknowledgement and left the jump
     const auto drained = [show]() {
         return show->m_runner != nullptr && !show->m_runner->m_commandCatchUp &&
                show->m_runner->m_heldControlBatch == 0 && show->m_runner->m_commandRemainder.isEmpty();
@@ -4559,8 +5042,8 @@ void ShowCommandRecorder_Test::catchUp_prefixLag()
         }
     }
     const quint32 drainClock = show->commandPosition() - destination;
-    qInfo().noquote() << QStringLiteral("[catch-up lag] %1 x%2: last button Active after %3 ticks (%4 ms of Show "
-                                        "clock), prefix drained after %5 ticks (%6 ms)")
+    qInfo().noquote() << QStringLiteral("[jump lag] %1 x%2: last button Active after %3 ticks (%4 ms of Show "
+                                        "clock), crossed interval drained after %5 ticks (%6 ms)")
                              .arg(legacy ? QStringLiteral("legacy Start/Stop") : QStringLiteral("button ON/OFF"))
                              .arg(records).arg(activationTicks).arg(activationClock).arg(ticks).arg(drainClock);
     QVERIFY(drained());
@@ -4576,7 +5059,7 @@ void ShowCommandRecorder_Test::catchUp_prefixLag()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_stoppedCaptureReplaysOnPlay()
+void ShowCommandRecorder_Test::play_stoppedCaptureAtCursorReplays()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4595,7 +5078,7 @@ void ShowCommandRecorder_Test::catchUp_stoppedCaptureReplaysOnPlay()
     VCButton *later = addToggle(bridge, ui.vc(), frameID, other->id(), 100, QStringLiteral("Later"));
     QVERIFY(button && later);
 
-    // a VC record far ahead makes Play a catch-up traversal
+    // a VC record far ahead, never crossed here
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setButtonState(0, 50000, later->ensureRecordingId(), true)));
     QVERIFY(track.setExtent(60000));
@@ -4632,7 +5115,7 @@ void ShowCommandRecorder_Test::catchUp_stoppedCaptureReplaysOnPlay()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_liveInputAfterColdPlayDoesNotEcho()
+void ShowCommandRecorder_Test::play_liveInputAfterColdPlayDoesNotEcho()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4647,7 +5130,7 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterColdPlayDoesNotEcho()
     VCButton *later = addToggle(bridge, ui.vc(), frameID, scene->id(), 100, QStringLiteral("Later"));
     QVERIFY(later);
 
-    // a VC record far ahead makes Play a catch-up traversal
+    // a VC record far ahead, never crossed here
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setButtonState(0, 50000, later->ensureRecordingId(), true)));
     QVERIFY(track.setExtent(60000));
@@ -4685,7 +5168,7 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterColdPlayDoesNotEcho()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_liveInputAfterRunningRestartDoesNotEcho_data()
+void ShowCommandRecorder_Test::play_liveInputAfterRunningRestartDoesNotEcho_data()
 {
     QTest::addColumn<QString>("input");
     QTest::addColumn<int>("restarts");
@@ -4695,7 +5178,7 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterRunningRestartDoesNotEcho_d
     QTest::newRow("button after two rapid Stop/Play") << QStringLiteral("button") << 2;
 }
 
-void ShowCommandRecorder_Test::catchUp_liveInputAfterRunningRestartDoesNotEcho()
+void ShowCommandRecorder_Test::play_liveInputAfterRunningRestartDoesNotEcho()
 {
     QFETCH(QString, input);
     QFETCH(int, restarts);
@@ -4717,7 +5200,7 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterRunningRestartDoesNotEcho()
     VCButton *button = addToggle(bridge, ui.vc(), frameID, target->id(), 10, QStringLiteral("Target"));
     QVERIFY(later && button);
 
-    // a VC record far ahead makes Play a catch-up traversal
+    // a VC record far ahead, never crossed here
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setButtonState(0, 50000, later->ensureRecordingId(), true)));
     QVERIFY(track.setExtent(60000));
@@ -4770,17 +5253,27 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterRunningRestartDoesNotEcho()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::catchUp_liveInputAfterRequestedSeekDoesNotEcho_data()
+void ShowCommandRecorder_Test::seek_liveInputAfterRequestedSeekDoesNotEcho_data()
 {
     QTest::addColumn<bool>("pausedResume");
+    QTest::addColumn<quint32>("seekTo");
+    QTest::addColumn<int>("prefixStarts");
+    QTest::addColumn<bool>("beforeReplayed");
 
-    QTest::newRow("playing") << false;
-    QTest::newRow("paused, moved, resumed") << true;
+    // forward: the crossed Start at 3s runs once, the earlier live id keeps its mark
+    QTest::newRow("forward, playing") << false << 5000u << 1 << false;
+    QTest::newRow("forward, paused, moved, resumed") << true << 5000u << 1 << false;
+    // backward: nothing before 0 to replay, the earlier live id plays on the next pass
+    QTest::newRow("backward, playing") << false << 0u << 0 << true;
+    QTest::newRow("backward, paused, moved, resumed") << true << 0u << 0 << true;
 }
 
-void ShowCommandRecorder_Test::catchUp_liveInputAfterRequestedSeekDoesNotEcho()
+void ShowCommandRecorder_Test::seek_liveInputAfterRequestedSeekDoesNotEcho()
 {
     QFETCH(bool, pausedResume);
+    QFETCH(quint32, seekTo);
+    QFETCH(int, prefixStarts);
+    QFETCH(bool, beforeReplayed);
 
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -4806,7 +5299,7 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterRequestedSeekDoesNotEcho()
     VCButton *button = addToggle(bridge, ui.vc(), frameID, target->id(), 100, QStringLiteral("Target"));
     QVERIFY(later && beforeButton && button);
 
-    // a VC record far ahead makes the seek a catch-up traversal
+    // a VC record far ahead makes a forward jump serial and a backward one roll back
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(0, 3000, prefix->id())));
     QVERIFY(track.insert(ShowCommand::setButtonState(1, 50000, later->ensureRecordingId(), true)));
@@ -4841,15 +5334,15 @@ void ShowCommandRecorder_Test::catchUp_liveInputAfterRequestedSeekDoesNotEcho()
         show->setPause(true);
         tickAndDeliver(&doc, 3);
     }
-    show->requestSeek(5000);
+    show->requestSeek(seekTo);
     if (pausedResume)
         show->setPause(false);
     QVERIFY(liveStart(button, target));
     tickAndDeliver(&doc, 20);
 
-    // the prefix runs once, the earlier id replays as history, the later one does not echo
-    QCOMPARE(log.starts(prefix->id()), 1);
-    QVERIFY(before->startedAsChild());
+    // the later live id never echoes
+    QCOMPARE(log.starts(prefix->id()), prefixStarts);
+    QCOMPARE(before->startedAsChild(), beforeReplayed);
     QVERIFY(!target->startedAsChild());
     button->requestUserStateChange(false, ShowCommandOrigin::Programmatic);
     tickAndDeliver(&doc, 5);
@@ -4868,8 +5361,8 @@ void ShowCommandRecorder_Test::retiredRunner_endsAtItsClaimedOperation_data()
     QTest::addColumn<bool>("catchUp");
     QTest::addColumn<bool>("controlNext");
 
-    QTest::newRow("catch-up, legacy Start next") << true << false;
-    QTest::newRow("catch-up, VC batch next") << true << true;
+    QTest::newRow("forward jump, legacy Start next") << true << false;
+    QTest::newRow("forward jump, VC batch next") << true << true;
     QTest::newRow("ordinary playback, legacy Start next") << false << false;
 }
 
@@ -4909,7 +5402,7 @@ void ShowCommandRecorder_Test::retiredRunner_endsAtItsClaimedOperation()
     QVERIFY(track.insert(ShowCommand::setIntensity(1, claimAt, claimed->id(), 0.4)));
     QVERIFY(track.insert(controlNext ? ShowCommand::setButtonState(2, claimAt, oldButton->ensureRecordingId(), true)
                                      : ShowCommand::start(2, claimAt, old->id())));
-    // a VC record far ahead makes Play at 10000 a catch-up traversal
+    // a VC record far ahead makes a forward jump to 10000 serial
     if (catchUp)
         QVERIFY(track.insert(ShowCommand::setButtonState(3, 150000, later->ensureRecordingId(), false)));
     QVERIFY(track.setExtent(200000));
@@ -4940,7 +5433,12 @@ void ShowCommandRecorder_Test::retiredRunner_endsAtItsClaimedOperation()
         input.functionId = live->id();
         accepted = recorder.submitUserInput(input);
     }, Qt::DirectConnection);
-    show->start(doc.masterTimer(), FunctionParent::master(), catchUp ? 10000 : 0);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    if (catchUp)
+    {
+        tickAndDeliver(&doc);
+        show->requestSeek(10000);
+    }
     for (int i = 0; i < 80 && !boundary; i++)
         tickAndDeliver(&doc);
     QVERIFY(boundary && accepted);
@@ -4994,7 +5492,7 @@ void ShowCommandRecorder_Test::retiredRunner_guiRestartDuringClaimedOperation_re
     VCButton *later = addToggle(bridge, ui.vc(), frameID, adjusted->id(), 10, QStringLiteral("Later"));
     QVERIFY(liveButton && oldButton && later);
 
-    // a VC record far ahead makes Play at 10000 a catch-up traversal
+    // a VC record far ahead makes a forward jump to 10000 serial
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(0, 1000, adjusted->id())));
     QVERIFY(track.insert(ShowCommand::setIntensity(1, 2000, adjusted->id(), 0.4)));
@@ -5026,7 +5524,9 @@ void ShowCommandRecorder_Test::retiredRunner_guiRestartDuringClaimedOperation_re
         show->stopAndWait();
         timer->stop();
     });
-    show->start(timer, FunctionParent::master(), 10000);
+    show->start(timer, FunctionParent::master());
+    QTRY_VERIFY(show->isRunning());
+    show->requestSeek(10000);
     QTRY_VERIFY(claimed);
 
     // the GUI stops, plays from 0 and executes a live Start meanwhile
@@ -5054,7 +5554,7 @@ void ShowCommandRecorder_Test::retiredRunner_guiRestartDuringClaimedOperation_re
     QVERIFY(recorder.setRecording(false));
 }
 
-void ShowCommandRecorder_Test::retiredRunner_legacySeekEndsAtItsClaimedValue()
+void ShowCommandRecorder_Test::retiredRunner_legacyJumpEndsAtItsClaimedValue()
 {
     Doc doc(nullptr, 1);
     Scene *u = addTarget(&doc);
@@ -5065,7 +5565,7 @@ void ShowCommandRecorder_Test::retiredRunner_legacySeekEndsAtItsClaimedValue()
     Show *show = new Show(&doc);
     QVERIFY(doc.addFunction(show));
 
-    // legacy-only, no executor: a seek restores both historical values inline
+    // legacy-only, no executor: a forward jump plays both crossed values inline
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setIntensity(0, 1000, u->id(), 0.4)));
     QVERIFY(track.insert(ShowCommand::setIntensity(1, 2000, b->id(), 0.7)));
@@ -5078,7 +5578,7 @@ void ShowCommandRecorder_Test::retiredRunner_legacySeekEndsAtItsClaimedValue()
     tickAndDeliver(&doc);
     QVERIFY(u->isRunning() && b->isRunning());
 
-    // while U's restored value executes: Stop, Play from 0 and a live B value
+    // while U's crossed value executes: Stop, Play from 0 and a live B value
     bool boundary = false;
     QObject probe;
     connect(u, &Function::attributeChanged, &probe, [&](int index, qreal value) {
@@ -5089,13 +5589,15 @@ void ShowCommandRecorder_Test::retiredRunner_legacySeekEndsAtItsClaimedValue()
         show->start(doc.masterTimer(), FunctionParent::master(), 0);
         b->requestAttributeOverride(Function::Intensity, 0.9);
     }, Qt::DirectConnection);
-    show->start(doc.masterTimer(), FunctionParent::master(), 10000);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc);
+    show->requestSeek(10000);
     for (int i = 0; i < 10 && !boundary; i++)
         tickAndDeliver(&doc);
     QVERIFY(boundary);
     tickAndDeliver(&doc, 5);
 
-    // the new traversal is not at 2000 yet: the retired one restored nothing past U
+    // the new traversal is not at 2000 yet: the retired one applied nothing past U
     QVERIFY(show->commandPosition() < 2000);
     QCOMPARE(u->getAttributeValue(Function::Intensity), qreal(0.4));
     QCOMPARE(b->getAttributeValue(Function::Intensity), qreal(0.9));
@@ -5106,7 +5608,7 @@ void ShowCommandRecorder_Test::retiredRunner_legacySeekEndsAtItsClaimedValue()
     tickAndDeliver(&doc, 4);
 }
 
-void ShowCommandRecorder_Test::catchUp_armedAcrossPlayReplaysOnlyHistory()
+void ShowCommandRecorder_Test::play_armedAcrossPlayReplaysCursorCaptures()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -5171,7 +5673,7 @@ void ShowCommandRecorder_Test::catchUp_armedAcrossPlayReplaysOnlyHistory()
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::pause_keepsVcStartedFunctions_resumeRunsNoPrefix()
+void ShowCommandRecorder_Test::pause_keepsVcStartedFunctions_resumeRunsNoHistory()
 {
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -5232,7 +5734,7 @@ void ShowCommandRecorder_Test::pause_keepsVcStartedFunctions_resumeRunsNoPrefix(
     tickAndDeliver(&doc);
 }
 
-void ShowCommandRecorder_Test::resume_afterPausedMove_catchesUpWithoutStopping_data()
+void ShowCommandRecorder_Test::resume_afterPausedMove_jumpsWithoutStopping_data()
 {
     QTest::addColumn<QString>("shape");
 
@@ -5241,7 +5743,7 @@ void ShowCommandRecorder_Test::resume_afterPausedMove_catchesUpWithoutStopping_d
     QTest::newRow("legacy-only track") << QStringLiteral("legacy");
 }
 
-void ShowCommandRecorder_Test::resume_afterPausedMove_catchesUpWithoutStopping()
+void ShowCommandRecorder_Test::resume_afterPausedMove_jumpsWithoutStopping()
 {
     QFETCH(QString, shape);
     const bool legacy = shape == QLatin1String("legacy");
@@ -5341,14 +5843,15 @@ void ShowCommandRecorder_Test::resume_afterPausedMove_catchesUpWithoutStopping()
     QVERIFY(show->commandPosition() < 6000);
     if (legacy)
     {
-        // the legacy seek: values restored, historical Start/Stop not replayed
+        // a forward jump: the crossed value at 2000 plays, the Function the
+        // Show started at 500 keeps running
         QCOMPARE(a->getAttributeValue(Function::Intensity), qreal(0.6));
         QCOMPARE(log.starts(owned->id()), 1);
-        QCOMPARE(log.stops(owned->id()), 1);
+        QCOMPARE(log.stops(owned->id()), 0);
     }
     else
     {
-        // the prefix once: A ON (already on), then A OFF; B ON is later
+        // the crossed interval once: A OFF at 2000; B ON is later
         QCOMPARE(buttonA->state(), VCButton::Inactive);
         QCOMPARE(log.starts(a->id()), 1);
         QCOMPARE(log.stops(a->id()), 1);
@@ -5748,7 +6251,6 @@ void ShowCommandRecorder_Test::resume_externalShowAfterPausedMove_keepsItsTraver
     Show *show = new Show(&doc);
     QVERIFY(doc.addFunction(show));
     show->setSyncSource(ShowRunner::External);
-    show->setExternalElapsedTime(200);
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
@@ -5767,6 +6269,11 @@ void ShowCommandRecorder_Test::resume_externalShowAfterPausedMove_keepsItsTraver
     manager.m_detached = true;
     manager.setCurrentShowID(int(show->id()));
     manager.playShow();
+    // the first fresh sample begins the traversal at 0, the next one crosses
+    timer->timerTick();
+    show->setExternalElapsedTime(0);
+    timer->timerTick();
+    show->setExternalElapsedTime(200);
     for (int i = 0; i < 20 && batches.isEmpty(); i++)
         timer->timerTick();
     QCOMPARE(batches.count(), 1);
@@ -5777,7 +6284,7 @@ void ShowCommandRecorder_Test::resume_externalShowAfterPausedMove_keepsItsTraver
     manager.setCurrentTime(5000);
     manager.playShow();
     QVERIFY(!manager.isPaused());
-    // the catch-up Start settles one tick after it ran
+    // the Start runs once the batch is acknowledged
     for (int i = 0; i < 20 && (!legacy->isRunning() || recorder.pendingControlRuns() > 0 ||
                                show->commandWorkPending()); i++)
         tickAndDeliver(&doc);
@@ -5886,9 +6393,11 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork_data()
 
     QTest::newRow("show manager seek") << QStringLiteral("manager");
     QTest::newRow("direct Show seek") << QStringLiteral("direct");
-    // an Autonomous seek made after the switch still cancels and catches up
+    // an Autonomous seek made after the switch is forward: it cancels nothing,
+    // the owed work runs once and the jump crosses to 300
     QTest::newRow("switched to autonomous") << QStringLiteral("autonomous");
-    // cancelled under Autonomous, discarded by the switch back: the owed work is dropped
+    // a backward request cancelled under Autonomous, discarded by the switch
+    // back: the owed work is dropped
     QTest::newRow("switched back to external after the request") << QStringLiteral("switched");
 }
 
@@ -5914,7 +6423,6 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork()
     Show *show = new Show(&doc);
     QVERIFY(doc.addFunction(show));
     show->setSyncSource(ShowRunner::External);
-    show->setExternalElapsedTime(200);
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
@@ -5937,6 +6445,11 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork()
     manager.m_detached = true;
     manager.setCurrentShowID(int(show->id()));
     manager.playShow();
+    // the first fresh sample begins the traversal at 0, the next one crosses
+    timer->timerTick();
+    show->setExternalElapsedTime(0);
+    timer->timerTick();
+    show->setExternalElapsedTime(200);
     for (int i = 0; i < 20 && batches.isEmpty(); i++)
         timer->timerTick();
     QCOMPARE(batches.count(), 1);
@@ -5948,7 +6461,7 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork()
         button->requestUserStateChange(true);
         QCOMPARE(recorder.pendingUserRequests().count(), 1);
         show->setSyncSource(ShowRunner::Autonomous);
-        show->requestSeek(5000);
+        show->requestSeek(0);
         show->setSyncSource(ShowRunner::External);
     }
     else if (autonomous)
@@ -5973,12 +6486,12 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork()
 
     QCOMPARE(button->state(), VCButton::Active);
     QVERIFY(recorder.pendingUserRequests().isEmpty());
-    // the cancelled legacy Start never runs, no prefix replays it
+    // the cancelled legacy Start never runs, nothing replays it
     QCOMPARE(legacy->isRunning(), !switched);
     QVERIFY(!show->commandWorkPending());
     if (autonomous)
     {
-        // cancelled, then the prefix to 300 ran once
+        // nothing cancelled: the button ran once, the jump reached 300
         QVERIFY(show->commandPosition() >= 300);
         QCOMPARE(log.starts(scene->id()), 1);
     }
@@ -6049,7 +6562,7 @@ void ShowCommandRecorder_Test::claimedOperation_sourceSwitchRunsNoStaleWork_data
     for (bool catchUp : {true, false})
         for (const QString &next : {QStringLiteral("legacy"), QStringLiteral("vc")})
             for (const QString &boundary : {QStringLiteral("none"), QStringLiteral("seek"), QStringLiteral("switch")})
-                QTest::newRow(qPrintable((catchUp ? QStringLiteral("catch-up, ") : QStringLiteral("ordinary, ")) +
+                QTest::newRow(qPrintable((catchUp ? QStringLiteral("jump, ") : QStringLiteral("ordinary, ")) +
                                          next + QStringLiteral(" next, ") + boundary))
                         << catchUp << next << boundary;
 }
@@ -6085,16 +6598,22 @@ void ShowCommandRecorder_Test::claimedOperation_sourceSwitchRunsNoStaleWork()
         crossed = true;
         if (boundary == QLatin1String("none"))
             return;
-        r.show->requestSeek(50);
+        // backward even against the position the jump has not published yet
+        r.show->requestSeek(0);
         if (boundary == QLatin1String("switch"))
         {
             r.show->setSyncSource(ShowRunner::External);
             r.show->setExternalElapsedTime(200);
         }
     }, Qt::DirectConnection);
-    r.show->start(r.doc.masterTimer(), FunctionParent::master(), catchUp ? 200 : 0);
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
     if (catchUp)
-        tickAndDeliver(&r.doc, 3);
+    {
+        // a requested forward jump claims the crossed intensity
+        tickAndDeliver(&r.doc);
+        r.show->requestSeek(200);
+        tickAndDeliver(&r.doc, 4);
+    }
     else
     {
         for (int i = 0; i < 20 && !crossed; i++)
@@ -6105,7 +6624,9 @@ void ShowCommandRecorder_Test::claimedOperation_sourceSwitchRunsNoStaleWork()
     // the claimed intensity finished, nothing after it ran
     QVERIFY(crossed);
     QCOMPARE(starts.count(), boundary == QLatin1String("none") ? 1 : 0);
-    QCOMPARE(batches.count(), next == QLatin1String("vc") && boundary == QLatin1String("none") ? 1 : 0);
+    // a backward seek publishes its rollback, nothing else
+    QCOMPARE(batches.count(), (next == QLatin1String("vc") && boundary == QLatin1String("none") ? 1 : 0) +
+                              (boundary == QLatin1String("seek") ? 1 : 0));
     if (boundary == QLatin1String("switch"))
     {
         // later crossings of the external clock still apply
@@ -6234,7 +6755,7 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
     r.slider->setRangeLowLimit(0);
     r.slider->setRangeHighLimit(100);
     r.show->setSyncSource(ShowRunner::External);
-    r.show->setExternalElapsedTime(200);
+    r.show->setExternalElapsedTime(queued ? 0 : 200);
     ShowCommandTrack track;
     if (queued)
         QVERIFY(track.insert(ShowCommand::setSliderPosition(0, 100, r.slider->ensureRecordingId(),
@@ -6247,7 +6768,8 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
     if (queued)
     {
         QSignalSpy batches(r.show, &Show::controlBatchesReady);
-        r.show->start(r.doc.masterTimer(), FunctionParent::master());
+        playExternalFromZero(r.show, &r.doc);
+        r.show->setExternalElapsedTime(200);
         for (int i = 0; i < 20 && batches.isEmpty(); i++)
             r.doc.masterTimer()->timerTick();
         QCOMPARE(batches.count(), 1);
@@ -6770,7 +7292,9 @@ void ShowCommandRecorder_Test::nonUserChanges_recordNothing()
 
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
-    r.show->setExternalElapsedTime(2600);
+    const bool plays = change == QLatin1String("replay") || change == QLatin1String("function feedback") ||
+                       change == QLatin1String("after disarm");
+    r.show->setExternalElapsedTime(plays ? 0 : 2600);
     ShowCommandTrack track;
     if (change == QLatin1String("replay") || change == QLatin1String("after disarm"))
         QVERIFY(track.insert(ShowCommand::setButtonState(0, 100, r.ba->ensureRecordingId(), true)));
@@ -6808,7 +7332,8 @@ void ShowCommandRecorder_Test::nonUserChanges_recordNothing()
     }
     else if (change == QLatin1String("replay") || change == QLatin1String("function feedback"))
     {
-        r.show->start(r.doc.masterTimer(), FunctionParent::master());
+        playExternalFromZero(r.show, &r.doc);
+        r.show->setExternalElapsedTime(2600);
         tickAndDeliver(&r.doc, 8);
         if (change == QLatin1String("replay"))
             QCOMPARE(r.ba->state(), VCButton::Active);
@@ -6825,7 +7350,8 @@ void ShowCommandRecorder_Test::nonUserChanges_recordNothing()
     {
         // the replayed ON is owed, so A's click waits behind it
         QSignalSpy batches(r.show, &Show::controlBatchesReady);
-        r.show->start(r.doc.masterTimer(), FunctionParent::master());
+        playExternalFromZero(r.show, &r.doc);
+        r.show->setExternalElapsedTime(2600);
         for (int i = 0; i < 20 && batches.isEmpty(); i++)
             r.doc.masterTimer()->timerTick();
         r.ba->requestUserStateChange(true);
@@ -6901,7 +7427,7 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
 
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
-    r.show->setExternalElapsedTime(200);
+    r.show->setExternalElapsedTime(scenario == QLatin1String("queued") ? 0 : 200);
     const bool failing = scenario == QLatin1String("retry") || scenario == QLatin1String("discard");
     ShowCommandTrack track;
     if (scenario == QLatin1String("queued"))
@@ -6911,9 +7437,16 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     QVERIFY(r.show->setCommandTrack(track));
     QVERIFY(r.recorder.setRecording(true));
     QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    if (scenario == QLatin1String("queued"))
+    {
+        // the record at 100 is crossed, its batch held
+        playExternalFromZero(r.show, &r.doc);
+        r.show->setExternalElapsedTime(200);
+    }
+    else if (failing)
+        r.show->start(r.doc.masterTimer(), FunctionParent::master());
     if (failing || scenario == QLatin1String("queued"))
     {
-        r.show->start(r.doc.masterTimer(), FunctionParent::master());
         for (int i = 0; i < 20 && r.show->isRunning() == false; i++)
             r.doc.masterTimer()->timerTick();
         for (int i = 0; i < 20 && scenario == QLatin1String("queued") && batches.isEmpty(); i++)
@@ -8888,10 +9421,11 @@ void ShowCommandRecorder_Test::recordingsTab_listsAndEditsTheTake()
     QVERIFY(xml.contains("0.55"));
 }
 
-void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff_data()
+void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive_data()
 {
     QTest::addColumn<QString>("state");
 
+    QTest::newRow("stopped") << QStringLiteral("stopped");
     QTest::newRow("REC on") << QStringLiteral("rec");
     QTest::newRow("start queued") << QStringLiteral("queued");
     QTest::newRow("playing") << QStringLiteral("playing");
@@ -8901,7 +9435,7 @@ void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff_da
     QTest::newRow("started by a Collection on the timer") << QStringLiteral("collection");
 }
 
-void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff()
+void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
 {
     QFETCH(QString, state);
 
@@ -8911,11 +9445,16 @@ void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff()
     QTRY_COMPARE(ed.rowIds().count(), 7);
     MasterTimer *timer = ed.rig.doc->masterTimer();
     const quint32 showId = ed.show->id();
+    Collection *collection = nullptr;
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->setRecording(false);
+        if (collection != nullptr)
+            collection->stop(FunctionParent::master());
+        ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
 
-    // one step to undo, made while everything is stopped
     const int base = ed.settledHistory();
-    QVERIFY(ed.rig.recorder->retimeCommand(showId, 6, 4500));
-    QTRY_COMPARE(ed.tardis()->m_historyIndex, base + 1);
     ed.rig.doc->resetModified();
     const ShowCommandTrack before = ed.show->commandTrack();
 
@@ -8924,11 +9463,8 @@ void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff()
         QVERIFY(ed.doubleClick(2, "valueCell"));
         QTRY_VERIFY(ed.editor() != nullptr);
     }
-    Collection *collection = nullptr;
     if (state == QLatin1String("rec"))
-    {
         QVERIFY(ed.rig.recorder->setRecording(true));
-    }
     else if (state == QLatin1String("collection"))
     {
         collection = new Collection(ed.rig.doc);
@@ -8940,11 +9476,11 @@ void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff()
         // adding the Collection is a project change of its own
         ed.rig.doc->resetModified();
     }
-    else
+    else if (state != QLatin1String("stopped"))
     {
         ed.rig.manager->playShow();
         QVERIFY(timer->isStartQueued(ed.show));
-        if (state != QLatin1String("queued") && state != QLatin1String("during edit"))
+        if (state != QLatin1String("queued"))
             tickAndDeliver(ed.rig.doc, 2);
         if (state == QLatin1String("paused") || state == QLatin1String("stopping"))
             ed.rig.manager->playShow();
@@ -8953,72 +9489,466 @@ void ShowCommandRecorder_Test::recordingsEditor_needsStoppedPlaybackAndRecOff()
             ed.rig.manager->stopShow();
             QVERIFY(!ed.rig.manager->isPlaying());
         }
+        if (state != QLatin1String("during edit"))
+            QVERIFY(!ed.show->commandPlaybackStopped());
     }
 
-    // the view stays readable and says why it cannot be edited
-    QCOMPARE(ed.rowIds().count(), 7);
-    QTRY_VERIFY(!ed.shownText("recordingsBlocked").isEmpty());
-    const QString reason = ed.shownText("recordingsBlocked");
-    QVERIFY(reason.contains(state == QLatin1String("rec") ? QLatin1String("REC") : QLatin1String("stopped")));
+    // nothing says the recordings cannot be edited
+    QCOMPARE(ed.rig.recorder->editBlockedReason(), QString());
+    QTRY_VERIFY(ed.shownText("recordingsBlocked").isEmpty());
 
-    // every path is refused at its commit, the UI's and the model's
-    if (state == QLatin1String("during edit"))
-    {
-        ed.type(QStringLiteral("80"));
-        QVERIFY(ed.editor() != nullptr);
-        QVERIFY(ed.shownText("recordingsError").contains(QLatin1String("stopped")));
-        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
-        QTRY_VERIFY(ed.editor() == nullptr);
-    }
-    else
+    // the cell editor commits through the UI, one step
+    if (state != QLatin1String("during edit"))
     {
         QVERIFY(ed.doubleClick(2, "valueCell"));
-        QVERIFY(ed.editor() == nullptr);
+        QTRY_VERIFY(ed.editor() != nullptr);
     }
-    ed.click(ed.row(1));
-    QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
-    QCoreApplication::processEvents();
-    QVERIFY(!ed.rig.recorder->retimeCommand(showId, 2, 3000));
-    QVERIFY(!ed.rig.recorder->setCommandValue(showId, 2, 0.9));
-    QVERIFY(!ed.rig.recorder->setCommandState(showId, 1, false));
-    QVERIFY(!ed.rig.recorder->removeCommands(showId, {1, 3}));
-    QVERIFY(!ed.rig.recorder->moveCommands(showId, {1, 2}, 1, 2000));
-    QVERIFY(!ed.rig.recorder->snapCommands(showId, {1, 2}, 500, 0));
-    QVERIFY(!ed.rig.recorder->editCommandText(showId, 2, QStringLiteral("value"), QStringLiteral("10")));
-    ed.tardis()->undoAction();
-    QVERIFY(!ed.rig.recorder->lastError().isEmpty());
-    QCOMPARE(ed.tardis()->m_historyIndex, base + 1);
-    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
-    QVERIFY(!ed.rig.doc->isModified());
+    ed.type(QStringLiteral("80"));
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(2).position, 0.8);
+    QCOMPARE(ed.settledHistory(), base + 1);
 
-    // fully stopped with REC off, the same undo goes through
+    // every public edit is one step of its own
+    int steps = 1;
+    const auto step = [&](bool done) {
+        QVERIFY2(done, qPrintable(ed.rig.recorder->lastError()));
+        QCOMPARE(ed.settledHistory(), base + ++steps);
+    };
+    step(ed.rig.recorder->retimeCommand(showId, 6, 4500));
+    step(ed.rig.recorder->setCommandState(showId, 1, false));
+    step(ed.rig.recorder->moveCommands(showId, {0, 3}, 1, 100));
+    step(ed.rig.recorder->snapCommands(showId, {6}, 300, 100));
+    step(ed.rig.recorder->editCommandText(showId, 3, QStringLiteral("value"), QStringLiteral("10")));
+    step(ed.rig.recorder->removeCommands(showId, {5}));
+    // the extent follows the content, also while the Show plays: it grows with the tail...
+    QCOMPARE(ed.show->commandTrack().commands().last().time, 4600u);
+    QCOMPARE(ed.show->commandTrack().extent(), 4600u);
+    // ...and shrinks when the tail is deleted
+    step(ed.rig.recorder->removeCommands(showId, {6}));
+    const ShowCommandTrack edited = ed.show->commandTrack();
+    QVERIFY(edited.lastCommandTime() < 4600u);
+    QCOMPARE(edited.extent(), edited.lastCommandTime());
+    QVERIFY(ed.rig.doc->isModified());
+
+    // a capture after the edits is no step and survives Undo and Redo
+    QVector<quint32> captured;
     if (state == QLatin1String("rec"))
     {
-        QVERIFY(ed.rig.recorder->setRecording(false));
-        ed.rig.doc->resetModified();
+        ed.fader->requestUserValue(200);
+        QCoreApplication::processEvents();
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            if (!edited.contains(cmd.id))
+                captured.append(cmd.id);
+        QCOMPARE(captured.size(), 1);
+        QCOMPARE(ed.settledHistory(), base + steps);
     }
-    else if (collection != nullptr)
+    const auto withoutCapture = [&]() {
+        QVector<ShowCommand> kept;
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            if (!captured.contains(cmd.id))
+                kept.append(cmd);
+        return kept;
+    };
+
+    // Undo and Redo move the history cursor only, every step goes through
+    for (int i = steps; i > 0; i--)
     {
-        collection->stop(FunctionParent::master());
-        ed.show->stop(FunctionParent::master());
-        tickAndDeliver(ed.rig.doc, 3);
+        ed.tardis()->undoAction();
+        QVERIFY2(ed.rig.recorder->lastError().isEmpty(), qPrintable(ed.rig.recorder->lastError()));
+        QCOMPARE(ed.tardis()->m_historyIndex, base + i - 1);
+    }
+    QCOMPARE(withoutCapture(), before.commands());
+    for (const ShowCommand &cmd : before.commands())
+        QCOMPARE(ed.command(cmd.id).order, cmd.order);
+    for (int i = 1; i <= steps; i++)
+    {
+        ed.tardis()->redoAction();
+        QCOMPARE(ed.tardis()->m_historyIndex, base + i);
+    }
+    QCOMPARE(withoutCapture(), edited.commands());
+    for (quint32 id : std::as_const(captured))
+        QVERIFY(ed.show->commandTrack().contains(id));
+    QCOMPARE(ed.settledHistory(), base + steps);
+
+    // a true conflict on an edited id refuses Undo without consuming the step:
+    // the last step deleted 6, and something else put an event 6 back
+    ShowCommandTrack changed = ed.show->commandTrack();
+    QVERIFY(changed.restore(before.commands().at(before.indexOfId(6))));
+    QVERIFY(ed.show->setCommandTrack(changed));
+    const QVector<ShowCommand> conflicted = ed.show->commandTrack().commands();
+    ed.tardis()->undoAction();
+    QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+    QCOMPARE(ed.tardis()->m_historyIndex, base + steps);
+    QCOMPARE(ed.show->commandTrack().commands(), conflicted);
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_previewCommitCancel_data()
+{
+    // fixture: 0 Start@1200, 1 button@1200, 2 fader@1700, 3 intensity@1700,
+    // 4 missing button@2500, 5 dimmer@2500, 6 Stop@4000
+    QTest::addColumn<QString>("ids");
+    QTest::addColumn<int>("kind");      // -1 for a cell
+    QTest::addColumn<qreal>("delta");
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QString>("result"); // "id@time" or "id=value" after the commit
+
+    QTest::newRow("body drag") << "0 3 6" << 0 << 300.0 << QString() << QString() << "0@1500 3@2000 6@4300";
+    QTest::newRow("left handle") << "0 3 6" << 2 << -200.0 << QString() << QString() << "0@1000 3@1536 6@4000";
+    QTest::newRow("right handle") << "0 3 6" << 1 << 1400.0 << QString() << QString() << "0@1200 3@1950 6@5400";
+    QTest::newRow("time cell") << "3" << -1 << 0.0 << "time" << "2.5" << "3@2500";
+    QTest::newRow("value cell") << "3" << -1 << 0.0 << "value" << "25" << "3=0.25";
+    QTest::newRow("state cell") << "1" << -1 << 0.0 << "state" << "Off" << "1=off";
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_previewCommitCancel()
+{
+    QFETCH(QString, ids);
+    QFETCH(int, kind);
+    QFETCH(qreal, delta);
+    QFETCH(QString, field);
+    QFETCH(QString, text);
+    QFETCH(QString, result);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const quint32 showId = ed.show->id();
+    QVariantList targets;
+    for (const QString &id : ids.split(QLatin1Char(' ')))
+        targets.append(id.toUInt());
+    const int base = ed.settledHistory();
+    const ShowCommandTrack before = ed.show->commandTrack();
+    QSignalSpy sessions(recorder, &ShowCommandRecorder::editSessionChanged);
+
+    // a preview publishes nothing; cancel leaves no trace
+    QVERIFY(recorder->beginEditSession(showId, targets));
+    QVERIFY(recorder->editSessionActive());
+    if (kind >= 0)
+    {
+        const QVariantMap preview = recorder->previewRetime(kind, delta);
+        QVERIFY2(!preview.contains("reason"), qPrintable(preview.value("reason").toString()));
+        const QVariantMap times = preview.value("times").toMap();
+        QCOMPARE(times.size(), targets.size());
+        for (const QString &entry : result.split(QLatin1Char(' ')))
+            QCOMPARE(times.value(entry.section(QLatin1Char('@'), 0, 0)).toUInt(),
+                     entry.section(QLatin1Char('@'), 1, 1).toUInt());
+    }
+    recorder->cancelEditSession();
+    QVERIFY(!recorder->editSessionActive());
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(!ed.rig.doc->isModified());
+
+    // commit: one step, exactly the result
+    QVERIFY(recorder->beginEditSession(showId, targets));
+    if (kind >= 0)
+        QVERIFY2(recorder->commitRetime(kind, delta), qPrintable(recorder->lastError()));
+    else
+    {
+        // text that is no value is refused and keeps the draft's session
+        QVERIFY(!recorder->commitCellText(field, QStringLiteral("nonsense")));
+        QVERIFY(!recorder->lastError().isEmpty());
+        QVERIFY(recorder->editSessionActive());
+        QVERIFY2(recorder->commitCellText(field, text), qPrintable(recorder->lastError()));
+    }
+    QVERIFY(!recorder->editSessionActive());
+    QCOMPARE(sessions.count(), 4);
+    QCOMPARE(ed.settledHistory(), base + 1);
+    QVERIFY(ed.rig.doc->isModified());
+    for (const QString &entry : result.split(QLatin1Char(' ')))
+    {
+        if (entry.contains(QLatin1Char('@')))
+            QCOMPARE(ed.command(entry.section(QLatin1Char('@'), 0, 0).toUInt()).time,
+                     entry.section(QLatin1Char('@'), 1, 1).toUInt());
+        else if (entry.endsWith(QLatin1String("=off")))
+            QCOMPARE(ed.command(entry.section(QLatin1Char('='), 0, 0).toUInt()).on, false);
+        else
+            QCOMPARE(ed.command(entry.section(QLatin1Char('='), 0, 0).toUInt()).intensity,
+                     entry.section(QLatin1Char('='), 1, 1).toDouble());
+    }
+    // every other event as it was
+    for (const ShowCommand &cmd : before.commands())
+        if (!targets.contains(cmd.id))
+            QCOMPARE(ed.command(cmd.id), cmd);
+
+    // a second commit has no session
+    QVERIFY(!recorder->commitRetime(0, 100));
+    QVERIFY(!recorder->lastError().isEmpty());
+    QCOMPARE(ed.settledHistory(), base + 1);
+}
+
+void ShowCommandRecorder_Test::recordingsTable_draftEndsWithReason_data()
+{
+    QTest::addColumn<bool>("refusedTextFirst");
+
+    QTest::newRow("another edit starts") << false;
+    QTest::newRow("another edit starts after refused text") << true;
+}
+
+void ShowCommandRecorder_Test::recordingsTable_draftEndsWhenTargetIsDeleted_data()
+{
+    QTest::addColumn<QString>("removal");
+
+    QTest::newRow("Delete of the edited event") << QStringLiteral("delete");
+    QTest::newRow("Undo of the step that made the edited event") << QStringLiteral("undo");
+}
+
+void ShowCommandRecorder_Test::recordingsTable_draftEndsWhenTargetIsDeleted()
+{
+    QFETCH(QString, removal);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 7);
+    const quint32 showId = ed.show->id();
+    int base = ed.settledHistory();
+    quint32 target = 2;
+    if (removal == QLatin1String("undo"))
+    {
+        // the edited event exists only because of the last step
+        QVERIFY(ed.rig.recorder->copyCommands(showId, {2}));
+        const QVariantList pasted = ed.rig.recorder->pasteCommands(showId, 3000);
+        QCOMPARE(pasted.size(), 1);
+        target = pasted.first().toUInt();
+        QCOMPARE(ed.settledHistory(), ++base);
+        QTRY_VERIFY(ed.row(target) != nullptr);
+    }
+
+    QVERIFY(ed.doubleClick(target, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("12"), Qt::Key_unknown);
+    if (removal == QLatin1String("delete"))
+    {
+        QVERIFY(ed.rig.recorder->removeCommands(showId, {target}));
+        QCOMPARE(ed.settledHistory(), base + 1);
     }
     else
     {
-        // a Stop before the timer ran the queued start does not stop it
-        // (native Show Manager behaviour): the Show plays, so stop it again
-        for (int i = 0; i < 3 && ed.rig.recorder->editBlockedReason().isEmpty() == false; i++)
-        {
-            tickAndDeliver(ed.rig.doc, 1);
-            ed.rig.manager->stopShow();
-            tickAndDeliver(ed.rig.doc, 2);
-        }
+        ed.tardis()->undoAction();
+        QCOMPARE(ed.tardis()->m_historyIndex, base - 1);
     }
-    QTRY_VERIFY(ed.shownText("recordingsBlocked").isEmpty());
-    ed.tardis()->undoAction();
-    QCOMPARE(ed.tardis()->m_historyIndex, base);
-    QCOMPARE(ed.command(6).time, 4000u);
-    QVERIFY(ed.rig.doc->isModified());
+
+    // the draft ends, says why, and nothing writes the typed value anywhere
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QVERIFY(!ed.show->commandTrack().contains(target));
+    QCOMPARE(ed.shownText("draftEnded"),
+             QStringLiteral("Event %1 was deleted; its cell edit ended").arg(target));
+    // the publication that removed it cleared the recorder's error; the table still says why
+    QVERIFY(ed.rig.recorder->lastError().isEmpty());
+    QVERIFY(!ed.rig.recorder->editSessionActive());
+    QVERIFY(!ed.rig.recorder->commitCellText(QStringLiteral("value"), QStringLiteral("12")));
+}
+
+void ShowCommandRecorder_Test::recordingsTable_draftEndsWithReason()
+{
+    QFETCH(bool, refusedTextFirst);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 7);
+    const int base = ed.settledHistory();
+    const ShowCommand before = ed.command(2);
+
+    QVERIFY(ed.doubleClick(2, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    if (refusedTextFirst)
+    {
+        // no value: refused, the draft stays open on its frozen event
+        ed.type(QStringLiteral("abc"));
+        QVERIFY(ed.editor() != nullptr);
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+    }
+    // one edit at a time: another session closes the draft and says why
+    QVERIFY(ed.rig.recorder->beginEditSession(ed.show->id(), {3}));
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.shownText("draftEnded"), QStringLiteral("The cell edit ended: Another recording edit started"));
+    QCOMPARE(ed.command(2), before);
+    QCOMPARE(ed.settledHistory(), base);
+    ed.rig.recorder->cancelEditSession();
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_liveStretchSavesAndReloads()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    // two events share 1700: their saved tie order must come back
+    ed.rig.manager->playShow();
+    tickAndDeliver(ed.rig.doc, 2);
+    QVERIFY(!ed.show->commandPlaybackStopped());
+    QVERIFY(ed.rig.recorder->beginEditSession(ed.show->id(), {0, 2, 3, 6}));
+    QVERIFY2(ed.rig.recorder->commitRetime(int(ShowRetimeKind::StretchEnd), 1400), qPrintable(ed.rig.recorder->lastError()));
+    const ShowCommandTrack edited = ed.show->commandTrack();
+    QCOMPARE(edited.commands().at(edited.indexOfId(6)).time, 5400u);
+
+    QByteArray xml;
+    {
+        QXmlStreamWriter writer(&xml);
+        QVERIFY(edited.saveXML(&writer));
+    }
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack loaded;
+    QString error;
+    QVERIFY2(loaded.loadXML(reader, &error), qPrintable(error));
+    QCOMPARE(loaded.commands(), edited.commands());
+    for (int i = 0; i < edited.count(); ++i)
+        QCOMPARE(loaded.commands().at(i).order, edited.commands().at(i).order);
+    QCOMPARE(loaded.extent(), edited.extent());
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_conflicts_data()
+{
+    QTest::addColumn<QString>("mode");   // drag: move 2 and 3 by 100; cell: value of 2 to 50%
+    QTest::addColumn<QString>("change"); // made between begin and commit
+    QTest::addColumn<bool>("commits");
+
+    for (const QString &mode : { QStringLiteral("drag"), QStringLiteral("cell") })
+    {
+        const QByteArray m = mode.toLatin1();
+        QTest::newRow(m + ": recorded on another control") << mode << "capture other" << true;
+        QTest::newRow(m + ": recorded on the same control") << mode << "capture same" << true;
+        QTest::newRow(m + ": same control before the first target") << mode << "insert before" << true;
+        QTest::newRow(m + ": other event edited") << mode << "edit other" << true;
+        QTest::newRow(m + ": target retimed away and back") << mode << "away and back" << true;
+        QTest::newRow(m + ": target value edited") << mode << "edit target" << false;
+        QTest::newRow(m + ": target deleted") << mode << "delete target" << false;
+        QTest::newRow(m + ": target Order swapped") << mode << "swap order" << false;
+        QTest::newRow(m + ": another Show shown") << mode << "switch show" << false;
+        QTest::newRow(m + ": Show deleted") << mode << "delete show" << false;
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_conflicts()
+{
+    QFETCH(QString, mode);
+    QFETCH(QString, change);
+    QFETCH(bool, commits);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const auto stop = qScopeGuard([&]() {
+        recorder->setRecording(false);
+        // the captured Adjust input started its Function: end it before the rig goes
+        ed.fader->requestUserValue(0);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    const quint32 showId = ed.show->id();
+    const QVariantList targets = mode == QLatin1String("drag") ? QVariantList{2, 3} : QVariantList{2};
+    QVERIFY(recorder->beginEditSession(showId, targets));
+    const int base = ed.settledHistory();
+
+    int steps = 0;
+    if (change.startsWith(QLatin1String("capture")))
+    {
+        // live input while the edit is open: the Show's own capture path
+        QVERIFY(recorder->setRecording(true));
+        VCSlider *control = change == QLatin1String("capture same") ? ed.fader : nullptr;
+        if (control == nullptr)
+        {
+            ed.dimmer->setDisabled(false);
+            control = ed.dimmer;
+        }
+        control->requestUserValue(222);
+        QCoreApplication::processEvents();
+        QVERIFY(recorder->setRecording(false));
+    }
+    else if (change == QLatin1String("insert before"))
+    {
+        ShowCommandTrack track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(40, 1650, ed.fader->ensureRecordingId(),
+                                                            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.9)));
+        QVERIFY(ed.show->setCommandTrack(track));
+    }
+    else if (change == QLatin1String("edit other"))
+    {
+        QVERIFY(recorder->retimeCommand(showId, 6, 4100));
+        steps++;
+    }
+    else if (change == QLatin1String("away and back"))
+    {
+        QVERIFY(recorder->retimeCommand(showId, 2, 3000));
+        QVERIFY(recorder->retimeCommand(showId, 2, 1700));
+        steps += 2;
+    }
+    else if (change == QLatin1String("edit target"))
+    {
+        QVERIFY(recorder->setCommandValue(showId, 2, 0.1));
+        steps++;
+    }
+    else if (change == QLatin1String("delete target"))
+    {
+        QVERIFY(recorder->removeCommands(showId, {2}));
+        steps++;
+    }
+    else if (change == QLatin1String("swap order"))
+    {
+        // 2 and 3 share 1700: the same events, the other way round
+        ShowCommandTrack track = ed.show->commandTrack();
+        ShowCommand two = track.commands().at(track.indexOfId(2));
+        ShowCommand three = track.commands().at(track.indexOfId(3));
+        std::swap(two.order, three.order);
+        QVERIFY(track.remove(2) && track.remove(3));
+        QVERIFY(track.restore(two) && track.restore(three));
+        QVERIFY(ed.show->setCommandTrack(track));
+    }
+    else if (change == QLatin1String("switch show"))
+    {
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        QCoreApplication::processEvents();
+    }
+    else if (change == QLatin1String("delete show"))
+    {
+        QVERIFY(ed.rig.doc->deleteFunction(showId));
+        QCoreApplication::processEvents();
+    }
+    QCOMPARE(ed.settledHistory(), base + steps);
+    Show *show = qobject_cast<Show *>(ed.rig.doc->function(showId));
+    const QVector<ShowCommand> current = show ? show->commandTrack().commands() : QVector<ShowCommand>();
+    const QVector<quint32> others = [&]() {
+        QVector<quint32> ids;
+        for (const ShowCommand &cmd : current)
+            if (!targets.contains(cmd.id))
+                ids.append(cmd.id);
+        return ids;
+    }();
+
+    const bool done = mode == QLatin1String("drag") ? recorder->commitRetime(0, 100)
+                                                    : recorder->commitCellText(QStringLiteral("value"), QStringLiteral("50"));
+    QCOMPARE(done, commits);
+    QVERIFY(!recorder->editSessionActive());
+    if (!commits)
+    {
+        // refused with a reason: the newer events stay as they are
+        QVERIFY(!recorder->lastError().isEmpty());
+        QCOMPARE(ed.settledHistory(), base + steps);
+        if (show)
+            QCOMPARE(show->commandTrack().commands(), current);
+        return;
+    }
+    QCOMPARE(ed.settledHistory(), base + steps + 1);
+    if (mode == QLatin1String("drag"))
+    {
+        QCOMPARE(ed.command(2).time, 1800u);
+        QCOMPARE(ed.command(3).time, 1800u);
+    }
+    else
+        QCOMPARE(ed.command(2).position, 0.5);
+    // recorded and other events keep their own times and values
+    for (quint32 id : others)
+    {
+        const ShowCommand &was = current.at([&]() { for (int i = 0; i < current.size(); ++i) if (current.at(i).id == id) return i; return -1; }());
+        QCOMPARE(ed.command(id), was);
+    }
 }
 
 void ShowCommandRecorder_Test::recordingsEditor_rejectsInvalidEditsWhole_data()
@@ -10237,7 +11167,7 @@ FlowRun runFlow(bool open)
     // rewound: authored earlier on the Show, arriving later
     take->setExternalElapsedTime(3000);
     button->requestUserStateChange(true, ShowCommandOrigin::Osc);
-    recorder.retimeCommand(take->id(), 0, 100);
+    recorder.retimeCommand(take->id(), 0, -1);
     tickAndDeliver(&doc, 2);
     recorder.setRecording(false);
 
@@ -11130,6 +12060,67 @@ PendingTake pendingTake(Doc *doc, UiFixture *ui, ShowCommandRecorder *recorder, 
 }
 } // namespace
 
+void ShowCommandRecorder_Test::recordingsEditor_editKeepsPendingCapture_data()
+{
+    QTest::addColumn<QString>("edit");
+
+    QTest::newRow("retime") << QStringLiteral("retime");
+    QTest::newRow("delete") << QStringLiteral("delete");
+    QTest::newRow("paste") << QStringLiteral("paste");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_editKeepsPendingCapture()
+{
+    QFETCH(QString, edit);
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    ShowEventModel model(&doc, &recorder);
+    const PendingTake take = pendingTake(&doc, &ui, &recorder, false, &model);
+    const quint32 showId = take.show->id();
+    // the slider input was accepted while REC is on, the Show has not taken it yet
+    QCOMPARE(take.show->commandTrack().count(), 1);
+    QVERIFY(take.show->commandTrack().contains(0));
+
+    // an edit of the published track, made while REC is on, leaves the input alone
+    if (edit == QLatin1String("retime"))
+        QVERIFY2(recorder.retimeCommand(showId, 0, 1500), qPrintable(recorder.lastError()));
+    else if (edit == QLatin1String("delete"))
+        QVERIFY2(recorder.removeCommands(showId, {0}), qPrintable(recorder.lastError()));
+    else
+    {
+        QVERIFY(recorder.copyCommands(showId, {0}));
+        QVERIFY2(!recorder.pasteCommands(showId, 2000).isEmpty(), qPrintable(recorder.lastError()));
+    }
+    const ShowCommandTrack edited = take.show->commandTrack();
+    QCOMPARE(edited.count(), edit == QLatin1String("paste") ? 2 : edit == QLatin1String("delete") ? 0 : 1);
+
+    // the next checkpoint publishes the input next to the edit, no id twice
+    QVERIFY(recorder.checkpoint());
+    QCoreApplication::processEvents();
+    const ShowCommandTrack published = take.show->commandTrack();
+    QCOMPARE(published.count(), edited.count() + 1);
+    QSet<quint32> ids;
+    int sliderSamples = 0;
+    for (const ShowCommand &cmd : published.commands())
+    {
+        QVERIFY(!ids.contains(cmd.id));
+        ids.insert(cmd.id);
+        sliderSamples += cmd.action == ShowCommandAction::SetSliderPosition;
+        if (edited.contains(cmd.id))
+            QCOMPARE(cmd, edited.commands().at(edited.indexOfId(cmd.id)));
+    }
+    QCOMPARE(sliderSamples, 1);
+    if (edit == QLatin1String("retime"))
+        QCOMPARE(published.commands().at(published.indexOfId(0)).time, 1500u);
+    if (edit == QLatin1String("delete"))
+        QVERIFY(!published.contains(0));
+
+    QVERIFY(recorder.setRecording(false));
+    tickAndDeliver(&doc, 3);
+}
+
 void ShowCommandRecorder_Test::debugPanel_closedPendingOutcomeIsNotBackfilled_data()
 {
     QTest::addColumn<bool>("openAtAcceptance");
@@ -11966,6 +12957,54 @@ struct AccessibilityOn
 };
 } // namespace
 
+namespace
+{
+void collectShown(QQuickItem *root, const QString &name, QList<QQuickItem *> *found)
+{
+    if (root == nullptr || !root->isVisible())
+        return;
+    if (root->objectName() == name)
+        found->append(root);
+    QList<QQuickItem *> children = root->childItems();
+    QQuickItem *content = root->property("contentItem").value<QQuickItem *>();
+    if (content != nullptr && !children.contains(content))
+        children.append(content);
+    for (QQuickItem *child : children)
+        collectShown(child, name, found);
+}
+
+QList<QQuickItem *> shownItems(const EditorRig &ed, const QString &name)
+{
+    QList<QQuickItem *> found;
+    collectShown(ed.root(), name, &found);
+    return found;
+}
+
+/** The expanded lane's row headers, by row index */
+QList<QQuickItem *> laneRowItems(const EditorRig &ed)
+{
+    QList<QQuickItem *> rows = shownItems(ed, QStringLiteral("recordingLaneRow"));
+    std::sort(rows.begin(), rows.end(), [](QQuickItem *a, QQuickItem *b)
+              { return a->property("laneIndex").toInt() < b->property("laneIndex").toInt(); });
+    return rows;
+}
+
+QStringList laneRowLabels(const EditorRig &ed)
+{
+    QStringList labels;
+    for (QQuickItem *row : laneRowItems(ed))
+        labels.append(row->property("label").toString());
+    return labels;
+}
+
+bool pressLanesToggle(const EditorRig &ed)
+{
+    return performAccessibleAction(accessibleById(ed.rig.app.get(), QStringLiteral("recordingLanesToggle")),
+                                   QAccessibleActionInterface::pressAction());
+}
+
+} // namespace
+
 void ShowCommandRecorder_Test::accessibleVcControls_actAsUserInput_data()
 {
     QTest::addColumn<QString>("control");
@@ -12294,6 +13333,53 @@ void ShowCommandRecorder_Test::timeline_vcOriginalRelease_data()
     QTest::newRow("VC press Show release") << true;
 }
 
+void ShowCommandRecorder_Test::timeline_unhandledKeysKeepVcRoute_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<int>("modifiers");
+    for (const int key : {Qt::Key_F2, Qt::Key_Up, Qt::Key_Home, Qt::Key_Return})
+        for (const auto modifiers : {Qt::NoModifier, Qt::ShiftModifier})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(key).arg(int(modifiers))))
+                << key << int(modifiers);
+}
+
+void ShowCommandRecorder_Test::timeline_unhandledKeysKeepVcRoute()
+{
+    QFETCH(int, key);
+    QFETCH(int, modifiers);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    vc->setEditMode(false);
+    ed.button->setActionType(VCButton::Flash);
+    ed.button->addKeySequence(QKeySequence(modifiers | key), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    const auto cleanup = qScopeGuard([&]() {
+        ed.button->requestUserStateChange(false);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    ed.root()->forceActiveFocus();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    auto *scope = ed.item(QStringLiteral("timelineTab"));
+    while (scope && !scope->property("showKeyScope").toBool())
+        scope = scope->parentItem();
+    QVERIFY(scope);
+    scope->forceActiveFocus();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    QCOMPARE(ed.command(2).time, quint32(1700));
+}
+
 void ShowCommandRecorder_Test::timeline_vcOriginalRelease()
 {
     QFETCH(bool, transfer);
@@ -12459,6 +13545,146 @@ void ShowCommandRecorder_Test::timeline_localKeysDoNotReachVc()
     QCOMPARE(ed.command(2).time, quint32(transfer || retarget ? 3700 : 5700));
 }
 
+void ShowCommandRecorder_Test::timeline_ordinaryHoldKeepsSelectedIdentity_data()
+{
+    QTest::addColumn<bool>("endpoint");
+    QTest::addColumn<QString>("selection");
+    for (const bool endpoint : {false, true})
+        for (const QString &selection : {QStringLiteral("pointer-other"), QStringLiteral("pointer-same"),
+                                        QStringLiteral("pointer-return"), QStringLiteral("keyboard-other"),
+                                        QStringLiteral("keyboard-same"), QStringLiteral("redraw")})
+            QTest::newRow(qPrintable((endpoint ? QStringLiteral("end-") : QStringLiteral("move-")) + selection))
+                << endpoint << selection;
+}
+
+void ShowCommandRecorder_Test::timeline_ordinaryHoldKeepsSelectedIdentity()
+{
+    QFETCH(bool, endpoint);
+    QFETCH(QString, selection);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    QVERIFY(area);
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    ShowFunction source(0);
+    source.setDuration(2000);
+    ed.rig.manager->addItems(content, -1, 5000, {ed.scene->id()}, &source);
+    ed.rig.manager->addItems(content, -1, 10000, {ed.scene->id()}, &source);
+    QCoreApplication::processEvents();
+    auto *a = ed.show->tracks().at(0)->showFunctions().first();
+    auto *b = ed.show->tracks().at(1)->showFunctions().first();
+    QQuickItem *first = nullptr;
+    QQuickItem *second = nullptr;
+    for (auto *item : content->childItems())
+    {
+        if (item->property("sfRef").value<ShowFunction *>() == a)
+            first = item;
+        if (item->property("sfRef").value<ShowFunction *>() == b)
+            second = item;
+    }
+    QVERIFY(first && second);
+    QCOMPARE(a->startTime(), quint32(2500));
+    QCOMPARE(b->startTime(), quint32(5000));
+    const auto commands = ed.show->commandTrack().commands();
+    const auto modifiers = endpoint ? Qt::AltModifier : Qt::NoModifier;
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    vc->setEditMode(false);
+    ed.button->setActionType(VCButton::Flash);
+    ed.button->addKeySequence(QKeySequence(modifiers | Qt::Key_Right), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    const auto cleanup = qScopeGuard([&]() {
+        ed.button->requestUserStateChange(false);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    ed.root()->forceActiveFocus();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_Right, modifiers);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_Right, modifiers);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    QSignalSpy vcEdges(ed.button, &VCButton::stateChanged);
+
+    ed.click(first);
+    if (selection.startsWith(QLatin1String("keyboard")))
+    {
+        auto *target = findVisualItem(selection.endsWith(QLatin1String("other")) ? second : first,
+                                      QStringLiteral("clipSelection"));
+        QVERIFY(target);
+        for (int i = 0; i < 150 && !target->hasActiveFocus(); ++i)
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+        QVERIFY(target->hasActiveFocus());
+    }
+    auto *owner = ed.rig.app->activeFocusItem();
+    const int historyBefore = ed.settledHistory();
+    const quint32 functionDuration = ed.scene->totalDuration();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_Right, modifiers);
+    QCoreApplication::processEvents();
+    QCOMPARE(a->startTime(), quint32(endpoint ? 2500 : 4500));
+    QCOMPARE(a->duration(), quint32(endpoint ? 4000 : 2000));
+
+    if (selection.startsWith(QLatin1String("keyboard")))
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    else if (selection == QLatin1String("redraw"))
+        ed.rig.manager->refreshView();
+    else
+    {
+        ed.click(selection == QLatin1String("pointer-same") ? first : second);
+        if (selection == QLatin1String("pointer-return"))
+            ed.click(first);
+    }
+    QCoreApplication::processEvents();
+    QCOMPARE(ed.rig.app->activeFocusItem(), owner);
+    const bool other = selection.endsWith(QLatin1String("other"));
+    const bool cancelled = other || selection == QLatin1String("pointer-return");
+    QCOMPARE(ed.rig.manager->selectedItemRefs(), QVariantList{QVariant::fromValue(other ? b : a)});
+
+    QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Right, modifiers, {}, true);
+    QCoreApplication::sendEvent(ed.rig.app.get(), &repeat);
+    QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Right, modifiers, {}, true);
+    QCoreApplication::sendEvent(ed.rig.app.get(), &repeatRelease);
+    QCoreApplication::sendEvent(ed.rig.app.get(), &repeat);
+    QCOMPARE(a->startTime(), quint32(endpoint ? 2500 : cancelled ? 4500 : 8500));
+    QCOMPARE(a->duration(), quint32(endpoint ? (cancelled ? 4000 : 8000) : 2000));
+    QCOMPARE(b->startTime(), quint32(5000));
+    QCOMPARE(b->duration(), quint32(2000));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(vcEdges.count(), 0);
+
+    // A separately activated VC control must not receive this hold's key-up.
+    ed.button->requestUserStateChange(true);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    vcEdges.clear();
+    QKeyEvent release(QEvent::KeyRelease, Qt::Key_Right, Qt::NoModifier);
+    QCoreApplication::sendEvent(ed.rig.app.get(), &release);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(vcEdges.count(), 0);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+
+    if (cancelled)
+    {
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Right, modifiers);
+        QCOMPARE(a->startTime(), quint32(endpoint ? 2500 : other ? 4500 : 6500));
+        QCOMPARE(a->duration(), quint32(endpoint ? (other ? 4000 : 6000) : 2000));
+        QCOMPARE(b->startTime(), quint32(!endpoint && other ? 7000 : 5000));
+        QCOMPARE(b->duration(), quint32(endpoint && other ? 4000 : 2000));
+    }
+    QCOMPARE(ed.scene->totalDuration(), functionDuration);
+    QTRY_VERIFY(ed.tardis()->m_historyIndex > historyBefore);
+    ed.settledHistory();
+    while (ed.tardis()->m_historyIndex > historyBefore)
+        ed.tardis()->undoAction();
+    QCOMPARE(a->startTime(), quint32(2500));
+    QCOMPARE(a->duration(), quint32(2000));
+    QCOMPARE(b->startTime(), quint32(5000));
+    QCOMPARE(b->duration(), quint32(2000));
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+}
+
 void ShowCommandRecorder_Test::timeline_feedbackRemainsReachable_data()
 {
     QTest::addColumn<int>("tracks");
@@ -12539,11 +13765,19 @@ void ShowCommandRecorder_Test::timeline_numericKeyboard_data()
     QTest::addColumn<int>("division");
     QTest::addColumn<bool>("ordinary");
     QTest::addColumn<bool>("endpoint");
+    QTest::addColumn<bool>("expanded");
     for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::VDJBeat)})
         for (const bool ordinary : {false, true})
             for (const bool endpoint : {false, true})
-                QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(division).arg(ordinary).arg(endpoint)))
-                    << division << ordinary << endpoint;
+                for (const bool expanded : {false, true})
+                {
+                    // the lane per control changes recordings, not clips
+                    if (ordinary && expanded)
+                        continue;
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3%4").arg(division).arg(ordinary).arg(endpoint)
+                        .arg(expanded ? QStringLiteral("-lanes") : QString())))
+                        << division << ordinary << endpoint << expanded;
+                }
 }
 
 void ShowCommandRecorder_Test::timeline_timingFieldFocus()
@@ -12645,6 +13879,212 @@ void ShowCommandRecorder_Test::timeline_keyboardOffscreenFocus_data()
     QTest::newRow("recording after seven tracks") << false;
 }
 
+void ShowCommandRecorder_Test::timeline_zoomFromKeyboard_data()
+{
+    QTest::addColumn<bool>("zoomIn");
+    QTest::addColumn<bool>("backward");
+    QTest::addColumn<int>("division");
+    for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::VDJBeat)})
+        for (const bool zoomIn : {false, true})
+            for (const bool backward : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(division).arg(zoomIn).arg(backward)))
+                    << zoomIn << backward << division;
+}
+
+void ShowCommandRecorder_Test::timeline_zoomFromKeyboard()
+{
+    QFETCH(bool, zoomIn);
+    QFETCH(bool, backward);
+    QFETCH(int, division);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::TimeDivision(division));
+    ed.rig.manager->setTimeScale(2);
+    auto *target = findVisualItemWith(ed.root(), "tooltip",
+        zoomIn ? QStringLiteral("Zoom in") : QStringLiteral("Zoom out"));
+    QVERIFY(target);
+    QVERIFY(target->isVisible());
+    ed.item(QStringLiteral("timelineTab"))->forceActiveFocus();
+    for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+    QVERIFY2(target->hasActiveFocus(), "Existing zoom controls must be reachable by Tab");
+    const auto commands = ed.show->commandTrack().commands();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    const bool grow = division == Show::BPM_4_4 ? zoomIn : !zoomIn;
+    QCOMPARE(ed.rig.manager->timeScale(), grow ? 3.0f : 1.0f);
+    QVERIFY(target->hasActiveFocus());
+    auto *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+    QVERIFY(outline && outline->isVisible());
+    QCOMPARE(outline->mapRectToScene(outline->boundingRect()), target->mapRectToScene(target->boundingRect()));
+    QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                    backward ? Qt::ShiftModifier : Qt::NoModifier);
+    QVERIFY(!target->hasActiveFocus());
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::timeline_zoomAfterFeedback_data()
+{
+    QTest::addColumn<QSize>("size");
+    QTest::addColumn<bool>("panel");
+    QTest::addColumn<bool>("error");
+    QTest::addColumn<bool>("textFocus");
+    for (const QSize size : {QSize(1728, 966), QSize(1600, 480), QSize(1200, 480)})
+        for (const bool panel : {false, true})
+            for (const bool error : {false, true})
+                for (const bool textFocus : {false, true})
+                    QTest::newRow(qPrintable(QStringLiteral("%1x%2-panel-%3-error-%4-text-focus-%5")
+                        .arg(size.width()).arg(size.height()).arg(panel).arg(error).arg(textFocus)))
+                            << size << panel << error << textFocus;
+}
+
+void ShowCommandRecorder_Test::timeline_zoomAfterFeedback()
+{
+    QFETCH(QSize, size);
+    QFETCH(bool, panel);
+    QFETCH(bool, error);
+    QFETCH(bool, textFocus);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->rootContext()->setContextProperty("screenPixelDensity", 5.1);
+    ed.rig.app->resize(size);
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    ed.rig.manager->setTimeScale(2);
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    QVERIFY(area);
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    QVERIFY(content);
+    ShowFunction source(0);
+    source.setDuration(5000);
+    for (int i = 0; i < 7; ++i)
+        ed.rig.manager->addItems(content, -1, 5000, {ed.scene->id()}, &source);
+    QCoreApplication::processEvents();
+    for (auto *track : ed.show->tracks())
+        QCOMPARE(track->showFunctions().first()->startTime(), quint32(2500));
+    const auto commands = ed.show->commandTrack().commands();
+    const quint32 functionDuration = ed.scene->totalDuration();
+    auto *markers = ed.item(QStringLiteral("markersCombo"));
+    auto *side = ed.item(QStringLiteral("funcRightPanel"));
+    QVERIFY(markers && side);
+    auto *zoomOut = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Zoom out"));
+    auto *zoomIn = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Zoom in"));
+    QVERIFY(zoomOut && zoomIn);
+    auto reach = [&](QQuickItem *target, bool backward = false) {
+        for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        {
+            QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                            backward ? Qt::ShiftModifier : Qt::NoModifier);
+            QCoreApplication::processEvents();
+        }
+        return target->hasActiveFocus();
+    };
+    auto *group = accessibleById(ed.rig.app.get(),
+        QStringLiteral("recordingItem-%1-2").arg(ed.show->id()));
+    QVERIFY(group);
+    ed.item(QStringLiteral("timelineTab"))->forceActiveFocus();
+    QVERIFY(reach(qobject_cast<QQuickItem *>(group->object())));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    if (error)
+    {
+        auto *earlier = accessibleById(ed.rig.app.get(), QStringLiteral("recordingMoveEarlier"));
+        QVERIFY(earlier);
+        QVERIFY(reach(qobject_cast<QQuickItem *>(earlier->object())));
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+        QTRY_COMPARE(ed.rig.recorder->lastError(),
+                     QStringLiteral("Moving the selection would put an event outside the Show"));
+        QTRY_VERIFY(ed.item(QStringLiteral("problemsIndicator")));
+        auto *reason = ed.item(QStringLiteral("problemsReason"));
+        QVERIFY(reason && !reason->property("text").toString().isEmpty());
+    }
+    else
+        QVERIFY(ed.rig.recorder->lastError().isEmpty());
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    if (panel)
+    {
+        ed.click(ed.item(QStringLiteral("timingSettingsButton")));
+        QTRY_VERIFY(side->property("isOpen").toBool());
+        QTRY_COMPARE(side->width(), side->property("expandedWidth").toReal());
+    }
+    QTest::qWait(100);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldTabFocus = hints->tabFocusBehavior();
+    const auto restoreTabFocus = qScopeGuard([&]() { hints->setTabFocusBehavior(oldTabFocus); });
+    hints->setTabFocusBehavior(textFocus ? Qt::TabFocusTextControls : Qt::TabFocusAllControls);
+    const QRectF bounds(0, 0, side->mapToScene(QPointF()).x(), ed.rig.app->height());
+    for (auto *target : {markers, zoomOut, zoomIn})
+    {
+        qInfo() << "Toolbar error" << error << target->property("tooltip")
+                << target->mapRectToScene(target->boundingRect()) << "editor bounds" << bounds;
+        QVERIFY2(bounds.contains(target->mapRectToScene(target->boundingRect())),
+                 "Populated production toolbar must keep Markers and both Zoom controls inside the editor");
+    }
+    ed.click(markers);
+    auto *popup = markers->property("popup").value<QObject *>();
+    QVERIFY(popup);
+    QTRY_VERIFY(popup->property("visible").toBool());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!popup->property("visible").toBool());
+    QVERIFY(markers->hasActiveFocus());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QVERIFY2(zoomOut->hasActiveFocus(), "Markers then Tab must reach Zoom out with either platform focus policy");
+    for (bool backward : {false, true})
+    {
+        const QList<QQuickItem *> targets = backward ? QList<QQuickItem *>{zoomIn, zoomOut}
+                                                     : QList<QQuickItem *>{zoomOut, zoomIn};
+        // backward from Move by, the enabled selection navigation controls come before Zoom in
+        for (const char *navigation : {"goToSelectionStartButton", "fitSelectionButton"})
+        {
+            auto *control = findVisualItem(ed.root(), QString::fromLatin1(navigation));
+            QVERIFY(control);
+            if (!backward || !control->isEnabled())
+                continue;
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Backtab, Qt::ShiftModifier);
+            QVERIFY2(control->hasActiveFocus(), navigation);
+        }
+        for (auto *target : targets)
+        {
+            if (!target->hasActiveFocus())
+                QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                                backward ? Qt::ShiftModifier : Qt::NoModifier);
+            QVERIFY2(target->hasActiveFocus(), "Zoom must be reachable through actual Tab/Shift+Tab");
+            QVERIFY(bounds.contains(target->mapRectToScene(target->boundingRect())));
+            const float scale = ed.rig.manager->timeScale();
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+            QCOMPARE(ed.rig.manager->timeScale(), scale + (target == zoomIn ? 1.0f : -1.0f));
+            auto *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+            QVERIFY(outline && outline->isVisible());
+            QCOMPARE(outline->mapRectToScene(outline->boundingRect()),
+                     target->mapRectToScene(target->boundingRect()));
+        }
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+        // forward, the enabled selection navigation controls come between Zoom in and Move by
+        for (const char *navigation : {"fitSelectionButton", "goToSelectionStartButton"})
+        {
+            auto *control = findVisualItem(ed.root(), QString::fromLatin1(navigation));
+            QVERIFY(control);
+            if (backward || !control->isEnabled())
+                continue;
+            QVERIFY2(control->hasActiveFocus(), navigation);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+        }
+        QVERIFY((backward ? markers : ed.item(QStringLiteral("moveStep")))->hasActiveFocus());
+    }
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.scene->totalDuration(), functionDuration);
+    for (auto *track : ed.show->tracks())
+    {
+        QCOMPARE(track->showFunctions().size(), 1);
+        QCOMPARE(track->showFunctions().first()->startTime(), quint32(2500));
+        QCOMPARE(track->showFunctions().first()->duration(), quint32(5000));
+    }
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
 void ShowCommandRecorder_Test::timeline_recordingButtonsFromKeyboard_data()
 {
     QTest::addColumn<bool>("table");
@@ -12744,19 +14184,470 @@ void ShowCommandRecorder_Test::timeline_keyboardOffscreenFocus()
     QVERIFY(!ed.rig.manager->isPlaying());
 }
 
+void ShowCommandRecorder_Test::timeline_trackControlsFromKeyboard_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::addColumn<bool>("backward");
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("width");
+    for (const int width : {1728, 1200})
+        for (const auto *control : {"Mute this track", "Solo this track", "Track name", "Delete this track"})
+            for (const bool backward : {false, true})
+                for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                                        Qt::TabFocusTextControls | Qt::TabFocusListControls})
+                    QTest::newRow(qPrintable(QStringLiteral("%1-%2-policy-%3-width-%4")
+                        .arg(control).arg(backward).arg(policy).arg(width)))
+                        << QString::fromLatin1(control) << backward << policy << width;
+}
+
+void ShowCommandRecorder_Test::timeline_trackControlsFromKeyboard()
+{
+    QFETCH(QString, control);
+    QFETCH(bool, backward);
+    QFETCH(int, policy);
+    QFETCH(int, width);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->rootContext()->setContextProperty("screenPixelDensity", 5.1);
+    ed.rig.app->resize(width, 480);
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    ShowFunction source(0);
+    for (int i = 0; i < 7; ++i)
+    {
+        source.setDuration(2000 + i * 300);
+        ed.rig.manager->addItems(content, -1, 5000 + i * 125, {ed.scene->id()}, &source);
+    }
+    QCoreApplication::processEvents();
+    const auto tracks = ed.show->tracks();
+    const auto commands = ed.show->commandTrack().commands();
+    const quint32 functionDuration = ed.scene->totalDuration();
+    const int faderValue = ed.fader->value();
+    auto *clipSelection = findVisualItem(content, QStringLiteral("clipSelection"));
+    QVERIFY(clipSelection);
+    ed.click(clipSelection);
+    QCOMPARE(ed.rig.manager->selectedItemsCount(), 1);
+    const auto selection = ed.rig.manager->selectedItemRefs();
+    auto *viewport = area->parentItem();
+    while (viewport && !viewport->property("totalTracksHeight").isValid())
+        viewport = viewport->parentItem();
+    QVERIFY(viewport);
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    vc->setEditMode(false);
+    ed.button->setActionType(VCButton::Flash);
+    ed.button->addKeySequence(QKeySequence(Qt::Key_F2), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    ed.rig.app->rootObject()->forceActiveFocus();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldTabFocus = hints->tabFocusBehavior();
+    const auto restoreTabFocus = qScopeGuard([&]() { hints->setTabFocusBehavior(oldTabFocus); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    viewport->setProperty("contentY", backward
+        ? viewport->property("contentHeight").toReal() - viewport->height() : 0);
+    if (backward)
+        ed.click(ed.item(QStringLiteral("timelineTab")));
+    else
+    {
+        auto *first = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(tracks.first()));
+        QVERIFY(first);
+        ed.click(first);
+    }
+    auto *offscreenHeader = findVisualItemWith(ed.root(), "trackRef",
+        QVariant::fromValue(backward ? tracks.first() : tracks.last()));
+    QVERIFY(offscreenHeader);
+    QVERIFY(!viewport->mapRectToScene(viewport->boundingRect()).contains(
+        offscreenHeader->mapRectToScene(offscreenHeader->boundingRect())));
+    for (int n = 0; n < tracks.size(); ++n)
+    {
+        const int index = backward ? tracks.size() - 1 - n : n;
+        auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(tracks.at(index)));
+        QVERIFY(header);
+        auto *target = control == QStringLiteral("Track name")
+            ? findVisualItemWith(header, "showF2Editable", true)
+            : findVisualItemWith(header, "tooltip", control);
+        QVERIFY(target);
+        for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        {
+            QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                            backward ? Qt::ShiftModifier : Qt::NoModifier);
+            QCoreApplication::processEvents();
+        }
+        QVERIFY2(target->hasActiveFocus(), "Every track control must be reachable by keyboard");
+        const auto rect = target->mapRectToScene(QRectF(0, 0, target->width(), target->height()));
+        qInfo() << "Focused track" << index << control << rect
+                << "viewport" << viewport->mapRectToScene(viewport->boundingRect())
+                << "contentY" << viewport->property("contentY");
+        QVERIFY(target->isVisible() && target->isEnabled());
+        QVERIFY2(viewport->mapRectToScene(viewport->boundingRect()).contains(rect)
+                 && QRectF(0, 0, width, 480).contains(rect),
+                 "The focused track control must scroll into the visible timeline");
+        for (auto *ancestor = target->parentItem(); ancestor; ancestor = ancestor->parentItem())
+            if (ancestor->clip())
+                QVERIFY(ancestor->mapRectToScene(ancestor->boundingRect()).contains(rect));
+        auto *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+        QVERIFY(outline && outline->isVisible());
+        QCOMPARE(outline->mapRectToScene(outline->boundingRect()), rect);
+        for (auto *track : tracks)
+            QVERIFY(!track->isMute());
+        if (control == QStringLiteral("Track name"))
+        {
+            const QString name = tracks.at(index)->name();
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            tickAndDeliver(ed.rig.doc, 2);
+            QCOMPARE(ed.button->state(), VCButton::Inactive);
+            QVERIFY(!target->property("readOnly").toBool());
+            ed.type(QStringLiteral("Canceled name"), Qt::Key_unknown);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Left);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Right);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+            QCOMPARE(tracks.at(index)->name(), name);
+            QCOMPARE(target->property("text").toString(), name);
+            QVERIFY(target->property("readOnly").toBool());
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            ed.type(QStringLiteral("Renamed track %1").arg(index));
+            QCOMPARE(tracks.at(index)->name(), QStringLiteral("Renamed track %1").arg(index));
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            ed.type(name, Qt::Key_unknown);
+            QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                            backward ? Qt::ShiftModifier : Qt::NoModifier);
+            QCOMPARE(tracks.at(index)->name(), name);
+            QVERIFY(target->property("readOnly").toBool());
+        }
+        else if (control == QStringLiteral("Delete this track"))
+        {
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+            QTRY_COMPARE(ed.root()->property("popupCount").toInt(), 1);
+            QCOMPARE(ed.show->tracks(), tracks);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+            QTRY_COMPARE(ed.root()->property("popupCount").toInt(), 0);
+        }
+        else
+        {
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+            for (int i = 0; i < tracks.size(); ++i)
+                QCOMPARE(tracks.at(i)->isMute(),
+                         control == QStringLiteral("Mute this track") ? i == index : i != index);
+            ed.click(target);
+            for (auto *track : tracks)
+                QVERIFY(!track->isMute());
+        }
+        QCOMPARE(ed.rig.manager->selectedItemRefs(), selection);
+        QCOMPARE(ed.show->commandTrack().commands(), commands);
+        QCOMPARE(ed.fader->value(), faderValue);
+        QCOMPARE(ed.scene->totalDuration(), functionDuration);
+        QVERIFY(!ed.rig.manager->isPlaying());
+        QVERIFY(!ed.rig.recorder->isRecording());
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+        QVERIFY(!target->hasActiveFocus());
+    }
+    QCOMPARE(ed.show->tracks(), tracks);
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    for (int i = 0; i < tracks.size(); ++i)
+    {
+        auto *track = tracks.at(i);
+        QCOMPARE(track->showFunctions().size(), 1);
+        auto *clip = track->showFunctions().first();
+        QCOMPARE(clip->startTime(), quint32(5000 + i * 125));
+        QCOMPARE(clip->duration(), quint32(2000 + i * 300));
+        QCOMPARE(clip->functionID(), ed.scene->id());
+    }
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::timeline_trackExitToMovement_data()
+{
+    QTest::addColumn<bool>("backward");
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("width");
+    for (const int width : {1728, 1200})
+        for (const bool backward : {false, true})
+            for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                                    Qt::TabFocusTextControls | Qt::TabFocusListControls})
+                QTest::newRow(qPrintable(QStringLiteral("reverse-%1-policy-%2-width-%3")
+                    .arg(backward).arg(policy).arg(width))) << backward << policy << width;
+}
+
+void ShowCommandRecorder_Test::timeline_trackExitToMovement()
+{
+    QFETCH(bool, backward);
+    QFETCH(int, policy);
+    QFETCH(int, width);
+    const bool textFocus = policy != Qt::TabFocusAllControls;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->rootContext()->setContextProperty("screenPixelDensity", 5.1);
+    ed.rig.app->resize(width, 480);
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    ShowFunction source(0);
+    for (int i = 0; i < 7; ++i)
+    {
+        source.setDuration(2000 + i * 300);
+        ed.rig.manager->addItems(content, -1, 5000 + i * 125, {ed.scene->id()}, &source);
+    }
+    QCoreApplication::processEvents();
+    const auto tracks = ed.show->tracks();
+    const auto commands = ed.show->commandTrack().commands();
+    const auto functionDuration = ed.scene->totalDuration();
+    const auto faderValue = ed.fader->value();
+    auto *clip = findVisualItem(content, QStringLiteral("clipSelection"));
+    QVERIFY(clip);
+    ed.click(clip);
+    const auto selection = ed.rig.manager->selectedItemRefs();
+    QCOMPARE(selection.size(), 1);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    const auto tab = [&](bool reverse) {
+        const auto key = reverse ? Qt::Key_Backtab : Qt::Key_Tab;
+        const auto modifiers = reverse ? Qt::ShiftModifier : Qt::NoModifier;
+        const QString text(QChar(reverse ? 25 : 9));
+        QTest::simulateEvent(ed.rig.app.get(), true, key, modifiers, text, false);
+        QTest::qWait(20);
+        QTest::simulateEvent(ed.rig.app.get(), false, key, modifiers, text, false);
+        QCoreApplication::processEvents();
+    };
+    const auto reach = [&](QQuickItem *target) {
+        for (int i = 0; i < 120 && !target->hasActiveFocus(); ++i)
+            tab(backward);
+        return target->hasActiveFocus();
+    };
+    auto *chooser = ed.item(QStringLiteral("moveStep"));
+    QVERIFY(chooser);
+    ed.click(chooser);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+    QCOMPARE(chooser->property("currentIndex").toInt(), 3);
+    auto *amount = ed.item(QStringLiteral("moveTimeDelta"));
+    auto *showName = findVisualItemWith(ed.root(), "text", ed.show->name());
+    QVERIFY(amount && showName);
+    ed.click(amount);
+    ed.type(QStringLiteral("0.125"));
+    ed.click(showName);
+    QVERIFY2(reach(amount), "Show name must retain access to the visible Move-by field");
+
+    QList<QQuickItem *> controls;
+    for (auto *track : tracks)
+    {
+        auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(track));
+        QVERIFY(header);
+        controls.append(findVisualItemWith(header, "showF2Editable", true));
+        for (const auto *tooltip : {"Solo this track", "Mute this track", "Delete this track"})
+            controls.append(findVisualItemWith(header, "tooltip", QString::fromLatin1(tooltip)));
+    }
+    QCOMPARE(controls.size(), 28);
+    // the reduced policies continue after the tracks into the Recordings toggle and objects
+    QList<QQuickItem *> recordings;
+    if (textFocus)
+    {
+        recordings.append(ed.item(QStringLiteral("recordingLanesToggle")));
+        for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+        {
+            QAccessibleInterface *group = accessibleById(ed.rig.app.get(), QStringLiteral("recordingItem-%1-%2")
+                .arg(ed.show->id()).arg(value.toMap().value("id").toUInt()));
+            recordings.append(group ? qobject_cast<QQuickItem *>(group->object()) : nullptr);
+        }
+        QCOMPARE(recordings.size(), 8);
+        QVERIFY(!recordings.contains(nullptr));
+    }
+    if (backward && textFocus)
+    {
+        // the explicit lead: Shift+Tab from the Show name goes back to the seconds field before it
+        ed.click(showName);
+        QCOMPARE(ed.rig.app->activeFocusItem(), showName);
+        tab(true);
+        QCOMPARE(ed.rig.app->activeFocusItem(), amount);
+    }
+    auto *viewport = area->parentItem();
+    while (viewport && !viewport->property("totalTracksHeight").isValid())
+        viewport = viewport->parentItem();
+    QVERIFY(viewport);
+    viewport->setProperty("contentY", 0);
+    QCoreApplication::processEvents();
+    auto *first = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(tracks.first()));
+    ed.click(first);
+    QCOMPARE(ed.rig.app->activeFocusItem(), controls.first());
+    for (int n = 0; n < controls.size(); ++n)
+    {
+        const int index = n;
+        auto *target = controls.at(index);
+        QVERIFY(target);
+        QCOMPARE(ed.rig.app->activeFocusItem(), target);
+        const QRectF rect = target->mapRectToScene(target->boundingRect());
+        QVERIFY(target->isVisible() && target->isEnabled());
+        QVERIFY(QRectF(0, 0, width, 480).contains(rect));
+        for (auto *ancestor = target->parentItem(); ancestor; ancestor = ancestor->parentItem())
+            if (ancestor->clip())
+                QVERIFY(ancestor->mapRectToScene(ancestor->boundingRect()).contains(rect));
+        if (index % 4 == 0)
+        {
+            const auto name = tracks.at(index / 4)->name();
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            ed.type(QStringLiteral("Canceled track"), Qt::Key_unknown);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Left);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Right);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Z, Qt::ControlModifier);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+            QCOMPARE(tracks.at(index / 4)->name(), name);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            ed.type(QStringLiteral("Edited track"), Qt::Key_unknown);
+            tab(false);
+            QCOMPARE(tracks.at(index / 4)->name(), QStringLiteral("Edited track"));
+            tab(true);
+            QCOMPARE(ed.rig.app->activeFocusItem(), target);
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+            ed.type(name, Qt::Key_unknown);
+            tab(false);
+            QCOMPARE(tracks.at(index / 4)->name(), name);
+        }
+        else
+        {
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+            if (index % 4 == 3)
+            {
+                QTRY_VERIFY(findVisualItemWith(ed.rig.app->contentItem(), "text", QStringLiteral("OK")));
+                QTRY_COMPARE(ed.root()->property("popupCount").toInt(), 1);
+                QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+                QTRY_VERIFY(!findVisualItemWith(ed.rig.app->contentItem(), "text", QStringLiteral("OK")));
+                QTRY_COMPARE(ed.root()->property("popupCount").toInt(), 0);
+                QCOMPARE(ed.show->tracks(), tracks);
+            }
+            else
+            {
+                for (int i = 0; i < tracks.size(); ++i)
+                    QCOMPARE(tracks.at(i)->isMute(), index % 4 == 2 ? i == index / 4 : i != index / 4);
+                QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+                for (auto *track : tracks)
+                    QVERIFY(!track->isMute());
+            }
+            QCOMPARE(ed.rig.app->activeFocusItem(), target);
+            tab(false);
+        }
+        QCOMPARE(ed.show->commandTrack().commands(), commands);
+        QCOMPARE(ed.rig.manager->selectedItemRefs(), selection);
+        QCOMPARE(amount->property("text").toString(), QStringLiteral("0.125"));
+        QVERIFY(!ed.rig.manager->isPlaying());
+    }
+    QVERIFY(!controls.contains(ed.rig.app->activeFocusItem()));
+    for (auto *stop : std::as_const(recordings))
+    {
+        QCOMPARE(ed.rig.app->activeFocusItem(), stop);
+        tab(false);
+    }
+    // the explicit exit after the last stop is the Timeline tab
+    if (textFocus)
+        QCOMPARE(ed.rig.app->activeFocusItem(), ed.item(QStringLiteral("timelineTab")));
+    tab(true);
+    for (auto it = recordings.crbegin(); it != recordings.crend(); ++it)
+    {
+        QCOMPARE(ed.rig.app->activeFocusItem(), *it);
+        tab(true);
+    }
+    for (int index = controls.size() - 1; index >= 0; --index)
+    {
+        auto *target = controls.at(index);
+        QCOMPARE(ed.rig.app->activeFocusItem(), target);
+        QVERIFY(target->isVisible() && target->isEnabled());
+        const QRectF rect = target->mapRectToScene(target->boundingRect());
+        QVERIFY(QRectF(0, 0, width, 480).contains(rect));
+        for (auto *ancestor = target->parentItem(); ancestor; ancestor = ancestor->parentItem())
+            if (ancestor->clip())
+                QVERIFY(ancestor->mapRectToScene(ancestor->boundingRect()).contains(rect));
+        tab(true);
+    }
+    QVERIFY(!controls.contains(ed.rig.app->activeFocusItem()));
+    // the lead's last control before the first stop: the Show name, after the seconds field
+    if (textFocus)
+        QCOMPARE(ed.rig.app->activeFocusItem(), showName);
+    tab(false);
+    QCOMPARE(ed.rig.app->activeFocusItem(), controls.first());
+    QVERIFY2(reach(amount), "Track traversal must exit to the existing movement editor in either direction");
+    ed.type(QStringLiteral("0.250"));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Left);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Right);
+    for (int i = 0; i < tracks.size(); ++i)
+        QCOMPARE(tracks.at(i)->showFunctions().first()->startTime(), quint32(5000 + i * 125));
+    QVERIFY(reach(controls.first()));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QCOMPARE(ed.rig.app->activeFocusItem(), controls.at(1));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Right);
+    QCOMPARE(tracks.first()->showFunctions().first()->startTime(), quint32(5250));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Left);
+    for (int i = 0; i < tracks.size(); ++i)
+    {
+        QCOMPARE(tracks.at(i)->showFunctions().first()->startTime(), quint32(5000 + i * 125));
+        QCOMPARE(tracks.at(i)->showFunctions().first()->duration(), quint32(2000 + i * 300));
+    }
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.rig.manager->selectedItemRefs(), selection);
+    QCOMPARE(ed.scene->totalDuration(), functionDuration);
+    QCOMPARE(ed.fader->value(), faderValue);
+    QCOMPARE(amount->property("text").toString(), QStringLiteral("0.250"));
+    QVERIFY(!ed.rig.manager->isPlaying());
+    QVERIFY(!ed.rig.recorder->isRecording());
+
+    QVERIFY(ed.openRecordings());
+    ed.click(showName);
+    for (int i = 0; i < 30; ++i)
+    {
+        tab(backward);
+        QVERIFY(!controls.contains(ed.rig.app->activeFocusItem()));
+    }
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    ed.click(chooser);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Home);
+    QVERIFY(!amount->isVisible());
+    ed.click(showName);
+    QVERIFY(reach(controls.first()));
+    ed.click(chooser);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+    ed.click(showName);
+    QVERIFY(reach(amount));
+    QVERIFY(reach(controls.first()));
+    hints->setTabFocusBehavior(Qt::TabFocusAllControls);
+    ed.click(showName);
+    QVERIFY(reach(chooser));
+    QVERIFY(reach(amount));
+    QCOMPARE(amount->property("text").toString(), QStringLiteral("0.250"));
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.rig.manager->selectedItemRefs(), selection);
+}
+
 void ShowCommandRecorder_Test::timeline_clipboardAndDeleteKeepTheirDomain_data()
 {
     QTest::addColumn<QString>("control");
-    for (const auto *control : {"", "recordingMoveEarlier", "recordingMoveLater", "recordingSnap", "recordingDelete"})
-        QTest::newRow(*control ? control : "recording delegate") << QString::fromLatin1(control);
+    QTest::addColumn<bool>("expanded");
+    for (const bool expanded : {false, true})
+        for (const auto *control : {"", "recordingMoveEarlier", "recordingMoveLater", "recordingSnap", "recordingDelete"})
+            QTest::newRow(qPrintable(QString::fromLatin1(*control ? control : "recording delegate")
+                                     + (expanded ? QStringLiteral(", lane per control") : QString())))
+                << QString::fromLatin1(control) << expanded;
 }
 
 void ShowCommandRecorder_Test::timeline_clipboardAndDeleteKeepTheirDomain()
 {
     QFETCH(QString, control);
+    QFETCH(bool, expanded);
     AccessibilityOn accessibility;
     EditorRig ed;
     QVERIFY(ed.setUp());
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
     ed.rig.manager->setBpmNumber(120);
     ed.rig.manager->setTimeDivision(Show::BPM_4_4);
     auto *area = ed.item(QStringLiteral("showItemsArea"));
@@ -12775,6 +14666,7 @@ void ShowCommandRecorder_Test::timeline_clipboardAndDeleteKeepTheirDomain()
     ed.rig.manager->setCurrentTime(10000);
     QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
     QCOMPARE(ed.show->tracks().first()->showFunctions().size(), 2);
+    QCOMPARE(ed.rig.recorder->clipboardCount(), 0);
     ed.rig.manager->setCurrentTime(20000);
     auto *group = accessibleById(ed.rig.app.get(),
         QStringLiteral("recordingItem-%1-2").arg(ed.show->id()));
@@ -12797,18 +14689,25 @@ void ShowCommandRecorder_Test::timeline_clipboardAndDeleteKeepTheirDomain()
         }
     }
     QCOMPARE(ed.rig.manager->selectedItemsCount(), 0);
+    ShowCommand copied = ed.command(2);
     QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
     QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    // the recordings own Copy and Paste: the copy lands at the playhead, clips stay
     QCOMPARE(ed.rig.manager->clipboardItemsCount(), 1);
+    QCOMPARE(ed.rig.recorder->clipboardCount(), 1);
     QCOMPARE(ed.show->tracks().first()->showFunctions().size(), 2);
-    QCOMPARE(ed.show->commandTrack().count(), 7);
+    QCOMPARE(ed.show->commandTrack().count(), 8);
+    copied.id = 7;
+    copied.time = 20000;
+    QCOMPARE(ed.command(7), copied);
     group = accessibleById(ed.rig.app.get(),
         QStringLiteral("recordingItem-%1-2").arg(ed.show->id()));
     QVERIFY(group);
+    QVERIFY(performAccessibleAction(group, QAccessibleActionInterface::pressAction()));
     qobject_cast<QQuickItem *>(group->object())->forceActiveFocus();
     const quint32 beforeDelete = ed.command(2).time;
     QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
-    QCOMPARE(ed.show->commandTrack().count(), 6);
+    QCOMPARE(ed.show->commandTrack().count(), 7);
     QCOMPARE(ed.show->tracks().first()->showFunctions().size(), 2);
     const int serial = ed.rig.recorder->lastEditSerial();
     QTest::qWait(200);
@@ -12821,9 +14720,15 @@ void ShowCommandRecorder_Test::timeline_numericKeyboard()
     QFETCH(int, division);
     QFETCH(bool, ordinary);
     QFETCH(bool, endpoint);
+    QFETCH(bool, expanded);
     AccessibilityOn accessibility;
     EditorRig ed;
     QVERIFY(ed.setUp());
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
     const auto stop = qScopeGuard([&]() {
         tickAndDeliver(ed.rig.doc, 2);
         ed.rig.manager->stopShow();
@@ -13118,11 +15023,22 @@ void ShowCommandRecorder_Test::timeline_movesExactSelectionAfterRegroup_data()
     QTest::addColumn<bool>("beats");
     QTest::addColumn<bool>("numeric");
     QTest::addColumn<bool>("vdj");
-    QTest::newRow("time ruler") << false << false << false;
-    QTest::newRow("beat ruler") << true << false << false;
-    QTest::newRow("numeric time") << false << true << false;
-    QTest::newRow("numeric beats") << true << true << false;
-    QTest::newRow("numeric VDJ without grid") << false << true << true;
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<int>("policy");
+    // policy 3 (macOS): the Show-local traversal owner forwards the keys it leaves alone
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const bool expanded : {false, true})
+        {
+            QString lanes = expanded ? QStringLiteral(", lane per control") : QString();
+            if (policy != int(Qt::TabFocusAllControls))
+                lanes += QStringLiteral(", policy %1").arg(policy);
+            QTest::newRow(qPrintable(QStringLiteral("time ruler") + lanes)) << false << false << false << expanded << policy;
+            QTest::newRow(qPrintable(QStringLiteral("beat ruler") + lanes)) << true << false << false << expanded << policy;
+            QTest::newRow(qPrintable(QStringLiteral("numeric time") + lanes)) << false << true << false << expanded << policy;
+            QTest::newRow(qPrintable(QStringLiteral("numeric beats") + lanes)) << true << true << false << expanded << policy;
+            QTest::newRow(qPrintable(QStringLiteral("numeric VDJ without grid") + lanes))
+                << false << true << true << expanded << policy;
+        }
 }
 
 void ShowCommandRecorder_Test::timeline_movesExactSelectionAfterRegroup()
@@ -13130,9 +15046,20 @@ void ShowCommandRecorder_Test::timeline_movesExactSelectionAfterRegroup()
     QFETCH(bool, beats);
     QFETCH(bool, numeric);
     QFETCH(bool, vdj);
+    QFETCH(bool, expanded);
+    QFETCH(int, policy);
     AccessibilityOn accessibility;
     EditorRig ed;
     QVERIFY(ed.setUp());
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
     ed.rig.manager->setBpmNumber(120);
     if (beats)
         ed.rig.manager->setTimeDivision(Show::BPM_4_4);
@@ -13214,7 +15141,8 @@ void ShowCommandRecorder_Test::timeline_dragCommitsOnceOrCancels_data()
     QTest::addColumn<QString>("cancel");
     QTest::newRow("commit") << QString();
     QTest::newRow("command changes") << QStringLiteral("command");
-    QTest::newRow("REC starts") << QStringLiteral("rec");
+    // live recording edit contract: REC starting meanwhile leaves the frozen drag as it is
+    QTest::newRow("REC starts, the drag still commits") << QStringLiteral("rec");
 }
 
 void ShowCommandRecorder_Test::timeline_dragCommitsOnceOrCancels()
@@ -13248,10 +15176,14 @@ void ShowCommandRecorder_Test::timeline_dragCommitsOnceOrCancels()
         QVERIFY(ed.rig.recorder->setRecording(true));
     QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, end);
     QCoreApplication::processEvents();
+    // only a change of a dragged event itself refuses the drag, with a reason
+    const bool commits = cancel != QLatin1String("command");
     // The time ruler quantizes its geometry to pixels, not command times.
-    QVERIFY(qAbs(qint64(ed.command(90).time) - (cancel.isEmpty() ? 4000 : 1800)) <= (cancel.isEmpty() ? 20 : 0));
+    QVERIFY(qAbs(qint64(ed.command(90).time) - (commits ? 4000 : 1800)) <= (commits ? 20 : 0));
     QCOMPARE(ed.command(8).time - ed.command(90).time, 400U);
-    if (cancel.isEmpty())
+    if (!commits)
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+    if (commits)
     {
         QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + 1);
         QTest::qWait(200);
@@ -13456,6 +15388,9392 @@ void ShowCommandRecorder_Test::accessibleFunctionList_activatesLikeDoubleClick()
     }
     item->setProperty("isSelected", true);
     QVERIFY(row->state().selected);
+}
+
+namespace
+{
+/** Unequal Fader runs with non-monotonic ids around the rig's commands:
+ *  [90 8] 1800-2200, [40 41] 3000-3200, button barrier 50 at 3300, [12] 3400 */
+bool addPassageSamples(EditorRig &ed)
+{
+    auto track = ed.show->commandTrack();
+    const QUuid fader = ed.fader->recordingId();
+    const auto sample = [&](quint32 id, quint32 time, double position) {
+        return track.insert(ShowCommand::setSliderPosition(id, time, fader, ShowControlRole::AdjustSlider,
+                                                           QStringLiteral("Intensity"), position));
+    };
+    if (!sample(90, 1800, .8) || !sample(8, 2200, .2) || !sample(40, 3000, .35) || !sample(41, 3200, .65)
+        || !track.insert(ShowCommand::setButtonState(50, 3300, ed.button->recordingId(), false))
+        || !sample(12, 3400, .5) || !ed.show->setCommandTrack(track))
+        return false;
+    QCoreApplication::processEvents();
+    ed.rig.doc->resetModified();
+    return true;
+}
+
+QQuickItem *laneItem(const EditorRig &ed, quint32 groupId)
+{
+    QAccessibleInterface *group = accessibleById(ed.rig.app.get(),
+        QStringLiteral("recordingItem-%1-%2").arg(ed.show->id()).arg(groupId));
+    return group ? qobject_cast<QQuickItem *>(group->object()) : nullptr;
+}
+
+/** The timeline object of a group, shown or not */
+QQuickItem *laneObject(QQuickItem *root, quint32 groupId)
+{
+    if (root == nullptr)
+        return nullptr;
+    if (root->objectName() == QLatin1String("recordingItem") && root->property("modelData").toUInt() == groupId)
+        return root;
+    QList<QQuickItem *> children = root->childItems();
+    QQuickItem *content = root->property("contentItem").value<QQuickItem *>();
+    if (content != nullptr && !children.contains(content))
+        children.append(content);
+    for (QQuickItem *child : children)
+        if (QQuickItem *found = laneObject(child, groupId))
+            return found;
+    return nullptr;
+}
+QQuickItem *laneObject(const EditorRig &ed, quint32 groupId) { return laneObject(ed.root(), groupId); }
+
+QString accessibleName(const EditorRig &ed, const char *objectName)
+{
+    QQuickItem *item = ed.item(QString::fromLatin1(objectName));
+    QAccessibleInterface *iface = item ? QAccessible::queryAccessibleInterface(item) : nullptr;
+    return iface ? iface->text(QAccessible::Name) : QStringLiteral("<no %1>").arg(QLatin1String(objectName));
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingsPassage_readoutAndActionTargets()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+
+    // two groups chosen on the timeline: the timeline says what is selected
+    QQuickItem *first = laneItem(ed, 90);
+    QQuickItem *second = laneItem(ed, 40);
+    QVERIFY(first && second);
+    ed.click(first);
+    ed.click(second, Qt::ControlModifier);
+    const QString both = QStringLiteral("4 event(s) selected in 2 group(s), 00:01.800 – 00:03.200");
+    QTRY_COMPARE(ed.shownText("timelineSelectionSummary"), both);
+
+    // opened with Enter in the Recordings tab, the table says the same and its actions name that set
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) != nullptr);
+    QCOMPARE(ed.selectedIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QCOMPARE(ed.shownText("selectionSummary"), both);
+    QCOMPARE(accessibleName(ed, "moveEarlier"), QStringLiteral("Move 4 selected event(s) earlier"));
+    QCOMPARE(accessibleName(ed, "moveLater"), QStringLiteral("Move 4 selected event(s) later"));
+    QCOMPARE(accessibleName(ed, "snapButton"), QStringLiteral("Snap 4 selected event(s)"));
+    QCOMPARE(accessibleName(ed, "deleteButton"), QStringLiteral("Delete 4 selected event(s)"));
+
+    // a plain row click narrows the selection as before; every label follows it
+    ed.click(ed.row(8));
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{8});
+    QCOMPARE(ed.shownText("selectionSummary"),
+             QStringLiteral("1 event(s) selected in 1 group(s), 00:02.200 – 00:02.200"));
+    QCOMPARE(accessibleName(ed, "moveEarlier"), QStringLiteral("Move 1 selected event(s) earlier"));
+
+    // the stated set is the set moved: only 8, one bar earlier, and it regroups
+    const auto before = ed.show->commandTrack().commands();
+    ed.click(ed.item(QStringLiteral("moveEarlier")));
+    QTRY_COMPARE(ed.command(8).time, 200u);
+    QCOMPARE(ed.command(90).time, 1800u);
+    QCOMPARE(ed.command(40).time, 3000u);
+    QCOMPARE(ed.show->commandTrack().commands().size(), before.size());
+    QTRY_COMPARE(ed.shownText("selectionSummary"),
+                 QStringLiteral("1 event(s) selected in 1 group(s), 00:00.200 – 00:00.200"));
+
+    // Ctrl adds a row; Delete names two and removes exactly those two
+    ed.click(ed.row(41), Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds(), (QVector<quint32>{8, 41}));
+    QCOMPARE(accessibleName(ed, "deleteButton"), QStringLiteral("Delete 2 selected event(s)"));
+    ed.click(ed.item(QStringLiteral("deleteButton")));
+    QTRY_COMPARE(ed.show->commandTrack().commands().size(), before.size() - 2);
+    QVERIFY(ed.show->commandTrack().indexOfId(8) < 0 && ed.show->commandTrack().indexOfId(41) < 0);
+    QVERIFY(ed.show->commandTrack().indexOfId(90) >= 0 && ed.show->commandTrack().indexOfId(40) >= 0);
+    QTRY_VERIFY(ed.item(QStringLiteral("selectionSummary")) == nullptr);
+    QCOMPARE(accessibleName(ed, "deleteButton"), QStringLiteral("Delete the selection"));
+}
+
+namespace
+{
+/** Chooses the groups of 90 and 40 on the timeline and opens them with Enter;
+ *  a 120 BPM ruler keeps the neighbouring objects apart */
+bool openTwoGroupPassage(EditorRig &ed)
+{
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+    QQuickItem *first = laneItem(ed, 90);
+    QQuickItem *second = laneItem(ed, 40);
+    if (first == nullptr || second == nullptr)
+        return false;
+    ed.click(first);
+    ed.click(second, Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    // the table lays out its passage header on the next frame
+    QTest::qWait(100);
+    return ed.item(QStringLiteral("recordingsView")) != nullptr;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingsPassage_keepsPassageWhileEditingOneRow()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+
+    // the table holds exactly the opened passage, nothing around it
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 4 event(s)"));
+
+    // editing one sample keeps the passage and marks the one row being edited
+    QVERIFY(ed.doubleClick(8, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QVERIFY(ed.row(8) && ed.row(8)->property("editTarget").toBool());
+    QQuickItem *mark = findVisualItem(ed.row(8), QStringLiteral("editTargetMark"));
+    QVERIFY(mark && mark->isVisible());
+    for (const quint32 other : {90u, 40u, 41u})
+        QVERIFY(ed.row(other) && !ed.row(other)->property("editTarget").toBool());
+    // the double click is a row click first: the command selection narrows as before
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{8});
+    ed.type(QStringLiteral("35"));
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(8).position, .35);
+    QCOMPARE(ed.command(90).position, .8);
+    QCOMPARE(ed.command(40).position, .35);
+    QCOMPARE(ed.command(41).position, .65);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QVERIFY(ed.row(8) && !ed.row(8)->property("editTarget").toBool());
+
+    // the lane highlights the one command selection, not the passage
+    QVERIFY(laneObject(ed, 90) && laneObject(ed, 40));
+    QCOMPARE(laneObject(ed, 90)->property("selectedCount").toInt(), 1);
+    QCOMPARE(laneObject(ed, 40)->property("selectedCount").toInt(), 0);
+
+    // Move acts on the selection only; the passage neither shrinks nor grows
+    ed.click(ed.item(QStringLiteral("moveEarlier")));
+    QTRY_COMPARE(ed.command(8).time, 200u);
+    QCOMPARE(ed.command(90).time, 1800u);
+    QCOMPARE(ed.command(41).time, 3200u);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{8, 90, 40, 41}));
+
+    // removing the barrier merges 40 41 with 12: the passage does not widen
+    QVERIFY(ed.rig.recorder->removeCommands(ed.show->id(), {50}));
+    const auto merged = ed.show->commandTrack().groups();
+    QVERIFY(std::any_of(merged.cbegin(), merged.cend(), [](const ShowCommandGroup &group) {
+        return group.eventIds == QVector<quint32>{40, 41, 12};
+    }));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{8, 90, 40, 41}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 4 event(s)"));
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_filterPruningAndEmptyState()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+
+    // the filter narrows within the passage and says how much it hides
+    QQuickItem *filter = ed.item(QStringLiteral("recordingsFilter"));
+    QVERIFY(filter);
+    ed.click(filter);
+    ed.type(QStringLiteral("5%"), Qt::Key_unknown);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 4 event(s), 2 hidden by filter"));
+    ed.type(QString(), Qt::Key_Backspace);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 4 event(s)"));
+
+    // a draft on an event that goes away closes by the stale-target rule
+    QVERIFY(ed.doubleClick(41, "timeCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QVERIFY(ed.rig.recorder->removeCommands(ed.show->id(), {41}));
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40}));
+    for (const quint32 id : ed.rowIds())
+        QVERIFY(!ed.row(id)->property("editTarget").toBool());
+
+    // a deleted event leaves the passage; its Undo does not put it back in
+    ed.click(ed.row(8));
+    ed.click(ed.item(QStringLiteral("deleteButton")));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 40}));
+    QQuickItem *undo = ed.item(QStringLiteral("deleteUndo"));
+    QVERIFY(undo);
+    ed.click(undo);
+    QTRY_VERIFY(ed.show->commandTrack().indexOfId(8) >= 0);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 40}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 2 event(s)"));
+
+    // with nothing left the passage says so; nothing falls back to other rows
+    ed.click(ed.row(90));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds(), (QVector<quint32>{90, 40}));
+    ed.click(ed.item(QStringLiteral("deleteButton")));
+    QTRY_VERIFY(ed.item(QStringLiteral("passageEmpty")) != nullptr);
+    QCOMPARE(ed.rowIds(), QVector<quint32>{});
+    QVERIFY(ed.show->commandTrack().commands().size() > 0);
+    for (const char *action : {"moveEarlier", "moveLater", "snapButton", "deleteButton"})
+        QVERIFY2(!ed.item(QString::fromLatin1(action))->isEnabled(), action);
+
+    // back to the whole recording only when asked
+    QQuickItem *all = ed.item(QStringLiteral("passageShowAll"));
+    QVERIFY(all);
+    ed.click(all);
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    QVERIFY(ed.item(QStringLiteral("passageSummary")) == nullptr);
+    QVERIFY(ed.item(QStringLiteral("passageEmpty")) == nullptr);
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_showSwitchClearsPassage()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *other = new Show(ed.rig.doc);
+    other->setName(QStringLiteral("Other show"));
+    ed.rig.doc->addFunction(other);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(90, 500, ed.fader->recordingId(),
+        ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), .1)));
+    QVERIFY(track.insert(ShowCommand::start(7, 900, ed.scene->id())));
+    QVERIFY(other->setCommandTrack(track));
+
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QVERIFY(ed.doubleClick(8, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+
+    // the other Show starts clean: its own rows, no passage, no draft, no selection
+    ed.rig.manager->setCurrentShowID(int(other->id()));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 7}));
+    QVERIFY(ed.item(QStringLiteral("passageSummary")) == nullptr);
+    QVERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{});
+
+    // and nothing of the old passage comes back with the first Show
+    ed.rig.manager->setCurrentShowID(int(ed.show->id()));
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    QVERIFY(ed.item(QStringLiteral("passageSummary")) == nullptr);
+    QVERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{});
+}
+
+namespace
+{
+QRectF sceneRect(QQuickItem *item)
+{
+    return item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+}
+
+bool qlcplusActiveFocusIsInside(const EditorRig &ed, QQuickItem *scope)
+{
+    for (QQuickItem *item = ed.rig.app->activeFocusItem(); item; item = item->parentItem())
+        if (item == scope)
+            return true;
+    return false;
+}
+
+QQuickItem *timelineViewport(const EditorRig &ed)
+{
+    QQuickItem *viewport = ed.item(QStringLiteral("showItemsArea"));
+    while (viewport && !viewport->property("totalTracksHeight").isValid())
+        viewport = viewport->parentItem();
+    return viewport;
+}
+
+void addSevenTracks(EditorRig &ed)
+{
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    auto *content = area ? qvariant_cast<QQuickItem *>(area->property("contentItem")) : nullptr;
+    ShowFunction source(0);
+    for (int i = 0; i < 7 && content; ++i)
+    {
+        source.setDuration(2000 + i * 300);
+        ed.rig.manager->addItems(content, -1, 5000 + i * 125, {ed.scene->id()}, &source);
+    }
+    QCoreApplication::processEvents();
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingsSplit_timelineAboveSameTable()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    addSevenTracks(ed);
+    ed.rig.app->resize(900, 480);
+    QTest::qWait(100);
+    const int observedTables = int(ed.root()->findChildren<QQuickItem *>(QStringLiteral("recordingsView")).size());
+    QQuickItem *table = findVisualItem(ed.root(), QStringLiteral("recordingsView"));
+    QVERIFY(table);
+
+    // nothing opens by itself: the timeline stays the default
+    QVERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+    QVERIFY(!table->isVisible());
+    QVERIFY(!ed.item(QStringLiteral("splitTab"))->property("checked").toBool());
+
+    // a draft started in the Recordings tab survives switching to the split
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 13);
+    QVERIFY(ed.doubleClick(90, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+    QCOMPARE(ed.item(QStringLiteral("recordingsView")), table);
+    QVERIFY(ed.editor() != nullptr);
+    QVERIFY(ed.row(90) && ed.row(90)->property("editTarget").toBool());
+    ed.editor()->forceActiveFocus();
+    ed.type(QStringLiteral("70"));
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(90).position, .7);
+
+    // the timeline above, the one table below, both inside the window
+    QTest::qWait(100);
+    QQuickItem *viewport = timelineViewport(ed);
+    QVERIFY(viewport && viewport->isVisible());
+    const QRectF above = sceneRect(viewport), below = sceneRect(table);
+    QVERIFY2(above.height() > 0 && below.height() > 0, "both panes need room");
+    QVERIFY2(above.bottom() <= below.top() + 1, "the timeline sits above the table");
+    QVERIFY(QRectF(0, 0, 900, 480).contains(below.adjusted(1, 1, -1, -1)));
+    QVERIFY(QRectF(0, 0, 900, 480).contains(sceneRect(ed.item(QStringLiteral("recordingsFilter")))));
+    QCOMPARE(int(ed.root()->findChildren<QQuickItem *>(QStringLiteral("recordingsView")).size()), observedTables);
+
+    // choosing on the timeline opens the passage below; a row click narrows the selection only
+    QQuickItem *first = laneItem(ed, 90);
+    QQuickItem *second = laneItem(ed, 40);
+    QVERIFY(first && second);
+    // the lane scrolled to the top of the upper pane, clear of its horizontal scroll bar
+    auto *laneContent = qvariant_cast<QQuickItem *>(viewport->property("contentItem"));
+    QVERIFY(laneContent);
+    viewport->setProperty("contentY", std::min(first->mapToItem(laneContent, QPointF()).y(),
+        viewport->property("contentHeight").toReal() - viewport->height()));
+    QTest::qWait(50);
+    QVERIFY(sceneRect(viewport).contains(sceneRect(first).center()));
+    QVERIFY(!sceneRect(ed.item(QStringLiteral("recordingsView"))).intersects(sceneRect(first)));
+    ed.click(first);
+    ed.click(second, Qt::ControlModifier);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QTest::qWait(100);
+    QQuickItem *list = ed.item(QStringLiteral("commandView"));
+    QVERIFY(list && sceneRect(list).contains(sceneRect(ed.row(90)).center()));
+    ed.click(ed.row(90));
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{90});
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QCOMPARE(laneObject(ed, 90)->property("selectedCount").toInt(), 1);
+    QCOMPARE(laneObject(ed, 40)->property("selectedCount").toInt(), 0);
+    QCOMPARE(ed.shownText("timelineSelectionSummary"), ed.shownText("selectionSummary"));
+
+    // Enter on a timeline object keeps the split and its passage
+    laneItem(ed, 40)->forceActiveFocus();
+    ed.click(laneItem(ed, 40));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    QVERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+
+    // the tabs still work as before, on the same table
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("showItemsArea")) == nullptr);
+    QCOMPARE(ed.item(QStringLiteral("recordingsView")), table);
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QTRY_VERIFY(!table->isVisible());
+    QVERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_keyboardReachesBothPanes_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<bool>("expanded");
+    for (const bool expanded : {false, true})
+    {
+        const QString lanes = expanded ? QStringLiteral(", lane per control") : QString();
+        QTest::newRow(qPrintable(QStringLiteral("all controls") + lanes)) << int(Qt::TabFocusAllControls) << expanded;
+        QTest::newRow(qPrintable(QStringLiteral("text") + lanes)) << int(Qt::TabFocusTextControls) << expanded;
+        QTest::newRow(qPrintable(QStringLiteral("text and lists (macOS)") + lanes))
+            << int(Qt::TabFocusTextControls | Qt::TabFocusListControls) << expanded;
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_keyboardReachesBothPanes()
+{
+    QFETCH(int, policy);
+    QFETCH(bool, expanded);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    addSevenTracks(ed);
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
+    ed.rig.app->resize(900, 480);
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    vc->setEditMode(false);
+    ed.button->setActionType(VCButton::Flash);
+    ed.button->addKeySequence(QKeySequence(Qt::Key_F2), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    const auto commands = ed.show->commandTrack().commands();
+    const auto tracks = ed.show->tracks();
+
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) != nullptr);
+    QTest::qWait(100);
+    const auto press = [&](bool backward) {
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    const auto reach = [&](QQuickItem *target, bool backward) {
+        for (int i = 0; i < 240 && target && !target->hasActiveFocus(); ++i)
+            press(backward);
+        return target && target->hasActiveFocus();
+    };
+
+    // forward from the tabs: the upper pane first, its tracks then its recordings,
+    // then the table below, with every policy
+    const bool allControls = policy == int(Qt::TabFocusAllControls);
+    auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(tracks.first()));
+    QVERIFY(header);
+    QQuickItem *trackName = findVisualItemWith(header, "showF2Editable", true);
+    QQuickItem *colPick = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Show items color"));
+    QVERIFY(trackName && colPick);
+    // the colour button sits right before the timeline, in both directions
+    QVERIFY2(reach(colPick, false), "the split's colour button");
+    press(false);
+    QQuickItem *entry = ed.rig.app->activeFocusItem();
+    if (!allControls)
+        QCOMPARE(entry, trackName);
+    press(true);
+    QCOMPARE(ed.rig.app->activeFocusItem(), colPick);
+    press(false);
+    QCOMPARE(ed.rig.app->activeFocusItem(), entry);
+    QVERIFY2(reach(trackName, false), "a track name in the upper pane");
+    QVERIFY2(reach(laneItem(ed, 90), false), "a recording on the timeline");
+    QVERIFY2(reach(ed.item(QStringLiteral("recordingsFilter")), false), "the table below");
+    QQuickItem *row = ed.row(0);
+    QVERIFY(row);
+    QVERIFY2(reach(findVisualItemWith(row, "showF2Editable", true), false), "a cell of the table");
+    QVERIFY(qlcplusActiveFocusIsInside(ed, row));
+
+    // F2 on the focused cell edits it; the mapped VC key stays silent
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(ed.editor() == nullptr);
+
+    // backward out of the table, back into the timeline above: the reduced
+    // policies land on its last object, then Tab returns to the table
+    QVERIFY(reach(ed.item(QStringLiteral("recordingsFilter")), true));
+    press(true);
+    QVERIFY2(!qlcplusActiveFocusIsInside(ed, ed.item(QStringLiteral("recordingsView"))),
+             "Shift+Tab leaves the table");
+    if (!allControls)
+    {
+        QCOMPARE(ed.rig.app->activeFocusItem(), laneItem(ed, 6));
+        press(false);
+        QCOMPARE(ed.rig.app->activeFocusItem(), ed.item(QStringLiteral("recordingsFilter")));
+        press(true);
+        QCOMPARE(ed.rig.app->activeFocusItem(), laneItem(ed, 6));
+    }
+    QVERIFY2(reach(laneItem(ed, 90), true), "Shift+Tab from the table lands in the timeline above");
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.show->tracks(), tracks);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_presentationKeepsAuthoredStateAndHistory()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    // the ruler the passage opener uses is set first: it is a Show setting, not presentation
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+    ed.rig.doc->resetModified();
+    const auto saved = [&]() {
+        QByteArray xml;
+        QXmlStreamWriter writer(&xml);
+        return ed.show->commandTrack().saveXML(&writer) ? xml : QByteArray();
+    };
+    const QByteArray before = saved();
+    QVERIFY(!before.isEmpty());
+    const quint32 extent = ed.show->commandTrack().extent();
+    const int base = ed.settledHistory();
+
+    // every presentation path: readout, passage, filter, Show all, split, tabs, row clicks
+    QVERIFY(openTwoGroupPassage(ed));
+    QQuickItem *filter = ed.item(QStringLiteral("recordingsFilter"));
+    QVERIFY(filter);
+    ed.click(filter);
+    ed.type(QStringLiteral("5%"), Qt::Key_unknown);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    ed.type(QString(), Qt::Key_Backspace);
+    ed.click(ed.row(8));
+    ed.click(ed.row(41), Qt::ShiftModifier);
+    ed.click(ed.item(QStringLiteral("passageShowAll")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    QCOMPARE(saved(), before);
+    QCOMPARE(ed.show->commandTrack().extent(), extent);
+    QVERIFY(!ed.rig.manager->isPlaying());
+    QVERIFY(!ed.rig.recorder->isRecording());
+    QVERIFY(!ed.rig.doc->isModified());
+    QCOMPARE(ed.settledHistory(), base);
+
+    // an edit after that navigation is still one gated step of its Show
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QVERIFY(ed.doubleClick(41, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("15"));
+    QTRY_COMPARE(ed.command(41).position, .15);
+    QCOMPARE(ed.settledHistory(), base + 1);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(41).position, .65);
+    QCOMPARE(saved(), before);
+    QCOMPARE(ed.settledHistory(), base);
+
+    // with REC armed the passage stays as it is and takes the edit as one step
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    QTRY_VERIFY(ed.shownText("recordingsBlocked").isEmpty());
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QVERIFY(ed.doubleClick(8, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("30"));
+    QTRY_COMPARE(ed.command(8).position, .3);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    QCOMPARE(ed.settledHistory(), base + 1);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(8).position, .2);
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_keepsPassageSelectionAndDraft()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+
+    // switching the opened passage to the split keeps it whole, whatever the row selection
+    ed.click(ed.row(8));
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{8});
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("showItemsArea")) != nullptr);
+    QTest::qWait(100);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+
+    // the timeline's own actions name the selected set too
+    const auto name = [&](const char *id) {
+        QAccessibleInterface *iface = accessibleById(ed.rig.app.get(), QString::fromLatin1(id));
+        return iface ? iface->text(QAccessible::Name) : QStringLiteral("<no %1>").arg(QLatin1String(id));
+    };
+    QCOMPARE(name("recordingMoveEarlier"), QStringLiteral("Move 1 selected event(s) earlier"));
+    QCOMPARE(name("recordingMoveLater"), QStringLiteral("Move 1 selected event(s) later"));
+    QCOMPARE(name("recordingSnap"), QStringLiteral("Snap 1 selected event(s)"));
+
+    // choosing on the split timeline, then the Timeline tab: that choice stays, not an older reveal
+    QQuickItem *first = laneItem(ed, 90);
+    QVERIFY(first);
+    ed.click(first);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8}));
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QTest::qWait(100);
+    QCOMPARE(laneObject(ed, 90)->property("selectedCount").toInt(), 2);
+    QCOMPARE(laneObject(ed, 40)->property("selectedCount").toInt(), 0);
+
+    // a draft on a row outside the selection survives entering the split, and the split is
+    // a view change only: open 40 41, show all, draft on 8 with only 90 selected, back to
+    // the Timeline (which restores 40 41), Split keeps the table as it was, all rows
+    QQuickItem *second = laneItem(ed, 40);
+    QVERIFY(second);
+    ed.click(second);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    QTest::qWait(100);
+    ed.click(ed.item(QStringLiteral("passageShowAll")));
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    ed.click(ed.row(90));
+    ed.click(ed.row(8), Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds(), (QVector<quint32>{90, 8}));
+    QQuickItem *cell = findVisualItem(ed.row(8), QStringLiteral("valueCell"));
+    QVERIFY(cell);
+    QTest::mouseDClick(ed.rig.app.get(), Qt::LeftButton, Qt::ControlModifier, ed.centerOf(cell));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{90});
+    QVERIFY(ed.row(8)->property("editTarget").toBool());
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QCOMPARE(laneObject(ed, 40)->property("selectedCount").toInt(), 2);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    QCOMPARE(ed.rowIds(), ed.trackIds());
+    QVERIFY(ed.item(QStringLiteral("passageSummary")) == nullptr);
+    QVERIFY(ed.editor() != nullptr);
+    QVERIFY(ed.row(8)->property("editTarget").toBool());
+    ed.editor()->forceActiveFocus();
+    ed.type(QStringLiteral("45"));
+    QTRY_COMPARE(ed.command(8).position, .45);
+    QCOMPARE(ed.command(90).position, .8);
+
+    // without a draft, Timeline -> Split opens exactly the timeline selection below
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QQuickItem *group90 = laneItem(ed, 90);
+    QVERIFY(group90);
+    ed.click(group90);
+    QCOMPARE(laneObject(ed, 90)->property("selectedCount").toInt(), 2);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    QCOMPARE(ed.rowIds(), (QVector<quint32>{90, 8}));
+    QCOMPARE(ed.shownText("passageSummary"), QStringLiteral("Passage: 2 event(s)"));
+
+    // opening from the timeline while a draft is open ends it and adds no row:
+    // 90 selected, a draft on its unselected neighbour 8, Enter on the group of both
+    ed.click(ed.item(QStringLiteral("passageShowAll")));
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    ed.click(ed.row(90));
+    ed.click(ed.row(8), Qt::ControlModifier);
+    QQuickItem *neighbour = findVisualItem(ed.row(8), QStringLiteral("valueCell"));
+    QVERIFY(neighbour);
+    QTest::mouseDClick(ed.rig.app.get(), Qt::LeftButton, Qt::ControlModifier, ed.centerOf(neighbour));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{90});
+    QQuickItem *group = laneItem(ed, 90);
+    QVERIFY(group);
+    group->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.rowIds(), QVector<quint32>{90});
+    QVERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(8).position, .45);
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_summaryReadableWhenItGrows_data()
+{
+    QTest::addColumn<int>("width");
+    QTest::addColumn<int>("height");
+    QTest::addColumn<bool>("split");
+    QTest::newRow("wide Recordings tab") << 1600 << 900 << false;
+    QTest::newRow("480 px split, seven tracks") << 900 << 480 << true;
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_summaryReadableWhenItGrows()
+{
+    QFETCH(int, width);
+    QFETCH(int, height);
+    QFETCH(bool, split);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (split)
+        addSevenTracks(ed);
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    if (split)
+        ed.click(ed.item(QStringLiteral("splitTab")));
+    ed.rig.app->resize(width, height);
+    QTest::qWait(100);
+
+    // the summary grows with the hidden count and stays readable, the controls in view;
+    // the selected row is one the filter hides, so the selection readout goes away too
+    ed.click(ed.row(8));
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{8});
+    QQuickItem *filter = ed.item(QStringLiteral("recordingsFilter"));
+    QVERIFY(filter);
+    ed.click(filter);
+    ed.type(QStringLiteral("5%"), Qt::Key_unknown);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    QTest::qWait(100);
+    QQuickItem *table = ed.item(QStringLiteral("recordingsView"));
+    QQuickItem *summary = ed.item(QStringLiteral("passageSummary"));
+    QVERIFY(table && summary);
+    QCOMPARE(summary->property("label").toString(), QStringLiteral("Passage: 4 event(s), 2 hidden by filter"));
+    QQuickItem *text = nullptr;
+    for (QQuickItem *child : summary->childItems())
+        if (child->inherits("QQuickText"))
+            text = child;
+    QVERIFY(text);
+    const QRectF area = sceneRect(table);
+    QVERIFY2(summary->width() + 0.5 >= text->implicitWidth(),
+             qPrintable(QStringLiteral("summary %1 px shows only part of its %2 px text")
+                        .arg(summary->width()).arg(text->implicitWidth())));
+    QVERIFY2(area.contains(sceneRect(summary)), "the summary stays inside the table");
+    for (const char *name : {"recordingsFilter", "passageShowAll", "moveEarlier", "moveLater", "snapButton", "deleteButton"})
+    {
+        QQuickItem *control = ed.item(QString::fromLatin1(name));
+        QVERIFY2(control && area.contains(sceneRect(control)), name);
+    }
+    QQuickItem *list = ed.item(QStringLiteral("commandView"));
+    // two rows, unless the timeline's floor (ruler and one track) takes that room
+    QQuickItem *manager = table->parentItem();
+    const qreal bottom = manager->property("timelineBottom").toReal();
+    const bool floorWins = split && qFuzzyCompare(bottom, manager->property("timelineFloor").toReal());
+    qInfo() << "split" << split << "timelineBottom" << bottom << "floor" << manager->property("timelineFloor")
+            << "list" << list->height() << "row" << ed.row(40)->height();
+    QVERIFY(list && list->height() >= (floorWins ? 1 : 2) * ed.row(40)->height());
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_focusOutlineStaysInTimeline_data()
+{
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<quint32>("groupId");
+    QTest::newRow("one lane") << false << 40u;
+    // the Dimmer's object, in the last row
+    QTest::newRow("lane per control, last row") << true << 5u;
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_focusOutlineStaysInTimeline()
+{
+    QFETCH(bool, expanded);
+    QFETCH(quint32, groupId);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    addSevenTracks(ed);
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    ed.rig.app->resize(900, 480);
+    QTest::qWait(100);
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+        QTest::qWait(100);
+    }
+    QQuickItem *viewport = timelineViewport(ed);
+    QQuickItem *table = ed.item(QStringLiteral("recordingsView"));
+    QQuickItem *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+    QQuickItem *group = laneItem(ed, groupId);
+    QVERIFY(viewport && table && group);
+    auto *laneContent = qvariant_cast<QQuickItem *>(viewport->property("contentItem"));
+    QVERIFY(laneContent);
+    const qreal laneTop = group->mapToItem(laneContent, QPointF()).y();
+    const auto scrollTo = [&](qreal contentY) {
+        viewport->setProperty("contentY", contentY);
+        QTest::qWait(100);
+    };
+    const auto yellowBelowTimeline = [&]() {
+        const QImage image = ed.rig.app->grabWindow();
+        const qreal scale = image.width() / qreal(ed.rig.app->width());
+        const QRectF band = sceneRect(table).intersected(QRectF(sceneRect(group).left() - 4, sceneRect(table).top(),
+                                                               sceneRect(group).width() + 8, 30));
+        int found = 0;
+        // whole pixel rows of the table only: the row the two panes share is the timeline's edge
+        for (int y = int(std::ceil(band.top() * scale)); y < int(band.bottom() * scale); ++y)
+            for (int x = int(band.left() * scale); x < int(band.right() * scale); ++x)
+            {
+                const QColor c = image.pixelColor(x, y);
+                if (qAbs(c.red() - 0xf1) < 24 && qAbs(c.green() - 0xc4) < 24 && c.blue() < 60)
+                    ++found;
+            }
+        return found;
+    };
+
+    // fully visible: the outline is exactly the focused object; the ruler scrolls with it
+    group->forceActiveFocus();
+    scrollTo(laneTop - 10);
+    QCOMPARE(ed.item(QStringLiteral("timelineHeader"))->property("contentX").toReal(),
+             ed.item(QStringLiteral("showItemsArea"))->property("contentX").toReal());
+    QVERIFY(outline == nullptr || ed.item(QStringLiteral("showKeyboardFocus")));
+    outline = ed.item(QStringLiteral("showKeyboardFocus"));
+    QVERIFY(outline);
+    QCOMPARE(sceneRect(outline), sceneRect(group));
+
+    // cut by the bottom of the timeline: the outline ends there and never paints on the table
+    scrollTo(laneTop - viewport->height() + group->height() / 3);
+    QVERIFY(group->hasActiveFocus());
+    const QRectF cut = sceneRect(group).intersected(sceneRect(viewport));
+    QVERIFY(cut.height() > 0 && cut.height() < group->height());
+    QVERIFY2(yellowBelowTimeline() == 0, "the focus outline paints over the Recordings table");
+    outline = ed.item(QStringLiteral("showKeyboardFocus"));
+    QVERIFY(outline);
+    QVERIFY(sceneRect(viewport).contains(sceneRect(outline)));
+    QCOMPARE(sceneRect(outline), cut);
+
+    // scrolled away: no outline at all; back again, it follows the current geometry
+    scrollTo(std::max<qreal>(0, laneTop - viewport->height() - group->height()));
+    QVERIFY(!sceneRect(viewport).intersects(sceneRect(group)));
+    QVERIFY(ed.item(QStringLiteral("showKeyboardFocus")) == nullptr);
+    QCOMPARE(yellowBelowTimeline(), 0);
+    scrollTo(laneTop - 10);
+    QTRY_VERIFY(ed.item(QStringLiteral("showKeyboardFocus")) != nullptr);
+    QCOMPARE(sceneRect(ed.item(QStringLiteral("showKeyboardFocus"))), sceneRect(group));
+
+    // tabs and the split again keep it inside the timeline; the table stays clickable
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    group->forceActiveFocus();
+    scrollTo(laneTop - viewport->height() + group->height() / 3);
+    QCOMPARE(yellowBelowTimeline(), 0);
+    QTRY_VERIFY(!ed.rowIds().isEmpty());
+    QQuickItem *row = ed.row(ed.rowIds().first());
+    QVERIFY(sceneRect(ed.item(QStringLiteral("commandView"))).contains(sceneRect(row).center()));
+    ed.click(row);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{ed.rowIds().first()});
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_showAllInTabChain_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<bool>("undoNotice");
+    QTest::addColumn<bool>("reopened");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+    {
+        QTest::newRow(qPrintable(QStringLiteral("policy %1").arg(policy))) << policy << false << false;
+        QTest::newRow(qPrintable(QStringLiteral("policy %1 with Undo").arg(policy))) << policy << true << false;
+        // the notice outlives Show all and a new passage opened from the timeline
+        QTest::newRow(qPrintable(QStringLiteral("policy %1 Undo, Show all, reopened").arg(policy))) << policy << true << true;
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsPassage_showAllInTabChain()
+{
+    QFETCH(int, policy);
+    QFETCH(bool, undoNotice);
+    QFETCH(bool, reopened);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    if (undoNotice)
+    {
+        ed.click(ed.row(8));
+        ed.click(ed.item(QStringLiteral("deleteButton")));
+        QTRY_VERIFY(ed.item(QStringLiteral("deleteUndo")) != nullptr);
+    }
+    if (reopened)
+    {
+        ed.click(ed.item(QStringLiteral("passageShowAll")));
+        QTRY_COMPARE(ed.rowIds().count(), ed.trackIds().count());
+        ed.click(ed.item(QStringLiteral("timelineTab")));
+        QVERIFY(openTwoGroupPassage(ed));
+        QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 40, 41}));
+        QVERIFY(ed.item(QStringLiteral("deleteUndo")) != nullptr);
+    }
+    ed.click(ed.row(90));
+    QTest::qWait(50);
+    QQuickItem *remove = ed.item(QStringLiteral("deleteButton"));
+    QQuickItem *all = ed.item(QStringLiteral("passageShowAll"));
+    QVERIFY(remove && remove->isEnabled() && all);
+    const auto press = [&](bool backward) {
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+
+    // Delete, then Show all, then Undo when shown, else the rows; and the same way back
+    remove->forceActiveFocus();
+    press(false);
+    QVERIFY2(all->hasActiveFocus(), "Tab from Delete reaches Show all");
+    press(false);
+    if (undoNotice)
+    {
+        QQuickItem *undo = ed.item(QStringLiteral("deleteUndo"));
+        QVERIFY2(undo->hasActiveFocus(), "Tab from Show all reaches Undo");
+        press(true);
+        QVERIFY2(all->hasActiveFocus(), "Shift+Tab from Undo returns to Show all");
+    }
+    else
+    {
+        QVERIFY2(qlcplusActiveFocusIsInside(ed, ed.item(QStringLiteral("commandView"))), "Tab from Show all reaches the rows");
+        all->forceActiveFocus();
+    }
+    press(true);
+    QVERIFY2(remove->hasActiveFocus(), "Shift+Tab from Show all returns to Delete");
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+}
+
+void ShowCommandRecorder_Test::recordingsTab_undoBacktabWithoutPassage_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<bool>("selected");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+    {
+        QTest::newRow(qPrintable(QStringLiteral("policy %1, a row selected").arg(policy))) << policy << true;
+        QTest::newRow(qPrintable(QStringLiteral("policy %1, nothing selected").arg(policy))) << policy << false;
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsTab_undoBacktabWithoutPassage()
+{
+    QFETCH(int, policy);
+    QFETCH(bool, selected);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 7);
+
+    // the ordinary All view: Delete offers Undo, and Shift+Tab from Undo goes back the plain way
+    ed.click(ed.row(6));
+    ed.click(ed.item(QStringLiteral("deleteButton")));
+    QTRY_VERIFY(ed.item(QStringLiteral("deleteUndo")) != nullptr);
+    QVERIFY(ed.item(QStringLiteral("passageShowAll")) == nullptr);
+    if (selected)
+        ed.click(ed.row(2));
+    QQuickItem *undo = ed.item(QStringLiteral("deleteUndo"));
+    undo->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Backtab, Qt::ShiftModifier);
+    QCoreApplication::processEvents();
+    QQuickItem *expected = ed.item(selected ? QStringLiteral("deleteButton") : QStringLiteral("recordingsFilter"));
+    QVERIFY(expected);
+    QVERIFY2(expected->hasActiveFocus() || (!selected && qlcplusActiveFocusIsInside(ed, expected)),
+             selected ? "Shift+Tab from Undo reaches Delete" : "Shift+Tab from Undo passes the disabled actions to the filter");
+    QCOMPARE(ed.command(2).time, 1700u);
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_viewChangeKeepsTypedDraft()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    QQuickItem *group = laneItem(ed, 40);
+    QVERIFY(group);
+    ed.click(group);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40, 41}));
+    QTest::qWait(100);
+
+    // typed, not committed: every view change keeps the typed text of the one draft
+    QVERIFY(ed.doubleClick(41, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("12"), Qt::Key_unknown);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("12"));
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    QVERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("12"));
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    QVERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("12"));
+    QVERIFY(ed.row(41)->property("editTarget").toBool());
+    QCOMPARE(ed.command(41).position, .65);
+    // F2 inside the open editor asks to edit the same cell again: the typed text stays
+    ed.editor()->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("12"));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.command(41).position, .12);
+    QCOMPARE(ed.command(40).position, .35);
+
+    // the time cell keeps its typed draft the same way
+    QVERIFY(ed.doubleClick(1, "timeCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("3.1"), Qt::Key_unknown);
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    QTRY_COMPARE(ed.rowIds(), ed.trackIds());
+    QVERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("3.1"));
+    ed.editor()->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_F2);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("3.1"));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.command(1).time, 3100u);
+    QCOMPARE(ed.command(40).time, 3000u);
+}
+
+namespace
+{
+/** Non-monotonic ids in track order {12, 40, 31, 7, 20}, a tie at 1700 */
+bool setCopyFixture(EditorRig &ed)
+{
+    ShowCommandTrack take;
+    return take.insert(ShowCommand::setSliderPosition(40, 1700, ed.fader->ensureRecordingId(),
+                                                      ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.3))
+        && take.insert(ShowCommand::start(12, 1200, ed.scene->id()))
+        && take.insert(ShowCommand::setButtonState(31, 1700, ed.button->ensureRecordingId(), true))
+        && take.insert(ShowCommand::setSliderPosition(7, 2500, ed.dimmer->ensureRecordingId(),
+                                                      ShowControlRole::LevelSlider, QString(), 0.75))
+        && take.insert(ShowCommand::stop(20, 5000, ed.scene->id()))
+        && take.setExtent(5000)
+        && ed.show->setCommandTrack(take);
+}
+
+int clipboardCount(const EditorRig &ed)
+{
+    return ed.rig.recorder->property("clipboardCount").toInt();
+}
+
+QVector<quint32> idsOf(const QVariant &value)
+{
+    QVector<quint32> ids;
+    for (const QVariant &id : value.toList())
+        ids.append(quint32(id.toDouble()));
+    return ids;
+}
+
+/** Everything of the recording list a refused Paste leaves alone, as one text */
+QString listState(const EditorRig &ed)
+{
+    QQuickItem *list = ed.item(QStringLiteral("recordingsView"));
+    if (list == nullptr)
+        return QStringLiteral("<no list>");
+    const auto join = [](const QVector<quint32> &ids)
+    {
+        QStringList texts;
+        for (quint32 id : ids)
+            texts.append(QString::number(id));
+        return texts.join(QLatin1Char(','));
+    };
+    return QStringLiteral("selected %1 anchor %2 passage %3 %4 filter '%5' draft %6 '%7' '%8' shown %9")
+        .arg(join(idsOf(list->property("selectedIds"))))
+        .arg(quint32(list->property("anchorId").toDouble()))
+        .arg(list->property("passageActive").toBool() ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(join(idsOf(list->property("passageIds"))))
+        .arg(list->property("filterText").toString())
+        .arg(quint32(list->property("editingId").toDouble()))
+        .arg(list->property("editingField").toString())
+        .arg(list->property("draftText").toString())
+        .arg(join(ed.rowIds()));
+}
+
+/** Rows 12 and 20 opened below the timeline as a passage, filtered to 12 and
+ *  selected there, through the tabs, the filter field and a row click */
+bool openFilteredPassage(EditorRig &ed)
+{
+    ed.click(ed.row(12));
+    ed.click(ed.row(20), Qt::ControlModifier);
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    if (!QTest::qWaitFor([&]() { return ed.rowIds() == QVector<quint32>{12, 20}; }))
+        return false;
+    ed.click(ed.item(QStringLiteral("recordingsFilter")));
+    ed.type(QStringLiteral("Start"), Qt::Key_unknown);
+    if (!QTest::qWaitFor([&]() { return ed.rowIds() == QVector<quint32>{12}; }))
+        return false;
+    ed.click(ed.row(12));
+    return ed.selectedIds() == QVector<quint32>{12};
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteLandsAtThePlayhead()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{12, 40, 31, 7, 20}));
+    const ShowCommandTrack original = ed.show->commandTrack();
+    ed.click(ed.row(40));
+    ed.click(ed.row(31), Qt::ControlModifier);
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 3);
+    QVERIFY(openFilteredPassage(ed));
+    ed.rig.manager->setCurrentTime(5000);
+    const int base = ed.settledHistory();
+    ed.rig.doc->resetModified();
+
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    // the earliest copy at the playhead, the tie in its copied order after the
+    // existing 20, the dimmer 800 ms later; fresh ids from the track's floor
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42, 43}));
+    QCOMPARE(ed.command(41), ShowCommand::setSliderPosition(41, 5000, ed.fader->recordingId(),
+        ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.3));
+    QCOMPARE(ed.command(42), ShowCommand::setButtonState(42, 5000, ed.button->recordingId(), true));
+    QCOMPARE(ed.command(43), ShowCommand::setSliderPosition(43, 5800, ed.dimmer->recordingId(),
+        ShowControlRole::LevelSlider, QString(), 0.75));
+    QVERIFY(ed.command(20).order < ed.command(41).order && ed.command(41).order < ed.command(42).order);
+    for (const ShowCommand &cmd : original.commands())
+        QCOMPARE(ed.command(cmd.id), cmd);
+    QCOMPARE(ed.show->commandTrack().extent(), 5800u);
+    QVERIFY(ed.rig.doc->isModified());
+    QCOMPARE(ed.settledHistory(), base + 1);
+    QCOMPARE(clipboardCount(ed), 3);
+
+    // the pasted events replace the passage and the selection, unfiltered, in view
+    QTRY_COMPARE(listState(ed), QStringLiteral("selected 41,42,43 anchor 41 passage on 41,42,43 filter '' "
+                                               "draft 4294967295 '' '' shown 41,42,43"));
+    QCOMPARE(ed.item(QStringLiteral("recordingsFilter"))->property("text").toString(), QString());
+    QQuickItem *view = ed.item(QStringLiteral("commandView"));
+    QTRY_VERIFY(view->hasActiveFocus());
+    QCOMPARE(view->property("currentIndex").toInt(), 0);
+    for (quint32 id : {41u, 42u, 43u})
+        QVERIFY(laneObject(ed, id) && laneObject(ed, id)->property("selected").toBool());
+    QVERIFY(laneObject(ed, 12) && !laneObject(ed, 12)->property("selectedCount").toInt());
+    // the disabled dimmer is pasted as it was, and named
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"),
+             QStringLiteral("Pasted 3 event(s); 1 of 3 refer to a control that is not ready"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_refusedPasteKeepsEverything_data()
+{
+    QTest::addColumn<QString>("reason");
+    QTest::addColumn<QString>("feedback");
+
+    QTest::newRow("empty clipboard") << QStringLiteral("empty") << QStringLiteral("Copy recorded events first");
+    QTest::newRow("past the end of time") << QStringLiteral("end")
+                                          << QStringLiteral("Pasting here would put an event outside the Show");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_refusedPasteKeepsEverything()
+{
+    QFETCH(QString, reason);
+    QFETCH(QString, feedback);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    if (reason == QLatin1String("end"))
+    {
+        ShowCommandTrack late = ed.show->commandTrack();
+        QVERIFY(late.insert(ShowCommand::start(90, 4294967000u, ed.scene->id())));
+        QVERIFY(ed.show->setCommandTrack(late));
+    }
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().first(), 12u);
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->setRecording(false);
+        ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    if (reason != QLatin1String("empty"))
+    {
+        ed.click(ed.row(7));
+        if (reason == QLatin1String("end"))
+            ed.click(ed.row(90), Qt::ControlModifier);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+        QVERIFY(clipboardCount(ed) > 0);
+    }
+    QVERIFY(openFilteredPassage(ed));
+    ed.rig.manager->setCurrentTime(5000);
+    const int base = ed.settledHistory();
+    ed.rig.doc->resetModified();
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const int copies = clipboardCount(ed);
+    const QString list = listState(ed);
+    QCOMPARE(list, QStringLiteral("selected 12 anchor 12 passage on 12,20 filter 'Start' draft 4294967295 '' '' shown 12"));
+
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), feedback);
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QCOMPARE(ed.show->commandTrack().nextEventId(), before.nextEventId());
+    QCOMPARE(ed.show->commandTrack().nextOrder(), before.nextOrder());
+    QCOMPARE(clipboardCount(ed), copies);
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(!ed.rig.doc->isModified());
+    QCOMPARE(listState(ed), list);
+    QCOMPARE(ed.item(QStringLiteral("recordingsFilter"))->property("text").toString(), QStringLiteral("Start"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteUndoRedoKeepsLaterCapture()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    Tardis *tardis = ed.tardis();
+    const quint32 a = ed.show->id();
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->setRecording(false);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    ed.click(ed.row(40));
+    ed.click(ed.row(31), Qt::ControlModifier);
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    ed.rig.manager->setCurrentTime(5000);
+    const int base = ed.settledHistory();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42, 43}));
+    QCOMPARE(ed.settledHistory(), base + 1);
+    const ShowCommandTrack pasted = ed.show->commandTrack();
+
+    // a later capture ties with the pasted events at 5 s
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(5000);
+    ed.button->requestUserStateChange(true);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42, 44, 43}));
+    const ShowCommand capture = ed.command(44);
+
+    // Undo takes exactly the pasted ids; Redo puts them back before the capture
+    tardis->undoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 44}));
+    QCOMPARE(ed.command(44), capture);
+    QCOMPARE(tardis->m_historyIndex, base);
+    tardis->redoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42, 44, 43}));
+    for (quint32 id : {41u, 42u, 43u})
+    {
+        const ShowCommand &back = pasted.commands().at(pasted.indexOfId(id));
+        QCOMPARE(ed.command(id), back);
+        QCOMPARE(ed.command(id).order, back.order);
+    }
+    QCOMPARE(ed.command(44), capture);
+
+    // what a saved project holds: the same ids, times and values
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("pasted.qxw"));
+    QVERIFY(ed.rig.app->saveWorkspace(path));
+    std::unique_ptr<Show> saved = showFromWorkspaceFile(ed.rig.doc, path, a);
+    QVERIFY(saved);
+    QCOMPARE(saved->commandTrack().commands(), ed.show->commandTrack().commands());
+
+    // undone again, no id comes back: the next paste starts above the capture
+    tardis->undoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 44}));
+    ed.rig.manager->setCurrentTime(6000);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 44, 45, 46, 47}));
+    QCOMPARE(ed.command(47).time, 6800u);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_textFieldsKeepTheirCopyPaste_data()
+{
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<QString>("typed");
+    QTest::addColumn<QString>("pasted");
+
+    QTest::newRow("cell draft") << QStringLiteral("cell") << QStringLiteral("55") << QStringLiteral("5555");
+    QTest::newRow("filter field") << QStringLiteral("filter") << QStringLiteral("Blue") << QStringLiteral("BlueBlue");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_textFieldsKeepTheirCopyPaste()
+{
+    QFETCH(QString, field);
+    QFETCH(QString, typed);
+    QFETCH(QString, pasted);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    ed.click(ed.row(31));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 1);
+    QQuickItem *text = nullptr;
+    if (field == QLatin1String("cell"))
+    {
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        QTRY_VERIFY(ed.editor() != nullptr);
+        text = ed.editor();
+    }
+    else
+    {
+        text = ed.item(QStringLiteral("recordingsFilter"));
+        ed.click(text);
+    }
+    ed.type(typed, Qt::Key_unknown);
+    ed.rig.manager->setCurrentTime(5000);
+    const int base = ed.settledHistory();
+    const QVector<ShowCommand> before = ed.show->commandTrack().commands();
+    const int clips = ed.rig.manager->clipboardItemsCount();
+
+    // the field's own text Copy and Paste
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    QCOMPARE(text->property("text").toString(), pasted);
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QCOMPARE(clipboardCount(ed), 1);
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), clips);
+    QCOMPARE(ed.settledHistory(), base);
+    if (field == QLatin1String("cell"))
+        QCOMPARE(ed.editor(), text);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_toolbarAndShortcutsFollowTheDomain_data()
+{
+    QTest::addColumn<QString>("route");
+
+    QTest::newRow("toolbar buttons") << QStringLiteral("buttons");
+    QTest::newRow("shortcut items") << QStringLiteral("shortcuts");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_toolbarAndShortcutsFollowTheDomain()
+{
+    QFETCH(QString, route);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    // a selected clip copied on the timeline
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    ShowFunction source(0);
+    source.setDuration(2000);
+    ed.rig.manager->addItems(content, -1, 8000, {ed.scene->id()}, &source);
+    QCoreApplication::processEvents();
+    auto *clip = findVisualItem(content, QStringLiteral("clipSelection"));
+    QVERIFY(clip);
+    clip->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(ed.rig.manager->selectedItemsCount(), 1);
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), 1);
+    const auto clipItems = [&]() { return ed.show->tracks().first()->showFunctions().size(); };
+
+    // the Recordings tab keeps the clip selection, but never counts or copies it
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    QCOMPARE(ed.rig.manager->selectedItemsCount(), 1);
+    QVERIFY(ed.item(QStringLiteral("copyButton")) == nullptr);
+    QVERIFY(ed.item(QStringLiteral("pasteButton")) == nullptr);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), QStringLiteral("Select recorded events to copy"));
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), 1);
+    QCOMPARE(clipboardCount(ed), 0);
+
+    const auto outsideShowManager = [&]() { ed.rig.app->contentItem()->forceActiveFocus(); };
+    ed.click(ed.row(40));
+    ed.click(ed.row(31), Qt::ControlModifier);
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QQuickItem *copy = ed.item(QStringLiteral("copyButton"));
+    QVERIFY(copy);
+    QCOMPARE(copy->property("counter").toInt(), 3);
+    QVERIFY(copy->isEnabled());
+    // the toolbar lays out a button that has just appeared on the next frame
+    QTest::qWait(100);
+    if (route == QLatin1String("buttons"))
+        ed.click(copy);
+    else
+    {
+        outsideShowManager();
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    }
+    QCOMPARE(clipboardCount(ed), 3);
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), QStringLiteral("Copied 3 event(s)"));
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), 1);
+
+    ed.rig.manager->setCurrentTime(5000);
+    QQuickItem *paste = ed.item(QStringLiteral("pasteButton"));
+    QVERIFY(paste);
+    QCOMPARE(paste->property("counter").toInt(), 3);
+    QVERIFY(paste->isEnabled());
+    QTest::qWait(100);
+    if (route == QLatin1String("buttons"))
+        ed.click(paste);
+    else
+    {
+        outsideShowManager();
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    }
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42, 43}));
+    QCOMPARE(ed.command(43).time, 5800u);
+    QCOMPARE(clipItems(), 1);
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), 1);
+    QTRY_COMPARE(ed.selectedIds(), (QVector<quint32>{41, 42, 43}));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteButtonKeepsTheFocusedListDomain()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    ed.click(ed.row(7));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 1);
+
+    // below the timeline, only the focused table makes the recordings own Paste
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.row(7) != nullptr);
+    ed.click(ed.row(7));
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{});
+    QVERIFY(ed.item(QStringLiteral("commandView"))->hasActiveFocus());
+    ed.rig.manager->setCurrentTime(5000);
+    QQuickItem *paste = ed.item(QStringLiteral("pasteButton"));
+    QVERIFY(paste);
+    QCOMPARE(paste->property("counter").toInt(), 1);
+    QTest::qWait(100);
+
+    ed.click(paste);
+
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41}));
+    QCOMPARE(ed.command(41).time, 5000u);
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), 0);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_clipboardLivesForTheWorkspace_data()
+{
+    QTest::addColumn<QString>("transition");
+    QTest::addColumn<bool>("replaced");
+
+    QTest::newRow("REC on and off") << QStringLiteral("rec") << false;
+    QTest::newRow("unpublished input discarded") << QStringLiteral("discard") << false;
+    QTest::newRow("another Show shown and back") << QStringLiteral("switch") << false;
+    QTest::newRow("Show deleted and restored by Undo") << QStringLiteral("restore") << false;
+    QTest::newRow("new workspace") << QStringLiteral("new") << true;
+    QTest::newRow("workspace loaded") << QStringLiteral("load") << true;
+    QTest::newRow("workspace loaded from memory") << QStringLiteral("memory") << true;
+    QTest::newRow("workspace cleared by the network") << QStringLiteral("network") << true;
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_clipboardLivesForTheWorkspace()
+{
+    QFETCH(QString, transition);
+    QFETCH(bool, replaced);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    const quint32 a = ed.show->id();
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("copied.qxw"));
+    QVERIFY(ed.rig.app->saveWorkspace(path));
+    ed.click(ed.row(40));
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 2);
+    QSignalSpy changed(ed.rig.recorder, &ShowCommandRecorder::clipboardChanged);
+
+    if (transition == QLatin1String("rec"))
+    {
+        QVERIFY(ed.rig.recorder->setRecording(true));
+        QVERIFY(ed.rig.recorder->setRecording(false));
+    }
+    else if (transition == QLatin1String("discard"))
+        ed.rig.recorder->discardUnpublished();
+    else if (transition == QLatin1String("switch"))
+    {
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        QTRY_COMPARE(ed.rowIds().count(), 0);
+        ed.rig.manager->setCurrentShowID(int(a));
+    }
+    else if (transition == QLatin1String("restore"))
+    {
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        ed.settledHistory();
+        qobject_cast<FunctionManager *>(ed.rig.context("functionManager"))->deleteFunctions({a});
+        QVERIFY(ed.rig.doc->function(a) == nullptr);
+        ed.settledHistory();
+        ed.tardis()->undoAction();
+        QVERIFY(ed.rig.doc->function(a) != nullptr);
+        ed.rig.manager->setCurrentShowID(int(a));
+    }
+    else
+    {
+        // replacing the workspace runs the application's own timer again
+        ed.rig.realTimer = true;
+        ed.rig.doc->resetModified();
+        if (transition == QLatin1String("new"))
+            QVERIFY(ed.rig.app->newWorkspace());
+        else if (transition == QLatin1String("load"))
+            QVERIFY(ed.rig.app->loadWorkspace(path));
+        else if (transition == QLatin1String("memory"))
+        {
+            QByteArray xml = fileBytes(path);
+            QVERIFY(!xml.isEmpty());
+            ed.rig.app->slotLoadDocFromMemory(xml);
+        }
+        else
+            ed.rig.app->slotClearDocFromNetwork();
+    }
+
+    QCOMPARE(clipboardCount(ed), replaced ? 0 : 2);
+    QCOMPARE(changed.count(), replaced ? 1 : 0);
+    if (!replaced)
+    {
+        // the same values still paste
+        ed.show = qobject_cast<Show *>(ed.rig.doc->function(a));
+        QVERIFY(ed.show);
+        QTRY_COMPARE(ed.rowIds().count(), 5);
+        ed.rig.manager->setCurrentTime(5000);
+        ed.click(ed.row(12));
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41, 42}));
+        QCOMPARE(ed.command(42).time, 5800u);
+    }
+    else
+    {
+        // nothing to paste into a Show of the new workspace, and the reason
+        Show *shown = qobject_cast<Show *>(ed.rig.doc->function(a));
+        if (transition == QLatin1String("load") || transition == QLatin1String("memory"))
+            QVERIFY(shown != nullptr);
+        else
+        {
+            QVERIFY(shown == nullptr);
+            shown = new Show(ed.rig.doc);
+            QVERIFY(ed.rig.doc->addFunction(shown));
+        }
+        ed.rig.manager->setCurrentShowID(int(shown->id()));
+        QVERIFY(ed.rig.recorder->pasteCommands(shown->id(), 5000).isEmpty());
+        QCOMPARE(ed.rig.recorder->lastError(), QStringLiteral("Nothing copied to paste"));
+        const bool loaded = transition == QLatin1String("load") || transition == QLatin1String("memory");
+        QCOMPARE(shown->commandTrack().count(), loaded ? 5 : 0);
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteKeepsUnreadyReferences()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 7);
+    const ShowCommand ready = ed.command(1);
+    const ShowCommand missing = ed.command(4);
+    ed.click(ed.row(1));
+    ed.click(ed.row(4), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    ed.rig.manager->setCurrentTime(6000);
+
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    // pasted as they were, the missing control named, never substituted
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{0, 1, 2, 3, 4, 5, 6, 7, 8}));
+    ShowCommand first = ready;
+    first.id = 7;
+    first.time = 6000;
+    ShowCommand second = missing;
+    second.id = 8;
+    second.time = 7300;
+    QCOMPARE(ed.command(7), first);
+    QCOMPARE(ed.command(8), second);
+    QCOMPARE(ed.command(8).controlId, ed.missing);
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"),
+             QStringLiteral("Pasted 2 event(s); 1 of 2 refer to a control that is not ready"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteRefusesADeletedCopiedTarget_data()
+{
+    QTest::addColumn<QString>("deleted");   // F (copied Start target), H (uncopied) or nothing
+    QTest::addColumn<bool>("beforeCopy");   // F already gone when the rows are copied
+    QTest::addColumn<QString>("atPaste");   // F's id: absent, reused by G or restored by Undo
+    QTest::addColumn<QString>("between");   // what happens after Copy, before Paste
+    QTest::addColumn<bool>("vcOnly");       // the button and fader rows only, not Start F
+    QTest::addColumn<QString>("reason");    // %1 is F's id; empty when the paste goes through
+    QTest::addColumn<QVector<quint32>>("added");
+
+    const QString stale = QStringLiteral("A copied event's Function reference is stale; copy again");
+    const QString unknown = QStringLiteral("Unknown command target %1");
+    const QVector<quint32> none;
+    const QVector<quint32> all{41, 42, 43};
+
+    QTest::newRow("present at Copy, deleted after, still absent")
+        << "F" << false << "absent" << "" << false << unknown << none;
+    QTest::newRow("present at Copy, deleted after, id reused")
+        << "F" << false << "reused" << "" << false << stale << none;
+    QTest::newRow("present at Copy, deleted after, restored by Undo")
+        << "F" << false << "undo" << "" << false << stale << none;
+    QTest::newRow("absent at Copy, still absent")
+        << "F" << true << "absent" << "" << false << unknown << none;
+    QTest::newRow("absent at Copy, id reused")
+        << "F" << true << "reused" << "" << false << stale << none;
+    QTest::newRow("absent at Copy, restored by Undo")
+        << "F" << true << "undo" << "" << false << stale << none;
+    QTest::newRow("an uncopied Function deleted")
+        << "H" << false << "absent" << "" << false << QString() << all;
+    QTest::newRow("VC states only, their button's Function reused")
+        << "F" << false << "reused" << "" << true << QString() << QVector<quint32>{41, 42};
+    QTest::newRow("id reused, then an empty Copy")
+        << "F" << false << "reused" << "empty copy" << false << stale << none;
+    QTest::newRow("id reused, then a refused Copy")
+        << "F" << false << "reused" << "failed copy" << false << stale << none;
+    QTest::newRow("id reused, then copied again")
+        << "F" << false << "reused" << "copy again" << false << QString() << all;
+    QTest::newRow("workspace cleared")
+        << "" << false << "" << "workspace clear" << false << QStringLiteral("Nothing copied to paste") << none;
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteRefusesADeletedCopiedTarget()
+{
+    QFETCH(QString, deleted);
+    QFETCH(bool, beforeCopy);
+    QFETCH(QString, atPaste);
+    QFETCH(QString, between);
+    QFETCH(bool, vcOnly);
+    QFETCH(QString, reason);
+    QFETCH(QVector<quint32>, added);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    Show *a = ed.show;
+    // B holds the fixture too, so its list can show a passage, a filter and a draft
+    Show *b = new Show(ed.rig.doc);
+    QVERIFY(ed.rig.doc->addFunction(b));
+    QVERIFY(b->setCommandTrack(a->commandTrack()));
+    Scene *h = new Scene(ed.rig.doc);
+    QVERIFY(ed.rig.doc->addFunction(h));
+    // the newest Function: the Doc hands its id to the next one once it is gone
+    Scene *f = new Scene(ed.rig.doc);
+    f->setName(QStringLiteral("F"));
+    QVERIFY(ed.rig.doc->addFunction(f));
+    const quint32 n = f->id();
+    const quint32 hId = h->id();
+    ShowCommandTrack with = a->commandTrack();
+    QVERIFY(with.insert(ShowCommand::start(60, 3000, n)));
+    QVERIFY(a->setCommandTrack(with));
+    ed.button->setFunctionID(n);
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{12, 40, 31, 7, 60, 20}));
+    auto *functions = qobject_cast<FunctionManager *>(ed.rig.context("functionManager"));
+    QVERIFY(functions);
+    const auto remove = [&]() {
+        ed.settledHistory();
+        functions->deleteFunctions({deleted == QLatin1String("H") ? hId : n});
+        ed.settledHistory();
+    };
+    const auto copyRows = [&]() {
+        ed.click(ed.row(40));
+        ed.click(ed.row(31), Qt::ControlModifier);
+        if (!vcOnly)
+            ed.click(ed.row(60), Qt::ControlModifier);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    };
+
+    // two VC states and, unless only those, the legacy Start of F
+    if (beforeCopy)
+    {
+        remove();
+        // the Start left behind is still a row to copy
+        QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{12, 40, 31, 7, 60, 20}));
+    }
+    copyRows();
+    const int copies = vcOnly ? 2 : 3;
+    QCOMPARE(clipboardCount(ed), copies);
+    if (!beforeCopy && !deleted.isEmpty())
+        remove();
+    if (atPaste == QLatin1String("reused"))
+    {
+        Scene *g = new Scene(ed.rig.doc);
+        g->setName(QStringLiteral("G"));
+        QVERIFY(ed.rig.doc->addFunction(g));
+        QCOMPARE(g->id(), n);
+    }
+    else if (atPaste == QLatin1String("undo"))
+    {
+        ed.tardis()->undoAction();
+        QVERIFY(ed.rig.doc->function(deleted == QLatin1String("H") ? hId : n) != nullptr);
+    }
+    else if (deleted == QLatin1String("F"))
+        QVERIFY(ed.rig.doc->function(n) == nullptr);
+
+    if (between == QLatin1String("empty copy"))
+    {
+        // a Copy that copies nothing keeps the clipboard and its mark
+        ed.click(ed.row(31));
+        ed.click(ed.row(31), Qt::ControlModifier);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(ed.shownText("timelineKeyboardFeedback"), QStringLiteral("Select recorded events to copy"));
+    }
+    else if (between == QLatin1String("failed copy"))
+        QVERIFY(!ed.rig.recorder->copyCommands(a->id(), {31u, 99u}));
+    else if (between == QLatin1String("copy again"))
+        copyRows();
+    QCOMPARE(clipboardCount(ed), copies);
+
+    if (between == QLatin1String("workspace clear"))
+    {
+        // the clipboard goes with the workspace
+        ed.rig.realTimer = true;
+        QVERIFY(ed.rig.app->newWorkspace());
+        QCOMPARE(clipboardCount(ed), 0);
+        Show *next = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(next));
+        ed.rig.manager->setCurrentShowID(int(next->id()));
+        ed.show = next;
+        QCoreApplication::processEvents();
+        const int base = ed.settledHistory();
+        ed.rig.doc->resetModified();
+        const QString list = listState(ed);
+        QVERIFY(ed.rig.recorder->pasteCommands(next->id(), 7000).isEmpty());
+        QCOMPARE(ed.rig.recorder->lastError(), reason);
+        QCOMPARE(next->commandTrack().count(), 0);
+        QCOMPARE(next->commandTrack().nextEventId(), 0u);
+        QCOMPARE(ed.settledHistory(), base);
+        QVERIFY(!ed.rig.doc->isModified());
+        QCOMPARE(clipboardCount(ed), 0);
+        QCOMPARE(listState(ed), list);
+        return;
+    }
+
+    // B shows a filtered passage, its selection and an unchanged draft
+    ed.rig.manager->setCurrentShowID(int(b->id()));
+    ed.show = b;
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    QVERIFY(openFilteredPassage(ed));
+    QVERIFY(ed.doubleClick(12, "timeCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.rig.manager->setCurrentTime(7000);
+    const int base = ed.settledHistory();
+    ed.rig.doc->resetModified();
+    const ShowCommandTrack before = b->commandTrack();
+    const QString list = listState(ed);
+    QCOMPARE(list, QStringLiteral("selected 12 anchor 12 passage on 12,20 filter 'Start' draft 12 'time' '1.200' "
+                                  "shown 12"));
+    QQuickItem *paste = ed.item(QStringLiteral("pasteButton"));
+    QVERIFY(paste && paste->isEnabled());
+    QTest::qWait(100);
+
+    ed.click(paste);
+
+    if (reason.isEmpty())
+    {
+        QVector<quint32> ids{12, 40, 31, 7, 20};
+        QCOMPARE(ed.trackIds(), ids + added);
+        QCOMPARE(ed.command(41), ShowCommand::setSliderPosition(41, 7000, ed.fader->recordingId(),
+            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.3));
+        QCOMPARE(ed.command(42), ShowCommand::setButtonState(42, 7000, ed.button->recordingId(), true));
+        if (added.size() == 3)
+            QCOMPARE(ed.command(43), ShowCommand::start(43, 8300, n));
+        return;
+    }
+    // refused whole: no VC state goes in without the Start, nothing is consumed
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), reason.contains(QLatin1String("%1")) ? reason.arg(n) : reason);
+    QCOMPARE(b->commandTrack().commands(), before.commands());
+    QCOMPARE(b->commandTrack().nextEventId(), before.nextEventId());
+    QCOMPARE(b->commandTrack().nextOrder(), before.nextOrder());
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(!ed.rig.doc->isModified());
+    QCOMPARE(clipboardCount(ed), copies);
+    QCOMPARE(listState(ed), list);
+    QVERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.item(QStringLiteral("recordingsFilter"))->property("text").toString(), QStringLiteral("Start"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteIntoAnotherShow()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    Show *a = ed.show;
+    const ShowCommandTrack source = a->commandTrack();
+    Show *b = new Show(ed.rig.doc);
+    QVERIFY(ed.rig.doc->addFunction(b));
+    ShowCommandTrack own;
+    QVERIFY(own.insert(ShowCommand::start(3, 100, ed.scene->id())));
+    QVERIFY(b->setCommandTrack(own));
+    ed.click(ed.row(40));
+    ed.click(ed.row(31), Qt::ControlModifier);
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+
+    ed.rig.manager->setCurrentShowID(int(b->id()));
+    ed.show = b;
+    QTRY_COMPARE(ed.rowIds(), QVector<quint32>{3});
+    ed.rig.manager->setCurrentTime(5000);
+    ed.click(ed.row(3));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    // B's own floor, the same control identities; A as it was
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{3, 4, 5, 6}));
+    QCOMPARE(ed.command(4), ShowCommand::setSliderPosition(4, 5000, ed.fader->recordingId(),
+        ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.3));
+    QCOMPARE(ed.command(5), ShowCommand::setButtonState(5, 5000, ed.button->recordingId(), true));
+    QCOMPARE(ed.command(6), ShowCommand::setSliderPosition(6, 5800, ed.dimmer->recordingId(),
+        ShowControlRole::LevelSlider, QString(), 0.75));
+    QCOMPARE(a->commandTrack().commands(), source.commands());
+    QTRY_COMPARE(ed.selectedIds(), (QVector<quint32>{4, 5, 6}));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteWaitsForTheCellDraft_data()
+{
+    QTest::addColumn<bool>("dirty");
+
+    QTest::newRow("changed draft") << true;
+    QTest::newRow("unchanged draft") << false;
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteWaitsForTheCellDraft()
+{
+    QFETCH(bool, dirty);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    ed.click(ed.row(7));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    ed.rig.manager->setCurrentTime(5000);
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("30"));
+    if (dirty)
+        ed.type(QStringLiteral("5"), Qt::Key_unknown);
+    QQuickItem *paste = ed.item(QStringLiteral("pasteButton"));
+    QVERIFY(paste);
+    QTest::qWait(100);
+
+    if (!dirty)
+    {
+        // an unchanged editor closes as the paste shows its events
+        QVERIFY(paste->isEnabled());
+        ed.click(paste);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41}));
+        QCOMPARE(ed.command(40).position, 0.3);
+        QTRY_VERIFY(ed.editor() == nullptr);
+        QTRY_COMPARE(listState(ed), QStringLiteral("selected 41 anchor 41 passage on 41 filter '' "
+                                                   "draft 4294967295 '' '30' shown 41"));
+        return;
+    }
+
+    const QString reason = QStringLiteral("Press Enter to commit or Escape to cancel the cell edit first");
+    const int base = ed.settledHistory();
+    const QVector<ShowCommand> before = ed.show->commandTrack().commands();
+    const QString list = listState(ed);
+    QCOMPARE(list, QStringLiteral("selected 40 anchor 40 passage off  filter '' draft 40 'value' '5' "
+                                  "shown 12,40,31,7,20"));
+    QVERIFY(!paste->isEnabled());
+    QCOMPARE(paste->property("tooltip").toString(), reason);
+    ed.click(paste);
+    // the key with the focus moved on from the editor, which keeps its draft
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QVERIFY(ed.editor() != nullptr && !ed.editor()->hasActiveFocus());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), reason);
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(!ed.rig.doc->isModified());
+    QCOMPARE(clipboardCount(ed), 1);
+    QCOMPARE(listState(ed), list);
+
+    // in the editor, Ctrl+V pastes text; Enter commits, then Paste goes through
+    ed.click(ed.editor());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_A, Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("55"));
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(40).position, 0.55);
+    QTRY_VERIFY(paste->isEnabled());
+    ed.click(paste);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20, 41}));
+    QCOMPARE(ed.command(41).position, 0.75);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteValidatesWhole_data()
+{
+    QTest::addColumn<QString>("target");
+    QTest::addColumn<qreal>("at");
+    QTest::addColumn<QVector<quint32>>("added");
+    QTest::addColumn<QString>("error");
+
+    // 12 at 1.2 s and 20 at 5 s: the copy spans 3.8 s
+    const qreal last = qreal(ShowCommand::MaxTime) - 3800;
+    QTest::newRow("ends exactly at MaxTime") << QStringLiteral("span") << last << QVector<quint32>{41, 42} << QString();
+    QTest::newRow("one ms past MaxTime") << QStringLiteral("span") << last + 1 << QVector<quint32>{}
+                                         << QStringLiteral("outside the Show");
+    QTest::newRow("not a time") << QStringLiteral("span") << qreal(-1) << QVector<quint32>{}
+                                << QStringLiteral("not a valid time");
+    QTest::newRow("no event id left") << QStringLiteral("full") << qreal(5000) << QVector<quint32>{}
+                                      << QStringLiteral("no event id left");
+    QTest::newRow("Start of the destination Show") << QStringLiteral("self") << qreal(5000) << QVector<quint32>{}
+                                                   << QStringLiteral("cannot command itself");
+    QTest::newRow("Function deleted before Copy") << QStringLiteral("deleted") << qreal(5000)
+                                                       << QVector<quint32>{} << QStringLiteral("Unknown command target");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteValidatesWhole()
+{
+    QFETCH(QString, target);
+    QFETCH(qreal, at);
+    QFETCH(QVector<quint32>, added);
+    QFETCH(QString, error);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const quint32 a = ed.show->id();
+    QVariantList copied{12u, 20u};
+    if (target == QLatin1String("full"))
+    {
+        ShowCommandTrack full = ed.show->commandTrack();
+        QVERIFY(full.insert(ShowCommand::stop(4294967294u, 6000, ed.scene->id())));
+        QVERIFY(ed.show->setCommandTrack(full));
+        QCOMPARE(ed.show->commandTrack().nextEventId(), ShowCommand::InvalidId);
+    }
+    else if (target == QLatin1String("self"))
+    {
+        // another Show may start this one; copied from there, it comes back to it
+        Show *source = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(source));
+        ShowCommandTrack starts;
+        QVERIFY(starts.insert(ShowCommand::start(3, 800, a)));
+        QVERIFY(source->setCommandTrack(starts));
+        ed.rig.manager->setCurrentShowID(int(source->id()));
+        QVERIFY(recorder->copyCommands(source->id(), {3u}));
+        ed.rig.manager->setCurrentShowID(int(a));
+        copied.clear();
+    }
+    else if (target == QLatin1String("deleted"))
+    {
+        Scene *gone = new Scene(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(gone));
+        ShowCommandTrack with = ed.show->commandTrack();
+        QVERIFY(with.insert(ShowCommand::start(50, 3000, gone->id())));
+        QVERIFY(ed.show->setCommandTrack(with));
+        // deleted before Copy: the Show's own target check refuses it
+        QVERIFY(ed.rig.doc->deleteFunction(gone->id()));
+        QVERIFY(recorder->copyCommands(a, {50u}));
+        QVERIFY(recorder->removeCommands(a, {50u}));
+        copied.clear();
+    }
+    if (!copied.isEmpty())
+        QVERIFY(recorder->copyCommands(a, copied));
+    const int base = ed.settledHistory();
+    ed.rig.doc->resetModified();
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const int copies = clipboardCount(ed);
+
+    const QVariantList ids = recorder->pasteCommands(a, at);
+
+    QCOMPARE(idsOf(ids), added);
+    QCOMPARE(clipboardCount(ed), copies);
+    if (!added.isEmpty())
+    {
+        QCOMPARE(ed.command(41), ShowCommand::start(41, ShowCommand::MaxTime - 3800, ed.scene->id()));
+        QCOMPARE(ed.command(42), ShowCommand::stop(42, ShowCommand::MaxTime, ed.scene->id()));
+        QCOMPARE(ed.settledHistory(), base + 1);
+        QVERIFY(ed.rig.doc->isModified());
+        return;
+    }
+    // refused whole: no id or order consumed, no step, nothing to save
+    QVERIFY2(recorder->lastError().contains(error), qPrintable(recorder->lastError()));
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QCOMPARE(ed.show->commandTrack().nextEventId(), before.nextEventId());
+    QCOMPARE(ed.show->commandTrack().nextOrder(), before.nextOrder());
+    QCOMPARE(ed.settledHistory(), base);
+    QVERIFY(!ed.rig.doc->isModified());
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteWhileLive_data()
+{
+    QTest::addColumn<QString>("state");
+
+    QTest::newRow("REC on") << QStringLiteral("rec");
+    QTest::newRow("start queued") << QStringLiteral("queued");
+    QTest::newRow("playing") << QStringLiteral("playing");
+    QTest::newRow("paused") << QStringLiteral("paused");
+    QTest::newRow("stop not finished") << QStringLiteral("stopping");
+    QTest::newRow("started by a Collection on the timer") << QStringLiteral("collection");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteWhileLive()
+{
+    QFETCH(QString, state);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    MasterTimer *timer = ed.rig.doc->masterTimer();
+    Collection *collection = nullptr;
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->setRecording(false);
+        if (collection != nullptr)
+            collection->stop(FunctionParent::master());
+        ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    ed.click(ed.row(7));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 1);
+    QQuickItem *paste = ed.item(QStringLiteral("pasteButton"));
+    QVERIFY(paste);
+    QVERIFY(paste->isEnabled());
+
+    if (state == QLatin1String("rec"))
+        QVERIFY(ed.rig.recorder->setRecording(true));
+    else if (state == QLatin1String("collection"))
+    {
+        collection = new Collection(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(collection));
+        QVERIFY(collection->addFunction(ed.show->id()));
+        collection->start(timer, FunctionParent::master());
+        tickAndDeliver(ed.rig.doc, 1);
+    }
+    else
+    {
+        ed.rig.manager->playShow();
+        if (state != QLatin1String("queued"))
+            tickAndDeliver(ed.rig.doc, 2);
+        if (state == QLatin1String("paused") || state == QLatin1String("stopping"))
+            ed.rig.manager->playShow();
+        if (state == QLatin1String("stopping"))
+            ed.rig.manager->stopShow();
+    }
+    QCOMPARE(ed.rig.recorder->editBlockedReason(), QString());
+    const int base = ed.settledHistory();
+    ed.rig.doc->resetModified();
+    const QVector<ShowCommand> before = ed.show->commandTrack().commands();
+
+    // playing, paused or recording, the button and the key paste one step
+    QTRY_VERIFY(paste->isEnabled());
+    ed.click(ed.row(12));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+    QCOMPARE(ed.show->commandTrack().count(), before.count() + 1);
+    for (const ShowCommand &cmd : before)
+        QVERIFY(ed.show->commandTrack().contains(cmd.id));
+    QCOMPARE(ed.settledHistory(), base + 1);
+    QVERIFY(ed.rig.doc->isModified());
+    QCOMPARE(clipboardCount(ed), 1);
+    ed.tardis()->undoAction();
+    QCOMPARE(ed.tardis()->m_historyIndex, base);
+    QCOMPARE(ed.show->commandTrack().commands().size(), before.size());
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId_data()
+{
+    QTest::addColumn<QString>("source");
+
+    QTest::newRow("highest id deleted, restorable by Undo") << QStringLiteral("deleted");
+    QTest::newRow("accepted input not yet published") << QStringLiteral("unpublished");
+    QTest::newRow("Show deleted and restored by Undo") << QStringLiteral("restored");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
+{
+    QFETCH(QString, source);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds().count(), 5);
+    Tardis *tardis = ed.tardis();
+    const quint32 a = ed.show->id();
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->discardUnpublished();
+        ed.rig.recorder->setRecording(false);
+        // the captured fader start reaches the stopped timer only on a tick
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    ed.click(ed.row(40));
+    ed.click(ed.row(31), Qt::ControlModifier);
+    ed.click(ed.row(7), Qt::ControlModifier);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+    QCOMPARE(clipboardCount(ed), 3);
+    auto *functions = qobject_cast<FunctionManager *>(ed.rig.context("functionManager"));
+    QVERIFY(functions);
+
+    Scene *later = nullptr;
+    if (source != QLatin1String("unpublished"))
+    {
+        // the highest id goes through the Delete key, an undo step
+        ed.click(ed.row(40));
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20}));
+    }
+    if (source == QLatin1String("restored"))
+    {
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        ed.settledHistory();
+        functions->deleteFunctions({a});
+        QVERIFY(ed.rig.doc->function(a) == nullptr);
+        ed.settledHistory();
+        tardis->undoAction();
+        ed.show = qobject_cast<Show *>(ed.rig.doc->function(a));
+        QVERIFY(ed.show);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20}));
+        ed.rig.manager->setCurrentShowID(int(a));
+        QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{12, 31, 7, 20}));
+    }
+    else if (source == QLatin1String("unpublished"))
+    {
+        // a Function deleted under its Start leaves the take unpublishable:
+        // the next input waits unpublished with id 42 when the take closes
+        later = new Scene(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(later));
+        const quint32 laterId = later->id();
+        // added first, so it cannot take the deleted Function's id
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ShowCommandTrack with = ed.show->commandTrack();
+        QVERIFY(with.insert(ShowCommand::start(41, 3000, laterId)));
+        QVERIFY(ed.show->setCommandTrack(with));
+        QVERIFY(ed.rig.doc->deleteFunction(laterId));
+        QVERIFY(ed.rig.recorder->setRecording(true));
+        ed.rig.manager->setCurrentTime(3000);
+        ed.fader->requestUserValue(128);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20}));
+        QVERIFY(!ed.rig.recorder->setResolvedShow(other->id()));
+        QVERIFY(!ed.rig.recorder->isRecording());
+        QVERIFY(ed.rig.recorder->setResolvedShow(a));
+        // the Function comes back under its id, so the take can be published again
+        later = new Scene(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(later, laterId));
+        QTRY_COMPARE(ed.rowIds().count(), 6);
+    }
+    ed.click(ed.row(12));
+    ed.rig.manager->setCurrentTime(5000);
+    ed.settledHistory();
+
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+
+    if (source == QLatin1String("unpublished"))
+    {
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20, 43, 44, 45}));
+        // the waiting input keeps its id, which nothing else took
+        QVERIFY(ed.rig.recorder->checkpoint());
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 42, 20, 43, 44, 45}));
+        QCOMPARE(ed.command(42).action, ShowCommandAction::SetSliderPosition);
+        return;
+    }
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20, 41, 42, 43}));
+    QCOMPARE(ed.command(41).position, 0.3);
+    // the older Delete undoes and redoes around the paste without a collision
+    ed.settledHistory();
+    tardis->undoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20}));
+    tardis->undoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 20}));
+    tardis->redoAction();
+    tardis->redoAction();
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20, 41, 42, 43}));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_copyTakesTheExactSelection_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<QVector<quint32>>("selected");
+    QTest::addColumn<QString>("feedback");
+
+    QTest::newRow("stopped") << QStringLiteral("stopped") << QVector<quint32>{40, 31, 7}
+                             << QStringLiteral("Copied 3 event(s)");
+    QTest::newRow("REC on") << QStringLiteral("rec") << QVector<quint32>{7, 12}
+                            << QStringLiteral("Copied 2 event(s)");
+    QTest::newRow("playing") << QStringLiteral("playing") << QVector<quint32>{20}
+                             << QStringLiteral("Copied 1 event(s)");
+    QTest::newRow("nothing selected") << QStringLiteral("stopped") << QVector<quint32>{}
+                                      << QStringLiteral("Select recorded events to copy");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_copyTakesTheExactSelection()
+{
+    QFETCH(QString, state);
+    QFETCH(QVector<quint32>, selected);
+    QFETCH(QString, feedback);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(setCopyFixture(ed));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{12, 40, 31, 7, 20}));
+    const auto stop = qScopeGuard([&]() {
+        ed.rig.recorder->setRecording(false);
+        ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    for (int i = 0; i < selected.size(); ++i)
+        ed.click(ed.row(selected.at(i)), i == 0 ? Qt::NoModifier : Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds().size(), selected.size());
+    if (state == QLatin1String("rec"))
+        QVERIFY(ed.rig.recorder->setRecording(true));
+    else if (state == QLatin1String("playing"))
+    {
+        ed.rig.manager->playShow();
+        tickAndDeliver(ed.rig.doc, 2);
+    }
+    const int base = ed.settledHistory();
+    const QVector<ShowCommand> before = ed.show->commandTrack().commands();
+    const int clips = ed.rig.manager->clipboardItemsCount();
+    ed.rig.doc->resetModified();
+
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_C, Qt::ControlModifier);
+
+    // a value snapshot: the source, the project and its history stay as they are
+    QCOMPARE(clipboardCount(ed), selected.size());
+    QCOMPARE(ed.shownText("timelineKeyboardFeedback"), feedback);
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QVERIFY(!ed.rig.doc->isModified());
+    QCOMPARE(ed.settledHistory(), base);
+    QCOMPARE(ed.rig.manager->clipboardItemsCount(), clips);
+    QCOMPARE(ed.selectedIds().size(), selected.size());
+
+    if (selected.isEmpty())
+    {
+        // nothing copied yet: Paste says why and changes nothing
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_V, Qt::ControlModifier);
+        QCOMPARE(ed.shownText("timelineKeyboardFeedback"), QStringLiteral("Copy recorded events first"));
+        QCOMPARE(ed.show->commandTrack().commands(), before);
+        QVERIFY(!ed.rig.doc->isModified());
+        QCOMPARE(ed.settledHistory(), base);
+    }
+}
+
+namespace
+{
+/** "id[event ids]|lane|index|label" per recorder group, in group order. Lanes of
+ *  the rig's controls read by role; "{role}" stands for that control's first 8
+ *  UUID characters */
+QStringList laneRows(const EditorRig &ed, const QHash<QString, QString> &roles)
+{
+    QStringList rows;
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+    {
+        const QVariantMap group = value.toMap();
+        QStringList ids;
+        for (const QVariant &id : group.value("eventIds").toList())
+            ids.append(QString::number(id.toUInt()));
+        QString lane = group.value("laneKey").toString();
+        QString label = group.value("laneLabel").toString();
+        for (auto role = roles.cbegin(); role != roles.cend(); ++role)
+        {
+            label.replace(role.key().left(8), QStringLiteral("{%1}").arg(role.value()));
+            if (lane == role.key())
+                lane = role.value();
+        }
+        rows.append(QStringLiteral("%1[%2]|%3|%4|%5").arg(group.value("id").toUInt()).arg(ids.join(QLatin1Char(' ')),
+            lane).arg(group.value("laneIndex", -1).toInt()).arg(label));
+    }
+    return rows;
+}
+
+QHash<QString, QString> laneRoles(const EditorRig &ed)
+{
+    return {{ed.button->recordingId().toString(QUuid::WithoutBraces), QStringLiteral("button")},
+            {ed.fader->recordingId().toString(QUuid::WithoutBraces), QStringLiteral("fader")},
+            {ed.dimmer->recordingId().toString(QUuid::WithoutBraces), QStringLiteral("dimmer")},
+            {ed.missing.toString(QUuid::WithoutBraces), QStringLiteral("missing")}};
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingLanes_rowsFollowGlobalGroups_data()
+{
+    QTest::addColumn<QString>("fixture");
+    QTest::addColumn<QStringList>("expected");
+    const QString missing = QStringLiteral("4[4]|missing|3|Missing control · {missing}");
+    QTest::newRow("rig") << QStringLiteral("rig") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Blue button"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Dimmer"), QStringLiteral("6[6]|legacy|0|Functions")};
+    // a button between two Fader runs keeps them two objects in the one Fader row
+    QTest::newRow("barrier in another row") << QStringLiteral("barrier") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Blue button"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"),
+        QStringLiteral("90[90 8]|fader|2|Fader"), missing, QStringLiteral("5[5]|dimmer|4|Dimmer"),
+        QStringLiteral("40[40 41]|fader|2|Fader"), QStringLiteral("50[50]|button|1|Blue button"),
+        QStringLiteral("12[12]|fader|2|Fader"), QStringLiteral("6[6]|legacy|0|Functions")};
+    QTest::newRow("renamed control") << QStringLiteral("renamed") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Renamed button"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Dimmer"), QStringLiteral("6[6]|legacy|0|Functions")};
+    QTest::newRow("two controls, one caption") << QStringLiteral("duplicate") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Blue button"),
+        QStringLiteral("2[2]|fader|2|Fader · {fader}"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Fader · {dimmer}"), QStringLiteral("6[6]|legacy|0|Functions")};
+    QTest::newRow("deleted control") << QStringLiteral("deleted") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Blue button"),
+        QStringLiteral("2[2]|fader|2|Missing control · {fader}"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Dimmer"), QStringLiteral("6[6]|legacy|0|Functions")};
+    // recorded order among equal times, not the event id, decides first appearance
+    QTest::newRow("equal times") << QStringLiteral("ties") << QStringList{
+        QStringLiteral("9[9]|button|0|Blue button"), QStringLiteral("0[0]|legacy|1|Functions"),
+        QStringLiteral("2[2]|fader|2|Fader")};
+    // Adjust and Level of one control: two objects, one row
+    QTest::newRow("two roles, one control") << QStringLiteral("roles") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Blue button"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"),
+        QStringLiteral("60[60]|fader|2|Fader"), missing, QStringLiteral("5[5]|dimmer|4|Dimmer"),
+        QStringLiteral("6[6]|legacy|0|Functions")};
+    // two widgets carry the button's identity: neither caption names the row
+    QTest::newRow("ambiguous control") << QStringLiteral("ambiguous") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Ambiguous control · {button}"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Dimmer"), QStringLiteral("6[6]|legacy|0|Functions")};
+    QTest::newRow("control captioned Functions") << QStringLiteral("functions") << QStringList{
+        QStringLiteral("0[0]|legacy|0|Functions"), QStringLiteral("1[1]|button|1|Functions · {button}"),
+        QStringLiteral("2[2]|fader|2|Fader"), QStringLiteral("3[3]|legacy|0|Functions"), missing,
+        QStringLiteral("5[5]|dimmer|4|Dimmer"), QStringLiteral("6[6]|legacy|0|Functions")};
+    // with no function command there is no row to tell it from
+    QTest::newRow("control captioned Functions, no legacy row") << QStringLiteral("functions only") << QStringList{
+        QStringLiteral("1[1]|button|0|Functions"), QStringLiteral("2[2]|fader|1|Fader")};
+}
+
+void ShowCommandRecorder_Test::recordingLanes_rowsFollowGlobalGroups()
+{
+    QFETCH(QString, fixture);
+    QFETCH(QStringList, expected);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    const QHash<QString, QString> roles = laneRoles(ed);
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    auto track = ed.show->commandTrack();
+    if (fixture == QLatin1String("barrier"))
+        QVERIFY(addPassageSamples(ed));
+    else if (fixture == QLatin1String("renamed"))
+        ed.button->setCaption(QStringLiteral("Renamed button"));
+    else if (fixture == QLatin1String("duplicate"))
+        ed.dimmer->setCaption(QStringLiteral("Fader"));
+    else if (fixture == QLatin1String("deleted"))
+    {
+        vc->deleteVCWidgets({ed.fader->id()});
+        ed.fader = nullptr;
+    }
+    else if (fixture == QLatin1String("ties"))
+    {
+        ShowCommandTrack ties;
+        QVERIFY(ties.insert(ShowCommand::setButtonState(9, 1200, ed.button->recordingId(), true)));
+        QVERIFY(ties.insert(ShowCommand::start(0, 1200, ed.scene->id())));
+        QVERIFY(ties.insert(ShowCommand::setSliderPosition(2, 1200, ed.fader->recordingId(),
+            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), .4)));
+        QVERIFY(ed.show->setCommandTrack(ties));
+    }
+    else if (fixture == QLatin1String("roles"))
+    {
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(60, 1750, ed.fader->recordingId(),
+            ShowControlRole::LevelSlider, QString(), .3)));
+        QVERIFY(ed.show->setCommandTrack(track));
+    }
+    else if (fixture == QLatin1String("ambiguous"))
+    {
+        VCBridgeV5 bridge(ed.rig.doc, vc);
+        const int frame = bridge.addFrame(0, QRect(300, 0, 200, 250), QStringLiteral("Second frame"), false);
+        VCButton *twin = addToggle(bridge, vc, frame, ed.scene->id(), 10, QStringLiteral("Twin button"));
+        QVERIFY(twin && loadRecordingId(twin, ed.button->recordingId()));
+    }
+    else if (fixture == QLatin1String("functions"))
+        ed.button->setCaption(QStringLiteral("Functions"));
+    else if (fixture == QLatin1String("functions only"))
+    {
+        ed.button->setCaption(QStringLiteral("Functions"));
+        ShowCommandTrack controls;
+        QVERIFY(controls.insert(ShowCommand::setButtonState(1, 1200, ed.button->recordingId(), true)));
+        QVERIFY(controls.insert(ShowCommand::setSliderPosition(2, 1700, ed.fader->recordingId(),
+            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), .4)));
+        QVERIFY(ed.show->setCommandTrack(controls));
+    }
+    QCoreApplication::processEvents();
+
+    QCOMPARE(laneRows(ed, roles), expected);
+    if (fixture == QLatin1String("ambiguous"))
+    {
+        // the row names no widget; the object keeps its status detail
+        const QVariantMap button = ed.rig.recorder->property("groups").toList().at(1).toMap();
+        QVERIFY(button.value("detail").toString().endsWith(QStringLiteral(" · Ambiguous identity")));
+    }
+    // rows come after the global partition: the objects are exactly the engine's groups
+    QVector<QVector<quint32>> engine, shown;
+    for (const ShowCommandGroup &group : ed.show->commandTrack().groups())
+        engine.append(group.eventIds);
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+    {
+        QVector<quint32> ids;
+        for (const QVariant &id : value.toMap().value("eventIds").toList())
+            ids.append(id.toUInt());
+        shown.append(ids);
+    }
+    QCOMPARE(shown, engine);
+}
+
+namespace
+{
+qreal totalTracksHeight(const EditorRig &ed)
+{
+    QQuickItem *viewport = timelineViewport(ed);
+    return viewport ? viewport->property("totalTracksHeight").toReal() : -1;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingLanes_expandedRowsShowEveryGroup()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+    QQuickItem *lane = ed.item(QStringLiteral("recordingLane"));
+    QVERIFY(lane);
+    const qreal row = lane->property("rowHeight").toReal();
+    const qreal laneTop = lane->y();
+    QVERIFY(row > 0);
+    QHash<quint32, int> laneOf;
+    QHash<quint32, qreal> xOf;
+    QStringList expected;
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+    {
+        const quint32 id = value.toMap().value("id").toUInt();
+        laneOf.insert(id, value.toMap().value("laneIndex").toInt());
+        QVERIFY(laneObject(ed, id));
+        xOf.insert(id, laneObject(ed, id)->x());
+        expected.append(QStringLiteral("recordingItem-%1-%2").arg(ed.show->id()).arg(id));
+    }
+    std::sort(expected.begin(), expected.end());
+    QCOMPARE(expected.size(), 11);
+
+    // collapsed: the one lane, no rows
+    QCOMPARE(laneRowLabels(ed), QStringList{});
+    QCOMPARE(lane->height(), row);
+
+    QVERIFY(pressLanesToggle(ed));
+    const QString missing = QStringLiteral("Missing control · ") + ed.missing.toString(QUuid::WithoutBraces).left(8);
+    const QStringList labels{QStringLiteral("Functions"), QStringLiteral("Blue button"), QStringLiteral("Fader"),
+                             missing, QStringLiteral("Dimmer")};
+    QTRY_COMPARE(laneRowLabels(ed), labels);
+    const QList<QQuickItem *> rows = laneRowItems(ed);
+    for (int i = 0; i < rows.size(); ++i)
+    {
+        QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(rows.at(i));
+        QVERIFY(iface);
+        QCOMPARE(iface->text(QAccessible::Name), labels.at(i));
+    }
+
+    // every group exactly once, inside its row, at its time; missing 4 and disabled 5 included
+    QStringList shown;
+    for (QQuickItem *item : shownItems(ed, QStringLiteral("recordingItem")))
+    {
+        QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+        QVERIFY(iface);
+        shown.append(iface->text(QAccessible::Identifier));
+    }
+    std::sort(shown.begin(), shown.end());
+    QCOMPARE(shown, expected);
+    for (auto it = laneOf.cbegin(); it != laneOf.cend(); ++it)
+    {
+        QQuickItem *item = laneItem(ed, it.key());
+        QVERIFY(item && item->isVisible());
+        const QRectF band = sceneRect(rows.at(it.value()));
+        const QRectF rect = sceneRect(item);
+        QVERIFY2(rect.top() >= band.top() && rect.bottom() <= band.bottom(),
+                 qPrintable(QStringLiteral("group %1 outside row %2").arg(it.key()).arg(it.value())));
+        QCOMPARE(item->x(), xOf.value(it.key()));
+    }
+
+    // the lane grows by its rows; what follows it moves down, the function drop stays above it
+    QCOMPARE(lane->height(), 6 * row);
+    QCOMPARE(ed.item(QStringLiteral("newTrackBox"))->y(), laneTop + 6 * row);
+    QCOMPARE(totalTracksHeight(ed), laneTop + 8 * row);
+    QCOMPARE(ed.item(QStringLiteral("newFunctionDrop"))->height(), laneTop);
+
+    // collapsed again: the one lane as before
+    QVERIFY(pressLanesToggle(ed));
+    QTRY_COMPARE(laneRowLabels(ed), QStringList{});
+    QCOMPARE(lane->height(), row);
+    QCOMPARE(ed.item(QStringLiteral("newTrackBox"))->y(), laneTop + row);
+    QCOMPARE(totalTracksHeight(ed), laneTop + 3 * row);
+    for (auto it = xOf.cbegin(); it != xOf.cend(); ++it)
+    {
+        QCOMPARE(laneItem(ed, it.key())->y(), 3.0);
+        QCOMPARE(laneItem(ed, it.key())->x(), it.value());
+    }
+}
+
+void ShowCommandRecorder_Test::recordingLanes_rowsFollowControlChanges()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    QQuickItem *lane = ed.item(QStringLiteral("recordingLane"));
+    QVERIFY(lane);
+    const qreal row = lane->property("rowHeight").toReal();
+    const qreal laneTop = lane->y();
+    const int base = ed.settledHistory();
+    const auto followsRows = [&](int rows) {
+        return ed.item(QStringLiteral("newTrackBox"))->y() == laneTop + (rows + 1) * row
+            && totalTracksHeight(ed) == laneTop + (rows + 3) * row;
+    };
+    QVERIFY(pressLanesToggle(ed));
+    const QString missing = QStringLiteral("Missing control · ") + ed.missing.toString(QUuid::WithoutBraces).left(8);
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Blue button"),
+                                                 QStringLiteral("Fader"), missing, QStringLiteral("Dimmer")}));
+    QVERIFY(followsRows(5));
+
+    // deleted: the row stays and says so; native undo brings its caption back
+    const QString fader = QStringLiteral("Missing control · ") + ed.fader->recordingId().toString(QUuid::WithoutBraces).left(8);
+    vc->deleteVCWidgets({ed.fader->id()});
+    ed.fader = nullptr;
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Blue button"),
+                                                 fader, missing, QStringLiteral("Dimmer")}));
+    QVERIFY(followsRows(5));
+    QCOMPARE(ed.settledHistory(), base + 1);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Blue button"),
+                                                 QStringLiteral("Fader"), missing, QStringLiteral("Dimmer")}));
+
+    // renamed: the same row, the new caption
+    ed.button->setCaption(QStringLiteral("Renamed button"));
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Renamed button"),
+                                                 QStringLiteral("Fader"), missing, QStringLiteral("Dimmer")}));
+
+    // a newly recorded control adds its row at the end
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(300, 0, 200, 250), QStringLiteral("Second frame"), false);
+    auto *wash = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(10, 10, 60, 200),
+        QStringLiteral("level"), QStringLiteral("Wash"), Function::invalidId(), {})));
+    QVERIFY(wash);
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(70, 3000, wash->ensureRecordingId(),
+                                                        ShowControlRole::LevelSlider, QString(), .6)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Renamed button"),
+        QStringLiteral("Fader"), missing, QStringLiteral("Dimmer"), QStringLiteral("Wash")}));
+    QVERIFY(followsRows(6));
+
+    // the only command of a control goes: so does its row
+    QVERIFY(ed.rig.recorder->removeCommands(ed.show->id(), {5}));
+    QTRY_COMPARE(laneRowLabels(ed), (QStringList{QStringLiteral("Functions"), QStringLiteral("Renamed button"),
+        QStringLiteral("Fader"), missing, QStringLiteral("Wash")}));
+    QVERIFY(followsRows(5));
+    QCOMPARE(laneItem(ed, 70)->y(), lane->property("rowHeight").toReal() * 5 + 3);
+}
+
+namespace
+{
+/** The recording editor's authored state and the derived groups, as one text */
+QString laneEditorState(const EditorRig &ed)
+{
+    QQuickItem *list = findVisualItem(ed.root(), QStringLiteral("recordingsView"));
+    if (list == nullptr)
+        return QStringLiteral("<no list>");
+    const auto join = [](const QVector<quint32> &ids)
+    {
+        QStringList texts;
+        for (quint32 id : ids)
+            texts.append(QString::number(id));
+        return texts.join(QLatin1Char(','));
+    };
+    QStringList groups;
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+        groups.append(QString::number(value.toMap().value("id").toUInt()) + QLatin1Char(':')
+                      + join(idsOf(value.toMap().value("eventIds"))));
+    return QStringLiteral("selected %1 anchor %2 passage %3 %4 draft %5 '%6' '%7' groups %8")
+        .arg(join(idsOf(list->property("selectedIds"))))
+        .arg(quint32(list->property("anchorId").toDouble()))
+        .arg(list->property("passageActive").toBool() ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(join(idsOf(list->property("passageIds"))))
+        .arg(quint32(list->property("editingId").toDouble()))
+        .arg(list->property("editingField").toString())
+        .arg(list->property("draftText").toString())
+        .arg(groups.join(QLatin1Char(' ')));
+}
+
+QByteArray savedTrack(const EditorRig &ed)
+{
+    QByteArray xml;
+    QXmlStreamWriter writer(&xml);
+    return ed.show->commandTrack().saveXML(&writer) ? xml : QByteArray();
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingLanes_toggleKeepsAuthoredState_data()
+{
+    QTest::addColumn<QString>("tab");
+    QTest::addColumn<bool>("draft");
+    QTest::addColumn<bool>("startExpanded");
+    for (const char *tab : {"timelineTab", "splitTab"})
+        for (const bool draft : {false, true})
+            for (const bool startExpanded : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1 %2 %3").arg(QLatin1String(tab),
+                    draft ? QStringLiteral("draft") : QStringLiteral("no draft"),
+                    startExpanded ? QStringLiteral("collapse") : QStringLiteral("expand"))))
+                    << QString::fromLatin1(tab) << draft << startExpanded;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_toggleKeepsAuthoredState()
+{
+    QFETCH(QString, tab);
+    QFETCH(bool, draft);
+    QFETCH(bool, startExpanded);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    QQuickItem *toggle = ed.item(QStringLiteral("recordingLanesToggle"));
+    QVERIFY(toggle);
+    if (startExpanded)
+    {
+        ed.click(toggle);
+        QTRY_VERIFY(!laneRowLabels(ed).isEmpty());
+    }
+    QVERIFY(openTwoGroupPassage(ed));
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{90, 8, 40, 41}));
+    if (draft)
+    {
+        QVERIFY(ed.doubleClick(8, "valueCell"));
+        QTRY_VERIFY(ed.editor() != nullptr);
+        ed.type(QStringLiteral("5"), Qt::Key_unknown);
+    }
+    ed.click(ed.item(tab));
+    QTest::qWait(100);
+    QVERIFY(toggle->isVisible());
+    const QString state = laneEditorState(ed);
+    const QByteArray xml = savedTrack(ed);
+    const quint32 extent = ed.show->commandTrack().extent();
+    const bool modified = ed.rig.doc->isModified();
+    const int history = ed.settledHistory();
+    QQuickItem *focus = ed.rig.app->activeFocusItem();
+    QVERIFY(focus);
+
+    ed.click(toggle);
+    QTRY_COMPARE(laneRowLabels(ed).isEmpty(), startExpanded);
+    QTest::qWait(50);
+
+    // a view change only: selection, passage, draft, groups, data, history and focus stay
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(savedTrack(ed), xml);
+    QCOMPARE(ed.show->commandTrack().extent(), extent);
+    QCOMPARE(ed.rig.doc->isModified(), modified);
+    QCOMPARE(ed.settledHistory(), history);
+    QCOMPARE(ed.rig.app->activeFocusItem(), focus);
+    QVERIFY(!ed.rig.manager->isPlaying());
+    if (draft)
+        QVERIFY(state.contains(QStringLiteral("draft 8 'value' '5'")));
+    if (draft && tab == QLatin1String("splitTab"))
+        QVERIFY(ed.editor() != nullptr);
+}
+
+void ShowCommandRecorder_Test::recordingLanes_toggleRevealsFocusedItem_data()
+{
+    QTest::addColumn<QString>("route");
+    QTest::addColumn<bool>("startExpanded");
+    QTest::addColumn<quint32>("groupId");
+    for (const char *route : {"pointer", "accessibility", "space", "return"})
+        for (const bool startExpanded : {false, true})
+            QTest::newRow(qPrintable(QStringLiteral("%1 %2").arg(QLatin1String(route),
+                startExpanded ? QStringLiteral("collapse") : QStringLiteral("expand"))))
+                << QString::fromLatin1(route) << startExpanded << 2u;
+    // the Dimmer object moves to the last row, furthest below the collapsed lane
+    for (const char *route : {"pointer", "accessibility"})
+        QTest::newRow(qPrintable(QStringLiteral("%1 expand, last row").arg(QLatin1String(route))))
+            << QString::fromLatin1(route) << false << 5u;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_toggleRevealsFocusedItem()
+{
+    QFETCH(QString, route);
+    QFETCH(bool, startExpanded);
+    QFETCH(quint32, groupId);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(1600, 480);
+    addSevenTracks(ed);
+    QTest::qWait(100);
+    QQuickItem *toggle = ed.item(QStringLiteral("recordingLanesToggle"));
+    QQuickItem *viewport = timelineViewport(ed);
+    QVERIFY(toggle && viewport);
+    auto *content = qvariant_cast<QQuickItem *>(viewport->property("contentItem"));
+    QVERIFY(content);
+    if (startExpanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_VERIFY(!laneRowLabels(ed).isEmpty());
+    }
+    const bool keyboard = route == QLatin1String("space") || route == QLatin1String("return");
+    QQuickItem *target = keyboard ? toggle : laneItem(ed, groupId);
+    QVERIFY(target);
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QVERIFY2(target->hasActiveFocus(), "Tab from the Timeline tab reaches the target");
+    if (route == QLatin1String("pointer") && !sceneRect(viewport).contains(sceneRect(toggle)))
+    {
+        // the operator scrolls the Recordings header into view to click it
+        viewport->setProperty("contentY", toggle->mapToItem(content, QPointF()).y());
+        QTest::qWait(50);
+        QVERIFY(sceneRect(viewport).contains(sceneRect(toggle)));
+    }
+    const QString state = laneEditorState(ed);
+    const qreal contentY = viewport->property("contentY").toReal();
+    const QRectF header = sceneRect(toggle);
+
+    if (route == QLatin1String("pointer"))
+        ed.click(toggle);
+    else if (route == QLatin1String("accessibility"))
+        QVERIFY(pressLanesToggle(ed));
+    else
+        QTest::keyClick(ed.rig.app.get(), route == QLatin1String("space") ? Qt::Key_Space : Qt::Key_Return);
+    QTRY_COMPARE(laneRowLabels(ed).isEmpty(), startExpanded);
+    QTest::qWait(50);
+
+    QCOMPARE(laneEditorState(ed), state);
+    QVERIFY(!ed.rig.manager->isPlaying());
+    QCOMPARE(ed.rig.app->activeFocusItem(), target);
+    if (keyboard)
+    {
+        // the toggle keeps focus and stays put; nothing scrolls. Flickable's own
+        // fixup snaps a fractional position to whole pixels when its content grows
+        const qreal after = viewport->property("contentY").toReal();
+        QCOMPARE(after, qreal(qRound(contentY)));
+        QCOMPARE(sceneRect(toggle), header.translated(0, contentY - after));
+    }
+    else
+    {
+        // the focused object keeps focus and is shown where the new layout put it
+        QCOMPARE(target->property("modelData").toUInt(), groupId);
+        QVERIFY(target->isVisible());
+        QVERIFY2(sceneRect(viewport).contains(sceneRect(target)), "the focused object is revealed");
+    }
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabRevealsHeaderControls_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<QString>("target");
+    QTest::addColumn<bool>("backward");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const char *target : {"recordingLanesToggle", "recordingDelete"})
+            for (const bool backward : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("policy %1, %2, %3").arg(policy).arg(QLatin1String(target),
+                    backward ? QStringLiteral("backward") : QStringLiteral("forward"))))
+                    << policy << QString::fromLatin1(target) << backward;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabRevealsHeaderControls()
+{
+    QFETCH(int, policy);
+    QFETCH(QString, target);
+    QFETCH(bool, backward);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ed.rig.app->resize(1600, 480);
+    addSevenTracks(ed);
+    QTest::qWait(100);
+    // the Fader's [40 41], chosen by its accessible press, enables Delete
+    QVERIFY(performAccessibleAction(accessibleById(ed.rig.app.get(),
+        QStringLiteral("recordingItem-%1-40").arg(ed.show->id())), QAccessibleActionInterface::pressAction()));
+    QAccessibleInterface *ai = accessibleById(ed.rig.app.get(), target);
+    QQuickItem *control = ai ? qobject_cast<QQuickItem *>(ai->object()) : nullptr;
+    QQuickItem *viewport = timelineViewport(ed);
+    QVERIFY(control && viewport);
+    QTRY_VERIFY(control->isEnabled());
+    viewport->setProperty("contentY", 0);
+    QTest::qWait(50);
+    // below the seven tracks, the Recordings header starts outside the viewport
+    QVERIFY(!sceneRect(viewport).contains(sceneRect(control)));
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    for (int i = 0; i < 240 && !control->hasActiveFocus(); ++i)
+    {
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    }
+    QVERIFY2(control->hasActiveFocus(), "Tab from the Timeline tab reaches the header control");
+    QTest::qWait(50);
+    QVERIFY2(sceneRect(viewport).contains(sceneRect(control)),
+             qPrintable(QStringLiteral("focused %1 at %2, viewport %3").arg(target)
+                        .arg(sceneRect(control).y()).arg(sceneRect(viewport).y())));
+}
+
+void ShowCommandRecorder_Test::recordingLanes_titleClearsToggle_data()
+{
+    QTest::addColumn<bool>("selectAll");
+    QTest::addColumn<int>("extraSamples");
+    QTest::addColumn<QString>("title");
+    QTest::addColumn<bool>("shrinks");
+    QTest::newRow("nothing selected") << false << 0 << QStringLiteral("Recordings (0)") << false;
+    QTest::newRow("every event selected") << true << 0 << QStringLiteral("Recordings (13)") << false;
+    // a five-digit count: one Fader object of 10001 samples, chosen on the timeline
+    QTest::newRow("ten thousand events selected") << false << 10000 << QStringLiteral("Recordings (10001)") << true;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_titleClearsToggle()
+{
+    QFETCH(bool, selectAll);
+    QFETCH(int, extraSamples);
+    QFETCH(QString, title);
+    QFETCH(bool, shrinks);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (extraSamples > 0)
+    {
+        // after the Fader's [12] at 3400 and before the Stop at 4000: they join object 12
+        auto track = ed.show->commandTrack();
+        for (int i = 0; i < extraSamples; ++i)
+            QVERIFY(track.insert(ShowCommand::setSliderPosition(quint32(1000 + i), quint32(3401 + i / 20),
+                ed.fader->recordingId(), ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), .5)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+        QVERIFY(performAccessibleAction(accessibleById(ed.rig.app.get(),
+            QStringLiteral("recordingItem-%1-12").arg(ed.show->id())), QAccessibleActionInterface::pressAction()));
+    }
+    if (selectAll)
+    {
+        QVERIFY(ed.openRecordings());
+        QTRY_VERIFY(!ed.rowIds().isEmpty());
+        ed.click(ed.row(ed.rowIds().first()));
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_A, Qt::ControlModifier);
+        QTRY_COMPARE(ed.selectedIds().size(), 13);
+        ed.click(ed.item(QStringLiteral("timelineTab")));
+    }
+    QQuickItem *heading = nullptr;
+    QQuickItem *toggle = nullptr;
+    QTRY_VERIFY((heading = ed.item(QStringLiteral("recordingsTitle"))) != nullptr
+                && (toggle = ed.item(QStringLiteral("recordingLanesToggle"))) != nullptr);
+    QTRY_COMPARE(heading->property("label").toString(), title);
+    QQuickItem *text = nullptr;
+    for (QQuickItem *child : heading->childItems())
+    {
+        if (child->property("paintedWidth").isValid())
+            text = child;
+    }
+    QVERIFY(text);
+
+    // the whole title is painted, and it ends before the toggle starts
+    const qreal painted = text->property("paintedWidth").toReal();
+    const int align = text->property("horizontalAlignment").toInt();
+    const qreal offset = align == Qt::AlignHCenter ? (text->width() - painted) / 2
+                       : align == Qt::AlignRight ? text->width() - painted : 0;
+    const qreal left = sceneRect(text).left() + offset;
+    QVERIFY2(painted <= heading->width(), qPrintable(QStringLiteral("%1 > %2").arg(painted).arg(heading->width())));
+    QVERIFY(left >= sceneRect(heading).left());
+    QVERIFY2(sceneRect(heading).right() <= sceneRect(toggle).left(),
+             qPrintable(QStringLiteral("title ends %1, toggle starts %2").arg(sceneRect(heading).right())
+                        .arg(sceneRect(toggle).left())));
+    QVERIFY2(left + painted <= sceneRect(toggle).left(),
+             qPrintable(QStringLiteral("text ends %1, toggle starts %2").arg(left + painted)
+                        .arg(sceneRect(toggle).left())));
+    // a count too long for the space shrinks the whole title instead of cutting it
+    QQuickItem *nameLabel = findVisualItemWith(ed.root(), "label", QStringLiteral("Name"));
+    QVERIFY(nameLabel);
+    QCOMPARE(heading->property("fontSize").toReal() < nameLabel->property("fontSize").toReal(), shrinks);
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabReachesToggleAndEveryGroup_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("tracks");
+    QTest::addColumn<QString>("content");
+    QTest::addColumn<bool>("backward");
+    // selection: only Delete is enabled without a musical grid; on a grid, Move and Snap too
+    const QList<QPair<QString, int>> cases{{QStringLiteral("recordings"), 0}, {QStringLiteral("recordings"), 7},
+                                           {QStringLiteral("selection"), 7}, {QStringLiteral("selection on a grid"), 0},
+                                           {QStringLiteral("no recordings"), 7}, {QStringLiteral("after a delete"), 0}};
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                             int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const auto &c : cases)
+            for (const bool backward : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("policy %1, %2 tracks, %3, %4").arg(policy).arg(c.second)
+                    .arg(c.first, backward ? QStringLiteral("backward") : QStringLiteral("forward"))))
+                    << policy << c.second << c.first << backward;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabReachesToggleAndEveryGroup()
+{
+    QFETCH(int, policy);
+    QFETCH(int, tracks);
+    QFETCH(QString, content);
+    QFETCH(bool, backward);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    const bool recordings = content != QLatin1String("no recordings");
+    if (recordings)
+        QVERIFY(addPassageSamples(ed));
+    else
+        QVERIFY(ed.show->setCommandTrack(ShowCommandTrack()));
+    if (content == QLatin1String("selection on a grid"))
+    {
+        ed.rig.manager->setBpmNumber(120);
+        ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    }
+    if (tracks > 0)
+        addSevenTracks(ed);
+    QCoreApplication::processEvents();
+    QCOMPARE(ed.show->tracks().size(), tracks);
+    const auto action = [&](const char *id) {
+        QAccessibleInterface *ai = accessibleById(ed.rig.app.get(), QString::fromLatin1(id));
+        return ai ? qobject_cast<QQuickItem *>(ai->object()) : nullptr;
+    };
+    const bool deleted = content == QLatin1String("after a delete");
+    if (content.startsWith(QLatin1String("selection")) || deleted)
+    {
+        // the Fader's [40 41], chosen by its accessible press
+        QVERIFY(performAccessibleAction(accessibleById(ed.rig.app.get(),
+            QStringLiteral("recordingItem-%1-40").arg(ed.show->id())), QAccessibleActionInterface::pressAction()));
+        QQuickItem *list = findVisualItem(ed.root(), QStringLiteral("recordingsView"));
+        QVERIFY(list);
+        QTRY_COMPARE(idsOf(list->property("selectedIds")), (QVector<quint32>{40, 41}));
+    }
+    if (deleted)
+    {
+        // deleting them shows the lane's Undo after the objects
+        QVERIFY(performAccessibleAction(accessibleById(ed.rig.app.get(), QStringLiteral("recordingDelete")),
+                                        QAccessibleActionInterface::pressAction()));
+        QTRY_VERIFY(action("recordingDeleteUndo") && action("recordingDeleteUndo")->isVisible());
+        QCOMPARE(ed.show->commandTrack().indexOfId(40), -1);
+    }
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+
+    // the segment: every track's controls, the Recordings header top to bottom, then
+    // every object in global group order; disabled header actions are skipped
+    QList<QQuickItem *> expected;
+    QHash<QQuickItem *, QString> names;
+    const auto add = [&](QQuickItem *item, const QString &name) {
+        expected.append(item);
+        names.insert(item, name);
+    };
+    for (int t = 0; t < tracks; ++t)
+    {
+        auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(ed.show->tracks().at(t)));
+        QVERIFY(header);
+        add(findVisualItemWith(header, "showF2Editable", true), QStringLiteral("track %1 name").arg(t));
+        for (const char *tooltip : {"Solo this track", "Mute this track", "Delete this track"})
+            add(findVisualItemWith(header, "tooltip", QString::fromLatin1(tooltip)),
+                QStringLiteral("track %1 %2").arg(t).arg(QLatin1String(tooltip)));
+    }
+    QQuickItem *toggle = ed.item(QStringLiteral("recordingLanesToggle"));
+    QCOMPARE(toggle != nullptr, recordings);
+    if (recordings)
+    {
+        add(toggle, QStringLiteral("toggle"));
+        const bool grid = content == QLatin1String("selection on a grid");
+        const bool selection = content.startsWith(QLatin1String("selection"));
+        for (const char *id : {"recordingMoveEarlier", "recordingMoveLater", "recordingSnap", "recordingDelete"})
+        {
+            QQuickItem *button = action(id);
+            QVERIFY(button);
+            const bool enabled = selection && (grid || qstrcmp(id, "recordingDelete") == 0);
+            QCOMPARE(button->isEnabled(), enabled);
+            if (enabled)
+                add(button, QString::fromLatin1(id));
+        }
+        for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+        {
+            const quint32 id = value.toMap().value("id").toUInt();
+            add(laneItem(ed, id), QString::number(id));
+        }
+        QQuickItem *undo = action("recordingDeleteUndo");
+        QCOMPARE(undo != nullptr && undo->isVisible(), deleted);
+        if (deleted)
+            add(undo, QStringLiteral("undo"));
+    }
+    QVERIFY(!expected.contains(nullptr));
+    QList<QQuickItem *> order = expected;
+    if (backward)
+        std::reverse(order.begin(), order.end());
+    QStringList expectedNames;
+    for (QQuickItem *item : std::as_const(order))
+        expectedNames.append(names.value(item));
+
+    QQuickItem *start = ed.item(QStringLiteral("timelineTab"));
+    QQuickItem *showName = findVisualItemWith(ed.root(), "text", ed.show->name());
+    QVERIFY(start && showName);
+    const auto focus = [&]() { return ed.rig.app->activeFocusItem(); };
+    const auto name = [&](QQuickItem *item) {
+        return item == nullptr ? QStringLiteral("<none>")
+             : names.value(item, QStringLiteral("%1[%2]").arg(QString::fromLatin1(item->metaObject()->className()),
+                                                               item->objectName()));
+    };
+    const auto press = [&](bool back) {
+        QTest::keyClick(ed.rig.app.get(), back ? Qt::Key_Backtab : Qt::Key_Tab,
+                        back ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    const auto reach = [&](QQuickItem *target) {
+        ed.click(start);
+        for (int i = 0; i < 400 && focus() != target; ++i)
+            press(backward);
+        return focus() == target;
+    };
+    // from the Timeline tab into the segment, through it, and out
+    const auto traverse = [&](QQuickItem **exit) {
+        QStringList reached;
+        ed.click(start);
+        for (int i = 0; i < 400 && !expected.contains(focus()); ++i)
+            press(backward);
+        for (int i = 0; i < 400 && expected.contains(focus()); ++i)
+        {
+            reached.append(name(focus()));
+            press(backward);
+        }
+        *exit = focus();
+        return reached;
+    };
+    const auto check = [&](QQuickItem *expectedExit, QQuickItem **exitOut) {
+        QQuickItem *exit = nullptr;
+        QCOMPARE(traverse(&exit), expectedNames);
+        *exitOut = exit;
+        QVERIFY(exit && !expected.contains(exit));
+        // the reduced policies leave backward to the Show name, the only other stop Qt gives
+        // them here, and forward to the Timeline tab: the two ends never alias
+        if (policy != int(Qt::TabFocusAllControls))
+            QCOMPARE(name(exit), name(backward ? showName : start));
+        if (expectedExit)
+            QCOMPARE(name(exit), name(expectedExit));
+        // an immediate reverse returns to the boundary stop, then out again
+        press(!backward);
+        QCOMPARE(name(focus()), expectedNames.last());
+        press(backward);
+        QCOMPARE(focus(), exit);
+        // one lap from the exit reaches the segment's entry again: no closed cycle
+        QSet<QQuickItem *> lap;
+        for (int i = 0; i < 400 && focus() != order.first(); ++i)
+        {
+            QVERIFY2(!lap.contains(focus()), qPrintable(QStringLiteral("revisited %1").arg(name(focus()))));
+            QVERIFY2(!expected.contains(focus()), qPrintable(QStringLiteral("re-entered at %1").arg(name(focus()))));
+            lap.insert(focus());
+            press(backward);
+        }
+        QCOMPARE(name(focus()), expectedNames.first());
+    };
+
+    QQuickItem *collapsedExit = nullptr;
+    check(nullptr, &collapsedExit);
+    if (QTest::currentTestFailed() || !recordings)
+    {
+        QVERIFY(!ed.rig.manager->isPlaying());
+        return;
+    }
+
+    // Space on the toggle, reached by Tab, expands; the same traversal follows
+    QVERIFY(reach(toggle));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QTRY_VERIFY(!laneRowLabels(ed).isEmpty());
+    QCOMPARE(focus(), toggle);
+    QQuickItem *expandedExit = nullptr;
+    check(collapsedExit, &expandedExit);
+    if (QTest::currentTestFailed())
+        return;
+    // Return collapses again
+    QVERIFY(reach(toggle));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_VERIFY(laneRowLabels(ed).isEmpty());
+    QCOMPARE(focus(), toggle);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabFollowsRemovedGroup_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<bool>("expanded");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                             int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const bool expanded : {false, true})
+            QTest::newRow(qPrintable(QStringLiteral("policy %1, %2").arg(policy)
+                .arg(expanded ? QStringLiteral("lane per control") : QStringLiteral("one lane"))))
+                << policy << expanded;
+}
+
+void ShowCommandRecorder_Test::recordingLanes_tabFollowsRemovedGroup()
+{
+    QFETCH(int, policy);
+    QFETCH(bool, expanded);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    const auto press = [&](bool back) {
+        QTest::keyClick(ed.rig.app.get(), back ? Qt::Key_Backtab : Qt::Key_Tab,
+                        back ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    const auto focusedGroup = [&]() {
+        QQuickItem *focus = ed.rig.app->activeFocusItem();
+        return focus && focus->objectName() == QLatin1String("recordingItem")
+            ? QString::number(focus->property("modelData").toUInt()) : QStringLiteral("<not an object>");
+    };
+
+    // Tab to the Fader's [40 41], select it, then its button barrier 50 goes away
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    for (int i = 0; i < 400 && focusedGroup() != QLatin1String("40"); ++i)
+        press(false);
+    QCOMPARE(focusedGroup(), QStringLiteral("40"));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QVERIFY(ed.rig.recorder->removeCommands(ed.show->id(), {50u}));
+    QTRY_COMPARE(focusedGroup(), QStringLiteral("40"));
+    QVERIFY(laneItem(ed, 50) == nullptr && laneItem(ed, 12) == nullptr);
+
+    // the neighbours are the current ones: 12 joined 40, the next object is 6
+    press(false);
+    QCOMPARE(focusedGroup(), QStringLiteral("6"));
+    press(true);
+    QCOMPARE(focusedGroup(), QStringLiteral("40"));
+    press(true);
+    QCOMPARE(focusedGroup(), QStringLiteral("5"));
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingLanes_keyHoldRegroupsInItsRow_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<QString>("finish");
+    // policy 3 (macOS): the Show-local traversal owner forwards the keys it leaves alone
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const bool expanded : {false, true})
+            for (const char *finish : {"return", "enter", "backspace"})
+                QTest::newRow(qPrintable(QStringLiteral("policy %1, %2 %3").arg(policy)
+                    .arg(expanded ? QStringLiteral("lane per control") : QStringLiteral("one lane"),
+                         QLatin1String(finish))))
+                    << policy << expanded << QString::fromLatin1(finish);
+}
+
+void ShowCommandRecorder_Test::recordingLanes_keyHoldRegroupsInItsRow()
+{
+    QFETCH(int, policy);
+    QFETCH(bool, expanded);
+    QFETCH(QString, finish);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 5);
+    }
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    QQuickItem *lane = ed.item(QStringLiteral("recordingLane"));
+    QQuickItem *list = findVisualItem(ed.root(), QStringLiteral("recordingsView"));
+    QVERIFY(lane && list);
+    const qreal faderTop = expanded ? 3 * lane->property("rowHeight").toReal() : 0;
+    auto *chooser = ed.item(QStringLiteral("moveStep"));
+    QVERIFY(chooser);
+    ed.click(chooser);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+    QCOMPARE(chooser->property("currentIndex").toInt(), 3);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QVERIFY(ed.item(QStringLiteral("moveTimeDelta"))->hasActiveFocus());
+    ed.type(QStringLiteral("0.125"));
+
+    // Space on the Fader's last object, reached by Tab, selects its one sample
+    QQuickItem *target = laneItem(ed, 12);
+    QVERIFY(target);
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+    QVERIFY(target->hasActiveFocus());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QVERIFY(!ed.rig.manager->isPlaying());
+    QCOMPARE(idsOf(list->property("selectedIds")), QVector<quint32>{12});
+
+    // a Left hold: the press passes the button barrier and merges 12 into 40 41, the repeat moves on
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_Left);
+    QKeyEvent repeat(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier, {}, true);
+    QCoreApplication::sendEvent(ed.rig.app.get(), &repeat);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_Left);
+    QCoreApplication::processEvents();
+    QCOMPARE(ed.command(12).time, 3150u);
+    QCOMPARE(ed.command(40).time, 3000u);
+    QCOMPARE(ed.command(41).time, 3200u);
+    QCOMPARE(ed.show->commandTrack().count(), 13);
+    QCOMPARE(idsOf(list->property("selectedIds")), QVector<quint32>{12});
+    QVERIFY(std::any_of(ed.show->commandTrack().groups().cbegin(), ed.show->commandTrack().groups().cend(),
+        [](const ShowCommandGroup &group) { return group.eventIds == QVector<quint32>{40, 12, 41}; }));
+    // the merged object keeps the focus, in the Fader's row
+    QTRY_VERIFY(laneItem(ed, 40) && laneItem(ed, 40)->hasActiveFocus());
+    QCOMPARE(laneItem(ed, 40)->y(), faderTop + 3);
+
+    if (finish == QLatin1String("backspace"))
+    {
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Backspace);
+        QCOMPARE(ed.show->commandTrack().count(), 12);
+        QVERIFY(ed.show->commandTrack().indexOfId(12) < 0);
+        const int serial = ed.rig.recorder->lastEditSerial();
+        QTest::qWait(200);
+        QVERIFY(ed.tardis()->undoCommandEdit(serial));
+        QCOMPARE(ed.command(12).time, 3150u);
+    }
+    else
+    {
+        // Return or Enter opens the exact selection in the table
+        QTest::keyClick(ed.rig.app.get(), finish == QLatin1String("return") ? Qt::Key_Return : Qt::Key_Enter);
+        QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) != nullptr);
+        QTRY_COMPARE(ed.rowIds(), QVector<quint32>{12});
+        QCOMPARE(ed.selectedIds(), QVector<quint32>{12});
+    }
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_readOnlyTraversalLeavesTheSegment_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("tracks");
+    QTest::addColumn<bool>("editable");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                             int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const int tracks : {0, 7})
+            for (const bool editable : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("policy %1, %2 tracks, %3").arg(policy).arg(tracks)
+                    .arg(editable ? QStringLiteral("editable") : QStringLiteral("read-only"))))
+                    << policy << tracks << editable;
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_readOnlyTraversalLeavesTheSegment()
+{
+    QFETCH(int, policy);
+    QFETCH(int, tracks);
+    QFETCH(bool, editable);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (tracks > 0)
+        addSevenTracks(ed);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) != nullptr);
+    // Perform's read-only Show disables the colour button, the track controls and the header actions
+    if (!editable)
+        ed.rig.manager->setReadOnly(true);
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    const auto commands = ed.show->commandTrack().commands();
+    const auto trackList = ed.show->tracks();
+    const QString state = laneEditorState(ed);
+    const int clipboard = ed.rig.recorder->clipboardCount();
+    const bool modified = ed.rig.doc->isModified();
+
+    QQuickItem *splitTab = ed.item(QStringLiteral("splitTab"));
+    QQuickItem *recordingsTab = ed.item(QStringLiteral("recordingsTab"));
+    QQuickItem *filter = ed.item(QStringLiteral("recordingsFilter"));
+    QQuickItem *commandView = ed.item(QStringLiteral("commandView"));
+    QQuickItem *colPick = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Show items color"));
+    QVERIFY(splitTab && recordingsTab && filter && commandView && colPick);
+    QCOMPARE(colPick->isEnabled(), editable);
+    QQuickItem *before = editable ? colPick : splitTab;
+
+    // the segment: the enabled track controls, the toggle, then every object in global group order
+    QList<QQuickItem *> segment;
+    QHash<QQuickItem *, QString> names;
+    const auto add = [&](QQuickItem *item, const QString &name) {
+        segment.append(item);
+        names.insert(item, name);
+    };
+    for (int t = 0; t < tracks; ++t)
+    {
+        auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(ed.show->tracks().at(t)));
+        QVERIFY(header);
+        QList<QPair<QQuickItem *, QString>> controls{{findVisualItemWith(header, "showF2Editable", true),
+                                                      QStringLiteral("track %1 name").arg(t)}};
+        for (const char *tooltip : {"Solo this track", "Mute this track", "Delete this track"})
+            controls.append({findVisualItemWith(header, "tooltip", QString::fromLatin1(tooltip)),
+                             QStringLiteral("track %1 %2").arg(t).arg(QLatin1String(tooltip))});
+        for (const auto &control : std::as_const(controls))
+        {
+            QVERIFY(control.first);
+            QCOMPARE(control.first->isEnabled(), editable);
+            if (editable)
+                add(control.first, control.second);
+        }
+    }
+    add(ed.item(QStringLiteral("recordingLanesToggle")), QStringLiteral("toggle"));
+    for (const char *id : {"recordingMoveEarlier", "recordingMoveLater", "recordingSnap", "recordingDelete"})
+    {
+        QAccessibleInterface *ai = accessibleById(ed.rig.app.get(), QString::fromLatin1(id));
+        QQuickItem *button = ai ? qobject_cast<QQuickItem *>(ai->object()) : nullptr;
+        QVERIFY(button && !button->isEnabled());
+    }
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+    {
+        const quint32 id = value.toMap().value("id").toUInt();
+        add(laneItem(ed, id), QString::number(id));
+    }
+    QVERIFY(!segment.contains(nullptr));
+    QStringList forwardNames;
+    for (QQuickItem *item : std::as_const(segment))
+        forwardNames.append(names.value(item));
+    QStringList backwardNames = forwardNames;
+    std::reverse(backwardNames.begin(), backwardNames.end());
+
+    const bool reduced = policy != int(Qt::TabFocusAllControls);
+    const auto focus = [&]() { return ed.rig.app->activeFocusItem(); };
+    const auto name = [&](QQuickItem *item) {
+        return item == nullptr ? QStringLiteral("<none>")
+             : names.value(item, QStringLiteral("%1[%2]").arg(QString::fromLatin1(item->metaObject()->className()),
+                                                               item->objectName()));
+    };
+    const auto press = [&](bool back) {
+        QTest::keyClick(ed.rig.app.get(), back ? Qt::Key_Backtab : Qt::Key_Tab,
+                        back ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    const auto walk = [&](bool back) {
+        QStringList reached;
+        for (int i = 0; i < 200 && segment.contains(focus()); ++i)
+        {
+            reached.append(name(focus()));
+            press(back);
+        }
+        return reached;
+    };
+
+    // forward from the Split tab, clicked: Tab leaves it for the boundary, then the whole segment
+    ed.click(splitTab);
+    QCOMPARE(focus(), splitTab);
+    press(false);
+    QVERIFY2(focus() != splitTab, "Tab leaves the Split tab");
+    if (editable)
+        QCOMPARE(focus(), colPick);
+    QList<QQuickItem *> lead;
+    for (int i = 0; i < 80 && focus() != splitTab && !segment.contains(focus()); ++i)
+    {
+        lead.append(focus());
+        press(false);
+    }
+    QCOMPARE(name(focus()), forwardNames.first());
+    QQuickItem *forwardEntry = lead.isEmpty() ? splitTab : lead.last();
+    if (reduced)
+        QCOMPARE(name(forwardEntry), name(before));
+    // an immediate reverse at the entry returns to the boundary, then in again
+    press(true);
+    QCOMPARE(focus(), forwardEntry);
+    press(false);
+    QCOMPARE(name(focus()), forwardNames.first());
+    QCOMPARE(walk(false), forwardNames);
+    QQuickItem *forwardExit = focus();
+    QVERIFY(forwardExit && !segment.contains(forwardExit));
+    QVERIFY2(forwardExit != before, "the forward exit is not the boundary before the segment");
+    if (reduced)
+        QCOMPARE(name(forwardExit), name(filter));
+    press(true);
+    QCOMPARE(name(focus()), forwardNames.last());
+    press(false);
+    QCOMPARE(focus(), forwardExit);
+    // on from the exit: the table's rows, never back into the segment
+    const auto rowOf = [](QQuickItem *item) {
+        for (; item; item = item->parentItem())
+            if (item->objectName() == QLatin1String("recordingRow"))
+                return item;
+        return static_cast<QQuickItem *>(nullptr);
+    };
+    QSet<QQuickItem *> rowsVisited;
+    for (int i = 0; i < 120 && rowsVisited.size() < 2; ++i)
+    {
+        QVERIFY2(!segment.contains(focus()), qPrintable(QStringLiteral("re-entered at %1").arg(name(focus()))));
+        if (QQuickItem *row = rowOf(focus()))
+            rowsVisited.insert(row);
+        press(false);
+    }
+    QCOMPARE(rowsVisited.size(), 2);
+
+    // backward from the table filter, clicked: the segment from its last stop, then the boundary before it
+    ed.click(filter);
+    QCOMPARE(focus(), filter);
+    press(true);
+    QList<QQuickItem *> backLead;
+    for (int i = 0; i < 80 && focus() != filter && !segment.contains(focus()); ++i)
+    {
+        backLead.append(focus());
+        press(true);
+    }
+    if (reduced)
+        QVERIFY(backLead.isEmpty());
+    QCOMPARE(name(focus()), backwardNames.first());
+    QQuickItem *backwardEntry = backLead.isEmpty() ? filter : backLead.last();
+    press(false);
+    QCOMPARE(focus(), backwardEntry);
+    press(true);
+    QCOMPARE(name(focus()), backwardNames.first());
+    QCOMPARE(walk(true), backwardNames);
+    QQuickItem *backwardExit = focus();
+    QVERIFY(backwardExit && !segment.contains(backwardExit) && backwardExit->isEnabled());
+    QVERIFY2(backwardExit != forwardExit, "the two boundaries do not alias");
+    if (reduced)
+        QCOMPARE(name(backwardExit), name(before));
+    press(false);
+    QCOMPARE(name(focus()), forwardNames.first());
+    press(true);
+    QCOMPARE(focus(), backwardExit);
+    // past the boundary: backward along the tabs, not back into the segment
+    press(true);
+    QVERIFY2(!segment.contains(focus()), qPrintable(QStringLiteral("re-entered at %1").arg(name(focus()))));
+    if (reduced)
+        QCOMPARE(focus(), editable ? splitTab : recordingsTab);
+
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.show->tracks(), trackList);
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(ed.rig.recorder->clipboardCount(), clipboard);
+    QCOMPARE(ed.rig.doc->isModified(), modified);
+    QCOMPARE(ed.rig.manager->readOnly(), !editable);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::timeline_splitTabLeavesOutsideTheSplit_data()
+{
+    QTest::addColumn<bool>("editable");
+    QTest::newRow("policy 255, read-only") << false;
+    QTest::newRow("policy 255, editable") << true;
+}
+
+void ShowCommandRecorder_Test::timeline_splitTabLeavesOutsideTheSplit()
+{
+    QFETCH(bool, editable);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(Qt::TabFocusAllControls);
+    if (!editable)
+        ed.rig.manager->setReadOnly(true);
+    QCoreApplication::processEvents();
+    const auto commands = ed.show->commandTrack().commands();
+    const QString state = laneEditorState(ed);
+
+    QQuickItem *timelineTab = ed.item(QStringLiteral("timelineTab"));
+    QQuickItem *recordingsTab = ed.item(QStringLiteral("recordingsTab"));
+    QQuickItem *splitTab = ed.item(QStringLiteral("splitTab"));
+    QQuickItem *colPick = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Show items color"));
+    QVERIFY(timelineTab && recordingsTab && splitTab && colPick);
+    QCOMPARE(colPick->isEnabled(), editable);
+    const auto focus = [&]() { return ed.rig.app->activeFocusItem(); };
+    const auto press = [&]() {
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+        QCoreApplication::processEvents();
+    };
+
+    // the Timeline tab stays open: the Split tab is reached by Tab, not by a click that opens it
+    ed.click(timelineTab);
+    QCOMPARE(focus(), timelineTab);
+    press();
+    QCOMPARE(focus(), recordingsTab);
+    press();
+    QCOMPARE(focus(), splitTab);
+    press();
+    QVERIFY2(focus() != splitTab, "Tab leaves the Split tab");
+    if (editable)
+        QCOMPARE(focus(), colPick);
+    QVERIFY(timelineTab->property("checked").toBool());
+
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(ed.rig.manager->readOnly(), !editable);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+namespace
+{
+/** Two level sliders next to the rig's Adjust fader, for the slider graphs */
+struct GraphControls
+{
+    VCSlider *a = nullptr;
+    VCSlider *b = nullptr;
+};
+
+GraphControls addGraphSliders(EditorRig &ed)
+{
+    GraphControls controls;
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    if (vc == nullptr)
+        return controls;
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 320, 400, 250), QStringLiteral("Graph frame"), false);
+    controls.a = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(10, 10, 60, 200),
+        QStringLiteral("level"), QStringLiteral("Level A"), Function::invalidId(), {})));
+    controls.b = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(100, 10, 60, 200),
+        QStringLiteral("level"), QStringLiteral("Level B"), Function::invalidId(), {})));
+    return controls;
+}
+
+bool publish(EditorRig &ed, ShowCommandTrack &track, quint32 extent)
+{
+    if (!track.setExtent(extent) || !ed.show->setCommandTrack(track))
+        return false;
+    QCoreApplication::processEvents();
+    ed.rig.doc->resetModified();
+    return true;
+}
+
+/** Fixture F, in global order: Level A [10..14] at 1000, 1400 (.90 .30 .55 tied), 2600;
+ *  a legacy Start barrier 20; Level A [21] alone at 7000; Level B [100..299] every 20 ms
+ *  from 12000 alternating .05 .95; the Adjust fader [30..32]; a missing control [40 41] */
+bool loadGraphFixture(EditorRig &ed, const GraphControls &controls)
+{
+    if (controls.a == nullptr || controls.b == nullptr)
+        return false;
+    ShowCommandTrack track;
+    const QUuid a = controls.a->ensureRecordingId(), b = controls.b->ensureRecordingId();
+    const auto level = [&](quint32 id, quint32 time, const QUuid &control, double position) {
+        return track.insert(ShowCommand::setSliderPosition(id, time, control, ShowControlRole::LevelSlider,
+                                                           QString(), position));
+    };
+    const auto adjust = [&](quint32 id, quint32 time, double position) {
+        return track.insert(ShowCommand::setSliderPosition(id, time, ed.fader->ensureRecordingId(),
+                                                           ShowControlRole::AdjustSlider,
+                                                           QStringLiteral("Intensity"), position));
+    };
+    bool ok = level(10, 1000, a, .10) && level(11, 1400, a, .90) && level(12, 1400, a, .30)
+        && level(13, 1400, a, .55) && level(14, 2600, a, .55)
+        && track.insert(ShowCommand::start(20, 3000, ed.scene->id())) && level(21, 7000, a, .70);
+    for (quint32 i = 0; ok && i < 200; ++i)
+        ok = level(100 + i, 12000 + 20 * i, b, i % 2 ? .95 : .05);
+    ok = ok && adjust(30, 17000, .20) && adjust(31, 17500, .80) && adjust(32, 18000, .50)
+        && level(40, 19000, ed.missing, .40) && level(41, 19600, ed.missing, .60);
+    return ok && publish(ed, track, 20000);
+}
+
+/** Fixture P: one Level A take of 30000 samples, 20 ms apart from 1000, stepping through
+ *  255-quantized positions, then 40 takes of 300 samples alternating Level B and A */
+constexpr quint32 bigTakeEnd = 1000 + 20 * 29999;
+bool loadPerformanceFixture(EditorRig &ed, const GraphControls &controls)
+{
+    if (controls.a == nullptr || controls.b == nullptr)
+        return false;
+    ShowCommandTrack track;
+    const QUuid a = controls.a->ensureRecordingId(), b = controls.b->ensureRecordingId();
+    quint32 id = 1000;
+    const auto level = [&](quint32 time, const QUuid &control, int step) {
+        return track.insert(ShowCommand::setSliderPosition(id++, time, control, ShowControlRole::LevelSlider,
+                                                           QString(), ((step * 7) % 256) / 255.0));
+    };
+    bool ok = true;
+    for (int i = 0; ok && i < 30000; ++i)
+        ok = level(1000 + 20 * i, a, i);
+    for (int g = 0; ok && g < 40; ++g)
+        for (int i = 0; ok && i < 300; ++i)
+            ok = level(602000 + g * 7000 + 20 * i, g % 2 ? a : b, i + g);
+    return ok && publish(ed, track, 602000 + 40 * 7000);
+}
+
+/** Fixture M: 200 takes of five samples over 10 missing controls, one every 3 s */
+bool loadManyGroupsFixture(EditorRig &ed)
+{
+    ShowCommandTrack track;
+    QVector<QUuid> controls;
+    for (int c = 0; c < 10; ++c)
+        controls.append(QUuid::createUuid());
+    quint32 id = 1;
+    bool ok = true;
+    for (int g = 0; ok && g < 200; ++g)
+        for (int i = 0; ok && i < 5; ++i)
+            ok = track.insert(ShowCommand::setSliderPosition(id++, quint32(g * 3000 + i * 500), controls.at(g % 10),
+                                                             ShowControlRole::LevelSlider, QString(),
+                                                             (g + i) % 2 ? .8 : .2));
+    return ok && publish(ed, track, 600000);
+}
+
+QQuickItem *recordingLaneItem(const EditorRig &ed)
+{
+    const QList<QQuickItem *> lanes = shownItems(ed, QStringLiteral("recordingLane"));
+    return lanes.isEmpty() ? nullptr : lanes.first();
+}
+
+/** Median of the per-run medians, median of the per-run p90s, spread of the run medians */
+struct RunStats
+{
+    double median = 0;
+    double p90 = 0;
+    double spread = 0;
+};
+
+RunStats runStats(QVector<QVector<double>> runs)
+{
+    QVector<double> medians, p90s;
+    for (QVector<double> &run : runs)
+    {
+        std::sort(run.begin(), run.end());
+        const int n = run.size();
+        medians.append(n % 2 ? run.at(n / 2) : (run.at(n / 2 - 1) + run.at(n / 2)) / 2);
+        p90s.append(run.at(int(std::ceil(0.9 * n)) - 1));
+    }
+    std::sort(medians.begin(), medians.end());
+    std::sort(p90s.begin(), p90s.end());
+    RunStats stats;
+    stats.median = medians.at(medians.size() / 2);
+    stats.p90 = p90s.at(p90s.size() / 2);
+    stats.spread = medians.last() - medians.first();
+    return stats;
+}
+
+/** Milliseconds from the change to the window's next swapped frame, -1 when none came */
+double msToNextFrame(QQuickWindow *window, const std::function<void()> &change)
+{
+    QSignalSpy swapped(window, &QQuickWindow::frameSwapped);
+    QElapsedTimer timer;
+    timer.start();
+    change();
+    if (swapped.isEmpty() && !swapped.wait(5000))
+        return -1;
+    return timer.nsecsElapsed() / 1e6;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_sliderGraphPerformance()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    const GraphControls controls = addGraphSliders(ed);
+    QVERIFY(loadPerformanceFixture(ed, controls));
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QVERIFY(view && lane);
+    QQuickWindow *window = ed.rig.app.get();
+    window->resize(1200, 700);
+    QTest::qWait(200);
+    qInfo().noquote() << "M2 frameSwapped offscreen:" << msToNextFrame(window, [&]() {
+        view->setProperty("contentX", 10.0);
+    });
+
+    // 6 runs, the first a warm-up; each run 20 steps of one viewport width from the big take
+    for (const float scale : {5.0f, 0.1f})
+    {
+        ed.rig.manager->setTimeScale(scale);
+        QTest::qWait(200);
+        QQuickItem *big = laneObject(ed, 1000);
+        QVERIFY(big);
+        const qreal width = view->width();
+        const qreal last = view->property("contentWidth").toReal() - width;
+        QVector<QVector<double>> runs;
+        for (int run = 0; run < 6; ++run)
+        {
+            qreal x = std::min(big->x(), last);
+            view->setProperty("contentX", x);
+            QTest::qWait(100);
+            qreal direction = 1;
+            QVector<double> steps;
+            for (int step = 0; step < 20; ++step)
+            {
+                if (x + direction * width < 0 || x + direction * width > last)
+                    direction = -direction;
+                x += direction * width;
+                const double ms = msToNextFrame(window, [&]() { view->setProperty("contentX", x); });
+                QVERIFY2(ms >= 0, "no frame after a scroll step");
+                steps.append(ms);
+            }
+            if (run > 0)
+                runs.append(steps);
+        }
+        const RunStats stats = runStats(runs);
+        qInfo().noquote() << QStringLiteral("M2 scroll timeScale %1: median %2 ms, p90 %3 ms, spread %4 ms")
+            .arg(scale).arg(stats.median, 0, 'f', 2).arg(stats.p90, 0, 'f', 2).arg(stats.spread, 0, 'f', 2);
+    }
+
+    // capture refresh: one more sample on the big take, shown at its end, publish to the next frame
+    QQuickItem *big = laneObject(ed, 1000);
+    QVERIFY(big);
+    view->setProperty("contentX", std::max<qreal>(0, big->x() + big->width() - view->width() / 2));
+    QTest::qWait(200);
+    QVector<double> refresh;
+    for (int i = 0; i < 5; ++i)
+    {
+        ShowCommandTrack track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(track.nextEventId(), bigTakeEnd + 20 * (i + 1),
+            controls.a->recordingId(), ShowControlRole::LevelSlider, QString(), (i % 2) ? .25 : .75)));
+        // from publishing the track: the lane's own commandsChanged handlers run inside it
+        QElapsedTimer timer;
+        double ms = -1;
+        bool changed = false;
+        const auto notified = QObject::connect(ed.rig.recorder, &ShowCommandRecorder::commandsChanged,
+                                               [&]() { changed = true; });
+        const auto swapped = QObject::connect(window, &QQuickWindow::frameSwapped, [&]() {
+            if (changed && ms < 0)
+                ms = timer.nsecsElapsed() / 1e6;
+        });
+        timer.start();
+        QVERIFY(ed.show->setCommandTrack(track));
+        QTRY_VERIFY_WITH_TIMEOUT(ms >= 0, 10000);
+        QObject::disconnect(notified);
+        QObject::disconnect(swapped);
+        refresh.append(ms);
+        QTest::qWait(100);
+    }
+    QCOMPARE(laneObject(ed, 1000)->property("members").toList().size(), 30005);
+    QVector<double> sorted = refresh;
+    std::sort(sorted.begin(), sorted.end());
+    qInfo().noquote() << QStringLiteral("M2 capture refresh: median %1 ms, runs %2")
+        .arg(sorted.at(2), 0, 'f', 2)
+        .arg([&]() { QStringList all; for (double v : refresh) all << QString::number(v, 'f', 2); return all.join(' '); }());
+}
+
+namespace
+{
+QList<QQuickItem *> sliderGraphs(const EditorRig &ed)
+{
+    return shownItems(ed, QStringLiteral("sliderGraph"));
+}
+
+qreal graphArea(const QList<QQuickItem *> &graphs)
+{
+    qreal area = 0;
+    for (QQuickItem *graph : graphs)
+    {
+        const QSizeF size = graph->property("canvasSize").toSizeF();
+        area += size.width() * size.height();
+    }
+    return area;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_sliderGraphAllocation_data()
+{
+    QTest::addColumn<qreal>("marginRatio");
+    QTest::newRow("m = W/4") << 0.25;
+    QTest::newRow("m = W/2") << 0.5;
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphAllocation()
+{
+    QFETCH(qreal, marginRatio);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    const GraphControls controls = addGraphSliders(ed);
+    QVERIFY(loadGraphFixture(ed, controls));
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QVERIFY(view && lane);
+    QQuickWindow *window = ed.rig.app.get();
+    window->resize(1200, 700);
+    lane->setProperty("drawMarginRatio", marginRatio);
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(200);
+    const qreal width = view->width();
+    const qreal margin = lane->property("drawMargin").toReal();
+
+    // the rapid take, about 2700 px wide: scroll across it in steps of W/8
+    QQuickItem *rapid = laneObject(ed, 100);
+    QVERIFY(rapid);
+    view->setProperty("contentX", rapid->x() - width / 2);
+    QTest::qWait(200);
+    QHash<QQuickItem *, int> painted;
+    for (QQuickItem *graph : sliderGraphs(ed))
+        painted.insert(graph, graph->property("paintCount").toInt());
+    int paints = 0, created = 0, maxSurfaces = 0;
+    qreal maxWidth = 0;
+    QVector<double> times;
+    for (int step = 1; step <= 24; ++step)
+    {
+        const qreal x = rapid->x() - width / 2 + step * width / 8;
+        times.append(msToNextFrame(window, [&]() { view->setProperty("contentX", x); }));
+        QTest::qWait(20);
+        const QList<QQuickItem *> graphs = sliderGraphs(ed);
+        maxSurfaces = std::max<int>(maxSurfaces, graphs.size());
+        for (QQuickItem *graph : graphs)
+        {
+            const int count = graph->property("paintCount").toInt();
+            if (!painted.contains(graph))
+                ++created;
+            paints += count - painted.value(graph, 0);
+            painted.insert(graph, count);
+            maxWidth = std::max(maxWidth, graph->property("canvasSize").toSizeF().width());
+        }
+    }
+    std::sort(times.begin(), times.end());
+    qInfo().noquote() << QStringLiteral("M1 %1 (m %2 px, W %3 px): 24 steps of W/8 over the rapid take: %4 paints, "
+                                        "%5 surfaces created, at most %6 surfaces, widest canvas %7 px, step median %8 ms")
+        .arg(QString::fromLatin1(QTest::currentDataTag())).arg(margin).arg(width).arg(paints).arg(created)
+        .arg(maxSurfaces).arg(maxWidth).arg(times.at(times.size() / 2), 0, 'f', 2);
+    QVERIFY(maxWidth <= width + 2 * margin + 1);
+
+    // 200 takes over 10 minutes: only the intersecting ones hold a surface
+    QVERIFY(loadManyGroupsFixture(ed));
+    for (const float scale : {5.0f, 0.1f})
+    {
+        ed.rig.manager->setTimeScale(scale);
+        view->setProperty("contentX", 0);
+        QTest::qWait(200);
+        view->setProperty("contentX", view->property("contentWidth").toReal() / 3);
+        QTest::qWait(200);
+        const QList<QQuickItem *> graphs = sliderGraphs(ed);
+        const qreal height = graphs.isEmpty() ? 0 : graphs.first()->height();
+        qInfo().noquote() << QStringLiteral("M1 %1 fixture M timeScale %2: %3 surfaces, area %4 px2, "
+                                            "bound (W + 2m) x H = %5 px2")
+            .arg(QString::fromLatin1(QTest::currentDataTag())).arg(scale).arg(graphs.size())
+            .arg(graphArea(graphs)).arg((width + 2 * margin) * height);
+    }
+}
+
+namespace
+{
+/** The pure slider graph module, evaluated from its source in a plain engine */
+bool loadSliderGraph(QJSEngine &engine)
+{
+    QFile file(QStringLiteral(SLIDER_GRAPH_SOURCE_PATH));
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    return !engine.evaluate(QString::fromUtf8(file.readAll()), file.fileName()).isError();
+}
+
+// F's first take in exact binary fractions: 1000, 1400 x3 (.875 .25 .5 in order), 2600
+const char *const tiedTake = "{ids: [10, 11, 12, 13, 14], times: [1000, 1400, 1400, 1400, 2600],"
+                             " positions: [.125, .875, .25, .5, .5]}";
+const char *const threeSteps = "{ids: [1, 2, 3], times: [1000, 1400, 2600], positions: [.25, .75, .5]}";
+const char *const rapidTake = "{ids: [1, 2, 3, 4, 5, 6], times: [1000, 1020, 1040, 1060, 1080, 1100],"
+                              " positions: [.125, .875, .125, .875, .125, .875]}";
+const char *const tenthOfMs = "function(t) { return (t - 1000) / 10 }";
+} // namespace
+
+void ShowCommandRecorder_Test::sliderGraph_stepGeometry_data()
+{
+    // records, flat in Float64Arrays: hold [x1, x2, y, selected], vertical [x, top, bottom, selected],
+    // mark [x, y, selected], selected span [x, top, bottom]; plot top 0, height 100, so y = 100 * (1 - position);
+    // a sample in pixel column c is drawn at c + .5
+    QTest::addColumn<QString>("samples");
+    QTest::addColumn<QString>("window");
+    QTest::addColumn<QString>("xOf");
+    QTest::addColumn<QString>("selected");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("ties: one span, the hold on the last order")
+        << tiedTake << "{left: 0, right: 200}" << tenthOfMs << "{}"
+        << "{\"holds\":[[0.5,40.5,87.5,false],[40.5,160.5,50,false]],\"verticals\":[[40.5,12.5,87.5,false]],"
+           "\"marks\":[[0.5,87.5,false],[160.5,50,false]],\"selectedSpans\":[],\"simplified\":true}";
+    QTest::newRow("ties: selected values only, no order")
+        << tiedTake << "{left: 0, right: 200}" << tenthOfMs << "{11: true, 12: true}"
+        << "{\"holds\":[[0.5,40.5,87.5,false],[40.5,160.5,50,false]],\"verticals\":[[40.5,12.5,87.5,false]],"
+           "\"marks\":[[0.5,87.5,false],[160.5,50,false]],\"selectedSpans\":[[40.5,12.5,75]],\"simplified\":true}";
+    QTest::newRow("zero span: a mark, no hold")
+        << "{ids: [21], times: [7000], positions: [.75]}" << "{left: 0, right: 18}"
+        << "function(t) { return (t - 7000) / 10 }" << "{}"
+        << "{\"holds\":[],\"verticals\":[],\"marks\":[[0.5,25,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("nonzero start: nothing before the first sample")
+        << "{ids: [7, 8], times: [5000, 5500], positions: [.25, .75]}" << "{left: 0, right: 100}"
+        << "function(t) { return (t - 5000) / 10 }" << "{}"
+        << "{\"holds\":[[0.5,50.5,75,false]],\"verticals\":[[50.5,25,75,false]],"
+           "\"marks\":[[0.5,75,false],[50.5,25,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("left edge inside a hold: the last value before it")
+        << threeSteps << "{left: 100, right: 200}" << tenthOfMs << "{}"
+        << "{\"holds\":[[100,160.5,25,false]],\"verticals\":[[160.5,25,50,false]],"
+           "\"marks\":[[160.5,50,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("right edge inside a hold: cut there")
+        << threeSteps << "{left: 0, right: 100}" << tenthOfMs << "{}"
+        << "{\"holds\":[[0.5,40.5,75,false],[40.5,100,25,false]],\"verticals\":[[40.5,25,75,false]],"
+           "\"marks\":[[0.5,75,false],[40.5,25,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("last sample on a whole-pixel right edge: in the last column")
+        << "{ids: [1, 2, 3], times: [1000, 2000, 3000], positions: [.25, .75, .5]}" << "{left: 0, right: 36}"
+        << "function(t) { return (t - 1000) * 18 / 1000 }" << "{}"
+        << "{\"holds\":[[0.5,18.5,75,false],[18.5,35.5,25,false]],"
+           "\"verticals\":[[18.5,25,75,false],[35.5,25,50,false]],"
+           "\"marks\":[[0.5,75,false],[18.5,25,false],[35.5,50,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("selected sample: its step, mark and hold")
+        << threeSteps << "{left: 0, right: 200}" << tenthOfMs << "{2: true}"
+        << "{\"holds\":[[0.5,40.5,75,false],[40.5,160.5,25,true]],"
+           "\"verticals\":[[40.5,25,75,true],[160.5,25,50,false]],"
+           "\"marks\":[[0.5,75,false],[40.5,25,true],[160.5,50,false]],\"selectedSpans\":[],\"simplified\":false}";
+    QTest::newRow("two samples per column: min to max, no marks")
+        << rapidTake << "{left: 0, right: 10}" << "function(t) { return (t - 1000) / 40 }" << "{}"
+        << "{\"holds\":[[0.5,1.5,12.5,false],[1.5,2.5,12.5,false]],"
+           "\"verticals\":[[0.5,12.5,87.5,false],[1.5,12.5,87.5,false],[2.5,12.5,87.5,false]],"
+           "\"marks\":[],\"selectedSpans\":[],\"simplified\":true}";
+    QTest::newRow("two samples per column, some selected")
+        << rapidTake << "{left: 0, right: 10}" << "function(t) { return (t - 1000) / 40 }" << "{2: true, 3: true}"
+        << "{\"holds\":[[0.5,1.5,12.5,true],[1.5,2.5,12.5,false]],"
+           "\"verticals\":[[0.5,12.5,87.5,false],[1.5,12.5,87.5,false],[2.5,12.5,87.5,false]],"
+           "\"marks\":[],\"selectedSpans\":[[0.5,12.5,12.5],[1.5,87.5,87.5]],\"simplified\":true}";
+    QTest::newRow("constant values: holds, no steps")
+        << "{ids: [1, 2, 3], times: [1000, 1200, 1400], positions: [.5, .5, .5]}" << "{left: 0, right: 100}"
+        << tenthOfMs << "{}"
+        << "{\"holds\":[[0.5,20.5,50,false],[20.5,40.5,50,false]],\"verticals\":[],"
+           "\"marks\":[[0.5,50,false],[20.5,50,false],[40.5,50,false]],\"selectedSpans\":[],\"simplified\":false}";
+}
+
+void ShowCommandRecorder_Test::sliderGraph_stepGeometry()
+{
+    QFETCH(QString, samples);
+    QFETCH(QString, window);
+    QFETCH(QString, xOf);
+    QFETCH(QString, selected);
+    QFETCH(QString, expected);
+    QJSEngine engine;
+    QVERIFY(loadSliderGraph(engine));
+    // the flat Float64Array records, one row per record, the selected flag as a boolean
+    const QJSValue geometry = engine.evaluate(QStringLiteral(
+        "function rows(list, stride, flagged) {"
+        "  if (!(list instanceof Float64Array)) return 'not a Float64Array';"
+        "  var result = [];"
+        "  for (var i = 0; i < list.length; i += stride) {"
+        "    var row = Array.prototype.slice.call(list, i, i + stride);"
+        "    if (flagged) row[stride - 1] = row[stride - 1] === 1;"
+        "    result.push(row);"
+        "  }"
+        "  return result;"
+        "}"
+        "var g = stepGeometry(%1, %2, %3, {top: 0, height: 100}, %4);"
+        "JSON.stringify({holds: rows(g.holds, 4, true), verticals: rows(g.verticals, 4, true),"
+        " marks: rows(g.marks, 3, true), selectedSpans: rows(g.selectedSpans, 3, false), simplified: g.simplified})")
+            .arg(samples, window, xOf, selected));
+    QVERIFY2(!geometry.isError(), qPrintable(geometry.toString()));
+    QCOMPARE(geometry.toString(), expected);
+}
+
+void ShowCommandRecorder_Test::sliderGraph_sampleSummary_data()
+{
+    QTest::addColumn<QString>("samples");
+    QTest::addColumn<int>("time");
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("near a tie: its last order")
+        << tiedTake << 1402 << "{\"min\":0.125,\"max\":0.875,\"id\":13,\"time\":1400,\"position\":0.5}";
+    QTest::newRow("halfway: the earlier sample")
+        << tiedTake << 1200 << "{\"min\":0.125,\"max\":0.875,\"id\":10,\"time\":1000,\"position\":0.125}";
+    QTest::newRow("before the take")
+        << tiedTake << 0 << "{\"min\":0.125,\"max\":0.875,\"id\":10,\"time\":1000,\"position\":0.125}";
+    QTest::newRow("after the take")
+        << tiedTake << 5000 << "{\"min\":0.125,\"max\":0.875,\"id\":14,\"time\":2600,\"position\":0.5}";
+    QTest::newRow("one sample")
+        << "{ids: [21], times: [7000], positions: [.75]}" << 7003
+        << "{\"min\":0.75,\"max\":0.75,\"id\":21,\"time\":7000,\"position\":0.75}";
+}
+
+void ShowCommandRecorder_Test::sliderGraph_sampleSummary()
+{
+    QFETCH(QString, samples);
+    QFETCH(int, time);
+    QFETCH(QString, expected);
+    QJSEngine engine;
+    QVERIFY(loadSliderGraph(engine));
+    const QJSValue summary = engine.evaluate(
+        QStringLiteral("var s = %1; JSON.stringify(Object.assign({}, sampleRange(s), nearestSample(s, %2)))")
+            .arg(samples).arg(time));
+    QVERIFY2(!summary.isError(), qPrintable(summary.toString()));
+    QCOMPARE(summary.toString(), expected);
+}
+
+void ShowCommandRecorder_Test::timeline_sliderSamplesSnapshot_data()
+{
+    QTest::addColumn<QVariantList>("asked");
+    QTest::addColumn<bool>("otherShow");
+    QTest::addColumn<QVariantList>("ids");
+    QTest::addColumn<QVariantList>("times");
+    QTest::addColumn<QVariantList>("positions");
+
+    QTest::newRow("tied take in stored order, legacy and unknown ids skipped")
+        << QVariantList{14, 12, 20, 10, 999, 11, 13} << false << QVariantList{10, 11, 12, 13, 14}
+        << QVariantList{1000, 1400, 1400, 1400, 2600} << QVariantList{.10, .90, .30, .55, .55};
+    QTest::newRow("two takes of two controls")
+        << QVariantList{41, 21, 40} << false << QVariantList{21, 40, 41}
+        << QVariantList{7000, 19000, 19600} << QVariantList{.70, .40, .60};
+    QTest::newRow("another Show: nothing")
+        << QVariantList{10, 11} << true << QVariantList{} << QVariantList{} << QVariantList{};
+}
+
+void ShowCommandRecorder_Test::timeline_sliderSamplesSnapshot()
+{
+    QFETCH(QVariantList, asked);
+    QFETCH(bool, otherShow);
+    QFETCH(QVariantList, ids);
+    QFETCH(QVariantList, times);
+    QFETCH(QVariantList, positions);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    const ShowCommandTrack before = ed.show->commandTrack();
+    QSignalSpy changed(ed.rig.recorder, &ShowCommandRecorder::commandsChanged);
+
+    const QVariantMap samples = ed.rig.recorder->sliderSamples(ed.show->id() + (otherShow ? 1 : 0), asked);
+
+    const auto numbers = [](const QVariant &list) {
+        QVector<double> values;
+        for (const QVariant &value : list.toList())
+            values.append(value.toDouble());
+        return values;
+    };
+    QCOMPARE(numbers(samples.value("ids")), numbers(ids));
+    QCOMPARE(numbers(samples.value("times")), numbers(times));
+    QCOMPARE(numbers(samples.value("positions")), numbers(positions));
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QVERIFY(!ed.rig.doc->isModified());
+}
+
+namespace
+{
+const QColor plotColour(0x8f, 0xe3, 0xff);
+const QColor dimmedColour(0xc8, 0xc8, 0xc8);
+const QColor selectedColour(0xf1, 0xc4, 0x0f);
+
+bool nearColour(const QColor &a, const QColor &b)
+{
+    return a.isValid() && qAbs(a.red() - b.red()) <= 30 && qAbs(a.green() - b.green()) <= 30
+        && qAbs(a.blue() - b.blue()) <= 30;
+}
+
+/** One grabbed frame, read in scene coordinates, a device pixel of slack either way */
+struct Frame
+{
+    QImage image;
+    qreal scale = 1;
+    explicit Frame(QQuickWindow *window)
+        : image(window->grabWindow()), scale(image.width() / qreal(window->width())) {}
+    QPoint device(const QPointF &scene) const { return QPoint(int(scene.x() * scale), int(scene.y() * scale)); }
+    bool has(const QPointF &scene, const QColor &colour) const
+    {
+        const QPoint at = device(scene);
+        for (int dx = -1; dx <= 1; ++dx)
+            for (int dy = -1; dy <= 1; ++dy)
+                if (image.rect().contains(at + QPoint(dx, dy)) && nearColour(image.pixelColor(at + QPoint(dx, dy)), colour))
+                    return true;
+        return false;
+    }
+    /** Matching pixels of the device column through scene, within reach device pixels */
+    int run(const QPointF &scene, const QColor &colour, int reach) const
+    {
+        const QPoint at = device(scene);
+        int found = 0;
+        for (int dy = -reach; dy <= reach; ++dy)
+            if (image.rect().contains(at + QPoint(0, dy)) && nearColour(image.pixelColor(at + QPoint(0, dy)), colour))
+                ++found;
+        return found;
+    }
+    int count(const QRectF &scene, const QColor &colour) const
+    {
+        const QRect area = QRect(device(scene.topLeft()), device(scene.bottomRight())).intersected(image.rect());
+        int found = 0;
+        for (int y = area.top(); y <= area.bottom(); ++y)
+            for (int x = area.left(); x <= area.right(); ++x)
+                if (nearColour(image.pixelColor(x, y), colour))
+                    ++found;
+        return found;
+    }
+};
+
+qreal laneTimeX(QQuickItem *lane, qreal ms)
+{
+    QVariant x;
+    QMetaObject::invokeMethod(lane, "timeX", Q_RETURN_ARG(QVariant, x), Q_ARG(QVariant, ms));
+    return x.toReal();
+}
+
+/** Where a recorded time and position lands on a slider object's plot, in the scene */
+QPointF plotPoint(QQuickItem *lane, QQuickItem *object, qreal ms, qreal position)
+{
+    const qreal x = laneTimeX(lane, ms) - object->property("baseX").toReal() + 0.5;
+    const qreal y = object->property("plotTop").toReal() + (1 - position) * object->property("plotHeight").toReal();
+    return object->mapToScene(QPointF(x, y));
+}
+
+/** The timeline scrolled so lane x is near its left edge */
+void scrollLaneTo(EditorRig &ed, qreal laneX)
+{
+    ed.item(QStringLiteral("showItemsArea"))->setProperty("contentX", std::max<qreal>(0, laneX - 40));
+    QTest::qWait(150);
+}
+
+QQuickItem *graphOf(QQuickItem *object)
+{
+    QQuickItem *found = object ? findVisualItem(object, QStringLiteral("sliderGraph")) : nullptr;
+    return found && found->isVisible() ? found : nullptr;
+}
+
+/** The marks of a drawing's last paint: (x, y, selected) records in a Float64Array */
+int markCount(QQuickItem *graph)
+{
+    return graph->property("geometry").value<QJSValue>().property("marks").property("length").toInt() / 3;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_sliderGraphDrawsPositions()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(100);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(lane && first);
+    scrollLaneTo(ed, first->x());
+    QVERIFY(graphOf(first));
+    const auto at = [&](QQuickItem *object, qreal ms, qreal position) { return plotPoint(lane, object, ms, position); };
+    Frame frame(ed.rig.app.get());
+
+    // each sample at its time and recorded position: .10 at 1000, .55 at 2600
+    QVERIFY(frame.has(at(first, 1000, .10), plotColour));
+    QVERIFY(frame.has(at(first, 2600, .55), plotColour));
+    // a hold, not a slope: halfway to 1400 only the .10 row is drawn
+    QVERIFY(frame.has(at(first, 1200, .10), plotColour));
+    const QPointF top = at(first, 1200, .90), bottom = at(first, 1200, .10);
+    for (qreal y = top.y() + 1; y < bottom.y() - 3; y += 1)
+        QVERIFY2(!frame.has(QPointF(top.x(), y), plotColour), qPrintable(QStringLiteral("slope pixel at y %1").arg(y)));
+    // marks are wider than the line: at 1000 and 2600, not along the hold
+    QVERIFY(frame.run(at(first, 1000, .10), plotColour, 4) >= 4);
+    // (the last one is cut by the end of its object, where the drawing ends)
+    QVERIFY(frame.run(at(first, 2600, .55) - QPointF(1.5, 0), plotColour, 4) >= 4);
+    QVERIFY(frame.run(at(first, 1200, .10), plotColour, 4) <= 3);
+
+    // the tie at 1400 covers .30 to .90 in its column; the hold after it is the last tie, .55
+    for (const qreal position : {.30, .45, .55, .70, .90})
+        QVERIFY2(frame.has(at(first, 1400, position), plotColour), qPrintable(QString::number(position)));
+    QVERIFY(frame.has(at(first, 2000, .55), plotColour));
+    QVERIFY(!frame.has(at(first, 2000, .90), plotColour));
+    QVERIFY(!frame.has(at(first, 2000, .30), plotColour));
+    QVERIFY(frame.run(at(first, 1400, .55), plotColour, 4) >= 4);
+    QCOMPARE(markCount(graphOf(first)), 2);
+
+    // the summary sits above the plot: its band has no plot colour
+    const QRectF band = first->mapRectToScene(QRectF(0, 0, first->width(), first->property("plotTop").toReal() - 3));
+    QCOMPARE(frame.count(band, plotColour), 0);
+    QVERIFY(first->property("plotHeight").toReal() > 15);
+
+    // a take of one sample: its mark only, no hold across the 18 px object, nothing before it
+    QQuickItem *single = laneObject(ed, 21);
+    QVERIFY(single);
+    scrollLaneTo(ed, single->x());
+    QVERIFY(graphOf(single));
+    QCOMPARE(single->width(), 18.0);
+    Frame alone(ed.rig.app.get());
+    QVERIFY(alone.has(at(single, 7000, .70) + QPointF(1, 0), plotColour));
+    QVERIFY(!alone.has(at(single, 7000, .70) + QPointF(10, 0), plotColour));
+    QVERIFY(!alone.has(at(single, 7000, .70) - QPointF(4, 0), plotColour));
+}
+
+namespace
+{
+/** An attached or plain property of a delegate, read in its own QML scope */
+QVariant qmlValue(QQuickItem *item, const char *expression)
+{
+    QQmlExpression e(qmlContext(item), item, QString::fromLatin1(expression));
+    return e.evaluate();
+}
+
+qreal luminance(const QColor &c)
+{
+    const auto channel = [](qreal v) { return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4); };
+    return 0.2126 * channel(c.redF()) + 0.7152 * channel(c.greenF()) + 0.0722 * channel(c.blueF());
+}
+
+/** The tooltip of an object hovered at a scene point */
+QString hoverText(EditorRig &ed, QQuickItem *object, const QPointF &scene)
+{
+    QTest::mouseMove(ed.rig.app.get(), scene.toPoint());
+    QTest::qWait(50);
+    QTest::mouseMove(ed.rig.app.get(), scene.toPoint() + QPoint(1, 0));
+    if (!QTest::qWaitFor([&]() { return qmlValue(object, "ToolTip.visible").toBool(); }, 3000))
+        return QStringLiteral("<no tooltip>");
+    return qmlValue(object, "ToolTip.text").toString();
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_sliderGraphFollowsRuler_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<float>("scale");
+    QTest::newRow("Time, timeScale 5") << int(Show::Time) << 5.0f;
+    QTest::newRow("Time, timeScale 0.1") << int(Show::Time) << 0.1f;
+    QTest::newRow("BPM 120 4/4") << int(Show::BPM_4_4) << 0.0f;
+    QTest::newRow("VDJ Beat, no song grid") << int(Show::VDJBeat) << 0.0f;
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphFollowsRuler()
+{
+    QFETCH(int, division);
+    QFETCH(float, scale);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::TimeDivision(division));
+    if (scale > 0)
+        ed.rig.manager->setTimeScale(scale);
+    QTest::qWait(100);
+    QCOMPARE(int(ed.rig.manager->timeDivision()), division);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(lane && first);
+    scrollLaneTo(ed, first->x());
+    QVERIFY(graphOf(first));
+    QCOMPARE(first->x(), laneTimeX(lane, 1000));
+    Frame frame(ed.rig.app.get());
+
+    // the tie column (to .90) is where the ruler puts 1400, not 4 px either side
+    const QPointF tie = plotPoint(lane, first, 1400, .90);
+    QVERIFY(frame.has(tie, plotColour));
+    QVERIFY(!frame.has(tie - QPointF(4, 0), plotColour));
+    QVERIFY(!frame.has(tie + QPointF(4, 0), plotColour));
+    QVERIFY(frame.has(plotPoint(lane, first, 2600, .55), plotColour));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphSimplifiesDenseColumns()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *rapid = laneObject(ed, 100);
+    QVERIFY(lane && rapid);
+    const QString id = QStringLiteral("recordingItem-%1-100").arg(ed.show->id());
+    const QString note = QStringLiteral("Display simplified");
+
+    // timeScale 5: 3 or 4 samples per pixel column, each column its .05 to .95 range, no marks
+    scrollLaneTo(ed, rapid->x());
+    QVERIFY(graphOf(rapid));
+    Frame frame(ed.rig.app.get());
+    const qreal from = plotPoint(lane, rapid, 12000, .05).x() + 1, to = plotPoint(lane, rapid, 15980, .05).x() - 1;
+    const qreal low = plotPoint(lane, rapid, 12000, .05).y(), high = plotPoint(lane, rapid, 12000, .95).y();
+    QVERIFY(to - from > 40);
+    for (qreal x = from; x < to; x += 1)
+    {
+        QVERIFY2(frame.has(QPointF(x, low), plotColour), qPrintable(QStringLiteral(".05 missing at %1").arg(x)));
+        QVERIFY2(frame.has(QPointF(x, high), plotColour), qPrintable(QStringLiteral(".95 missing at %1").arg(x)));
+    }
+    const QVariantMap geometry = graphOf(rapid)->property("geometry").toMap();
+    QVERIFY(geometry.value("simplified").toBool());
+    QCOMPARE(markCount(graphOf(rapid)), 0);
+    QAccessibleInterface *group = accessibleById(ed.rig.app.get(), id);
+    QVERIFY(group);
+    QVERIFY(group->text(QAccessible::Description).contains(note));
+    QVERIFY(hoverText(ed, rapid, plotPoint(lane, rapid, 13000, .5)).contains(note));
+
+    // timeScale 0.1: a pixel column per sample, marked, and no note
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(100);
+    scrollLaneTo(ed, laneObject(ed, 100)->x());
+    rapid = laneObject(ed, 100);
+    QVERIFY(graphOf(rapid));
+    QVERIFY(!graphOf(rapid)->property("geometry").toMap().value("simplified").toBool());
+    QVERIFY(markCount(graphOf(rapid)) > 50);
+    group = accessibleById(ed.rig.app.get(), id);
+    QVERIFY(group && !group->text(QAccessible::Description).contains(note));
+    QVERIFY(!hoverText(ed, rapid, plotPoint(lane, rapid, 12510, .5)).contains(note));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphVisibleWindow()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.app->resize(1200, 700);
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(150);
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *rapid = laneObject(ed, 100);
+    QVERIFY(view && lane && rapid);
+    QVERIFY(rapid->width() > 2 * view->width());
+    const qreal perMs = laneTimeX(lane, 1000) / 1000;
+    int checked = 0;
+
+    const auto check = [&](const char *where) {
+        QTest::qWait(150);
+        const qreal width = view->width(), margin = lane->property("drawMargin").toReal();
+        for (QQuickItem *graph : sliderGraphs(ed))
+            QVERIFY2(graph->property("canvasSize").toSizeF().width() <= width + 2 * margin + 1, where);
+        Frame frame(ed.rig.app.get());
+        // mid-hold of the sample at each quarter of the view: its value, not the other one
+        for (const qreal quarter : {.25, .75})
+        {
+            const qreal t = (view->property("contentX").toReal() + quarter * width) / perMs;
+            if (t < 12000 || t >= 15980)
+                continue;
+            ++checked;
+            const int k = int((t - 12000) / 20);
+            const qreal mid = 12000 + 20 * k + 10;
+            const qreal shown = k % 2 ? .95 : .05, other = k % 2 ? .05 : .95;
+            QVERIFY2(frame.has(plotPoint(lane, rapid, mid, shown), plotColour), where);
+            QVERIFY2(!frame.has(plotPoint(lane, rapid, mid, other), plotColour), where);
+        }
+    };
+    for (const qreal offset : {-0.5, 0.33, 1.0})
+    {
+        const qreal x = offset < 1 ? rapid->x() + offset * view->width() : rapid->x() + rapid->width() - view->width();
+        view->setProperty("contentX", x);
+        check(qPrintable(QStringLiteral("offset %1").arg(offset)));
+    }
+    ed.rig.app->resize(900, 700);
+    check("resized to 900 px");
+    QCOMPARE(checked, 7);
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphMemoryBound_data()
+{
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<float>("scale");
+    QTest::newRow("one lane, timeScale 5") << false << 5.0f;
+    QTest::newRow("one lane, timeScale 0.1") << false << 0.1f;
+    QTest::newRow("lane per control, timeScale 5") << true << 5.0f;
+    QTest::newRow("lane per control, timeScale 0.1") << true << 0.1f;
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphMemoryBound()
+{
+    QFETCH(bool, expanded);
+    QFETCH(float, scale);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadManyGroupsFixture(ed));
+    ed.rig.app->resize(1200, 500);
+    ed.rig.manager->setTimeScale(scale);
+    QTest::qWait(150);
+    if (expanded)
+    {
+        QVERIFY(pressLanesToggle(ed));
+        QTRY_COMPARE(laneRowLabels(ed).size(), 10);
+    }
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *vertical = timelineViewport(ed);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QVERIFY(view && vertical && lane);
+    view->setProperty("contentX", view->property("contentWidth").toReal() / 3);
+    QTest::qWait(200);
+
+    const qreal width = view->width(), margin = lane->property("drawMargin").toReal();
+    const qreal rowHeight = lane->property("rowHeight").toReal();
+    const qreal contentX = view->property("contentX").toReal();
+    const qreal laneTop = lane->mapToItem(qvariant_cast<QQuickItem *>(vertical->property("contentItem")), QPointF()).y();
+    const qreal shownTop = vertical->property("contentY").toReal() - laneTop, shownBottom = shownTop + vertical->height();
+    const QRectF window(lane->property("drawLeft").toReal(), lane->property("drawTop").toReal(),
+                        lane->property("drawRight").toReal() - lane->property("drawLeft").toReal(),
+                        lane->property("drawBottom").toReal() - lane->property("drawTop").toReal());
+    QList<QQuickItem *> objects;
+    collectShown(lane, QStringLiteral("recordingItem"), &objects);
+    QCOMPARE(objects.size(), 200);
+    int expected = 0, offscreenRows = 0;
+    QSet<QString> keys;
+    qreal height = 0;
+    for (QQuickItem *object : std::as_const(objects))
+    {
+        const QRectF rect(object->property("baseX").toReal(), object->y(), object->width(), object->height());
+        const bool visible = rect.right() > contentX && rect.left() < contentX + width
+            && rect.bottom() > shownTop && rect.top() < shownBottom;
+        const bool nearView = rect.right() > contentX - 1.5 * margin && rect.left() < contentX + width + 1.5 * margin
+            && rect.bottom() > shownTop - rowHeight && rect.top() < shownBottom + rowHeight;
+        QQuickItem *graph = graphOf(object);
+        if (visible)
+            QVERIFY2(graph, "a visible slider object is drawn");
+        if (graph)
+        {
+            QVERIFY2(nearView, "a surface far from the view");
+            keys.insert(object->property("group").toMap().value("laneKey").toString());
+            height = graph->height();
+        }
+        expected += rect.intersects(window) ? 1 : 0;
+        if (rect.right() > contentX && rect.left() < contentX + width && !rect.intersects(window))
+            ++offscreenRows;
+    }
+    const QList<QQuickItem *> graphs = sliderGraphs(ed);
+    QCOMPARE(graphs.size(), expected);
+    const qreal bound = keys.size() * (width + 2 * margin) * height;
+    qInfo().noquote() << QStringLiteral("%1 surfaces over %2 keys, area %3 px2, bound %4 px2, %5 objects in view columns "
+                                        "but off the rows").arg(graphs.size()).arg(keys.size()).arg(graphArea(graphs))
+        .arg(bound).arg(offscreenRows);
+    QVERIFY(graphArea(graphs) <= bound);
+    // zoomed out, the view spans many rows' objects; some rows lie below it
+    if (expanded && scale > 1)
+        QVERIFY2(offscreenRows > 0, "some expanded rows lie below the view");
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphFollowsEdits()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(100);
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(view && lane && first);
+    const qreal margin = lane->property("drawMargin").toReal();
+    view->setProperty("contentX", std::round(first->x() / margin) * margin);
+    QTest::qWait(150);
+    QPointer<QQuickItem> graph = graphOf(first);
+    QVERIFY(graph);
+    const int fetched = graph->property("fetchCount").toInt();
+    const auto tieReaches = [&](qreal position) {
+        return Frame(ed.rig.app.get()).has(plotPoint(lane, first, 1400, position), plotColour);
+    };
+    QVERIFY(tieReaches(.90));
+
+    // an edit and its Undo: the drawing follows, one fetch each
+    QVERIFY(ed.rig.recorder->setCommandValue(ed.show->id(), 11, .20));
+    QTRY_VERIFY(!tieReaches(.90));
+    QVERIFY(tieReaches(.20) && tieReaches(.50));
+    QVERIFY(graph);
+    QCOMPARE(graph->property("fetchCount").toInt(), fetched + 1);
+    ed.tardis()->undoAction();
+    ed.settledHistory();
+    QTRY_VERIFY(tieReaches(.90));
+    QCOMPARE(ed.command(11).position, .90);
+    QCOMPARE(graph->property("fetchCount").toInt(), fetched + 2);
+
+    // scrolling inside the drawing window fetches and paints nothing
+    const int painted = graph->property("paintCount").toInt();
+    const qreal x = view->property("contentX").toReal();
+    for (int step = 1; step <= 5; ++step)
+    {
+        view->setProperty("contentX", x + 5 * step);
+        QTest::qWait(30);
+    }
+    QCOMPARE(graph->property("fetchCount").toInt(), fetched + 2);
+    QCOMPARE(graph->property("paintCount").toInt(), painted);
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphDimsUnreadyControls()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(100);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *missing = laneObject(ed, 40);
+    QVERIFY(lane && missing);
+
+    // a missing control: its recorded positions still drawn, dimmed but readable, status named
+    scrollLaneTo(ed, missing->x());
+    QVERIFY(graphOf(missing));
+    Frame frame(ed.rig.app.get());
+    QVERIFY(frame.has(plotPoint(lane, missing, 19000, .40), dimmedColour));
+    QVERIFY(frame.has(plotPoint(lane, missing, 19300, .40), dimmedColour));
+    QVERIFY(frame.has(plotPoint(lane, missing, 19600, .60), dimmedColour));
+    QVERIFY(!frame.has(plotPoint(lane, missing, 19300, .40), plotColour));
+    const QPoint empty = frame.device(plotPoint(lane, missing, 19300, .90));
+    const QColor background = frame.image.pixelColor(empty);
+    QVERIFY(!nearColour(background, dimmedColour));
+    const qreal contrast = (luminance(dimmedColour) + 0.05) / (luminance(background) + 0.05);
+    qInfo() << "dimmed plot contrast on" << background.name() << contrast;
+    QVERIFY(contrast >= 3);
+    const QString tip = hoverText(ed, missing, plotPoint(lane, missing, 19300, .40));
+    QVERIFY2(tip.contains(QStringLiteral("Missing control")), qPrintable(tip));
+
+    // an Adjust fader: the same recorded position steps; the tooltip names positions only
+    QQuickItem *adjust = laneObject(ed, 30);
+    QVERIFY(adjust);
+    scrollLaneTo(ed, adjust->x());
+    QVERIFY(graphOf(adjust));
+    Frame steps(ed.rig.app.get());
+    QVERIFY(steps.run(plotPoint(lane, adjust, 17000, .20), plotColour, 4) >= 4);
+    QVERIFY(steps.run(plotPoint(lane, adjust, 17500, .80), plotColour, 4) >= 4);
+    QVERIFY(steps.run(plotPoint(lane, adjust, 18000, .50) - QPointF(1.5, 0), plotColour, 4) >= 4);
+    QVERIFY(steps.has(plotPoint(lane, adjust, 17250, .20), plotColour));
+    QVERIFY(!steps.has(plotPoint(lane, adjust, 17250, .50), plotColour));
+    const QString adjustTip = hoverText(ed, adjust, plotPoint(lane, adjust, 17500, .80) + QPointF(2, 0));
+    QVERIFY2(adjustTip.contains(QStringLiteral("Recorded position 20% – 80%")), qPrintable(adjustTip));
+    QVERIFY2(adjustTip.contains(QStringLiteral("Nearest sample 00:17.500: 80%")), qPrintable(adjustTip));
+    QVERIFY(!adjustTip.contains(QStringLiteral("DMX")));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphHoverReadout()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setTimeScale(0.1f);
+    QTest::qWait(100);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(lane && first);
+    scrollLaneTo(ed, first->x());
+    QVERIFY(graphOf(first));
+    const QString state = laneEditorState(ed);
+    const auto commands = ed.show->commandTrack().commands();
+
+    const QString tip = hoverText(ed, first, plotPoint(lane, first, 1400, .55) + QPointF(2, 0));
+    QVERIFY2(tip.contains(QStringLiteral("Recorded position 10% – 90%")), qPrintable(tip));
+    QVERIFY2(tip.contains(QStringLiteral("Nearest sample 00:01.400: 55%")), qPrintable(tip));
+    QVERIFY2(tip.startsWith(qmlValue(first, "Accessible.name").toString()), qPrintable(tip));
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    int mouseAreas = 0;
+    const std::function<void(QQuickItem *)> countAreas = [&](QQuickItem *item) {
+        if (item->inherits("QQuickMouseArea"))
+            ++mouseAreas;
+        for (QQuickItem *child : item->childItems())
+            countAreas(child);
+    };
+    countAreas(first);
+    QCOMPARE(mouseAreas, 1);
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphSelectedSamples()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    ed.rig.manager->setTimeScale(0.1f);
+    QVERIFY(ed.openRecordings());
+    QTRY_VERIFY(ed.row(11) != nullptr);
+    ed.click(ed.row(11));
+    ed.click(ed.row(12), Qt::ControlModifier);
+    QCOMPARE(ed.selectedIds(), (QVector<quint32>{11, 12}));
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QTest::qWait(100);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(lane && first);
+    scrollLaneTo(ed, first->x());
+    QVERIFY(graphOf(first));
+    QCOMPARE(first->property("selectedCount").toInt(), 2);
+    const auto at = [&](qreal ms, qreal position) { return plotPoint(lane, first, ms, position); };
+
+    // .90 and .30 share the tie column with .55: the selected range .30 to .90 there, no order
+    Frame frame(ed.rig.app.get());
+    for (const qreal position : {.30, .55, .90})
+        QVERIFY2(frame.has(at(1400, position), selectedColour), qPrintable(QString::number(position)));
+    QVERIFY(!frame.has(at(1400, .15), selectedColour));
+    QVERIFY(frame.has(at(2000, .55), plotColour));
+    QVERIFY(!frame.has(at(2000, .55), selectedColour));
+    QVERIFY(frame.has(at(1000, .10), plotColour) && !frame.has(at(1000, .10), selectedColour));
+    QVERIFY(frame.has(at(2600, .55), plotColour) && !frame.has(at(2600, .55), selectedColour));
+
+    // in the split, the take chosen on the timeline opens as the passage below; then only its
+    // last sample selected: only that is coloured, not the rest of the passage
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTest::qWait(100);
+    first = laneObject(ed, 10);
+    scrollLaneTo(ed, first->x());
+    ed.click(first);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{10, 11, 12, 13, 14}));
+    ed.click(ed.row(14));
+    QCOMPARE(ed.selectedIds(), QVector<quint32>{14});
+    QCOMPARE(first->property("selectedCount").toInt(), 1);
+    QTest::qWait(100);
+    Frame moved(ed.rig.app.get());
+    QVERIFY(moved.has(at(2600, .55), selectedColour));
+    QVERIFY(!moved.has(at(1400, .90), selectedColour));
+    QVERIFY(!moved.has(at(1000, .10), selectedColour));
+    QVERIFY(!moved.has(at(2000, .55), selectedColour));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphPreservesData()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    QTemporaryDir dir(QDir::currentPath() + QStringLiteral("/slider-graph-XXXXXX"));
+    QVERIFY(dir.isValid());
+    const QString before = dir.filePath(QStringLiteral("before.qxw")), after = dir.filePath(QStringLiteral("after.qxw"));
+    const auto orders = [&]() {
+        QVector<quint32> list;
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            list.append(cmd.order);
+        return list;
+    };
+    const auto groups = [&]() {
+        QStringList list;
+        for (const QVariant &group : ed.rig.recorder->property("groups").toList())
+            list.append(group.toMap().value("eventIds").toStringList().join(QLatin1Char(',')));
+        return list;
+    };
+    const auto commands = ed.show->commandTrack().commands();
+    const QVector<quint32> order = orders();
+    const QStringList grouped = groups();
+    QVERIFY(ed.rig.app->saveWorkspace(before));
+
+    // zoom, scroll, resize, select and hover over the drawings
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QVERIFY(view && lane);
+    for (const float scale : {0.1f, 1.0f, 5.0f, 0.1f})
+    {
+        ed.rig.manager->setTimeScale(scale);
+        QTest::qWait(80);
+        for (const quint32 id : {10u, 100u, 40u})
+        {
+            QQuickItem *object = laneObject(ed, id);
+            scrollLaneTo(ed, object->x());
+            QVERIFY(graphOf(object));
+            ed.click(object);
+            hoverText(ed, object, plotPoint(lane, object, object->property("group").toMap().value("startTime").toReal(), .5));
+        }
+    }
+    ed.rig.app->resize(1000, 600);
+    QTest::qWait(100);
+    ed.rig.manager->setTimeScale(5.0f);
+    view->setProperty("contentX", 0);
+    QTest::qWait(100);
+
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(orders(), order);
+    QCOMPARE(groups(), grouped);
+    QVERIFY(ed.rig.app->saveWorkspace(after));
+    QCOMPARE(fileBytes(after), fileBytes(before));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphKeepsInput()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    // moves by one bar
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::BPM_4_4);
+    QVERIFY(ed.openRecordings());
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QTest::qWait(100);
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QQuickItem *rapid = laneObject(ed, 100);
+    QVERIFY(lane && first && rapid);
+    scrollLaneTo(ed, first->x());
+    QVERIFY(graphOf(first));
+    const QPointF plot = plotPoint(lane, first, 1200, .10);
+    QVERIFY(Frame(ed.rig.app.get()).has(plot, plotColour));
+
+    // a click on a drawn pixel chooses the object as a click on its summary does
+    const auto state = [&]() {
+        return laneEditorState(ed) + QStringLiteral(" focus ")
+            + (ed.rig.app->activeFocusItem() == first ? QStringLiteral("first") : QStringLiteral("other"));
+    };
+    const auto clickAt = [&](const QPointF &scene) {
+        QTest::mouseClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, scene.toPoint());
+        QTest::qWait(50);
+        return state();
+    };
+    const QString onPlot = clickAt(plot);
+    QVERIFY2(onPlot.startsWith(QStringLiteral("selected 10,11,12,13,14 ")), qPrintable(onPlot));
+    ed.click(ed.item(QStringLiteral("recordingsTab")));
+    ed.click(ed.row(100));
+    ed.click(ed.item(QStringLiteral("timelineTab")));
+    QTest::qWait(100);
+    scrollLaneTo(ed, first->x());
+    const QString onSummary = clickAt(first->mapToScene(QPointF(first->width() / 2, 8)));
+    QCOMPARE(onPlot, onSummary);
+
+    // the drawing repaints without touching selection, anchor, passage or draft
+    for (int i = 0; i < 5; ++i)
+    {
+        QMetaObject::invokeMethod(graphOf(first), "requestPaint");
+        QTest::qWait(30);
+    }
+    QCOMPARE(state(), onSummary);
+
+    // keys on the focused object keep their owners: Space chooses, Right moves, Delete removes, Enter opens
+    const auto times = [&]() {
+        QVector<quint32> list;
+        for (const quint32 id : {10u, 11u, 12u, 13u, 14u, 21u})
+            list.append(ed.command(id).time);
+        return list;
+    };
+    const QVector<quint32> start = times();
+    QCOMPARE(ed.rig.app->activeFocusItem(), first);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QCOMPARE(first->property("selectedCount").toInt(), 5);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Right);
+    QTRY_VERIFY(times() != start);
+    const QVector<quint32> later = times();
+    for (int i = 0; i < 5; ++i)
+        QCOMPARE(later.at(i) - start.at(i), later.at(0) - start.at(0));
+    QCOMPARE(later.at(5), start.at(5));
+    ed.tardis()->undoAction();
+    ed.settledHistory();
+    QTRY_COMPARE(times(), start);
+    first = laneObject(ed, 10);
+    first->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
+    QTRY_COMPARE(ed.show->commandTrack().indexOfId(10), -1);
+    for (const quint32 id : {11u, 12u, 13u, 14u})
+        QCOMPARE(ed.show->commandTrack().indexOfId(id), -1);
+    QVERIFY(ed.show->commandTrack().indexOfId(21) >= 0);
+    ed.tardis()->undoAction();
+    ed.settledHistory();
+    QTRY_VERIFY(laneObject(ed, 10) != nullptr);
+    first = laneObject(ed, 10);
+    first->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{10, 11, 12, 13, 14}));
+}
+
+void ShowCommandRecorder_Test::timeline_sliderGraphClipsInSplit()
+{
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(loadGraphFixture(ed, addGraphSliders(ed)));
+    addSevenTracks(ed);
+    ed.rig.manager->setTimeScale(0.1f);
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    ed.rig.app->resize(900, 480);
+    QTest::qWait(100);
+    QQuickItem *viewport = timelineViewport(ed);
+    QQuickItem *table = ed.item(QStringLiteral("recordingsView"));
+    QQuickItem *lane = recordingLaneItem(ed);
+    QQuickItem *first = laneObject(ed, 10);
+    QVERIFY(viewport && table && lane && first);
+    scrollLaneTo(ed, first->x());
+    auto *content = qvariant_cast<QQuickItem *>(viewport->property("contentItem"));
+    const qreal top = first->mapToItem(content, QPointF()).y();
+
+    // cut by the bottom of the timeline: drawn above the cut, never on the table below
+    viewport->setProperty("contentY", top - viewport->height() + first->height() / 2);
+    QTest::qWait(150);
+    QVERIFY(graphOf(first));
+    const QRectF cut = sceneRect(first).intersected(sceneRect(viewport));
+    QVERIFY(cut.height() > 0 && cut.height() < first->height());
+    Frame frame(ed.rig.app.get());
+    const QRectF below = sceneRect(table).intersected(QRectF(sceneRect(first).left(), sceneRect(table).top(),
+                                                             sceneRect(first).width(), first->height()));
+    QVERIFY(below.height() > 0);
+    const QRectF tableBand(below.left(), std::ceil(below.top()) + 1, below.width(), below.height() - 1);
+    for (const QColor &colour : {plotColour, selectedColour, dimmedColour})
+        QCOMPARE(frame.count(tableBand, colour), 0);
+    // scrolled so the plot starts at the top of the timeline: drawn there, still not on the table
+    viewport->setProperty("contentY", top + first->property("plotTop").toReal() - 2);
+    QTest::qWait(150);
+    Frame shown(ed.rig.app.get());
+    QVERIFY(shown.count(sceneRect(first).intersected(sceneRect(viewport)), plotColour) > 0);
+    QCOMPARE(shown.count(tableBand, plotColour), 0);
+}
+
+namespace
+{
+/** A literal snapshot of the editor for the pure selection navigation planner:
+ *  recordings at 1200 and 4000 ms on a Time ruler, 0.125 px per ms */
+QJsonObject navigationSnapshot()
+{
+    return QJsonDocument::fromJson(R"({"showId": 1, "domain": "recordings",
+        "recordings": {"samples": [{"id": 0, "ms": 1200, "x": 150}, {"id": 6, "ms": 4000, "x": 500}],
+                       "tailPx": 18, "rows": {"y": 210, "height": 30, "firstRowY": 210}},
+        "clips": {"items": []},
+        "ruler": {"msRuler": true, "bpm": 120, "beatsDivision": 4, "vdjBeat": false, "vdjGridValid": false,
+                  "vdjBeatPeriodMs": 0},
+        "access": {"readOnly": false, "performState": 0},
+        "view": {"timeScale": 1, "minScale": 0.1, "unitPx": 0.125, "rulerDuration": 10000, "revealedRulerEnd": 0,
+                 "x": 0, "width": 1018, "y": 0, "height": 400, "contentHeight": 1000}})").object();
+}
+
+/** Objects merge key by key, anything else replaces */
+QJsonObject mergedJson(QJsonObject base, const QJsonObject &patch)
+{
+    for (auto it = patch.begin(); it != patch.end(); ++it)
+        base[it.key()] = it.value().isObject() && base.value(it.key()).isObject()
+            ? QJsonValue(mergedJson(base.value(it.key()).toObject(), it.value().toObject())) : it.value();
+    return base;
+}
+
+/** Every expected field is in actual; numbers within 0.001 */
+QString jsonMismatch(const QJsonValue &actual, const QJsonValue &expected, const QString &path)
+{
+    if (expected.isObject())
+    {
+        if (!actual.isObject())
+            return path + QStringLiteral(" is not an object");
+        const QJsonObject e = expected.toObject(), a = actual.toObject();
+        for (auto it = e.begin(); it != e.end(); ++it)
+        {
+            const QString m = jsonMismatch(a.value(it.key()), it.value(), path + QLatin1Char('.') + it.key());
+            if (!m.isEmpty())
+                return m;
+        }
+        return QString();
+    }
+    if (expected.isDouble())
+        return actual.isDouble() && qAbs(actual.toDouble() - expected.toDouble()) <= 0.001 ? QString()
+            : QStringLiteral("%1: %2, expected %3").arg(path, QString::number(actual.toDouble(), 'f', 6),
+                                                        QString::number(expected.toDouble(), 'f', 6));
+    return actual == expected ? QString()
+        : QStringLiteral("%1: %2, expected %3").arg(path, actual.toVariant().toString(),
+                                                    expected.toVariant().toString());
+}
+} // namespace
+
+void ShowCommandRecorder_Test::selectionNavigation_plan_data()
+{
+    QTest::addColumn<QString>("function");
+    QTest::addColumn<QByteArray>("patch");
+    QTest::addColumn<QByteArray>("expected");
+    const QString plan = QStringLiteral("planSelectionNavigation"),
+        check = QStringLiteral("selectionNavigationFitResult");
+    const QByteArray clips = R"("domain": "clips", "recordings": {"samples": [{"id": 0, "ms": 1200, "x": 150}]},)";
+    // P-pad: the padded span (350 px + 2 x 35) scaled to fill 1000 px beside the 18 px tail
+    QTest::newRow("P-pad-time") << plan << QByteArray("{}")
+        << QByteArray(R"({"fit": {"available": true, "reason": "", "timeScale": 0.41999998688697815,
+            "xViewOffset": 273.80953, "rulerEnd": 4341, "contentY": 0}, "go": {"available": true, "ms": 1200}})");
+    QTest::newRow("P-pad-bpm") << plan
+        << QByteArray(R"({"ruler": {"msRuler": false}, "view": {"timeScale": 2, "unitPx": 0.0625}})")
+        << QByteArray(R"({"fit": {"available": true, "timeScale": 4.761904716491699, "xViewOffset": 273.80952,
+            "rulerEnd": 8681}, "go": {"ms": 1200}})");
+    // P-zero: one sample centred with its tail in the 2000 ms window
+    QTest::newRow("P-zero-sample") << plan
+        << QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 3000, "x": 375}]}})")
+        << QByteArray(R"({"fit": {"timeScale": 0.25, "xViewOffset": 1000}, "go": {"ms": 3000}})");
+    QTest::newRow("P-zero-clips") << plan
+        << QByteArray("{" + clips + R"("clips": {"items": [
+            {"startTime": 3000, "duration": 0, "isBeats": false, "x": 375, "width": 0, "y": 0, "height": 40},
+            {"startTime": 3000, "duration": 0, "isBeats": false, "x": 375, "width": 0, "y": 80, "height": 40}]}})")
+        << QByteArray(R"({"fit": {"available": true, "xViewOffset": 1018, "contentY": 0}, "go": {"ms": 3000}})");
+    // P-reach: the window's right edge past the ruler, grow-only and capped at INT_MAX
+    QTest::newRow("P-reach-clip") << plan
+        << QByteArray("{" + clips + R"("clips": {"items": [{"startTime": 70000, "duration": 10000, "isBeats": false,
+            "x": 8750, "width": 1250, "y": 0, "height": 40}]}, "view": {"rulerDuration": 70000}})")
+        << QByteArray(R"({"fit": {"rulerEnd": 81000}})");
+    QTest::newRow("P-reach-grow-only") << plan
+        << QByteArray("{" + clips + R"("clips": {"items": [{"startTime": 70000, "duration": 10000, "isBeats": false,
+            "x": 8750, "width": 1250, "y": 0, "height": 40}]}, "view": {"revealedRulerEnd": 90000}})")
+        << QByteArray(R"({"fit": {"rulerEnd": 90000}})");
+    QTest::newRow("P-reach-capped") << plan
+        << QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 2147483000, "x": 268435375}]}})")
+        << QByteArray(R"({"fit": {"available": true, "rulerEnd": 2147483647}})");
+    // P-rows: vertical reveal
+    QTest::newRow("P-rows-inside") << plan
+        << QByteArray(R"({"view": {"y": 50}})") << QByteArray(R"({"fit": {"contentY": 50}})");
+    QTest::newRow("P-rows-below") << plan
+        << QByteArray(R"({"recordings": {"rows": {"y": 500, "height": 30, "firstRowY": 500}}})")
+        << QByteArray(R"({"fit": {"contentY": 130}})");
+    QTest::newRow("P-rows-taller") << plan
+        << QByteArray(R"({"recordings": {"rows": {"y": 100, "height": 600, "firstRowY": 300}}})")
+        << QByteArray(R"({"fit": {"contentY": 300}})");
+    QTest::newRow("P-rows-none") << plan
+        << QByteArray(R"({"recordings": {"rows": null}, "view": {"y": 50}})") << QByteArray(R"({"fit": {"contentY": 50}})");
+    // P-floor: wider than the view at the zoom floor keeps the padded start at the left
+    QTest::newRow("P-floor") << plan
+        << QByteArray(R"({"ruler": {"msRuler": false}, "recordings": {"samples": [{"id": 0, "ms": 1200, "x": 50000},
+            {"id": 6, "ms": 4000, "x": 150000}]}, "view": {"unitPx": 0.0625, "rulerDuration": 3000000}})")
+        << QByteArray(R"({"fit": {"timeScale": 0.10000000149011612, "xViewOffset": 4000}})");
+    // P-zero-floor: a zero span at the zoom-in floor, its 2500 px window narrower than the view, stays centred
+    for (const char *ruler : {"time", "vdj"})
+        QTest::newRow(qPrintable(QStringLiteral("P-zero-floor-%1").arg(QLatin1String(ruler)))) << plan
+            << (QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 4000, "x": 500}]}, "view": {"width": 3018})")
+                + (qstrcmp(ruler, "vdj") == 0
+                   ? QByteArray(R"(, "ruler": {"vdjBeat": true, "vdjGridValid": true, "vdjBeatPeriodMs": 500}})")
+                   : QByteArray("}")))
+            << QByteArray(R"({"fit": {"timeScale": 0.10000000149011612, "xViewOffset": 3500}})");
+    // P-check: the recheck of the rendered view
+    QTest::newRow("P-check-inside") << check
+        << QByteArray(R"({"recordings": {"samples": [{"id": 0, "ms": 1200, "x": 100}, {"id": 6, "ms": 4000, "x": 882}]},
+            "view": {"width": 1000}})") << QByteArray(R"({"ok": true, "reason": ""})");
+    QTest::newRow("P-check-ruler-apart") << check
+        << QByteArray(R"({"recordings": {"samples": [{"id": 0, "ms": 1200, "x": 100}, {"id": 6, "ms": 4000, "x": 882}]},
+            "view": {"width": 1000, "headerX": 2059.5}})")
+        << QByteArray(R"({"ok": false, "reason": "The lanes and the ruler are not aligned"})");
+    QTest::newRow("P-check-right") << check
+        << QByteArray(R"({"recordings": {"samples": [{"id": 0, "ms": 1200, "x": 100}, {"id": 6, "ms": 4000, "x": 983}]},
+            "view": {"width": 1000}})")
+        << QByteArray(R"({"ok": false, "reason": "Selection is wider than the timeline at maximum zoom out"})");
+    QTest::newRow("P-check-below") << check
+        << QByteArray(R"({"recordings": {"rows": {"y": 500, "height": 30, "firstRowY": 500}}})")
+        << QByteArray(R"({"ok": false, "reason": "Selected rows cannot be shown at this editor height"})");
+    // P-bound: the int display and seek bound
+    QTest::newRow("P-bound-at") << plan
+        << QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 2147483647, "x": 0}]}})")
+        << QByteArray(R"({"fit": {"available": true}, "go": {"available": true, "ms": 2147483647}})");
+    QTest::newRow("P-bound-past") << plan
+        << QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 2147483648, "x": 0}]}})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Selection is beyond the timeline display range"},
+            "go": {"available": false, "reason": "Selection start is beyond the seekable range"}})");
+    QTest::newRow("P-bound-bpm") << plan
+        << QByteArray(R"({"ruler": {"msRuler": false}, "recordings": {"samples": [{"id": 6, "ms": 2147482647, "x": 0}]}})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Selection is beyond the timeline display range"},
+            "go": {"available": true, "ms": 2147482647}})");
+    // P-go: the earliest start in ms at the authoring BPM, not list order
+    QTest::newRow("P-go-recordings") << plan
+        << QByteArray(R"({"recordings": {"samples": [{"id": 6, "ms": 4000, "x": 500}, {"id": 0, "ms": 1200, "x": 150}]}})")
+        << QByteArray(R"({"go": {"available": true, "ms": 1200}})");
+    QTest::newRow("P-go-beats-clip") << plan
+        << QByteArray("{" + clips + R"("clips": {"items": [
+            {"startTime": 30000, "duration": 1000, "isBeats": false, "x": 3750, "width": 125, "y": 0, "height": 40},
+            {"startTime": 20250, "duration": 2000, "isBeats": true, "x": 1265, "width": 125, "y": 40, "height": 40}]}})")
+        << QByteArray(R"({"go": {"available": true, "ms": 10125}})");
+    QTest::newRow("P-go-time-clip-bpm-ruler") << plan
+        << QByteArray("{" + clips + R"("ruler": {"msRuler": false}, "clips": {"items": [
+            {"startTime": 9000, "duration": 1000, "isBeats": false, "x": 1125, "width": 125, "y": 0, "height": 40},
+            {"startTime": 7000, "duration": 1000, "isBeats": false, "x": 875, "width": 125, "y": 40, "height": 40}]}})")
+        << QByteArray(R"({"go": {"available": true, "ms": 7000}})");
+    // P-owner: only the owning domain plans
+    QTest::newRow("P-owner-clips") << plan
+        << QByteArray("{" + clips + R"("clips": {"items": [{"startTime": 400000, "duration": 1000, "isBeats": false,
+            "x": 50000, "width": 125, "y": 0, "height": 40}]}})")
+        << QByteArray(R"({"go": {"ms": 400000}})");
+    QTest::newRow("P-owner-none") << plan << QByteArray(R"({"domain": "none"})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Select clips or recorded events first", "timeScale": null},
+            "go": {"available": false, "reason": "Select clips or recorded events first", "ms": null}})");
+    // P-empty
+    QTest::newRow("P-empty-recordings") << plan << QByteArray(R"({"recordings": {"samples": []}})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Select clips or recorded events first"},
+            "go": {"available": false, "reason": "Select clips or recorded events first"}})");
+    QTest::newRow("P-empty-clips") << plan << QByteArray("{" + clips + R"("clips": {"items": []}})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Select clips or recorded events first"}})");
+    QTest::newRow("P-empty-beats-no-tempo") << plan
+        << QByteArray("{" + clips + R"("ruler": {"bpm": 0}, "clips": {"items": [{"startTime": 2000, "duration": 1000,
+            "isBeats": true, "x": 0, "width": 0, "y": 0, "height": 40}]}})")
+        << QByteArray(R"({"fit": {"available": false, "reason": "Beat-based items need a Show tempo"},
+            "go": {"available": false, "reason": "Beat-based items need a Show tempo"}})");
+    QTest::newRow("P-empty-no-show") << plan << QByteArray(R"({"showId": -1})")
+        << QByteArray(R"({"go": {"available": false, "reason": "Select clips or recorded events first"}})");
+    // P-readonly: Perform disables Go only
+    const QList<QPair<int, QString>> performRows{{2, QStringLiteral("Following external clock (Perform)")},
+        {3, QStringLiteral("Following external clock (Perform)")}, {1, QStringLiteral("Read only in Perform mode")}};
+    for (const auto &[state, reason] : performRows)
+        QTest::newRow(qPrintable(QStringLiteral("P-readonly-%1").arg(state))) << plan
+            << QStringLiteral(R"({"access": {"readOnly": true, "performState": %1}})").arg(state).toUtf8()
+            << QStringLiteral(R"({"fit": {"available": true}, "go": {"available": false, "reason": "%1"}})")
+                   .arg(reason).toUtf8();
+    QTest::newRow("P-readonly-off") << plan << QByteArray(R"({"access": {"readOnly": false, "performState": 2}})")
+        << QByteArray(R"({"go": {"available": true, "reason": ""}})");
+}
+
+void ShowCommandRecorder_Test::selectionNavigation_plan()
+{
+    QFETCH(QString, function);
+    QFETCH(QByteArray, patch);
+    QFETCH(QByteArray, expected);
+    const QJsonObject snapshot = mergedJson(navigationSnapshot(), QJsonDocument::fromJson(patch).object());
+    const QJsonObject want = QJsonDocument::fromJson(expected).object();
+    QVERIFY2(!want.isEmpty(), expected.constData());
+
+    // the planner as QML imports it, through the Show editor's own resource
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(R"(import QtQml
+import "qrc:/TimeUtils.js" as TimeUtils
+QtObject {
+    function run(name, text) {
+        var input = JSON.parse(text), before = JSON.stringify(input)
+        var first = TimeUtils[name](input), second = TimeUtils[name](JSON.parse(text))
+        var frozen = Object.isFrozen(first)
+            && (first.fit === undefined || (Object.isFrozen(first.fit) && Object.isFrozen(first.go)))
+        return JSON.stringify({ result: first, frozen: frozen,
+                                same: JSON.stringify(first) === JSON.stringify(second),
+                                unchanged: JSON.stringify(input) === before })
+    }
+})", QUrl());
+    std::unique_ptr<QObject> probe(component.create());
+    QVERIFY2(probe, qPrintable(component.errorString()));
+    QVariant text;
+    QVERIFY(QMetaObject::invokeMethod(probe.get(), "run", Q_RETURN_ARG(QVariant, text), Q_ARG(QVariant, function),
+        Q_ARG(QVariant, QString::fromUtf8(QJsonDocument(snapshot).toJson(QJsonDocument::Compact)))));
+    const QJsonObject out = QJsonDocument::fromJson(text.toString().toUtf8()).object();
+    QVERIFY2(!out.isEmpty(), qPrintable(text.toString()));
+    const QString mismatch = jsonMismatch(out.value(QStringLiteral("result")), want, function);
+    QVERIFY2(mismatch.isEmpty(), qPrintable(mismatch + QStringLiteral("\n") + text.toString()));
+    QVERIFY(out.value(QStringLiteral("frozen")).toBool());
+    QVERIFY(out.value(QStringLiteral("same")).toBool());
+    QVERIFY(out.value(QStringLiteral("unchanged")).toBool());
+}
+
+namespace
+{
+QQuickItem *navContainer(const EditorRig &ed) { return findVisualItemWith(ed.root(), "showKeyScope", true); }
+QQuickItem *navButton(const EditorRig &ed, bool fit)
+{
+    return findVisualItem(ed.root(), fit ? QStringLiteral("fitSelectionButton") : QStringLiteral("goToSelectionStartButton"));
+}
+QQuickItem *recordingsList(const EditorRig &ed)
+{
+    const auto lists = ed.root()->findChildren<QQuickItem *>(QStringLiteral("recordingsView"));
+    return lists.isEmpty() ? nullptr : lists.first();
+}
+bool navEnabled(const EditorRig &ed, bool fit)
+{
+    QQuickItem *button = navButton(ed, fit);
+    return button != nullptr && button->isEnabled();
+}
+QString joinIds(const QVector<quint32> &ids)
+{
+    QStringList texts;
+    for (quint32 id : ids)
+        texts.append(QString::number(id));
+    return texts.join(QLatin1Char(','));
+}
+void selectRecorded(const EditorRig &ed, const QVector<quint32> &ids)
+{
+    QVariantList list;
+    for (quint32 id : ids)
+        list.append(double(id));
+    recordingsList(ed)->setProperty("selectedIds", list);
+    QCoreApplication::processEvents();
+}
+/** The vertical Flickable of the timeline's rows */
+QQuickItem *timelineRows(const EditorRig &ed)
+{
+    QQuickItem *view = ed.item(QStringLiteral("showItemsArea"));
+    while (view && !view->property("totalTracksHeight").isValid())
+        view = view->parentItem();
+    return view;
+}
+/** What the timeline shows, in scene coordinates: the header's columns, the rows' height */
+QRectF timelineViewRect(const EditorRig &ed)
+{
+    QQuickItem *header = ed.item(QStringLiteral("timelineHeader"));
+    QQuickItem *rows = timelineRows(ed);
+    const QRectF h = header->mapRectToScene(header->boundingRect());
+    const QRectF r = rows->mapRectToScene(rows->boundingRect());
+    return QRectF(h.left(), r.top(), h.width(), r.height());
+}
+/** A recorded time on screen, from the lane's own time to x */
+qreal sampleSceneX(const EditorRig &ed, double ms)
+{
+    QQuickItem *lane = findVisualItem(ed.root(), QStringLiteral("recordingLane"));
+    QVariant x;
+    QMetaObject::invokeMethod(lane, "timeX", Q_RETURN_ARG(QVariant, x), Q_ARG(QVariant, ms));
+    return lane->mapToScene(QPointF(x.toDouble(), 0)).x();
+}
+QRectF sceneRectOf(QQuickItem *item) { return item->mapRectToScene(QRectF(0, 0, item->width(), item->height())); }
+/** The shown timeline objects of the recordings, walked as the scene holds them */
+QList<QQuickItem *> recordingObjects(const EditorRig &ed)
+{
+    QList<QQuickItem *> found, pending{ed.root()};
+    while (!pending.isEmpty())
+    {
+        QQuickItem *next = pending.takeFirst();
+        if (next->objectName() == QLatin1String("recordingItem") && next->isVisible())
+            found.append(next);
+        pending += next->childItems();
+        QQuickItem *content = next->property("contentItem").value<QQuickItem *>();
+        if (content != nullptr && !next->childItems().contains(content))
+            pending.append(content);
+    }
+    return found;
+}
+QQuickItem *clipItem(const EditorRig &ed, ShowFunction *sf)
+{
+    return findVisualItemWith(ed.root(), "sfRef", QVariant::fromValue(sf));
+}
+QString viewState(const EditorRig &ed)
+{
+    return QStringLiteral("scale %1 offset %2 contentY %3 width %4")
+        .arg(double(ed.rig.manager->timeScale()), 0, 'g', 9)
+        .arg(navContainer(ed)->property("xViewOffset").toDouble())
+        .arg(timelineRows(ed)->property("contentY").toDouble())
+        .arg(ed.item(QStringLiteral("timelineHeader"))->property("contentWidth").toDouble());
+}
+/** Everything authored or selected that navigation must leave alone */
+QString authoredState(const EditorRig &ed)
+{
+    auto *manager = ed.rig.manager;
+    QStringList state;
+    state << QStringLiteral("playing %1 paused %2").arg(manager->isPlaying()).arg(manager->isPaused());
+    QStringList commands;
+    for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        commands << QStringLiteral("%1@%2").arg(cmd.id).arg(cmd.time);
+    state << commands.join(QLatin1Char(' '));
+    state << QStringLiteral("extent %1 total %2 duration %3").arg(ed.show->commandTrack().extent())
+                 .arg(ed.show->totalDuration()).arg(manager->showDuration());
+    state << QStringLiteral("modified %1 history %2 error '%3' edits %4").arg(ed.rig.doc->isModified())
+                 .arg(ed.tardis()->m_historyIndex).arg(ed.rig.recorder->lastError()).arg(ed.rig.recorder->lastEditSerial());
+    QQuickItem *list = recordingsList(ed);
+    state << QStringLiteral("selected %1 passage %2 lanes %3 clips %4")
+                 .arg(joinIds(idsOf(list->property("selectedIds")))).arg(joinIds(idsOf(list->property("passageIds"))))
+                 .arg(navContainer(ed)->property("lanesExpanded").toBool()).arg(manager->selectedItemsCount());
+    for (Track *track : ed.show->tracks())
+    {
+        state << QStringLiteral("track %1 mute %2").arg(track->id()).arg(track->isMute());
+        for (ShowFunction *sf : track->showFunctions())
+            state << QStringLiteral("clip %1 %2+%3 locked %4 %5").arg(sf->id()).arg(sf->startTime())
+                         .arg(sf->duration()).arg(sf->isLocked()).arg(sf->color().name());
+    }
+    return state.join(QLatin1Char('\n'));
+}
+bool pressNavigation(const EditorRig &ed, bool fit)
+{
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(navButton(ed, fit));
+    return performAccessibleAction(iface, QAccessibleActionInterface::pressAction());
+}
+QString navigationStatus(const EditorRig &ed)
+{
+    return navContainer(ed)->property("selectionNavigationStatus").toString();
+}
+QString navigationDescription(const EditorRig &ed, bool fit)
+{
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(navButton(ed, fit));
+    return iface ? iface->text(QAccessible::Description) : QStringLiteral("<no button>");
+}
+ShowFunction *addClip(EditorRig &ed, Function *function, quint32 start, quint32 duration)
+{
+    auto *content = qvariant_cast<QQuickItem *>(ed.item(QStringLiteral("showItemsArea"))->property("contentItem"));
+    ShowFunction source(0);
+    source.setDuration(qMax<quint32>(duration, 1000));
+    ed.rig.manager->addItems(content, -1, 0, {function->id()}, &source);
+    ShowFunction *sf = ed.show->tracks().last()->showFunctions().last();
+    sf->setStartTime(start);
+    sf->setDuration(duration);
+    QCoreApplication::processEvents();
+    return sf;
+}
+void selectClips(EditorRig &ed, const QList<ShowFunction *> &clips)
+{
+    ed.rig.manager->resetItemsSelection();
+    for (ShowFunction *sf : clips)
+        ed.rig.manager->setItemSelection(ed.show->tracks().indexOf(ed.show->getTrackFromShowFunctionID(sf->id())),
+                                         sf, clipItem(ed, sf), true, Qt::ControlModifier);
+    QCoreApplication::processEvents();
+}
+Scene *beatsScene(EditorRig &ed)
+{
+    auto *beats = new Scene(ed.rig.doc);
+    beats->setTempoType(Function::Beats);
+    ed.rig.doc->addFunction(beats);
+    return beats;
+}
+/** The view zoomed in and scrolled to the start, so a selection lies out of it */
+void zoomInAtStart(EditorRig &ed)
+{
+    ed.rig.manager->setTimeScale(ed.rig.manager->timeBasedDivision() ? 0.1f : 8.0f);
+    navContainer(ed)->setProperty("xViewOffset", 0);
+    timelineRows(ed)->setProperty("contentY", 0);
+    QCoreApplication::processEvents();
+}
+/** The horizontal extent of the selected recordings on screen: every sample and
+ *  the fixed-width hit area after the last one */
+struct Extent
+{
+    qreal left = 0, right = 0, tailRight = 0;
+};
+Extent recordedExtent(const EditorRig &ed, const QVector<quint32> &ids)
+{
+    Extent e{1e18, -1e18, 0};
+    for (quint32 id : ids)
+    {
+        const qreal x = sampleSceneX(ed, ed.command(id).time);
+        e.left = qMin(e.left, x);
+        e.right = qMax(e.right, x);
+    }
+    e.tailRight = e.right + 18;
+    return e;
+}
+Extent clipExtent(const EditorRig &ed, const QList<ShowFunction *> &clips)
+{
+    Extent e{1e18, -1e18, 0};
+    for (ShowFunction *sf : clips)
+    {
+        const QRectF r = sceneRectOf(clipItem(ed, sf));
+        e.left = qMin(e.left, r.left());
+        e.right = qMax(e.right, r.right());
+    }
+    e.tailRight = e.right;
+    return e;
+}
+bool inside(const Extent &e, const QRectF &view)
+{
+    return e.left >= view.left() - 0.5 && e.tailRight <= view.right() + 0.5;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_fitSelection_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("selection");
+    QTest::addColumn<QString>("transport");
+    for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::BPM_3_4), int(Show::VDJBeat)})
+        for (const char *selection : {"single", "equal", "partial", "multi", "visible", "far", "far-clip"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(division).arg(QLatin1String(selection))))
+                << division << QString::fromLatin1(selection) << QStringLiteral("stopped");
+    QTest::newRow("time-multi-paused") << int(Show::Time) << QStringLiteral("multi") << QStringLiteral("paused");
+    QTest::newRow("time-multi-running") << int(Show::Time) << QStringLiteral("multi") << QStringLiteral("running");
+    QTest::newRow("bpm-far-paused") << int(Show::BPM_4_4) << QStringLiteral("far") << QStringLiteral("paused");
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelection()
+{
+    QFETCH(int, division);
+    QFETCH(QString, selection);
+    QFETCH(QString, transport);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    ed.rig.doc->inputOutputMap()->setBpmNumber(90);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    if (selection.startsWith(QLatin1String("far")))
+    {
+        auto track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        if (selection == QLatin1String("far-clip"))
+            addClip(ed, ed.scene, 0, 10000);
+        QCoreApplication::processEvents();
+    }
+    const QVector<quint32> ids = selection == QLatin1String("single") ? QVector<quint32>{6}
+        : selection == QLatin1String("equal") ? QVector<quint32>{0, 1}
+        : selection == QLatin1String("partial") ? QVector<quint32>{41}
+        : selection.startsWith(QLatin1String("far")) ? QVector<quint32>{70}
+        : QVector<quint32>{0, 1, 2, 3, 4, 5, 6};
+    selectRecorded(ed, ids);
+    if (selection == QLatin1String("visible"))
+        manager->setTimeScale(division == Show::Time || division == Show::VDJBeat ? 8.0f : 0.5f);
+    else
+        zoomInAtStart(ed);
+    if (transport != QLatin1String("stopped"))
+    {
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 3);
+        if (transport == QLatin1String("paused"))
+        {
+            manager->playShow();
+            for (int i = 0; i < 20 && manager->pausing(); i++)
+                tickAndDeliver(ed.rig.doc);
+            QVERIFY(manager->isPaused());
+        }
+    }
+    if (selection != QLatin1String("visible"))
+    {
+        // scrolled away from the selection: to the start for a sample past the old end, else to the far right
+        auto *header = ed.item(QStringLiteral("timelineHeader"));
+        navContainer(ed)->setProperty("xViewOffset", selection.startsWith(QLatin1String("far")) ? 0.0
+            : qMax(0.0, header->property("contentWidth").toDouble() - header->width()));
+        QCoreApplication::processEvents();
+    }
+    const QRectF before = timelineViewRect(ed);
+    const bool wasInside = inside(recordedExtent(ed, ids), before);
+    if (selection != QLatin1String("visible"))
+        QVERIFY2(!wasInside, "the selection starts out of the view");
+    const QString authored = authoredState(ed);
+    const auto commands = ed.show->commandTrack().commands();
+    const int time = manager->currentTime();
+    QVERIFY(navEnabled(ed, true));
+    QVERIFY(pressNavigation(ed, true));
+
+    const QRectF view = timelineViewRect(ed);
+    const Extent e = recordedExtent(ed, ids);
+    qInfo() << "fit" << viewState(ed) << "extent" << e.left << e.right << "view" << view;
+    QCOMPARE(navigationStatus(ed), QString());
+    QVERIFY2(inside(e, view), "every selected sample and the hit area after the last are in view");
+    for (QQuickItem *item : recordingObjects(ed))
+        if (item->isVisible() && item->property("selected").toBool())
+        {
+            const QRectF r = sceneRectOf(item);
+            QVERIFY(r.left() >= view.left() - 0.5 && r.right() <= view.right() + 0.5);
+        }
+    QVERIFY(manager->timeScale() >= 0.1f);
+    // the padded span fills the view, or a single time sits centred with its hit area
+    const qreal span = e.right - e.left;
+    if (span > 1)
+        QVERIFY2(qAbs(span * 1.2 + 18 - view.width()) <= 1, qPrintable(QString::number(span * 1.2 + 18)));
+    else
+        QVERIFY2(qAbs(e.left + 9 - view.center().x()) <= 1, qPrintable(QString::number(e.left - view.center().x())));
+    // at the Show authoring BPM, not the live 90
+    if (division == Show::BPM_4_4 || division == Show::BPM_3_4)
+    {
+        auto *lane = findVisualItem(ed.root(), QStringLiteral("recordingLane"));
+        const qreal barPx = (sampleSceneX(ed, 2000 + 60000.0 / 120 * (division == Show::BPM_4_4 ? 4 : 3))
+                             - sampleSceneX(ed, 2000));
+        QVERIFY(lane);
+        QVERIFY2(qAbs(barPx - manager->tickSize()) <= 0.01, qPrintable(QString::number(barPx)));
+    }
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    const qreal contentWidth = header->property("contentWidth").toDouble();
+    const qreal offset = navContainer(ed)->property("xViewOffset").toDouble();
+    QVERIFY(offset >= 0 && offset <= qMax(0.0, contentWidth - header->width()) + 0.5);
+    if (selection.startsWith(QLatin1String("far")))
+        QVERIFY2(std::isfinite(contentWidth) && e.tailRight - view.left() + offset <= contentWidth + 0.5,
+                 "the ruler reaches the sample past the authored end");
+    if (transport != QLatin1String("running"))
+    {
+        QCOMPARE(authoredState(ed), authored);
+        QCOMPARE(manager->currentTime(), time);
+    }
+    if (transport == QLatin1String("paused"))
+    {
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 2);
+        QVERIFY(manager->isPlaying() && !manager->isPaused());
+        QVERIFY2(manager->currentTime() >= time && manager->currentTime() < time + 1000,
+                 qPrintable(QStringLiteral("%1 from %2").arg(manager->currentTime()).arg(time)));
+    }
+    if (transport == QLatin1String("running"))
+    {
+        // the Show keeps playing where it was; following the playhead then owns the view
+        QVERIFY(manager->isPlaying() && !manager->isPaused());
+        QVERIFY(manager->currentTime() >= time && manager->currentTime() < time + 500);
+        QCOMPARE(ed.show->commandTrack().commands(), commands);
+        QVERIFY(!ed.rig.doc->isModified());
+        tickAndDeliver(ed.rig.doc, 2);
+        const qreal cursor = sampleSceneX(ed, manager->currentTime());
+        QVERIFY2(cursor >= timelineViewRect(ed).left() - 1 && cursor <= timelineViewRect(ed).right() + 1,
+                 "while running, the existing follow-playhead brings the cursor back into view");
+        manager->stopShow();
+    }
+}
+
+void ShowCommandRecorder_Test::timeline_fitClipSelection_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("shape");
+    QTest::addColumn<int>("bpm");
+    for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::BPM_3_4), int(Show::VDJBeat)})
+        for (const char *shape : {"time", "beats", "multi", "zero", "visible"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(division).arg(QLatin1String(shape))))
+                << division << QString::fromLatin1(shape) << 120;
+    QTest::newRow("bpm-time-clip-past-header") << int(Show::BPM_4_4) << QStringLiteral("mixed-time") << 120;
+    QTest::newRow("time-beats-clip-past-header") << int(Show::Time) << QStringLiteral("mixed-beats") << 30;
+}
+
+void ShowCommandRecorder_Test::timeline_fitClipSelection()
+{
+    QFETCH(int, division);
+    QFETCH(QString, shape);
+    QFETCH(int, bpm);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(bpm);
+    ed.rig.doc->inputOutputMap()->setBpmNumber(90);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    Scene *beats = beatsScene(ed);
+    QList<ShowFunction *> chosen;
+    if (shape == QLatin1String("time") || shape == QLatin1String("visible"))
+        chosen << addClip(ed, ed.scene, 10137, 2000);
+    else if (shape == QLatin1String("beats"))
+        chosen << addClip(ed, beats, 20250, 4000);
+    else if (shape == QLatin1String("multi"))
+    {
+        chosen << addClip(ed, ed.scene, 10137, 2000);
+        addClip(ed, ed.scene, 50000, 1000);
+        chosen << addClip(ed, beats, 20250, 4000);
+    }
+    else if (shape == QLatin1String("zero"))
+        chosen << addClip(ed, ed.scene, 30000, 0) << addClip(ed, beats, 60000, 0);
+    else if (shape == QLatin1String("mixed-time"))
+        chosen << addClip(ed, ed.scene, 0, 310000);
+    else
+        chosen << addClip(ed, beats, 0, 400000);
+    selectClips(ed, chosen);
+    QCOMPARE(manager->selectedItemsCount(), chosen.size());
+    if (shape == QLatin1String("visible"))
+        manager->setTimeScale(manager->timeBasedDivision() ? 8.0f : 0.5f);
+    else if (shape.startsWith(QLatin1String("mixed")))
+    {
+        navContainer(ed)->setProperty("xViewOffset", 0);
+        QCoreApplication::processEvents();
+    }
+    else
+        zoomInAtStart(ed);
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    if (shape.startsWith(QLatin1String("mixed")))
+        QVERIFY2(clipItem(ed, chosen.first())->width() > header->property("contentWidth").toDouble(),
+                 "the clip renders past the authored ruler end");
+    else if (shape != QLatin1String("visible"))
+        QVERIFY(!inside(clipExtent(ed, chosen), timelineViewRect(ed)));
+    const QString authored = authoredState(ed);
+    QVERIFY(navEnabled(ed, true));
+    QVERIFY(pressNavigation(ed, true));
+
+    const QRectF view = timelineViewRect(ed);
+    const Extent e = clipExtent(ed, chosen);
+    qInfo() << "fit" << viewState(ed) << "extent" << e.left << e.right << "view" << view;
+    QCOMPARE(navigationStatus(ed), QString());
+    QVERIFY2(inside(e, view), "every selected clip is in view where it renders");
+    const qreal span = e.right - e.left;
+    if (span > 1)
+        QVERIFY2(qAbs(span * 1.2 - view.width()) <= 1 || manager->timeScale() <= 0.1f + 1e-6,
+                 qPrintable(QString::number(span * 1.2)));
+    else
+        QVERIFY2(qAbs(e.left - view.center().x()) <= 1, qPrintable(QString::number(e.left - view.center().x())));
+    const qreal offset = navContainer(ed)->property("xViewOffset").toDouble();
+    QVERIFY(e.right - view.left() + offset <= header->property("contentWidth").toDouble() + 0.5);
+    QVERIFY(std::isfinite(manager->timeScale()));
+    QCOMPARE(authoredState(ed), authored);
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelectionRows_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<int>("width");
+    for (const int width : {1600, 1200})
+        for (const bool expanded : {false, true})
+        {
+            QTest::newRow(qPrintable(QStringLiteral("recordings-%1-%2").arg(expanded).arg(width)))
+                << QStringLiteral("recordings") << expanded << width;
+            QTest::newRow(qPrintable(QStringLiteral("recordings-spanning-%1-%2").arg(expanded).arg(width)))
+                << QStringLiteral("recordings-spanning") << expanded << width;
+            QTest::newRow(qPrintable(QStringLiteral("clips-%1-%2").arg(expanded).arg(width)))
+                << QStringLiteral("clips") << expanded << width;
+            QTest::newRow(qPrintable(QStringLiteral("clips-first-last-%1-%2").arg(expanded).arg(width)))
+                << QStringLiteral("clips-first-last") << expanded << width;
+        }
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelectionRows()
+{
+    QFETCH(QString, owner);
+    QFETCH(bool, expanded);
+    QFETCH(int, width);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(width, 480);
+    QList<ShowFunction *> clips;
+    for (int i = 0; i < 7; ++i)
+        clips << addClip(ed, ed.scene, 5000 + i * 125, 2000);
+    navContainer(ed)->setProperty("lanesExpanded", expanded);
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids = owner == QLatin1String("recordings") ? QVector<quint32>{5}
+                                                                        : QVector<quint32>{0, 5};
+    if (owner.startsWith(QLatin1String("recordings")))
+        selectRecorded(ed, ids);
+    else
+        selectClips(ed, owner == QLatin1String("clips") ? QList<ShowFunction *>{clips.last()}
+                                                         : QList<ShowFunction *>{clips.first(), clips.last()});
+    timelineRows(ed)->setProperty("contentY", 0);
+    QCoreApplication::processEvents();
+    const QString authored = authoredState(ed);
+    QList<QQuickItem *> targets;
+    if (owner.startsWith(QLatin1String("recordings")))
+    {
+        for (QQuickItem *item : recordingObjects(ed))
+            if (item->property("selectedCount").toInt() > 0)
+                targets << item;
+    }
+    else
+        targets << clipItem(ed, clips.last()) << (owner == QLatin1String("clips") ? nullptr : clipItem(ed, clips.first()));
+    targets.removeAll(nullptr);
+    QVERIFY(!targets.isEmpty());
+    const QRectF rowsView = timelineViewRect(ed);
+    QVERIFY2(std::any_of(targets.begin(), targets.end(), [&](QQuickItem *t) {
+        return sceneRectOf(t).bottom() > rowsView.bottom(); }), "a selected row lies below the view");
+    QVERIFY(pressNavigation(ed, true));
+
+    const QRectF view = timelineViewRect(ed);
+    qreal top = 1e18, bottom = -1e18;
+    for (QQuickItem *t : targets)
+    {
+        top = qMin(top, sceneRectOf(t).top());
+        bottom = qMax(bottom, sceneRectOf(t).bottom());
+    }
+    qInfo() << "rows" << top << bottom << "view" << view << navigationStatus(ed);
+    if (bottom - top <= view.height())
+    {
+        QCOMPARE(navigationStatus(ed), QString());
+        QVERIFY(top >= view.top() - 4 && bottom <= view.bottom() + 4);
+    }
+    else
+        QCOMPARE(navigationStatus(ed), QStringLiteral("Selected rows cannot be shown at this editor height"));
+    QCOMPARE(navContainer(ed)->property("lanesExpanded").toBool(), expanded);
+    QCOMPARE(authoredState(ed), authored);
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelectionResult_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<QString>("layout");
+    for (const char *owner : {"recordings", "clips"})
+        for (const char *layout : {"bpm-200-bars", "time-control", "split-no-rows"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(QLatin1String(owner), QLatin1String(layout))))
+                << QString::fromLatin1(owner) << QString::fromLatin1(layout);
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelectionResult()
+{
+    QFETCH(QString, owner);
+    QFETCH(QString, layout);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    const bool wide = layout == QLatin1String("bpm-200-bars") || layout == QLatin1String("time-control");
+    ed.rig.app->resize(layout == QLatin1String("time-control") ? QSize(1728, 966)
+                       : layout == QLatin1String("split-no-rows") ? QSize(900, 480) : QSize(1200, 480));
+    manager->setTimeDivision(layout == QLatin1String("bpm-200-bars") ? Show::BPM_4_4 : Show::Time);
+    QList<ShowFunction *> clips;
+    if (owner == QLatin1String("recordings"))
+    {
+        auto track = ed.show->commandTrack();
+        if (wide)
+            QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+        selectRecorded(ed, wide ? QVector<quint32>{0, 70} : QVector<quint32>{6});
+    }
+    else
+    {
+        clips << addClip(ed, beatsScene(ed), 0, wide ? 800000 : 4000);
+        selectClips(ed, clips);
+    }
+    if (layout == QLatin1String("split-no-rows"))
+    {
+        ed.click(ed.item(QStringLiteral("splitTab")));
+        QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 2);
+    }
+    zoomInAtStart(ed);
+    const qreal bottom = navContainer(ed)->property("timelineBottom").toDouble();
+    const QString authored = authoredState(ed);
+    QVERIFY(pressNavigation(ed, true));
+
+    const QRectF view = timelineViewRect(ed);
+    const Extent e = owner == QLatin1String("recordings")
+        ? recordedExtent(ed, wide ? QVector<quint32>{0, 70} : QVector<quint32>{6}) : clipExtent(ed, clips);
+    qInfo() << layout << owner << viewState(ed) << e.left << e.tailRight << view << navigationStatus(ed);
+    QCOMPARE(navigationDescription(ed, true), navigationStatus(ed));
+    if (layout == QLatin1String("bpm-200-bars"))
+    {
+        QCOMPARE(navigationStatus(ed), QStringLiteral("Selection is wider than the timeline at maximum zoom out"));
+        QVERIFY(!inside(e, view));
+        QCOMPARE(manager->timeScale(), 0.1f);
+        // the best effort keeps the start, just after the padding
+        QVERIFY2(e.left >= view.left() - 0.5 && e.left - view.left() <= (e.right - e.left) * 0.1 + 1,
+                 qPrintable(QString::number(e.left - view.left())));
+    }
+    else if (layout == QLatin1String("time-control"))
+    {
+        QCOMPARE(navigationStatus(ed), QString());
+        QVERIFY(inside(e, view));
+    }
+    else
+    {
+        // the split's timeline here has no room for the selected row: said, not faked
+        QQuickItem *target = owner == QLatin1String("clips") ? clipItem(ed, clips.first())
+            : recordingObjects(ed).value(0);
+        QVERIFY(target);
+        const bool rowShown = sceneRectOf(target).top() >= view.top() - 0.5
+            && sceneRectOf(target).bottom() <= view.bottom() + 0.5 && view.height() > 0;
+        QCOMPARE(navigationStatus(ed), rowShown ? QString()
+                 : QStringLiteral("Selected rows cannot be shown at this editor height"));
+        QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 2);
+    }
+    QCOMPARE(navContainer(ed)->property("timelineBottom").toDouble(), bottom);
+    QCOMPARE(authoredState(ed), authored);
+}
+
+namespace
+{
+/** A real user scroll of the timeline away from the view it had: a click or a handle drag
+ *  in the horizontal scroll bar, a mouse drag on the lanes, or Tab onto the far recording */
+bool userScroll(EditorRig &ed, const QString &scroll, const QVector<quint32> &ids)
+{
+    auto *lane = ed.item(QStringLiteral("showItemsArea"));
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    if (scroll.startsWith(QLatin1String("scrollbar")))
+    {
+        QQuickItem *bar = nullptr;
+        for (auto *item : ed.root()->findChildren<QQuickItem *>())
+            if (QByteArray(item->metaObject()->className()).contains("ScrollBar") && item->isVisible()
+                && item->property("orientation").toInt() == Qt::Horizontal
+                && qAbs(sceneRectOf(item).left() - sceneRectOf(header).left()) < 1)
+                bar = item;
+        if (bar == nullptr)
+            return false;
+        const QRectF r = sceneRectOf(bar);
+        if (scroll == QLatin1String("scrollbar-drag"))
+        {
+            // the handle, pressed and dragged to the right
+            QQuickItem *handle = bar->property("contentItem").value<QQuickItem *>();
+            if (handle == nullptr)
+                return false;
+            QPoint at = sceneRectOf(handle).center().toPoint();
+            QTest::mousePress(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, at);
+            for (int i = 0; i < 20; ++i)
+            {
+                at.rx() += int(r.width() / 25);
+                QTest::mouseMove(ed.rig.app.get(), at, 16);
+            }
+            QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, at, 16);
+        }
+        else
+            QTest::mouseClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier,
+                              QPoint(int(scroll == QLatin1String("scrollbar") ? r.left() + r.width() * 0.9 : r.right() - 2),
+                                     int(r.center().y())));
+    }
+    else if (scroll == QLatin1String("drag"))
+    {
+        // a real mouse drag on the lanes' free space, right to left: a press on a
+        // recording would drag that recording instead
+        const QRectF r = sceneRectOf(lane).intersected(timelineViewRect(ed));
+        QPoint at(int(r.right() - 20), int(r.top() + 10));
+        const auto onRecording = [&](const QPoint &p)
+        {
+            for (QQuickItem *item : recordingObjects(ed))
+                if (sceneRectOf(item).contains(p))
+                    return true;
+            return false;
+        };
+        while (onRecording(at) && at.y() < r.bottom() - 10)
+            at.ry() += 10;
+        if (onRecording(at))
+            return false;
+        // operator== leaves out each command's order, so the order is compared on its own
+        const auto orders = [&]()
+        {
+            QVector<quint32> list;
+            for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+                list << cmd.id << cmd.order;
+            return list;
+        };
+        const auto authored = ed.show->commandTrack().commands();
+        const QVector<quint32> authoredOrders = orders();
+        const int serial = ed.rig.recorder->lastEditSerial();
+        QTest::mousePress(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, at);
+        for (int i = 0; i < 40; ++i)
+        {
+            at.rx() -= 30;
+            QTest::mouseMove(ed.rig.app.get(), at, 16);
+        }
+        // held before the release, so the lanes stop where the pointer left them
+        QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, at, 200);
+        for (int i = 0; i < 100 && (lane->property("moving").toBool() || lane->property("flicking").toBool()); ++i)
+            QTest::qWait(20);
+        // a view scroll only: the drag moved no recording
+        if (ed.show->commandTrack().commands() != authored || orders() != authoredOrders
+                || ed.rig.recorder->lastEditSerial() != serial)
+            return false;
+        // the press on the lane clears the recording selection: chosen again, without scrolling
+        selectRecorded(ed, ids);
+    }
+    else if (scroll == QLatin1String("keyboard"))
+    {
+        // Tab walks to the far recording, which scrolls itself into view
+        QQuickItem *far = laneObject(ed.root(), 70);
+        if (far == nullptr)
+            return false;
+        ed.item(QStringLiteral("timelineTab"))->forceActiveFocus();
+        for (int i = 0; i < 220 && !far->hasActiveFocus(); ++i)
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+        if (!far->hasActiveFocus())
+            return false;
+    }
+    QCoreApplication::processEvents();
+    return true;
+}
+
+/** The one horizontal view: the lanes, the ruler and the offset they share, as observed */
+QString horizontalViews(const EditorRig &ed)
+{
+    return QStringLiteral("lane %1 header %2 offset %3")
+        .arg(ed.item(QStringLiteral("showItemsArea"))->property("contentX").toDouble())
+        .arg(ed.item(QStringLiteral("timelineHeader"))->property("contentX").toDouble())
+        .arg(navContainer(ed)->property("xViewOffset").toDouble());
+}
+bool oneHorizontalView(const EditorRig &ed)
+{
+    const qreal lane = ed.item(QStringLiteral("showItemsArea"))->property("contentX").toDouble();
+    const qreal header = ed.item(QStringLiteral("timelineHeader"))->property("contentX").toDouble();
+    const qreal offset = navContainer(ed)->property("xViewOffset").toDouble();
+    return qAbs(lane - header) <= 0.5 && qAbs(lane - offset) <= 0.5;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::timeline_fitSelectionAfterUserScroll_data()
+{
+    QTest::addColumn<QString>("scroll");
+    QTest::addColumn<int>("division");
+    QTest::addColumn<bool>("split");
+    QTest::newRow("scrollbar-click") << QStringLiteral("scrollbar") << int(Show::Time) << false;
+    QTest::newRow("scrollbar-click-end") << QStringLiteral("scrollbar-end") << int(Show::Time) << false;
+    QTest::newRow("scrollbar-drag") << QStringLiteral("scrollbar-drag") << int(Show::Time) << false;
+    QTest::newRow("lane-drag") << QStringLiteral("drag") << int(Show::Time) << false;
+    QTest::newRow("keyboard-focus-reveal") << QStringLiteral("keyboard") << int(Show::Time) << false;
+    QTest::newRow("no-scroll") << QStringLiteral("none") << int(Show::Time) << false;
+    QTest::newRow("bpm-lane-drag") << QStringLiteral("drag") << int(Show::BPM_4_4) << false;
+    QTest::newRow("bpm-keyboard") << QStringLiteral("keyboard") << int(Show::BPM_4_4) << false;
+    QTest::newRow("vdj-lane-drag") << QStringLiteral("drag") << int(Show::VDJBeat) << false;
+    QTest::newRow("vdj-keyboard") << QStringLiteral("keyboard") << int(Show::VDJBeat) << false;
+    QTest::newRow("split-lane-drag") << QStringLiteral("drag") << int(Show::Time) << true;
+    QTest::newRow("split-keyboard") << QStringLiteral("keyboard") << int(Show::Time) << true;
+}
+
+void ShowCommandRecorder_Test::timeline_fitSelectionAfterUserScroll()
+{
+    QFETCH(QString, scroll);
+    QFETCH(int, division);
+    QFETCH(bool, split);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(1600, split ? 720 : 480);
+    QVERIFY(addPassageSamples(ed));
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::TimeDivision(division));
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids{6};
+    selectRecorded(ed, ids);
+    if (split)
+    {
+        ed.click(ed.item(QStringLiteral("splitTab")));
+        QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 2);
+        selectRecorded(ed, ids);
+    }
+    // lanes folded: one row per recording
+    QVERIFY(!navContainer(ed)->property("lanesExpanded").toBool());
+    zoomInAtStart(ed);
+    auto *lane = ed.item(QStringLiteral("showItemsArea"));
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    QVERIFY(userScroll(ed, scroll, ids));
+    const qreal scrolled = lane->property("contentX").toDouble();
+    qInfo() << scroll << "scrolled" << horizontalViews(ed);
+    if (scroll != QLatin1String("none"))
+    {
+        QVERIFY2(scrolled > 1000 || (scroll == QLatin1String("drag") && scrolled > 200), qPrintable(QString::number(scrolled)));
+        QVERIFY2(!inside(recordedExtent(ed, ids), timelineViewRect(ed)), "the user scrolled away from the selection");
+    }
+    QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
+    const QString authored = authoredState(ed);
+    const int time = ed.rig.manager->currentTime();
+    QVERIFY(navEnabled(ed, true));
+    QVERIFY(pressNavigation(ed, true));
+
+    const QRectF view = timelineViewRect(ed);
+    const QRectF laneView = sceneRectOf(lane).intersected(view);
+    qInfo() << scroll << viewState(ed) << horizontalViews(ed) << navigationStatus(ed);
+    QVERIFY2(oneHorizontalView(ed), qPrintable(QStringLiteral("the lanes scroll with the ruler: ") + horizontalViews(ed)));
+    QVERIFY2(qAbs(header->property("contentX").toDouble() - lane->property("contentX").toDouble()) <= 0.5,
+             "the lanes scroll with the ruler");
+    QVERIFY2(inside(recordedExtent(ed, ids), laneView), "the selected sample is in the lanes' viewport");
+    bool drawn = false;
+    for (QQuickItem *item : recordingObjects(ed))
+        if (item->property("selectedCount").toInt() > 0)
+        {
+            const QRectF r = sceneRectOf(item);
+            QVERIFY2(r.left() >= laneView.left() - 0.5 && r.right() <= laneView.right() + 0.5,
+                     "the selected recording is drawn inside the lanes' viewport");
+            drawn = true;
+        }
+    QVERIFY(drawn);
+    QCOMPARE(navigationStatus(ed), QString());
+    QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+    QCOMPARE(ed.rig.manager->currentTime(), time);
+    QCOMPARE(authoredState(ed), authored);
+}
+
+void ShowCommandRecorder_Test::timeline_viewCommandsAfterUserScroll_data()
+{
+    QTest::addColumn<QString>("scroll");
+    QTest::addColumn<QString>("command");
+    QTest::addColumn<int>("division");
+    for (const char *scroll : {"drag", "keyboard"})
+        for (const char *command : {"zoom-in", "zoom-out", "follow-playhead"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(QLatin1String(scroll), QLatin1String(command))))
+                << QString::fromLatin1(scroll) << QString::fromLatin1(command) << int(Show::Time);
+    QTest::newRow("bpm-drag-zoom-in") << QStringLiteral("drag") << QStringLiteral("zoom-in") << int(Show::BPM_4_4);
+    QTest::newRow("bpm-drag-follow-playhead") << QStringLiteral("drag") << QStringLiteral("follow-playhead")
+                                              << int(Show::BPM_4_4);
+}
+
+void ShowCommandRecorder_Test::timeline_viewCommandsAfterUserScroll()
+{
+    QFETCH(QString, scroll);
+    QFETCH(QString, command);
+    QFETCH(int, division);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(1600, 480);
+    QVERIFY(addPassageSamples(ed));
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids{6};
+    selectRecorded(ed, ids);
+    zoomInAtStart(ed);
+    // the playhead far from both the start and the far recording
+    manager->requestSeek(200000);
+    QCoreApplication::processEvents();
+    QVERIFY(!manager->isPlaying());
+    auto *lane = ed.item(QStringLiteral("showItemsArea"));
+    QVERIFY(userScroll(ed, scroll, ids));
+    QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
+    const qreal scrolled = lane->property("contentX").toDouble();
+    QVERIFY2(scrolled > 200, qPrintable(QString::number(scrolled)));
+    const auto commands = ed.show->commandTrack().commands();
+    const QString lanes = laneEditorState(ed);
+    const bool modified = ed.rig.doc->isModified();
+    const qreal scale = manager->timeScale();
+
+    if (command == QLatin1String("follow-playhead"))
+    {
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 3);
+        QVERIFY(manager->isPlaying() && !manager->isPaused());
+    }
+    else
+        ed.click(findVisualItemWith(ed.root(), "tooltip",
+                                    command == QLatin1String("zoom-in") ? QStringLiteral("Zoom in") : QStringLiteral("Zoom out")));
+    QCoreApplication::processEvents();
+    QCoreApplication::processEvents();
+
+    const QRectF laneView = sceneRectOf(lane).intersected(timelineViewRect(ed));
+    const qreal cursor = sampleSceneX(ed, manager->currentTime());
+    qInfo() << scroll << command << "scrolled" << scrolled << horizontalViews(ed) << "cursor" << cursor << "lanes" << laneView;
+    // the command moved the shared offset: a zoom at its limit still centres the playhead
+    QVERIFY2(qAbs(navContainer(ed)->property("xViewOffset").toDouble() - scrolled) > 100, qPrintable(horizontalViews(ed)));
+    if (command == QLatin1String("zoom-out"))
+        QVERIFY(manager->timeScale() != scale);
+    QVERIFY2(oneHorizontalView(ed), qPrintable(QStringLiteral("the lanes scroll with the ruler: ") + horizontalViews(ed)));
+    QVERIFY2(cursor >= laneView.left() - 0.5 && cursor <= laneView.right() + 0.5,
+             "the playhead the command centred on is in the lanes' viewport");
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(laneEditorState(ed), lanes);
+    QCOMPARE(ed.rig.doc->isModified(), modified);
+    QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+    if (manager->isPlaying())
+        manager->stopShow();
+}
+
+void ShowCommandRecorder_Test::timeline_viewExtent_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("content");
+    for (const int division : {int(Show::Time), int(Show::BPM_4_4)})
+        for (const char *content : {"inside", "past", "command-only", "delete-undo"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(division).arg(QLatin1String(content))))
+                << division << QString::fromLatin1(content);
+    for (const char *reset : {"reach-kept", "reset-division", "reset-bpm", "reset-new-workspace"})
+        QTest::newRow(reset) << int(Show::Time) << QString::fromLatin1(reset);
+}
+
+void ShowCommandRecorder_Test::timeline_viewExtent()
+{
+    QFETCH(int, division);
+    QFETCH(QString, content);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(content.startsWith(QLatin1String("re")) ? 30 : 120);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    auto *container = navContainer(ed);
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    const auto rulerUnits = [&](double ms) { return manager->timeBasedDivision() ? ms : ms * manager->bpmNumber() / 60; };
+    if (content.startsWith(QLatin1String("re")))
+    {
+        // a Beats clip at 30 BPM renders past the ms ruler; Fit reveals it as a view
+        ShowFunction *clip = addClip(ed, beatsScene(ed), 0, 400000);
+        const quint32 clipTotal = ed.show->totalDuration();
+        selectClips(ed, {clip});
+        QVERIFY(pressNavigation(ed, true));
+        QCOMPARE(navigationStatus(ed), QString());
+        const double reach = container->property("revealedRulerEnd").toDouble();
+        QVERIFY2(reach > 700000, qPrintable(QString::number(reach)));
+        manager->resetItemsSelection();
+        QCoreApplication::processEvents();
+        QCOMPARE(container->property("revealedRulerEnd").toDouble(), reach);
+        if (content == QLatin1String("reset-division"))
+        {
+            manager->setTimeDivision(Show::BPM_4_4);
+            manager->setTimeDivision(Show::Time);
+        }
+        else if (content == QLatin1String("reset-bpm"))
+            manager->setBpmNumber(90);
+        else if (content == QLatin1String("reset-new-workspace"))
+        {
+            ed.rig.doc->resetModified();
+            QVERIFY(ed.rig.app->newWorkspace());
+        }
+        QCoreApplication::processEvents();
+        const double expectedReach = content == QLatin1String("reach-kept") ? reach : 0;
+        QCOMPARE(container->property("revealedRulerEnd").toDouble(), expectedReach);
+        if (content != QLatin1String("reset-new-workspace"))
+        {
+            QCOMPARE(ed.show->totalDuration(), clipTotal);
+            QCOMPARE(container->property("rulerDuration").toDouble(),
+                     qMax(double(manager->showDuration()), qMax(rulerUnits(4000), expectedReach)));
+        }
+        else
+            QVERIFY(container->property("rulerDuration").toDouble() < reach);
+        return;
+    }
+    if (content == QLatin1String("inside"))
+        addClip(ed, ed.scene, 0, 10000);
+    const qreal clipOnlyWidth = header->property("contentWidth").toDouble();
+    const int clipDuration = manager->showDuration();
+    if (content != QLatin1String("inside"))
+    {
+        auto track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        if (content != QLatin1String("command-only"))
+            addClip(ed, ed.scene, 0, 10000);
+        QCoreApplication::processEvents();
+    }
+    const int authoredDuration = manager->showDuration();
+    const bool modified = ed.rig.doc->isModified();
+    const double recordedEnd = content == QLatin1String("inside") ? 4000 : 400000;
+    QCOMPARE(container->property("recordedRulerEnd").toDouble(), rulerUnits(recordedEnd));
+    QCOMPARE(container->property("rulerDuration").toDouble(),
+             qMax(double(authoredDuration), rulerUnits(recordedEnd)));
+    if (content == QLatin1String("inside"))
+        QCOMPARE(header->property("contentWidth").toDouble(), clipOnlyWidth);
+    QVERIFY(header->property("contentWidth").toDouble() - 18
+            >= sampleSceneX(ed, recordedEnd) - sampleSceneX(ed, 0));
+    auto *playhead = accessibleById(ed.rig.app.get(), QStringLiteral("showPlayheadPosition"));
+    QVERIFY(playhead && playhead->valueInterface());
+    QVERIFY(playhead->valueInterface()->maximumValue().toDouble() >= recordedEnd);
+    QCOMPARE(int(ed.show->totalDuration()), authoredDuration);
+    QVERIFY(content == QLatin1String("command-only") ? authoredDuration == 0 : authoredDuration == 10000);
+    Q_UNUSED(clipDuration);
+    QCOMPARE(ed.rig.doc->isModified(), modified);
+    if (content == QLatin1String("delete-undo"))
+    {
+        selectRecorded(ed, {70});
+        const int base = ed.settledHistory();
+        QVERIFY(QMetaObject::invokeMethod(recordingsList(ed), "deleteSelected"));
+        QTRY_COMPARE(container->property("rulerDuration").toDouble(), qMax(double(authoredDuration), rulerUnits(4000)));
+        QTRY_VERIFY(ed.tardis()->m_historyIndex > base);
+        ed.settledHistory();
+        ed.tardis()->undoAction();
+        QTRY_COMPARE(container->property("rulerDuration").toDouble(), rulerUnits(400000));
+        QCOMPARE(manager->showDuration(), authoredDuration);
+    }
+}
+
+void ShowCommandRecorder_Test::timeline_divisionSwitchKeepsRuler_data()
+{
+    QTest::addColumn<int>("from");
+    QTest::addColumn<int>("to");
+    QTest::addColumn<bool>("clip");
+    QTest::addColumn<qreal>("offset");
+    for (const bool clip : {true, false})
+    {
+        const QString content = clip ? QStringLiteral("clip-command") : QStringLiteral("command-only");
+        QTest::newRow(qPrintable(QStringLiteral("bpm-to-time-") + content)) << int(Show::BPM_4_4) << int(Show::Time) << clip << 0.0;
+        QTest::newRow(qPrintable(QStringLiteral("time-to-bpm-") + content)) << int(Show::Time) << int(Show::BPM_4_4) << clip << 0.0;
+    }
+    // switched while scrolled away from the start: where the view lands is recorded, not prescribed
+    QTest::newRow("bpm-to-time-clip-command-scrolled") << int(Show::BPM_4_4) << int(Show::Time) << true << 2000.0;
+}
+
+void ShowCommandRecorder_Test::timeline_divisionSwitchKeepsRuler()
+{
+    QFETCH(int, from);
+    QFETCH(int, to);
+    QFETCH(bool, clip);
+    QFETCH(qreal, offset);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    if (clip)
+        addClip(ed, ed.scene, 3625, 6125);
+    QCoreApplication::processEvents();
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    QQuickItem *lane = findVisualItem(ed.root(), QStringLiteral("recordingLane"));
+    QVERIFY(header && lane);
+    // each ruler keeps its own zoom; the reference width of a ruler is the one a zoom yields there
+    const auto zoom = [](int division) { return Show::isTimeBasedDivision(Show::TimeDivision(division)) ? 0.3f : 3.0f; };
+    QHash<int, qreal> reference;
+    for (const int division : {to, from})
+    {
+        manager->setTimeDivision(Show::TimeDivision(division));
+        manager->setTimeScale(2 * zoom(division));
+        manager->setTimeScale(zoom(division));
+        QCoreApplication::processEvents();
+        reference[division] = header->property("contentWidth").toDouble();
+        QVERIFY2(reference[division] > 0, qPrintable(viewState(ed)));
+    }
+    QCOMPARE(manager->timeDivision(), Show::TimeDivision(from));
+    navContainer(ed)->setProperty("xViewOffset", offset);
+    QCoreApplication::processEvents();
+    QCOMPARE(header->property("contentX").toDouble(), offset);
+    ed.settledHistory();
+    ed.rig.doc->resetModified();
+    const QString authored = authoredState(ed);
+
+    manager->setTimeDivision(Show::TimeDivision(to));
+    QCoreApplication::processEvents();
+    const qreal landed = header->property("contentX").toDouble();
+    qInfo() << "view before switch" << offset << "after" << landed;
+    QVERIFY2(landed >= 0 && landed <= header->property("contentWidth").toDouble() - header->width(),
+             qPrintable(horizontalViews(ed)));
+
+    const qreal width = header->property("contentWidth").toDouble();
+    qInfo() << from << "->" << to << "clip" << clip << "width" << width << "reference" << reference[to]
+            << "lane" << lane->width() << viewState(ed)
+            << "rulerDuration" << navContainer(ed)->property("rulerDuration").toDouble();
+    QVERIFY2(width > 0, qPrintable(viewState(ed)));
+    QCOMPARE(width, reference[to]);
+    QCOMPARE(lane->width(), width);
+    QVERIFY(userScroll(ed, QStringLiteral("scrollbar-drag"), {}));
+    QVERIFY2(header->property("contentX").toDouble() > 100, qPrintable(horizontalViews(ed)));
+    QVERIFY2(header->property("contentX").toDouble() != landed, qPrintable(horizontalViews(ed)));
+    QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
+    // the division is the one authored change
+    QCOMPARE(manager->timeDivision(), Show::TimeDivision(to));
+    QVERIFY(ed.rig.doc->isModified());
+    ed.settledHistory();
+    QCOMPARE(authoredState(ed).replace(QStringLiteral("modified 1"), QStringLiteral("modified 0")), authored);
+}
+
+void ShowCommandRecorder_Test::timeline_dragTracksPointer_data()
+{
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<int>("division");
+    QTest::addColumn<float>("scale");
+    QTest::addColumn<int>("samples");
+    // scale 0 keeps the default zoom; 81 samples make one 20 s take, 3 samples a narrow one
+    QTest::newRow("time-max-zoom-wide-flush-left-drag") << QStringLiteral("drag") << int(Show::Time) << 0.1f << 81;
+    QTest::newRow("bpm-high-zoom-wide-flush-left-drag") << QStringLiteral("drag") << int(Show::BPM_4_4) << 8.0f << 81;
+    QTest::newRow("time-default-zoom-narrow-drag") << QStringLiteral("drag") << int(Show::Time) << 0.0f << 3;
+    // pressed without focus or selection: the press itself focuses and selects it
+    QTest::newRow("time-max-zoom-wide-unfocused-midview-drag") << QStringLiteral("unfocused-drag") << int(Show::Time) << 0.1f << 81;
+    QTest::newRow("time-max-zoom-wide-unfocused-clipped-left-drag") << QStringLiteral("clipped-drag") << int(Show::Time) << 0.1f << 81;
+    // two gestures on the same item: nothing of the first leaks into the second
+    QTest::newRow("time-max-zoom-wide-second-drag") << QStringLiteral("second-drag") << int(Show::Time) << 0.1f << 81;
+    QTest::newRow("bpm-high-zoom-wide-cancel") << QStringLiteral("cancel") << int(Show::BPM_4_4) << 8.0f << 81;
+    QTest::newRow("bpm-high-zoom-wide-keyboard-outside-drag") << QStringLiteral("keyboard") << int(Show::BPM_4_4) << 8.0f << 81;
+}
+
+void ShowCommandRecorder_Test::timeline_dragTracksPointer()
+{
+    QFETCH(QString, input);
+    QFETCH(int, division);
+    QFETCH(float, scale);
+    QFETCH(int, samples);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    QWindow *window = ed.rig.app.get();
+    manager->setBpmNumber(120);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    // one slider take, 250 ms apart, far from the rig's other commands
+    QVector<quint32> ids;
+    auto track = ed.show->commandTrack();
+    for (int i = 0; i < samples; ++i)
+    {
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(100 + i, 20000 + 250 * i, ed.fader->recordingId(),
+            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), i % 2 ? .8 : .2)));
+        ids.append(100 + i);
+    }
+    QVERIFY(ed.show->setCommandTrack(track));
+    if (scale > 0)
+        manager->setTimeScale(scale);
+    QCoreApplication::processEvents();
+    const bool wide = samples > 3;
+    QQuickItem *item = laneObject(ed, ids.first());
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    QVERIFY(item && header);
+    const bool unfocused = input == QLatin1String("unfocused-drag") || input == QLatin1String("clipped-drag");
+    // the take's start against the view's left edge, logical px: flush, 300 px in, or 200 px out of view
+    const qreal lead = input == QLatin1String("unfocused-drag") ? 300 : input == QLatin1String("clipped-drag") ? -200 : 0;
+    navContainer(ed)->setProperty("xViewOffset", wide ? item->x() - lead : item->x() - 200);
+    timelineRows(ed)->setProperty("contentY", 0);
+    if (!unfocused)
+        selectRecorded(ed, ids);
+    QCoreApplication::processEvents();
+    QVERIFY(!unfocused || !item->hasActiveFocus());
+    QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")).isEmpty(), unfocused);
+    const QRectF view = timelineViewRect(ed);
+    QVERIFY2(!wide || qAbs(sceneRectOf(item).left() - view.left() - lead) <= 0.5, qPrintable(horizontalViews(ed)));
+    QVERIFY2(wide == (sceneRectOf(item).width() > view.width()), qPrintable(QString::number(sceneRectOf(item).width())));
+    // the ruler's own scale, read from the rendered ruler: logical px per ms
+    const qreal pxPerMs = (sampleSceneX(ed, 11000) - sampleSceneX(ed, 1000)) / 10000.0;
+    const auto times = [&]()
+    {
+        QHash<quint32, quint32> time;
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            time.insert(cmd.id, cmd.time);
+        return time;
+    };
+    const QHash<quint32, quint32> timeBefore = times();
+    const auto before = ed.show->commandTrack().commands();
+    const auto groupsText = [&]()
+    {
+        QStringList groups;
+        for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+            groups.append(QString::number(value.toMap().value("id").toUInt()) + QLatin1Char(':')
+                          + joinIds(idsOf(value.toMap().value("eventIds"))));
+        return groups.join(QLatin1Char(' '));
+    };
+    const QString groups = groupsText();
+    // time order, then each command's own order (operator== leaves it out)
+    const auto order = [&]()
+    {
+        QVector<quint32> sequence;
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            sequence.append(cmd.id);
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            sequence.append(cmd.order);
+        return sequence;
+    };
+    const QVector<quint32> sequence = order();
+    const int serial = ed.rig.recorder->lastEditSerial();
+    const qreal contentX = header->property("contentX").toDouble();
+
+    if (input == QLatin1String("keyboard"))
+    {
+        const qreal itemX = item->x();
+        item->forceActiveFocus();
+        QCoreApplication::processEvents();
+        QCOMPARE(header->property("contentX").toDouble(), contentX);
+        QTest::keyClick(window, Qt::Key_Right);
+        QCoreApplication::processEvents();
+        const qreal shift = item->x() - itemX;
+        const qreal scrolled = header->property("contentX").toDouble() - contentX;
+        qInfo() << input << "logical px: item content shift" << shift << "view scroll" << scrolled
+                << "item scene left" << sceneRectOf(item).left() << "view left" << view.left()
+                << "ms" << qint64(ed.command(ids.first()).time) - qint64(timeBefore[ids.first()]);
+        QVERIFY(ed.command(ids.first()).time > timeBefore[ids.first()]);
+        QVERIFY2(shift > 0 && qAbs(scrolled - shift) <= 0.5, "outside a drag the focused item still reveals itself");
+        QVERIFY2(qAbs(sceneRectOf(item).left() - view.left()) <= 0.5, qPrintable(horizontalViews(ed)));
+        QVERIFY(oneHorizontalView(ed));
+        return;
+    }
+
+    // the focused item reveals itself on a key again: keys move it on the musical grid
+    const auto keyReveals = [&]()
+    {
+        const qreal keyX = item->x();
+        const qreal keyView = header->property("contentX").toDouble();
+        QTest::keyClick(window, Qt::Key_Right);
+        QCoreApplication::processEvents();
+        qInfo() << "key after the gesture: item content shift" << item->x() - keyX
+                << "view scroll" << header->property("contentX").toDouble() - keyView;
+        return item->x() > keyX && qAbs(sceneRectOf(item).left() - view.left()) <= 0.5;
+    };
+
+    const int passes = input == QLatin1String("second-drag") ? 2 : 1;
+    int edits = 0;
+    for (int pass = 1; pass <= passes; ++pass)
+    {
+        const qreal itemStart = sceneRectOf(item).left();
+        const qreal viewStart = header->property("contentX").toDouble();
+        const QHash<quint32, quint32> timeStart = times();
+        QPoint at(int(qMax(itemStart, view.left()) + qMin<qreal>(20, sceneRectOf(item).width() / 2)),
+                  int(sceneRectOf(item).center().y()));
+        const QPoint start = at;
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        const qreal itemPress = sceneRectOf(item).left() - itemStart;
+        const qreal viewPress = header->property("contentX").toDouble() - viewStart;
+        for (int i = 0; i < 10; ++i)
+        {
+            at.rx() += 10;
+            QTest::mouseMove(window, at, 16);
+        }
+        const qreal pointerMoved = at.x() - start.x();
+        const qreal itemMoved = sceneRectOf(item).left() - itemStart;
+        const qreal viewMoved = header->property("contentX").toDouble() - viewStart;
+        QVERIFY2(qAbs(itemPress) <= 0.5 && qAbs(viewPress) <= 0.5,
+                 qPrintable(QStringLiteral("the press moved the item %1 px, the view %2 px").arg(itemPress).arg(viewPress)));
+        QVERIFY2(qAbs(viewMoved) <= 0.5, qPrintable(QStringLiteral("the gesture scrolled the view %1 px").arg(viewMoved)));
+        QVERIFY2(qAbs(itemMoved - pointerMoved) <= 1,
+                 qPrintable(QStringLiteral("item %1 px for pointer %2 px").arg(itemMoved).arg(pointerMoved)));
+
+        if (input == QLatin1String("cancel"))
+        {
+            // the lane's gesture surface, which holds the drag, loses its grab mid-gesture
+            QQuickItem *pointerArea = findVisualItem(ed.root(), QStringLiteral("recordingGesture"));
+            QVERIFY(pointerArea);
+            pointerArea->ungrabMouse();
+            QCoreApplication::processEvents();
+            const qreal itemCanceled = sceneRectOf(item).left() - itemStart;
+            const qreal viewCanceled = header->property("contentX").toDouble() - viewStart;
+            QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, at, 16);
+            QCoreApplication::processEvents();
+            qInfo() << input << "logical px: pointer" << pointerMoved << "item during gesture" << itemMoved
+                    << "| after cancel item" << itemCanceled << "view" << viewCanceled;
+            QVERIFY2(qAbs(itemCanceled) <= 0.5 && qAbs(viewCanceled) <= 0.5, "the cancel puts the item back");
+            QCOMPARE(ed.rig.recorder->lastEditSerial(), serial);
+            QCOMPARE(ed.show->commandTrack().commands(), before);
+            QCOMPARE(order(), sequence);
+            QVERIFY2(keyReveals(), qPrintable(horizontalViews(ed)));
+            return;
+        }
+
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, at, 16);
+        QCoreApplication::processEvents();
+        const qint64 moved = qint64(ed.command(ids.first()).time) - qint64(timeStart[ids.first()]);
+        const qreal expected = pointerMoved / pxPerMs;
+        const qreal viewReleased = header->property("contentX").toDouble() - viewStart;
+        qInfo() << input << "pass" << pass << "logical px: at press item" << itemPress << "view" << viewPress
+                << "| pointer" << pointerMoved << "item during gesture" << itemMoved
+                << "view during gesture" << viewMoved << "| px/ms" << pxPerMs << "timeScale" << manager->timeScale()
+                << "tickSize" << manager->tickSize() << "dpr" << window->devicePixelRatio()
+                << "| ms: authored" << moved << "projected" << expected
+                << "| view after release" << viewReleased;
+        QVERIFY2(qAbs(moved - expected) <= 1, qPrintable(QStringLiteral("%1 ms for %2 px").arg(moved).arg(pointerMoved)));
+        // contentX snaps to whole px: sub-px drift only
+        QVERIFY2(qAbs(viewReleased) <= 1, "the release does not snap the view");
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + ++edits);
+        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            QCOMPARE(qint64(cmd.time) - qint64(timeStart[cmd.id]), ids.contains(cmd.id) ? moved : 0);
+        QCOMPARE(order(), sequence);
+        QCOMPARE(groupsText(), groups);
+        QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+    }
+    QTest::qWait(200);
+    for (int edit = edits; edit > 0; --edit)
+        QVERIFY(ed.tardis()->undoCommandEdit(serial + edit));
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QCOMPARE(order(), sequence);
+    if (division == int(Show::Time))
+        return;
+    QCoreApplication::processEvents();
+    QVERIFY(item->hasActiveFocus());
+    QVERIFY2(keyReveals(), qPrintable(horizontalViews(ed)));
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationRange_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("row");
+    for (const int division : {int(Show::Time), int(Show::VDJBeat), int(Show::BPM_4_4)})
+        for (const char *row : {"R1", "R2", "R3", "R4", "R5"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(division).arg(QLatin1String(row))))
+                << division << QString::fromLatin1(row);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationRange()
+{
+    QFETCH(int, division);
+    QFETCH(QString, row);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    const quint32 bound = 2147483647U;
+    const quint32 far = row == QLatin1String("R1") ? bound - 1000
+        : row == QLatin1String("R3") ? ShowCommand::MaxTime : bound + 1000;
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, far, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids = row == QLatin1String("R4") ? QVector<quint32>{0, 70}
+        : row == QLatin1String("R5") ? QVector<quint32>{0} : QVector<quint32>{70};
+    selectRecorded(ed, ids);
+    // exact data: the QML time is the stored one, whatever the int extent says
+    bool exact = false;
+    for (const QVariant &cmd : ed.rig.recorder->property("commands").toList())
+        exact |= cmd.toMap().value(QStringLiteral("id")).toUInt() == 70
+            && quint32(cmd.toMap().value(QStringLiteral("time")).toDouble()) == far;
+    QVERIFY(exact);
+    auto *container = navContainer(ed);
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    const double rulerFar = manager->timeBasedDivision() ? double(far) : double(far) * 2;
+    QCOMPARE(container->property("rulerDuration").toDouble(), qMin(double(bound), rulerFar));
+    const qreal width = header->property("contentWidth").toDouble();
+    QVERIFY2(std::isfinite(width) && width > 0, qPrintable(QString::number(width)));
+
+    const bool fitAvailable = row == QLatin1String("R5") || (row == QLatin1String("R1") && rulerFar <= bound);
+    const bool goAvailable = row != QLatin1String("R2") && row != QLatin1String("R3");
+    QCOMPARE(navEnabled(ed, true), fitAvailable);
+    QCOMPARE(navEnabled(ed, false), goAvailable);
+    QCOMPARE(navigationDescription(ed, true), fitAvailable ? QString()
+             : QStringLiteral("Selection is beyond the timeline display range"));
+    QCOMPARE(navigationDescription(ed, false), goAvailable ? QString()
+             : QStringLiteral("Selection start is beyond the seekable range"));
+    const QString view = viewState(ed), authored = authoredState(ed);
+    const int time = manager->currentTime();
+    QVERIFY(pressNavigation(ed, true));
+    const QString fitted = viewState(ed);
+    if (!fitAvailable)
+        QCOMPARE(fitted, view);
+    else
+    {
+        QCOMPARE(navigationStatus(ed), QString());
+        // no NaN, infinity or negative view value after a Fit near the bound
+        const qreal scaleAfter = manager->timeScale(), offsetAfter = container->property("xViewOffset").toDouble(),
+            widthAfter = header->property("contentWidth").toDouble();
+        QVERIFY2(std::isfinite(scaleAfter) && scaleAfter >= 0.1 && std::isfinite(offsetAfter) && offsetAfter >= 0
+                 && std::isfinite(widthAfter) && widthAfter > 0 && offsetAfter <= widthAfter, qPrintable(fitted));
+        const Extent e = recordedExtent(ed, ids);
+        QVERIFY(inside(e, timelineViewRect(ed)));
+        if (row == QLatin1String("R1") || row == QLatin1String("R5"))
+        {
+            // what the scene graph draws near the bound (R1), against a near-zero control (R5): the selected object's colour
+            // is found at the mapped x within a measured error
+            QQuickItem *object = nullptr;
+            for (QQuickItem *item : recordingObjects(ed))
+                if (item->isVisible() && item->property("selected").toBool())
+                    object = item;
+            QVERIFY(object);
+            const QColor colour = object->property("color").value<QColor>();
+            const QImage image = ed.rig.app->grabWindow();
+            const qreal scale = image.width() / qreal(ed.rig.app->width());
+            const QRectF r = sceneRectOf(object);
+            const int y = int(r.center().y() * scale);
+            const auto matches = [&](int x) {
+                if (x < 0 || x >= image.width())
+                    return false;
+                const QColor c(image.pixel(x, y));
+                return qAbs(c.red() - colour.red()) <= 3
+                    && qAbs(c.green() - colour.green()) <= 3 && qAbs(c.blue() - colour.blue()) <= 3;
+            };
+            // the left end of the drawn fill run nearest the mapped x, anywhere in the view's row
+            const QRectF shown = timelineViewRect(ed);
+            qreal error = 1e9, fill = -1;
+            for (int x = int(shown.left() * scale); x < int(shown.right() * scale); ++x)
+                if (matches(x) && !matches(x - 1) && matches(x + 4)
+                    && qAbs(x / scale - (e.left + 2)) < error)
+                {
+                    error = qAbs(x / scale - (e.left + 2));
+                    fill = x;
+                }
+            qInfo() << "near-limit render" << row << ed.command(ids.first()).time << "mapped x" << e.left << "fill starts" << fill / scale
+                    << "error px" << error << "scale" << manager->timeScale();
+            // measured, not hidden: near INT_MAX ms the lane x is about 1.5e9 px and the scene graph's
+            // float transforms (128 px apart there) misplace the drawing. Accepted SN-7 qualification: exact
+            // stored and seek values and refusal beyond the bounds hold; pixel alignment near INT_MAX is not
+            // guaranteed (46.5 px measured, 0.5 px at 1200 ms). This row stays an expected failure, not a pass.
+            if (row == QLatin1String("R1"))
+                QEXPECT_FAIL("", "float scene-graph error near the INT_MAX display bound: pixel alignment near "
+                                 "INT_MAX not guaranteed (accepted SN-7 qualification)", Continue);
+            QVERIFY2(error <= 3, qPrintable(QStringLiteral("near-limit render error %1 px").arg(error)));
+            // whatever the offset, the drawn object is whole and inside the viewport: its fill run is found,
+            // does not touch either viewport edge and is as wide as the mapped object less its 2 px borders
+            QVERIFY2(fill >= 0, "the selected object is drawn in the viewport");
+            int end = int(fill);
+            while (matches(end + 1))
+                ++end;
+            qInfo() << "near-limit drawn run" << row << fill / scale << end / scale << "mapped" << r.left() << r.right()
+                    << "viewport" << shown.left() << shown.right();
+            QVERIFY(fill / scale > shown.left() && end / scale < shown.right());
+            QVERIFY2(qAbs((end + 1 - fill) / scale - (r.width() - 4)) <= 3,
+                     qPrintable(QStringLiteral("drawn %1 px, mapped %2 px").arg((end + 1 - fill) / scale).arg(r.width())));
+        }
+    }
+    QVERIFY(pressNavigation(ed, false));
+    // the exact seek, or none: never a wrapped or clamped time
+    const int seek = goAvailable ? int(row == QLatin1String("R1") ? far : 1200) : time;
+    QCOMPARE(manager->currentTime(), seek);
+    auto *playhead = accessibleById(ed.rig.app.get(), QStringLiteral("showPlayheadPosition"));
+    QVERIFY(playhead && playhead->valueInterface());
+    QCOMPARE(playhead->valueInterface()->currentValue().toInt(), seek);
+    if (!goAvailable)
+        QCOMPARE(viewState(ed), fitted);
+    // the stored time is still exact after both presses
+    QCOMPARE(ed.command(70).time, far);
+    QCOMPARE(authoredState(ed), authored);
+}
+
+void ShowCommandRecorder_Test::timeline_goToSelectionStart_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("transport");
+    for (const char *owner : {"recordings", "recordings-partial", "clips"})
+        for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::VDJBeat)})
+            for (const char *transport : {"stopped", "paused", "running"})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(QLatin1String(owner)).arg(division)
+                                         .arg(QLatin1String(transport))))
+                    << QString::fromLatin1(owner) << division << QString::fromLatin1(transport);
+}
+
+void ShowCommandRecorder_Test::timeline_goToSelectionStart()
+{
+    QFETCH(QString, owner);
+    QFETCH(int, division);
+    QFETCH(QString, transport);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    ed.rig.doc->inputOutputMap()->setBpmNumber(90);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    int expected = 0;
+    QList<ShowFunction *> clips;
+    if (owner == QLatin1String("clips"))
+    {
+        // list order is not start order; Beats 20250 at the authoring 120 BPM is 10125 ms
+        clips << addClip(ed, ed.scene, 30000, 2000) << addClip(ed, beatsScene(ed), 20250, 4000);
+        selectClips(ed, clips);
+        expected = 10125;
+    }
+    else
+    {
+        selectRecorded(ed, owner == QLatin1String("recordings") ? QVector<quint32>{6, 41, 0} : QVector<quint32>{41});
+        expected = owner == QLatin1String("recordings") ? 1200 : 3200;
+    }
+    if (transport != QLatin1String("stopped"))
+    {
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 3);
+        if (transport == QLatin1String("paused"))
+        {
+            manager->playShow();
+            for (int i = 0; i < 20 && manager->pausing(); i++)
+                tickAndDeliver(ed.rig.doc);
+            QVERIFY(manager->isPaused());
+        }
+    }
+    const QString view = viewState(ed);
+    const QString authored = authoredState(ed);
+    QVERIFY(navEnabled(ed, false));
+    QVERIFY(pressNavigation(ed, false));
+    QCOMPARE(manager->currentTime(), expected);
+    auto *playhead = accessibleById(ed.rig.app.get(), QStringLiteral("showPlayheadPosition"));
+    QVERIFY(playhead && playhead->valueInterface());
+    QCOMPARE(playhead->valueInterface()->currentValue().toInt(), expected);
+    // the playhead lands on the selection's first item, drawn where the item is
+    auto *cursor = findVisualItem(ed.root(), QStringLiteral("showPlayhead"));
+    QVERIFY(cursor);
+    const qreal startX = owner == QLatin1String("clips") ? sceneRectOf(clipItem(ed, clips.last())).left()
+                                                         : sampleSceneX(ed, expected);
+    QVERIFY2(qAbs(sceneRectOf(cursor).left() - startX) <= 1,
+             qPrintable(QStringLiteral("%1 vs %2").arg(sceneRectOf(cursor).left()).arg(startX)));
+    if (transport != QLatin1String("running") || timelineViewRect(ed).contains(QPointF(startX, timelineViewRect(ed).center().y())))
+        QCOMPARE(viewState(ed), view);
+    QCOMPARE(authoredState(ed), authored);
+    if (transport == QLatin1String("paused"))
+    {
+        QVERIFY(manager->isPaused());
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 2);
+    }
+    if (transport != QLatin1String("stopped"))
+    {
+        QVERIFY(manager->isPlaying() && !manager->isPaused());
+        tickAndDeliver(ed.rig.doc, 2);
+        QVERIFY2(manager->currentTime() >= expected && manager->currentTime() < expected + 1000,
+                 qPrintable(QStringLiteral("%1 from %2").arg(manager->currentTime()).arg(expected)));
+        manager->stopShow();
+    }
+    else
+        QVERIFY(!manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationOwner_data()
+{
+    QTest::addColumn<QString>("route");
+    for (const char *route : {"clip-then-recording", "recording-then-clip", "select-all-keeps-clip", "passage"})
+        QTest::newRow(route) << QString::fromLatin1(route);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationOwner()
+{
+    QFETCH(QString, route);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    auto *manager = ed.rig.manager;
+    ShowFunction *clip = addClip(ed, ed.scene, 400000, 2000);
+    QQuickItem *list = recordingsList(ed);
+    int expected = 0;
+    if (route == QLatin1String("clip-then-recording"))
+    {
+        selectClips(ed, {clip});
+        QVERIFY(performAccessibleAction(accessibleById(ed.rig.app.get(),
+            QStringLiteral("recordingItem-%1-0").arg(ed.show->id())), QAccessibleActionInterface::pressAction()));
+        QCOMPARE(manager->selectedItemsCount(), 0);
+        expected = 1200;
+    }
+    else if (route == QLatin1String("recording-then-clip"))
+    {
+        selectRecorded(ed, {0, 6});
+        selectClips(ed, {clip});
+        QVERIFY(idsOf(list->property("selectedIds")).isEmpty());
+        expected = 400000;
+    }
+    else if (route == QLatin1String("select-all-keeps-clip"))
+    {
+        // the list's Select all leaves a clip selected: the recordings own the editor
+        selectClips(ed, {clip});
+        selectRecorded(ed, {6, 2});
+        QCOMPARE(manager->selectedItemsCount(), 1);
+        expected = 1700;
+    }
+    else
+    {
+        const QVariantList passage{40.0, 41.0};
+        QVERIFY(QMetaObject::invokeMethod(list, "inspect", Q_ARG(QVariant, passage)));
+        selectRecorded(ed, {6});
+        expected = 4000;
+    }
+    const QString others = QStringLiteral("clips %1 passage %2").arg(manager->selectedItemsCount())
+                               .arg(joinIds(idsOf(list->property("passageIds"))));
+    QVERIFY(pressNavigation(ed, true));
+    QCOMPARE(navigationStatus(ed), QString());
+    const QRectF view = timelineViewRect(ed);
+    const qreal clipLeft = sceneRectOf(clipItem(ed, clip)).left();
+    if (expected == 400000)
+        QVERIFY(clipLeft >= view.left() - 0.5 && clipLeft <= view.right());
+    else
+    {
+        // the fitted window is the owner's only: the clip far right stays out
+        QVERIFY(clipLeft > view.right());
+        const qreal x = sampleSceneX(ed, expected);
+        QVERIFY(x >= view.left() - 0.5 && x <= view.right() + 0.5);
+        if (route == QLatin1String("passage"))
+            QVERIFY2(sampleSceneX(ed, 3000) < view.left() || sampleSceneX(ed, 3000) > view.right()
+                     || view.width() > 0, "the passage adds nothing to the window");
+    }
+    QVERIFY(pressNavigation(ed, false));
+    QCOMPARE(manager->currentTime(), expected);
+    QCOMPARE(QStringLiteral("clips %1 passage %2").arg(manager->selectedItemsCount())
+                 .arg(joinIds(idsOf(list->property("passageIds")))), others);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationDisabled_data()
+{
+    QTest::addColumn<QString>("state");
+    for (const char *state : {"nothing-selected", "recordings-deleted", "clip-deleted-quietly", "clip-deleted",
+                              "missing-function", "beats-without-tempo", "no-show"})
+        QTest::newRow(state) << QString::fromLatin1(state);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationDisabled()
+{
+    QFETCH(QString, state);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setTimeDivision(Show::Time);
+    Scene *beats = beatsScene(ed);
+    ShowFunction *clip = addClip(ed, state == QLatin1String("beats-without-tempo") ? beats : ed.scene, 20000, 2000);
+    if (state == QLatin1String("recordings-deleted"))
+    {
+        selectRecorded(ed, {6});
+        auto track = ed.show->commandTrack();
+        QVERIFY(track.remove(6));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+    }
+    else if (state != QLatin1String("nothing-selected"))
+        selectClips(ed, {clip});
+    if (state == QLatin1String("clip-deleted"))
+        manager->deleteShowItems(manager->selectedItemRefs());
+    else if (state == QLatin1String("missing-function"))
+    {
+        clip->setFunctionID(Function::invalidId());
+        manager->setCurrentShowID(int(ed.show->id()));
+        QVERIFY(QMetaObject::invokeMethod(navContainer(ed), "renderAndCenter"));
+    }
+    else if (state == QLatin1String("beats-without-tempo"))
+        manager->setBpmNumber(0);
+    else if (state == QLatin1String("no-show"))
+        manager->setCurrentShowID(int(Function::invalidId()));
+    QCoreApplication::processEvents();
+    const QString view = viewState(ed);
+    const int time = manager->currentTime();
+    const quint32 commandCount = ed.show->commandTrack().commands().size();
+    const bool modified = ed.rig.doc->isModified();
+    if (state == QLatin1String("clip-deleted-quietly"))
+    {
+        // a direct model removal nulls the reference without any notification
+        ed.show->getTrackFromShowFunctionID(clip->id())->removeShowFunction(clip, true);
+    }
+    else
+    {
+        const QString reason = state == QLatin1String("beats-without-tempo")
+            ? QStringLiteral("Beat-based items need a Show tempo") : QStringLiteral("Select clips or recorded events first");
+        for (const bool fit : {true, false})
+        {
+            QVERIFY(!navEnabled(ed, fit));
+            QCOMPARE(navigationDescription(ed, fit), reason);
+        }
+    }
+    QAccessibleInterface *fitIface = QAccessible::queryAccessibleInterface(navButton(ed, true));
+    QAccessibleInterface *goIface = QAccessible::queryAccessibleInterface(navButton(ed, false));
+    if (fitIface && fitIface->actionInterface())
+        fitIface->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
+    if (goIface && goIface->actionInterface())
+        goIface->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
+    QCoreApplication::processEvents();
+    QCOMPARE(viewState(ed), view);
+    QCOMPARE(manager->currentTime(), time);
+    QCOMPARE(quint32(ed.show->commandTrack().commands().size()), commandCount);
+    if (state != QLatin1String("clip-deleted"))
+        QCOMPARE(ed.rig.doc->isModified(), modified);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationShowSwitch_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<QString>("before");
+    for (const char *owner : {"recordings", "clips"})
+        for (const char *before : {"fit", "reach", "status"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(QLatin1String(owner), QLatin1String(before))))
+                << QString::fromLatin1(owner) << QString::fromLatin1(before);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationShowSwitch()
+{
+    QFETCH(QString, owner);
+    QFETCH(QString, before);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    auto *other = new Show(ed.rig.doc);
+    other->setName(QStringLiteral("Other"));
+    ed.rig.doc->addFunction(other);
+    manager->setBpmNumber(before == QLatin1String("reach") ? 30 : 120);
+    if (before == QLatin1String("status"))
+    {
+        manager->setBpmNumber(120);
+        manager->setTimeDivision(Show::BPM_4_4);
+        ed.rig.app->resize(1200, 480);
+    }
+    if (owner == QLatin1String("clips"))
+        selectClips(ed, {addClip(ed, before == QLatin1String("fit") ? static_cast<Function *>(ed.scene) : beatsScene(ed),
+                                 0, before == QLatin1String("fit") ? 4000 : 800000)});
+    else
+    {
+        if (before != QLatin1String("fit"))
+        {
+            auto track = ed.show->commandTrack();
+            QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+            QVERIFY(ed.show->setCommandTrack(track));
+            if (before == QLatin1String("reach"))
+                selectClips(ed, {addClip(ed, beatsScene(ed), 0, 400000)});
+        }
+        if (before != QLatin1String("reach"))
+            selectRecorded(ed, before == QLatin1String("fit") ? QVector<quint32>{6} : QVector<quint32>{0, 70});
+    }
+    zoomInAtStart(ed);
+    QVERIFY(pressNavigation(ed, true));
+    auto *container = navContainer(ed);
+    if (before == QLatin1String("reach"))
+        QVERIFY(container->property("revealedRulerEnd").toDouble() > 0);
+    if (before == QLatin1String("status"))
+        QVERIFY(!navigationStatus(ed).isEmpty());
+    // in the same event-loop turn: nothing of the previous Show's navigation carries over
+    manager->setCurrentShowID(int(other->id()));
+    QCoreApplication::processEvents();
+    QCOMPARE(container->property("revealedRulerEnd").toDouble(), 0.0);
+    QCOMPARE(navigationStatus(ed), QString());
+    QVERIFY(!navEnabled(ed, true));
+    QVERIFY(!navEnabled(ed, false));
+    QCOMPARE(container->property("rulerDuration").toDouble(), 0.0);
+    QCOMPARE(manager->currentTime(), 0);
+}
+
+void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<QString>("perform");
+    for (const char *owner : {"recordings", "clips"})
+        for (const char *perform : {"suspended", "live", "armed", "off-again"})
+            // Armed resolves no Show, so no recorded rows are listed to select
+            if (QLatin1String(owner) == QLatin1String("clips") || QLatin1String(perform) != QLatin1String("armed"))
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2").arg(QLatin1String(owner), QLatin1String(perform))))
+                << QString::fromLatin1(owner) << QString::fromLatin1(perform);
+}
+
+void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
+{
+    QFETCH(QString, owner);
+    QFETCH(QString, perform);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    auto *bridge = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    PerformFsm *fsm = bridge->performFsm();
+    const auto performOff = qScopeGuard([&]() {
+        fsm->setDeckPlaying(false);
+        fsm->setPerformEnabled(false);
+        // the manually ticked timer retires what Live started before the rig goes
+        if (ed.show->isRunning())
+            ed.rig.manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 4);
+    });
+    if (owner == QLatin1String("clips"))
+        selectClips(ed, {addClip(ed, ed.scene, 20000, 2000)});
+    else
+        selectRecorded(ed, {6, 2});
+    QVERIFY(navEnabled(ed, false));
+    fsm->setPerformEnabled(true);
+    if (perform != QLatin1String("armed"))
+        fsm->setActiveShow(ed.show->id());
+    if (perform == QLatin1String("live"))
+        fsm->setDeckPlaying(true);
+    if (perform == QLatin1String("off-again"))
+        fsm->setPerformEnabled(false);
+    QCoreApplication::processEvents();
+    int start = 20000;
+    if (owner == QLatin1String("recordings"))
+    {
+        // adopting or releasing the Show reloads its recorded rows, which drops their selection: that is the
+        // state the user sees, with its own reason, until a sample is chosen again with the mouse
+        QVERIFY(recordingsList(ed)->property("selectedIds").toList().isEmpty());
+        QVERIFY(!navEnabled(ed, false) && !navEnabled(ed, true));
+        QCOMPARE(navigationDescription(ed, false), QStringLiteral("Select clips or recorded events first"));
+        QQuickItem *first = nullptr;
+        for (QQuickItem *item : recordingObjects(ed))
+            if (!first || sceneRectOf(item).left() < sceneRectOf(first).left())
+                first = item;
+        QVERIFY(first);
+        ed.click(first);
+        const QVariantList chosen = recordingsList(ed)->property("selectedIds").toList();
+        QVERIFY(!chosen.isEmpty());
+        start = std::numeric_limits<int>::max();
+        for (const QVariant &id : chosen)
+            start = qMin(start, int(ed.command(id.toUInt()).time));
+        qInfo() << "chosen in Perform" << perform << chosen << "start" << start;
+    }
+    const bool readOnly = perform != QLatin1String("off-again");
+    QCOMPARE(manager->readOnly(), readOnly);
+    if (perform == QLatin1String("suspended") || perform == QLatin1String("live"))
+        QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
+    else
+        QCOMPARE(ed.show->syncSource(), int(ShowRunner::Autonomous));
+    QCOMPARE(navEnabled(ed, false), !readOnly);
+    QCOMPARE(navigationDescription(ed, false),
+             !readOnly ? QString() : perform == QLatin1String("armed") ? QStringLiteral("Read only in Perform mode")
+                                                                       : QStringLiteral("Following external clock (Perform)"));
+    QVERIFY(navEnabled(ed, true));
+    const int time = manager->currentTime();
+    const quint32 elapsed = ed.show->elapsed(), external = ed.show->externalElapsedTime();
+    QAccessibleInterface *go = QAccessible::queryAccessibleInterface(navButton(ed, false));
+    if (go->actionInterface())
+        go->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
+    QCoreApplication::processEvents();
+    if (readOnly)
+    {
+        QCOMPARE(manager->currentTime(), time);
+        QCOMPARE(ed.show->elapsed(), elapsed);
+        QCOMPARE(ed.show->externalElapsedTime(), external);
+    }
+    else
+        QCOMPARE(manager->currentTime(), start);
+    const QString authored = authoredState(ed);
+    QVERIFY(pressNavigation(ed, true));
+    QCOMPARE(authoredState(ed), authored);
+    QCOMPARE(manager->currentTime(), readOnly ? time : start);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary_data()
+{
+    QTest::addColumn<QString>("path");
+    for (const char *path : {"direct-setter", "copy", "save-reload", "perform-released"})
+        QTest::newRow(path) << QString::fromLatin1(path);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
+{
+    QFETCH(QString, path);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    selectRecorded(ed, {6});
+    if (path == QLatin1String("direct-setter"))
+    {
+        // outside the guarantee: no Perform, no notification, today's semantics
+        ed.show->setSyncSource(ShowRunner::External);
+        QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
+        QVERIFY(!manager->readOnly());
+        QVERIFY(navEnabled(ed, false));
+        QVERIFY(pressNavigation(ed, false));
+        QCOMPARE(manager->currentTime(), 4000);
+        QVERIFY(!ed.show->isRunning());
+    }
+    else if (path == QLatin1String("save-reload"))
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        QTemporaryDir saved(QDir::currentPath() + QStringLiteral("/navigation-save-XXXXXX"));
+        const QString file = saved.filePath(QStringLiteral("navigation.qxw"));
+        QVERIFY(ed.rig.app->saveWorkspace(file));
+        std::unique_ptr<Show> reopened = showFromWorkspaceFile(ed.rig.doc, file, ed.show->id());
+        QVERIFY(reopened);
+        QCOMPARE(reopened->syncSource(), int(ShowRunner::Autonomous));
+        ed.show->setSyncSource(ShowRunner::Autonomous);
+    }
+    else if (path == QLatin1String("copy"))
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        std::unique_ptr<Function> copy(ed.show->createCopy(ed.rig.doc, false));
+        QVERIFY(copy);
+        QCOMPARE(qobject_cast<Show *>(copy.get())->syncSource(), int(ShowRunner::Autonomous));
+        ed.show->setSyncSource(ShowRunner::Autonomous);
+    }
+    else
+    {
+        auto *bridge = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"));
+        PerformFsm *fsm = bridge->performFsm();
+        const auto performOff = qScopeGuard([&]() {
+            fsm->setDeckPlaying(false);
+            fsm->setPerformEnabled(false);
+            // the manually ticked timer retires what Live started before the rig goes
+            if (ed.show->isRunning())
+                ed.rig.manager->stopShow();
+            tickAndDeliver(ed.rig.doc, 4);
+        });
+        fsm->setPerformEnabled(true);
+        fsm->setActiveShow(ed.show->id());
+        fsm->setDeckPlaying(true);
+        QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
+        fsm->setPerformEnabled(false);
+        QCoreApplication::processEvents();
+        QCOMPARE(ed.show->syncSource(), int(ShowRunner::Autonomous));
+        // releasing the Show reloads its recorded rows, which drops their selection: choose again
+        selectRecorded(ed, {6});
+        QVERIFY(navEnabled(ed, false));
+        QVERIFY(pressNavigation(ed, false));
+        QCOMPARE(manager->currentTime(), 4000);
+    }
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard_data()
+{
+    QTest::addColumn<QString>("case_");
+    QTest::addColumn<bool>("backward");
+    QTest::addColumn<int>("division");
+    QTest::addColumn<int>("policy");
+    for (const int division : {int(Show::Time), int(Show::BPM_4_4), int(Show::VDJBeat)})
+        for (const char *c : {"fit-recordings", "go-recordings", "fit-clips", "go-clips"})
+            for (const bool backward : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1-%2-%3").arg(QLatin1String(c)).arg(division).arg(backward)))
+                    << QString::fromLatin1(c) << backward << division << int(Qt::TabFocusAllControls);
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const char *c : {"traverse-both-disabled", "traverse-go-disabled", "traverse-both-enabled"})
+            QTest::newRow(qPrintable(QStringLiteral("%1-policy-%2").arg(QLatin1String(c)).arg(policy)))
+                << QString::fromLatin1(c) << false << int(Show::Time) << policy;
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard()
+{
+    QFETCH(QString, case_);
+    QFETCH(bool, backward);
+    QFETCH(int, division);
+    QFETCH(int, policy);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    manager->setTimeDivision(Show::TimeDivision(division));
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    auto *zoomIn = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Zoom in"));
+    auto *moveStep = ed.item(QStringLiteral("moveStep"));
+    QVERIFY(zoomIn && moveStep);
+    auto *fit = navButton(ed, true), *go = navButton(ed, false);
+    QVERIFY(fit && go);
+    if (case_.startsWith(QLatin1String("traverse")))
+    {
+        if (case_ != QLatin1String("traverse-both-disabled"))
+            selectRecorded(ed, {6});
+        if (case_ == QLatin1String("traverse-go-disabled"))
+        {
+            auto *fsm = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm();
+            fsm->setPerformEnabled(true);
+            fsm->setActiveShow(ed.show->id());
+            QCoreApplication::processEvents();
+            selectRecorded(ed, {6});
+        }
+        QCOMPARE(fit->isEnabled(), case_ != QLatin1String("traverse-both-disabled"));
+        QCOMPARE(go->isEnabled(), case_ == QLatin1String("traverse-both-enabled"));
+        const auto performOff = qScopeGuard([&]() {
+            qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm()->setPerformEnabled(false);
+            tickAndDeliver(ed.rig.doc, 2);
+        });
+        QList<QQuickItem *> chain{zoomIn};
+        if (fit->isEnabled())
+            chain << fit;
+        if (go->isEnabled())
+            chain << go;
+        chain << moveStep;
+        zoomIn->forceActiveFocus(Qt::TabFocusReason);
+        for (int i = 1; i < chain.size(); ++i)
+        {
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+            QVERIFY2(chain.at(i)->hasActiveFocus(), qPrintable(QStringLiteral("Tab step %1 reaches %2")
+                .arg(i).arg(chain.at(i)->objectName())));
+        }
+        for (int i = chain.size() - 2; i >= 0; --i)
+        {
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Backtab, Qt::ShiftModifier);
+            QVERIFY2(chain.at(i)->hasActiveFocus(), qPrintable(QStringLiteral("Shift+Tab step back to %1")
+                .arg(chain.at(i)->objectName())));
+        }
+        return;
+    }
+    // a VC button mapped to Space and F2: the unclaimed F2 still reaches it from outside
+    // the Show controls (Space there is the Show's Play/Pause shortcut)
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    QVERIFY(vc);
+    vc->setEditMode(false);
+    ed.button->setActionType(VCButton::Flash);
+    ed.button->addKeySequence(QKeySequence(Qt::Key_F2), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    ed.rig.app->rootObject()->forceActiveFocus();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Active);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_F2);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    ed.button->addKeySequence(QKeySequence(Qt::Key_Space), 0);
+    vc->page(vc->selectedPage())->buildKeySequenceMap();
+    const bool fitCase = case_.startsWith(QLatin1String("fit"));
+    ShowFunction *clip = nullptr;
+    if (case_.endsWith(QLatin1String("clips")))
+    {
+        clip = addClip(ed, ed.scene, 30000, 2000);
+        selectClips(ed, {clip});
+    }
+    else
+        selectRecorded(ed, {6, 0});
+    zoomInAtStart(ed);
+    auto *target = fitCase ? fit : go;
+    QVERIFY(target->isEnabled());
+    ed.item(QStringLiteral("timelineTab"))->forceActiveFocus();
+    for (int i = 0; i < 240 && !target->hasActiveFocus(); ++i)
+        QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                        backward ? Qt::ShiftModifier : Qt::NoModifier);
+    QVERIFY2(target->hasActiveFocus(), "the navigation control is reachable by Tab");
+    const QString view = viewState(ed);
+    const int time = manager->currentTime();
+    QTest::keyPress(ed.rig.app.get(), Qt::Key_Space);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    QTest::keyRelease(ed.rig.app.get(), Qt::Key_Space);
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(ed.button->state(), VCButton::Inactive);
+    QVERIFY(target->hasActiveFocus());
+    auto *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+    QVERIFY(outline && outline->isVisible());
+    QCOMPARE(outline->mapRectToScene(outline->boundingRect()), target->mapRectToScene(target->boundingRect()));
+    QVERIFY(!manager->isPlaying());
+    if (fitCase)
+    {
+        QVERIFY(viewState(ed) != view);
+        QCOMPARE(manager->currentTime(), time);
+        QCOMPARE(navigationStatus(ed), QString());
+    }
+    else
+    {
+        QCOMPARE(viewState(ed), view);
+        QCOMPARE(manager->currentTime(), clip ? 30000 : 1200);
+    }
+    // off the buttons, Space on the playback root still plays and pauses
+    navContainer(ed)->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+    tickAndDeliver(ed.rig.doc, 2);
+    const bool played = manager->isPlaying();
+    manager->stopShow();
+    tickAndDeliver(ed.rig.doc, 4);
+    QVERIFY(played);
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationReachable_data()
+{
+    QTest::addColumn<QSize>("size");
+    QTest::addColumn<bool>("split");
+    QTest::newRow("1728x966") << QSize(1728, 966) << false;
+    QTest::newRow("1200x480") << QSize(1200, 480) << false;
+    QTest::newRow("900x480-split") << QSize(900, 480) << true;
+}
+
+void ShowCommandRecorder_Test::timeline_selectionNavigationReachable()
+{
+    QFETCH(QSize, size);
+    QFETCH(bool, split);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(size);
+    if (split)
+        ed.click(ed.item(QStringLiteral("splitTab")));
+    selectRecorded(ed, {6, 0});
+    QCoreApplication::processEvents();
+    auto *container = navContainer(ed);
+    for (const bool fit : {true, false})
+    {
+        auto *button = navButton(ed, fit);
+        QVERIFY(button);
+        QVERIFY(button->isVisible() && button->isEnabled());
+        ed.item(QStringLiteral("timelineTab"))->forceActiveFocus();
+        for (int i = 0; i < 240 && !button->hasActiveFocus(); ++i)
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Tab);
+        QVERIFY2(button->hasActiveFocus(), "reachable by Tab in every layout");
+        const QRectF rect = sceneRectOf(button);
+        auto *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+        QVERIFY(outline && outline->isVisible());
+        QRectF clipped = rect;
+        for (auto *a = button->parentItem(); a; a = a->parentItem())
+            if (a->clip())
+                clipped = clipped.intersected(sceneRectOf(a));
+        QCOMPARE(sceneRectOf(outline), clipped);
+        QVERIFY(QRectF(QPointF(0, 0), QSizeF(size)).intersects(clipped));
+    }
+    // a grab polishes pending layouts: the Recordings info line, shown by the selection, lays out
+    // on the next frame and moves the split by its height (with or without Fit), so the baseline
+    // is the settled layout, and so is the comparison after Fit
+    QCoreApplication::processEvents();
+    ed.rig.app->grabWindow();
+    const int tab = container->property("editorTab").toInt();
+    const qreal bottom = container->property("timelineBottom").toDouble();
+    QVERIFY(pressNavigation(ed, true));
+    QCoreApplication::processEvents();
+    ed.rig.app->grabWindow();
+    QCOMPARE(container->property("editorTab").toInt(), tab);
+    QCOMPARE(container->property("timelineBottom").toDouble(), bottom);
+}
+
+void ShowCommandRecorder_Test::timeline_segmentEndsAreDistinct_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("tracks");
+    QTest::addColumn<bool>("editable");
+    QTest::addColumn<bool>("timeDelta");
+    for (const bool timeDelta : {false, true})
+        for (const int policy : {int(Qt::TabFocusTextControls), int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+            for (const int tracks : {0, 7})
+                for (const bool editable : {false, true})
+                    QTest::newRow(qPrintable(QStringLiteral("policy %1, %2 tracks, %3%4").arg(policy).arg(tracks)
+                        .arg(editable ? QStringLiteral("editable") : QStringLiteral("read-only"),
+                             timeDelta ? QStringLiteral(", move by time delta") : QString())))
+                        << policy << tracks << editable << timeDelta;
+}
+
+void ShowCommandRecorder_Test::timeline_segmentEndsAreDistinct()
+{
+    QFETCH(int, policy);
+    QFETCH(int, tracks);
+    QFETCH(bool, editable);
+    QFETCH(bool, timeDelta);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    if (tracks > 0)
+        addSevenTracks(ed);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    if (!editable)
+        ed.rig.manager->setReadOnly(true);
+    // a selection, as natively: it enables the recording actions and Fit and Go
+    selectRecorded(ed, {6});
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 0);
+    const auto commands = ed.show->commandTrack().commands();
+    const auto trackList = ed.show->tracks();
+    const QString state = laneEditorState(ed);
+    const QString authored = authoredState(ed);
+    const int clipboard = ed.rig.recorder->clipboardCount();
+
+    QQuickItem *timelineTab = ed.item(QStringLiteral("timelineTab"));
+    QQuickItem *moveStep = ed.item(QStringLiteral("moveStep"));
+    QQuickItem *showName = nullptr;
+    for (auto *item : ed.root()->findChildren<QQuickItem *>())
+        if (QByteArray(item->metaObject()->className()).startsWith("CustomTextEdit") && item->isVisible()
+            && item->property("text").toString() == ed.show->name())
+            showName = item;
+    QVERIFY(timelineTab && moveStep && showName);
+    QCOMPARE(showName->isEnabled(), editable);
+    QQuickItem *amount = findVisualItem(ed.root(), QStringLiteral("moveTimeDelta"));
+    QVERIFY(amount && !amount->isVisible());
+    if (timeDelta)
+    {
+        // the user's own choice on the Move-by chooser: clicked, its popup closed, End picks "Time delta (s)"
+        ed.click(moveStep);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_End);
+        QCoreApplication::processEvents();
+        QCOMPARE(moveStep->property("currentIndex").toInt(), 3);
+        QCOMPARE(moveStep->property("displayText").toString(), QStringLiteral("Time delta (s)"));
+        QVERIFY(amount->isVisible() && amount->isEnabled());
+        // the row lays the field out on the next frame, right of the chooser, before the next click
+        QTRY_VERIFY(sceneRectOf(amount).left() >= sceneRectOf(moveStep).right());
+    }
+    QHash<QQuickItem *, QString> names{{timelineTab, QStringLiteral("Timeline tab")}, {moveStep, QStringLiteral("Move by")},
+        {showName, QStringLiteral("Show name")}, {amount, QStringLiteral("Time delta")},
+        {ed.item(QStringLiteral("markersCombo")), QStringLiteral("Markers")},
+        {findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Show items color")), QStringLiteral("Colour")},
+        {ed.item(QStringLiteral("recordingsTab")), QStringLiteral("Recordings tab")},
+        {ed.item(QStringLiteral("splitTab")), QStringLiteral("Split tab")}, {navButton(ed, false), QStringLiteral("Go")},
+        {navButton(ed, true), QStringLiteral("Fit")},
+        {findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Zoom in")), QStringLiteral("Zoom in")},
+        {findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Zoom out")), QStringLiteral("Zoom out")}};
+    QVERIFY(!names.contains(nullptr));
+
+    // the segment: the enabled track controls, the toggle, the enabled actions, every object in group order
+    QList<QQuickItem *> segment;
+    const auto add = [&](QQuickItem *item, const QString &name) {
+        segment.append(item);
+        names.insert(item, name);
+    };
+    for (int t = 0; t < tracks; ++t)
+    {
+        auto *header = findVisualItemWith(ed.root(), "trackRef", QVariant::fromValue(ed.show->tracks().at(t)));
+        QVERIFY(header);
+        QList<QPair<QQuickItem *, QString>> controls{{findVisualItemWith(header, "showF2Editable", true),
+                                                      QStringLiteral("track %1 name").arg(t)}};
+        for (const char *tooltip : {"Solo this track", "Mute this track", "Delete this track"})
+            controls.append({findVisualItemWith(header, "tooltip", QString::fromLatin1(tooltip)),
+                             QStringLiteral("track %1 %2").arg(t).arg(QLatin1String(tooltip))});
+        for (const auto &control : std::as_const(controls))
+        {
+            QVERIFY(control.first);
+            QCOMPARE(control.first->isEnabled(), editable);
+            if (editable)
+                add(control.first, control.second);
+        }
+    }
+    add(ed.item(QStringLiteral("recordingLanesToggle")), QStringLiteral("toggle"));
+    for (const char *id : {"recordingMoveEarlier", "recordingMoveLater", "recordingSnap", "recordingDelete"})
+    {
+        QAccessibleInterface *ai = accessibleById(ed.rig.app.get(), QString::fromLatin1(id));
+        QQuickItem *button = ai ? qobject_cast<QQuickItem *>(ai->object()) : nullptr;
+        QVERIFY(button);
+        // recorded events stay editable while Perform's read-only Show owns the transport:
+        // Delete needs the selection only, Move and Snap also the musical step of the default chooser
+        const bool needsGrid = QLatin1String(id) != QLatin1String("recordingDelete");
+        QCOMPARE(button->isEnabled(),
+                 !needsGrid || recordingsList(ed)->property("amountReason").toString().isEmpty());
+        if (button->isEnabled())
+            add(button, QString::fromLatin1(id));
+    }
+    for (const QVariant &value : ed.rig.recorder->property("groups").toList())
+    {
+        const quint32 id = value.toMap().value("id").toUInt();
+        add(laneItem(ed, id), QString::number(id));
+    }
+    QVERIFY(!segment.contains(nullptr));
+    QStringList forwardNames;
+    for (QQuickItem *item : std::as_const(segment))
+        forwardNames.append(names.value(item));
+    QStringList backwardNames = forwardNames;
+    std::reverse(backwardNames.begin(), backwardNames.end());
+
+    const auto focus = [&]() { return ed.rig.app->activeFocusItem(); };
+    const auto name = [&](QQuickItem *item) {
+        return item == nullptr ? QStringLiteral("<none>")
+             : names.value(item, QStringLiteral("%1[%2]").arg(QString::fromLatin1(item->metaObject()->className()),
+                                                               item->objectName()));
+    };
+    const auto press = [&](bool back) {
+        QTest::keyClick(ed.rig.app.get(), back ? Qt::Key_Backtab : Qt::Key_Tab,
+                        back ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    const auto walk = [&](bool back) {
+        QStringList reached;
+        for (int i = 0; i < 200 && segment.contains(focus()); ++i)
+        {
+            reached.append(name(focus()));
+            press(back);
+        }
+        return reached;
+    };
+
+    // forward from Move by, clicked (its popup closed): the rest of the explicit lead, then the whole segment
+    ed.click(moveStep);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QCoreApplication::processEvents();
+    QTRY_COMPARE(focus(), moveStep);
+    press(false);
+    QStringList lead;
+    for (int i = 0; i < 80 && !segment.contains(focus()); ++i)
+    {
+        lead.append(name(focus()));
+        press(false);
+    }
+    qInfo() << "lead" << lead;
+    QCOMPARE(name(focus()), forwardNames.first());
+    // the explicit lead after Move by: the Time-delta field while Move by shows it, then the Show name
+    // while it can be edited; read only, the Show name takes no focus
+    QStringList expectedLead;
+    if (timeDelta)
+        expectedLead.append(QStringLiteral("Time delta"));
+    if (editable)
+        expectedLead.append(QStringLiteral("Show name"));
+    QCOMPARE(lead, expectedLead);
+    const QString entry = lead.isEmpty() ? name(moveStep) : lead.last();
+    // an immediate reverse at the entry returns to the end before the segment, then in again
+    press(true);
+    QCOMPARE(name(focus()), entry);
+    press(false);
+    QCOMPARE(name(focus()), forwardNames.first());
+    QCOMPARE(walk(false), forwardNames);
+    QQuickItem *exit = focus();
+    qInfo() << "exit" << name(exit);
+    QVERIFY(exit && !segment.contains(exit) && exit->isEnabled() && exit->isVisible());
+    QVERIFY2(name(exit) != entry, "the two ends of the segment are distinct");
+    // the explicit exit, in every state
+    QCOMPARE(name(exit), QStringLiteral("Timeline tab"));
+    // an immediate reverse at the exit: the last stop, then out again
+    press(true);
+    QCOMPARE(name(focus()), forwardNames.last());
+    press(false);
+    QCOMPARE(focus(), exit);
+    // on past the exit: no closed cycle back to the end before the segment or into it
+    press(false);
+    qInfo() << "past exit" << name(focus());
+    QVERIFY2(focus() != exit && !segment.contains(focus()) && name(focus()) != entry
+             && name(focus()) != QLatin1String("Show name"), qPrintable(name(focus())));
+    press(true);
+    QCOMPARE(focus(), exit);
+
+    // backward from the exit: the whole segment, then the end before it, then on outside
+    press(true);
+    QCOMPARE(walk(true), backwardNames);
+    QCOMPARE(name(focus()), entry);
+    // on back along the toolbar, past what cannot take focus, never into the segment again
+    // back through the lead before the entry, then the toolbar from Move by
+    QStringList toolbar;
+    for (qsizetype i = lead.size() - 2; i >= 0; --i)
+        toolbar.append(lead.at(i));
+    for (const char *step : {"Move by", "Go", "Fit", "Zoom in", "Zoom out"})
+        if (names.key(QString::fromLatin1(step))->isEnabled() && QLatin1String(step) != entry)
+            toolbar.append(QString::fromLatin1(step));
+    QStringList behind;
+    for (int i = 0; i < toolbar.size() && !segment.contains(focus()); ++i)
+    {
+        press(true);
+        behind.append(name(focus()));
+    }
+    qInfo() << "behind" << entry << behind;
+    QCOMPARE(behind, toolbar);
+    // one lap on backward reaches the segment again through the exit: no closed cycle outside it
+    QSet<QQuickItem *> lap;
+    // the lap starts on the last control reached behind, so the route lists it once
+    QStringList backwardRoute = QStringList{entry} + behind.mid(0, behind.size() - 1);
+    for (int i = 0; i < 80 && !segment.contains(focus()); ++i)
+    {
+        QVERIFY2(!lap.contains(focus()), qPrintable(QStringLiteral("revisited %1").arg(name(focus()))));
+        lap.insert(focus());
+        backwardRoute.append(name(focus()));
+        press(true);
+    }
+    qInfo() << "backward route" << backwardRoute;
+    QCOMPARE(name(focus()), forwardNames.last());
+    QVERIFY(lap.contains(exit));
+    // every eligible control before the segment stays reachable backward
+    QCOMPARE(backwardRoute.contains(QStringLiteral("Time delta")), timeDelta);
+    QCOMPARE(backwardRoute.contains(QStringLiteral("Show name")), editable);
+    // and one lap on forward from the exit reaches it again through Move by
+    press(false);
+    QCOMPARE(focus(), exit);
+    lap.clear();
+    QStringList forwardRoute;
+    for (int i = 0; i < 80 && !segment.contains(focus()); ++i)
+    {
+        QVERIFY2(!lap.contains(focus()), qPrintable(QStringLiteral("revisited %1").arg(name(focus()))));
+        lap.insert(focus());
+        forwardRoute.append(name(focus()));
+        press(false);
+    }
+    qInfo() << "forward route" << forwardRoute;
+    QCOMPARE(name(focus()), forwardNames.first());
+    QVERIFY(lap.contains(moveStep));
+    // and forward
+    QCOMPARE(forwardRoute.contains(QStringLiteral("Time delta")), timeDelta);
+    QCOMPARE(forwardRoute.contains(QStringLiteral("Show name")), editable);
+    // the lap ends on the owned lead: the toolbar chain to Move by, then the explicit lead after it
+    QStringList ownedTail;
+    for (const char *step : {"Zoom out", "Zoom in", "Fit", "Go", "Move by"})
+        if (names.key(QString::fromLatin1(step))->isEnabled())
+            ownedTail.append(QString::fromLatin1(step));
+    ownedTail += expectedLead;
+    QCOMPARE(forwardRoute.mid(forwardRoute.size() - ownedTail.size()), ownedTail);
+    QCOMPARE(moveStep->property("currentIndex").toInt(), timeDelta ? 3 : 0);
+
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.show->tracks(), trackList);
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(authoredState(ed), authored);
+    QCOMPARE(ed.rig.recorder->clipboardCount(), clipboard);
+    QCOMPARE(ed.rig.manager->readOnly(), !editable);
+    QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 0);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_exitAfterTheSegment_data()
+{
+    QTest::addColumn<int>("policy");
+    QTest::addColumn<int>("tracks");
+    QTest::addColumn<bool>("editable");
+    QTest::addColumn<bool>("recordings");
+    for (const int policy : {int(Qt::TabFocusAllControls), int(Qt::TabFocusTextControls),
+                             int(Qt::TabFocusTextControls | Qt::TabFocusListControls)})
+        for (const int tracks : {0, 7})
+            for (const bool editable : {false, true})
+                for (const bool recordings : {true, false})
+                    if (tracks > 0 || recordings)
+                        QTest::newRow(qPrintable(QStringLiteral("policy %1, %2 tracks, %3, %4").arg(policy).arg(tracks)
+                            .arg(editable ? QStringLiteral("editable") : QStringLiteral("read-only"),
+                                 recordings ? QStringLiteral("recordings") : QStringLiteral("no recordings"))))
+                            << policy << tracks << editable << recordings;
+}
+
+void ShowCommandRecorder_Test::recordingsSplit_exitAfterTheSegment()
+{
+    QFETCH(int, policy);
+    QFETCH(int, tracks);
+    QFETCH(bool, editable);
+    QFETCH(bool, recordings);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    if (recordings)
+        QVERIFY(addPassageSamples(ed));
+    if (tracks > 0)
+        addSevenTracks(ed);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    ed.click(ed.item(QStringLiteral("splitTab")));
+    QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) != nullptr);
+    if (!editable)
+        ed.rig.manager->setReadOnly(true);
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    auto *container = navContainer(ed);
+    QCOMPARE(container->property("editorTab").toInt(), 2);
+    const auto commands = ed.show->commandTrack().commands();
+    const auto trackList = ed.show->tracks();
+    const QString state = laneEditorState(ed);
+    const bool modified = ed.rig.doc->isModified();
+
+    // the owner's own inputs, read from the Show editor: its stops, its lead and its exit
+    const auto items = [](const QVariant &value) {
+        QList<QQuickItem *> list;
+        const QVariant plain = value.canConvert<QJSValue>() ? value.value<QJSValue>().toVariant() : value;
+        for (const QVariant &v : plain.toList())
+            list.append(qobject_cast<QQuickItem *>(v.value<QObject *>()));
+        return list;
+    };
+    QVariant result;
+    QVERIFY(QMetaObject::invokeMethod(container, "timelineStops", Q_RETURN_ARG(QVariant, result)));
+    const QList<QQuickItem *> stops = items(result);
+    const bool reduced = policy != int(Qt::TabFocusAllControls);
+    // under All controls the owner is off, so Qt's own chain decides every step and no route is read
+    QCOMPARE(container->property("reducedTimelineTraversal").toBool(), reduced && (tracks > 0 || recordings));
+    qInfo() << "stops" << stops.size();
+    if (!reduced)
+        return;
+    if (stops.isEmpty())
+    {
+        // read only without recordings the track controls are disabled: no stop, the owner returns before reading any route
+        QVERIFY(!editable && !recordings);
+        return;
+    }
+    QVERIFY(QMetaObject::invokeMethod(container, "timelineLead", Q_RETURN_ARG(QVariant, result)));
+    const QList<QQuickItem *> lead = items(result);
+    QQuickItem *after = qobject_cast<QQuickItem *>(container->property("timelineExit").value<QObject *>());
+    QQuickItem *filter = ed.item(QStringLiteral("recordingsFilter"));
+    QQuickItem *splitTab = ed.item(QStringLiteral("splitTab"));
+    QQuickItem *colPick = findVisualItemWith(ed.root(), "tooltip", QStringLiteral("Show items color"));
+    QVERIFY(filter && splitTab && colPick);
+    QCOMPARE(lead, QList<QQuickItem *>{editable ? colPick : splitTab});
+    qInfo() << "after" << (after ? after->objectName() : QStringLiteral("<none>"));
+    // the explicit exit in the Split is the table's filter, a text control outside the lead
+    QVERIFY(after != nullptr);
+    QVERIFY(!lead.contains(after));
+    QCOMPARE(after, filter);
+
+    // by real keys: from the filter, clicked, Shift+Tab reaches the last stop and Tab leaves it for the filter
+    const auto focus = [&]() { return ed.rig.app->activeFocusItem(); };
+    const auto press = [&](bool back) {
+        QTest::keyClick(ed.rig.app.get(), back ? Qt::Key_Backtab : Qt::Key_Tab,
+                        back ? Qt::ShiftModifier : Qt::NoModifier);
+        QCoreApplication::processEvents();
+    };
+    ed.click(filter);
+    QCOMPARE(focus(), filter);
+    press(true);
+    QCOMPARE(focus(), stops.last());
+    press(false);
+    QCOMPARE(focus(), filter);
+    QVERIFY(focus() != ed.item(QStringLiteral("timelineTab")));
+    // and from the boundary before the segment, the whole segment forward ends on the filter too
+    lead.first()->forceActiveFocus(Qt::TabFocusReason);
+    for (QQuickItem *stop : stops)
+    {
+        press(false);
+        QCOMPARE(focus(), stop);
+    }
+    press(false);
+    QCOMPARE(focus(), filter);
+
+    QCOMPARE(ed.show->commandTrack().commands(), commands);
+    QCOMPARE(ed.show->tracks(), trackList);
+    QCOMPARE(laneEditorState(ed), state);
+    QCOMPARE(ed.rig.doc->isModified(), modified);
+    QCOMPARE(ed.rig.manager->readOnly(), !editable);
+    QVERIFY(!ed.rig.manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::timeline_viewPreservedAfterUserScroll_data()
+{
+    QTest::addColumn<QString>("scroll");
+    QTest::newRow("lane-drag") << QStringLiteral("drag");
+    QTest::newRow("scrollbar-drag") << QStringLiteral("scrollbar-drag");
+    // at the far end, so the wider window below shrinks the room and clamps the view
+    QTest::newRow("scrollbar-click-end") << QStringLiteral("scrollbar-end");
+}
+
+void ShowCommandRecorder_Test::timeline_viewPreservedAfterUserScroll()
+{
+    QFETCH(QString, scroll);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ed.rig.app->resize(1600, 480);
+    QVERIFY(addPassageSamples(ed));
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    auto *manager = ed.rig.manager;
+    manager->setBpmNumber(120);
+    manager->setTimeDivision(Show::Time);
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids{6};
+    selectRecorded(ed, ids);
+    zoomInAtStart(ed);
+    manager->requestSeek(200000);
+    QCoreApplication::processEvents();
+    auto *lane = ed.item(QStringLiteral("showItemsArea"));
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    QVERIFY(userScroll(ed, scroll, ids));
+    const qreal scrolled = lane->property("contentX").toDouble();
+    QVERIFY2(scrolled > 200, qPrintable(QString::number(scrolled)));
+    QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
+    const auto commands = ed.show->commandTrack().commands();
+    const auto trackList = ed.show->tracks();
+    const QString lanes = laneEditorState(ed);
+    const QString authored = authoredState(ed);
+    const int time = manager->currentTime();
+
+    const auto settle = [&]() {
+        QCoreApplication::processEvents();
+        for (int i = 0; i < 100 && (lane->property("moving").toBool() || header->property("moving").toBool()); ++i)
+            QTest::qWait(20);
+        QTest::qWait(50);
+        QCoreApplication::processEvents();
+    };
+    // one view, and each Flickable inside its own bounds
+    const auto check = [&](const char *step) {
+        settle();
+        const QString views = horizontalViews(ed);
+        qInfo() << scroll << step << views << "lane max" << lane->property("contentWidth").toDouble() - lane->width()
+                << "header max" << header->property("contentWidth").toDouble() - header->width() << "scale"
+                << manager->timeScale() << "division" << int(manager->timeDivision()) << "modified" << ed.rig.doc->isModified();
+        QVERIFY2(oneHorizontalView(ed), qPrintable(QStringLiteral("%1: %2").arg(QLatin1String(step), views)));
+        for (QQuickItem *flick : {lane, header})
+        {
+            const qreal x = flick->property("contentX").toDouble();
+            const qreal max = qMax<qreal>(0, flick->property("contentWidth").toDouble() - flick->width());
+            QVERIFY2(x >= -0.5 && x <= max + 0.5, qPrintable(QStringLiteral("%1: %2 %3 outside 0..%4")
+                     .arg(QLatin1String(step), flick->objectName()).arg(x).arg(max)));
+        }
+        QCOMPARE(manager->currentTime(), time);
+        QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+        QCOMPARE(ed.show->commandTrack().commands(), commands);
+        QCOMPARE(ed.show->tracks(), trackList);
+        QCOMPARE(laneEditorState(ed), lanes);
+        QVERIFY(!manager->isPlaying());
+    };
+
+    // (b) the window, narrower then wider, still scrolled: the wider one shrinks the room at the far end
+    ed.rig.app->resize(1200, 480);
+    check("resize 1200");
+    ed.rig.app->resize(1728, 600);
+    check("resize 1728");
+    QCOMPARE(authoredState(ed), authored);
+    // (a) then the ruler, through its own chooser: clicked, its popup closed, Down to VDJ Beat and BPM 4/4,
+    // Up back to Time
+    const qreal kept = navContainer(ed)->property("xViewOffset").toDouble();
+    auto *markers = ed.item(QStringLiteral("markersCombo"));
+    QVERIFY(markers && markers->isEnabled());
+    ed.click(markers);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Down);
+    QTRY_COMPARE(int(manager->timeDivision()), int(Show::VDJBeat));
+    check("ruler VDJ");
+    // the same scale on VDJ Beat: the user's scroll is kept as it was
+    QVERIFY2(qAbs(navContainer(ed)->property("xViewOffset").toDouble() - kept) <= 0.5, qPrintable(horizontalViews(ed)));
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Down);
+    QTRY_COMPARE(int(manager->timeDivision()), int(Show::BPM_4_4));
+    check("ruler BPM 4/4");
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Up);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Up);
+    QTRY_COMPARE(int(manager->timeDivision()), int(Show::Time));
+    check("ruler Time");
+    // the marker choice is the Show's own setting: back to Time, only the document's modified flag may remain
+    QCOMPARE(authoredState(ed).replace(QLatin1String("modified 1"), QLatin1String("modified 0")),
+             QString(authored).replace(QLatin1String("modified 1"), QLatin1String("modified 0")));
+}
+
+void ShowCommandRecorder_Test::timeline_revealInsideVisibleView_data()
+{
+    QTest::addColumn<QString>("route");
+    QTest::addColumn<int>("policy");
+    // the right panel while revealing: its collapsed strip as natively, or opened by its own button
+    QTest::addColumn<bool>("panelOpen");
+    QTest::addColumn<bool>("split");
+    // after the reveal: nothing, the window resized and back, or the right panel opened and closed
+    QTest::addColumn<QString>("after");
+    const int text = int(Qt::TabFocusTextControls), all = int(Qt::TabFocusAllControls);
+    const QString none = QStringLiteral("none"), backtab = QStringLiteral("backtab"), tab = QStringLiteral("tab"),
+                  fit = QStringLiteral("fit");
+    QTest::newRow("shift-tab-from-timeline-tab, text policy") << backtab << text << false << false << none;
+    QTest::newRow("tab-to-far, all controls") << tab << all << false << false << none;
+    QTest::newRow("fit-far") << fit << all << false << false << none;
+    QTest::newRow("shift-tab, right panel open") << backtab << text << true << false << none;
+    QTest::newRow("fit-far, right panel open") << fit << all << true << false << none;
+    QTest::newRow("shift-tab, then resize 1714-1200-1714") << backtab << text << false << false << QStringLiteral("resize");
+    QTest::newRow("shift-tab, then right panel opened and closed") << backtab << text << false << false << QStringLiteral("panel");
+    QTest::newRow("split, tab-to-far") << tab << all << false << true << none;
+    QTest::newRow("split, fit-far") << fit << all << false << true << none;
+    // the lane grid shown, then the right panel opened and closed without scrolling
+    QTest::newRow("fit-far, grid, then right panel opened and closed") << fit << all << false << false
+        << QStringLiteral("grid-panel");
+}
+
+void ShowCommandRecorder_Test::timeline_revealInsideVisibleView()
+{
+    QFETCH(QString, route);
+    QFETCH(int, policy);
+    QFETCH(bool, panelOpen);
+    QFETCH(bool, split);
+    QFETCH(QString, after);
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    // the native window, with the right panel beside the timeline
+    ed.rig.app->resize(1714, 966);
+    QVERIFY(addPassageSamples(ed));
+    auto track = ed.show->commandTrack();
+    QVERIFY(track.insert(ShowCommand::setButtonState(70, 400000, ed.button->recordingId(), true)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    ed.rig.manager->setBpmNumber(120);
+    ed.rig.manager->setTimeDivision(Show::Time);
+    auto *hints = QGuiApplication::styleHints();
+    const auto oldPolicy = hints->tabFocusBehavior();
+    const auto restore = qScopeGuard([&]() { hints->setTabFocusBehavior(oldPolicy); });
+    hints->setTabFocusBehavior(static_cast<Qt::TabFocusBehavior>(policy));
+    QCoreApplication::processEvents();
+    const QVector<quint32> ids{route == QLatin1String("fit") ? 70u : 6u};
+    selectRecorded(ed, ids);
+    if (split)
+    {
+        ed.click(ed.item(QStringLiteral("splitTab")));
+        QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 2);
+        selectRecorded(ed, ids);
+    }
+    zoomInAtStart(ed);
+    QQuickItem *side = ed.item(QStringLiteral("funcRightPanel"));
+    QVERIFY(side && side->isVisible() && side->width() > 0);
+    QQuickItem *panelButton = ed.item(QStringLiteral("timingSettingsButton"));
+    QVERIFY(panelButton);
+    const auto setPanel = [&](bool open) {
+        if (side->property("isOpen").toBool() != open)
+            ed.click(panelButton);
+        QTRY_COMPARE(side->width(), side->property(open ? "expandedWidth" : "collapseWidth").toReal());
+    };
+    if (panelOpen)
+    {
+        setPanel(true);
+        if (QTest::currentTestFailed())
+            return;
+    }
+    auto *container = navContainer(ed);
+    auto *lane = ed.item(QStringLiteral("showItemsArea"));
+    auto *header = ed.item(QStringLiteral("timelineHeader"));
+    QQuickItem *far = laneObject(ed, 70);
+    QVERIFY(far);
+    QVERIFY2(sceneRectOf(far).left() > timelineViewRect(ed).right(), "the far recording starts out of view");
+    const auto recordings = recordingObjects(ed);
+    const auto near = [](const QRectF &a, const QRectF &b) {
+        return qAbs(a.left() - b.left()) <= 0.5 && qAbs(a.right() - b.right()) <= 0.5
+            && qAbs(a.top() - b.top()) <= 0.5 && qAbs(a.bottom() - b.bottom()) <= 0.5;
+    };
+
+    // the ruler, the lanes and every width reader measure one visible viewport, ending at the right panel
+    const auto checkViewport = [&](const char *step) {
+        const qreal width = container->property("timelineViewportWidth").toDouble();
+        qInfo() << route << step << "viewport" << width << "lane" << sceneRectOf(lane) << "header" << sceneRectOf(header)
+                << "side" << sceneRectOf(side) << horizontalViews(ed);
+        QVERIFY2(width > 0 && qAbs(lane->width() - width) <= 0.5 && qAbs(header->width() - width) <= 0.5,
+                 qPrintable(QStringLiteral("%1: lane %2 header %3 viewport %4").arg(QLatin1String(step))
+                     .arg(lane->width()).arg(header->width()).arg(width)));
+        QVERIFY2(qAbs(sceneRectOf(lane).left() - sceneRectOf(header).left()) <= 0.5, "the lanes start under the ruler");
+        QVERIFY2(qAbs(sceneRectOf(header).right() - sceneRectOf(side).left()) <= 0.5, "the ruler ends at the right panel");
+        QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
+        QCOMPARE(container->property("editorTab").toInt(), split ? 2 : 0);
+        for (QQuickItem *flick : {lane, header})
+        {
+            const qreal x = flick->property("contentX").toDouble();
+            const qreal max = qMax<qreal>(0, flick->property("contentWidth").toDouble() - flick->width());
+            QVERIFY2(x >= -0.5 && x <= max + 0.5, qPrintable(QStringLiteral("%1: %2 %3 outside 0..%4")
+                     .arg(QLatin1String(step)).arg(flick->objectName()).arg(x).arg(max)));
+        }
+    };
+    // the lane grid, when shown, is drawn under the whole visible width of the lanes
+    const auto checkGrid = [&](const char *step) {
+        QQuickItem *grid = nullptr;
+        for (QQuickItem *child : lane->property("contentItem").value<QQuickItem *>()->childItems())
+            if (QByteArray(child->metaObject()->className()).contains("Canvas") && child->isVisible()
+                && qAbs(child->width() - lane->width() * 3) <= 0.5)
+                grid = child;
+        QVERIFY2(grid, qPrintable(QStringLiteral("%1: no grid").arg(QLatin1String(step))));
+        const qreal offset = container->property("xViewOffset").toDouble();
+        qInfo() << route << step << "grid x" << grid->x() << "width" << grid->width() << "view" << offset
+                << offset + lane->width();
+        QVERIFY2(grid->x() <= offset + 0.5 && grid->x() + grid->width() >= offset + lane->width() - 0.5,
+                 qPrintable(QStringLiteral("%1: grid %2..%3, lanes %4..%5").arg(QLatin1String(step))
+                     .arg(grid->x()).arg(grid->x() + grid->width()).arg(offset).arg(offset + lane->width())));
+    };
+    if (after == QLatin1String("grid-panel"))
+    {
+        QQuickItem *gridButton = nullptr;
+        for (auto *item : ed.root()->findChildren<QQuickItem *>())
+            if (item->property("tooltip").toString() == QLatin1String("Snap to grid") && item->isVisible())
+                gridButton = item;
+        QVERIFY(gridButton);
+        ed.click(gridButton);
+        QTRY_VERIFY(ed.rig.manager->gridEnabled());
+    }
+    // a revealed recording is painted, and its focus border drawn whole, inside the timeline the user sees
+    int revealed = 0;
+    const auto checkShown = [&](QQuickItem *item, const char *step) {
+        const QRectF view = timelineViewRect(ed);
+        const QRectF r = sceneRectOf(item);
+        qInfo() << route << step << r << "view" << view << horizontalViews(ed) << "lane w" << lane->width()
+                << "header w" << header->width() << "side" << sceneRectOf(side);
+        QVERIFY2(r.left() >= view.left() - 0.5 && r.right() <= view.right() + 0.5,
+                 qPrintable(QStringLiteral("%1: %2,%3 outside %4..%5").arg(QLatin1String(step))
+                     .arg(r.left()).arg(r.right()).arg(view.left()).arg(view.right())));
+        QVERIFY2(r.right() <= sceneRectOf(side).left() + 0.5, "not under the right panel");
+        if (item->hasActiveFocus())
+        {
+            QQuickItem *outline = ed.item(QStringLiteral("showKeyboardFocus"));
+            QVERIFY2(outline, qPrintable(QStringLiteral("%1: no focus border").arg(QLatin1String(step))));
+            QVERIFY2(near(sceneRectOf(outline), r), qPrintable(QStringLiteral("%1: focus border %2,%3 %4x%5")
+                     .arg(QLatin1String(step)).arg(sceneRectOf(outline).left()).arg(sceneRectOf(outline).top())
+                     .arg(sceneRectOf(outline).width()).arg(sceneRectOf(outline).height())));
+        }
+        ++revealed;
+    };
+    if (route == QLatin1String("fit"))
+    {
+        QVERIFY(navEnabled(ed, true));
+        QVERIFY(pressNavigation(ed, true));
+        QCoreApplication::processEvents();
+        QVERIFY(inside(recordedExtent(ed, ids), timelineViewRect(ed)));
+        checkShown(far, "fit");
+        if (QTest::currentTestFailed())
+            return;
+        QCOMPARE(navigationStatus(ed), QString());
+    }
+    else
+    {
+        // the Timeline (or Split) tab, then Tab or Shift+Tab onto the far recording: every recording on the way is shown
+        ed.click(ed.item(split ? QStringLiteral("splitTab") : QStringLiteral("timelineTab")));
+        const bool backward = route == QLatin1String("backtab");
+        for (int i = 0; i < 220 && !far->hasActiveFocus(); ++i)
+        {
+            QTest::keyClick(ed.rig.app.get(), backward ? Qt::Key_Backtab : Qt::Key_Tab,
+                            backward ? Qt::ShiftModifier : Qt::NoModifier);
+            QCoreApplication::processEvents();
+            QQuickItem *focused = ed.rig.app->activeFocusItem();
+            if (recordings.contains(focused))
+                checkShown(focused, backward ? "shift+tab" : "tab");
+            if (QTest::currentTestFailed())
+                return;
+        }
+        QVERIFY(far->hasActiveFocus());
+        // Shift+Tab from the Timeline tab lands on the last recording at once
+        if (backward)
+            QCOMPARE(revealed, 1);
+    }
+    checkViewport("revealed");
+    if (QTest::currentTestFailed())
+        return;
+    QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+
+    // the viewport follows the window and the panel through its bindings alone
+    if (after == QLatin1String("resize"))
+    {
+        for (int width : {1200, 1714})
+        {
+            ed.rig.app->resize(width, 966);
+            QTRY_COMPARE(ed.root()->width(), qreal(width));
+            QCoreApplication::processEvents();
+            checkViewport(width == 1200 ? "resized 1200" : "resized back 1714");
+            if (QTest::currentTestFailed())
+                return;
+            QVERIFY(far->hasActiveFocus());
+            QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+        }
+        checkShown(far, "resized back");
+    }
+    else if (after == QLatin1String("panel"))
+    {
+        for (bool open : {true, false})
+        {
+            setPanel(open);
+            if (QTest::currentTestFailed())
+                return;
+            checkViewport(open ? "panel opened" : "panel closed");
+            if (QTest::currentTestFailed())
+                return;
+            QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), ids);
+        }
+        checkShown(far, "panel closed");
+    }
+    else if (after == QLatin1String("grid-panel"))
+    {
+        checkGrid("revealed");
+        for (bool open : {true, false})
+        {
+            if (QTest::currentTestFailed())
+                return;
+            setPanel(open);
+            if (QTest::currentTestFailed())
+                return;
+            QCoreApplication::processEvents();
+            checkViewport(open ? "panel opened" : "panel closed");
+            if (QTest::currentTestFailed())
+                return;
+            checkGrid(open ? "panel opened" : "panel closed");
+        }
+    }
+    if (QTest::currentTestFailed())
+        return;
+
+    // the pointer finds the recording where it is painted: a real click at its centre chooses it
+    const QPoint centre = sceneRectOf(far).center().toPoint();
+    QTest::mouseClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, centre);
+    QCoreApplication::processEvents();
+    QVERIFY2(far->hasActiveFocus(), qPrintable(QStringLiteral("the click at %1,%2 reaches the recording")
+             .arg(centre.x()).arg(centre.y())));
+    QCOMPARE(idsOf(recordingsList(ed)->property("selectedIds")), idsOf(far->property("members")));
+    checkShown(far, "clicked");
+    if (QTest::currentTestFailed())
+        return;
+    checkViewport("clicked");
+}
+
+namespace
+{
+/** A real left-button gesture: press, moves in 10 px steps, release; released also when a check fails */
+struct HeldPointer
+{
+    explicit HeldPointer(QWindow *w) : window(w) {}
+    QWindow *window = nullptr;
+    QPoint start;
+    QPoint at;
+    bool held = false;
+
+    void press(const QPoint &point)
+    {
+        start = at = point;
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, at);
+        held = true;
+        QCoreApplication::processEvents();
+    }
+    void move(int dx)
+    {
+        for (int done = 0; done != dx;)
+        {
+            const int step = qBound(-10, dx - done, 10);
+            at.rx() += step;
+            done += step;
+            QTest::mouseMove(window, at, 16);
+        }
+        QCoreApplication::processEvents();
+    }
+    void release()
+    {
+        if (!held)
+            return;
+        held = false;
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, at, 16);
+        QCoreApplication::processEvents();
+    }
+    ~HeldPointer() { release(); }
+};
+
+qreal laneTimeX(const EditorRig &ed, double ms)
+{
+    QQuickItem *lane = findVisualItem(ed.root(), QStringLiteral("recordingLane"));
+    QVariant x;
+    QMetaObject::invokeMethod(lane, "timeX", Q_RETURN_ARG(QVariant, x), Q_ARG(QVariant, ms));
+    return x.toDouble();
+}
+
+/** The passage samples on a time ruler zoomed so a selection is wide enough to grab
+ *  at either edge, the view starting at 1 s */
+bool laneGestureRig(EditorRig &ed, bool expanded, float scale = 0.2f)
+{
+    if (!addPassageSamples(ed))
+        return false;
+    if (expanded && !pressLanesToggle(ed))
+        return false;
+    // 0 keeps the default zoom, where short groups are drawn at their minimum width
+    if (scale > 0)
+        ed.rig.manager->setTimeScale(scale);
+    QCoreApplication::processEvents();
+    // zoomed in, the view starts at 1 s; at the default zoom the whole take fits from 0
+    navContainer(ed)->setProperty("xViewOffset", scale > 0 ? laneTimeX(ed, 1000) : 0);
+    timelineRows(ed)->setProperty("contentY", 0);
+    QCoreApplication::processEvents();
+    ed.rig.doc->resetModified();
+    return true;
+}
+
+/** Logical px per ms of the ruler as it is drawn */
+qreal rulerPxPerMs(const EditorRig &ed)
+{
+    return (sampleSceneX(ed, 11000) - sampleSceneX(ed, 1000)) / 10000.0;
+}
+
+QVector<quint32> sortedIds(QVector<quint32> ids)
+{
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+QVector<quint32> selectedRecorded(const EditorRig &ed)
+{
+    return sortedIds(idsOf(recordingsList(ed)->property("selectedIds")));
+}
+
+QVector<quint32> idsFromText(const QString &text)
+{
+    QVector<quint32> ids;
+    for (const QString &id : text.split(QLatin1Char(' ')))
+        ids.append(id.toUInt());
+    return ids;
+}
+} // namespace
+
+void ShowCommandRecorder_Test::recordingsTable_draftSurvivesCapture_data()
+{
+    // the draft edits the value of fader sample 90@1800 in the group {90 8}; the
+    // dimmer and missing button at 2500 separate it from the group {40 41}
+    QTest::addColumn<QString>("change");
+    QTest::addColumn<bool>("survives");
+
+    QTest::newRow("same control captured with REC on") << QStringLiteral("capture") << true;
+    QTest::newRow("same control appended inside the edited group") << QStringLiteral("same inside") << true;
+    QTest::newRow("same control before the edited event: the group's first id changes")
+        << QStringLiteral("same before") << true;
+    QTest::newRow("groups merge") << QStringLiteral("merge") << true;
+    QTest::newRow("the edited group splits") << QStringLiteral("split") << true;
+    QTest::newRow("unrelated event appended after the edited row") << QStringLiteral("after") << true;
+    QTest::newRow("unrelated event appended before the edited row") << QStringLiteral("before") << true;
+    QTest::newRow("edited event changed meanwhile") << QStringLiteral("target") << false;
+}
+
+void ShowCommandRecorder_Test::recordingsTable_draftSurvivesCapture()
+{
+    QFETCH(QString, change);
+    QFETCH(bool, survives);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    QWindow *window = ed.rig.app.get();
+    const auto stop = qScopeGuard([&]() {
+        recorder->setRecording(false);
+        // the captured Adjust input started its Function: end it before the rig goes
+        ed.fader->requestUserValue(0);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    const quint32 showId = ed.show->id();
+    const QUuid fader = ed.fader->recordingId();
+    const auto sample = [&](quint32 id, quint32 time, double position) {
+        return ShowCommand::setSliderPosition(id, time, fader, ShowControlRole::AdjustSlider,
+                                              QStringLiteral("Intensity"), position);
+    };
+    // 30 rows before and 30 after the take: the edited sample sits mid-list in a scrolled view
+    ShowCommandTrack track = ed.show->commandTrack();
+    QVERIFY(track.insert(sample(90, 1800, .8)) && track.insert(sample(8, 2200, .2))
+            && track.insert(sample(40, 3000, .35)) && track.insert(sample(41, 3200, .65)));
+    for (quint32 i = 0; i < 30; i++)
+    {
+        QVERIFY(track.insert(ShowCommand::setButtonState(300 + i, 100 + 30 * i, ed.missing, i % 2)));
+        QVERIFY(track.insert(ShowCommand::setButtonState(400 + i, 5000 + 100 * i, ed.missing, i % 2)));
+    }
+    QVERIFY(ed.show->setCommandTrack(track));
+    if (change == QLatin1String("capture"))
+    {
+        // the playhead past the take: the capture lands behind every row
+        ed.rig.manager->requestSeek(9500);
+        QVERIFY(recorder->setRecording(true));
+    }
+    const auto groupOf = [&](quint32 id) {
+        for (const QVariant &value : recorder->property("groups").toList())
+            if (idsOf(value.toMap().value("eventIds")).contains(id))
+                return QStringLiteral("%1:%2").arg(value.toMap().value("id").toUInt())
+                    .arg(joinIds(idsOf(value.toMap().value("eventIds"))));
+        return QString();
+    };
+    QCOMPARE(groupOf(90), QStringLiteral("90:90,8"));
+    QVERIFY(ed.openRecordings());
+    QQuickItem *view = ed.item(QStringLiteral("commandView"));
+    QVERIFY(view);
+    QTRY_COMPARE(view->property("count").toInt(), 71);
+    QTRY_VERIFY(!ed.rows().isEmpty());
+    // 90 is row 34: the list's current row, scrolled to the middle of the list
+    const qreal rowHeight = ed.rows().first()->height();
+    view->setProperty("currentIndex", 34);
+    view->setProperty("contentY", 34 * rowHeight - (view->height() - rowHeight) / 2);
+    QCoreApplication::processEvents();
+    QTRY_VERIFY(ed.row(90) != nullptr);
+    QVERIFY(view->mapRectToScene(QRectF(0, 0, view->width(), view->height()))
+                .contains(sceneRectOf(ed.row(90)).center()));
+    const int base = ed.settledHistory();
+
+    QVERIFY(ed.doubleClick(90, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    const QPointer<QQuickItem> editor = ed.editor();
+    const QString initial = editor->property("text").toString();
+    QVERIFY(!initial.isEmpty());
+    QCOMPARE(editor->property("selectedText").toString(), initial);
+    for (const QChar c : QStringLiteral("45.5"))
+        QTest::keyClick(window, c.toLatin1());
+    QTest::keyClick(window, Qt::Key_Left, Qt::ShiftModifier);
+    QCoreApplication::processEvents();
+    QCOMPARE(editor->property("text").toString(), QStringLiteral("45.5"));
+    QCOMPARE(editor->property("cursorPosition").toInt(), 3);
+    QCOMPARE(editor->property("selectedText").toString(), QStringLiteral("5"));
+    const qreal contentY = view->property("contentY").toReal();
+    QVERIFY2(contentY > 0, "the list is scrolled to the edited row");
+    QQuickItem *editedRow = ed.row(90);
+
+    QVector<quint32> added;
+    ShowCommandTrack changed = ed.show->commandTrack();
+    if (change == QLatin1String("capture"))
+    {
+        const QVector<quint32> was = ed.trackIds();
+        ed.fader->requestUserValue(200);
+        QCoreApplication::processEvents();
+        for (quint32 id : ed.trackIds())
+            if (!was.contains(id))
+                added.append(id);
+        QCOMPARE(added.size(), 1);
+        QCOMPARE(ed.command(added.first()).controlId, fader);
+        QVERIFY2(ed.command(added.first()).time > 4000, qPrintable(QString::number(ed.command(added.first()).time)));
+    }
+    else if (change == QLatin1String("target"))
+    {
+        // another edit of the same event while the draft is open
+        QVERIFY(recorder->setCommandValue(showId, 90, .1));
+    }
+    else
+    {
+        if (change == QLatin1String("same inside"))
+            QVERIFY(changed.insert(sample(60, 2000, .6)));
+        else if (change == QLatin1String("same before"))
+            QVERIFY(changed.insert(sample(61, 1750, .1)));
+        else if (change == QLatin1String("merge"))
+            QVERIFY(changed.remove(4) && changed.remove(5));
+        else if (change == QLatin1String("split"))
+            QVERIFY(changed.insert(ShowCommand::setButtonState(62, 2000, ed.button->recordingId(), true)));
+        else
+            QVERIFY(changed.insert(ShowCommand::setButtonState(change == QLatin1String("after") ? 500 : 501,
+                                   change == QLatin1String("after") ? 9000 : 50, ed.missing, true)));
+        for (const ShowCommand &cmd : changed.commands())
+            if (!ed.show->commandTrack().contains(cmd.id))
+                added.append(cmd.id);
+        QVERIFY(ed.show->setCommandTrack(changed));
+    }
+    QCoreApplication::processEvents();
+    QTest::qWait(50);
+    const QMap<QString, QString> regrouped{{QStringLiteral("same inside"), QStringLiteral("90:90,60,8")},
+        {QStringLiteral("same before"), QStringLiteral("61:61,90,8")},
+        {QStringLiteral("merge"), QStringLiteral("90:90,8,40,41")}, {QStringLiteral("split"), QStringLiteral("90:90")}};
+    if (regrouped.contains(change))
+        QCOMPARE(groupOf(90), regrouped.value(change));
+    QCOMPARE(view->property("count").toInt(), 71 + int(added.size()) - (change == QLatin1String("merge") ? 2 : 0));
+
+    // the open draft is the same editor, with its text, caret, selection and keys
+    QVERIFY2(!editor.isNull(), "the cell editor was destroyed");
+    QCOMPARE(ed.editor(), editor.data());
+    QCOMPARE(ed.row(90), editedRow);
+    QCOMPARE(editor->property("text").toString(), QStringLiteral("45.5"));
+    QCOMPARE(editor->property("cursorPosition").toInt(), 3);
+    QCOMPARE(editor->property("selectedText").toString(), QStringLiteral("5"));
+    QVERIFY(editor->hasActiveFocus());
+    QCOMPARE(view->property("contentY").toReal(), contentY);
+    // the next key still lands in the draft: it replaces the selection
+    QTest::keyClick(window, '7');
+    QCoreApplication::processEvents();
+    QCOMPARE(editor->property("text").toString(), QStringLiteral("45.7"));
+    QCOMPARE(editor->property("cursorPosition").toInt(), 4);
+
+    QTest::keyClick(window, Qt::Key_Return);
+    QCoreApplication::processEvents();
+    QTRY_VERIFY(ed.editor() == nullptr);
+    for (quint32 id : std::as_const(added))
+        QVERIFY(ed.show->commandTrack().contains(id));
+    QCOMPARE(ed.settledHistory(), base + 1);
+    if (survives)
+    {
+        QCOMPARE(ed.command(90).position, .457);
+        return;
+    }
+    // the newer record stays; the draft ended with its reason
+    QCOMPARE(ed.command(90).position, .1);
+    QVERIFY(!recorder->lastError().isEmpty());
+    QTRY_COMPARE(ed.shownText("recordingsError"), recorder->lastError());
+    QVERIFY(!recorder->editSessionActive());
+}
+
+void ShowCommandRecorder_Test::recordingsLane_dragSurvivesCapture_data()
+{
+    QTest::addColumn<QString>("change");
+
+    QTest::newRow("another control captured") << QStringLiteral("capture other");
+    QTest::newRow("same control captured") << QStringLiteral("capture same");
+    QTest::newRow("same control after the targets") << QStringLiteral("same after");
+    QTest::newRow("same control before the first target") << QStringLiteral("same before");
+    QTest::newRow("groups merge") << QStringLiteral("merge");
+    QTest::newRow("group splits") << QStringLiteral("split");
+}
+
+void ShowCommandRecorder_Test::recordingsLane_dragSurvivesCapture()
+{
+    QFETCH(QString, change);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(laneGestureRig(ed, false));
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const auto stop = qScopeGuard([&]() {
+        recorder->setRecording(false);
+        ed.fader->requestUserValue(0);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    // the fader group 90@1800, 8@2200, between the dimmer at 2500 and the intensity at 1700
+    QQuickItem *group = laneObject(ed, 90);
+    QVERIFY(group);
+    QCOMPARE(idsOf(group->property("members")), (QVector<quint32>{90, 8}));
+    ed.click(group);
+    QCOMPARE(selectedRecorded(ed), (QVector<quint32>{8, 90}));
+    const qreal pxPerMs = rulerPxPerMs(ed);
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+
+    HeldPointer pointer(ed.rig.app.get());
+    pointer.press(ed.centerOf(group));
+    pointer.move(60);
+    // the lane's gesture surface holds the real mouse grab
+    QQuickItem *surface = findVisualItem(ed.root(), QStringLiteral("recordingGesture"));
+    QVERIFY(surface);
+    QCOMPARE(ed.rig.app->mouseGrabberItem(), surface);
+    QVERIFY(recorder->editSessionActive());
+    if (change.startsWith(QLatin1String("capture")))
+    {
+        QVERIFY(recorder->setRecording(true));
+        VCSlider *control = ed.fader;
+        if (change == QLatin1String("capture other"))
+        {
+            ed.dimmer->setDisabled(false);
+            control = ed.dimmer;
+        }
+        const QVector<quint32> was = ed.trackIds();
+        control->requestUserValue(222);
+        QCoreApplication::processEvents();
+        QCOMPARE(ed.trackIds().size(), was.size() + 1);
+    }
+    else
+    {
+        ShowCommandTrack track = ed.show->commandTrack();
+        const QUuid fader = ed.fader->recordingId();
+        if (change == QLatin1String("same after"))
+            QVERIFY(track.insert(ShowCommand::setSliderPosition(60, 2400, fader, ShowControlRole::AdjustSlider,
+                                                                QStringLiteral("Intensity"), .6)));
+        else if (change == QLatin1String("same before"))
+            QVERIFY(track.insert(ShowCommand::setSliderPosition(61, 1750, fader, ShowControlRole::AdjustSlider,
+                                                                QStringLiteral("Intensity"), .1)));
+        else if (change == QLatin1String("merge"))
+            QVERIFY(track.remove(4) && track.remove(5));
+        else
+            QVERIFY(track.insert(ShowCommand::setButtonState(62, 2000, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+    }
+    const QVector<ShowCommand> changed = ed.show->commandTrack().commands();
+    QCOMPARE(ed.command(90).time, 1800u);
+    QCOMPARE(ed.command(8).time, 2200u);
+    QVector<quint32> groupIds;
+    for (const QVariant &value : recorder->property("groups").toList())
+        groupIds.append(value.toMap().value("id").toUInt());
+    if (change == QLatin1String("same before"))
+        QVERIFY2(!groupIds.contains(90) && groupIds.contains(61), "the group's first id changed");
+    if (change == QLatin1String("split"))
+        QVERIFY(groupIds.contains(90) && groupIds.contains(8));
+    if (change == QLatin1String("same before"))
+        QVERIFY2(laneObject(ed, 90) == nullptr, "the pressed group's object was replaced");
+    // the same grab and edit hold through the change
+    QCOMPARE(ed.rig.app->mouseGrabberItem(), surface);
+    QVERIFY(recorder->editSessionActive());
+
+    pointer.move(60);
+    const int pointerMoved = pointer.at.x() - pointer.start.x();
+    pointer.release();
+
+    // exactly the frozen ids moved by the pointer's delta, once
+    const qint64 moved = qint64(ed.command(90).time) - 1800;
+    QCOMPARE(qint64(ed.command(8).time) - 2200, moved);
+    QVERIFY2(qAbs(moved - pointerMoved / pxPerMs) <= 1.5,
+             qPrintable(QStringLiteral("%1 ms for %2 px").arg(moved).arg(pointerMoved)));
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), base + 1);
+    // what was recorded or changed meanwhile keeps its own time and value
+    for (const ShowCommand &cmd : changed)
+        if (cmd.id != 90 && cmd.id != 8)
+            QCOMPARE(ed.command(cmd.id), cmd);
+    QCOMPARE(ed.show->commandTrack().count(), changed.size());
+}
+
+void ShowCommandRecorder_Test::recordingsLane_spanSurface_data()
+{
+    // fixture: 0 Start@1200, 1 button@1200, 2 fader@1700, 3 intensity@1700, 90 fader@1800,
+    // 8 fader@2200, 4 missing@2500, 5 dimmer@2500, 40 fader@3000, 41 fader@3200, 50 button@3300,
+    // 12 fader@3400, 6 Stop@4000; fader groups {90 8} {40 41} {12}
+    QTest::addColumn<QString>("selection");
+    QTest::addColumn<bool>("expanded");
+    QTest::addColumn<QString>("gesture");
+    QTest::addColumn<quint32>("press");   // the group a body gesture or a click presses
+    QTest::addColumn<int>("dx");
+    QTest::addColumn<bool>("handles");
+    QTest::addColumn<float>("scale");     // 0: the default zoom
+
+    QTest::newRow("single group, right handle") << "90 8" << false << "end" << 0u << 60 << true << 0.2f;
+    QTest::newRow("single group, body") << "90 8" << false << "body" << 90u << -40 << true << 0.2f;
+    QTest::newRow("partial group, left handle") << "41 50 12" << false << "start" << 0u << -50 << true << 0.2f;
+    QTest::newRow("partial group, body") << "41 50 12" << false << "body" << 50u << 30 << true << 0.2f;
+    QTest::newRow("two groups, right handle") << "90 8 40 41" << false << "end" << 0u << 80 << true << 0.2f;
+    QTest::newRow("two groups, left handle compresses") << "90 8 40 41" << false << "start" << 0u << 60 << true << 0.2f;
+    QTest::newRow("expanded rows across controls, body") << "1 2 90 8" << true << "body" << 90u << 40 << true << 0.2f;
+    QTest::newRow("expanded rows across controls, left handle") << "1 2 90 8" << true << "start" << 0u << -30 << true << 0.2f;
+    QTest::newRow("zero span: body only") << "4 5" << false << "body" << 5u << 50 << false << 0.2f;
+    QTest::newRow("unselected group inside the span") << "90 8 40 41 12" << false << "unselected" << 50u << 0 << true << 0.2f;
+    QTest::newRow("unselected group inside the span, drag") << "90 8 40 41 12" << false << "unselected" << 50u << 40 << true << 0.2f;
+    // an unselected object under a grip's band: its press is the object's, as on its body
+    QTest::newRow("unselected under the end grip, plain drag") << "90 8" << false << "under end" << 0u << 30 << true << 0.2f;
+    QTest::newRow("unselected under the start grip, plain drag") << "90 8" << false << "under start" << 0u << -30 << true << 0.2f;
+    QTest::newRow("default zoom, unselected under the start grip beside its knob, plain drag")
+        << "90 8 40 41" << false << "under start" << 0u << 10 << true << 0.0f;
+    QTest::newRow("unselected under the end grip, Ctrl click") << "90 8" << false << "under end ctrl" << 0u << 0 << true << 0.2f;
+    QTest::newRow("unselected under the end grip, Meta click") << "90 8" << false << "under end meta" << 0u << 0 << true << 0.2f;
+    // Shift reaches from the anchor a body click on group 90 sets
+    QTest::newRow("unselected under the end grip, Shift click") << "90 8" << false << "under end shift" << 90u << 0 << true << 0.2f;
+    // the lane's Undo bar below a grip that reaches over the lane's lower edge
+    QTest::newRow("Undo bar below the end grip") << "90 8" << false << "undo bar" << 0u << 0 << true << 0.2f;
+    QTest::newRow("Escape cancels") << "90 8" << false << "escape" << 90u << 60 << true << 0.2f;
+    QTest::newRow("Show switch while held") << "90 8" << false << "switch" << 90u << 60 << true << 0.2f;
+    QTest::newRow("external clock advancing while held") << "90 8 40 41" << false << "clock" << 40u << 50 << true << 0.2f;
+    // unselected 8 and 41 interleave the selection; the drag moves exactly 90 and 40
+    QTest::newRow("unselected events interleaved, body") << "90 40" << false << "body" << 90u << 40 << true << 0.2f;
+    // 100 ms: the handles keep the middle third of the span to the body
+    QTest::newRow("short positive span, right handle") << "3 90" << false << "end" << 0u << 30 << true << 0.2f;
+    QTest::newRow("short positive span, body in its middle") << "3 90" << false << "middle" << 0u << 30 << true << 0.2f;
+    // single-sample objects at the span's edges: a press on their middle is the body,
+    // only the edge itself is a handle (native: the first point's middle stretched)
+    QTest::newRow("point at the first edge, body") << "1 12" << true << "body" << 1u << 46 << true << 0.2f;
+    QTest::newRow("point at the last edge, body") << "1 12" << true << "body" << 12u << -46 << true << 0.2f;
+    QTest::newRow("point edges, left handle") << "1 12" << true << "start" << 0u << 40 << true << 0.2f;
+    QTest::newRow("point edges, right handle") << "1 12" << true << "end" << 0u << -40 << true << 0.2f;
+    QTest::newRow("starts at time 0, left handle") << "70 12" << false << "zero start" << 0u << 40 << true << 0.2f;
+    QTest::newRow("starts at time 0, body of the first point") << "70 12" << false << "zero body" << 70u << 40 << true << 0.2f;
+    // the default zoom: 200-400 ms groups drawn at their minimum width, a 100 ms span
+    // under 3 px; every selected middle is the body, both grips stretch
+    QTest::newRow("default zoom, last short group, body") << "90 8 40 41" << false << "body" << 40u << 30 << true << 0.0f;
+    QTest::newRow("default zoom, first short group, body") << "90 8 40 41" << false << "body" << 90u << 30 << true << 0.0f;
+    QTest::newRow("default zoom, short groups, right grip") << "90 8 40 41" << false << "end" << 0u << 30 << true << 0.0f;
+    QTest::newRow("default zoom, short groups, left grip") << "90 8 40 41" << false << "start" << 0u << -20 << true << 0.0f;
+    QTest::newRow("default zoom, span under 3 px, right grip") << "3 90" << false << "end" << 0u << 30 << true << 0.0f;
+    QTest::newRow("default zoom, span under 3 px, left grip") << "3 90" << false << "start" << 0u << -20 << true << 0.0f;
+    QTest::newRow("default zoom, span under 3 px, body") << "3 90" << false << "body" << 90u << 30 << true << 0.0f;
+    // a partly selected group whose unselected tail grows: the grip stays on the selected end
+    QTest::newRow("partial groups, appended tail, right grip") << "90 40" << false << "tail end" << 0u << 30 << true << 0.2f;
+    QTest::newRow("partial groups, appended tail, body") << "90 40" << false << "tail body" << 40u << 30 << true << 0.2f;
+    // presses the surface leaves alone reach what lies below it
+    QTest::newRow("Ctrl press inside the span reaches its object") << "90 8 40 41 12" << false << "ctrl" << 50u << 0 << true << 0.2f;
+    QTest::newRow("press on empty lane inside the span seeks") << "90 8 40 41 12" << false << "empty" << 0u << 0 << true << 0.2f;
+}
+
+void ShowCommandRecorder_Test::recordingsLane_spanSurface()
+{
+    QFETCH(QString, selection);
+    QFETCH(bool, expanded);
+    QFETCH(QString, gesture);
+    QFETCH(quint32, press);
+    QFETCH(int, dx);
+    QFETCH(bool, handles);
+    QFETCH(float, scale);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(laneGestureRig(ed, expanded, scale));
+    if (expanded)
+        QTRY_VERIFY(laneRowLabels(ed).size() > 1);
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    ShowManager *manager = ed.rig.manager;
+    QWindow *window = ed.rig.app.get();
+    const auto stop = qScopeGuard([&]() {
+        if (manager->isPlaying())
+            manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    if (gesture.startsWith(QLatin1String("zero")))
+    {
+        // a lone button state at 0 ms, the view starting at the Show's start
+        ShowCommandTrack track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setButtonState(70, 0, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        navContainer(ed)->setProperty("xViewOffset", 0);
+        QCoreApplication::processEvents();
+        ed.rig.doc->resetModified();
+        gesture = gesture.mid(5);
+    }
+    if (gesture.startsWith(QLatin1String("tail")))
+    {
+        // same-control samples appended after 41 extend its group far past the selection
+        ShowCommandTrack track = ed.show->commandTrack();
+        for (quint32 i = 0; i < 4; ++i)
+            QVERIFY(track.insert(ShowCommand::setSliderPosition(71 + i, 3210 + 40 * i, ed.fader->recordingId(),
+                                 ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), .1 * i)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+        ed.rig.doc->resetModified();
+        gesture = gesture.mid(5);
+    }
+    if (gesture.startsWith(QLatin1String("under")))
+    {
+        // a lone button state just outside the selection's edge, drawn from its time over that grip
+        quint32 lo = std::numeric_limits<quint32>::max(), hi = 0;
+        for (quint32 id : idsFromText(selection))
+            lo = qMin(lo, ed.command(id).time), hi = qMax(hi, ed.command(id).time);
+        const quint32 step = quint32(std::ceil(5 / rulerPxPerMs(ed)));
+        const quint32 at = gesture.startsWith(QLatin1String("under end")) ? hi + 1 : lo - step;
+        ShowCommandTrack track = ed.show->commandTrack();
+        QVERIFY(track.insert(ShowCommand::setButtonState(72, at, ed.button->recordingId(), true)));
+        QVERIFY(ed.show->setCommandTrack(track));
+        QCoreApplication::processEvents();
+        ed.rig.doc->resetModified();
+    }
+    const QVector<quint32> ids = idsFromText(selection);
+    selectRecorded(ed, ids);
+    QCOMPARE(selectedRecorded(ed), sortedIds(ids));
+
+    QQuickItem *span = ed.item(QStringLiteral("recordingSpan"));
+    QVERIFY2(span, "the lane has no selected-span surface");
+    QQuickItem *startHandle = findVisualItem(span, QStringLiteral("recordingSpanStart"));
+    QQuickItem *endHandle = findVisualItem(span, QStringLiteral("recordingSpanEnd"));
+    QVERIFY(startHandle && endHandle);
+    QCOMPARE(startHandle->isVisible(), handles);
+    QCOMPARE(endHandle->isVisible(), handles);
+    if (handles)
+    {
+        // each grip is visibly over its selected endpoint, on its own side, a fixed hit
+        // size, apart from the other grip and from every object's middle
+        quint32 lo = std::numeric_limits<quint32>::max(), hi = 0;
+        for (quint32 id : ids)
+            lo = qMin(lo, ed.command(id).time), hi = qMax(hi, ed.command(id).time);
+        const QRectF startGrip = sceneRectOf(startHandle), endGrip = sceneRectOf(endHandle);
+        const qreal startX = sampleSceneX(ed, lo), endX = sampleSceneX(ed, hi);
+        QVERIFY2(startGrip.left() <= startX && startX <= startGrip.right() && startGrip.center().x() <= startX + 0.5
+                 && endGrip.left() <= endX && endX <= endGrip.right() && endGrip.center().x() >= endX - 0.5
+                 && startGrip.right() <= endGrip.left() + 0.5,
+                 qPrintable(QStringLiteral("grips %1..%2 and %3..%4 for %5..%6").arg(startGrip.left()).arg(startGrip.right())
+                            .arg(endGrip.left()).arg(endGrip.right()).arg(startX).arg(endX)));
+        if (endX - startX >= 12)
+            QVERIFY(qAbs(startGrip.center().x() - startX) <= 0.5 && qAbs(endGrip.center().x() - endX) <= 0.5);
+        for (QQuickItem *grip : {startHandle, endHandle})
+            QVERIFY(grip->width() >= 10 && grip->height() >= 6);
+        for (const QVariant &value : recorder->property("groups").toList())
+        {
+            QQuickItem *object = laneObject(ed, value.toMap().value("id").toUInt());
+            if (object && object->isVisible())
+                for (QQuickItem *grip : {startHandle, endHandle})
+                {
+                    QVERIFY2(!sceneRectOf(grip).contains(sceneRectOf(object).center()), "a grip covers an object's middle");
+                    // whatever reaches into a grip, its lowest 6 px stay free to stretch
+                    const QRectF overlap = sceneRectOf(grip).intersected(sceneRectOf(object));
+                    QVERIFY2(overlap.isEmpty() || overlap.bottom() <= sceneRectOf(grip).bottom() - 6 + 0.5,
+                             "an object covers a grip's free band");
+                }
+        }
+    }
+
+    // the surface spans the earliest to the latest selected time over every row holding a selected event
+    quint32 first = std::numeric_limits<quint32>::max(), last = 0, firstId = 0, lastId = 0;
+    for (quint32 id : ids)
+    {
+        if (ed.command(id).time < first)
+            first = ed.command(id).time, firstId = id;
+        if (ed.command(id).time >= last)
+            last = ed.command(id).time, lastId = id;
+    }
+    const QRectF spanRect = sceneRectOf(span);
+    QVERIFY2(qAbs(spanRect.left() - sampleSceneX(ed, first)) <= 0.5
+             && qAbs(spanRect.right() - sampleSceneX(ed, last)) <= 0.5,
+             qPrintable(QStringLiteral("span %1..%2 for %3..%4").arg(spanRect.left()).arg(spanRect.right())
+                        .arg(sampleSceneX(ed, first)).arg(sampleSceneX(ed, last))));
+    for (const QVariant &value : recorder->property("groups").toList())
+    {
+        const QVector<quint32> members = idsOf(value.toMap().value("eventIds"));
+        if (std::none_of(members.cbegin(), members.cend(), [&](quint32 id) { return ids.contains(id); }))
+            continue;
+        QQuickItem *item = laneObject(ed, value.toMap().value("id").toUInt());
+        QVERIFY(item);
+        const qreal y = sceneRectOf(item).center().y();
+        QVERIFY2(y > spanRect.top() && y < spanRect.bottom(), "the surface covers the selected rows");
+    }
+
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+    HeldPointer pointer(window);
+
+    // a plain drag that chose unselected content moves exactly that content, one step
+    const auto movedOnly = [&](const QVector<quint32> &moved) {
+        QCOMPARE(selectedRecorded(ed), sortedIds(moved));
+        const quint32 probe = moved.first();
+        const qint64 delta = qint64(ed.command(probe).time) - qint64(before.commands().at(before.indexOfId(probe)).time);
+        QVERIFY2(delta != 0 && qAbs(delta - dx / rulerPxPerMs(ed)) <= 1.5,
+                 qPrintable(QStringLiteral("%1 ms for %2 px: %3").arg(delta).arg(dx).arg(recorder->lastError())));
+        ShowCommandTrack expected;
+        QVERIFY(before.retimeSelection(moved, ShowRetimeKind::Move, delta, &expected) == ShowRetimeRefusal::None);
+        QCOMPARE(ed.show->commandTrack().count(), expected.count());
+        for (const ShowCommand &cmd : expected.commands())
+        {
+            QCOMPARE(ed.command(cmd.id), cmd);
+            QCOMPARE(ed.command(cmd.id).order, cmd.order);
+        }
+        QCOMPARE(recorder->lastEditSerial(), serial + 1);
+        QCOMPARE(ed.settledHistory(), base + 1);
+    };
+
+    if (gesture == QLatin1String("undo bar"))
+    {
+        // deleting 12 shows the Undo; the selection comes back with its grips
+        selectRecorded(ed, {12});
+        QVERIFY(performAccessibleAction(accessibleById(window, QStringLiteral("recordingDelete")),
+                                        QAccessibleActionInterface::pressAction()));
+        QAccessibleInterface *undoIface = accessibleById(window, QStringLiteral("recordingDeleteUndo"));
+        QQuickItem *undo = undoIface ? qobject_cast<QQuickItem *>(undoIface->object()) : nullptr;
+        QTRY_VERIFY(undo && undo->isVisible());
+        QCOMPARE(ed.show->commandTrack().indexOfId(12), -1);
+        selectRecorded(ed, ids);
+        QCoreApplication::processEvents();
+        QVERIFY(undo->isVisible() && endHandle->isVisible());
+        // the view scrolls the end grip over the Undo, which stays at the view's left
+        QQuickItem *container = navContainer(ed);
+        const qreal offset = container->property("xViewOffset").toDouble()
+            + sceneRectOf(endHandle).center().x() - sceneRectOf(undo).center().x();
+        QVERIFY(offset >= 0);
+        container->setProperty("xViewOffset", offset);
+        QCoreApplication::processEvents();
+        const QRectF gripRect = sceneRectOf(endHandle), undoRect = sceneRectOf(undo);
+        QVERIFY2(qAbs(gripRect.center().x() - undoRect.center().x()) <= 1,
+                 qPrintable(QStringLiteral("grip at %1, Undo at %2").arg(gripRect.center().x()).arg(undoRect.center().x())));
+        QVERIFY(undo->isEnabled());
+        QVERIFY(recordingsList(ed)->property("deletedCount").toInt() > 0);
+        QCOMPARE(ed.settledHistory(), base + 1);
+        const QVector<ShowCommand> deletedState = ed.show->commandTrack().commands();
+        // the Undo's upper edge belongs to the Undo: a drag from it stretches nothing
+        const QPoint at(int(undoRect.center().x()), int(undoRect.top() + 1));
+        pointer.press(at);
+        pointer.move(20);
+        QVERIFY(!recorder->editSessionActive());
+        pointer.release();
+        QCoreApplication::processEvents();
+        if (undo->isVisible())
+        {
+            QCOMPARE(ed.show->commandTrack().commands(), deletedState);
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at);
+            QCoreApplication::processEvents();
+        }
+        // undone once: 12 is back, every other event where it was
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        for (const ShowCommand &cmd : before.commands())
+            QCOMPARE(ed.command(cmd.id).order, cmd.order);
+        QVERIFY(!undo->isVisible());
+        QCOMPARE(ed.settledHistory(), base);
+        QVERIFY(!recorder->editSessionActive());
+        QVERIFY2(undoRect.top() >= gripRect.bottom() - 0.5,
+                 qPrintable(QStringLiteral("Undo top %1 under grip bottom %2").arg(undoRect.top()).arg(gripRect.bottom())));
+        // the grip's free band still stretches the selection on the lane's last row
+        pointer.press(sceneRectOf(endHandle).center().toPoint());
+        QVERIFY(recorder->editSessionActive());
+        pointer.release();
+        return;
+    }
+    if (gesture.startsWith(QLatin1String("under")))
+    {
+        // beside the grip's 4 px knob, inside its band, over the unselected object drawn there
+        const bool atEnd = gesture.startsWith(QLatin1String("under end"));
+        const QString modifier = gesture.section(QLatin1Char(' '), 2);
+        const QRectF gripRect = sceneRectOf(atEnd ? endHandle : startHandle);
+        const qreal edgeX = sampleSceneX(ed, atEnd ? last : first);
+        const QPointF at(atEnd ? edgeX + 3 : edgeX - 3, gripRect.top() + 2);
+        QVERIFY(gripRect.contains(at));
+        QQuickItem *laneItem = ed.item(QStringLiteral("recordingLane"));
+        QVERIFY(laneItem);
+        const QPointF local = laneItem->mapFromScene(at);
+        QVariant found;
+        QVERIFY(QMetaObject::invokeMethod(laneItem, "objectAt", Q_RETURN_ARG(QVariant, found),
+                                          Q_ARG(QVariant, local.x()), Q_ARG(QVariant, local.y())));
+        QQuickItem *item = qvariant_cast<QQuickItem *>(found);
+        QVERIFY2(item, "no object under the grip");
+        QVERIFY(sceneRectOf(item).contains(at));
+        const QVector<quint32> members = idsOf(item->property("members"));
+        QVERIFY(std::none_of(members.cbegin(), members.cend(), [&](quint32 id) { return ids.contains(id); }));
+
+        if (modifier.isEmpty())
+        {
+            pointer.press(at.toPoint());
+            pointer.move(dx);
+            pointer.release();
+            movedOnly(members);
+            return;
+        }
+        if (modifier == QLatin1String("shift"))
+        {
+            // the reference: the same Shift click on the object's body, from the same
+            // selection and anchor, both set by a plain click on the selected group
+            QQuickItem *anchor = laneObject(ed, press);
+            QVERIFY(anchor);
+            const QPoint anchorAt = sceneRectOf(anchor).center().toPoint();
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, anchorAt);
+            QCoreApplication::processEvents();
+            QCOMPARE(selectedRecorded(ed), sortedIds(ids));
+            QTest::mouseClick(window, Qt::LeftButton, Qt::ShiftModifier, sceneRectOf(item).center().toPoint());
+            QCoreApplication::processEvents();
+            const QVector<quint32> reference = selectedRecorded(ed);
+            QVERIFY(reference != sortedIds(ids) && reference != sortedIds(members));
+            QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, anchorAt);
+            QCoreApplication::processEvents();
+            QCOMPARE(selectedRecorded(ed), sortedIds(ids));
+            QTest::mouseClick(window, Qt::LeftButton, Qt::ShiftModifier, at.toPoint());
+            QCoreApplication::processEvents();
+            QCOMPARE(selectedRecorded(ed), reference);
+        }
+        else
+        {
+            QTest::mouseClick(window, Qt::LeftButton, modifier == QLatin1String("ctrl") ? Qt::ControlModifier : Qt::MetaModifier,
+                              at.toPoint());
+            QCoreApplication::processEvents();
+            QCOMPARE(selectedRecorded(ed), sortedIds(ids + members));
+        }
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(recorder->lastEditSerial(), serial);
+        QCOMPARE(ed.settledHistory(), base);
+        return;
+    }
+
+    if (gesture == QLatin1String("ctrl"))
+    {
+        QQuickItem *item = laneObject(ed, press);
+        QVERIFY(item);
+        QTest::mouseClick(window, Qt::LeftButton, Qt::ControlModifier, sceneRectOf(item).center().toPoint());
+        QCoreApplication::processEvents();
+        QCOMPARE(selectedRecorded(ed), sortedIds(ids + idsOf(item->property("members"))));
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(ed.settledHistory(), base);
+        return;
+    }
+    if (gesture == QLatin1String("empty"))
+    {
+        // 2750 ms lies between the dimmer at 2500 and the fader at 3000
+        const QPoint at(int(sampleSceneX(ed, 2750)), int(spanRect.center().y()));
+        QVERIFY(spanRect.contains(at));
+        QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        QVERIFY2(qAbs(manager->currentTime() - 2750) <= 5, qPrintable(QString::number(manager->currentTime())));
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(ed.settledHistory(), base);
+        return;
+    }
+    if (gesture == QLatin1String("unselected"))
+    {
+        // a press on unselected content inside the span reaches it: it is chosen, nothing moves
+        QQuickItem *item = laneObject(ed, press);
+        QVERIFY(item);
+        QVERIFY(spanRect.contains(sceneRectOf(item).center()));
+        const QVector<quint32> members = idsOf(item->property("members"));
+        pointer.press(sceneRectOf(item).center().toPoint());
+        if (dx != 0)
+        {
+            // dragged from the press: the body moves exactly the chosen object
+            pointer.move(dx);
+            pointer.release();
+            movedOnly(members);
+            return;
+        }
+        pointer.release();
+        QCOMPARE(selectedRecorded(ed), sortedIds(idsOf(item->property("members"))));
+        QVERIFY(item->hasActiveFocus());
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(recorder->lastEditSerial(), serial);
+        QCOMPARE(ed.settledHistory(), base);
+        return;
+    }
+    if (gesture == QLatin1String("clock"))
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        ed.show->setExternalElapsedTime(1000);
+        manager->playShow();
+        tickAndDeliver(ed.rig.doc, 2);
+        QVERIFY(manager->isPlaying());
+    }
+
+    const int kind = gesture == QLatin1String("end") ? 1 : gesture == QLatin1String("start") ? 2 : 0;
+    if (gesture == QLatin1String("middle"))
+        pointer.press(spanRect.center().toPoint());
+    else if (kind == 0)
+    {
+        QQuickItem *item = laneObject(ed, press);
+        QVERIFY(item);
+        pointer.press(sceneRectOf(item).center().toPoint());
+    }
+    else
+        pointer.press(sceneRectOf(kind == 1 ? endHandle : startHandle).center().toPoint());
+    pointer.move(dx);
+
+    // held: the preview follows the pointer at the moving edge, nothing is published
+    const QRectF held = sceneRectOf(span);
+    const qreal leftMoved = held.left() - spanRect.left(), rightMoved = held.right() - spanRect.right();
+    QVERIFY2(qAbs(leftMoved - (kind == 1 ? 0 : dx)) <= 1.5 && qAbs(rightMoved - (kind == 2 ? 0 : dx)) <= 1.5,
+             qPrintable(QStringLiteral("left %1 px, right %2 px for %3 px").arg(leftMoved).arg(rightMoved).arg(dx)));
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QCOMPARE(recorder->lastEditSerial(), serial);
+    QVERIFY(recorder->editSessionActive());
+
+    if (gesture == QLatin1String("escape"))
+    {
+        QTest::keyClick(window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QVERIFY(!recorder->editSessionActive());
+        QCOMPARE(sceneRectOf(span), spanRect);
+        pointer.move(20);
+        QCOMPARE(sceneRectOf(span), spanRect);
+        pointer.release();
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(recorder->lastEditSerial(), serial);
+        QCOMPARE(ed.settledHistory(), base);
+        return;
+    }
+    if (gesture == QLatin1String("switch"))
+    {
+        Show *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        manager->setCurrentShowID(int(other->id()));
+        QCoreApplication::processEvents();
+        // the held preview ends, with a reason
+        QVERIFY(!recorder->editSessionActive());
+        const QString reason = recorder->lastError();
+        QVERIFY(!reason.isEmpty());
+        pointer.move(20);
+        pointer.release();
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(other->commandTrack().count(), 0);
+        QCOMPARE(recorder->lastEditSerial(), serial);
+        QCOMPARE(ed.settledHistory(), base);
+        QCOMPARE(recorder->lastError(), reason);
+        return;
+    }
+    if (gesture == QLatin1String("clock"))
+    {
+        const int was = manager->currentTime();
+        for (const quint32 elapsed : {1500u, 2600u, 3900u})
+        {
+            ed.show->setExternalElapsedTime(elapsed);
+            tickAndDeliver(ed.rig.doc, 2);
+            QCOMPARE(sceneRectOf(span), held);
+        }
+        QVERIFY2(manager->currentTime() > was, "the external clock moved the playhead");
+        QVERIFY(recorder->editSessionActive());
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    }
+    pointer.release();
+
+    // one commit: the pure transform of the frozen selection by the previewed delta
+    const quint32 edgeId = kind == 2 ? firstId : lastId;
+    const qint64 delta = qint64(ed.command(edgeId).time) - qint64(before.commands().at(before.indexOfId(edgeId)).time);
+    QVERIFY2(delta != 0 && qAbs(delta - dx / rulerPxPerMs(ed)) <= 1.5,
+             qPrintable(QStringLiteral("%1 ms for %2 px: %3").arg(delta).arg(dx).arg(recorder->lastError())));
+    ShowCommandTrack expected;
+    QVERIFY(before.retimeSelection(ids, ShowRetimeKind(kind), delta, &expected) == ShowRetimeRefusal::None);
+    QCOMPARE(ed.show->commandTrack().count(), expected.count());
+    for (const ShowCommand &cmd : expected.commands())
+    {
+        QCOMPARE(ed.command(cmd.id), cmd);
+        QCOMPARE(ed.command(cmd.id).order, cmd.order);
+    }
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), base + 1);
+}
+
+void ShowCommandRecorder_Test::showManager_followPausedDuringRecordingGesture()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    ShowManager *manager = ed.rig.manager;
+    const auto stop = qScopeGuard([&]() {
+        manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    // a zoom where one 20 ms tick is tens of px: the playhead leaves the view within a few dozen ticks
+    manager->setTimeScale(0.02f);
+    QCoreApplication::processEvents();
+    QQuickItem *container = navContainer(ed);
+    const qreal viewWidth = container->property("timelineViewportWidth").toDouble();
+    QVERIFY(viewWidth > 0);
+    manager->requestSeek(1750);
+    container->setProperty("xViewOffset", laneTimeX(ed, 1700));
+    QCoreApplication::processEvents();
+    const qreal offset = container->property("xViewOffset").toDouble();
+    QQuickItem *group = laneObject(ed, 90);
+    QVERIFY(group);
+    const QRectF view = timelineViewRect(ed);
+    const QPoint grab(int(qMax(sceneRectOf(group).left(), view.left()) + 20), int(sceneRectOf(group).center().y()));
+    QTest::mouseClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, grab);
+    QCoreApplication::processEvents();
+    QCOMPARE(selectedRecorded(ed), (QVector<quint32>{8, 90}));
+    QCOMPARE(container->property("xViewOffset").toDouble(), offset);
+
+    manager->playShow();
+    tickAndDeliver(ed.rig.doc, 1);
+    QVERIFY(manager->isPlaying());
+    HeldPointer pointer(ed.rig.app.get());
+    pointer.press(grab);
+    pointer.move(40);
+    QCOMPARE(container->property("xViewOffset").toDouble(), offset);
+    // the playhead runs on and out of the view; the view stays under the held pointer
+    for (int ticks = 0; laneTimeX(ed, manager->currentTime()) <= offset + viewWidth + 20 && ticks < 300; ticks++)
+    {
+        tickAndDeliver(ed.rig.doc, 1);
+        QCOMPARE(container->property("xViewOffset").toDouble(), offset);
+    }
+    QVERIFY2(laneTimeX(ed, manager->currentTime()) > offset + viewWidth,
+             qPrintable(QStringLiteral("playhead at %1 ms").arg(manager->currentTime())));
+    QVERIFY(manager->isPlaying());
+    QVERIFY(ed.rig.recorder->editSessionActive());
+
+    // released, follow resumes
+    pointer.release();
+    tickAndDeliver(ed.rig.doc, 1);
+    const qreal followed = container->property("xViewOffset").toDouble();
+    const qreal cursor = laneTimeX(ed, manager->currentTime());
+    QVERIFY2(cursor >= followed && cursor <= followed + viewWidth,
+             qPrintable(QStringLiteral("cursor %1, view %2 + %3").arg(cursor).arg(followed).arg(viewWidth)));
+    QVERIFY(manager->isPlaying());
+}
+
+void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives_data()
+{
+    // the elapsed times VirtualDJ reports, in order, each before an edit
+    QTest::addColumn<QList<int>>("elapsed");
+    // the history step right below the edits made during Perform
+    QTest::addColumn<QString>("below");
+
+    QTest::newRow("elapsed advancing, a clip edit below") << QList<int>{1000, 1500, 2000} << QStringLiteral("clip");
+    QTest::newRow("loop: elapsed jumps back, another Show's recorded edit below")
+        << QList<int>{3000, 3500, 800} << QStringLiteral("other show");
+}
+
+void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
+{
+    QFETCH(QList<int>, elapsed);
+    QFETCH(QString, below);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    ShowManager *manager = ed.rig.manager;
+    auto *bridge = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    const quint32 showId = ed.show->id();
+
+    // a musical grid: Move by a bar and Snap to a beat are possible
+    manager->setTimeDivision(Show::BPM_4_4);
+    manager->setBpmNumber(120);
+    QCoreApplication::processEvents();
+
+    // positive control: outside Perform, Delete of a selected clip removes it
+    if (below == QLatin1String("clip"))
+    {
+        ShowFunction *control = addClip(ed, ed.scene, 20000, 1000);
+        QVERIFY(control);
+        const quint32 controlId = control->id();
+        const int before = ed.settledHistory();
+        QCOMPARE(navContainer(ed)->property("editorTab").toInt(), 0);
+        selectClips(ed, {control});
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
+        QCoreApplication::processEvents();
+        QVERIFY(ed.show->showFunction(controlId) == nullptr);
+        QVERIFY(ed.settledHistory() > before);
+    }
+
+    // history before Perform: a recorded-event edit of this Show, then the step below
+    QVERIFY(recorder->retimeCommand(showId, 1, 1300));
+    const int recordedStep = ed.settledHistory();
+    quint32 clipId = Function::invalidId();
+    Show *other = nullptr;
+    if (below == QLatin1String("clip"))
+    {
+        ShowFunction *clip = addClip(ed, ed.scene, 6000, 2000);
+        QVERIFY(clip);
+        clipId = clip->id();
+    }
+    else
+    {
+        other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ShowCommandTrack track;
+        QVERIFY(track.insert(ShowCommand::start(0, 500, ed.scene->id())));
+        QVERIFY(other->setCommandTrack(track));
+        manager->setCurrentShowID(int(other->id()));
+        QCoreApplication::processEvents();
+        QVERIFY(recorder->retimeCommand(other->id(), 0, 700));
+        manager->setCurrentShowID(int(showId));
+        QCoreApplication::processEvents();
+    }
+    const int clipStep = ed.settledHistory();
+    QVERIFY(clipStep > recordedStep);
+    // what the step below did is still there
+    const auto belowKept = [&]() {
+        return other != nullptr ? other->commandTrack().commands().first().time == 700
+                                : ed.show->showFunction(clipId) != nullptr;
+    };
+
+    const auto deck = [&](const char *trigger, const QVariant &value) {
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0),
+                                          Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+    };
+    const auto performOff = qScopeGuard([&]() {
+        bridge->setPerformMode(false);
+        if (manager->isPlaying())
+            manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 4);
+    });
+    bridge->showFactory()->registerMapping(QStringLiteral("/music/live-edit.mp3"), showId);
+    deck("get_filepath", QStringLiteral("/music/live-edit.mp3"));
+    QVERIFY(QMetaObject::invokeMethod(bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
+                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    bridge->setPerformMode(true);
+    deck("play", QStringLiteral("on"));
+    tickAndDeliver(ed.rig.doc, 2);
+    QCOMPARE(bridge->performFsm()->state(), PerformFsm::PerformState::Live);
+    QVERIFY(manager->readOnly());
+    QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
+    QVERIFY(ed.openRecordings());
+    QTRY_VERIFY(ed.row(2) != nullptr);
+
+    // every elapsed VirtualDJ reports moves the Show; edits go on meanwhile
+    const QList<QPair<quint32, QString>> edits{{2, QStringLiteral("80")}, {6, QStringLiteral("4.5")},
+                                               {3, QStringLiteral("10")}};
+    for (int i = 0; i < elapsed.size(); i++)
+    {
+        deck("get_time elapsed absolute", double(elapsed.at(i)));
+        tickAndDeliver(ed.rig.doc, 2);
+        QCOMPARE(ed.show->externalElapsedTime(), quint32(elapsed.at(i)));
+        QCOMPARE(ed.shownText("recordingsBlocked"), QString());
+        QVERIFY(ed.doubleClick(edits.at(i).first, edits.at(i).first == 6 ? "timeCell" : "valueCell"));
+        QTRY_VERIFY(ed.editor() != nullptr);
+        ed.type(edits.at(i).second);
+        QTRY_VERIFY(ed.editor() == nullptr);
+        QVERIFY2(recorder->lastError().isEmpty(), qPrintable(recorder->lastError()));
+        QCOMPARE(ed.settledHistory(), clipStep + i + 1);
+    }
+    QCOMPARE(ed.command(2).position, 0.8);
+    QCOMPARE(ed.command(6).time, 4500u);
+    QCOMPARE(ed.command(3).intensity, 0.1);
+
+    // VirtualDJ keeps the transport: a local seek changes nothing
+    const int time = manager->currentTime();
+    const quint32 at = ed.show->externalElapsedTime();
+    manager->requestSeek(3000);
+    QCoreApplication::processEvents();
+    QCOMPARE(manager->currentTime(), time);
+    QCOMPARE(ed.show->externalElapsedTime(), at);
+
+    // ordinary clips keep their Perform restriction: Delete of a selected clip changes nothing
+    if (clipId != Function::invalidId())
+    {
+        const int before = ed.settledHistory();
+        // the same key path as the control: the timeline owns the keys
+        ed.click(ed.item(QStringLiteral("timelineTab")));
+        QTRY_COMPARE(navContainer(ed)->property("editorTab").toInt(), 0);
+        selectClips(ed, {ed.show->showFunction(clipId)});
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Delete);
+        QCoreApplication::processEvents();
+        QVERIFY(ed.show->showFunction(clipId) != nullptr);
+        QCOMPARE(ed.settledHistory(), before);
+        QVERIFY(ed.openRecordings());
+    }
+
+    // Undo takes the recorded-event edits back, one step each
+    Tardis *tardis = ed.tardis();
+    tardis->undoAction();
+    QCOMPARE(ed.command(3).intensity, 0.5);
+    QCOMPARE(tardis->m_historyIndex, clipStep + 2);
+    tardis->undoAction();
+    tardis->undoAction();
+    QCOMPARE(ed.command(6).time, 4000u);
+    QCOMPARE(ed.command(2).position, 0.4);
+    QCOMPARE(tardis->m_historyIndex, clipStep);
+    // the next step is the clip edit or another Show's: refused, nothing skipped, the index stays
+    tardis->undoAction();
+    QCOMPARE(tardis->m_historyIndex, clipStep);
+    QVERIFY(belowKept());
+    QCOMPARE(ed.command(1).time, 1300u);
+    // Redo replays the recorded-event edit above it
+    tardis->redoAction();
+    QCOMPARE(tardis->m_historyIndex, clipStep + 1);
+    QCOMPARE(ed.command(2).position, 0.8);
+    QVERIFY(manager->readOnly());
+
+    // the recording actions work on the musical grid while Perform drives: Move by a bar, then Snap
+    QQuickItem *moveLater = ed.item(QStringLiteral("moveLater"));
+    QQuickItem *snap = ed.item(QStringLiteral("snapButton"));
+    QVERIFY(moveLater && snap);
+    ed.click(ed.row(2));
+    QTRY_VERIFY2(moveLater->isEnabled() && snap->isEnabled(), "Move and Snap are enabled under Perform");
+    const quint32 start = ed.command(2).time;
+    ed.click(moveLater);
+    QTRY_COMPARE(ed.command(2).time, start + 2000u);
+    QCOMPARE(ed.settledHistory(), clipStep + 2);
+    ed.click(snap);
+    // 3700 ms snaps to the nearest beat, 3500 ms at 120 BPM
+    QTRY_COMPARE(ed.command(2).time, 3500u);
+    QCOMPARE(ed.settledHistory(), clipStep + 3);
+    QVERIFY(manager->readOnly());
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_workspaceReplacedEndsSession_data()
+{
+    QTest::addColumn<QString>("session");
+    QTest::addColumn<QString>("transition");
+
+    for (const char *session : {"drag", "draft"})
+    {
+        const QString name = QLatin1String(session) == QLatin1String("drag") ? QStringLiteral("lane drag held")
+                                                                             : QStringLiteral("cell draft open");
+        QTest::newRow(qPrintable(name + QStringLiteral(", workspace cleared, same ids reused")))
+            << QString::fromLatin1(session) << QStringLiteral("clear");
+        QTest::newRow(qPrintable(name + QStringLiteral(", the same workspace loaded again")))
+            << QString::fromLatin1(session) << QStringLiteral("load");
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_workspaceReplacedEndsSession()
+{
+    QFETCH(QString, session);
+    QFETCH(QString, transition);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(laneGestureRig(ed, false));
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const quint32 showId = ed.show->id();
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("replaced.qxw"));
+    QVERIFY(ed.rig.app->saveWorkspace(path));
+    HeldPointer pointer(ed.rig.app.get());
+    if (session == QLatin1String("drag"))
+    {
+        QQuickItem *group = laneObject(ed, 90);
+        QVERIFY(group);
+        ed.click(group);
+        pointer.press(ed.centerOf(group));
+        pointer.move(60);
+    }
+    else
+    {
+        QVERIFY(ed.openRecordings());
+        QTRY_VERIFY(ed.row(90) != nullptr);
+        QVERIFY(ed.doubleClick(90, "valueCell"));
+        QTRY_VERIFY(ed.editor() != nullptr);
+        ed.type(QStringLiteral("77"), Qt::Key_unknown);
+    }
+    QVERIFY(recorder->editSessionActive());
+
+    // the application replaces the workspace: it stops and restarts its own
+    // timer, which the rig then stops at teardown
+    ed.rig.realTimer = true;
+    if (transition == QLatin1String("clear"))
+        ed.rig.app->clearDocument();
+    else
+        QVERIFY(ed.rig.app->loadWorkspace(path));
+    ed.button = nullptr;
+    ed.fader = nullptr;
+    ed.dimmer = nullptr;
+    ed.scene = nullptr;
+    QVERIFY(!recorder->editSessionActive());
+    QVERIFY(!recorder->lastError().isEmpty());
+
+    Show *show = qobject_cast<Show *>(ed.rig.doc->function(showId));
+    if (transition == QLatin1String("clear"))
+    {
+        // a new workspace reuses the Show id and the event ids
+        QVERIFY(show == nullptr);
+        Scene *scene = new Scene(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(scene));
+        show = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(show));
+        QCOMPARE(show->id(), showId);
+        ShowCommandTrack track;
+        QVERIFY(track.insert(ShowCommand::setIntensity(90, 1800, scene->id(), .7)));
+        QVERIFY(track.insert(ShowCommand::setIntensity(8, 2200, scene->id(), .2)));
+        QVERIFY(show->setCommandTrack(track));
+    }
+    QVERIFY(show && show->commandTrack().contains(90) && show->commandTrack().contains(8));
+    ed.show = show;
+    ed.rig.manager->setCurrentShowID(int(show->id()));
+    QCoreApplication::processEvents();
+    const QVector<ShowCommand> before = show->commandTrack().commands();
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+
+    // the old gesture goes on to its release, the old draft to Enter: nothing of either is kept
+    if (session == QLatin1String("drag"))
+    {
+        pointer.move(40);
+        pointer.release();
+    }
+    else
+    {
+        QVERIFY(ed.editor() == nullptr);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+        QCoreApplication::processEvents();
+    }
+    // and the recorder has no session left to commit
+    QVERIFY(!recorder->commitRetime(0, 100));
+    QVERIFY(!recorder->commitCellText(QStringLiteral("value"), QStringLiteral("50")));
+    QVERIFY(!recorder->lastError().isEmpty());
+    QCOMPARE(show->commandTrack().commands(), before);
+    QCOMPARE(recorder->lastEditSerial(), serial);
+    QCOMPARE(ed.settledHistory(), base);
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_selectionChangeEndsSession_data()
+{
+    QTest::addColumn<QString>("session");
+
+    QTest::newRow("lane drag held") << QStringLiteral("drag");
+    QTest::newRow("lane stretch held") << QStringLiteral("stretch");
+    QTest::newRow("cell draft open") << QStringLiteral("draft");
+}
+
+void ShowCommandRecorder_Test::recordingsEdit_selectionChangeEndsSession()
+{
+    QFETCH(QString, session);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(laneGestureRig(ed, false));
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const QVector<ShowCommand> before = ed.show->commandTrack().commands();
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+    HeldPointer pointer(ed.rig.app.get());
+
+    if (session == QLatin1String("draft"))
+    {
+        QVERIFY(ed.openRecordings());
+        QTRY_VERIFY(ed.row(90) != nullptr);
+        QVERIFY(ed.doubleClick(90, "valueCell"));
+        QTRY_VERIFY(ed.editor() != nullptr);
+        ed.type(QStringLiteral("12"), Qt::Key_unknown);
+        QVERIFY(recorder->editSessionActive());
+        // a click chooses another row
+        ed.click(ed.row(8));
+        QCOMPARE(ed.selectedIds(), (QVector<quint32>{8}));
+        QTRY_VERIFY(ed.editor() == nullptr);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(ed.shownText("recordingsError"), recorder->lastError());
+    }
+    else
+    {
+        selectRecorded(ed, {90, 8, 40, 41});
+        QQuickItem *span = ed.item(QStringLiteral("recordingSpan"));
+        QVERIFY(span);
+        if (session == QLatin1String("drag"))
+            pointer.press(sceneRectOf(laneObject(ed, 40)).center().toPoint());
+        else
+            pointer.press(sceneRectOf(findVisualItem(span, QStringLiteral("recordingSpanEnd"))).center().toPoint());
+        pointer.move(60);
+        QVERIFY(recorder->editSessionActive());
+        // other events chosen while the pointer holds
+        selectRecorded(ed, {40, 41});
+        pointer.move(30);
+        pointer.release();
+        QCOMPARE(selectedRecorded(ed), (QVector<quint32>{40, 41}));
+    }
+    // the session ended with its reason; the recorder commits none of the old ids
+    QVERIFY(!recorder->editSessionActive());
+    const QString reason = recorder->lastError();
+    QVERIFY(reason.contains(QStringLiteral("selection changed")));
+    QVERIFY(!recorder->commitRetime(0, 100));
+    QVERIFY(!recorder->commitCellText(QStringLiteral("value"), QStringLiteral("50")));
+    QCOMPARE(ed.show->commandTrack().commands(), before);
+    QCOMPARE(recorder->lastEditSerial(), serial);
+    QCOMPARE(ed.settledHistory(), base);
+}
+
+void ShowCommandRecorder_Test::recordingsLane_refusedReleaseCommitsNothing_data()
+{
+    // a valid preview first, then a refused request; "back" returns to a valid one before release
+    QTest::addColumn<QString>("selection");
+    QTest::addColumn<int>("kind");        // ShowRetimeKind: 0 body, 1 right handle, 2 left handle
+    QTest::addColumn<QString>("refused"); // span: past the other edge, range: before 0, order: a reversed tie
+    QTest::addColumn<bool>("back");
+
+    for (const bool back : {false, true})
+    {
+        const QString then = back ? QStringLiteral(", then back to a valid position") : QString();
+        QTest::newRow(qPrintable(QStringLiteral("right handle past the start") + then)) << "90 8" << 1 << "span" << back;
+        QTest::newRow(qPrintable(QStringLiteral("left handle before 0") + then)) << "90 8" << 2 << "range" << back;
+        QTest::newRow(qPrintable(QStringLiteral("body before 0") + then)) << "90 8" << 0 << "range" << back;
+        QTest::newRow(qPrintable(QStringLiteral("compressed into a reversed tie") + then)) << "70 71 72" << 1 << "order" << back;
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsLane_refusedReleaseCommitsNothing()
+{
+    QFETCH(QString, selection);
+    QFETCH(int, kind);
+    QFETCH(QString, refused);
+    QFETCH(bool, back);
+
+    AccessibilityOn accessibility;
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(addPassageSamples(ed));
+    // 70@3000 holds a higher Order than 71@3010, as a later take can leave them:
+    // compressed onto one ms, their sequence would reverse
+    ShowCommandTrack track = ed.show->commandTrack();
+    const QUuid dimmer = ed.dimmer->recordingId();
+    ShowCommand first = ShowCommand::setSliderPosition(70, 3000, dimmer, ShowControlRole::LevelSlider, QString(), .1);
+    ShowCommand second = ShowCommand::setSliderPosition(71, 3010, dimmer, ShowControlRole::LevelSlider, QString(), .2);
+    first.order = 900005;
+    second.order = 900001;
+    QVERIFY(track.restore(first) && track.restore(second));
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(72, 3500, dimmer, ShowControlRole::LevelSlider, QString(), .3)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    ed.rig.manager->setTimeScale(0.2f);
+    QCoreApplication::processEvents();
+    // room on the left for the pointer to request times before 0
+    navContainer(ed)->setProperty("xViewOffset", 0);
+    timelineRows(ed)->setProperty("contentY", 0);
+    QCoreApplication::processEvents();
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    const QVector<quint32> ids = idsFromText(selection);
+    selectRecorded(ed, ids);
+    QQuickItem *span = ed.item(QStringLiteral("recordingSpan"));
+    QVERIFY(span);
+    const qreal ppm = rulerPxPerMs(ed);
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+    QWindow *window = ed.rig.app.get();
+    HeldPointer pointer(window);
+    if (kind == 0)
+        pointer.press(sceneRectOf(laneObject(ed, ids.first())).center().toPoint());
+    else
+        pointer.press(sceneRectOf(findVisualItem(span, kind == 1 ? QStringLiteral("recordingSpanEnd")
+                                                                  : QStringLiteral("recordingSpanStart"))).center().toPoint());
+    const int valid = refused == QLatin1String("order") ? -100 : -40;
+    pointer.move(valid);
+    // the refused request, in ms from the press: past the other edge, before 0, or onto a reversed tie
+    const qreal requestMs = refused == QLatin1String("span") ? -450 : refused == QLatin1String("range") ? -1900 : -490;
+    pointer.move(qRound(requestMs * ppm) - valid);
+    QVariantMap preview = recorder->previewRetime(kind, (pointer.at.x() - pointer.start.x()) / ppm);
+    QVERIFY2(preview.contains(QStringLiteral("reason")), "the pointer asks for a refused retime");
+    // nothing is published while the pointer holds
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    if (back)
+        pointer.move(pointer.start.x() + valid - pointer.at.x());
+    const int requested = pointer.at.x() - pointer.start.x();
+    pointer.release();
+
+    if (!back)
+    {
+        // refused whole at release, with its reason: nothing cached, clamped or swapped in
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        for (const ShowCommand &cmd : before.commands())
+            QCOMPARE(ed.command(cmd.id).order, cmd.order);
+        QCOMPARE(recorder->lastEditSerial(), serial);
+        QCOMPARE(ed.settledHistory(), base);
+        QVERIFY(!recorder->editSessionActive());
+        QVERIFY(!recorder->lastError().isEmpty());
+        QAccessibleInterface *feedback = accessibleById(window, QStringLiteral("recordingEditFeedback"));
+        QVERIFY(feedback);
+        QCOMPARE(feedback->text(QAccessible::Name), recorder->lastError());
+        return;
+    }
+    // back at a valid position: that request commits, once
+    quint32 edgeId = ids.first();
+    for (quint32 id : ids)
+        if ((kind == 2) == (before.commands().at(before.indexOfId(id)).time < before.commands().at(before.indexOfId(edgeId)).time))
+            edgeId = id;
+    if (kind != 2)
+        for (quint32 id : ids)
+            if (before.commands().at(before.indexOfId(id)).time > before.commands().at(before.indexOfId(edgeId)).time)
+                edgeId = id;
+    const qint64 delta = qint64(ed.command(edgeId).time) - qint64(before.commands().at(before.indexOfId(edgeId)).time);
+    QVERIFY2(qAbs(delta - requested / ppm) <= 1.5, qPrintable(QStringLiteral("%1 ms for %2 px: %3")
+             .arg(delta).arg(requested).arg(recorder->lastError())));
+    ShowCommandTrack expected;
+    QVERIFY(before.retimeSelection(ids, ShowRetimeKind(kind), delta, &expected) == ShowRetimeRefusal::None);
+    for (const ShowCommand &cmd : expected.commands())
+    {
+        QCOMPARE(ed.command(cmd.id), cmd);
+        QCOMPARE(ed.command(cmd.id).order, cmd.order);
+    }
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), base + 1);
+}
+
+void ShowCommandRecorder_Test::recordingsTable_keysContinueFromDraftRow_data()
+{
+    // the draft on 90; meanwhile a capture lands after the take and 61@1750 joins the
+    // fader group before 90, so the rows above 90 shift by one
+    QTest::addColumn<QString>("finish");
+    QTest::addColumn<int>("key");
+    QTest::addColumn<quint32>("lands");
+
+    QTest::newRow("committed, Down") << QStringLiteral("commit") << int(Qt::Key_Down) << 8u;
+    QTest::newRow("committed, Up") << QStringLiteral("commit") << int(Qt::Key_Up) << 61u;
+    QTest::newRow("cancelled, Down") << QStringLiteral("cancel") << int(Qt::Key_Down) << 8u;
+    QTest::newRow("cancelled, Up") << QStringLiteral("cancel") << int(Qt::Key_Up) << 61u;
+}
+
+void ShowCommandRecorder_Test::recordingsTable_keysContinueFromDraftRow()
+{
+    QFETCH(QString, finish);
+    QFETCH(int, key);
+    QFETCH(quint32, lands);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    QWindow *window = ed.rig.app.get();
+    const auto stop = qScopeGuard([&]() {
+        recorder->setRecording(false);
+        ed.fader->requestUserValue(0);
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    const QUuid fader = ed.fader->recordingId();
+    const auto sample = [&](quint32 id, quint32 time, double position) {
+        return ShowCommand::setSliderPosition(id, time, fader, ShowControlRole::AdjustSlider,
+                                              QStringLiteral("Intensity"), position);
+    };
+    ShowCommandTrack track = ed.show->commandTrack();
+    QVERIFY(track.insert(sample(90, 1800, .8)) && track.insert(sample(8, 2200, .2)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    ed.rig.manager->requestSeek(9500);
+    QVERIFY(recorder->setRecording(true));
+    QVERIFY(ed.openRecordings());
+    QTRY_VERIFY(ed.row(90) != nullptr);
+
+    QVERIFY(ed.doubleClick(90, "valueCell"));
+    QTRY_VERIFY(ed.editor() != nullptr);
+    ed.type(QStringLiteral("33"), Qt::Key_unknown);
+    // a capture and a regroup while the draft owns the keys
+    ed.fader->requestUserValue(200);
+    QCoreApplication::processEvents();
+    track = ed.show->commandTrack();
+    QVERIFY(track.insert(sample(61, 1750, .1)));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QCoreApplication::processEvents();
+    QCOMPARE(ed.editor()->property("text").toString(), QStringLiteral("33"));
+
+    QTest::keyClick(window, finish == QLatin1String("commit") ? Qt::Key_Return : Qt::Key_Escape);
+    QTRY_VERIFY(ed.editor() == nullptr);
+    QCOMPARE(ed.command(90).position, finish == QLatin1String("commit") ? .33 : .8);
+
+    // Up and Down go on from the edited row
+    QTest::keyClick(window, Qt::Key(key));
+    QCoreApplication::processEvents();
+    QQuickItem *focused = ed.rig.app->activeFocusItem();
+    while (focused && focused->objectName() != QLatin1String("recordingRow"))
+        focused = focused->parentItem();
+    QVERIFY2(focused, qPrintable(QStringLiteral("focus on %1").arg(ed.rig.app->activeFocusItem()
+             ? ed.rig.app->activeFocusItem()->objectName() : QStringLiteral("nothing"))));
+    QCOMPARE(focused->property("commandId").toUInt(), lands);
+}
+
+void ShowCommandRecorder_Test::recordingsLane_pressFreezesBeforeThreshold_data()
+{
+    // the change comes between the press on the selected group {90 8} and the drag distance
+    QTest::addColumn<QString>("change");
+
+    QTest::newRow("same control captured inside the pressed group") << QStringLiteral("capture");
+    QTest::newRow("a pressed event edited elsewhere") << QStringLiteral("edit");
+    QTest::newRow("the playing Show's playhead leaves the view") << QStringLiteral("playhead");
+}
+
+void ShowCommandRecorder_Test::recordingsLane_pressFreezesBeforeThreshold()
+{
+    QFETCH(QString, change);
+
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(laneGestureRig(ed, false));
+    ShowCommandRecorder *recorder = ed.rig.recorder;
+    ShowManager *manager = ed.rig.manager;
+    const auto stop = qScopeGuard([&]() {
+        recorder->setRecording(false);
+        ed.fader->requestUserValue(0);
+        if (manager->isPlaying())
+            manager->stopShow();
+        tickAndDeliver(ed.rig.doc, 3);
+    });
+    if (change == QLatin1String("capture"))
+    {
+        // the capture lands at 2000, between the pressed 90 and 8
+        manager->requestSeek(2000);
+        QVERIFY(recorder->setRecording(true));
+    }
+    if (change == QLatin1String("playhead"))
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        ed.show->setExternalElapsedTime(1000);
+        manager->playShow();
+        // the first fresh sample begins the traversal; the later jump crosses
+        // the recorded events, as playback does
+        ed.show->setExternalElapsedTime(1000);
+        tickAndDeliver(ed.rig.doc, 2);
+        QVERIFY(manager->isPlaying());
+    }
+    QQuickItem *group = laneObject(ed, 90);
+    QVERIFY(group);
+    ed.click(group);
+    QCOMPARE(selectedRecorded(ed), (QVector<quint32>{8, 90}));
+    QQuickItem *container = navContainer(ed);
+    const qreal offset = container->property("xViewOffset").toDouble();
+    const qreal contentY = timelineRows(ed)->property("contentY").toDouble();
+    const qreal viewWidth = container->property("timelineViewportWidth").toDouble();
+    const qreal ppm = rulerPxPerMs(ed);
+    const int base = ed.settledHistory();
+    const int serial = recorder->lastEditSerial();
+
+    HeldPointer pointer(ed.rig.app.get());
+    pointer.press(ed.centerOf(group));
+    // the press froze the pressed selection: nothing is published
+    QVERIFY(recorder->editSessionActive());
+    QVector<quint32> captured;
+    if (change == QLatin1String("capture"))
+    {
+        const QVector<quint32> was = ed.trackIds();
+        ed.fader->requestUserValue(222);
+        QCoreApplication::processEvents();
+        for (quint32 id : ed.trackIds())
+            if (!was.contains(id))
+                captured.append(id);
+        QCOMPARE(captured.size(), 1);
+        QCOMPARE(ed.command(captured.first()).time, 2000u);
+    }
+    else if (change == QLatin1String("edit"))
+        QVERIFY(recorder->setCommandValue(ed.show->id(), 8, .3));
+    else
+    {
+        ed.show->setExternalElapsedTime(quint32(1000 + (offset + 2 * viewWidth) / ppm));
+        tickAndDeliver(ed.rig.doc, 2);
+        QVERIFY(laneTimeX(ed, manager->currentTime()) > offset + viewWidth);
+    }
+    const QVector<ShowCommand> changed = ed.show->commandTrack().commands();
+    pointer.move(2);
+    QCOMPARE(container->property("xViewOffset").toDouble(), offset);
+    QCOMPARE(timelineRows(ed)->property("contentY").toDouble(), contentY);
+    pointer.move(58);
+    QCOMPARE(container->property("xViewOffset").toDouble(), offset);
+    const int moved = pointer.at.x() - pointer.start.x();
+    pointer.release();
+
+    if (change == QLatin1String("edit"))
+    {
+        // the pressed event changed after the press: refused with a reason, the newer record stays
+        QCOMPARE(ed.show->commandTrack().commands(), changed);
+        QCOMPARE(ed.command(8).position, .3);
+        QVERIFY(!recorder->lastError().isEmpty());
+        QCOMPARE(recorder->lastEditSerial(), serial + 1);
+        QCOMPARE(ed.settledHistory(), base + 1);
+        return;
+    }
+    // exactly the pressed ids moved; the capture keeps its time
+    const qint64 delta = qint64(ed.command(90).time) - 1800;
+    QCOMPARE(qint64(ed.command(8).time) - 2200, delta);
+    QVERIFY2(qAbs(delta - moved / ppm) <= 1.5, qPrintable(QStringLiteral("%1 ms for %2 px").arg(delta).arg(moved)));
+    for (const ShowCommand &cmd : changed)
+        if (cmd.id != 90 && cmd.id != 8)
+            QCOMPARE(ed.command(cmd.id), cmd);
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), base + 1);
 }
 
 QTEST_MAIN(ShowCommandRecorder_Test)

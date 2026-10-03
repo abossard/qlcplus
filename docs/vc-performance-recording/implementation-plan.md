@@ -31,11 +31,11 @@ flowchart LR
 
 Retain every accepted changed slider position in capture, even if output later coalesces them. Dispatch Playing events in order and retain no-echo exclusion for live-authored events.
 
-On Play at a moved/stopped cursor, send the recording's prefix through the existing ordered dispatcher. Include destination events once, then advance past them. A mixed VC recording preserves ordering across both command kinds; keep the legacy-only fallback unchanged.
+Superseded by C1 (2026-10-02): Play at a moved/stopped cursor dispatches nothing before it; destination events play once. A requested forward seek sends its crossed interval through the ordered dispatcher in jump mode; a backward move repositions without replay and publishes one rollback batch: the recorder returns the controls its journaled timeline operations changed after the target, the runner its own legacy Start/Stop/SetIntensity effects.
 
 Remove failed checkpoint D's projection model and projection-only hand-back machinery through scoped edits. Preserve CP1/CP2 execution, native dependency receipts, cancellation and the C4 feedback fix. Native controls handle their own relationships; no inferred Offs, owner simulation or conditional preparatory writes.
 
-Cursor movement while paused does no work. Resume without repositioning continues the current traversal. Catch-up skips original time gaps but waits for required native completion without blocking the GUI or lighting thread.
+Cursor movement while paused does no work. Resume without repositioning continues the current traversal. A forward jump skips original time gaps but waits for required native completion without blocking the GUI or lighting thread.
 
 `ShowManager::requestSeek` identifies local seeks; the VDJ connector exposes positions and Play/Pause, not seek intent. Keep that distinction at the adapter. Flash remains deferred until replay-owned press/release cleanup has a defined contract.
 
@@ -47,7 +47,7 @@ Cursor movement while paused does no work. Resume without repositioning continue
 | 2 | [`vcwidget`, `vcslider`, `virtualconsole`](../../qmlui/virtualconsole/), [`showcommandtrack`](../../engine/src/showcommandtrack.h) | Add accepted state capture, persistent identity, shared validation and XML round trip without engine-output sampling. |
 | 3 | Existing FSM, [`Show`](../../engine/src/show.h), [`ShowRunner`](../../engine/src/showrunner.h), GUI executor | Integrate Playing progress, cursor repositioning and serial prefix execution. Remove projection-only logic and preserve verified native dispatch/lifetime behavior. |
 | 4 | [`ShowCommandRecorder`](../../qmlui/showcommandrecorder.h), [`app.cpp`](../../qmlui/app.cpp), performance-view QML | Share REC state, guard manual selection, handle automatic DJ handover, and checkpoint accepted data for Save/replacement. Grow while armed and finalize content-derived extent. |
-| 5 | [`ShowCommandList.qml`](../../qmlui/qml/showmanager/ShowCommandList.qml), Show editor, [`Tardis`](../../qmlui/tardis/tardis.h) | Replace the command overlay with the Recordings tab. Add inline editing, musical step/Snap controls, batch deletion and explicit-target undo through the shared stopped-state gate. |
+| 5 | [`ShowCommandList.qml`](../../qmlui/qml/showmanager/ShowCommandList.qml), Show editor, [`Tardis`](../../qmlui/tardis/tardis.h) | Replace the command overlay with the Recordings tab. Add inline editing, musical step/Snap controls, batch deletion and explicit-target undo (originally through a shared stopped-state gate, removed for recorded events by C5). |
 | 6 | Main view, shared debug panel, existing input/commit/execution results | Add Events and Referenced controls tabs, panel-scoped capture and the compact Problems summary. Reuse native configuration notifications. |
 
 Existing input interfaces include `VCSlider::requestUserValue`, `VCButton::requestUserStateChange`, `VCWidget::deliverInput` and `deliverSourceUpdate`. Extend them without observing generic `setValue`.
@@ -68,14 +68,14 @@ presentations. Reference-panel observation stays independent.
 flowchart LR
     Q["Recordings tab<br/>ShowCommandList.qml"] -->|"Show ID, event IDs, cell text,<br/>step ms or grid (TimeUtils)"| R["ShowCommandRecorder<br/>editor methods"]
     R -->|"candidate from pure track values<br/>(retime, replace, remove, restore)"| T["ShowCommandTrack"]
-    R -->|"setStoppedCommandTrack"| S["Show<br/>start/stop accounting"]
-    S -->|"stored, or refused while a start<br/>is accepted and not ended"| R
+    R -->|"setCommandTrack, no live ids"| S["Show<br/>per-ID validation, atomic publication"]
+    S -->|"stored whole, or refused whole<br/>(unknown or changed IDs)"| R
     R -->|"one ShowManagerCommandEdit<br/>ID delta"| H["Tardis"]
     H -->|"applyHistoryEdit undo/redo"| R
     V["VC widgets, Doc functions<br/>native notifications"] -->|"refresh while the tab is shown"| R
 ```
 
-The recorder adapter owns editor edits, not the capture FSM: it resolves the explicit Show, builds a candidate track from the track's pure value operations and computes the ID delta. Group movement uses one delta rounded once from the step the UI derives with `TimeUtils.musicalGrid`; Snap puts the earliest event on the nearest beat. Every event keeps its equal-time `order`, so moving away and back restores A before B. The Show decides "fully stopped" and stores the edit under the lock that accepts starts; the GUI gate only explains. Tardis keeps each edit one step and replays the delta only when every named event still matches, without moving history on refusal. A native step stays what Undo always took: the actions within 150 ms of its newest action. That one partition also counts steps, redoes exactly the step undone, drops undone steps on a new action, evicts whole oldest steps at 100, and bounds coalescing, which moves the merged action to the newest place. Event IDs and orders stay reserved while history can name them. The capture FSM is unchanged.
+The recorder adapter owns editor edits, not the capture FSM: it resolves the explicit Show, builds a candidate track from the track's pure value operations and computes the ID delta. Group movement uses one delta rounded once from the step the UI derives with `TimeUtils.musicalGrid`; Snap puts the earliest event on the nearest beat. Every event keeps its equal-time `order`, so moving away and back restores A before B. Edits and their Undo/Redo publish through `Show::setCommandTrack` with an empty already-applied set: the Show validates the IDs and publishes the whole track atomically, and the recorder's edit session holds the frozen events and the Show's lifetime as its conflict authority. Before C5 the Show decided "fully stopped" and stored edits under the lock that accepts starts; C5 superseded that rule for recorded events. Tardis keeps each edit one step and replays the delta only when every named event still matches, without moving history on refusal. A native step stays what Undo always took: the actions within 150 ms of its newest action. That one partition also counts steps, redoes exactly the step undone, drops undone steps on a new action, evicts whole oldest steps at 100, and bounds coalescing, which moves the merged action to the newest place. Event IDs and orders stay reserved while history can name them. The capture FSM is unchanged.
 
 ## UI and save integration
 
@@ -83,7 +83,7 @@ Save checkpoints accepted capture before serialization and any pending workspace
 
 Derive persisted extent from retained content even during REC. Runtime keepalive supplies the advancing capture lifetime; it must not add a saved empty tail.
 
-Route each shared REC control to the same adapter. Keep capture permission distinct from moving playback: paused/stopped input still records, while editor mutations require stopped playback and REC off.
+Route each shared REC control to the same adapter. Keep capture permission distinct from moving playback: paused/stopped input still records. Editor mutations of recorded events originally required stopped playback and REC off; C5 lets them publish while the Show plays, pauses or records.
 
 Automatic DJ handover uses the same recording FSM: settle accepted A input, finalize A, then publish the B binding and capture epoch. Do not reinterpret queued A input against B or hide a failed finalization by switching anyway.
 
@@ -116,3 +116,10 @@ flowchart LR
 Every entry carries the cause it began under: an accepted request keeps its Show, take, origin and caption as it was accepted, and so do the commands it adds while unpublished. An outcome of a cause the current observation did not see is not shown, nor the extent it derives; a checkpoint begun while open is its own operation with its own trace. Commits report each changed command and the extent, before and after. The rendered panel owns the observation: hiding or unloading it closes it, and Debug on an open panel only focuses it.
 
 Recorded entries follow the existing seams: route rejections (page dispatch, keyboard mapping, pickup, audio triggers, unbound Toggle) and direct code requests reaching an output-producing native control call (`VCButton::requestStateChange`, `VCSlider::setValue` with output) as Input, once, outside the user and Audio wrappers; `requestUserControl`/`reportUnsupported`/`authorAt` decisions; Show publication, extent, editor and history steps as Commit; REC, binding, playing, cursor and clock rewind as Transport; live execution of accepted requests and replay (GUI executor and legacy runner commands) as Execute. A Start/Stop is reported as Requested, never as proof of output. The reference inventory is `referencedControls()`: the tracked Show's `ShowCommandTrack::referencedControls()`, grouped by identity and resolved per role with `ShowCommandFsm::resolveControl`, the rule replay uses. It is observed through the editor's row observer, now enabled by either the Recordings tab or the panel. The panel is opened from the shared REC control in the Show editor, DJ and Virtual Console views.
+
+## Live recording time editing (C5)
+
+- Pure core: `ShowCommandTrack::retimeSelection` returns a retimed copy or a `ShowRetimeRefusal`; `ShowCommandFsm::advance` suppresses a live mark only at its captured time (`ShowLiveMark{time, stopFunctionId}`), and the runner retires a live Stop's clip end once per captured occurrence.
+- One authoring owner: `ShowCommandRecorder` publishes recorded-event edits and their Undo/Redo through the non-stopped `Show::setCommandTrack` with no live ids, and owns the single edit session (begin at press, preview, commit, cancel) whose conflict authority is the frozen events and the Show's lifetime.
+- Show storage keeps its marks until the traversal ends, stops or seeks; only the runner copy expires by the captured time.
+- QML holds pointer geometry and draft text only: one lane-level gesture surface owns drag and stretch handles, table rows are keyed by event id, follow and reveal pause while the pointer holds, and recorded-event editing no longer depends on Perform's read-only flag.

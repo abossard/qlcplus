@@ -28,6 +28,10 @@
 #include "doc.h"
 #include "fixture.h"
 #include "inputoutputmap.h"
+#include "inputpatch.h"
+#include "ioplugincache.h"
+#include "qlcioplugin.h"
+#include "qlcfile.h"
 #include "universe.h"
 
 #include <fastmcpp/tools/manager.hpp>
@@ -178,6 +182,86 @@ void McpIoTools_Test::configureUniverses_invalidId_rejected()
 
     QVERIFY2(result[0].contains("error"), result[0].dump().c_str());
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 4);
+}
+
+// ─── configure_universes: input patch ──────────────────────────────────────
+
+void McpIoTools_Test::configureUniverses_inputPatch_data()
+{
+    QTest::addColumn<bool>("startPatched");
+    QTest::addColumn<QString>("inputPlugin");
+    QTest::addColumn<int>("inputLine");
+    QTest::addColumn<QString>("expectedError");
+    QTest::addColumn<int>("expectedLine");
+
+    QTest::newRow("None line 0 removes")         << true  << "None"         << 0  << QString() << -1;
+    QTest::newRow("None invalidLine removes")    << true  << "None"         << -1 << QString() << -1;
+    QTest::newRow("None when unpatched")         << false << "None"         << 0  << QString() << -1;
+    QTest::newRow("unknown line 0 keeps patch")  << true  << "NoSuchPlugin" << 0  << "unknown input plugin: NoSuchPlugin" << 0;
+    QTest::newRow("unknown invalidLine keeps patch") << true << "NoSuchPlugin" << -1 << "unknown input plugin: NoSuchPlugin" << 0;
+    QTest::newRow("unknown when unpatched")      << false << "NoSuchPlugin" << 0  << "unknown input plugin: NoSuchPlugin" << -1;
+    QTest::newRow("valid repatch")               << true  << "<stub>"       << 2  << QString() << 2;
+}
+
+void McpIoTools_Test::configureUniverses_inputPatch()
+{
+    QFETCH(bool, startPatched);
+    QFETCH(QString, inputPlugin);
+    QFETCH(int, inputLine);
+    QFETCH(QString, expectedError);
+    QFETCH(int, expectedLine);
+
+    m_doc = new Doc(this, 4);
+    QDir pluginDir(IOPLUGINSTUB_DIR);
+    pluginDir.setFilter(QDir::Files);
+    pluginDir.setNameFilters(QStringList() << QString("*%1").arg(KExtPlugin));
+    m_doc->ioPluginCache()->load(pluginDir);
+    QVERIFY(m_doc->ioPluginCache()->plugins().size() != 0);
+    QLCIOPlugin *stub = m_doc->ioPluginCache()->plugins().at(0);
+    if (inputPlugin == "<stub>")
+        inputPlugin = stub->name();
+
+    InputOutputMap *ioMap = m_doc->inputOutputMap();
+    QVERIFY(ioMap->setInputPatch(1, stub->name(), "", "", 1));
+    if (startPatched)
+        QVERIFY(ioMap->setInputPatch(0, stub->name(), "", "", 0));
+    InputPatch *before = ioMap->inputPatch(0);
+    InputPatch *other = ioMap->inputPatch(1);
+
+    Json result = configureUniverses(m_doc, Json::array({
+        {{"universeID", 0}, {"name", "Renamed"},
+         {"inputPlugin", inputPlugin.toStdString()}, {"inputLine", inputLine}}
+    }));
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("universeID", -1), 0);
+    if (expectedError.isEmpty())
+    {
+        QVERIFY2(!result[0].contains("error"), result[0].dump().c_str());
+        QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+        QCOMPARE(ioMap->universe(0)->name(), QString("Renamed"));
+    }
+    else
+    {
+        QCOMPARE(result[0].value("error", std::string()), expectedError.toStdString());
+        QVERIFY2(!result[0].contains("status"), result[0].dump().c_str());
+        QVERIFY(ioMap->universe(0)->name() != QString("Renamed"));
+        QCOMPARE(ioMap->inputPatch(0), before);
+    }
+
+    for (quint32 i = 0; i < ioMap->universesCount(); i++)
+        QVERIFY(ioMap->inputPatch(i) == nullptr || ioMap->inputPatch(i)->plugin() != nullptr);
+
+    if (expectedLine < 0)
+        QVERIFY(ioMap->inputPatch(0) == nullptr);
+    else
+    {
+        QVERIFY(ioMap->inputPatch(0) != nullptr);
+        QCOMPARE(ioMap->inputPatch(0)->plugin(), stub);
+        QCOMPARE(ioMap->inputPatch(0)->input(), quint32(expectedLine));
+    }
+    QCOMPARE(ioMap->inputPatch(1), other);
+    QCOMPARE(ioMap->inputPatch(1)->input(), quint32(1));
 }
 
 // ─── delete_universes ──────────────────────────────────────────────────────

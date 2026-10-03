@@ -17,6 +17,7 @@
   limitations under the License.
 */
 #include <QSignalSpy>
+#include <QXmlStreamReader>
 #include <QtTest>
 #include <atomic>
 #include <thread>
@@ -377,6 +378,165 @@ void InputOutputMap_Test::setInputPatch()
     QVERIFY(im.setInputPatch(im.universesCount(), stub->name(), "", stub->inputs().at(0), 0) == false);
 }
 
+
+void InputOutputMap_Test::removeInputPatch_data()
+{
+    QTest::addColumn<QString>("via");
+    QTest::addColumn<bool>("startPatched");
+    QTest::addColumn<QString>("pluginName");
+    QTest::addColumn<quint32>("line");
+    QTest::addColumn<bool>("expectedResult");
+    QTest::addColumn<quint32>("expectedLine");
+    QTest::addColumn<int>("expectedCloses");
+    QTest::addColumn<bool>("expectWarning");
+
+    const quint32 none = QLCIOPlugin::invalidLine();
+
+    QTest::newRow("None line 0 removes")           << "map" << true  << KInputNone      << quint32(0) << true  << none        << 1 << false;
+    QTest::newRow("None invalidLine removes")      << "map" << true  << KInputNone      << none       << true  << none        << 1 << false;
+    QTest::newRow("empty name line 0 removes")     << "map" << true  << QString()       << quint32(0) << true  << none        << 1 << false;
+    QTest::newRow("unknown invalidLine removes")   << "map" << true  << "NoSuchPlugin"  << none       << true  << none        << 1 << false;
+    QTest::newRow("unknown line 0 keeps patch")    << "map" << true  << "NoSuchPlugin"  << quint32(0) << false << quint32(0)  << 0 << true;
+    QTest::newRow("valid repatch moves line")      << "map" << true  << "<stub>"        << quint32(3) << true  << quint32(3)  << 1 << false;
+    QTest::newRow("None line 0 when unpatched")    << "map" << false << KInputNone      << quint32(0) << true  << none        << 0 << false;
+    QTest::newRow("unknown line 0 when unpatched") << "map" << false << "NoSuchPlugin"  << quint32(0) << true  << none        << 0 << true;
+    QTest::newRow("Universe NULL line 0 removes")  << "universe" << true << QString()   << quint32(0) << true  << none        << 1 << false;
+    QTest::newRow("Universe NULL invalidLine removes") << "universe" << true << QString() << none     << true  << none        << 1 << false;
+    QTest::newRow("Universe NULL when unpatched")  << "universe" << false << QString()  << quint32(0) << true  << none        << 0 << false;
+}
+
+void InputOutputMap_Test::removeInputPatch()
+{
+    QFETCH(QString, via);
+    QFETCH(bool, startPatched);
+    QFETCH(QString, pluginName);
+    QFETCH(quint32, line);
+    QFETCH(bool, expectedResult);
+    QFETCH(quint32, expectedLine);
+    QFETCH(int, expectedCloses);
+    QFETCH(bool, expectWarning);
+
+    IOPluginStub* stub = static_cast<IOPluginStub*>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    if (pluginName == "<stub>")
+        pluginName = stub->name();
+
+    InputOutputMap im(m_doc, 4);
+    stub->m_openInputs.clear();
+    QVERIFY(im.setInputPatch(1, stub->name(), "", "", 1) == true);
+    QVERIFY(im.setInputPatch(2, stub->name(), "", "", 2) == true);
+    QVERIFY(im.setOutputPatch(0, stub->name(), "", "", 0) == true);
+    if (startPatched)
+        QVERIFY(im.setInputPatch(0, stub->name(), "", "", 0) == true);
+    InputPatch *other1 = im.inputPatch(1);
+    InputPatch *other2 = im.inputPatch(2);
+    OutputPatch *output0 = im.outputPatch(0);
+    stub->m_closedInputs.clear();
+
+    if (expectWarning)
+        QTest::ignoreMessage(QtWarningMsg,
+                             QRegularExpression(QString("Unknown input plugin.*%1").arg(pluginName)));
+
+    bool result;
+    if (via == "universe")
+        result = im.universe(0)->setInputPatch(NULL, line, NULL);
+    else
+        result = im.setInputPatch(0, pluginName, "", "", line);
+
+    QCOMPARE(result, expectedResult);
+    for (quint32 i = 0; i < im.universesCount(); i++)
+        QVERIFY2(im.inputPatch(i) == NULL || im.inputPatch(i)->plugin() != NULL,
+                 qPrintable(QString("universe %1 kept an input patch without a plugin").arg(i)));
+
+    if (expectedLine == QLCIOPlugin::invalidLine())
+    {
+        QVERIFY(im.inputPatch(0) == NULL);
+        QVERIFY(stub->m_openInputs.contains(0) == false);
+    }
+    else
+    {
+        QVERIFY(im.inputPatch(0) != NULL);
+        QCOMPARE(im.inputPatch(0)->plugin(), stub);
+        QCOMPARE(im.inputPatch(0)->input(), expectedLine);
+        QVERIFY(stub->m_openInputs.contains(expectedLine));
+
+        QSignalSpy spy(&im, SIGNAL(inputValueChanged(quint32, quint32, uchar, const QString&)));
+        stub->emitValueChanged(UINT_MAX, expectedLine, 7, 200);
+        im.flushInputs();
+        QCOMPARE(spy.size(), 1);
+        QCOMPARE(spy.at(0).at(0).toUInt(), quint32(0));
+    }
+    QCOMPARE(stub->m_closedInputs.count(), expectedCloses);
+    if (expectedCloses > 0)
+        QCOMPARE(stub->m_closedInputs.first(), quint32(0));
+
+    QCOMPARE(im.inputPatch(1), other1);
+    QCOMPARE(im.inputPatch(1)->plugin(), stub);
+    QCOMPARE(im.inputPatch(1)->input(), quint32(1));
+    QCOMPARE(im.inputPatch(2), other2);
+    QCOMPARE(im.inputPatch(2)->input(), quint32(2));
+    QVERIFY(stub->m_openInputs.contains(1) && stub->m_openInputs.contains(2));
+    QCOMPARE(im.outputPatch(0), output0);
+    QCOMPARE(im.outputPatch(0)->plugin(), stub);
+
+    // Re-patching the same universe afterwards must work
+    QVERIFY(im.setInputPatch(0, stub->name(), "", "", 0) == true);
+    QCOMPARE(im.inputPatch(0)->plugin(), stub);
+    QCOMPARE(im.inputPatch(0)->input(), quint32(0));
+}
+
+void InputOutputMap_Test::loadXMLInputPatch_data()
+{
+    QTest::addColumn<QString>("inputElement");
+    QTest::addColumn<quint32>("expectedLine");
+    QTest::addColumn<bool>("expectWarning");
+
+    const quint32 none = QLCIOPlugin::invalidLine();
+
+    QTest::newRow("None line 0")        << R"(<Input Plugin="None" Line="0"/>)"          << none       << false;
+    QTest::newRow("no plugin attribute") << R"(<Input Line="0"/>)"                        << none       << false;
+    QTest::newRow("missing plugin")     << R"(<Input Plugin="NoSuchPlugin" Line="0"/>)"  << none       << true;
+    QTest::newRow("stub line 2")        << R"(<Input Plugin="<stub>" Line="2"/>)"        << quint32(2) << false;
+    QTest::newRow("no input")           << QString()                                     << none       << false;
+}
+
+void InputOutputMap_Test::loadXMLInputPatch()
+{
+    QFETCH(QString, inputElement);
+    QFETCH(quint32, expectedLine);
+    QFETCH(bool, expectWarning);
+
+    IOPluginStub* stub = static_cast<IOPluginStub*>
+                                (m_doc->ioPluginCache()->plugins().at(0));
+    QVERIFY(stub != NULL);
+    inputElement.replace("<stub>", stub->name());
+
+    QString xml = QString(R"(<InputOutputMap><Universe Name="U1" ID="0">%1</Universe>)"
+                          R"(<Universe Name="U2" ID="1"><Input Plugin="%2" Line="1"/></Universe>)"
+                          R"(</InputOutputMap>)").arg(inputElement, stub->name());
+    QXmlStreamReader root(xml);
+    root.readNextStartElement();
+
+    if (expectWarning)
+        QTest::ignoreMessage(QtWarningMsg, QRegularExpression("Unknown input plugin.*NoSuchPlugin"));
+
+    InputOutputMap im(m_doc, 4);
+    QVERIFY(im.loadXML(root) == true);
+    QCOMPARE(im.universesCount(), quint32(2));
+
+    if (expectedLine == QLCIOPlugin::invalidLine())
+        QVERIFY(im.inputPatch(0) == NULL);
+    else
+    {
+        QVERIFY(im.inputPatch(0) != NULL);
+        QCOMPARE(im.inputPatch(0)->plugin(), stub);
+        QCOMPARE(im.inputPatch(0)->input(), expectedLine);
+    }
+    QVERIFY(im.inputPatch(1) != NULL);
+    QCOMPARE(im.inputPatch(1)->plugin(), stub);
+    QCOMPARE(im.inputPatch(1)->input(), quint32(1));
+}
 
 void InputOutputMap_Test::setOutputPatch()
 {

@@ -15,6 +15,7 @@
 #include <memory>
 #include <cmath>
 #include <QScopeGuard>
+#include <QAccessible>
 #include <algorithm>
 
 #include "app.h"
@@ -64,6 +65,8 @@ private slots:
     void videoEditorUrlDialog();
     void mixedAuthoring_data();
     void mixedAuthoring();
+    void rulerChangeGeometry_data();
+    void rulerChangeGeometry();
     void fileOpenGuard_data();
     void fileOpenGuard();
     void cueListWidths_data();
@@ -540,6 +543,157 @@ void UpstreamIntegration_Test::mixedAuthoring()
     QVERIFY(std::isfinite(item->x()));
     QVERIFY(std::isfinite(item->width()));
     manager->setCurrentShowID(Function::invalidId());
+}
+
+void UpstreamIntegration_Test::rulerChangeGeometry_data()
+{
+    QTest::addColumn<int>("fromIndex");
+    QTest::addColumn<int>("toIndex");
+    QTest::addColumn<double>("timeZoom");
+    QTest::addColumn<double>("beatZoom");
+    QTest::addColumn<bool>("mixed");
+    QTest::newRow("native-bpm-to-time") << 2 << 0 << 5.0 << 1.0 << false;
+    for (int from : {0, 1, 2})
+        for (int to : {0, 1, 2})
+            if (from != to)
+                for (const auto &zoom : {QPair<double, double>{5.0, 1.0}, {0.5, 0.5}, {2.0, 2.0}})
+                    QTest::newRow(qPrintable(QString("mixed-%1-to-%2-zoom-%3-%4")
+                        .arg(from).arg(to).arg(zoom.first).arg(zoom.second)))
+                        << from << to << zoom.first << zoom.second << true;
+}
+
+void UpstreamIntegration_Test::rulerChangeGeometry()
+{
+    QFETCH(int, fromIndex);
+    QFETCH(int, toIndex);
+    QFETCH(double, timeZoom);
+    QFETCH(double, beatZoom);
+    QFETCH(bool, mixed);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    static const Show::TimeDivision divisions[] = {Show::Time, Show::VDJBeat, Show::BPM_4_4};
+    static const uint starts[] = {2500, 6000, 7000, 8000, 9000, 10000, 11000};
+    static const uint mixedDurations[] = {5000, 2000, 3000, 6000, 1000, 4000, 5000};
+    static const double mixedStartSeconds[] = {2.5, 3.0, 7.0, 4.0, 9.0, 5.0, 11.0};
+    static const double mixedDurationSeconds[] = {5.0, 1.0, 3.0, 3.0, 1.0, 2.0, 5.0};
+    auto *show = new Show(doc);
+    QVERIFY(doc->addFunction(show));
+    show->setTimeDivision(Show::Time, 120);
+    QList<quint32> functions;
+    for (int i = 0; i < 7; ++i)
+    {
+        auto *scene = new Scene(doc);
+        scene->setTempoType(mixed && i % 2 ? Function::Beats : Function::Time);
+        QVERIFY(doc->addFunction(scene));
+        functions.append(scene->id());
+        auto *track = new Track(Function::invalidId(), show);
+        auto *sf = new ShowFunction(show->getLatestShowFunctionId());
+        sf->setFunctionID(scene->id());
+        sf->setStartTime(starts[i]);
+        sf->setDuration(mixed ? mixedDurations[i] : 5000);
+        QVERIFY(track->addShowFunction(sf));
+        QVERIFY(show->addTrack(track));
+    }
+    const bool wasVisible = m_app->isVisible();
+    const auto cleanup = qScopeGuard([&]() {
+        manager->resetContents();
+        doc->deleteFunction(show->id());
+        for (quint32 id : functions)
+            doc->deleteFunction(id);
+        m_app->setVisible(wasVisible);
+    });
+    m_app->showNormal();
+    m_app->resize(1200, 800);
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    QVERIFY(QMetaObject::invokeMethod(m_app->rootObject(), "switchToContext",
+                                     Q_ARG(QVariant, QString("SHOWMGR")),
+                                     Q_ARG(QVariant, QString("qrc:/ShowManager.qml"))));
+    auto *combo = m_app->rootObject()->findChild<QQuickItem*>("markersCombo");
+    QVERIFY(combo);
+    manager->setCurrentShowID(show->id());
+    QCoreApplication::processEvents();
+    QTRY_COMPARE(combo->property("currentIndex").toInt(), 0);
+    manager->setTimeScale(timeZoom);
+    manager->setTimeDivision(Show::BPM_4_4);
+    QCoreApplication::processEvents();
+    QTRY_COMPARE(combo->property("currentIndex").toInt(), 2);
+    manager->setTimeScale(beatZoom);
+    manager->setTimeDivision(divisions[fromIndex]);
+    manager->setGridEnabled(false);
+
+    QCoreApplication::processEvents();
+    QTRY_COMPARE(combo->property("currentIndex").toInt(), fromIndex);
+
+    for (int index : {fromIndex, toIndex, fromIndex})
+    {
+        if (combo->property("currentIndex").toInt() != index)
+        {
+            combo->forceActiveFocus();
+            QTest::keyClick(m_app.get(), Qt::Key_Space);
+            auto *popup = combo->property("popup").value<QObject*>();
+            QVERIFY(popup);
+            QTRY_VERIFY(popup->property("visible").toBool());
+            QTest::keyClick(m_app.get(), Qt::Key_Home);
+            for (int n = 0; n < index; ++n)
+                QTest::keyClick(m_app.get(), Qt::Key_Down);
+            QTest::keyClick(m_app.get(), Qt::Key_Return);
+            QTRY_VERIFY(!popup->property("visible").toBool());
+        }
+        auto *alignment = m_app->rootObject()->findChild<QObject*>("beatAlignWarningPopup");
+        QVERIFY(alignment);
+        if (alignment->property("visible").toBool())
+        {
+            QVERIFY(QMetaObject::invokeMethod(alignment, "accept"));
+            QTRY_VERIFY(!alignment->property("visible").toBool());
+        }
+        QTRY_COMPARE(manager->timeDivision(), divisions[index]);
+        QCoreApplication::processEvents();
+        QList<QQuickItem*> controls;
+        for (auto *item : manager->contextItem()->childItems())
+            if (auto *control = item->findChild<QQuickItem*>("clipSelection"))
+                controls.append(control);
+        QCOMPARE(controls.size(), 7);
+        for (auto *control : controls)
+        {
+            auto *item = control->parentItem();
+            auto *sf = item->property("sfRef").value<ShowFunction*>();
+            QVERIFY(sf);
+            const int trackIndex = item->property("trackIndex").toInt();
+            QCOMPARE(sf->startTime(), starts[trackIndex]);
+            QCOMPARE(sf->duration(), mixed ? mixedDurations[trackIndex] : uint(5000));
+            QCOMPARE(doc->function(sf->functionID())->tempoType(),
+                     mixed && trackIndex % 2 ? Function::Beats : Function::Time);
+            QVERIFY(item->isVisible());
+            QVERIFY(control->isVisible());
+            QVERIFY2(control->width() > 0, "The production ruler switch collapsed the visible clip selection target");
+            const double pixelsPerSecond = index == 2 ? manager->tickSize() / 2.0
+                                                      : manager->tickSize() / timeZoom;
+            const double startSeconds = mixed ? mixedStartSeconds[trackIndex] : starts[trackIndex] / 1000.0;
+            const double durationSeconds = mixed ? mixedDurationSeconds[trackIndex] : 5.0;
+            QVERIFY(qAbs(item->x() - startSeconds * pixelsPerSecond) < 0.01);
+            QVERIFY(qAbs(item->width() - durationSeconds * pixelsPerSecond) < 0.01);
+            control->forceActiveFocus();
+            QTRY_COMPARE(m_app->activeFocusItem(), control);
+            auto *accessible = QAccessible::queryAccessibleInterface(control);
+            QVERIFY(accessible);
+            QVERIFY(!accessible->rect().isEmpty());
+            const QPoint point = control->mapToScene(QPointF(control->width() / 2, control->height() / 2)).toPoint();
+            QVERIFY2(QRect(QPoint(), m_app->size()).contains(point),
+                     qPrintable(QString("point %1,%2 window %3,%4 track %5")
+                         .arg(point.x()).arg(point.y()).arg(m_app->width()).arg(m_app->height())
+                         .arg(trackIndex)));
+            if (mixed)
+                QTest::keyClick(m_app.get(), Qt::Key_Space);
+            else
+                QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+            QVERIFY(item->property("isSelected").toBool());
+            QCOMPARE(manager->selectedItemsCount(), 1);
+            QCOMPARE(sf->startTime(), starts[trackIndex]);
+            QCOMPARE(sf->duration(), mixed ? mixedDurations[trackIndex] : uint(5000));
+        }
+        QVERIFY(!m_app->grabWindow().isNull());
+    }
 }
 
 void UpstreamIntegration_Test::fileOpenGuard_data()

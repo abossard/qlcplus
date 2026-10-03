@@ -359,23 +359,32 @@ Show::TimeDivision Show::stringToTempo(const QString& tempo)
 
 void Show::setSyncSource(int source)
 {
+    bool changed;
     {
         // a seek request lives only under the source it was made under
         QMutexLocker locker(&m_commandTrackMutex);
-        if (source != m_syncSource)
+        changed = source != m_syncSource;
+        if (changed)
         {
             m_requestedSeekTime.store(NoSeekRequested, std::memory_order_release);
+            m_requestedForwardTime.store(NoSeekRequested, std::memory_order_release);
             m_requestedSeekIds.clear();
         }
         m_syncSource = source;
     }
     if (m_runner != NULL)
         m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
+    if (changed)
+        emit syncSourceChanged();
 }
 
 void Show::setExternalElapsedTime(quint32 ms)
 {
-    if (m_externalElapsedTime.exchange(ms, std::memory_order_relaxed) != ms)
+    const bool changed = m_externalElapsedTime.exchange(ms, std::memory_order_relaxed) != ms;
+    // after the value: a reader that sees the anchor also sees a value at least as new
+    quint64 none = NoSample;
+    m_playFirstSample.compare_exchange_strong(none, ms, std::memory_order_acq_rel);
+    if (changed)
         emit externalElapsedTimeChanged(ms);
 }
 
@@ -387,12 +396,35 @@ void Show::requestSeek(quint32 ms)
         // so the crossed work it would have ended stays valid
         if (m_syncSource != ShowRunner::Autonomous)
             return;
-        m_requestedSeekIds.unite(m_commandAppliedIds);
+        const bool backwardPending = m_requestedSeekTime.load(std::memory_order_acquire) != NoSeekRequested;
+        if (backwardPending == false && ms > commandPosition())
+        {
+            // forward: playback goes on through the crossed interval, nothing is cancelled
+            m_requestedForwardTime.store(ms, std::memory_order_release);
+            return;
+        }
+        m_requestedForwardTime.store(NoSeekRequested, std::memory_order_release);
+        if (backwardPending)
+        {
+            // already cancelled and announced: only the target changes
+            m_requestedSeekTime.store(ms, std::memory_order_release);
+            return;
+        }
+        for (auto it = m_commandAppliedIds.cbegin(); it != m_commandAppliedIds.cend(); ++it)
+            m_requestedSeekIds.insert(it.key());
         cancelControlWork();
         // after the cancellation, so the runner consuming it publishes anew
         m_requestedSeekTime.store(ms, std::memory_order_release);
     }
     emit commandTraversalCancelled();
+}
+
+std::optional<quint32> Show::pendingBackwardSeek() const
+{
+    const quint64 target = m_requestedSeekTime.load(std::memory_order_acquire);
+    if (target == NoSeekRequested)
+        return std::nullopt;
+    return quint32(target);
 }
 
 void Show::stopRequested()
@@ -610,12 +642,19 @@ void Show::startRequested()
 {
     QMutexLocker locker(&m_commandTrackMutex);
     m_startsAccepted++;
+    m_playFirstSample.store(NoSample, std::memory_order_release);
 }
 
 bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
                                std::optional<quint64> appliedTraversal, QString *error, bool onlyStopped)
 {
-    const QString reason = commandTargetError(track);
+    QString reason = commandTargetError(track);
+    // a live mark needs the occurrence the caller executed
+    for (auto it = alreadyApplied.cbegin(); reason.isEmpty() && it != alreadyApplied.cend(); ++it)
+    {
+        if (track.contains(*it) == false)
+            reason = tr("Live event %1 is not in the published recording").arg(*it);
+    }
     if (reason.isEmpty() == false)
     {
         if (error != NULL)
@@ -658,7 +697,14 @@ bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> 
          *  one, and what was executed before it is history Play replays.
          *  So is what ran in a traversal that has ended since. */
         if (stopped() == false && appliedTraversal.value_or(m_commandTraversal) == m_commandTraversal)
-            m_commandAppliedIds.unite(alreadyApplied);
+        {
+            // the capture publication fixes the occurrence; later ones never retag it
+            for (quint32 id : alreadyApplied)
+            {
+                if (m_commandAppliedIds.contains(id) == false)
+                    m_commandAppliedIds.insert(id, liveMarkOf(track.commands().at(track.indexOfId(id))));
+            }
+        }
     }
 
     m_commandTrackRevision.fetch_add(1, std::memory_order_release);
@@ -670,7 +716,7 @@ quint64 Show::commandTrackRevision() const
     return m_commandTrackRevision.load(std::memory_order_acquire);
 }
 
-ShowCommandTrack Show::commandTrackSnapshot(QSet<quint32> *alreadyApplied) const
+ShowCommandTrack Show::commandTrackSnapshot(ShowLiveMarks *alreadyApplied) const
 {
     QMutexLocker locker(&m_commandTrackMutex);
     if (alreadyApplied != NULL)
@@ -714,7 +760,8 @@ quint64 Show::commandTraversal() const
 quint64 Show::publishControlBatch(quint64 run, quint64 traversal, const QVector<ShowCommand> &commands,
                                   const QVector<ShowCommand> &owedAfter,
                                   const QVector<quint32> &engineStarted,
-                                  const QVector<quint32> &engineStopped)
+                                  const QVector<quint32> &engineStopped,
+                                  std::optional<quint32> rollbackTo)
 {
     quint64 seq;
     {
@@ -727,6 +774,7 @@ quint64 Show::publishControlBatch(quint64 run, quint64 traversal, const QVector<
         ShowControlBatch batch;
         batch.traversal = m_commandTraversal;
         batch.seq = seq = ++m_lastControlSeq;
+        batch.rollbackTo = rollbackTo;
         batch.commands = commands;
         batch.engineStarted = engineStarted;
         batch.engineStopped = engineStopped;
@@ -1063,6 +1111,7 @@ void Show::preRun(MasterTimer* timer)
         m_startsRunning = m_startsAccepted;
     }
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
+    m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
     m_runningChildren.clear();
@@ -1081,7 +1130,8 @@ void Show::preRun(MasterTimer* timer)
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
     m_runnerPaused = false;
     m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
-    m_runner->setExternalElapsedTime(externalElapsedTime());
+    const quint64 anchor = m_playFirstSample.load(std::memory_order_acquire);
+    m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
     int i = 0;
     foreach (Track *track, m_tracks)
         m_runner->adjustIntensity(getAttributeValue(i++), track);
@@ -1119,26 +1169,40 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         return;
     }
 
-    m_runner->setExternalElapsedTime(externalElapsedTime());
+    // the anchor first, so the value read after it is at least as new
+    const quint64 anchor = m_playFirstSample.load(std::memory_order_acquire);
+    m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
     quint64 seekTime;
+    quint64 forwardTime;
     {
         QMutexLocker locker(&m_commandTrackMutex);
         seekTime = m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
+        forwardTime = m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
         // an external clock ignores it; consumed, what it ends is history
         if (seekTime != NoSeekRequested && m_syncSource == ShowRunner::Autonomous)
-            m_commandAppliedIds.subtract(m_requestedSeekIds);
+        {
+            for (quint32 id : std::as_const(m_requestedSeekIds))
+                m_commandAppliedIds.remove(id);
+        }
         else
             seekTime = NoSeekRequested;
         m_requestedSeekIds.clear();
+        // the runner reached it since the request was classified: playback crossed it already
+        if (m_syncSource != ShowRunner::Autonomous ||
+            forwardTime <= m_commandPosition.load(std::memory_order_relaxed))
+            forwardTime = NoSeekRequested;
     }
     if (seekTime != NoSeekRequested)
         m_runner->requestSeek(quint32(seekTime));
+    else if (forwardTime != NoSeekRequested)
+        m_runner->requestSeek(quint32(forwardTime), true);
     m_runner->write(timer);
 }
 
 void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
 {
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
+    m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     if (m_runner != NULL)
     {
         m_runner->stop();

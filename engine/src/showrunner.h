@@ -79,11 +79,15 @@ public:
     SyncSource syncSource() const { return m_syncSource; }
 
     /** Provide the current elapsed time in milliseconds (thread-safe).
-     *  Only used when syncSource is External. */
-    void setExternalElapsedTime(quint32 ms);
+     *  Only used when syncSource is External. anchor is the first sample
+     *  set since Play, NoSample until there is one: under External the
+     *  commands begin there, never at a value present at Play. */
+    static constexpr quint64 NoSample = std::numeric_limits<quint64>::max();
+    void setExternalElapsedTime(quint32 ms, quint64 anchor = NoSample);
 
-    /** Queue a local seek for application on the timer thread. */
-    void requestSeek(quint32 ms);
+    /** Queue a local seek for application on the timer thread. A forward
+     *  one plays the commands it crosses, a backward one repositions. */
+    void requestSeek(quint32 ms, bool forward = false);
 
 private:
     const Doc *m_doc;
@@ -96,9 +100,14 @@ private:
 
     /** Externally-provided elapsed time (thread-safe via atomic) */
     std::atomic<quint32> m_externalElapsedTime{0};
+    std::atomic<quint64> m_externalAnchor{NoSample};
+    /** Under External: no command is due before the first sample set since
+     *  Play, which is the position the traversal begins at */
+    bool m_externalBaselinePending = false;
 
     static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
     std::atomic<quint64> m_requestedSeekTime{NoSeekRequested};
+    std::atomic<quint64> m_requestedForwardTime{NoSeekRequested};
 
     /** The list of time-based Functions the Show needs to play */
     QList <ShowFunction *> m_timeFunctions;
@@ -145,8 +154,11 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    /** requested: consuming Show::requestSeek, not an external clock jump */
-    void seekTo(quint32 newTime, bool requested);
+    /** requested: consuming Show::requestSeek, not an external clock jump.
+     *  Ordinary clips stop and are rescheduled either way. A forward request
+     *  keeps the command traversal and plays the crossed interval; otherwise
+     *  the traversal restarts at newTime and rolls back its own effects. */
+    void seekTo(quint32 newTime, bool requested, bool forward = false);
 
     void syncPerformAudioSuppression();
     bool isAudioFunction(const Function *function) const;
@@ -175,17 +187,19 @@ private:
      *  A stalled seek restart postpones the whole traversal by a tick. */
     void processCommands(bool traversalStalled);
 
-    /** A new traversal catches up on its prefix, rather than restoring legacy
-     *  values, when the track holds any VC record and an executor applies them */
+    /** A requested forward jump dispatches its crossed interval serially, and
+     *  a backward move asks the executor to roll back, when the track holds
+     *  any VC record and an executor applies them */
     bool commandCatchUp() const;
 
     void applyCommandEffect(const ShowCommand &cmd);
 
     /** Crossed effects in authored order: legacy ones run here, contiguous VC
      *  runs go to the GUI as one batch, and whatever follows a batch waits
-     *  until it is acknowledged. While catching up, whatever follows a legacy
-     *  Start or Stop also waits until its target settled. Retried on every
-     *  write. */
+     *  until it is acknowledged. While a requested forward jump plays its
+     *  crossed interval, whatever follows a legacy Start or Stop also waits
+     *  until its target settled. A pending rollback goes first, once the
+     *  settling target settled. Retried on every write. */
     void dispatchCommandEffects(const QVector<ShowCommand> &effects);
 
     /** Keep the initialization a Virtual Console Start performs (chaser step
@@ -200,10 +214,11 @@ private:
      *  terminate a later command activation */
     void retireClipDeadline(quint32 functionId);
 
-    /** Retire the deadlines of live Stop events the recorder already executed.
-     *  They never reach applyCommandEffect(), but their scheduler bookkeeping
-     *  still has to happen - once per traversal, per id. */
-    void retireLiveStopDeadlines(const QSet<quint32> &liveIds);
+    /** Retire the deadlines of live Stop events the recorder already executed,
+     *  for the Function each stopped when captured. They never reach
+     *  applyCommandEffect(), but their scheduler bookkeeping still has to
+     *  happen - once per traversal, per id. */
+    void retireLiveStopDeadlines(const ShowLiveMarks &liveMarks);
 
     void stopCommandOwnedFunctions();
     bool commandTargetActive(const Function *function) const;
@@ -231,17 +246,35 @@ private:
 
     static constexpr quint64 NoCommandSeek = std::numeric_limits<quint64>::max();
 
-    /** Destination whose authored values are restored once the clips of the
-     *  destination have been scheduled */
-    quint64 m_pendingCommandSeek;
+    /** A backward move to this time still owes its rollback */
+    quint64 m_pendingRollback = NoCommandSeek;
+    /** A requested forward jump was taken: its crossed interval plays serially */
+    bool m_commandJumpPending = false;
+
+    /** What a legacy Start, Stop or SetIntensity found and left on its target */
+    struct LegacyEffect
+    {
+        quint32 time;
+        quint32 functionId;
+        bool runningBefore;
+        bool runningAfter;
+        qreal intensityBefore;
+        qreal intensityAfter;
+    };
+    /** This traversal's legacy effects, in the order they ran */
+    QVector<LegacyEffect> m_legacyJournal;
+    SyncSource m_journalSource = Autonomous;
+    /** Return every target a legacy effect after time changed to its state
+     *  before the first of them, and forget those effects */
+    void rollBackLegacyEffects(quint32 time);
 
     /** Crossed effects waiting behind an unacknowledged VC batch */
     QVector<ShowCommand> m_commandRemainder;
     /** Seq of that batch, 0 when nothing is held */
     quint64 m_heldControlBatch = 0;
-    /** This traversal still dispatches its catch-up prefix */
+    /** This traversal still dispatches the crossed interval of a requested forward jump */
     bool m_commandCatchUp = false;
-    /** The target of the last catch-up Start or Stop, whose native effect
+    /** The target of the last jump Start or Stop, whose native effect
      *  everything after it waits for; InvalidId when nothing waits */
     quint32 m_settlingFunction = ShowCommand::InvalidId;
     bool m_settlingStart = false;

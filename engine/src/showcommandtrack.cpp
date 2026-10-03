@@ -236,18 +236,15 @@ namespace
             root.skipCurrentElement();
     }
 
-    /** A live mark guards its own event only until the playhead consumes that time */
-    QSet<quint32> pendingLiveIds(const ShowCommandTrack &track, const QSet<quint32> &marked,
-                                 quint32 position)
+    /** A live mark guards its own occurrence only until the playhead consumes the
+     *  mark's time, wherever its event was moved or whether it still exists */
+    ShowLiveMarks pendingLiveMarks(const ShowLiveMarks &marked, quint32 position)
     {
-        if (marked.isEmpty())
-            return marked;
-
-        QSet<quint32> pending;
-        for (const ShowCommand &cmd : track.commands())
+        ShowLiveMarks pending;
+        for (auto it = marked.cbegin(); it != marked.cend(); ++it)
         {
-            if (cmd.time > position && marked.contains(cmd.id))
-                pending.insert(cmd.id);
+            if (it.value().time > position)
+                pending.insert(it.key(), it.value());
         }
         return pending;
     }
@@ -590,6 +587,68 @@ bool ShowCommandTrack::remove(quint32 id, QString *error)
     return succeed(error);
 }
 
+ShowRetimeRefusal ShowCommandTrack::retimeSelection(const QVector<quint32> &ids, ShowRetimeKind kind,
+                                                    qint64 deltaMs, ShowCommandTrack *result) const
+{
+    const QSet<quint32> wanted(ids.cbegin(), ids.cend());
+    // the selected events in their stored, (time, Order), sequence
+    QVector<ShowCommand> selected;
+    for (const ShowCommand &cmd : m_commands)
+    {
+        if (wanted.contains(cmd.id))
+            selected.append(cmd);
+    }
+    if (selected.isEmpty() || selected.count() != wanted.count())
+        return ShowRetimeRefusal::UnknownEvent;
+
+    const qint64 first = selected.first().time;
+    const qint64 last = selected.last().time;
+    const quint64 oldSpan = quint64(last - first);
+    qint64 pin = 0;
+    qint64 newSpan = 0;
+    if (kind != ShowRetimeKind::Move)
+    {
+        if (oldSpan == 0)
+            return ShowRetimeRefusal::NoSpan;
+        // the delta moves the dragged edge; the other one stays
+        newSpan = kind == ShowRetimeKind::StretchEnd ? qint64(oldSpan) + deltaMs : qint64(oldSpan) - deltaMs;
+        if (newSpan <= 0)
+            return ShowRetimeRefusal::NoTargetSpan;
+        pin = kind == ShowRetimeKind::StretchEnd ? first : last;
+        const qint64 moved = kind == ShowRetimeKind::StretchEnd ? first + newSpan : last - newSpan;
+        if (moved < 0 || moved > qint64(ShowCommand::MaxTime))
+            return ShowRetimeRefusal::OutOfRange;
+    }
+
+    // both factors below 2^32, so the product and the half fit 64 unsigned bits
+    const auto scaled = [&](qint64 time) -> qint64 {
+        const quint64 offset = quint64(time > pin ? time - pin : pin - time);
+        const qint64 rounded = qint64((offset * quint64(newSpan) + oldSpan / 2) / oldSpan);
+        return time > pin ? pin + rounded : pin - rounded;
+    };
+
+    QVector<qint64> times;
+    for (const ShowCommand &cmd : std::as_const(selected))
+    {
+        const qint64 time = kind == ShowRetimeKind::Move ? qint64(cmd.time) + deltaMs : scaled(cmd.time);
+        if (time < 0 || time > qint64(ShowCommand::MaxTime))
+            return ShowRetimeRefusal::OutOfRange;
+        if (times.isEmpty() == false &&
+            (time < times.last() || (time == times.last() && cmd.order < selected.at(times.count() - 1).order)))
+            return ShowRetimeRefusal::Reordered;
+        times.append(time);
+    }
+
+    ShowCommandTrack edited = *this;
+    for (int i = 0; i < selected.count(); ++i)
+    {
+        if (edited.retime(selected.at(i).id, quint32(times.at(i))) == false)
+            return ShowRetimeRefusal::OutOfRange;
+    }
+    *result = edited;
+    return ShowRetimeRefusal::None;
+}
+
 QList<quint32> ShowCommandTrack::referencedFunctionIds() const
 {
     QList<quint32> ids;
@@ -860,55 +919,28 @@ ShowCommandTransition ShowCommandFsm::advance(const ShowCommandTrack &track,
     {
         if (cmd.time > position)
             break;
-        // the host already executed a live event, so it never echoes back at us
-        if (cmd.time >= state.consumedThrough && !state.consumedLiveEventIds.contains(cmd.id))
+        // the host already executed a live occurrence, so it never echoes back at us;
+        // the same event at another time is a different occurrence and plays
+        const auto mark = state.consumedLiveEventIds.constFind(cmd.id);
+        const bool live = mark != state.consumedLiveEventIds.cend() && mark.value().time == cmd.time;
+        if (cmd.time >= state.consumedThrough && !live)
             result.effects.append(cmd);
     }
 
     result.state.position = position;
     result.state.consumedThrough = position + 1;
-    result.state.consumedLiveEventIds = pendingLiveIds(track, state.consumedLiveEventIds, position);
+    result.state.consumedLiveEventIds = pendingLiveMarks(state.consumedLiveEventIds, position);
     return result;
 }
 
-ShowCommandTransition ShowCommandFsm::seek(const ShowCommandTrack &track,
-                                           const ShowCommandState &state, quint32 positionMs,
-                                           bool catchUp)
+ShowCommandState ShowCommandFsm::seek(const ShowCommandState &state, quint32 positionMs)
 {
-    ShowCommandTransition result;
-    result.state = state;
-
-    const quint32 destination = qMin(positionMs, ShowCommand::MaxTime);
-    result.state.position = destination;
-    if (catchUp)
-    {
-        result.state.consumedThrough = 0;
-        return result;
-    }
-    result.state.consumedThrough = destination;
-    // a new traversal owes nothing to what was executed live during the previous one
-    result.state.consumedLiveEventIds.clear();
-
-    // the latest authored value per target, from before the destination only:
-    // history is restored as values, never replayed as triggers
-    QHash<quint32, int> latest;
-    const QVector<ShowCommand> &commands = track.commands();
-
-    for (int i = 0; i < commands.count(); i++)
-    {
-        const ShowCommand &cmd = commands.at(i);
-        if (cmd.time >= destination)
-            break;
-        if (cmd.action == ShowCommandAction::SetIntensity)
-            latest.insert(cmd.functionId, i);
-    }
-
-    QList<int> indexes = latest.values();
-    std::sort(indexes.begin(), indexes.end());
-    for (int index : indexes)
-        result.effects.append(commands.at(index));
-
-    return result;
+    ShowCommandState next = state;
+    next.position = qMin(positionMs, ShowCommand::MaxTime);
+    next.consumedThrough = next.position;
+    // a new pass owes nothing to what was executed live during the previous one
+    next.consumedLiveEventIds.clear();
+    return next;
 }
 
 ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
@@ -950,8 +982,8 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
         return result;
 
     result.authored.append(cmd);
-    // the host already executed this input: mark that one event, leave the cursor alone
-    result.state.consumedLiveEventIds.insert(cmd.id);
+    // the host already executed this input: mark that occurrence, leave the cursor alone
+    result.state.consumedLiveEventIds.insert(cmd.id, liveMarkOf(cmd));
     return result;
 }
 

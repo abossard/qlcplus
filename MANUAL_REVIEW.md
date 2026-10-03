@@ -1753,6 +1753,63 @@ not the build's stale HUE copies. These runs include the existing uncommitted
 recording code without accepting it. No running application was restarted
 and no live lighting was changed. All 11 checks below await human review.
 
+Verification refresh on 2026-09-29: canonical `mcallegari/qlcplus:master`
+remains `1ccdab841c118b20058c89c04bee95df94e440f3`, already contained in
+`mcp-server` at `be1ededa0524f5c1a524b812bd9ed974e8eac42b` (358 local-only,
+0 incoming commits). No merge or refactor was needed. The existing configured
+`qlcplus5` and all eight targets below built together with `-j8` and the
+normal warning policy, without cleaning or reconfiguring.
+
+| Fresh QtTest suite | Scope / selectors | Passed |
+|--------------------|-------------------|--------|
+| upstream3d | Full suite, including numeric-edit baselines | 29 |
+| RGBScript | Full suite, including Lines replay/copy | 37 |
+| RGBAlgorithm | Full suite | 5 |
+| RGBMatrix | Full suite | 26 |
+| HUEMatrix | `audioScriptsAreNotOfferedToRGBMatrix`, `hueMatrixOffersAllAudioScripts`, `patternSelection`, `legacyAlgorithmRoundTrip`, `upstreamScriptStillWorksOnHueScript`, `forkPropertiesSurviveXmlRoundTrip`, `unavailableAlgorithmIsRejected`, `hueCacheOffersAudioScriptsAfterStartupStyleLoad` | 68 |
+| MCP query | `queryRgbAlgorithms_matrixType`, `queryRgbAlgorithms_floatBoundsMetadata`, `queryRgbAlgorithms_invalidTypeReturnsError` | 7 |
+| MCP dispatch | `dispatchSmoke_createRgbMatrices_type`, `dispatchSmoke_createRgbMatrices_rejectedBeforeMutation` | 20 |
+| MCP stage placement | Full suite, including omitted-axis and per-head isolation | 32 |
+
+All 224 passes include setup/cleanup; every suite exited 0 with no failures
+or skips. Runs used offscreen/software rendering and isolated HOME, XDG,
+temporary and settings directories; engine tests ran from their source-test
+directories. Existing recording edits were preserved, not accepted.
+GPU shadows, native picking, perceptual quality, all 11 human checks, and
+authorized physical DMX checks remain pending. No existing app was restarted
+and no live MCP endpoint or hardware was exercised.
+
+Verification refresh on 2026-09-30: a fresh fetch of canonical
+`mcallegari/qlcplus:master` still returned
+`1ccdab841c118b20058c89c04bee95df94e440f3`, already integrated in
+`mcp-server` at `be1ededa0524f5c1a524b812bd9ed974e8eac42b` (358 fork-only,
+0 incoming commits). The predicted merge tree equals HEAD; no merge or
+refactor was performed. The existing configured `qlcplus5` and seven focused
+test targets built together once with `-j8` and the normal warning policy.
+
+| Fresh QtTest suite | Scope / selectors | Passed |
+|--------------------|-------------------|--------|
+| upstream3d | Full suite, including position baselines and render-quality notifications | 29 |
+| RGBScript | Full source-rooted suite, including Lines clone order variants | 37 |
+| RGBMatrix | `linesPropertyReplay`, `copy`, `loadSave` | 12 |
+| HUEMatrix | Eight selected stock/HUE filtering, compatibility, persistence and startup-cache tests | 68 |
+| MCP query | `queryRgbAlgorithms_matrixType`, `queryRgbAlgorithms_floatBoundsMetadata`, `queryRgbAlgorithms_invalidTypeReturnsError`, `queryRgbAlgorithms_invalidMatrixTypeReturnsError` | 8 |
+| MCP dispatch | `dispatchSmoke_createRgbMatrices_type`, `dispatchSmoke_createRgbMatrices_rejectedBeforeMutation` | 20 |
+| MCP stage placement | Eight selected round-trip, omitted-axis, per-head, rejection, persistence and stage-isolation tests | 10 |
+
+All 184 QtTest passes include setup/cleanup; all seven suites exited 0 with
+zero failures, skips or blacklisted tests. Tests used per-suite isolated
+HOME, XDG, runtime and temporary directories, offscreen/software rendering,
+and the specified source-test working directories for engine scripts.
+Exact commands, selectors, environments and native logs are retained in
+`build/upstream-merge-replicate-20260930T091632+0200/`.
+Existing recording edits and both prior dated records were preserved.
+These checks exercise in-process model, QML-function and registered-handler
+boundaries, not rendered GPU output, native picking, HTTP or hardware.
+All 11 human checks and three sign-off rows below remain pending.
+No standalone application was launched, stopped or restarted; no live
+lighting or MCP endpoint was contacted.
+
 ### 32.1 Quality changes and fork view behavior
 
 - ☐ In a disposable workspace, switch 3D quality from Low to High and back without leaving the view. Confirm spotlight and shadow passes appear or disappear as expected.

@@ -71,10 +71,10 @@ private slots:
     void commandCollectionControlsItsChildren();
     void commandExternalAdvanceAppliesCrossedEvents_data();
     void commandExternalAdvanceAppliesCrossedEvents();
-    void commandExternalBackwardRestoresAuthoredValues();
+    void commandExternalBackwardRollsBackItsWindow();
     void commandStopReleasesOnlyShowOwner();
     void commandStopRetiresSupersededClipDeadline();
-    void commandSeekRestoresValuesWithoutTriggers();
+    void commandForwardSeekPlaysCrossedCommands();
     void commandLiveInputDoesNotEchoButLoopReplays();
     void commandExtentAndRecordingKeepAlive_data();
     void commandExtentAndRecordingKeepAlive();
@@ -91,6 +91,20 @@ private slots:
     void commandIntensityIgnoresStaleClipQueueEntry();
     void commandSuppressedLiveStopRetiresClipDeadline();
 
+    // Live editing: occurrence no-echo, whole snapshots, crossed work untouched
+    void commandLiveOccurrenceAfterEdit_data();
+    void commandLiveOccurrenceAfterEdit();
+    void commandLiveStopMovedAhead_data();
+    void commandLiveStopMovedAhead();
+    void commandLiveStopRetiresOnce_data();
+    void commandLiveStopRetiresOnce();
+    void commandEditWhilePlaying_data();
+    void commandEditWhilePlaying();
+    void commandEditKeepsCrossedWork_data();
+    void commandEditKeepsCrossedWork();
+    void commandEditKeepsSettlingWork_data();
+    void commandEditKeepsSettlingWork();
+
     // Function receipts judge native state, whatever the arming order
     void functionReceiptSeesStartThatAlreadyFinished();
     void functionReceiptStopCompletesWhenAnotherOwnerRestarts();
@@ -102,19 +116,20 @@ private slots:
     void commandCancelledPublicationDropsLegacyRemainder_data();
     void commandCancelledPublicationDropsLegacyRemainder();
 
-    void commandSeekWithoutExecutorRestoresLegacyValues();
+    void commandForwardSeekWithoutExecutorPlaysLegacyValues();
 
-    // Serial catch-up: Play at a new position runs the prefix through native dispatch
-    void commandCatchUpEligibilityCoversWholeTrack_data();
-    void commandCatchUpEligibilityCoversWholeTrack();
-    void commandCatchUpSettlesLegacyStartStop_data();
-    void commandCatchUpSettlesLegacyStartStop();
-    void commandCatchUpBoundaries_data();
-    void commandCatchUpBoundaries();
-    void commandCatchUpPrefixStopEndsDestinationClip();
-    void commandCancelledCatchUpRunsNoLegacyRemainder_data();
-    void commandCancelledCatchUpRunsNoLegacyRemainder();
-    void commandCatchUpNaturalEndDrains();
+    // Play from a cursor replays no history; a requested forward jump plays its
+    // crossed interval serially through native dispatch
+    void commandPlayFromCursorReplaysNoHistory_data();
+    void commandPlayFromCursorReplaysNoHistory();
+    void commandJumpSettlesLegacyStartStop_data();
+    void commandJumpSettlesLegacyStartStop();
+    void commandTraversalBoundaries_data();
+    void commandTraversalBoundaries();
+    void commandJumpStopEndsDestinationClip();
+    void commandCancelledJumpRunsNoLegacyRemainder_data();
+    void commandCancelledJumpRunsNoLegacyRemainder();
+    void commandJumpNaturalEndDrains();
 
     // Pause settles already crossed work without advancing
     void commandPausedDrainsCrossedWork_data();
@@ -123,6 +138,12 @@ private slots:
     void pauseReachesClipsOnTheTimerThread();
     void commandIgnoredSeekStrandsNothing_data();
     void commandIgnoredSeekStrandsNothing();
+
+    // C1: seeks without history catch-up
+    void commandJumpDispatchesOnlyItsWindow_data();
+    void commandJumpDispatchesOnlyItsWindow();
+    void commandBackwardRollsBackOwnLegacyEffects_data();
+    void commandBackwardRollsBackOwnLegacyEffects();
 
 private:
     Doc *m_doc;

@@ -33,11 +33,21 @@ Rectangle
 
     property Track trackRef: null
     property bool isSelected: false
+    property alias firstControl: trackName
+    property alias lastControl: deleteTrackButton
+    property Item previousControl: null
+    property Item nextControl: null
 
     signal trackSelected()
+    signal controlFocused(var control)
 
     CustomTextInput
     {
+        id: trackName
+        readonly property bool showF2Editable: true
+        activeFocusOnTab: true
+        KeyNavigation.tab: soloButton
+        KeyNavigation.backtab: trackRoot.previousControl
         x: 2
         width: parent.width - 4
         height: parent.height
@@ -45,6 +55,7 @@ Rectangle
         wrapMode: TextInput.Wrap
         allowDoubleClick: true
         enabled: !showManager.readOnly
+        onActiveFocusChanged: if (activeFocus) trackRoot.controlFocused(this)
 
         onTextConfirmed:
             function(text)
@@ -65,6 +76,8 @@ Rectangle
     IconButton
     {
         id: soloButton
+        focusPolicy: Qt.StrongFocus
+        KeyNavigation.tab: muteButton
         x: parent.width - (width * 2) - 6
         y: 2
         z: 2
@@ -76,6 +89,7 @@ Rectangle
         checkable: true
         enabled: !showManager.readOnly
         tooltip: qsTr("Solo this track")
+        onActiveFocusChanged: if (activeFocus) trackRoot.controlFocused(this)
         onToggled: showManager.setTrackSolo(trackRef.id, checked)
 
         RobotoText
@@ -92,6 +106,8 @@ Rectangle
     IconButton
     {
         id: muteButton
+        focusPolicy: Qt.StrongFocus
+        KeyNavigation.tab: deleteTrackButton
         x: parent.width - width - 2
         y: 2
         z: 2
@@ -104,6 +120,7 @@ Rectangle
         checkable: true
         enabled: !showManager.readOnly
         tooltip: qsTr("Mute this track")
+        onActiveFocusChanged: if (activeFocus) trackRoot.controlFocused(this)
         // routed through ShowManager so the readOnly guard applies
         onToggled: showManager.setTrackMute(trackRef, checked)
 
@@ -121,6 +138,8 @@ Rectangle
     IconButton
     {
         id: deleteTrackButton
+        focusPolicy: Qt.StrongFocus
+        KeyNavigation.tab: trackRoot.nextControl
         x: parent.width - width - 2
         y: parent.height - height - 4
         z: 2
@@ -131,6 +150,7 @@ Rectangle
         faColor: "#3C4A55"
         enabled: !showManager.readOnly
         tooltip: qsTr("Delete this track")
+        onActiveFocusChanged: if (activeFocus) trackRoot.controlFocused(this)
         onClicked:
         {
             if (trackRef)

@@ -45,7 +45,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"universeID", {{"type", "integer"}}},
                 {"name", {{"type", "string"}}},
-                {"inputPlugin", {{"type", "string"}}},
+                {"inputPlugin", {{"type", "string"}, {"description", "Input plugin name, or \"None\" to remove the universe's input patch (inputLine is then ignored). Unknown names are rejected."}}},
                 {"inputLine", {{"type", "integer"}}},
                 {"outputPlugin", {{"type", "string"}}},
                 {"outputLine", {{"type", "integer"}}},
@@ -78,6 +78,20 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
+                QString inputPlugin;
+                bool removeInput = false;
+                if (item.contains("inputPlugin") && item.contains("inputLine"))
+                {
+                    inputPlugin = QString::fromStdString(item.at("inputPlugin").get<std::string>());
+                    removeInput = (inputPlugin == "None" || inputPlugin == KInputNone);
+                    if (!removeInput && doc->ioPluginCache()->plugin(inputPlugin) == nullptr)
+                    {
+                        results.push_back({{"universeID", uid},
+                                           {"error", "unknown input plugin: " + inputPlugin.toStdString()}});
+                        continue;
+                    }
+                }
+
                 bool ok = true;
 
                 // Grow the universe list on demand. addUniverse() fills any gap
@@ -107,11 +121,15 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     Universe *uni = ioMap->universe(uid);
                     if (uni) uni->setName(QString::fromStdString(item.at("name").get<std::string>()));
                 }
-                if (item.contains("inputPlugin") && item.contains("inputLine"))
+                if (removeInput)
                 {
-                    ok &= ioMap->setInputPatch(uid,
-                        QString::fromStdString(item.at("inputPlugin").get<std::string>()),
-                        QString(), QString(), item.at("inputLine").get<int>());
+                    ok &= ioMap->setInputPatch(uid, KInputNone, QString(), QString(),
+                                               QLCIOPlugin::invalidLine());
+                }
+                else if (item.contains("inputPlugin") && item.contains("inputLine"))
+                {
+                    ok &= ioMap->setInputPatch(uid, inputPlugin, QString(), QString(),
+                                               item.at("inputLine").get<int>());
                 }
                 if (item.contains("outputPlugin") && item.contains("outputLine"))
                 {

@@ -24,6 +24,7 @@
 #include <QPointer>
 #include <QVariantList>
 #include <QHash>
+#include <QSet>
 #include <QVector>
 #include <climits>
 #include <functional>
@@ -36,6 +37,7 @@
 class Doc;
 class PerformFsm;
 class VCButton;
+class VCSlider;
 class VCWidget;
 class VirtualConsole;
 
@@ -107,6 +109,9 @@ struct ShowControlRequest
     quint64 epoch = 0;
     ShowControlConfiguration accepted; //!< the control's configuration at acceptance
     ShowTraceCause cause; //!< diagnostics at acceptance
+    /** The Show the capture authored it on, InvalidId when not authored:
+     *  only an authored request is a timeline operation */
+    quint32 authoredShowId = ShowCommand::InvalidId;
 };
 
 /**
@@ -139,7 +144,10 @@ class ShowCommandRecorder : public QObject
     Q_PROPERTY(int extent READ extent NOTIFY commandsChanged)
     Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY editGateChanged)
     Q_PROPERTY(int lastEditSerial READ lastEditSerial NOTIFY commandsChanged)
+    Q_PROPERTY(bool editSessionActive READ editSessionActive NOTIFY editSessionChanged)
+    Q_PROPERTY(QString editSessionEndReason READ editSessionEndReason NOTIFY editSessionChanged)
     Q_PROPERTY(QVariantList referencedControls READ referencedControls NOTIFY referencesChanged)
+    Q_PROPERTY(int clipboardCount READ clipboardCount NOTIFY clipboardChanged)
 
 public:
     explicit ShowCommandRecorder(Doc *doc, QObject *parent = nullptr);
@@ -286,11 +294,16 @@ public:
      *  identity, caption and current binding, action and value */
     QVariantList commands() const;
     QVariantList groups() const;
+    /** The listed SetSliderPosition events of the tracked Show as three parallel
+     *  lists {ids, times, positions}, in stored (time, Order) order. Other and
+     *  unknown ids are skipped; all lists are empty for another Show. A read-only
+     *  snapshot for drawing: no signal, nothing kept. */
+    Q_INVOKABLE QVariantMap sliderSamples(quint32 showId, const QVariantList &eventIds) const;
     int extent() const;
 
-    /** Why the Show's recordings cannot be edited now, empty when they can:
-     *  REC must be off and its playback fully stopped, not paused, pausing,
-     *  queued to start or still finishing a stop */
+    /** Why the Show's recordings cannot be edited now, empty when they can.
+     *  Stopped, playing, paused and recording Shows all take edits: an edit
+     *  is published at once, and the runner processes what it meets next. */
     bool editAllowed(quint32 showId, QString *reason = nullptr) const;
     /** editAllowed() for the tracked Show */
     QString editBlockedReason() const;
@@ -314,6 +327,38 @@ public:
     /** Legacy function commands only */
     Q_INVOKABLE bool setCommandAction(quint32 showId, quint32 id, const QString &action);
     Q_INVOKABLE bool setCommandTarget(quint32 showId, quint32 id, quint32 functionId);
+
+    /** One edit session at a time, for a drag, a stretch or a cell draft:
+     *  begin freezes the Show, the exact ids and each event as it is now,
+     *  with its Order. Recording, regrouping and edits of other events go on
+     *  meanwhile. Commit applies to exactly those ids only while each still
+     *  holds what was frozen; otherwise it is refused with a reason and
+     *  nothing changes. Commit and cancel end the session. Starting another
+     *  ends the previous one. */
+    Q_INVOKABLE bool beginEditSession(quint32 showId, const QVariantList &ids);
+    /** kind: 0 move, 1 stretch the end, 2 stretch the start (ShowRetimeKind).
+     *  {times: {id: ms}} of the session's events, or {reason}, publishing nothing */
+    Q_INVOKABLE QVariantMap previewRetime(int kind, qreal deltaMs) const;
+    Q_INVOKABLE bool commitRetime(int kind, qreal deltaMs);
+    /** editCommandText() of the session's single event. Text that is no valid
+     *  value is refused and keeps the session, so the draft can be corrected. */
+    Q_INVOKABLE bool commitCellText(const QString &field, const QString &text);
+    /** Ends the session, committing nothing; a reason (a deliberate selection
+     *  change, a deleted target) is shown as lastError */
+    Q_INVOKABLE void cancelEditSession(const QString &reason = QString());
+    bool editSessionActive() const { return m_session.show != nullptr; }
+    /** Why the last session ended without its own commit or cancel, empty otherwise */
+    QString editSessionEndReason() const { return m_sessionEndReason; }
+
+    /** Recording clipboard: value copies of the exact events, in track order.
+     *  Read only, no edit gate; the clipboard changes only when every id is
+     *  found. Kept for the workspace, emptied when it is replaced. */
+    Q_INVOKABLE bool copyCommands(quint32 showId, const QVariantList &ids);
+    int clipboardCount() const { return m_clipboard.count(); }
+    /** New events of the copies, the earliest at atMs, the others at their
+     *  copied offsets and ties, with fresh ids and orders: one undo step. The
+     *  new ids in track order, none (nothing changed) when refused. */
+    Q_INVOKABLE QVariantList pasteCommands(quint32 showId, qreal atMs);
 
     /** While the editor shows the rows, their controls' and functions' own
      *  change notifications refresh them (commandsChanged) */
@@ -347,6 +392,8 @@ signals:
     void commandsChanged();
     void editGateChanged();
     void referencesChanged();
+    void clipboardChanged();
+    void editSessionChanged();
 
 private slots:
     /** Someone else published a track for the tracked Show */
@@ -357,6 +404,8 @@ private slots:
     void slotFunctionReceiptReady(quint64 traversal, quint64 opId);
     void slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect);
     void slotCommandTraversalCancelled();
+    /** A Show stopped or changed its time source: its timeline facts end */
+    void slotTimelineReset();
     void slotFunctionAdded(quint32 id);
     /** A Show's playback began or ended: the edit gate follows it */
     void slotShowPlayback();
@@ -396,7 +445,7 @@ private:
      *  ids executed live in appliedTraversal. Fills error when it rejects it;
      *  reporting it is the caller's. */
     bool publishTrack(const ShowCommandTrack &candidate, const QSet<quint32> &alreadyApplied,
-                      quint64 appliedTraversal, Show *show, QString *error, bool onlyStopped = false);
+                      quint64 appliedTraversal, Show *show, QString *error);
 
     /** The Show an editor edit of showId may change, nullptr (reported) if none */
     Show *editableShow(quint32 showId);
@@ -474,7 +523,37 @@ private:
         QVector<QPair<ShowControlCoupling, ShowCommandFsm::ShowButtonOp>> engineDone;
         /** Applied ops whose native effect nothing has waited for yet */
         QVector<QPair<ShowControlCoupling, ShowCommandFsm::ShowButtonOp>> unsettled;
+        /** A rollback batch already applied its delta */
+        bool rolledBack = false;
     };
+
+    /** One control around one timeline operation (a replayed op, or an
+     *  authored user request): its native state just before and after. A
+     *  button is 1 while Active, a slider its raw value. */
+    struct TimelineFact
+    {
+        quint32 showId;
+        quint32 time; //!< the command time, or the capture's acceptance time
+        QPointer<VCWidget> control;
+        int before;
+        int after;
+    };
+    /** Every Show's timeline facts in the order they happened. Dropped after
+     *  a rollback's time, and when the Show stops or switches its source. */
+    QVector<TimelineFact> m_timeline;
+    /** A control's affected closure, read before an operation: the control,
+     *  the buttons of the Solo Frames its start reaches, or a Submaster's
+     *  frame sliders. after is what a native start leaves a sibling in. */
+    QVector<TimelineFact> closureOf(VCWidget *control) const;
+    /** Journal a closure once its operation applied: the control is read
+     *  again, a button sibling takes the Solo effect only if started */
+    void journal(QVector<TimelineFact> closure, quint32 showId, quint32 time, bool started);
+    /** Return what this Show's timeline changed after the run's rollback time
+     *  to its state before the first of those changes, as one delta */
+    void rollBackTimeline(ControlRun &run);
+    /** A replayed slider write the run waits for, then a start it may cause */
+    void awaitRecordedWrite(ControlRun &run, VCSlider *slider, quint64 generation);
+    void expectSliderStart(ControlRun &run, VCSlider *slider);
 
     /** Replay executor: every Show hands its batches here, selected or not */
     void attachShow(Show *show);
@@ -528,6 +607,12 @@ private:
         ShowTraceCause cause; //!< diagnostics of the input it came from
     };
     QVector<Unpublished> m_unpublished;
+    /** The Show's track with the accepted input it has not taken yet */
+    ShowCommandTrack withUnpublished(const Show *show) const;
+    QVector<ShowCommand> m_clipboard;
+    /** Function targets of copied commands deleted since, or already absent
+     *  at, the Copy: the Doc may give their ids to other Functions */
+    QSet<quint32> m_clipboardDeletedTargets;
     /** Per Show ID, the event ids and equal-time orders issued in this
      *  workspace so far: a Show restored from XML (native undo of its
      *  deletion) keeps them unissued, since the editor's undo history may
@@ -535,6 +620,22 @@ private:
     QHash<quint32, QPair<quint32, quint32>> m_eventIdFloors;
     void rememberEventIds(const Show *show);
     int m_editSerial = 0;
+
+    /** The open edit session: its Show and its events as they were frozen */
+    struct EditSession
+    {
+        QPointer<Show> show;
+        QVector<quint32> ids;
+        QVector<ShowCommand> basis;
+    };
+    EditSession m_session;
+    QString m_sessionEndReason;
+    /** Ends the session: no reason for its own commit or cancel; a reason,
+     *  shown as lastError, when something else ended it */
+    void endEditSession(const QString &reason = QString());
+    /** Why the session cannot be committed, empty while it can */
+    QString sessionConflict() const;
+    QString retimeRefusalText(ShowRetimeRefusal refusal, ShowRetimeKind kind) const;
     bool m_rowsObserved = false;
     bool m_referencesObserved = false;
     bool m_rowsRefreshPending = false;

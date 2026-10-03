@@ -57,6 +57,7 @@ Rectangle
     {
         activeFocusOnTab: true
         border.color: activeFocus ? "#f1c40f" : UISettings.bgStrong
+        readonly property bool showEnterAction: true
         Keys.onPressed: (event) => {
             if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                 if (!event.isAutoRepeat)

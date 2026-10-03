@@ -124,6 +124,7 @@ Item
     onDurationChanged: updateGeometry()
     onTimeScaleChanged: updateGeometry()
     onTimeDivisionChanged: updateGeometry()
+    onMsModeChanged: updateGeometry()
     onBeatsDivisionChanged: updateGeometry()
 
     onGlobalColorChanged:

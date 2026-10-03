@@ -386,8 +386,19 @@ function beatsToTimeSize(beatsMs, bpmNumber, timescale, tickSize)
 {
     if (!bpmNumber)
         return 0;
-    var realMs = (beatsMs / 1000) * (60000 / bpmNumber);
-    return timeToSize(realMs, timescale, tickSize);
+    return timeToSize(beatsMsToMs(beatsMs, bpmNumber), timescale, tickSize);
+}
+
+/** A "beats as ms" value (1000 units per beat) in real milliseconds at the given BPM */
+function beatsMsToMs(beatsMs, bpmNumber)
+{
+    return (beatsMs / 1000) * (60000 / bpmNumber);
+}
+
+/** Real milliseconds as "beats as ms" (1000 units per beat) at the given BPM */
+function msToBeatsMs(ms, bpmNumber)
+{
+    return ms * bpmNumber / 60;
 }
 
 /**
@@ -418,6 +429,144 @@ function musicalGrid(vdjBeat, vdjGridValid, vdjBeatPeriodMs, vdjGridAnchorMs, bp
     if (bpmNumber > 0 && beatsDivision > 0)
         return { beatMs: 60000 / bpmNumber, beatsPerBar: beatsDivision, anchorMs: 0 }
     return null
+}
+
+/** The display and seek bound: the ruler, the cursor and requestSeek are int */
+var selectionNavigationBound = 2147483647
+
+/** The owner's selection as plain times and, when the snapshot carries a view,
+  * as pixels: { starts[] ms, maxRuler, left, right, tail, rows } or a reason */
+function selectionNavigationTarget(snapshot)
+{
+    var ruler = snapshot.ruler
+    var none = { reason: qsTr("Select clips or recorded events first") }
+    var tempo = { reason: qsTr("Beat-based items need a Show tempo") }
+    if (snapshot.showId < 0 || snapshot.domain === "none")
+        return none
+    if (!ruler.msRuler && !(ruler.bpm > 0))
+        return tempo
+    var toRuler = function(ms) { return ruler.msRuler ? ms : msToBeatsMs(ms, ruler.bpm) }
+    var target = { starts: [], maxRuler: 0, left: Infinity, right: -Infinity, tail: 0, rows: null }
+    if (snapshot.domain === "recordings")
+    {
+        var samples = snapshot.recordings.samples
+        if (samples.length === 0)
+            return none
+        samples.forEach(function(sample) {
+            target.starts.push(sample.ms)
+            target.maxRuler = Math.max(target.maxRuler, toRuler(sample.ms))
+            target.left = Math.min(target.left, sample.x)
+            target.right = Math.max(target.right, sample.x)
+        })
+        target.tail = snapshot.recordings.tailPx || 0
+        target.rows = snapshot.recordings.rows || null
+        return target
+    }
+    var items = snapshot.clips.items
+    if (items.length === 0)
+        return none
+    if (items.some(function(item) { return item.isBeats && !(ruler.bpm > 0) }))
+        return tempo
+    var earliest = null
+    items.forEach(function(item) {
+        var ms = function(value) { return item.isBeats ? beatsMsToMs(value, ruler.bpm) : value }
+        var start = ms(item.startTime)
+        target.starts.push(start)
+        target.maxRuler = Math.max(target.maxRuler, ruler.msRuler || !item.isBeats
+            ? toRuler(ms(item.startTime + item.duration)) : item.startTime + item.duration)
+        target.left = Math.min(target.left, item.x)
+        target.right = Math.max(target.right, item.x + item.width)
+        if (item.y !== undefined)
+        {
+            var rows = target.rows
+            target.rows = rows === null ? { y: item.y, height: item.height }
+                : { y: Math.min(rows.y, item.y), height: Math.max(rows.y + rows.height, item.y + item.height)
+                                                          - Math.min(rows.y, item.y) }
+            if (earliest === null || start < earliest.start)
+                earliest = { start: start, y: item.y }
+        }
+    })
+    if (target.rows !== null)
+        target.rows.firstRowY = earliest.y
+    return target
+}
+
+/**
+  * The plan of the two selection navigation actions for a plain snapshot of the
+  * editor: Fit (a view: scale, offset, vertical scroll and ruler reach) and Go
+  * (a seek time in ms), each available or with the reason it is not. Pure: equal
+  * snapshots give equal plans. Fit numbers are null when the snapshot has no view.
+  */
+function planSelectionNavigation(snapshot)
+{
+    var bound = selectionNavigationBound
+    var ruler = snapshot.ruler
+    var target = selectionNavigationTarget(snapshot)
+    var fit = { available: false, reason: target.reason || "", timeScale: null, xViewOffset: null,
+                contentY: null, rulerEnd: null }
+    var go = { available: false, reason: target.reason || "", ms: null }
+    if (!target.reason)
+    {
+        var start = Math.min.apply(null, target.starts)
+        if (snapshot.access.readOnly)
+            // PerformFsm: Live 2, Suspended 3 follow the external clock
+            go.reason = snapshot.access.performState === 2 || snapshot.access.performState === 3
+                ? qsTr("Following external clock (Perform)") : qsTr("Read only in Perform mode")
+        else if (start > bound)
+            go.reason = qsTr("Selection start is beyond the seekable range")
+        else
+            go = { available: true, reason: "", ms: start }
+
+        if (target.maxRuler > bound)
+            fit.reason = qsTr("Selection is beyond the timeline display range")
+        else
+            fit.available = true
+    }
+    if (fit.available && snapshot.view)
+    {
+        var view = snapshot.view
+        var r = view.unitPx
+        var minUnits = !ruler.msRuler ? Math.max(1, ruler.beatsDivision) * 1000
+            : ruler.vdjBeat && ruler.vdjGridValid && ruler.vdjBeatPeriodMs > 0 ? ruler.vdjBeatPeriodMs * 4 : 2000
+        var span = target.right - target.left
+        var pad = Math.max(0.1 * span, (minUnits * r - span) / 2)
+        var avail = Math.max(1, view.width - target.tail)
+        var k0 = avail / (span + 2 * pad)
+        var scale = Math.fround(Math.max(view.minScale, ruler.msRuler ? view.timeScale / k0 : view.timeScale * k0))
+        var k = ruler.msRuler ? view.timeScale / scale : scale / view.timeScale
+        var rulerEnd = Math.min(bound, Math.max(view.revealedRulerEnd,
+            Math.ceil((target.right + pad) / r + target.tail / (r * k))))
+        var contentWidth = (Math.min(bound, Math.max(view.rulerDuration, rulerEnd)) + 300000) * r * k
+        fit.timeScale = scale
+        fit.rulerEnd = rulerEnd
+        // a window narrower than the view (zoom-in floor) is centred; a wider one keeps its start
+        var centring = Math.min(0, ((span + 2 * pad) * k - avail) / 2)
+        fit.xViewOffset = Math.max(0, Math.min((target.left - pad) * k + centring, contentWidth - view.width))
+        var rows = target.rows, y = view.y, maxY = Math.max(0, view.contentHeight - view.height)
+        if (rows && !(rows.y >= y && rows.y + rows.height <= y + view.height))
+            y = rows.height > view.height ? rows.firstRowY
+                : rows.y < y ? rows.y : rows.y + rows.height - view.height
+        fit.contentY = Math.max(0, Math.min(y, maxY))
+    }
+    return Object.freeze({ fit: Object.freeze(fit), go: Object.freeze(go) })
+}
+
+/** Whether the owner's selection is inside the view of a snapshot taken after a Fit:
+  * view.x is the lanes' observed scroll, view.headerX the ruler's, and they must agree */
+function selectionNavigationFitResult(snapshot)
+{
+    var target = selectionNavigationTarget(snapshot)
+    var view = snapshot.view
+    if (target.reason)
+        return Object.freeze({ ok: false, reason: target.reason })
+    if (view.headerX !== undefined && Math.abs(view.headerX - view.x) > 0.5)
+        return Object.freeze({ ok: false, reason: qsTr("The lanes and the ruler are not aligned") })
+    if (target.left < view.x - 0.5 || target.right + target.tail > view.x + view.width + 0.5)
+        return Object.freeze({ ok: false, reason: qsTr("Selection is wider than the timeline at maximum zoom out") })
+    var rows = target.rows
+    if (rows && (view.height <= 0 || rows.y < view.y - 0.5 || rows.y + rows.height > view.y + view.height + 0.5))
+        return Object.freeze({ ok: false, reason: qsTr("Selected rows cannot be shown at this editor height") })
+    return Object.freeze({ ok: true, reason: "" })
 }
 
 /**

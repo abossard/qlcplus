@@ -75,6 +75,18 @@ static bool isEditorStep(const TardisAction &action)
     return action.m_action == Tardis::ShowManagerCommandEdit;
 }
 
+/* VDJ Perform makes the Show Manager read-only and owns its transport;
+ * history replay mutates shows directly, past the ShowManager guards. Then
+ * only a recorded-event edit of the shown Show replays: any other step waits
+ * where it is, and nothing is skipped to reach a later one. */
+static bool waitsForPerform(const ShowManager *manager, const TardisAction &action)
+{
+    if (manager == nullptr || manager->readOnly() == false)
+        return false;
+    return isEditorStep(action) == false
+        || action.m_newValue.value<ShowCommandEdit>().showId != quint32(manager->currentShowID());
+}
+
 /* Within the window of newest; timestamps only grow along the history */
 static bool inWindow(const TardisAction &newest, const TardisAction &older)
 {
@@ -201,13 +213,7 @@ void Tardis::endBatch()
 
 void Tardis::undoAction()
 {
-    // VDJ Perform mode: the Show Manager is read-only and history replay
-    // mutates shows directly (bypassing the ShowManager guards), so history
-    // navigation is frozen entirely while Perform is engaged.
-    if (m_showManager && m_showManager->readOnly())
-        return;
-
-    if (m_historyIndex == -1 || m_history.isEmpty())
+    if (m_historyIndex == -1 || m_history.isEmpty() || waitsForPerform(m_showManager, m_history.at(m_historyIndex)))
         return;
 
     if (m_history.at(m_historyIndex).m_action == ShowManagerCommandEdit)
@@ -246,11 +252,8 @@ void Tardis::undoAction()
 
 void Tardis::redoAction()
 {
-    // see undoAction(): history replay is frozen while Perform is engaged
-    if (m_showManager && m_showManager->readOnly())
-        return;
-
-    if (m_history.isEmpty() || m_historyIndex == m_history.count() - 1)
+    if (m_history.isEmpty() || m_historyIndex == m_history.count() - 1
+        || waitsForPerform(m_showManager, m_history.at(m_historyIndex + 1)))
         return;
 
     if (m_history.at(m_historyIndex + 1).m_action == ShowManagerCommandEdit)

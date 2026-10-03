@@ -324,6 +324,7 @@
     <file alias="GenericHelpers.js">js/GenericHelpers.js</file>
     <file alias="Math3DView.js">js/Math3DView.js</file>
     <file alias="ShortcutUtils.js">js/ShortcutUtils.js</file>
+    <file alias="SliderGraph.js">js/SliderGraph.js</file>
     <file alias="TimeUtils.js">js/TimeUtils.js</file>
 
   </qresource>

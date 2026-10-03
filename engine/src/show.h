@@ -46,6 +46,9 @@ struct ShowControlBatch
     quint64 traversal = 0; //!< stamped when the playhead crossed the records
     quint64 seq = 0;
     bool restore = false;
+    /** A backward move to this time: the executor first returns what the
+     *  timeline changed after it to its state before (commands is empty) */
+    std::optional<quint32> rollbackTo;
     QVector<ShowCommand> commands;
     QVector<quint32> engineStarted;
     QVector<quint32> engineStopped;
@@ -149,10 +152,20 @@ public:
         return m_externalElapsedTime.load(std::memory_order_relaxed);
     }
 
-    /** Request a local seek for an already-running autonomous Show. Crossed
-     *  VC work of the current traversal is cancelled at once. Ignored, with
-     *  nothing cancelled, while an external clock owns the position. */
+    /** Request a local seek for an already-running autonomous Show. Ignored,
+     *  with nothing cancelled, while an external clock owns the position.
+     *  The direction is decided here, against commandPosition(), which may be
+     *  one tick stale: a target at or before it is backward and cancels the
+     *  crossed VC work of the current traversal at once; a later one is
+     *  forward, cancels nothing and keeps the live marks. While a backward
+     *  request waits, any later one only replaces its target; a backward
+     *  request drops a waiting forward one; the latest forward one wins. A
+     *  forward target the runner already reached when it takes the request
+     *  is dropped: playback crossed it already. */
     void requestSeek(quint32 ms);
+
+    /** GUI thread: the target of a backward seek request not taken yet */
+    std::optional<quint32> pendingBackwardSeek() const;
 
     /** Transient runtime suppression for Audio functions while Perform owns
      *  this Show. Not persisted in workspace XML. */
@@ -168,6 +181,13 @@ private:
     std::atomic_bool m_performAudioSuppressed;
     static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
     std::atomic<quint64> m_requestedSeekTime{NoSeekRequested};
+    /** A forward request: never read by controlWorkCancelled() */
+    std::atomic<quint64> m_requestedForwardTime{NoSeekRequested};
+    /** The first external sample set since the latest start was accepted,
+     *  unchanged values too: where an external traversal begins. NoSample
+     *  until then, so a value present at Play is never taken for it. */
+    static constexpr quint64 NoSample = std::numeric_limits<quint64>::max();
+    std::atomic<quint64> m_playFirstSample{NoSample};
 
     /*********************************************************************
      * Tracks
@@ -249,10 +269,14 @@ public:
      *              the last authored command is raised to it; nothing is ever
      *              appended past the last command.
      * @param alreadyApplied ids the caller executed live during the current
-     *              traversal. They are remembered until the runtime starts
-     *              another traversal, so a lagging cursor cannot echo them.
-     *              While the Show is stopped they are history instead: the
-     *              traversal begins when a start is accepted, and replays them.
+     *              traversal, each of which the track must hold. Each marks
+     *              its occurrence at the time this track gives it, unless the
+     *              id is marked already; a mark is never moved, so a later
+     *              edit of the event is not live. Marks are remembered until
+     *              the runtime starts another traversal, so a lagging cursor
+     *              cannot echo them. While the Show is stopped they are
+     *              history instead: the traversal begins when a start is
+     *              accepted, and replays them. Empty creates and cancels no mark.
      * @param error filled with the reason when the track is rejected
      */
     bool setCommandTrack(const ShowCommandTrack &track,
@@ -306,13 +330,13 @@ public:
                                 const QVector<ShowFunctionExpectation> &expectations);
 
     /** Any thread: crossed work of the current traversal is still owed, a VC
-     *  batch not acknowledged yet, effects queued behind it, or a catch-up
+     *  batch not acknowledged yet, effects queued behind it, or a jump's
      *  Start/Stop settling. Pause completes once this is false. */
     bool commandWorkPending() const;
 
     /** Any thread: the crossed commands of the current traversal not handed
      *  to the executor or not run yet, in order: queued VC batches, what waits
-     *  behind the held batch, and a catch-up Start/Stop still settling */
+     *  behind the held batch, and a jump's Start/Stop still settling */
     QVector<ShowCommand> pendingCommandWork() const;
 
 signals:
@@ -333,14 +357,17 @@ signals:
      *  seek or stop cancelled the crossed VC work */
     void commandTraversalCancelled();
 
+    /** Emitted from the GUI thread when the time source changed */
+    void syncSourceChanged();
+
 private:
     friend class ShowRunner;
 
     /** Publication counter, so the runtime can skip unchanged snapshots */
     quint64 commandTrackRevision() const;
 
-    /** Runtime snapshot: the published track plus the live ids to skip */
-    ShowCommandTrack commandTrackSnapshot(QSet<quint32> *alreadyApplied) const;
+    /** Runtime snapshot: the published track plus the live occurrences to skip */
+    ShowCommandTrack commandTrackSnapshot(ShowLiveMarks *alreadyApplied) const;
 
     /** The runtime began another traversal (seek, loop or stop) after the
      *  one it last saw, so live no-echo suppression from that one is over.
@@ -363,7 +390,8 @@ private:
     quint64 publishControlBatch(quint64 run, quint64 traversal, const QVector<ShowCommand> &commands,
                                 const QVector<ShowCommand> &owedAfter,
                                 const QVector<quint32> &engineStarted = QVector<quint32>(),
-                                const QVector<quint32> &engineStopped = QVector<quint32>());
+                                const QVector<quint32> &engineStopped = QVector<quint32>(),
+                                std::optional<quint32> rollbackTo = std::nullopt);
 
     /** Timer thread: the runner's owed work, besides its held batch seq.
      *  Nothing is owed once run's work is cancelled or traversal ended. */
@@ -409,7 +437,12 @@ private:
 
     mutable QMutex m_commandTrackMutex;
     ShowCommandTrack m_commandTrack;
-    QSet<quint32> m_commandAppliedIds;
+    /** Live occurrences of the current traversal: id -> the time the capture
+     *  publication gave it, set once and never retagged by a later publication.
+     *  Only the end of the traversal (stop, seek, loop, a consumed requested
+     *  seek) clears it; it is not pruned as the cursor passes a mark. Expiry by
+     *  that original time happens in the runner's copy. */
+    ShowLiveMarks m_commandAppliedIds;
     std::atomic<quint64> m_commandTrackRevision{0};
     std::atomic_bool m_commandRecording{false};
     std::atomic<quint32> m_commandPosition{0};

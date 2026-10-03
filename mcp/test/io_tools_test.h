@@ -40,6 +40,10 @@ private slots:
     void configureUniverses_invalidId_rejected_data();
     void configureUniverses_invalidId_rejected();
 
+    // configure_universes — input patch
+    void configureUniverses_inputPatch_data();
+    void configureUniverses_inputPatch();
+
     // delete_universes
     void deleteUniverses_trailing_removesAndReports();
     void deleteUniverses_batchOutOfOrder_removesBoth();

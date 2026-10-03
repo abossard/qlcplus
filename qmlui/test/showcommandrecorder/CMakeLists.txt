@@ -31,6 +31,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     "$<TARGET_PROPERTY:qlcplus5,COMPILE_DEFINITIONS>"
+    SLIDER_GRAPH_SOURCE_PATH="${CMAKE_SOURCE_DIR}/qmlui/js/SliderGraph.js"
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE
     "$<TARGET_PROPERTY:qlcplus5,LINK_LIBRARIES>"

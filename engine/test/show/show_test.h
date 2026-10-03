@@ -49,6 +49,8 @@ private slots:
     void commandTrackRejectedEdit_data();
     void commandTrackRejectedEdit();
     void commandTrackControlStatesNeedNoFunction();
+    void commandTrackLiveIdsMustBeAuthored_data();
+    void commandTrackLiveIdsMustBeAuthored();
     void commandTrackExtent_data();
     void commandTrackExtent();
     void commandTrackCopyAndReferences();

@@ -576,6 +576,43 @@ void Show_Test::commandTrackControlStatesNeedNoFunction()
     QCOMPARE(show.commandTrack().count(), 3);
 }
 
+void Show_Test::commandTrackLiveIdsMustBeAuthored_data()
+{
+    QTest::addColumn<quint32>("liveId");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("held by the track") << quint32(2) << true;
+    QTest::newRow("not in the track") << quint32(9) << false;
+}
+
+void Show_Test::commandTrackLiveIdsMustBeAuthored()
+{
+    QFETCH(quint32, liveId);
+    QFETCH(bool, accepted);
+
+    Scene *target = new Scene(m_doc);
+    m_doc->addFunction(target);
+
+    Show show(m_doc);
+    show.setID(700);
+
+    ShowCommandTrack valid;
+    QVERIFY(valid.insert(ShowCommand::start(1, 0, target->id())));
+    QVERIFY(show.setCommandTrack(valid));
+
+    // a live mark takes its time from the published occurrence
+    ShowCommandTrack live = valid;
+    QVERIFY(live.insert(ShowCommand::stop(2, 300, target->id())));
+
+    QString error;
+    QSignalSpy changed(&show, &Show::commandTrackChanged);
+    QCOMPARE(show.setCommandTrack(live, { liveId }, &error), accepted);
+    QCOMPARE(error.isEmpty(), accepted);
+    QCOMPARE(error, accepted ? QString() : QStringLiteral("Live event %1 is not in the published recording").arg(liveId));
+    QCOMPARE(changed.count(), accepted ? 1 : 0);
+    QCOMPARE(show.commandTrack().count(), accepted ? 2 : 1);
+}
+
 void Show_Test::commandTrackExtent_data()
 {
     QTest::addColumn<quint32>("authored");

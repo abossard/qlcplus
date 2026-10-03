@@ -28,7 +28,11 @@ Rectangle
 {
     id: tlHeaderCursorLayer
     height: parent.height
-    width: parent.width
+    // the ruler's reach in the current unit, one binding over all of its inputs,
+    // so a ruler switch settles whatever order its notifications arrive in
+    width: parseInt(msMode
+            ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
+            : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
     color: "transparent"
 
     property int visibleWidth
@@ -88,22 +92,7 @@ Rectangle
         function onVdjGridChanged() { timeHeader.requestPaint() }
     }
 
-    onDurationChanged:
-    {
-        width = parseInt(msMode
-                ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
-                : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
-        //console.log("New header width: " + width)
-    }
-
-    onTimeScaleChanged:
-    {
-        width = parseInt(msMode
-                ? TimeUtils.timeToSize(duration + 300000, timeScale, tickSize)
-                : TimeUtils.beatsToSize(duration + 300000, tickSize, beatsDivision))
-        timeHeader.requestPaint()
-        //console.log("New header width: " + width)
-    }
+    onTimeScaleChanged: timeHeader.requestPaint()
 
     Rectangle
     {

@@ -522,6 +522,11 @@ quint64 VCSlider::applyRecordedPosition(qreal position)
     if (ShowCommandFsm::sliderTarget(position, m_rangeLowLimit, m_rangeHighLimit, &target) == false)
         return 0;
 
+    return applyRecordedValue(target);
+}
+
+quint64 VCSlider::applyRecordedValue(int target)
+{
     const bool written = sliderMode() == Adjust ? m_doc->function(m_controlledFunctionId) != nullptr
                                                 : sliderMode() == Level;
     if (written == false)

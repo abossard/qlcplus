@@ -34,6 +34,8 @@ private slots:
     void insertRejectsDuplicateId();
     void replaceEditsOnlyTheAddressedCommand();
     void retimeMovesOneCommand();
+    void retimeSelection_data();
+    void retimeSelection();
     void removeLeavesTheRestUntouched();
     void removedHighestIdIsNotReused();
     void extentIsAuthoredIndependently();
@@ -59,8 +61,10 @@ private slots:
     // playback transitions
     void advanceAppliesDueCommandsOnce();
     void advanceIgnoresPausedAndBackwardTransport();
-    void seekRestoresLatestValues_data();
-    void seekRestoresLatestValues();
+    void seekRepositionsOnly_data();
+    void seekRepositionsOnly();
+    void forwardJumpPlaysCrossedInterval_data();
+    void forwardJumpPlaysCrossedInterval();
     void seekKeepsIntentAndLoopReplaysCommands();
     void extentNeverSynthesizesEffects();
 
@@ -73,6 +77,8 @@ private slots:
     void recordingIsGatedByPhaseAndTransport();
     void liveCommandDoesNotEchoUntilTheNextTraversal();
     void liveInputMarksOnlyItsOwnEvent();
+    void liveOccurrence_data();
+    void liveOccurrence();
     void controlStateInputAuthorsVcRecord();
 
     // VC state calculations

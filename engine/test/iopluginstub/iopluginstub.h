@@ -118,6 +118,9 @@ public:
     /** List of inputs that have been opened */
     QList <quint32> m_openInputs;
 
+    /** Every closeInput() call, in order */
+    QList <quint32> m_closedInputs;
+
     /*********************************************************************
      * Configuration
      *********************************************************************/

@@ -41,6 +41,7 @@
 #include <QFileOpenEvent>
 #include <QSaveFile>
 #include <QDir>
+#include <algorithm>
 #include <unistd.h>
 
 #include "app.h"
@@ -219,6 +220,20 @@ void App::startup()
     m_virtualConsole = new VirtualConsole(this, m_doc, m_contextManager);
     m_showManager = new ShowManager(this, m_doc);
     connect(m_showManager, &ShowManager::itemClicked, m_contextManager, &ContextManager::setLastClickedType);
+    connect(m_showManager, &ShowManager::selectedItemsCountChanged, this,
+            [this, selected = m_showManager->selectedItemRefs()]() mutable {
+        const QVariantList current = m_showManager->selectedItemRefs();
+        // This signal also reports same-count replacements. Compare identities,
+        // not wrapper geometry or delegates recreated by a normal redraw.
+        if (current.size() == selected.size()
+            && std::all_of(current.cbegin(), current.cend(),
+                           [&selected](const QVariant &item) { return selected.contains(item); }))
+            return;
+        selected = current;
+        for (auto it = m_keyOwners.begin(); it != m_keyOwners.end(); ++it)
+            if (it->local && (it.key() == Qt::Key_Left || it.key() == Qt::Key_Right))
+                it->cancelled = true;
+    });
 
     // Command recording. The recorder only ever reads transport events; the
     // Virtual Console reaches it through its instance, like Tardis.
@@ -733,6 +748,14 @@ bool App::ownsShowKey(QKeyEvent *event) const
 
     const int key = event->key();
     const auto modifiers = event->modifiers();
+    const bool textInput = focus->flags() & QQuickItem::ItemAcceptsInputMethod;
+    bool listNavigation = false;
+    bool popup = false;
+    for (QQuickItem *item = focus; item && item != scope; item = item->parentItem())
+        listNavigation |= item->inherits("QQuickItemView") || item->inherits("QQuickComboBox")
+            || item->inherits("QQuickSpinBox") || item->inherits("QQuickSlider");
+    for (QObject *parent = focus; parent; parent = parent->parent())
+        popup |= parent->inherits("QQuickPopup");
     if ((focus->flags() & QQuickItem::ItemAcceptsInputMethod)
         && (key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
             || key == Qt::Key_Down || key == Qt::Key_Home || key == Qt::Key_End
@@ -741,18 +764,30 @@ bool App::ownsShowKey(QKeyEvent *event) const
     // Save, Undo and application/context shortcuts keep their existing route.
     if (modifiers & (Qt::ControlModifier | Qt::MetaModifier))
         return (modifiers == Qt::ControlModifier
-                && (key == Qt::Key_A || key == Qt::Key_C || key == Qt::Key_V || key == Qt::Key_X));
+                && (key == Qt::Key_C || key == Qt::Key_V
+                    || (key == Qt::Key_A && (textInput || listNavigation))
+                    || (key == Qt::Key_X && textInput)));
     if (modifiers & ~(Qt::ShiftModifier | Qt::AltModifier))
         return false;
     if (modifiers & Qt::AltModifier)
         return key == Qt::Key_Left || key == Qt::Key_Right;
-    if (focus->flags() & QQuickItem::ItemAcceptsInputMethod)
+    if (key == Qt::Key_F2)
+        return focus->property("showF2Editable").toBool();
+    if (key == Qt::Key_Up || key == Qt::Key_Down || key == Qt::Key_Home || key == Qt::Key_End)
+        return textInput || listNavigation;
+    if (key == Qt::Key_Return || key == Qt::Key_Enter)
+        return textInput || focus->inherits("QQuickAbstractButton")
+            || focus->inherits("QQuickComboBox")
+            || focus->property("showEnterAction").toBool();
+    if (key == Qt::Key_Escape)
+        return textInput || popup;
+    if (textInput && (key < Qt::Key_Escape || key == Qt::Key_Tab || key == Qt::Key_Backtab))
         return true;
-    return key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up
-        || key == Qt::Key_Down || key == Qt::Key_Space || key == Qt::Key_Return
-        || key == Qt::Key_Enter || key == Qt::Key_F2 || key == Qt::Key_Delete
-        || key == Qt::Key_Backspace || key == Qt::Key_Tab || key == Qt::Key_Backtab
-        || key == Qt::Key_Escape || key == Qt::Key_Home || key == Qt::Key_End;
+    return ((key == Qt::Key_Left || key == Qt::Key_Right)
+            && (modifiers == Qt::NoModifier || showKeyOwner() != scope))
+        || (key == Qt::Key_Space && (modifiers == Qt::NoModifier || focus != scope))
+        || key == Qt::Key_Delete || key == Qt::Key_Backspace
+        || key == Qt::Key_Tab || key == Qt::Key_Backtab;
 }
 
 QQuickItem *App::showKeyOwner() const

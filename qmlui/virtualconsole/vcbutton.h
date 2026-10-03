@@ -122,8 +122,19 @@ public:
 
     /** User input reaching the Toggle state it was normalized to when
      *  accepted: the desired-state op, or the native Solo Frame takeover,
-     *  with the normal live Tardis entry */
-    void applyUserState(bool on);
+     *  with the normal live Tardis entry. Returns the op performed. */
+    ShowCommandFsm::ShowButtonOp applyUserState(bool on);
+
+    /** Whether a Solo Frame sibling starting fid stops this button's
+     *  Function: a Toggle with another Function, and with excludeMonitored
+     *  only while Active or holding the startup Function */
+    bool soloStartStops(quint32 fid, bool excludeMonitored) const;
+
+    /** Give up this button's own activation of a Function another Active
+     *  button keeps running: it monitors it again and its intensity override
+     *  is released, the Function itself is not stopped. false, changing
+     *  nothing, unless the button is an Active Toggle and its Function runs. */
+    bool releaseToMonitoring();
 
     /** @reimp */
     void notifyFunctionStarting(VCWidget *widget, quint32 fid, qreal fIntensity, bool excludeMonitored) override;

@@ -348,6 +348,10 @@ target_include_directories(mcp_io_tools_test PRIVATE
     ${CMAKE_SOURCE_DIR}/mcp/tools
 )
 
+target_compile_definitions(mcp_io_tools_test PRIVATE
+    IOPLUGINSTUB_DIR="$<TARGET_FILE_DIR:iopluginstub>")
+add_dependencies(mcp_io_tools_test iopluginstub)
+
 target_link_libraries(mcp_io_tools_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui

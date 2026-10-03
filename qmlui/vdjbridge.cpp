@@ -522,6 +522,9 @@ void VdjBridge::startAdoptedShow()
     {
         qDebug() << "[VdjBridge] Perform: starting show" << show->name();
         show->start(m_doc->masterTimer(), FunctionParent::master());
+        // the deck's position is the first sample of this Play: the
+        // external traversal begins there
+        show->setExternalElapsedTime(static_cast<quint32>(qMax(0, elapsed)));
     }
     else if (show->isPaused())
     {

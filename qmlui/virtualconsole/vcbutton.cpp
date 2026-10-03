@@ -264,26 +264,24 @@ void VCButton::notifyFunctionStarting(VCWidget *widget, quint32 fid, qreal fInte
 
     qDebug() << "notifyFunctionStarting" << widget->caption() << fid << fIntensity;
 
-    if (fid == m_functionID || m_functionID == Function::invalidId())
+    if (soloStartStops(fid, excludeMonitored) == false)
         return;
 
-    if (excludeMonitored)
-    {
-        // stop the controlled Function only if actively started
-        // by this Button or if monitoring the startup Function
-        if (state() != Active && m_functionID != m_doc->startupFunction())
-            return;
-    }
+    m_doc->function(m_functionID)->stop(functionParent());
+    resetIntensityOverrideAttribute();
+}
 
-    if (actionType() == VCButton::Toggle)
-    {
-        Function *f = m_doc->function(m_functionID);
-        if (f != NULL)
-        {
-            f->stop(functionParent());
-            resetIntensityOverrideAttribute();
-        }
-    }
+bool VCButton::soloStartStops(quint32 fid, bool excludeMonitored) const
+{
+    if (fid == m_functionID || m_functionID == Function::invalidId())
+        return false;
+
+    // stop the controlled Function only if actively started
+    // by this Button or if monitoring the startup Function
+    if (excludeMonitored && state() != Active && m_functionID != m_doc->startupFunction())
+        return false;
+
+    return actionType() == VCButton::Toggle && m_doc->function(m_functionID) != NULL;
 }
 
 void VCButton::slotFunctionRunning(quint32 fid)
@@ -475,18 +473,21 @@ void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
     recorder->requestUserControl(request);
 }
 
-void VCButton::applyUserState(bool on)
+ShowCommandFsm::ShowButtonOp VCButton::applyUserState(bool on)
 {
+    using ShowCommandFsm::ShowButtonOp;
     Function *f = m_doc->function(m_functionID);
     if (actionType() != Toggle || f == nullptr)
-        return;
+        return ShowButtonOp::None;
 
+    ShowButtonOp op = ShowButtonOp::Start;
     if (on && state() == Active && hasSoloParent() && f->startedAsChild())
         startToggleFunction(f);
     else
-        applyRecordedState(on);
+        op = applyRecordedState(on);
 
     Tardis::instance()->enqueueAction(Tardis::VCButtonSetPressed, id(), false, on);
+    return op;
 }
 
 ShowCommandFsm::ShowButtonOp VCButton::applyRecordedState(bool on)
@@ -511,6 +512,17 @@ ShowCommandFsm::ShowButtonOp VCButton::applyRecordedState(bool on)
         case ShowButtonOp::None: break;
     }
     return op;
+}
+
+bool VCButton::releaseToMonitoring()
+{
+    Function *f = m_doc->function(m_functionID);
+    if (actionType() != Toggle || state() != Active || f == nullptr || f->isRunning() == false)
+        return false;
+
+    resetIntensityOverrideAttribute();
+    setState(Monitoring);
+    return true;
 }
 
 void VCButton::startToggleFunction(Function *f)

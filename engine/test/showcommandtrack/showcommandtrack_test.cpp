@@ -348,6 +348,117 @@ void ShowCommandTrack_Test::retimeMovesOneCommand()
     QCOMPARE(track.commands().at(2).time, 4200u);
 }
 
+void ShowCommandTrack_Test::retimeSelection_data()
+{
+    // track: "id@time" inserted in this order, so a later entry has the higher Order;
+    // result: every command "id@time" in stored order, or the refusal
+    QTest::addColumn<QString>("track");
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<qint64>("delta");
+    QTest::addColumn<QString>("ids");
+    QTest::addColumn<QString>("result");
+
+    const QString three = QStringLiteral("1@1000 2@1500 3@2000 9@1600");
+    QTest::newRow("move by one delta, unselected stays")
+        << three << "move" << qint64(100) << "1 3" << "1@1100 2@1500 9@1600 3@2100";
+    QTest::newRow("move may cross an unselected event")
+        << three << "move" << qint64(-700) << "3" << "1@1000 3@1300 2@1500 9@1600";
+    QTest::newRow("right edge doubles, earliest pinned")
+        << three << "end" << qint64(1000) << "1 2 3" << "1@1000 9@1600 2@2000 3@3000";
+    QTest::newRow("left edge doubles, latest pinned")
+        << three << "start" << qint64(-1000) << "1 2 3" << "1@0 2@1000 9@1600 3@2000";
+    QTest::newRow("right edge halves")
+        << three << "end" << qint64(-500) << "1 2 3" << "1@1000 2@1250 3@1500 9@1600";
+    QTest::newRow("left edge halves")
+        << three << "start" << qint64(500) << "1 2 3" << "1@1500 9@1600 2@1750 3@2000";
+    QTest::newRow("partial selection inside an unselected range")
+        << three << "end" << qint64(1000) << "1 2" << "1@1000 9@1600 3@2000 2@2500";
+    QTest::newRow("rounding half up, ties keep ascending Order")
+        << "1@1000 2@1001 3@1003" << "end" << qint64(-2) << "1 2 3" << "1@1000 2@1000 3@1001";
+    QTest::newRow("rounding tie that would reverse the selected sequence")
+        << "2@1001 1@1000 3@1003" << "end" << qint64(-2) << "1 2 3" << "reordered";
+    QTest::newRow("existing equal times keep their sequence when scaled")
+        << "1@1000 2@1000 3@2000" << "start" << qint64(-1000) << "1 2 3" << "1@0 2@0 3@2000";
+    QTest::newRow("no time span cannot stretch")
+        << "1@1000 2@1000" << "end" << qint64(500) << "1 2" << "no span";
+    QTest::newRow("no time span still moves")
+        << "1@1000 2@1000" << "move" << qint64(500) << "1 2" << "1@1500 2@1500";
+    QTest::newRow("a single event cannot stretch")
+        << three << "start" << qint64(-10) << "2" << "no span";
+    QTest::newRow("right edge onto the pinned edge")
+        << three << "end" << qint64(-1000) << "1 2 3" << "no target span";
+    QTest::newRow("left edge past the pinned edge")
+        << three << "start" << qint64(1500) << "1 2 3" << "no target span";
+    QTest::newRow("move before zero")
+        << three << "move" << qint64(-1001) << "1 3" << "out of range";
+    QTest::newRow("left edge before zero")
+        << three << "start" << qint64(-1001) << "1 2 3" << "out of range";
+    QTest::newRow("right edge past the last time")
+        << "1@0 2@4294967000" << "end" << qint64(295) << "1 2" << "out of range";
+    QTest::newRow("right edge onto the last time, full range exact")
+        << "1@0 2@2147483647 3@4294967000" << "end" << qint64(294) << "1 2 3" << "1@0 2@2147483794 3@4294967294";
+    QTest::newRow("full range compressed by one, products past 63 bits")
+        << "1@0 2@2147483647 4@4294967000 3@4294967294" << "end" << qint64(-1) << "1 2 4 3"
+        << "1@0 2@2147483647 4@4294966999 3@4294967293";
+    QTest::newRow("full range from the left, negative offsets")
+        << "1@0 2@2147483647 4@4294967000 3@4294967294" << "start" << qint64(1) << "1 2 4 3"
+        << "1@1 2@2147483647 4@4294967000 3@4294967294";
+    QTest::newRow("unknown id refuses the whole edit")
+        << three << "move" << qint64(100) << "1 7" << "unknown event";
+    QTest::newRow("nothing selected")
+        << three << "move" << qint64(100) << "" << "unknown event";
+}
+
+void ShowCommandTrack_Test::retimeSelection()
+{
+    QFETCH(QString, track);
+    QFETCH(QString, kind);
+    QFETCH(qint64, delta);
+    QFETCH(QString, ids);
+    QFETCH(QString, result);
+
+    ShowCommandTrack source;
+    for (const QString &entry : track.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+        QVERIFY(source.insert(ShowCommand::start(entry.section(QLatin1Char('@'), 0, 0).toUInt(),
+                                                 entry.section(QLatin1Char('@'), 1, 1).toUInt(), 30)));
+    QVector<quint32> selected;
+    for (const QString &id : ids.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+        selected.append(id.toUInt());
+    const ShowRetimeKind how = kind == QLatin1String("move") ? ShowRetimeKind::Move
+                             : kind == QLatin1String("end") ? ShowRetimeKind::StretchEnd
+                                                            : ShowRetimeKind::StretchStart;
+
+    ShowCommandTrack edited = source;
+    const ShowRetimeRefusal refusal = source.retimeSelection(selected, how, delta, &edited);
+
+    static const QHash<QString, ShowRetimeRefusal> refusals = {
+        { "unknown event", ShowRetimeRefusal::UnknownEvent }, { "no span", ShowRetimeRefusal::NoSpan },
+        { "no target span", ShowRetimeRefusal::NoTargetSpan }, { "out of range", ShowRetimeRefusal::OutOfRange },
+        { "reordered", ShowRetimeRefusal::Reordered } };
+    if (refusals.contains(result))
+    {
+        QCOMPARE(int(refusal), int(refusals.value(result)));
+        // refused whole: the result is untouched
+        QCOMPARE(edited.commands(), source.commands());
+        return;
+    }
+    QCOMPARE(int(refusal), int(ShowRetimeRefusal::None));
+    QStringList got;
+    for (const ShowCommand &cmd : edited.commands())
+        got.append(QStringLiteral("%1@%2").arg(cmd.id).arg(cmd.time));
+    QCOMPARE(got.join(QLatin1Char(' ')), result);
+    // only times change: every other field and the equal-time Order stay
+    for (const ShowCommand &cmd : source.commands())
+    {
+        ShowCommand after = edited.commands().at(edited.indexOfId(cmd.id));
+        QCOMPARE(after.order, cmd.order);
+        after.time = cmd.time;
+        QCOMPARE(after, cmd);
+    }
+    QCOMPARE(edited.nextEventId(), source.nextEventId());
+    QCOMPARE(edited.nextOrder(), source.nextOrder());
+}
+
 void ShowCommandTrack_Test::removeLeavesTheRestUntouched()
 {
     ShowCommandTrack track = fixtureTrack();
@@ -971,43 +1082,99 @@ void ShowCommandTrack_Test::advanceIgnoresPausedAndBackwardTransport()
     QCOMPARE(backwards.state.consumedThrough, 1501u);
 }
 
-void ShowCommandTrack_Test::seekRestoresLatestValues_data()
+/** C1: a seek only repositions. The old value-restore rows keep their
+ *  destinations and assert what the next advance plays from there. */
+static ShowCommandTransition repositioned(const ShowCommandTrack &track, const ShowCommandState &state,
+                                          quint32 destination)
 {
-    QTest::addColumn<quint32>("destination");
-    QTest::addColumn<QString>("restored");
-
-    QTest::newRow("start of show") << 0u << QString();
-    QTest::newRow("before any value") << 1000u << QString();
-    QTest::newRow("on a value boundary") << 1500u << QStringLiteral("20");
-    QTest::newRow("just past a value") << 1501u << QStringLiteral("20,9");
-    QTest::newRow("on the stop") << 4200u << QStringLiteral("9,21");
-    QTest::newRow("past a stopped target") << 4201u << QStringLiteral("21,11");
-    QTest::newRow("beyond the last command") << 18000u << QStringLiteral("21,11");
+    Q_UNUSED(track)
+    ShowCommandTransition step;
+    step.state = ShowCommandFsm::seek(state, destination);
+    return step;
 }
 
-void ShowCommandTrack_Test::seekRestoresLatestValues()
+void ShowCommandTrack_Test::seekRepositionsOnly_data()
 {
-    QFETCH(quint32, destination);
-    QFETCH(QString, restored);
+    QTest::addColumn<int>("from");        // -1: Play of a fresh traversal, else advanced to here first
+    QTest::addColumn<quint32>("destination");
+    QTest::addColumn<quint32>("next");    // the advance after the seek
+    QTest::addColumn<QString>("played");
 
+    QTest::newRow("backward to the start of show") << 4200 << 0u << 0u << QStringLiteral("7,8");
+    QTest::newRow("backward before any value, tie at T") << 4200 << 1000u << 1000u << QStringLiteral("20");
+    QTest::newRow("backward on a value boundary") << 4200 << 1500u << 1500u << QStringLiteral("9");
+    QTest::newRow("backward just past a value restores nothing") << 4200 << 1501u << 3000u << QStringLiteral("21");
+    QTest::newRow("backward onto the stop it consumed") << 4200 << 4200u << 4200u << QStringLiteral("10,11");
+    QTest::newRow("Play from T on a value") << -1 << 3000u << 3000u << QStringLiteral("21");
+    QTest::newRow("Play from T past a stopped target") << -1 << 4201u << 18000u << QString();
+    QTest::newRow("Play from T beyond the last command") << -1 << 18000u << 20000u << QString();
+    QTest::newRow("Play from 0") << -1 << 0u << 1000u << QStringLiteral("7,8,20");
+}
+
+void ShowCommandTrack_Test::seekRepositionsOnly()
+{
+    QFETCH(int, from);
+    QFETCH(quint32, destination);
+    QFETCH(quint32, next);
+    QFETCH(QString, played);
+
+    // a legacy-only track: Start, Stop and SetIntensity
     const ShowCommandTrack track = playbackTrack();
     ShowCommandState state = playingState();
     state.recording = true;
     state.boundShowId = 55;
     state.resolvedShowId = 55;
+    if (from >= 0)
+        state = ShowCommandFsm::advance(track, state, quint32(from)).state;
+    // a live mark of the previous pass at 3000
+    state.consumedLiveEventIds.insert(21, { 3000 });
 
-    const ShowCommandTransition step = ShowCommandFsm::seek(track, state, destination);
+    const ShowCommandTransition seek = repositioned(track, state, destination);
+    QCOMPARE(idsOf(seek.effects), QString());
+    const ShowCommandState sought = seek.state;
 
-    QCOMPARE(idsOf(step.effects), restored);
-    for (const ShowCommand &effect : step.effects)
-        QVERIFY(effect.action == ShowCommandAction::SetIntensity);
+    QCOMPARE(sought.position, destination);
+    QCOMPARE(sought.consumedThrough, destination);
+    QVERIFY(sought.consumedLiveEventIds.isEmpty());
+    QVERIFY(sought.recording);
+    QCOMPARE(sought.boundShowId, 55u);
+    QVERIFY(sought.playing);
 
-    QVERIFY(step.authored.isEmpty());
-    QCOMPARE(step.state.position, destination);
-    QCOMPARE(step.state.consumedThrough, destination);
-    QVERIFY(step.state.recording);
-    QCOMPARE(step.state.boundShowId, 55u);
-    QVERIFY(step.state.playing);
+    const ShowCommandTransition step = ShowCommandFsm::advance(track, sought, next);
+    QCOMPARE(idsOf(step.effects), played);
+    // once per traversal: the same position again plays nothing
+    QVERIFY(ShowCommandFsm::advance(track, step.state, next).effects.isEmpty());
+}
+
+void ShowCommandTrack_Test::forwardJumpPlaysCrossedInterval_data()
+{
+    QTest::addColumn<quint32>("from");
+    QTest::addColumn<quint32>("to");
+    QTest::addColumn<bool>("marked"); // a live mark on 21 at 3000, captured before the jump
+    QTest::addColumn<QString>("played");
+
+    QTest::newRow("whole interval in authored order") << 1000u << 4200u << false << QStringLiteral("9,21,10,11");
+    QTest::newRow("live mark inside the interval does not echo") << 1000u << 4200u << true << QStringLiteral("9,10,11");
+    QTest::newRow("tie at T included, nothing after") << 1000u << 3000u << false << QStringLiteral("9,21");
+    QTest::newRow("nothing before consumedThrough") << 1500u << 4199u << false << QStringLiteral("21");
+}
+
+void ShowCommandTrack_Test::forwardJumpPlaysCrossedInterval()
+{
+    QFETCH(quint32, from);
+    QFETCH(quint32, to);
+    QFETCH(bool, marked);
+    QFETCH(QString, played);
+
+    // a forward jump is no seek: the next advance covers [consumedThrough at P, T]
+    const ShowCommandTrack track = playbackTrack();
+    ShowCommandState state = ShowCommandFsm::advance(track, playingState(), from).state;
+    if (marked)
+        state.consumedLiveEventIds.insert(21, { 3000 });
+
+    const ShowCommandTransition step = ShowCommandFsm::advance(track, state, to);
+    QCOMPARE(idsOf(step.effects), played);
+    QCOMPARE(step.state.consumedThrough, to + 1);
 }
 
 void ShowCommandTrack_Test::seekKeepsIntentAndLoopReplaysCommands()
@@ -1017,20 +1184,25 @@ void ShowCommandTrack_Test::seekKeepsIntentAndLoopReplaysCommands()
     ShowCommandTransition step = ShowCommandFsm::advance(track, playingState(), 4200);
     QCOMPARE(idsOf(step.effects), QStringLiteral("7,8,20,9,21,10,11"));
 
-    // looping back re-arms the whole traversal
-    step = ShowCommandFsm::seek(track, step.state, 0);
-    QVERIFY(step.effects.isEmpty());
-    QCOMPARE(step.state.consumedThrough, 0u);
+    // looping back re-arms the traversal from the destination on
+    const ShowCommandTransition looped = repositioned(track, step.state, 0);
+    QCOMPARE(idsOf(looped.effects), QString());
+    QCOMPARE(looped.state.consumedThrough, 0u);
 
-    step = ShowCommandFsm::advance(track, step.state, 1000);
+    step = ShowCommandFsm::advance(track, looped.state, 1000);
     QCOMPARE(idsOf(step.effects), QStringLiteral("7,8,20"));
 
-    // a seek while paused keeps the transport paused and still restores values
+    // a seek while paused keeps the transport paused and restores nothing
     const ShowCommandState paused = ShowCommandFsm::setPlaying(step.state, false);
-    const ShowCommandTransition jumped = ShowCommandFsm::seek(track, paused, 3500);
-    QCOMPARE(idsOf(jumped.effects), QStringLiteral("9,21"));
-    QVERIFY(!jumped.state.playing);
-    QCOMPARE(jumped.state.position, 3500u);
+    const ShowCommandTransition seekWhilePaused = repositioned(track, paused, 3500);
+    QCOMPARE(idsOf(seekWhilePaused.effects), QString());
+    const ShowCommandState jumped = seekWhilePaused.state;
+    QVERIFY(!jumped.playing);
+    QCOMPARE(jumped.position, 3500u);
+    QCOMPARE(jumped.consumedThrough, 3500u);
+    // resumed: what follows 3500, not the values before it
+    QCOMPARE(idsOf(ShowCommandFsm::advance(track, ShowCommandFsm::setPlaying(jumped, true), 4200).effects),
+             QStringLiteral("10,11"));
 }
 
 void ShowCommandTrack_Test::extentNeverSynthesizesEffects()
@@ -1096,7 +1268,7 @@ void ShowCommandTrack_Test::bindingSurvivesPauseSeekAndLoop()
     QVERIFY(state.phase() == ShowRecordPhase::Bound);
     QCOMPARE(state.boundShowId, 55u);
 
-    state = ShowCommandFsm::seek(track, state, 0).state;
+    state = ShowCommandFsm::seek(state, 0);
     state = ShowCommandFsm::setPlaying(state, true);
     QVERIFY(state.phase() == ShowRecordPhase::Bound);
     QVERIFY(state.recording);
@@ -1270,7 +1442,7 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     QVERIFY(track.insert(step.authored.first()));
     state = step.state;
     QCOMPARE(state.consumedThrough, 0u);
-    QCOMPARE(state.consumedLiveEventIds, QSet<quint32>({1}));
+    QCOMPARE(state.consumedLiveEventIds, ShowLiveMarks({ { 1, { 0 } } }));
 
     step = ShowCommandFsm::advance(track, state, 2000);
     QCOMPARE(idsOf(step.effects), QStringLiteral("0"));
@@ -1292,7 +1464,7 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     state = step.state;
 
     // the next traversal plays everything back, in authored order
-    state = ShowCommandFsm::seek(track, state, 0).state;
+    state = ShowCommandFsm::seek(state, 0);
     step = ShowCommandFsm::advance(track, state, 6000);
     QCOMPARE(idsOf(step.effects), QStringLiteral("1,0,2"));
     QVERIFY(state.recording);
@@ -1324,7 +1496,7 @@ void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
     QCOMPARE(step.authored.first().time, 4200u);
     // marking the live event must leave the playback cursor where it was
     QCOMPARE(step.state.consumedThrough, 3001u);
-    QCOMPARE(step.state.consumedLiveEventIds, QSet<quint32>({2}));
+    QCOMPARE(step.state.consumedLiveEventIds, ShowLiveMarks({ { 2, { 4200 } } }));
     QVERIFY(track.insert(step.authored.first()));
     state = step.state;
 
@@ -1337,14 +1509,115 @@ void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
     state = step.state;
 
     // a later traversal replays it like any other authored command
-    state = ShowCommandFsm::seek(track, state, 0).state;
+    state = ShowCommandFsm::seek(state, 0);
     QCOMPARE(idsOf(ShowCommandFsm::advance(track, state, 4200).effects), QStringLiteral("0,1,2"));
 
     // seeking away re-arms the whole traversal, marks included
     input.functionId = 30;
     const ShowCommandState marked = ShowCommandFsm::userInput(track, state, input).state;
     QVERIFY(!marked.consumedLiveEventIds.isEmpty());
-    QVERIFY(ShowCommandFsm::seek(track, marked, 0).state.consumedLiveEventIds.isEmpty());
+    QVERIFY(ShowCommandFsm::seek(marked, 0).consumedLiveEventIds.isEmpty());
+}
+
+void ShowCommandTrack_Test::liveOccurrence_data()
+{
+    // live input X (id 1) captured at 800 while the cursor lags at 500;
+    // U (id 0) at 600 is unrelated. One entry per advance in "effects".
+    QTest::addColumn<QStringList>("script");
+    QTest::addColumn<QStringList>("effects");
+
+    QTest::newRow("moved ahead before expiry plays at its new time")
+        << QStringList({ "time:1500", "advance:900", "advance:2000" })
+        << QStringList({ "0", "1" });
+    QTest::newRow("moved ahead after expiry and a re-import plays")
+        << QStringList({ "advance:900", "reimport", "time:1500", "advance:2000" })
+        << QStringList({ "0", "1" });
+    QTest::newRow("value edit at the capture time is suppressed once")
+        << QStringList({ "value", "advance:900", "time:1500", "advance:2000" })
+        << QStringList({ "0", "1" });
+    QTest::newRow("deleted mark still guards an undone delete, nothing else")
+        << QStringList({ "delete", "paste", "advance:700", "restore", "advance:900" })
+        << QStringList({ "0", "2" });
+    QTest::newRow("undo back to the capture time before expiry is the same occurrence")
+        << QStringList({ "time:1500", "time:800", "advance:2000" })
+        << QStringList({ "0" });
+    QTest::newRow("undo back after expiry and a re-import plays")
+        << QStringList({ "time:1500", "advance:900", "reimport", "time:1700", "time:1500", "advance:2000" })
+        << QStringList({ "0", "1" });
+    QTest::newRow("edit behind the cursor gives nothing this pass")
+        << QStringList({ "time:300", "advance:2000" })
+        << QStringList({ "0" });
+    QTest::newRow("seek clears the marks")
+        << QStringList({ "seek:0", "advance:2000" })
+        << QStringList({ "0,1" });
+}
+
+void ShowCommandTrack_Test::liveOccurrence()
+{
+    QFETCH(QStringList, script);
+    QFETCH(QStringList, effects);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 600, 30)));
+
+    ShowCommandState runner = ShowCommandFsm::advance(track, playingState(), 500).state;
+
+    // the recorder follows the authoritative clock, which is ahead of the cursor
+    ShowCommandState recorder = ShowCommandFsm::setResolvedShow(
+        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    recorder = ShowCommandFsm::setPlaying(recorder, true);
+    recorder.position = 800;
+
+    ShowCommandInput input;
+    input.origin = ShowCommandOrigin::Pointer;
+    input.action = ShowCommandAction::SetIntensity;
+    input.functionId = 12;
+    input.intensity = 0.42;
+
+    const ShowCommandTransition captured = ShowCommandFsm::userInput(track, recorder, input);
+    QCOMPARE(captured.authored.count(), 1);
+    QCOMPARE(captured.authored.first().id, 1u);
+    QVERIFY(track.insert(captured.authored.first()));
+    const ShowCommand original = track.commands().at(track.indexOfId(1));
+    // what the runner takes from the capture publication, on every later revision too
+    const auto reimport = [&]() { runner.consumedLiveEventIds.insert(captured.state.consumedLiveEventIds); };
+    reimport();
+
+    QStringList seen;
+    for (const QString &step : std::as_const(script))
+    {
+        const QString verb = step.section(QLatin1Char(':'), 0, 0);
+        const quint32 ms = step.section(QLatin1Char(':'), 1, 1).toUInt();
+        if (verb == QLatin1String("advance"))
+        {
+            const ShowCommandTransition played = ShowCommandFsm::advance(track, runner, ms);
+            seen.append(idsOf(played.effects));
+            runner = played.state;
+        }
+        else if (verb == QLatin1String("seek"))
+            runner = ShowCommandFsm::seek(runner, ms);
+        else if (verb == QLatin1String("time"))
+            QVERIFY(track.retime(1, ms));
+        else if (verb == QLatin1String("value"))
+            QVERIFY(track.replace(ShowCommand::setIntensity(1, original.time, 12, 0.9)));
+        else if (verb == QLatin1String("delete"))
+            QVERIFY(track.remove(1));
+        else if (verb == QLatin1String("restore"))
+            QVERIFY(track.restore(original));
+        else if (verb == QLatin1String("paste"))
+            QVERIFY(track.insert(ShowCommand::start(2, original.time, 31)));
+        else if (verb == QLatin1String("reimport"))
+            reimport();
+        else
+            QFAIL(qPrintable(step));
+    }
+
+    QCOMPARE(seen, effects);
+
+    // every mark is gone once the cursor passed its time, nothing echoes later
+    const ShowCommandTransition rest = ShowCommandFsm::advance(track, runner, 5000);
+    QVERIFY(rest.effects.isEmpty());
+    QVERIFY(rest.state.consumedLiveEventIds.isEmpty());
 }
 
 void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
@@ -1370,7 +1643,7 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     QCOMPARE(step.authored.count(), 1);
     QVERIFY(step.authored.first() == ShowCommand::setSliderPosition(
                 5, 2750, kControlB, ShowControlRole::AdjustSlider, QStringLiteral("Intensity"), 0.625));
-    QCOMPARE(step.state.consumedLiveEventIds, QSet<quint32>({5}));
+    QCOMPARE(step.state.consumedLiveEventIds, ShowLiveMarks({ { 5, { 2750 } } }));
     QVERIFY(step.effects.isEmpty());
 
     // a button state offered with a slider role is explained, not authored

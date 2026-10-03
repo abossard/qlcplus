@@ -36,6 +36,14 @@ Rectangle
     property string contextName: "SHOWMGR"
     readonly property bool showKeyScope: true
     property string keyboardFeedback: ""
+    readonly property bool recordingKeyDomain: {
+        if (editorTab === 1 || recordings.selectedIds.length > 0)
+            return true
+        for (var item = qlcplus.activeFocusItem; item && item !== showMgrContainer; item = item.parent)
+            if (item.recordingKeyDomain === true)
+                return true
+        return false
+    }
 
     Keys.onPressed: (event) =>
     {
@@ -50,22 +58,12 @@ Rectangle
         else if (event.key === Qt.Key_Space && event.modifiers === Qt.NoModifier)
             requestPlayShow()
         else if (event.modifiers === Qt.ControlModifier && event.key === Qt.Key_C)
-        {
-            if (editorTab === 0 && !recordingLane.activeFocus)
-                requestCopyItems()
-            else
-                keyboardFeedback = qsTr("Recording Copy/Paste is not available.")
-        }
+            copyInDomain()
         else if (event.modifiers === Qt.ControlModifier && event.key === Qt.Key_V)
-        {
-            if (editorTab === 0 && !recordingLane.activeFocus)
-                requestPasteItems()
-            else
-                keyboardFeedback = qsTr("Recording Copy/Paste is not available.")
-        }
+            pasteInDomain()
         else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
         {
-            if (editorTab === 0 && !recordingLane.activeFocus && canEdit)
+            if (!recordingKeyDomain && canEdit)
                 showManager.deleteShowItems(showManager.selectedItemRefs())
         }
         else
@@ -79,19 +77,164 @@ Rectangle
     property real timeScale: showManager.timeScale
     property real tickSize: showManager.tickSize
     property int headerHeight: UISettings.iconSizeMedium
+    // the one horizontal view of the ruler and the lanes: commands write it, a user scroll
+    // of either Flickable writes its contentX and feeds it back; both follow it only here
     property real xViewOffset: 0
+    // the width of that view: the timeline columns left of the right panel. The ruler and
+    // the lanes are exactly this wide, so every reveal, fit and clamp measures what is seen
+    readonly property real timelineViewportWidth: width - trackWidth - verticalDivider.width - rightPanel.width
+    onXViewOffsetChanged:
+    {
+        if (itemsArea.contentX !== xViewOffset)
+            itemsArea.contentX = xViewOffset
+        if (timelineHeader.contentX !== xViewOffset)
+            timelineHeader.contentX = xViewOffset
+    }
 
     property real showID: showManager.currentShowID
     property int selectedTrackIndex: -1
-    // 0: the timeline, 1: the recorded commands of the same Show
+    // Qt's Text and Text|List Tab policies (macOS) skip the timeline's buttons and
+    // recordings; there one Show-local owner walks the timeline's stops instead
+    readonly property bool reducedTimelineTraversal: timelineShown && (tracksBox.count > 0 || hasRecordings)
+        && (Qt.styleHints.tabFocusBehavior === Qt.TabFocusTextControls
+            || Qt.styleHints.tabFocusBehavior === (Qt.TabFocusTextControls | Qt.TabFocusListControls))
+
+    // the timeline's stops in order, read from the current items: every track's
+    // controls, the Recordings header top to bottom, then its objects in global group order
+    function timelineStops()
+    {
+        var stops = []
+        var add = function(item) {
+            if (item && item.visible && item.enabled)
+                stops.push(item)
+        }
+        for (var t = 0; t < tracksBox.count; t++)
+        {
+            var track = tracksBox.itemAt(t)
+            for (var control = track ? track.firstControl : null; control;
+                 control = control === track.lastControl ? null : control.KeyNavigation.tab)
+                add(control)
+        }
+        if (hasRecordings)
+        {
+            add(lanesToggle)
+            for (var i = 0; i < recordingActions.children.length; i++)
+                add(recordingActions.children[i])
+            recordingLane.orderedObjects().forEach(add)
+            add(recordingUndo)
+        }
+        return stops
+    }
+
+    // the one ordered-neighbour decision over [lead..., stops..., exit];
+    // null leaves the step to Qt's own chain
+    function orderedNeighbor(sequence, current, forward)
+    {
+        var index = forward ? sequence.indexOf(current) : sequence.lastIndexOf(current)
+        if (index < 0 || index === (forward ? sequence.length - 1 : 0))
+            return null
+        return sequence[index + (forward ? 1 : -1)]
+    }
+
+    // the Split's boundary before the timeline: the colour button while it takes focus,
+    // else the Split tab itself, whose Tab then goes on by the owner or Qt's own chain
+    readonly property Item splitTimelineBefore: colPickButton.enabled ? colPickButton : splitTabButton
+
+    // the explicit route through the timeline: its lead, its stops, then its exit. Only the
+    // lead's last control and the exit are the segment's neighbours, so no other control
+    // enters it. In the Split the table's filter follows the timeline and the tab bar's side
+    // leads in. Elsewhere Qt's reduced policies skip the toolbar's buttons: from the tab bar's
+    // side the toolbar's KeyNavigation chain leads on to Move by, then the seconds field and
+    // the Show name, the controls that take focus now
+    function timelineLead()
+    {
+        if (editorTab === 2)
+            return [splitTimelineBefore]
+        var lead = [splitTimelineBefore]
+        for (var item = markersCombo; item; item = item === moveStep ? null : item.KeyNavigation.tab)
+            lead.push(item)
+        lead.push(timeDelta, showName)
+        return lead.filter(function(control) { return control.visible && control.enabled })
+    }
+    readonly property Item timelineExit: editorTab === 2 ? recordings.firstFocus : timelineTabButton
+
+    function timelineTraversalTarget(current, forward)
+    {
+        var stops = timelineStops()
+        if (stops.length === 0)
+            return null
+        return orderedNeighbor(timelineLead().concat(stops, [timelineExit]), current, forward)
+    }
+
+    // the one vertical reveal: a stop that takes focus, by any route, scrolls into the
+    // timeline's viewport; a key that leaves focus where it is scrolls nothing
+    function revealInTimeline(control)
+    {
+        var top = control.mapToItem(showContents.contentItem, 0, 0).y
+        var offset = showContents.contentY
+        if (top < offset)
+            offset = top
+        else if (top + control.height > offset + showContents.height)
+            offset = top + control.height - showContents.height
+        showContents.contentY = Math.max(0, Math.min(offset, showContents.contentHeight - showContents.height))
+    }
+    readonly property Item focusedItem: qlcplus.activeFocusItem
+    onFocusedItemChanged: if (timelineShown && focusedItem && timelineStops().indexOf(focusedItem) >= 0)
+                              revealInTimeline(focusedItem)
+
+    // the focused Show control hands Tab and Shift+Tab to this one owner first;
+    // every other key, and every step it leaves to Qt, passes on unchanged
+    Item
+    {
+        id: timelineTraversal
+        Keys.onPressed: (event) =>
+        {
+            if ((event.key !== Qt.Key_Tab && event.key !== Qt.Key_Backtab)
+                || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier)))
+                return
+            var forward = event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)
+            var target = timelineTraversalTarget(qlcplus.activeFocusItem, forward)
+            if (!target)
+                return
+            target.forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason)
+            event.accepted = true
+        }
+    }
+    readonly property Item timelineKeySource: reducedTimelineTraversal && keyboardFocusOutline.local
+        ? qlcplus.activeFocusItem : null
+    Binding
+    {
+        target: timelineKeySource ? timelineKeySource.Keys : null
+        property: "forwardTo"
+        value: timelineTraversal
+        when: timelineKeySource !== null
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+    // 0: the timeline, 1: the recorded commands of the same Show, 2: both,
+    // the timeline above the same Recordings table
     property int editorTab: 0
+    // the Recordings lane as one row per recorded control; a view only, for the editor session
+    property bool lanesExpanded: false
+    readonly property bool timelineShown: editorTab !== 1
+    readonly property bool recordingsShown: editorTab !== 0
+    readonly property real editorBottom: height - (bottomPanel.visible ? bottomPanel.height : 0)
+    // the split halves the editor, leaving the table its controls and two rows
+    // where the timeline's ruler and one track leave room for them
+    readonly property real timelineFloor: topBar.height + headerHeight + trackHeight
+    readonly property real timelineBottom: editorTab === 2
+        ? Math.max(timelineFloor,
+                   Math.min(topBar.height + Math.round((editorBottom - topBar.height) / 2),
+                            editorBottom - recordings.minimumHeight))
+        : editorBottom
     property var recordingReturnIds: []
     property real recordingReturnShow: -1
 
     function returnToTimeline()
     {
+        // only leaving the Recordings tab returns to what was opened from the timeline
+        var fromRecordings = editorTab === 1
         editorTab = 0
-        if (recordingReturnShow === showID && recordingReturnIds.length)
+        if (fromRecordings && recordingReturnShow === showID && recordingReturnIds.length)
         {
             recordings.selectedIds = recordingReturnIds.filter(function(id) {
                 return recordings.rowsById[id] !== undefined
@@ -104,7 +247,7 @@ Rectangle
     // the same rule authoritatively (VDJ Perform mode = read only)
     readonly property bool canEdit: showManager.isEditing && !showManager.readOnly
 
-    onShowIDChanged: renderAndCenter()
+    onShowIDChanged: { resetSelectionNavigationView(); renderAndCenter() }
     Component.onCompleted:
     {
         renderAndCenter()
@@ -124,6 +267,7 @@ Rectangle
 
     Rectangle
     {
+        id: keyboardFocusOutline
         objectName: "showKeyboardFocus"
         property var target: qlcplus.activeFocusItem
         readonly property bool local: {
@@ -132,18 +276,32 @@ Rectangle
                     return target !== showMgrContainer
             return false
         }
+        // the target's rectangle, cut to every clipping ancestor: the outline
+        // never paints past the pane that shows the target (the split's table)
         property rect frame: {
-            showContents.contentY; xViewOffset; rightPanel.width; showMgrContainer.width
+            showContents.contentY; xViewOffset; rightPanel.width; showMgrContainer.width; showMgrContainer.height
             if (!target)
                 return Qt.rect(0, 0, 0, 0)
-            target.x; target.y
-            return target.mapToItem(showMgrContainer, Qt.rect(0, 0, target.width, target.height))
+            target.x; target.y; target.width; target.height
+            var r = target.mapToItem(showMgrContainer, Qt.rect(0, 0, target.width, target.height))
+            for (var a = target.parent; a && a !== showMgrContainer; a = a.parent)
+            {
+                // read so that moving or scrolling any ancestor recomputes the frame
+                a.x; a.y; a.width; a.height; a.contentX; a.contentY
+                if (!a.clip)
+                    continue
+                var c = a.mapToItem(showMgrContainer, Qt.rect(0, 0, a.width, a.height))
+                var left = Math.max(r.x, c.x), top = Math.max(r.y, c.y)
+                var right = Math.min(r.x + r.width, c.x + c.width), bottom = Math.min(r.y + r.height, c.y + c.height)
+                r = Qt.rect(left, top, Math.max(0, right - left), Math.max(0, bottom - top))
+            }
+            return r
         }
         x: frame.x
         y: frame.y
         width: frame.width
         height: frame.height
-        visible: local && target.visible
+        visible: local && target.visible && frame.width > 0 && frame.height > 0
         enabled: false
         color: "transparent"
         border.color: "#f1c40f"
@@ -176,27 +334,168 @@ Rectangle
             pasteErrorPopup.open()
     }
 
+    // one Copy/Paste for the keys, the toolbar and the shortcuts: recorded
+    // events while the recordings own the keys, clips otherwise
+    function copyInDomain()
+    {
+        if (recordingKeyDomain)
+            keyboardFeedback = recordings.copySelected()
+        else
+            requestCopyItems()
+    }
+
+    function pasteInDomain()
+    {
+        if (recordingKeyDomain)
+            keyboardFeedback = recordings.pasteAtPlayhead()
+        else
+            requestPasteItems()
+    }
+
     function centerView()
     {
         var cursorX = showManager.timeBasedDivision
                 ? TimeUtils.timeToSize(showManager.currentTime, timeScale, tickSize)
                 : TimeUtils.timeToBeatPosition(showManager.currentTime, tickSize,
                                                showManager.bpmNumber, showManager.beatsDivision)
-        var xPos = cursorX - (timelineHeader.width / 2)
+        var xPos = cursorX - (timelineViewportWidth / 2)
         if (xPos >= 0)
             xViewOffset = xPos
     }
 
+    // the timeline's reach past authored and recorded content, raised only by Fit
+    // selection: a view in ruler units, reset whenever a ruler unit changes meaning
+    property real revealedRulerEnd: 0
+    // why the last Fit selection could not show the whole selection; "" otherwise
+    property string selectionNavigationStatus: ""
+    readonly property real recordedRulerEnd: {
+        if (!showCommandRecorder)
+            return 0
+        // the int extent is negative from 2^31 ms on; the exact group times are not
+        var end = Math.max(0, showCommandRecorder.extent)
+        showCommandRecorder.groups.forEach(function(group) { end = Math.max(end, group.endTime) })
+        return showManager.timeBasedDivision ? end : TimeUtils.msToBeatsMs(end, showManager.bpmNumber)
+    }
+    readonly property real rulerDuration: Math.min(TimeUtils.selectionNavigationBound,
+        Math.max(showManager.showDuration, recordedRulerEnd, revealedRulerEnd))
+
+    function resetSelectionNavigationView()
+    {
+        revealedRulerEnd = 0
+        selectionNavigationStatus = ""
+    }
+    Connections
+    {
+        target: showManager
+        function onTimeDivisionChanged() { showMgrContainer.revealedRulerEnd = 0 }
+        function onBpmNumberChanged() { showMgrContainer.revealedRulerEnd = 0 }
+    }
+    Connections
+    {
+        // a workspace load or clear leaves no current Show first
+        target: showManager
+        function onIsEditingChanged() { showMgrContainer.resetSelectionNavigationView() }
+    }
+    Connections
+    {
+        target: recordings
+        function onSelectedIdsChanged() { showMgrContainer.selectionNavigationStatus = "" }
+    }
+
+    /** The owning selection, ruler and access as plain values; with the view,
+      * also the pixels of the selection and of the timeline's viewport */
+    function selectionNavigationSnapshot(withView)
+    {
+        var msRuler = showManager.timeBasedDivision, bpm = showManager.bpmNumber
+        var snapshot = {
+            showId: showManager.isEditing ? showID : -1,
+            domain: !showManager.isEditing ? "none" : recordingKeyDomain ? "recordings" : "clips",
+            recordings: { samples: [], tailPx: recordingLane.minItemWidth, rows: null },
+            clips: { items: [] },
+            ruler: { msRuler: msRuler, bpm: bpm, beatsDivision: showManager.beatsDivision,
+                     vdjBeat: showManager.timeDivision === Show.VDJBeat, vdjGridValid: showManager.vdjGridValid,
+                     vdjBeatPeriodMs: showManager.vdjBeatPeriodMs },
+            access: { readOnly: showManager.readOnly, performState: vdjBridge ? vdjBridge.performState : 0 }
+        }
+        var content = showContents.contentItem
+        if (snapshot.domain === "recordings")
+        {
+            snapshot.recordings.samples = recordings.selectedRows.map(function(row) {
+                return withView ? { id: row.id, ms: row.time, x: recordingLane.timeX(row.time) }
+                                : { id: row.id, ms: row.time }
+            })
+            var rows = withView && recordingLane.visible
+                ? recordingLane.selectionRowsRect(snapshot.recordings.samples) : null
+            if (rows)
+            {
+                var dy = recordingLane.mapToItem(content, 0, 0).y
+                snapshot.recordings.rows = { y: rows.y + dy, height: rows.height, firstRowY: rows.firstRowY + dy }
+            }
+        }
+        else if (snapshot.domain === "clips" && showManager.selectedItemsCount > 0)
+        {
+            var refs = showManager.selectedItemRefs()
+            var shown = itemsArea.contentItem.children
+            for (var i = 0; i < shown.length; i++)
+            {
+                var item = shown[i]
+                if (item.sfRef === undefined || !item.funcRef || refs.indexOf(item.sfRef) < 0)
+                    continue
+                var clip = { startTime: item.sfRef.startTime, duration: item.sfRef.duration,
+                             isBeats: item.funcRef.tempoType === QLCFunction.Beats }
+                if (withView)
+                {
+                    clip.x = item.x
+                    clip.width = item.width
+                    clip.y = item.mapToItem(content, 0, 0).y
+                    clip.height = item.height
+                }
+                snapshot.clips.items.push(clip)
+            }
+        }
+        if (withView)
+            snapshot.view = {
+                timeScale: showManager.timeScale, minScale: 0.1,
+                unitPx: recordingLane.timeX(msRuler ? 1e6 : TimeUtils.beatsMsToMs(1e6, bpm)) / 1e6,
+                rulerDuration: rulerDuration, revealedRulerEnd: revealedRulerEnd,
+                x: itemsArea.contentX, headerX: timelineHeader.contentX, width: timelineViewportWidth,
+                y: showContents.contentY, height: showContents.height, contentHeight: showContents.contentHeight
+            }
+        return snapshot
+    }
+    readonly property var selectionNavigationPlan: TimeUtils.planSelectionNavigation(selectionNavigationSnapshot(false))
+
+    /** The one effect of Fit selection (the view) and Go to selection start (a seek),
+      * from a fresh plan: an unavailable action does nothing */
+    function applySelectionNavigation(kind)
+    {
+        var plan = TimeUtils.planSelectionNavigation(selectionNavigationSnapshot(true))
+        if (kind === "go")
+        {
+            if (plan.go.available)
+                showManager.requestSeek(plan.go.ms)
+            return
+        }
+        if (!plan.fit.available)
+            return
+        showManager.timeScale = plan.fit.timeScale
+        revealedRulerEnd = Math.max(revealedRulerEnd, plan.fit.rulerEnd)
+        xViewOffset = plan.fit.xViewOffset
+        showContents.contentY = plan.fit.contentY
+        selectionNavigationStatus = TimeUtils.selectionNavigationFitResult(selectionNavigationSnapshot(true)).reason
+    }
+
     function followPlayhead()
     {
-        if (!timelineHeader || !hdrItem
+        // a recording pointer gesture holds the view until release; the playhead runs on
+        if (!timelineHeader || !hdrItem || recordingLane.pointerHeld
                 || (!showManager.readOnly && (!showManager.isPlaying || showManager.isPaused))
-                || timelineHeader.width <= 0)
+                || timelineViewportWidth <= 0)
             return
 
         var cursorX = hdrItem.cursorPosition
-        if (cursorX < xViewOffset || cursorX + 1 > xViewOffset + timelineHeader.width)
-            xViewOffset = Math.max(0, cursorX - (timelineHeader.width / 2))
+        if (cursorX < xViewOffset || cursorX + 1 > xViewOffset + timelineViewportWidth)
+            xViewOffset = Math.max(0, cursorX - (timelineViewportWidth / 2))
     }
 
     Connections
@@ -207,6 +506,7 @@ Rectangle
         function onIsPausedChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
         function onSelectedItemsCountChanged(count)
         {
+            showMgrContainer.selectionNavigationStatus = ""
             if (count > 0)
             {
                 recordings.selectedIds = []
@@ -262,8 +562,8 @@ Rectangle
         sequence: StandardKey.Copy
         enabled: mainView.currentContext === "SHOWMGR"
                  && !mainView.shortcutsBlocked()
-                 && showManager.selectedItemsCount > 0
-        onActivated: showMgrContainer.requestCopyItems()
+                 && (recordingKeyDomain ? recordings.selectedIds.length > 0 : showManager.selectedItemsCount > 0)
+        onActivated: showMgrContainer.copyInDomain()
     }
 
     Shortcut
@@ -272,7 +572,7 @@ Rectangle
         enabled: mainView.currentContext === "SHOWMGR"
                  && !mainView.shortcutsBlocked()
                  && (qlcplus.accessMask & App.AC_ShowManager)
-        onActivated: showMgrContainer.requestPasteItems()
+        onActivated: showMgrContainer.pasteInDomain()
     }
 
     Shortcut
@@ -292,7 +592,7 @@ Rectangle
     {
         id: topBar
         width: showMgrContainer.width - rightPanel.width
-        height: UISettings.iconSizeDefault * 2
+        height: toolbarFlow.height + UISettings.iconSizeDefault
         z: 5
         gradient: Gradient
         {
@@ -300,23 +600,21 @@ Rectangle
             GradientStop { position: 1; color: UISettings.toolbarEnd }
         }
 
-        RowLayout
+        Flow
         {
-            id: topBarRowLayout
+            id: toolbarFlow
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            height: UISettings.iconSizeDefault
-            y: 1
-
             spacing: 4
 
             RobotoText { label: qsTr("Name") }
 
             CustomTextEdit
             {
+                id: showName
                 width: showMgrContainer.width / 5
-                height: parent.height - 10
+                height: UISettings.iconSizeDefault - 10
                 text: showManager.showName
                 enabled: canEdit
 
@@ -328,7 +626,7 @@ Rectangle
             {
                 visible: showManager.readOnly
                 width: performBadgeText.width + UISettings.textSizeDefault
-                height: parent.height - 10
+                height: UISettings.iconSizeDefault - 10
                 radius: height / 4
                 color: "#7a5c00"
                 border.color: "#f1c40f"
@@ -344,13 +642,18 @@ Rectangle
                 }
             }
 
-            RecordControl { Layout.fillHeight: true }
+            RecordControl
+            {
+                width: Math.min(implicitWidth, parent.width)
+                height: UISettings.iconSizeDefault
+            }
 
             ButtonGroup { id: editorTabGroup }
 
             MenuBarEntry
             {
                 id: timelineTabButton
+                height: UISettings.iconSizeDefault
                 objectName: "timelineTab"
                 entryText: qsTr("Timeline")
                 checked: showMgrContainer.editorTab === 0
@@ -362,21 +665,51 @@ Rectangle
             MenuBarEntry
             {
                 id: recordingsTabButton
+                height: UISettings.iconSizeDefault
                 KeyNavigation.backtab: timelineTabButton
-                KeyNavigation.tab: editorTab === 1 ? recordings.firstFocus : colPickButton
+                KeyNavigation.tab: splitTabButton
                 objectName: "recordingsTab"
                 focusPolicy: Qt.StrongFocus
                 entryText: qsTr("Recordings")
                 checked: showMgrContainer.editorTab === 1
                 ButtonGroup.group: editorTabGroup
-                onClicked: showMgrContainer.editorTab = 1
+                onClicked:
+                {
+                    // the tab itself opens the whole recording; a passage opens from the timeline
+                    showMgrContainer.editorTab = 1
+                    recordings.showAll()
+                }
+            }
+
+            MenuBarEntry
+            {
+                id: splitTabButton
+                height: UISettings.iconSizeDefault
+                KeyNavigation.backtab: recordingsTabButton
+                KeyNavigation.tab: editorTab === 1 ? recordings.firstFocus
+                                   : splitTimelineBefore !== splitTabButton ? splitTimelineBefore : null
+                objectName: "splitTab"
+                focusPolicy: Qt.StrongFocus
+                entryText: qsTr("Split")
+                Accessible.name: qsTr("Timeline above Recordings")
+                checked: showMgrContainer.editorTab === 2
+                ButtonGroup.group: editorTabGroup
+                onClicked:
+                {
+                    // from the Timeline tab its selection opens below; an open table, or a
+                    // table holding a draft, keeps its rows: switching view never re-scopes a draft
+                    var fromTimeline = showMgrContainer.editorTab === 0
+                    showMgrContainer.editorTab = 2
+                    if (fromTimeline && recordings.selectedIds.length > 0 && recordings.editingId === recordings.noId)
+                        recordings.inspect(recordings.selection())
+                }
             }
 
             IconButton
             {
                 id: colPickButton
                 z: 2
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 imgSource: "qrc:/color.svg"
                 checkable: true
@@ -406,7 +739,7 @@ Rectangle
             {
                 id: lockItem
                 z: 2
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 imgSource: "qrc:/lock.svg"
                 enabled: canEdit
@@ -446,7 +779,7 @@ Rectangle
             {
                 id: gridButton
                 z: 2
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 imgSource: "qrc:/grid.svg"
                 tooltip: qsTr("Snap to grid")
@@ -458,7 +791,7 @@ Rectangle
             IconButton
             {
                 id: stretchBtn
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: FontAwesome.fa_arrows_left_right_to_line
                 faColor: "lightyellow"
@@ -472,7 +805,7 @@ Rectangle
             {
                 id: removeItem
                 z: 2
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: FontAwesome.fa_minus
                 faColor: "crimson"
@@ -499,26 +832,36 @@ Rectangle
             IconButton
             {
                 id: copyBtn
-                width: parent.height - 6
+                objectName: "copyButton"
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: FontAwesome.fa_copy
                 faColor: UISettings.fgMain
-                tooltip: ShortcutUtils.withShortcut(qsTr("Copy the selected items in the clipboard"), "Ctrl+C")
-                counter: showManager.selectedItemsCount
-                onClicked: showMgrContainer.requestCopyItems()
+                tooltip: !recordingKeyDomain
+                    ? ShortcutUtils.withShortcut(qsTr("Copy the selected items in the clipboard"), "Ctrl+C")
+                    : recordings.copyBlockedReason
+                      || ShortcutUtils.withShortcut(qsTr("Copy the selected recorded events"), "Ctrl+C")
+                enabled: !recordingKeyDomain || recordings.copyBlockedReason === ""
+                counter: recordingKeyDomain ? recordings.selectedIds.length : showManager.selectedItemsCount
+                onClicked: showMgrContainer.copyInDomain()
             }
 
             IconButton
             {
                 id: pasteBtn
-                width: parent.height - 6
+                objectName: "pasteButton"
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
-                tooltip: ShortcutUtils.withShortcut(qsTr("Paste items in the clipboard at cursor position"), "Ctrl+V")
-                enabled: canEdit
-                counter: showManager.clipboardItemsCount
-                onClicked: showMgrContainer.requestPasteItems()
+                tooltip: !recordingKeyDomain
+                    ? ShortcutUtils.withShortcut(qsTr("Paste items in the clipboard at cursor position"), "Ctrl+V")
+                    : recordings.pasteBlockedReason
+                      || ShortcutUtils.withShortcut(qsTr("Paste the copied recorded events at the cursor"), "Ctrl+V")
+                enabled: recordingKeyDomain ? recordings.pasteBlockedReason === "" : canEdit
+                counter: recordingKeyDomain ? (showCommandRecorder ? showCommandRecorder.clipboardCount : 0)
+                                            : showManager.clipboardItemsCount
+                onClicked: showMgrContainer.pasteInDomain()
 
                 CustomPopupDialog
                 {
@@ -527,12 +870,6 @@ Rectangle
                     standardButtons: Dialog.Ok
                     message: qsTr("It is not possible to paste the items on the selected track at the current cursor position")
                 }
-            }
-
-            // filler
-            Rectangle
-            {
-                Layout.fillWidth: true
             }
 
             RobotoText
@@ -559,7 +896,7 @@ Rectangle
             IconButton
             {
                 id: playbackBtn
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: (showManager.isPlaying && !showManager.isPaused) ? FontAwesome.fa_pause : FontAwesome.fa_play
                 faColor: UISettings.fgMain
@@ -574,7 +911,7 @@ Rectangle
             IconButton
             {
                 id: stopBtn
-                width: parent.height - 6
+                width: UISettings.iconSizeDefault - 6
                 height: width
                 faSource: FontAwesome.fa_stop
                 faColor: UISettings.fgMain
@@ -587,103 +924,161 @@ Rectangle
                 onClicked: showMgrContainer.requestStopShow()
             }
 
-            // filler
-            Rectangle
+            Row
             {
-                Layout.fillWidth: true
-            }
+                height: UISettings.iconSizeDefault
+                spacing: 4
 
-
-            RobotoText
-            {
-                label: qsTr("Markers")
-            }
-
-            CustomComboBox
-            {
-                model: [
-                    { mLabel: qsTr("Time"), mValue: Show.Time },
-                    { mLabel: qsTr("VDJ Beat"), mValue: Show.VDJBeat },
-                    { mLabel: qsTr("BPM 4/4"), mValue: Show.BPM_4_4 },
-                    { mLabel: qsTr("BPM 3/4"), mValue: Show.BPM_3_4 },
-                    { mLabel: qsTr("BPM 2/4"), mValue: Show.BPM_2_4 }
-                ]
-                id: markersCombo
-                objectName: "markersCombo"
-                enabled: canEdit
-                currValue: showManager.timeDivision
-                onValueChanged:
+                RobotoText
                 {
-                    // BPM beat markers need a tempo: refuse them until a BPM is set.
-                    // Time and VDJ Beat are exempt (the VDJ grid comes from the
-                    // VirtualDJ database, not from the BPM number).
-                    // The revert must be deferred (Qt.callLater) because the combo is
-                    // mid-update here (its isUpdating guard would swallow a synchronous
-                    // currValue/currentIndex change).
-                    if (currValue !== Show.Time && currValue !== Show.VDJBeat
-                        && showManager.bpmNumber <= 0)
-                    {
-                        Qt.callLater(function() { markersCombo.currValue = Show.Time })
-                        return
-                    }
-                    if (currValue !== Show.Time && currValue !== Show.VDJBeat &&
-                            showManager.timeBasedDivision &&
-                            showManager.hasBeatBasedItems())
-                    {
-                        beatAlignWarningPopup.pendingDivision = currValue
-                        beatAlignWarningPopup.open()
-                    }
-                    else
-                    {
-                        showManager.timeDivision = currValue
-                    }
+                    label: qsTr("Markers")
                 }
 
-                Connections
+                CustomComboBox
                 {
-                    target: showManager
-                    function onTimeDivisionChanged(division)
+                    model: [
+                        { mLabel: qsTr("Time"), mValue: Show.Time },
+                        { mLabel: qsTr("VDJ Beat"), mValue: Show.VDJBeat },
+                        { mLabel: qsTr("BPM 4/4"), mValue: Show.BPM_4_4 },
+                        { mLabel: qsTr("BPM 3/4"), mValue: Show.BPM_3_4 },
+                        { mLabel: qsTr("BPM 2/4"), mValue: Show.BPM_2_4 }
+                    ]
+                    id: markersCombo
+                    KeyNavigation.tab: zoomOutButton
+                    objectName: "markersCombo"
+                    enabled: canEdit
+                    currValue: showManager.timeDivision
+                    onValueChanged:
                     {
-                        if (markersCombo.currValue !== division)
-                            Qt.callLater(function() { markersCombo.currValue = division })
-                    }
-                }
-
-                CustomPopupDialog
-                {
-                    id: beatAlignWarningPopup
-                    objectName: "beatAlignWarningPopup"
-                    title: qsTr("Switch to BPM markers")
-                    message: qsTr("Warning: all beat-based functions will be aligned to the nearest beat")
-                    standardButtons: Dialog.Ok | Dialog.Cancel
-
-                    property var pendingDivision: Show.Time
-
-                    // the OK/Cancel buttons only emit clicked(role) (see
-                    // CustomPopupDialog's footer), while accepted()/rejected()
-                    // only fire when confirming with the Enter key, so both
-                    // paths must be handled to cover mouse and keyboard
-                    onClicked: (role) =>
-                    {
-                        if (role === Dialog.Ok)
-                            showManager.timeDivision = pendingDivision
+                        // BPM beat markers need a tempo: refuse them until a BPM is set.
+                        // Time and VDJ Beat are exempt (the VDJ grid comes from the
+                        // VirtualDJ database, not from the BPM number).
+                        // The revert must be deferred (Qt.callLater) because the combo is
+                        // mid-update here (its isUpdating guard would swallow a synchronous
+                        // currValue/currentIndex change).
+                        if (currValue !== Show.Time && currValue !== Show.VDJBeat
+                            && showManager.bpmNumber <= 0)
+                        {
+                            Qt.callLater(function() { markersCombo.currValue = Show.Time })
+                            return
+                        }
+                        if (currValue !== Show.Time && currValue !== Show.VDJBeat &&
+                                showManager.timeBasedDivision &&
+                                showManager.hasBeatBasedItems())
+                        {
+                            beatAlignWarningPopup.pendingDivision = currValue
+                            beatAlignWarningPopup.open()
+                        }
                         else
-                            markersCombo.currValue = showManager.timeDivision
-                        close()
+                        {
+                            showManager.timeDivision = currValue
+                        }
                     }
-                    onAccepted: showManager.timeDivision = pendingDivision
-                    onRejected: markersCombo.currValue = showManager.timeDivision
+
+                    Connections
+                    {
+                        target: showManager
+                        function onTimeDivisionChanged(division)
+                        {
+                            if (markersCombo.currValue !== division)
+                                Qt.callLater(function() { markersCombo.currValue = division })
+                        }
+                    }
+
+                    CustomPopupDialog
+                    {
+                        id: beatAlignWarningPopup
+                        objectName: "beatAlignWarningPopup"
+                        title: qsTr("Switch to BPM markers")
+                        message: qsTr("Warning: all beat-based functions will be aligned to the nearest beat")
+                        standardButtons: Dialog.Ok | Dialog.Cancel
+
+                        property var pendingDivision: Show.Time
+
+                        // the OK/Cancel buttons only emit clicked(role) (see
+                        // CustomPopupDialog's footer), while accepted()/rejected()
+                        // only fire when confirming with the Enter key, so both
+                        // paths must be handled to cover mouse and keyboard
+                        onClicked: (role) =>
+                        {
+                            if (role === Dialog.Ok)
+                                showManager.timeDivision = pendingDivision
+                            else
+                                markersCombo.currValue = showManager.timeDivision
+                            close()
+                        }
+                        onAccepted: showManager.timeDivision = pendingDivision
+                        onRejected: markersCombo.currValue = showManager.timeDivision
+                    }
                 }
-            }
 
-            ZoomItem
-            {
-                implicitWidth: UISettings.mediumItemHeight * 1.3
-                implicitHeight: parent.height - 2
-                fontColor: "#222"
+                Row
+                {
+                    width: UISettings.mediumItemHeight * 2.6
+                    height: UISettings.iconSizeDefault - 2
 
-                onZoomOutClicked: showMgrContainer.zoomTimeline(false)
-                onZoomInClicked: showMgrContainer.zoomTimeline(true)
+                    IconButton
+                    {
+                        id: zoomOutButton
+                        KeyNavigation.tab: zoomInButton
+                        width: parent.width / 4
+                        height: parent.height
+                        focusPolicy: Qt.StrongFocus
+                        faSource: FontAwesome.fa_magnifying_glass_minus
+                        faColor: "#222"
+                        Accessible.name: qsTr("Zoom out")
+                        tooltip: Accessible.name
+                        onClicked: showMgrContainer.zoomTimeline(false)
+                    }
+                    IconButton
+                    {
+                        id: zoomInButton
+                        KeyNavigation.tab: fitSelectionButton
+                        width: parent.width / 4
+                        height: parent.height
+                        focusPolicy: Qt.StrongFocus
+                        faSource: FontAwesome.fa_magnifying_glass_plus
+                        faColor: "#222"
+                        Accessible.name: qsTr("Zoom in")
+                        tooltip: Accessible.name
+                        onClicked: showMgrContainer.zoomTimeline(true)
+                    }
+                    IconButton
+                    {
+                        id: fitSelectionButton
+                        objectName: "fitSelectionButton"
+                        KeyNavigation.tab: goToSelectionStartButton
+                        KeyNavigation.backtab: zoomInButton
+                        width: parent.width / 4
+                        height: parent.height
+                        focusPolicy: Qt.StrongFocus
+                        faSource: FontAwesome.fa_expand
+                        faColor: "#222"
+                        enabled: selectionNavigationPlan.fit.available
+                        Accessible.name: qsTr("Fit selection")
+                        Accessible.description: selectionNavigationStatus || selectionNavigationPlan.fit.reason
+                        tooltip: Accessible.name
+                        onClicked: showMgrContainer.applySelectionNavigation("fit")
+                    }
+                    IconButton
+                    {
+                        id: goToSelectionStartButton
+                        objectName: "goToSelectionStartButton"
+                        KeyNavigation.tab: moveStep
+                        KeyNavigation.backtab: fitSelectionButton
+                        width: parent.width / 4
+                        height: parent.height
+                        focusPolicy: Qt.StrongFocus
+                        faSource: FontAwesome.fa_backward_step
+                        faColor: "#222"
+                        enabled: selectionNavigationPlan.go.available
+                        Accessible.name: qsTr("Go to selection start")
+                        Accessible.description: selectionNavigationPlan.go.reason
+                        tooltip: Accessible.name
+                        onClicked: showMgrContainer.applySelectionNavigation("go")
+                    }
+                }
+
             }
         }
         RowLayout
@@ -708,6 +1103,7 @@ Rectangle
                     recordings.moveError = ""
                 }
                 KeyNavigation.tab: timeDelta.visible ? timeDelta : null
+                KeyNavigation.backtab: goToSelectionStartButton
             }
             CustomTextEdit
             {
@@ -723,6 +1119,17 @@ Rectangle
                     keyboardFeedback = ""
                     recordings.moveError = ""
                 }
+            }
+            // in this fixed-height row, so a Fit result never reflows the toolbar
+            RobotoText
+            {
+                objectName: "selectionNavigationStatus"
+                visible: label !== ""
+                label: selectionNavigationStatus
+                labelColor: "#f1c40f"
+                fontSize: UISettings.textSizeDefault * 0.7
+                Accessible.role: Accessible.StaticText
+                Accessible.name: label
             }
             RobotoText
             {
@@ -761,7 +1168,7 @@ Rectangle
     {
         y: topBar.height
         z: 5
-        visible: showMgrContainer.editorTab === 0
+        visible: showMgrContainer.timelineShown
         width: trackWidth + verticalDivider.width
         height: showMgrContainer.headerHeight
         color: UISettings.bgStrong
@@ -823,18 +1230,18 @@ Rectangle
     Flickable
     {
         id: timelineHeader
+        objectName: "timelineHeader"
         x: trackWidth + verticalDivider.width
         y: topBar.height
         z: 4
-        visible: showMgrContainer.editorTab === 0
+        visible: showMgrContainer.timelineShown
         height: showMgrContainer.headerHeight
-        width: showMgrContainer.width - trackWidth - verticalDivider.width - rightPanel.width
+        width: timelineViewportWidth
 
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
 
         contentWidth: hdrItem.width //> width ? hdrItem.width : width
-        contentX: xViewOffset
 
         onContentXChanged: xViewOffset = contentX
         onWidthChanged: showMgrContainer.followPlayhead()
@@ -847,8 +1254,8 @@ Rectangle
             visibleWidth: timelineHeader.width
             visibleX: xViewOffset
             headerHeight: showMgrContainer.headerHeight
-            cursorHeight: showMgrContainer.height - topBar.height - (bottomPanel.visible ? bottomPanel.height : 0)
-            duration: showManager.showDuration
+            cursorHeight: showMgrContainer.timelineBottom - topBar.height
+            duration: showMgrContainer.rulerDuration
             enabled: canEdit
 
             // the playhead as an accessible slider in Show milliseconds: Qt
@@ -896,9 +1303,9 @@ Rectangle
         id: showContents
         y: topBar.height + headerHeight
         z: 3 // below timelineHeader
-        visible: showMgrContainer.editorTab === 0
+        visible: showMgrContainer.timelineShown
         width: parent.width - rightPanel.width
-        height: showMgrContainer.height - topBar.height - headerHeight - (bottomPanel.visible ? bottomPanel.height : 0)
+        height: showMgrContainer.timelineBottom - topBar.height - headerHeight
         clip: true
 
         boundsBehavior: Flickable.StopAtBounds
@@ -908,7 +1315,7 @@ Rectangle
         contentHeight: totalTracksHeight > height ? totalTracksHeight : height
         //contentWidth: timelineHeader.contentWidth
 
-        property real totalTracksHeight: (tracksBox.count + 2 + (hasRecordings ? 1 : 0)) * trackHeight
+        property real totalTracksHeight: (tracksBox.count + 2) * trackHeight + (hasRecordings ? recordingLane.height : 0)
 
         Rectangle
         {
@@ -934,25 +1341,101 @@ Rectangle
                             height: trackHeight
                             trackRef: modelData
                             isSelected: showMgrContainer.selectedTrackIndex === index ? true : false
+                            previousControl: index > 0 && tracksBox.itemAt(index - 1)
+                                ? tracksBox.itemAt(index - 1).lastControl : null
+                            nextControl: index + 1 < tracksBox.count && tracksBox.itemAt(index + 1)
+                                ? tracksBox.itemAt(index + 1).firstControl : null
 
                             onTrackSelected: showMgrContainer.selectedTrackIndex = index
                         }
                 }
                 Rectangle
                 {
+                    id: recordingHeader
+                    readonly property bool recordingKeyDomain: true
                     visible: hasRecordings
                     width: trackWidth
-                    height: trackHeight
+                    height: recordingLane.height
                     color: UISettings.bgMedium
                     RobotoText
                     {
-                        anchors.horizontalCenter: parent.horizontalCenter
+                        objectName: "recordingsTitle"
+                        // centred in the space left of the lanes toggle, never under it;
+                        // a count too long for that space shrinks the whole title
+                        x: 2
+                        width: lanesToggle.x - 4
+                        textHAlign: Text.AlignHCenter
                         y: 2
                         label: qsTr("Recordings") + " (" + recordings.selectedIds.length + ")"
+                        readonly property real fit: (width - 2) / Math.max(1, titleMetrics.advanceWidth)
+                        fontSize: fit < 1 ? Math.floor(UISettings.textSizeDefault * fit) : UISettings.textSizeDefault
+                        TextMetrics
+                        {
+                            id: titleMetrics
+                            font.family: UISettings.robotoFontName
+                            font.pixelSize: UISettings.textSizeDefault
+                            text: qsTr("Recordings") + " (" + recordings.selectedIds.length + ")"
+                        }
+                    }
+                    GenericButton
+                    {
+                        id: lanesToggle
+                        readonly property bool showEnterAction: true
+                        activeFocusOnTab: true
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                if (!event.isAutoRepeat)
+                                    clicked(Qt.LeftButton)
+                                event.accepted = true
+                            }
+                        }
+                        objectName: "recordingLanesToggle"
+                        x: parent.width - width - 2
+                        y: 2
+                        width: UISettings.listItemHeight
+                        height: UISettings.listItemHeight
+                        useFontawesome: true
+                        label: FontAwesome.fa_list
+                        bgColor: showMgrContainer.lanesExpanded ? UISettings.highlight : UISettings.bgControl
+                        Accessible.id: "recordingLanesToggle"
+                        Accessible.name: showMgrContainer.lanesExpanded ? qsTr("Show recordings in one lane")
+                                                                        : qsTr("Show one lane per control")
+                        Accessible.checkable: true
+                        Accessible.checked: showMgrContainer.lanesExpanded
+                        tooltip: Accessible.name
+                        onClicked: showMgrContainer.lanesExpanded = !showMgrContainer.lanesExpanded
+                    }
+                    Repeater
+                    {
+                        model: recordingLane.rowCount
+                        delegate: Rectangle
+                        {
+                            required property int index
+                            readonly property int laneIndex: index
+                            readonly property string label: recordingLane.rowLabels[index] || ""
+                            objectName: "recordingLaneRow"
+                            y: recordingLane.rowTop(index)
+                            width: trackWidth
+                            height: recordingLane.rowHeight
+                            color: "transparent"
+                            border.color: UISettings.bgLight
+                            Accessible.role: Accessible.StaticText
+                            Accessible.name: label
+                            RobotoText
+                            {
+                                x: 4
+                                width: parent.width - 8
+                                height: parent.height
+                                wrapText: true
+                                fontSize: UISettings.textSizeDefault * 0.8
+                                label: parent.label
+                            }
+                        }
                     }
                     Row
                     {
-                        anchors.bottom: parent.bottom
+                        id: recordingActions
+                        y: trackHeight - height
                         anchors.horizontalCenter: parent.horizontalCenter
                         spacing: 2
                         IconButton
@@ -961,7 +1444,9 @@ Rectangle
                             height: width
                             faSource: FontAwesome.fa_backward
                             Accessible.id: "recordingMoveEarlier"
-                            Accessible.name: qsTr("Move selected recordings earlier")
+                            Accessible.name: recordings.selectedRows.length > 0
+                                ? qsTr("Move %n selected event(s) earlier", "", recordings.selectedRows.length)
+                                : qsTr("Move selected recordings earlier")
                             tooltip: Accessible.name
                             enabled: recordings.editable && recordings.amountReason === "" && recordings.selectedIds.length > 0
                             onClicked: recordings.moveSelected(-1)
@@ -972,13 +1457,16 @@ Rectangle
                             height: width
                             faSource: FontAwesome.fa_forward
                             Accessible.id: "recordingMoveLater"
-                            Accessible.name: qsTr("Move selected recordings later")
+                            Accessible.name: recordings.selectedRows.length > 0
+                                ? qsTr("Move %n selected event(s) later", "", recordings.selectedRows.length)
+                                : qsTr("Move selected recordings later")
                             tooltip: Accessible.name
                             enabled: recordings.editable && recordings.amountReason === "" && recordings.selectedIds.length > 0
                             onClicked: recordings.moveSelected(1)
                         }
                         GenericButton
                         {
+                            readonly property bool showEnterAction: true
                             activeFocusOnTab: true
                             Keys.onPressed: (event) => {
                                 if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -991,6 +1479,8 @@ Rectangle
                             height: UISettings.listItemHeight
                             label: qsTr("Snap")
                             Accessible.id: "recordingSnap"
+                            Accessible.name: recordings.selectedRows.length > 0
+                                ? qsTr("Snap %n selected event(s)", "", recordings.selectedRows.length) : label
                             enabled: recordings.editable && recordings.grid !== null && recordings.selectedIds.length > 0
                             onClicked: recordings.snapSelected()
                         }
@@ -1029,14 +1519,13 @@ Rectangle
             objectName: "showItemsArea"
             x: verticalDivider.x + verticalDivider.width
             z: 1
-            width: showMgrContainer.width - trackWidth
+            width: timelineViewportWidth
             height: parent.height
             clip: true
 
             boundsBehavior: Flickable.StopAtBounds
             contentHeight: showContents.contentHeight
             contentWidth: timelineHeader.contentWidth
-            contentX: xViewOffset
             ScrollBar.horizontal: horScrollBar
 
             onContentXChanged: xViewOffset = contentX
@@ -1101,6 +1590,7 @@ Rectangle
                 onTickSizeChanged: requestPaint()
                 onBeatsDivisionChanged: requestPaint()
                 onHeightChanged: requestPaint()
+                onWidthChanged: updatePosition()
                 onVisibleChanged: if (visible) updatePosition()
 
                 Connections
@@ -1181,29 +1671,48 @@ Rectangle
             {
                 id: recordingLane
                 y: tracksBox.count * trackHeight
-                height: trackHeight
+                rowHeight: trackHeight
+                expanded: showMgrContainer.lanesExpanded
                 width: itemsArea.contentWidth
                 z: 3
                 visible: hasRecordings
                 editor: recordings
+                inspectOnSelect: showMgrContainer.editorTab === 2
                 showId: showMgrContainer.showID
+                onPointerHeldChanged: if (!pointerHeld) Qt.callLater(showMgrContainer.followPlayhead)
                 onReveal: (ids) =>
                 {
-                    showMgrContainer.recordingReturnIds = ids.slice()
-                    showMgrContainer.recordingReturnShow = showID
-                    showMgrContainer.editorTab = 1
+                    // the split already shows the table below
+                    if (showMgrContainer.editorTab !== 2)
+                    {
+                        showMgrContainer.recordingReturnIds = ids.slice()
+                        showMgrContainer.recordingReturnShow = showID
+                        showMgrContainer.editorTab = 1
+                    }
                     recordings.revealMembers(ids)
                 }
 
                 Row
                 {
-                    visible: hasRecordings && (recordings.deletedCount > 0 || showCommandRecorder.lastError.length > 0)
+                    readonly property bool recordingKeyDomain: true
+                    visible: hasRecordings && (recordings.deletedCount > 0 || showCommandRecorder.lastError.length > 0
+                                               || recordings.selectionSummary !== "")
                     x: xViewOffset + 4
-                    y: recordingLane.height
+                    // below the grips, which reach the lane's free inset past its edge
+                    y: recordingLane.height + recordingLane.itemInset
                     z: 4
                     spacing: 6
                     RobotoText
                     {
+                        objectName: "timelineSelectionSummary"
+                        visible: recordings.selectionSummary !== ""
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: label
+                        label: recordings.selectionSummary
+                    }
+                    RobotoText
+                    {
+                        visible: recordings.deletedCount > 0 || showCommandRecorder.lastError.length > 0
                         Accessible.role: Accessible.StaticText
                         Accessible.id: "recordingEditFeedback"
                         Accessible.name: label
@@ -1212,6 +1721,7 @@ Rectangle
                     }
                     GenericButton
                     {
+                        readonly property bool showEnterAction: true
                         activeFocusOnTab: true
                         Keys.onPressed: (event) => {
                             if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -1220,6 +1730,7 @@ Rectangle
                                 event.accepted = true
                             }
                         }
+                        id: recordingUndo
                         visible: recordings.deletedCount > 0
                         height: UISettings.listItemHeight
                         label: qsTr("Undo")
@@ -1236,8 +1747,9 @@ Rectangle
             DropArea
             {
                 id: newFuncDrop
+                objectName: "newFunctionDrop"
                 x: xViewOffset
-                width: showMgrContainer.width - trackWidth
+                width: timelineViewportWidth
                 height: tracksBox.count * trackHeight
                 z: 2
                 enabled: !showManager.readOnly
@@ -1278,8 +1790,9 @@ Rectangle
             Rectangle
             {
                 id: newTrackBox
+                objectName: "newTrackBox"
                 x: xViewOffset
-                y: (tracksBox.count + (hasRecordings ? 1 : 0)) * trackHeight
+                y: tracksBox.count * trackHeight + (hasRecordings ? recordingLane.height : 0)
                 height: trackHeight
                 width: itemsArea.width
                 color: "transparent"
@@ -1360,24 +1873,26 @@ Rectangle
     CustomScrollBar
     {
         id: horScrollBar
-        visible: showMgrContainer.editorTab === 0
+        visible: showMgrContainer.timelineShown
         x: timelineHeader.x
-        y: showMgrContainer.height - height
+        y: (showMgrContainer.editorTab === 2 ? showMgrContainer.timelineBottom : showMgrContainer.height) - height
         z: 10
         width: timelineHeader.width
         orientation: Qt.Horizontal
     }
     // the Recordings tab: the recorded commands of the selected Show, with
     // the same REC control, playhead and transport in the top bar
+    // the Recordings tab, or the lower half of the split: one table either way
     ShowCommandList
     {
-        previousFocus: recordingsTabButton
+        // below the timeline, Shift+Tab goes back through the timeline
+        previousFocus: showMgrContainer.editorTab === 2 ? null : splitTabButton
         id: recordings
-        visible: showMgrContainer.editorTab === 1 && showManager.isEditing
-        y: topBar.height
+        visible: showMgrContainer.recordingsShown && showManager.isEditing
+        y: showMgrContainer.editorTab === 2 ? showMgrContainer.timelineBottom : topBar.height
         z: 4
         width: showMgrContainer.width - rightPanel.width
-        height: showMgrContainer.height - topBar.height - (bottomPanel.visible ? bottomPanel.height : 0)
+        height: showMgrContainer.editorBottom - y
     }
 
 }

@@ -18,6 +18,8 @@
 */
 
 #include <QMutex>
+#include <QScopeGuard>
+#include <algorithm>
 #include <utility>
 #include <QDebug>
 
@@ -32,6 +34,14 @@
 #include "inputoutputmap.h"
 
 #define TIMER_INTERVAL 50
+
+/** The Intensity override a command sets: the Single override's own value */
+static qreal intensityOf(const Function *function)
+{
+    const Attribute intensity = function->attributes().at(Function::Intensity);
+    return intensity.m_isOverridden && intensity.m_value > 0.0
+           ? intensity.m_overrideValue / intensity.m_value : 1.0;
+}
 
 static bool compareShowFunctions(const ShowFunction *sf1, const ShowFunction *sf2)
 {
@@ -55,7 +65,6 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     , m_totalRunTime(0)
     , m_totalRunBeats(0)
     , m_commandRevision(std::numeric_limits<quint64>::max())
-    , m_pendingCommandSeek(NoCommandSeek)
 {
     Q_ASSERT(m_doc != NULL);
     Q_ASSERT(showID != Show::invalidId());
@@ -135,14 +144,13 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     m_runningQueue.clear();
 
     /** Commands are traversed from the cursor the Show actually starts at:
-     *  everything before it is history whose values get restored, never
-     *  triggers that get replayed - unless the traversal catches up, which
-     *  dispatches that history once as it was recorded. The live ids
-     *  imported here were all published after Play was accepted. */
-    refreshCommandTrack();
+     *  nothing before it is replayed or restored, commands at it are due at
+     *  once. Under External the first fresh sample is that position instead.
+     *  The live ids imported here were all published after Play was accepted. */
     m_commandState.playing = true;
-    m_commandState = ShowCommandFsm::seek(m_commandTrack, m_commandState, startTime, commandCatchUp()).state;
-    m_pendingCommandSeek = startTime;
+    m_commandState = ShowCommandFsm::seek(m_commandState, startTime);
+    refreshCommandTrack();
+    m_externalBaselinePending = m_show->syncSource() == External;
 
     qDebug() << "ShowRunner created";
 }
@@ -188,7 +196,9 @@ void ShowRunner::stop()
 
     stopCommandOwnedFunctions();
     m_commandState = ShowCommandState();
-    m_pendingCommandSeek = NoCommandSeek;
+    m_pendingRollback = NoCommandSeek;
+    m_commandJumpPending = false;
+    m_legacyJournal.clear();
     m_commandRemainder.clear();
     m_heldControlBatch = 0;
     m_commandCatchUp = false;
@@ -214,9 +224,30 @@ void ShowRunner::write(MasterTimer *timer)
 {
     //qDebug() << Q_FUNC_INFO << "elapsed:" << m_elapsedTime << ", total:" << m_totalRunTime;
 
+    // effects journaled under another time source are not this traversal's
+    if (m_syncSource != m_journalSource)
+    {
+        m_journalSource = m_syncSource;
+        m_legacyJournal.clear();
+    }
+
+    // the traversal begins here: nothing before it is due, and the live marks
+    // published since Play stay
+    const auto beginTraversal = [this](quint32 ms) {
+        m_externalBaselinePending = false;
+        const ShowLiveMarks marks = m_commandState.consumedLiveEventIds;
+        m_commandState = ShowCommandFsm::seek(m_commandState, ms);
+        m_commandState.consumedLiveEventIds = marks;
+    };
+    // an autonomous clock waits for no sample
+    if (m_externalBaselinePending && m_syncSource != External)
+        beginTraversal(m_elapsedTime);
+
     // --- External sync: update elapsed time from external source ---
     if (m_syncSource == External)
     {
+        // the anchor first: the value read after it is at least that new
+        const quint64 anchor = m_externalAnchor.load(std::memory_order_acquire);
         quint32 newTime = m_externalElapsedTime.load(std::memory_order_relaxed);
 
         // Backward seek detection: if external time moved backward,
@@ -230,13 +261,21 @@ void ShowRunner::write(MasterTimer *timer)
         const int songBpm = m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
         m_elapsedBeats = qRound64(double(newTime) * songBpm / 60.0);
         beatSynced = true;
+
+        // the earliest sample since Play, or where the clock went back to since
+        if (m_externalBaselinePending && anchor != NoSample)
+            beginTraversal(qMin(quint32(anchor), newTime));
     }
 
+    // the Show forwards a request only under Autonomous, one kind per write
     const quint64 requestedSeekTime =
             m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
-    // the Show forwards a request only under Autonomous
+    const quint64 requestedForwardTime =
+            m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
     if (requestedSeekTime != NoSeekRequested)
         seekTo(quint32(requestedSeekTime), true);
+    else if (requestedForwardTime != NoSeekRequested)
+        seekTo(quint32(requestedForwardTime), true, true);
 
     bool seekRestartPending = false;
     const auto waitForSeekRestart = [this, &seekRestartPending](Function *function) {
@@ -431,7 +470,7 @@ void ShowRunner::write(MasterTimer *timer)
     // yet, the beat timeline hasn't even started, so it can't be "done".
     // An authored command extent and an armed recorder extend that end.
     // crossed commands still owed, a VC batch still being applied, or a
-    // catch-up Start/Stop still settling hold the end
+    // jump's Start/Stop still settling hold the end
     bool timeDone = m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
                     m_commandRemainder.isEmpty() && m_heldControlBatch == 0 &&
                     m_settlingFunction == ShowCommand::InvalidId;
@@ -494,17 +533,18 @@ void ShowRunner::setSyncSource(SyncSource source)
         qDebug() << "[ShowRunner] Sync source set to Autonomous";
 }
 
-void ShowRunner::setExternalElapsedTime(quint32 ms)
+void ShowRunner::setExternalElapsedTime(quint32 ms, quint64 anchor)
 {
     m_externalElapsedTime.store(ms, std::memory_order_relaxed);
+    m_externalAnchor.store(anchor, std::memory_order_release);
 }
 
-void ShowRunner::requestSeek(quint32 ms)
+void ShowRunner::requestSeek(quint32 ms, bool forward)
 {
-    m_requestedSeekTime.store(ms, std::memory_order_release);
+    (forward ? m_requestedForwardTime : m_requestedSeekTime).store(ms, std::memory_order_release);
 }
 
-void ShowRunner::seekTo(quint32 newTime, bool requested)
+void ShowRunner::seekTo(quint32 newTime, bool requested, bool forward)
 {
     qDebug() << "[ShowRunner] Seeking:" << m_elapsedTime << "->" << newTime;
 
@@ -546,21 +586,32 @@ void ShowRunner::seekTo(quint32 newTime, bool requested)
             break;
     }
 
-    /** A jump ends this traversal: command-owned playback is released and the
-     *  live no-echo suppression of the previous pass is over. The authored
-     *  values of the destination are restored once its clips are scheduled. */
-    stopCommandOwnedFunctions();
+    /** A forward jump keeps the traversal: command-owned playback, live
+     *  marks, the held batch, the remainder and a settling target stay, and
+     *  the next advance plays the crossed interval */
+    if (forward)
+    {
+        m_commandJumpPending = true;
+        return;
+    }
+
+    /** A backward move ends this traversal: the crossed work still owed is
+     *  dropped, the live no-echo suppression of the previous pass is over,
+     *  and nothing before newTime is replayed. What this traversal changed
+     *  after newTime is rolled back once a settling target settled. */
     m_commandRemainder.clear();
     m_heldControlBatch = 0;
     m_commandCatchUp = false;
-    m_settlingFunction = ShowCommand::InvalidId;
+    m_commandJumpPending = false;
     m_engineStarted.clear();
     m_engineStopped.clear();
+    m_retiredLiveStopIds.clear();
     // ids published from here on belong to the next traversal and stay shielded
-    m_commandState.consumedLiveEventIds.clear();
+    m_commandState = ShowCommandFsm::seek(m_commandState, newTime);
     if (m_show != NULL)
         m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, requested);
-    m_pendingCommandSeek = newTime;
+    if (m_externalBaselinePending == false)
+        m_pendingRollback = newTime;
 }
 
 /************************************************************************
@@ -578,13 +629,15 @@ void ShowRunner::refreshCommandTrack()
 
     m_commandRevision = revision;
 
-    QSet<quint32> alreadyApplied;
+    ShowLiveMarks alreadyApplied;
     m_commandTrack = m_show->commandTrackSnapshot(&alreadyApplied);
 
-    /** The recorder executed these live, so the traversal owes them nothing.
-     *  The transition logic drops each one again as soon as the playhead
-     *  consumes its time, and a seek clears them for the next traversal. */
-    m_commandState.consumedLiveEventIds.unite(alreadyApplied);
+    /** The recorder executed these occurrences live, so the traversal owes
+     *  them nothing. Each mark keeps its capture time, so taking them again on
+     *  a later revision never suppresses an event moved elsewhere since. The
+     *  transition logic drops each one again as soon as the playhead consumes
+     *  the mark's time, and a seek clears them for the next traversal. */
+    m_commandState.consumedLiveEventIds.insert(alreadyApplied);
     retireLiveStopDeadlines(alreadyApplied);
 }
 
@@ -595,6 +648,10 @@ void ShowRunner::processCommands(bool traversalStalled)
 
     dropDiscardedTraversal();
 
+    // an external traversal begins at its first fresh sample
+    if (m_externalBaselinePending)
+        return;
+
     /** A seek that is still waiting for a Function to finish stopping has not
      *  resumed the traversal yet. Consuming commands now would swallow the
      *  ones authored exactly at the destination. */
@@ -603,29 +660,15 @@ void ShowRunner::processCommands(bool traversalStalled)
 
     m_commandStartedThisTick.clear();
 
-    QVector<ShowCommand> effects;
-    if (m_pendingCommandSeek != NoCommandSeek)
-    {
-        const quint32 destination = quint32(m_pendingCommandSeek);
-        m_pendingCommandSeek = NoCommandSeek;
-
-        m_commandCatchUp = commandCatchUp();
-        const ShowCommandTransition restored =
-                ShowCommandFsm::seek(m_commandTrack, m_commandState, destination, m_commandCatchUp);
-        m_commandState = restored.state;
-
-        // values only, none when catching up: a seek replays no historical Start/Stop
-        effects = restored.effects;
-    }
+    if (std::exchange(m_commandJumpPending, false) && commandCatchUp())
+        m_commandCatchUp = true;
 
     m_commandState.playing = true;
     const ShowCommandTransition played =
             ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
 
-    // restored values go first, under the same retirement check as playback
-    effects += played.effects;
-    dispatchCommandEffects(effects);
+    dispatchCommandEffects(played.effects);
 }
 
 void ShowRunner::dropDiscardedTraversal()
@@ -668,6 +711,30 @@ void ShowRunner::dispatchCommandEffects(const QVector<ShowCommand> &effects)
         if (commandSettled() == false)
             return;
         m_settlingFunction = ShowCommand::InvalidId;
+    }
+
+    if (m_pendingRollback != NoCommandSeek && m_heldControlBatch == 0)
+    {
+        const quint32 to = quint32(std::exchange(m_pendingRollback, NoCommandSeek));
+        if (m_show->commandTraversalCurrent(m_commandRun, m_commandTraversal) == false)
+        {
+            m_commandRemainder.clear();
+            return;
+        }
+        rollBackLegacyEffects(to);
+        // the next pass waits until the executor rolled its controls back
+        if (commandCatchUp())
+        {
+            m_heldControlBatch = m_show->publishControlBatch(m_commandRun, m_commandTraversal, QVector<ShowCommand>(),
+                                                             m_commandRemainder,
+                                                             std::exchange(m_engineStarted, QVector<quint32>()),
+                                                             std::exchange(m_engineStopped, QVector<quint32>()), to);
+            if (m_heldControlBatch == 0)
+            {
+                m_commandRemainder.clear();
+                return;
+            }
+        }
     }
 
     while (m_commandRemainder.isEmpty() == false)
@@ -724,7 +791,7 @@ void ShowRunner::dispatchCommandEffects(const QVector<ShowCommand> &effects)
         }
         m_commandRemainder.remove(0, run);
     }
-    // the prefix drained: later crossings dispatch as ordinary playback
+    // the jump drained: later crossings dispatch as ordinary playback
     if (m_heldControlBatch == 0)
         m_commandCatchUp = false;
 }
@@ -776,6 +843,18 @@ void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
                               ShowEventLog::View::Events);
         return;
     }
+
+    // what this effect finds and leaves, so a backward move can undo it
+    const bool journaled = cmd.action == ShowCommandAction::Start || cmd.action == ShowCommandAction::Stop ||
+                           cmd.action == ShowCommandAction::SetIntensity;
+    LegacyEffect effect{ cmd.time, cmd.functionId, commandTargetActive(f), false, intensityOf(f), 0.0 };
+    const auto journal = qScopeGuard([&]() {
+        if (journaled == false)
+            return;
+        effect.runningAfter = commandTargetActive(f);
+        effect.intensityAfter = intensityOf(f);
+        m_legacyJournal.append(effect);
+    });
 
     switch (cmd.action)
     {
@@ -942,22 +1021,71 @@ void ShowRunner::retireClipDeadline(quint32 functionId)
     }
 }
 
-void ShowRunner::retireLiveStopDeadlines(const QSet<quint32> &liveIds)
+void ShowRunner::retireLiveStopDeadlines(const ShowLiveMarks &liveMarks)
 {
-    if (liveIds.isEmpty())
+    if (liveMarks.isEmpty())
         return;
 
-    for (const ShowCommand &cmd : m_commandTrack.commands())
+    // from the captured occurrence, not the current track: an edit that moved,
+    // retargeted or deleted the Stop since does not undo what ran live
+    for (auto it = liveMarks.cbegin(); it != liveMarks.cend(); ++it)
     {
-        if (cmd.action != ShowCommandAction::Stop)
-            continue;
-
-        if (liveIds.contains(cmd.id) == false || m_retiredLiveStopIds.contains(cmd.id))
+        if (it.value().stopFunctionId == ShowCommand::InvalidId || m_retiredLiveStopIds.contains(it.key()))
             continue;
 
         // bookkeeping only: the recorder already performed the Stop itself
-        m_retiredLiveStopIds.insert(cmd.id);
-        retireClipDeadline(cmd.functionId);
+        m_retiredLiveStopIds.insert(it.key());
+        retireClipDeadline(it.value().stopFunctionId);
+    }
+}
+
+void ShowRunner::rollBackLegacyEffects(quint32 time)
+{
+    // per target, the state before the first effect after time, in journal order
+    QVector<LegacyEffect> first;
+    for (const LegacyEffect &effect : std::as_const(m_legacyJournal))
+    {
+        if (effect.time <= time)
+            continue;
+        const bool known = std::any_of(first.cbegin(), first.cend(), [&effect](const LegacyEffect &earlier) {
+            return earlier.functionId == effect.functionId;
+        });
+        if (known == false)
+            first.append(effect);
+    }
+    m_legacyJournal.erase(std::remove_if(m_legacyJournal.begin(), m_legacyJournal.end(),
+                                         [time](const LegacyEffect &effect) { return effect.time > time; }),
+                          m_legacyJournal.end());
+
+    // stops before starts; a target already in its earlier state is left alone
+    for (const bool start : { false, true })
+    {
+        for (const LegacyEffect &effect : std::as_const(first))
+        {
+            Function *f = m_doc->function(effect.functionId);
+            if (f == NULL || effect.runningBefore != start || commandTargetActive(f) == start)
+                continue;
+            if (start)
+            {
+                prepareCommandStart(f);
+                f->start(m_doc->masterTimer(), functionParent());
+                noteEngineStart(f);
+                m_commandOwnedFunctions.insert(effect.functionId);
+                m_commandStartedThisTick.insert(effect.functionId);
+            }
+            else
+            {
+                f->stop(functionParent());
+                noteEngineStop(f);
+                m_commandOwnedFunctions.remove(effect.functionId);
+            }
+        }
+    }
+    for (const LegacyEffect &effect : std::as_const(first))
+    {
+        Function *f = m_doc->function(effect.functionId);
+        if (f != NULL && effect.runningBefore && intensityOf(f) != effect.intensityBefore)
+            applyCommandIntensity(f, effect.intensityBefore);
     }
 }
 

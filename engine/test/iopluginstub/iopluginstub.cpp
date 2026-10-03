@@ -121,6 +121,7 @@ void IOPluginStub::closeInput(quint32 input, quint32 universe)
 {
     Q_UNUSED(universe)
     m_openInputs.removeAll(input);
+    m_closedInputs.append(input);
 }
 
 QStringList IOPluginStub::inputs()

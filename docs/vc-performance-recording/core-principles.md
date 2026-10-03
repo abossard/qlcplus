@@ -24,7 +24,7 @@ Separate display feedback from output requests. Attribute/stopped feedback updat
 
 ## Transport intent
 
-Distinguish ordinary Playing progress from cursor repositioning. Advance processes crossed events. Paused movement applies nothing; Play from the new cursor sends the recorded prefix through the same native dispatcher. Elapsed-time differences cannot establish user intent.
+Distinguish ordinary Playing progress from cursor repositioning. Advance processes crossed events. Paused movement applies nothing. ~~Play from the new cursor sends the recorded prefix through the same native dispatcher.~~ Superseded by C1: forward plays the crossed interval, backward returns only the window this traversal changed, Play from T replays nothing before T. Elapsed-time differences cannot establish user intent.
 
 Sequence commands rather than predicting their effects. Keep SoloFrame, Collection, ownership and feedback behavior in the native controls. Do not build a separate history reducer or simulated engine.
 
