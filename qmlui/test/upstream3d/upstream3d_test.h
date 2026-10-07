@@ -22,6 +22,16 @@ private slots:
     void rotationDeltas();
     void renderQuality_data();
     void renderQuality();
+    void multiHeadOffsets_data();
+    void multiHeadOffsets();
+    void barTilt_data();
+    void barTilt();
+    void meshCellNotReady_data();
+    void meshCellNotReady();
+    void rockvilleModes_data();
+    void rockvilleModes();
+    void stageWizardPointOfView_data();
+    void stageWizardPointOfView();
 
 private:
     App *m_app = nullptr;

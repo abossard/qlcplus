@@ -80,9 +80,11 @@ Rectangle
     // the one horizontal view of the ruler and the lanes: commands write it, a user scroll
     // of either Flickable writes its contentX and feeds it back; both follow it only here
     property real xViewOffset: 0
+    readonly property real vScrollBarWidth: showContents.ScrollBar.vertical && showContents.ScrollBar.vertical.visible ?
+                                               showContents.ScrollBar.vertical.width : 0
     // the width of that view: the timeline columns left of the right panel. The ruler and
     // the lanes are exactly this wide, so every reveal, fit and clamp measures what is seen
-    readonly property real timelineViewportWidth: width - trackWidth - verticalDivider.width - rightPanel.width
+    readonly property real timelineViewportWidth: Math.max(0, width - trackWidth - verticalDivider.width - rightPanel.width - vScrollBarWidth)
     onXViewOffsetChanged:
     {
         if (itemsArea.contentX !== xViewOffset)
@@ -494,8 +496,13 @@ Rectangle
             return
 
         var cursorX = hdrItem.cursorPosition
-        if (cursorX < xViewOffset || cursorX + 1 > xViewOffset + timelineViewportWidth)
+        if (showManager.readOnly && cursorX < xViewOffset)
             xViewOffset = Math.max(0, cursorX - (timelineViewportWidth / 2))
+        else if (cursorX >= xViewOffset + timelineViewportWidth * 0.99)
+        {
+            var maxOffset = Math.max(0, timelineHeader.contentWidth - timelineViewportWidth)
+            xViewOffset = Math.min(maxOffset, Math.max(0, cursorX - timelineViewportWidth * 0.01))
+        }
     }
 
     Connections

@@ -46,6 +46,19 @@
 #include "vdjbridge.h"
 #include "video.h"
 #include "videoeditor.h"
+#include "treemodel.h"
+#include "treemodelitem.h"
+#include "sceneeditor.h"
+#include "chasereditor.h"
+#include "collectioneditor.h"
+#include "efxeditor.h"
+#include "vcbutton.h"
+#include "qlcfixturemode.h"
+#include "fixtureutils.h"
+
+#define private public
+#include "scriptv4.h"
+#undef private
 
 class UpstreamIntegration_Test : public QObject
 {
@@ -90,6 +103,24 @@ private slots:
     void timelineUserSeek();
     void showPlayheadVisibilityAndFollow_data();
     void showPlayheadVisibilityAndFollow();
+    void scriptDurationCache_data();
+    void scriptDurationCache();
+    void externalFunctionRename_data();
+    void externalFunctionRename();
+    void timelineViewport_data();
+    void timelineViewport();
+    void previewRepeatBounds_data();
+    void previewRepeatBounds();
+    void editorPublication_data();
+    void editorPublication();
+    void colorSelectionMarker_data();
+    void colorSelectionMarker();
+    void identicalWidgetFont();
+    void selectedFixtureColors_data();
+    void selectedFixtureColors();
+    void colorPressOwnership();
+    void liveFontDialog_data();
+    void liveFontDialog();
 private:
     QTemporaryDir m_settings;
     std::unique_ptr<App> m_app;
@@ -1599,7 +1630,7 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     manager->setCurrentTime(10000);
     QCoreApplication::processEvents();
     QVERIFY(offsetMatches(2000));
-    QVERIFY(cursor->isVisible());
+    QVERIFY(!cursor->isVisible());
     QVERIFY(!cursorIsInViewport());
 
     manager->setTimeScale(2.0);
@@ -1625,6 +1656,694 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     manager->stopShow();
     QTRY_VERIFY(!manager->isPlaying());
     QVERIFY(cursor->isVisible());
+}
+
+void UpstreamIntegration_Test::scriptDurationCache_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::addColumn<uint>("expected");
+    QTest::newRow("empty") << QString("empty") << 0u;
+    QTest::newRow("zero") << QString("zero") << 0u;
+    QTest::newRow("same-content") << QString("same") << 1000u;
+    QTest::newRow("changed-data") << QString("changed") << 2000u;
+    QTest::newRow("append") << QString("append") << 3000u;
+    QTest::newRow("copy") << QString("copy") << 2000u;
+    QTest::newRow("xml") << QString("xml") << 3000u;
+}
+
+void UpstreamIntegration_Test::scriptDurationCache()
+{
+    QFETCH(QString, operation);
+    QFETCH(uint, expected);
+    Script script(m_app->doc());
+    QVERIFY(!script.m_durationValid);
+    QCOMPARE(script.totalDuration(), 0u);
+    QVERIFY(script.m_durationValid);
+    if (operation != "empty")
+    {
+        QVERIFY(script.setData("Engine.waitTime(1000);\n"));
+        QVERIFY(!script.m_durationValid);
+        QCOMPARE(script.totalDuration(), 1000u);
+        QVERIFY(script.m_durationValid);
+        if (operation == "same")
+        {
+            QVERIFY(!script.setData(script.data()));
+            QVERIFY(script.m_durationValid);
+        }
+        else
+        {
+            if (operation == "zero" || operation == "changed")
+                QVERIFY(script.setData(operation == "zero" ? "Engine.waitTime(0);\n" : "Engine.waitTime(2000);\n"));
+            else if (operation == "append")
+                QVERIFY(script.appendData("wait:2s"));
+            else if (operation == "copy")
+            {
+                Script source(m_app->doc());
+                QVERIFY(source.setData("Engine.waitTime(2000);\n"));
+                QCOMPARE(source.totalDuration(), 2000u);
+                QVERIFY(script.copyFrom(&source));
+                QCOMPARE(source.data(), QString("Engine.waitTime(2000);\n"));
+            }
+            else
+            {
+                QXmlStreamReader xml("<Function ID=\"0\" Type=\"Script\" Name=\"Cache\" Version=\"2\">"
+                                     "<Command>Engine.waitTime(2000);</Command></Function>");
+                QVERIFY(xml.readNextStartElement());
+                QVERIFY(script.loadXML(xml));
+                QVERIFY(!xml.hasError());
+            }
+            QVERIFY(!script.m_durationValid);
+        }
+    }
+    QCOMPARE(script.totalDuration(), expected);
+    QVERIFY(script.m_durationValid);
+    QCOMPARE(script.m_cachedDuration, expected);
+    QCOMPARE(script.totalDuration(), expected);
+}
+
+void UpstreamIntegration_Test::externalFunctionRename_data()
+{
+    QTest::addColumn<QString>("path");
+    QTest::addColumn<bool>("running");
+    QTest::addColumn<bool>("clone");
+    for (const QString &path : {QString(), QString("Folder/Nested")})
+        for (bool running : {false, true})
+            for (bool clone : {false, true})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(path).arg(running).arg(clone)))
+                        << path << running << clone;
+}
+
+void UpstreamIntegration_Test::externalFunctionRename()
+{
+    QFETCH(QString, path);
+    QFETCH(bool, running);
+    QFETCH(bool, clone);
+    auto *doc = m_app->doc();
+    auto *manager = m_app->rootContext()->contextProperty("functionManager").value<FunctionManager*>();
+    QVERIFY(manager);
+    manager->setPreviewEnabled(false);
+    manager->setShowRunningOnly(false);
+    manager->setSearchFilter("");
+    auto *scene = new Scene(doc);
+    scene->setName("Rename original");
+    scene->setPath(path);
+    QVERIFY(doc->addFunction(scene));
+    QList<quint32> ids{scene->id()};
+    Function *function = scene;
+    const auto cleanup = qScopeGuard([&]() {
+        if (function->isRunning())
+            function->Function::postRun(doc->masterTimer(), {});
+        manager->selectFunctionID(Function::invalidId(), false);
+        for (quint32 id : ids)
+            doc->deleteFunction(id);
+    });
+    if (clone)
+    {
+        function = scene->createCopy(doc);
+        QVERIFY(function);
+        ids.append(function->id());
+        function->setName("Rename clone");
+    }
+    manager->selectFunctionID(function->id(), false);
+    if (running)
+        function->Function::preRun(doc->masterTimer());
+    manager->updateFunctionsTree();
+    manager->updateFunctionsTree();
+    auto *tree = manager->functionsList().value<TreeModel*>();
+    QVERIFY(tree);
+    const QString prefix = path.isEmpty() ? QString() : QString(path).replace('/', TreeModel::separator()) + TreeModel::separator();
+    QString previous = function->name();
+    for (const QString &name : {QString("Renamed once"), QString("Renamed twice")})
+    {
+        function->setName(name);
+        QVERIFY(!tree->itemAtPath(prefix + previous));
+        auto *item = tree->itemAtPath(prefix + name);
+        QVERIFY(item);
+        QCOMPARE(item->data().size(), 3);
+        QCOMPARE(item->data(0).value<Function*>(), function);
+        QCOMPARE(item->data(1).toInt(), int(App::FunctionDragItem));
+        QCOMPARE(item->data(2).toBool(), running);
+        QVERIFY(item->flags() & TreeModel::Selected);
+        QVERIFY(manager->selectedFunctionsID().contains(function->id()));
+        manager->slotFunctionNameChanged(function->id());
+        QCOMPARE(tree->itemAtPath(prefix + name), item);
+        previous = name;
+    }
+    manager->slotFunctionNameChanged(Function::invalidId());
+    QVERIFY(!tree->removeItem(prefix + "missing"));
+    if (!path.isEmpty())
+        QVERIFY(!tree->removeItem(prefix + "missing/deeper"));
+    QVERIFY(tree->removeItem(prefix + previous));
+    function->setName("Missing tree entry");
+    QVERIFY(!tree->itemAtPath(prefix + function->name()));
+}
+
+void UpstreamIntegration_Test::timelineViewport_data()
+{
+    QTest::addColumn<int>("division");
+    QTest::addColumn<QString>("state");
+    for (auto division : {Show::Time, Show::BPM_4_4, Show::VDJBeat})
+        for (const QString &state : {QString("playing"), QString("paused"), QString("stopped"),
+                                    QString("external"), QString("held")})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(int(division)).arg(state)))
+                    << int(division) << state;
+}
+
+void UpstreamIntegration_Test::timelineViewport()
+{
+    QFETCH(int, division);
+    QFETCH(QString, state);
+    auto *doc = m_app->doc();
+    auto *manager = m_app->rootContext()->contextProperty("showManager").value<ShowManager*>();
+    QVERIFY(manager);
+    doc->masterTimer()->stop();
+    manager->resetContents();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+    auto *show = new Show(doc);
+    QVERIFY(doc->addFunction(show));
+    auto *scene = new Scene(doc);
+    scene->setDuration(40);
+    QVERIFY(doc->addFunction(scene));
+    auto *track = new Track(Function::invalidId(), show);
+    auto *clip = new ShowFunction(show->getLatestShowFunctionId());
+    clip->setFunctionID(scene->id());
+    clip->setDuration(2000000000);
+    QVERIFY(track->addShowFunction(clip));
+    QVERIFY(show->addTrack(track));
+    show->setTimeDivision(Show::TimeDivision(division), 90);
+    manager->setCurrentShowID(show->id());
+    manager->setTimeScale(1.0);
+    manager->setCurrentTime(0);
+    QQuickItem container(m_app->contentItem());
+    container.setSize(QSizeF(1200, 600));
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/ShowManager.qml"));
+    std::unique_ptr<QObject> object(component.create(&context));
+    auto *panel = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    panel->setParentItem(&container);
+    const auto cleanup = qScopeGuard([&]() {
+        manager->setReadOnly(false);
+        if (show->isRunning())
+            show->Function::postRun(doc->masterTimer(), {});
+        manager->resetContents();
+        object.reset();
+        doc->deleteFunction(show->id());
+        doc->deleteFunction(scene->id());
+    });
+    const auto item = [panel](const char *name) {
+        QQmlExpression expression(qmlContext(panel), panel, QString::fromLatin1(name));
+        return qobject_cast<QQuickItem*>(expression.evaluate().value<QObject*>());
+    };
+    auto *header = item("hdrItem");
+    auto *timeline = item("timelineHeader");
+    auto *items = item("itemsArea");
+    auto *lane = item("recordingLane");
+    QVERIFY(header && timeline && items && lane);
+    auto *content = items->property("contentItem").value<QQuickItem*>();
+    QVERIFY(content);
+    QQuickItem *preview = nullptr;
+    for (auto *child : content->childItems())
+        if (child->property("sfRef").isValid())
+            for (auto *candidate : child->childItems())
+                if (candidate->property("contextType").isValid())
+                    preview = candidate;
+    QVERIFY(preview);
+    auto *cursor = header->findChild<QQuickItem*>("showPlayhead");
+    QVERIFY(cursor);
+    QQmlExpression scrollbarExpression(qmlContext(panel), panel, "showContents.ScrollBar.vertical");
+    auto *scrollbar = scrollbarExpression.evaluate().value<QObject*>();
+    QVERIFY2(scrollbar, qPrintable(scrollbarExpression.error().toString()));
+    scrollbar->setProperty("visible", false);
+    const qreal unobscuredWidth = panel->property("timelineViewportWidth").toReal();
+    scrollbar->setProperty("visible", true);
+    QVERIFY(qAbs(unobscuredWidth - panel->property("timelineViewportWidth").toReal()
+                 - scrollbar->property("width").toReal()) < 0.01);
+    if (state != "stopped")
+        show->Function::preRun(doc->masterTimer());
+    if (state == "paused")
+        manager->playShow();
+    manager->setReadOnly(state == "external");
+    lane->setProperty("pointerHeld", state == "held");
+    QCoreApplication::processEvents();
+    const qreal width = panel->property("timelineViewportWidth").toReal();
+    QVERIFY(width > 0);
+    QCOMPARE(timeline->width(), width);
+    QCOMPARE(items->width(), width);
+    QVERIFY(preview->width() <= width);
+    QCOMPARE(clip->duration(), 2000000000u);
+    panel->setProperty("xViewOffset", 0);
+    const double pixelsPerMs = manager->timeBasedDivision()
+            ? manager->tickSize() / (1000.0 * manager->timeScale())
+            : manager->bpmNumber() * manager->tickSize() / (60000.0 * manager->beatsDivision());
+    manager->setCurrentTime(int(std::ceil(width * 0.995 / pixelsPerMs)));
+    QCoreApplication::processEvents();
+    const bool follows = state == "playing" || state == "external";
+    const qreal expected = follows ? header->property("cursorPosition").toReal() - width * 0.01 : 0;
+    QVERIFY2(qAbs(panel->property("xViewOffset").toReal() - expected) < 0.5,
+             qPrintable(QString("offset=%1 expected=%2 width=%3 cursor=%4 playing=%5")
+                        .arg(panel->property("xViewOffset").toReal()).arg(expected).arg(width)
+                        .arg(header->property("cursorPosition").toReal()).arg(manager->isPlaying())));
+    QCOMPARE(timeline->property("contentX").toReal(), items->property("contentX").toReal());
+    panel->setProperty("xViewOffset", width * 2);
+    QVERIFY(preview->width() <= width);
+    QVERIFY(preview->x() >= 0);
+    manager->setCurrentTime(1000);
+    QCoreApplication::processEvents();
+    if (state == "external")
+    {
+        QVERIFY(panel->property("xViewOffset").toReal() < width * 2);
+        QVERIFY(cursor->isVisible());
+    }
+    else
+    {
+        QCOMPARE(panel->property("xViewOffset").toReal(), width * 2);
+        QVERIFY(!cursor->isVisible());
+    }
+    manager->setReadOnly(false);
+    if (show->isRunning())
+        show->Function::postRun(doc->masterTimer(), {});
+    panel->setProperty("xViewOffset", 0);
+    QVERIFY(cursor->isVisible());
+    QQuickItem *canvas = nullptr;
+    for (auto *child : header->childItems())
+        if (child->property("contextType").isValid())
+            canvas = child;
+    QVERIFY(canvas);
+    container.setWidth(10);
+    QCoreApplication::processEvents();
+    QCOMPARE(panel->property("timelineViewportWidth").toReal(), 0);
+    QVERIFY(std::isfinite(canvas->x()));
+    QCOMPARE(canvas->width(), 0);
+    container.setWidth(1200);
+    QCoreApplication::processEvents();
+    const qreal restoredWidth = panel->property("timelineViewportWidth").toReal();
+    QVERIFY(restoredWidth > 0);
+    QCOMPARE(timeline->width(), restoredWidth);
+    QCOMPARE(items->width(), restoredWidth);
+    QVERIFY(std::isfinite(canvas->x()));
+    QVERIFY(canvas->width() <= restoredWidth * 3);
+}
+
+void UpstreamIntegration_Test::previewRepeatBounds_data()
+{
+    QTest::addColumn<double>("left");
+    QTest::addColumn<double>("pixelsPerUnit");
+    for (double left : {0.0, 1000000.0})
+        for (double scale : {0.01, 1.0, 100.0})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(left).arg(scale))) << left << scale;
+}
+
+void UpstreamIntegration_Test::previewRepeatBounds()
+{
+    QFETCH(double, left);
+    QFETCH(double, pixelsPerUnit);
+    QFile file(QFINDTESTDATA("../../qml/showmanager/ShowItem.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(file.readAll());
+    const int start = source.indexOf('{', source.indexOf("        onPaint:"));
+    QVERIFY(start >= 0);
+    int depth = 1;
+    int end = start + 1;
+    for (; end < source.size() && depth; ++end)
+    {
+        if (source[end] == '{')
+            ++depth;
+        else if (source[end] == '}')
+            --depth;
+    }
+    QCOMPARE(depth, 0);
+    QJSEngine engine;
+    const QString setup = QString(R"(
+        var calls = 0, marks = [];
+        var context = { reset:function(){}, clearRect:function(){}, save:function(){},
+            translate:function(){}, beginPath:function(){}, stroke:function(){}, restore:function(){},
+            moveTo:function(x,y){ marks.push([x,y]); }, lineTo:function(){} };
+        var sfRef = {duration:1000000000}, funcRef = {totalDuration:1};
+        var ShowManager = {RepeatingDuration:1, FadeIn:2, StepDivider:3, FadeOut:4};
+        var showManager = {previewData:function(){ return [1,1]; }};
+        var prCanvas = {x:%1, width:400}, itemRoot = {height:100, width:1000000000};
+        var width=400, height=100;
+        function timeValueToPixels(t) {
+            if (++calls > 1000) throw new Error("Offscreen or subpixel repeat budget exceeded");
+            return t * %2;
+        }
+    )").arg(left, 0, 'f').arg(pixelsPerUnit, 0, 'f');
+    QVERIFY(!engine.evaluate(setup).isError());
+    const auto result = engine.evaluate("(function() " + source.mid(start, end - start) + ")()");
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+    QVERIFY(engine.globalObject().property("calls").toInt() <= 1000);
+    const QJSValue marks = engine.globalObject().property("marks");
+    QVERIFY(marks.property("length").toInt() > 0);
+    for (int i = 0; i < marks.property("length").toInt(); ++i)
+    {
+        const auto mark = marks.property(i);
+        QVERIFY(mark.property(0).toNumber() >= left);
+        QVERIFY(mark.property(0).toNumber() <= left + 400);
+        QCOMPARE(mark.property(1).toNumber(), 80.0);
+    }
+}
+
+void UpstreamIntegration_Test::editorPublication_data()
+{
+    QTest::addColumn<QString>("editor");
+    QTest::addColumn<QString>("model");
+    QTest::newRow("scene") << QString("sceneEditor") << QString("fixtureList");
+    QTest::newRow("chaser") << QString("chaserEditor") << QString("stepsList");
+    QTest::newRow("collection") << QString("collectionEditor") << QString("functionsList");
+    QTest::newRow("efx") << QString("efxEditor") << QString("fixtureList");
+}
+
+void UpstreamIntegration_Test::editorPublication()
+{
+    QFETCH(QString, editor);
+    QFETCH(QString, model);
+    const QVariant previous = m_app->rootContext()->contextProperty(editor);
+    const auto restore = qScopeGuard([&]() { m_app->rootContext()->setContextProperty(editor, previous); });
+    const auto create = [&]() -> std::unique_ptr<FunctionEditor> {
+        if (editor == "sceneEditor")
+            return std::make_unique<SceneEditor>(m_app.get(), m_app->doc());
+        if (editor == "chaserEditor")
+            return std::make_unique<ChaserEditor>(m_app.get(), m_app->doc());
+        if (editor == "collectionEditor")
+            return std::make_unique<CollectionEditor>(m_app.get(), m_app->doc());
+        return std::make_unique<EFXEditor>(m_app.get(), m_app->doc());
+    };
+    auto first = create();
+    QQmlComponent component(m_app->engine());
+    component.setData(QString("import QtQuick\nQtObject { property var editorModel: %1.%2 }")
+                      .arg(editor, model).toUtf8(), QUrl());
+    std::unique_ptr<QObject> binding(component.create());
+    QVERIFY2(binding, qPrintable(component.errorString()));
+    auto *firstModel = binding->property("editorModel").value<QObject*>();
+    QVERIFY(firstModel);
+    auto second = create();
+    auto *secondModel = binding->property("editorModel").value<QObject*>();
+    QVERIFY(secondModel);
+    QVERIFY(secondModel != firstModel);
+    QVERIFY(qobject_cast<QAbstractItemModel*>(secondModel));
+}
+
+void UpstreamIntegration_Test::colorSelectionMarker_data()
+{
+    QTest::addColumn<QColor>("color");
+    QTest::addColumn<double>("expectedX");
+    QTest::addColumn<double>("expectedY");
+    QTest::newRow("black") << QColor(Qt::black) << 0.0 << 0.0;
+    QTest::newRow("white") << QColor(Qt::white) << 0.0 << 255.0;
+    QTest::newRow("red") << QColor(Qt::red) << 0.0 << 127.5;
+    QTest::newRow("green") << QColor(Qt::green) << 84.0 << 127.5;
+    QTest::newRow("blue") << QColor(Qt::blue) << 168.0 << 127.5;
+}
+
+void UpstreamIntegration_Test::colorSelectionMarker()
+{
+    QFETCH(QColor, color);
+    QFETCH(double, expectedX);
+    QFETCH(double, expectedY);
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/ColorToolFull.qml"));
+    std::unique_ptr<QObject> full(component.create());
+    QVERIFY2(full, qPrintable(component.errorString()));
+    QSignalSpy changed(full.get(), SIGNAL(toolColorChanged(double,double,double,double,double,double)));
+    QVERIFY(full->setProperty("currentRGB", color));
+    QVERIFY(qAbs(full->property("selectedColorX").toDouble() - expectedX) < 0.01);
+    QVERIFY(qAbs(full->property("selectedColorY").toDouble() - expectedY) < 0.01);
+    QCOMPARE(changed.count(), 0);
+    QQmlComponent basicComponent(m_app->engine(), QUrl("qrc:/ColorToolBasic.qml"));
+    std::unique_ptr<QObject> basic(basicComponent.create());
+    QVERIFY2(basic, qPrintable(basicComponent.errorString()));
+    basic->setProperty("currentRGB", color);
+    QQmlExpression matches(qmlContext(basic.get()), basic.get(), "colorsMatch(currentRGB, currentRGB)");
+    QVERIFY(matches.evaluate().toBool());
+    QVERIFY(!matches.hasError());
+    QQmlExpression outline(qmlContext(basic.get()), basic.get(), "selectionBorderColor(currentRGB)");
+    const QString expected = color == Qt::white || color == Qt::green ? "black" : "white";
+    QCOMPARE(outline.evaluate().toString(), expected);
+}
+
+void UpstreamIntegration_Test::identicalWidgetFont()
+{
+    VCButton widget(m_app->doc());
+    QSignalSpy changed(&widget, &VCWidget::fontChanged);
+    QFont font("Sans Serif", 14);
+    widget.setFont(font);
+    QCOMPARE(changed.count(), 1);
+    widget.setFont(font);
+    QCOMPARE(changed.count(), 1);
+    font.setPointSize(18);
+    widget.setFont(font);
+    QCOMPARE(changed.count(), 2);
+    QCOMPARE(widget.font(), font);
+}
+
+void UpstreamIntegration_Test::selectedFixtureColors_data()
+{
+    QTest::addColumn<bool>("rgb");
+    QTest::addColumn<bool>("wauv");
+    QTest::addColumn<bool>("mixed");
+    for (bool rgb : {false, true})
+        for (bool wauv : {false, true})
+            for (bool mixed : {false, true})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(rgb).arg(wauv).arg(mixed)))
+                        << rgb << wauv << mixed;
+}
+
+void UpstreamIntegration_Test::selectedFixtureColors()
+{
+    QFETCH(bool, rgb);
+    QFETCH(bool, wauv);
+    QFETCH(bool, mixed);
+    auto *doc = m_app->doc();
+    auto *context = m_app->rootContext()->contextProperty("contextManager").value<ContextManager*>();
+    QVERIFY(context);
+    context->resetFixtureSelection();
+    QLCFixtureDef definition;
+    auto *mode = new QLCFixtureMode(&definition);
+    QVERIFY(definition.addMode(mode));
+    QList<QLCChannel::PrimaryColour> colors;
+    if (rgb)
+        colors << QLCChannel::Red << QLCChannel::Green << QLCChannel::Blue;
+    if (wauv)
+        colors << QLCChannel::White << QLCChannel::Amber << QLCChannel::UV;
+    if (colors.isEmpty())
+        colors << QLCChannel::NoColour;
+    for (const auto color : colors)
+    {
+        auto *channel = new QLCChannel;
+        channel->setName(QString::number(int(color)));
+        channel->setGroup(QLCChannel::Intensity);
+        channel->setColour(color);
+        QVERIFY(definition.addChannel(channel));
+        QVERIFY(mode->insertChannel(channel, definition.channels().size() - 1));
+    }
+    QList<quint32> ids;
+    const auto cleanup = qScopeGuard([&]() {
+        context->resetFixtureSelection();
+        for (quint32 id : ids)
+            doc->deleteFixture(id);
+    });
+    for (int i = 0; i < 2; ++i)
+    {
+        auto *fixture = new Fixture(doc);
+        fixture->setFixtureDefinition(&definition, mode);
+        fixture->setAddress(i * colors.size());
+        QVERIFY(doc->addFixture(fixture));
+        ids.append(fixture->id());
+        fixture->setChannelValues(QByteArray(512, char(mixed && i ? 128 : 64)));
+        context->setFixtureSelection(FixtureUtils::fixtureItemID(fixture->id(), 0, 0), -1, true);
+    }
+    QQmlComponent component(m_app->engine());
+    component.setData(R"(import QtQuick
+        Item {
+            property bool rgbValid: false
+            property bool wauvValid: false
+            property color rgbColor
+            property color wauvColor
+            function updateColors(rgb, color, wauv, white) {
+                rgbValid=rgb; rgbColor=color; wauvValid=wauv; wauvColor=white
+            }
+        })", QUrl());
+    std::unique_ptr<QObject> receiver(component.create());
+    QVERIFY2(receiver, qPrintable(component.errorString()));
+    context->getCurrentColors(qobject_cast<QQuickItem*>(receiver.get()));
+    QCOMPARE(receiver->property("rgbValid").toBool(), rgb && !mixed);
+    QCOMPARE(receiver->property("wauvValid").toBool(), wauv && !mixed);
+    if (rgb && !mixed)
+        QCOMPARE(receiver->property("rgbColor").value<QColor>(), QColor(64, 64, 64));
+    if (wauv && !mixed)
+        QCOMPARE(receiver->property("wauvColor").value<QColor>(), QColor(64, 64, 64));
+}
+
+void UpstreamIntegration_Test::colorPressOwnership()
+{
+    const QRect previousGeometry = m_app->geometry();
+    const QWindow::Visibility previousVisibility = m_app->visibility();
+    const auto restore = qScopeGuard([&]() {
+        m_app->setVisibility(previousVisibility);
+        m_app->setGeometry(previousGeometry);
+        QCoreApplication::processEvents();
+    });
+    QTest::failOnWarning(QRegularExpression(".*outside target window.*"));
+    QTest::failOnWarning(QRegularExpression(".*ColorToolFull.qml.*(TypeError|ReferenceError).*"));
+    m_app->showNormal();
+    m_app->resize(1200, 800);
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    QTRY_COMPARE(m_app->size(), QSize(1200, 800));
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine());
+    component.setData(R"(import QtQuick
+        import "."
+        Flickable {
+            width:700; height:500; contentWidth:1500; contentHeight:1200
+            ColorTool {
+                objectName:"picker"; x:150; y:100; width:330; showPalette:false
+                colorToolQML:"qrc:/ColorToolFull.qml"
+            }
+        })", QUrl("qrc:/ColorOwnershipTest.qml"));
+    std::unique_ptr<QObject> object(component.create(&context));
+    auto *flick = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY2(flick, qPrintable(component.errorString()));
+    flick->setParentItem(m_app->contentItem());
+    flick->setZ(10000);
+    auto *tool = flick->findChild<QQuickItem*>("picker");
+    QVERIFY(tool);
+    QQuickItem *full = nullptr;
+    for (auto *child : tool->findChildren<QQuickItem*>())
+        if (child->property("selectedColorX").isValid())
+            full = child;
+    QVERIFY(full);
+    QQuickItem *canvas = nullptr;
+    for (auto *child : full->childItems())
+        if (child->property("contextType").isValid())
+            canvas = child;
+    QVERIFY(canvas);
+    QTRY_VERIFY(canvas->property("available").toBool());
+    QSignalSpy painted(canvas, SIGNAL(painted()));
+    QVERIFY(painted.isValid());
+    QVERIFY(QMetaObject::invokeMethod(canvas, "requestPaint"));
+    QTRY_VERIFY(painted.count() > 0);
+    QQmlExpression ready(qmlContext(canvas), canvas,
+                        "context !== undefined && context !== null && typeof context.getImageData === 'function'");
+    QTRY_VERIFY(ready.evaluate().toBool());
+    QVERIFY2(!ready.hasError(), qPrintable(ready.error().toString()));
+    QSignalSpy changed(tool, SIGNAL(toolColorChanged(double,double,double,double,double,double)));
+    QSignalSpy released(full, SIGNAL(released()));
+    const QPoint press = canvas->mapToScene(QPointF(100, 100)).toPoint();
+    const QPoint outside = canvas->mapToScene(QPointF(330, 330)).toPoint();
+    const QRect windowRect(QPoint(), m_app->size());
+    QVERIFY(windowRect.contains(press));
+    QVERIFY(windowRect.contains(outside));
+    QVERIFY(canvas->contains(canvas->mapFromScene(press)));
+    QVERIFY(!canvas->contains(canvas->mapFromScene(outside)));
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+    QTRY_VERIFY(!changed.isEmpty());
+    const auto picked = changed.constLast();
+    QVERIFY(picked.at(0).toDouble() >= 0 && picked.at(0).toDouble() < 0.25);
+    QVERIFY(picked.at(1).toDouble() > 0.5 && picked.at(1).toDouble() <= 1);
+    QVERIFY(picked.at(2).toDouble() > 0.7 && picked.at(2).toDouble() <= 1);
+    const QColor displayed = tool->property("currentRGB").value<QColor>();
+    QVERIFY(qAbs(displayed.redF() - picked.at(0).toDouble()) < 1.0 / 255);
+    QVERIFY(qAbs(displayed.greenF() - picked.at(1).toDouble()) < 1.0 / 255);
+    QVERIFY(qAbs(displayed.blueF() - picked.at(2).toDouble()) < 1.0 / 255);
+    QTest::mouseMove(m_app.get(), press + QPoint(40, 40));
+    QTest::mouseMove(m_app.get(), outside);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, outside);
+    QTRY_COMPARE(released.count(), 1);
+    QVERIFY(changed.count() >= 2);
+    QCOMPARE(flick->property("contentX").toReal(), 0.0);
+    QCOMPARE(flick->property("contentY").toReal(), 0.0);
+    QWheelEvent wheel(press, m_app->mapToGlobal(press), QPoint(), QPoint(0, -120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(m_app.get(), &wheel);
+    QCoreApplication::processEvents();
+    QCOMPARE(flick->property("contentY").toReal(), 0.0);
+}
+
+void UpstreamIntegration_Test::liveFontDialog_data()
+{
+    QTest::addColumn<QString>("fileName");
+    QTest::addColumn<int>("selected");
+    QTest::newRow("rgb-text") << QString("../../qml/fixturesfunctions/RGBMatrixEditor.qml") << 1;
+    QTest::newRow("vc-single") << QString("../../qml/virtualconsole/VCWidgetProperties.qml") << 1;
+    QTest::newRow("vc-multiple") << QString("../../qml/virtualconsole/VCWidgetProperties.qml") << 2;
+}
+
+void UpstreamIntegration_Test::liveFontDialog()
+{
+    QFETCH(QString, fileName);
+    QFETCH(int, selected);
+    QFile file(QFINDTESTDATA(qPrintable(fileName)));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(file.readAll());
+    const int dialogStart = source.indexOf("FontDialog\n");
+    QVERIFY(dialogStart >= 0);
+    const auto block = [&](int start) {
+        const int begin = source.indexOf('{', start);
+        int depth = 1, end = begin + 1;
+        for (; end < source.size() && depth; ++end)
+        {
+            if (source[end] == '{')
+                ++depth;
+            else if (source[end] == '}')
+                --depth;
+        }
+        return source.mid(begin + 1, end - begin - 2);
+    };
+    const QString dialog = block(dialogStart);
+    const QString open = block(source.lastIndexOf("onClicked:", dialogStart));
+    QQmlComponent component(m_app->engine());
+    component.setData(QString(R"(
+        import QtQuick
+        QtObject {
+            id: host
+            property int updates: 0
+            property int batchUpdates: 0
+            property int selectedWidgetsCount: %1
+            property QtObject wObj: QtObject {
+                property font font: Qt.font({family:"Sans Serif", pointSize:10})
+                onFontChanged: host.updates++
+            }
+            property QtObject virtualConsole: QtObject {
+                function setWidgetsFont(font) { host.batchUpdates++; host.wObj.font=font }
+            }
+            property QtObject rgbMatrixEditor: QtObject {
+                property font algoTextFont: Qt.font({family:"Sans Serif", pointSize:10})
+                onAlgoTextFontChanged: host.updates++
+            }
+            property QtObject dialog: QtObject {
+                property font selectedFont
+                property bool visible
+                property string title
+                signal accepted()
+                %2
+            }
+            function open() { %3 }
+        }
+    )").arg(selected).arg(dialog, open).toUtf8(), QUrl());
+    std::unique_ptr<QObject> host(component.create());
+    QVERIFY2(host, qPrintable(component.errorString()));
+    auto *dialogObject = host->property("dialog").value<QObject*>();
+    QVERIFY(dialogObject);
+    host->setProperty("updates", 0);
+    QVERIFY(dialogObject->setProperty("selectedFont", QFont("Serif", 12)));
+    QCOMPARE(host->property("updates").toInt(), 0);
+    QVERIFY(QMetaObject::invokeMethod(host.get(), "open"));
+    QCOMPARE(dialogObject->property("selectedFont").value<QFont>().pointSize(), 10);
+    QCOMPARE(host->property("updates").toInt(), 0);
+    QVERIFY(dialogObject->setProperty("selectedFont", QFont("Serif", 18)));
+    QCOMPARE(host->property("updates").toInt(), 1);
+    QVERIFY(QMetaObject::invokeMethod(dialogObject, "accepted"));
+    QCOMPARE(host->property("updates").toInt(), 1);
+    if (selected > 1)
+        QCOMPARE(host->property("batchUpdates").toInt(), 2);
+    dialogObject->setProperty("visible", false);
+    dialogObject->setProperty("selectedFont", QFont("Serif", 20));
+    QCOMPARE(host->property("updates").toInt(), 1);
+    QVERIFY(QMetaObject::invokeMethod(host.get(), "open"));
+    QCOMPARE(dialogObject->property("selectedFont").value<QFont>().pointSize(), 18);
+    QCOMPARE(host->property("updates").toInt(), 1);
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

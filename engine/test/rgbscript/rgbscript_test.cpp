@@ -18,6 +18,7 @@
 */
 
 #include <QtTest>
+#include <QJSEngine>
 
 #define private public
 #include "rgbscript_test.h"
@@ -667,6 +668,37 @@ void RGBScript_Test::runScripts()
             }
         }
     }
+}
+
+void RGBScript_Test::connectDotsMultiply_data()
+{
+    QTest::addColumn<bool>("nativeMultiply");
+    QTest::newRow("native-imul") << true;
+    QTest::newRow("fallback-imul") << false;
+}
+
+void RGBScript_Test::connectDotsMultiply()
+{
+    QFETCH(bool, nativeMultiply);
+    QFile file(QFINDTESTDATA("../../../resources/rgbscripts/connectdots.js"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(file.readAll());
+    QJSEngine engine;
+    const auto multiply = engine.evaluate("Math.imul");
+    if (!nativeMultiply)
+        engine.evaluate("Math.imul = undefined");
+    const auto algorithm = engine.evaluate(source);
+    QVERIFY2(!algorithm.isError(), qPrintable(algorithm.toString()));
+    if (nativeMultiply)
+        QVERIFY(engine.evaluate("Math.imul").strictlyEquals(multiply));
+    QCOMPARE(engine.evaluate("Math.imul(0xffffffff, 5)").toInt(), -5);
+    QCOMPARE(engine.evaluate("Math.imul(0x7fffffff, 0x7fffffff)").toInt(), 1);
+    engine.globalObject().setProperty("algorithm", algorithm);
+    const auto first = engine.evaluate("JSON.stringify(algorithm.rgbMap(8,4,0xffffff,0))");
+    QVERIFY2(!first.isError(), qPrintable(first.toString()));
+    QVERIFY(first.toString().size() > 10);
+    QVERIFY(!engine.evaluate("algorithm.rgbMap(8,4,0xffffff,50)").isError());
+    QCOMPARE(engine.evaluate("JSON.stringify(algorithm.rgbMap(8,4,0xffffff,0))").toString(), first.toString());
 }
 
 QTEST_MAIN(RGBScript_Test)

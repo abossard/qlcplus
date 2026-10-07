@@ -1844,3 +1844,107 @@ start flashing effects or move hardware.
 | Quality, placement, rotation, and zoom | | | | |
 | Stock effects and HUE compatibility | | | | |
 | Physical mapping and visual comfort | | | | |
+
+## 33. October 2026 upstream integration through 9ddbc62d5
+
+The 28 incoming commits through `9ddbc62d590c77a059397d9e2ce2357d69fbfd88`
+cover Function tree renames and editor initialization, bounded Show previews
+and forward paging, fixture-selection color feedback, multi-head rendering,
+Stage Wizard coordinates, macOS font selection, Script duration caching,
+ConnectDots compatibility, Rockville Tilt mapping, and packaging metadata.
+The fork keeps its recording controls, Time/Beats/VDJ Beat mapping, running
+indicators, and wheel isolation at the existing integration points.
+
+Final automated verification on 2026-10-07 used a frozen copy of staged tree
+`51ce7faea9a67ffe6df5c3a6b9bb970d51b272e1`, with separate build output and
+isolated runtime/settings directories. This excludes the other session's
+changing, uncommitted recording/MCP work. The `qlcplus5` application and all
+five native test targets below built successfully with Qt 6, QML/MCP enabled,
+Release configuration, `-j8`, and the normal warning policy.
+
+| Fresh suite | Scope | Passed |
+|-------------|-------|--------|
+| `upstreamintegration_test` | Full suite: caching, renames, editor initialization, timeline, color, font and wizard integration | 156 |
+| `upstream3d_test` | Full suite: placement, per-head geometry, tilt, loader guards and Rockville modes | 53 |
+| `mcp_script_tool_test` | Full committed Script/tool suite | 70 |
+| `rgbscript_test` | Full source-rooted suite, including ConnectDots with native/fallback multiplication | 39 |
+| `mcp_stage_tools_test` | Placement round-trip, omitted axes, per-head isolation, XML persistence, stage isolation and invalid size | 8 |
+
+All 326 QtTest passes include setup/cleanup; no failures or skips. A separate
+color-picker/playhead ordering check passed all six cases after repairing a
+test-fixture window/Canvas initialization defect found during independent
+review. It verifies real color output without contaminating later tests.
+
+All 6,197 staged blobs and modes remained unchanged throughout the isolated
+build/tests. The configure-generated header was recorded separately. Exact
+commands, environment, source/binary identities and logs are retained in
+`build/upstream-master-integration-2026-10-07/clean-staged-tree/`.
+Only this section's evidence text is updated after that source snapshot.
+The protected local compile-only Script helper was separately checked in
+the original checkout; it remains unstaged and is not claimed as part of
+the committed-source suite above.
+
+From `tools/manual-review`, `npm test -- src/parser-real.test.ts src/parser.test.ts`
+passed all 41 tests and `npm run build` passed. Missing local Node types were
+supplied without changing dependency manifests. The new parser assertion
+first failed with section 33 absent, then passed with all eight cases and
+16 unsigned checks. Both macOS plists passed `plutil -lint`.
+
+These checks exercise native models, QML interactions or extracted QML
+functions, registered handlers, and source contracts. They do not certify
+HTTP behavior, rendered GPU quality, native macOS font panels, hardware,
+or installed release packages. No existing application was restarted and
+no live lighting was changed. All checks below await human review in a
+disposable workspace; keep saved originals unchanged.
+
+### 33.1 Function tree and editor interaction
+
+- ☐ Rename root and nested functions from their editors, including a running function and a freshly duplicated function. Confirm the tree updates once, selection stays understandable, and running indicators remain visible.
+- ☐ Open another Scene, Chaser, Collection, or EFX while an editor of the same type is already displayed. Check that the correct model appears without flicker, blank controls, or unexpected focus changes.
+
+### 33.2 Show timeline layout and paging
+
+- ☐ Narrow and widen the Show Manager, including a visible vertical scrollbar. Scroll long or highly repeated clips and check ruler, previews, recording lanes, selection handles, and right-panel alignment for clipping or jumps.
+- ☐ Play through the right edge in Time, Beats, and VDJ Beat views, then manually scroll. Assess forward paging and cursor visibility without competing scroll movements. Pause or stop and confirm editing stays at the chosen viewport.
+- ☐ During recorded-control editing, hold a pointer gesture while playback advances. Check that the viewport does not move the target underneath the pointer and that explicit navigation and external playback repositioning still feel predictable.
+
+### 33.3 Color feedback and Click & Go
+
+- ☐ Select fixtures with equal colors, mixed colors, white, or black, then select fixtures without RGB channels. Check that palette outlines and picker markers convey the current selection clearly without stale colors.
+- ☐ Drag in the full color picker, continue outside its bounds, and use Click & Go color dragging over the Virtual Console. Check that the intended control retains the gesture and the containing panel does not steal it.
+- ☐ Use a mouse wheel and trackpad over both color-tool variants and their surrounding panel. Confirm the fork's wheel isolation remains usable and normal panel scrolling still works outside the tool.
+
+### 33.4 Multi-head rendering and Stage Wizard
+
+- ☐ Compare single-head, multi-PAR, and LED-bar fixtures in 3D, including normal and inverted tilt. Check that each emitter, beam, lens, and body aligns without overlapping head meshes or reversed movement.
+- ☐ Open the Stage Wizard from 3D, generate a layout, then switch between 2D and 3D. Confirm the generated fixture positions remain consistent and the first 2D view has a useful point of view.
+
+### 33.5 Native macOS font panels
+
+- ☐ Open the RGB text font panel, choose several fonts and sizes, close it, and reopen it. Check live preview updates, legibility, and that the panel reflects the current font.
+- ☐ Repeat font changes for one VC widget and a multiple-widget selection. Confirm the intended widgets update, the panel remains responsive, and reopening does not produce visual oscillation.
+
+### 33.6 Physical fixture mapping [DMX]
+
+Only perform this check after separate hardware authorization and at safe
+output levels.
+
+- ☐ On a Rockville Motionstrip RGBW, compare both 9-channel and 38-channel modes with the fixture documentation. Check Tilt direction/speed and individual-head color mapping against the 3D preview without unintended pan motion.
+
+### 33.7 Installed application and package behavior
+
+- ☐ With an authorized macOS test installation, launch the app and open a disposable workspace through Finder. Check normal application identity and file-open behavior; a development executable alone does not verify the bundle.
+- ☐ On available Debian and Windows test systems, install the corresponding packages. Check that the shared data package supplies color filters and meshes and that the 5.3.1 application opens them correctly. Record unavailable platforms as untested, not passed.
+
+### 33.8 Sign-off
+
+- ☐ Record failed checks, unavailable hardware/platforms, and pending native/GPU checks before accepting this integration.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Function tree and editors | | | | |
+| Timeline and recording interaction | | | | |
+| Color tools and native font panels | | | | |
+| Multi-head rendering and Stage Wizard | | | | |
+| Physical fixture mapping | | | | |
+| Installed packages | | | | |

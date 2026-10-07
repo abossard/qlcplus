@@ -58,6 +58,16 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.map(c => c.tags)).toEqual([[], [], [], ['DMX'], []]);
   });
 
+  it('recognizes the upstream 9ddbc62d5 integration review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '33');
+    expect(section?.title).toContain('9ddbc62d5');
+    expect(section?.cases.map(c => c.number)).toEqual([
+      '33.1', '33.2', '33.3', '33.4', '33.5', '33.6', '33.7', '33.8',
+    ]);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([2, 3, 3, 2, 2, 1, 2, 1]);
+    expect(section!.cases.map(c => c.tags)).toEqual([[], [], [], [], [], ['DMX'], [], []]);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

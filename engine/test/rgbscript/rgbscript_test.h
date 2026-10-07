@@ -46,6 +46,8 @@ private slots:
     void floatBoundsDescriptor();
     void linesClone_data();
     void linesClone();
+    void connectDotsMultiply_data();
+    void connectDotsMultiply();
     void runScripts();
 
 private:

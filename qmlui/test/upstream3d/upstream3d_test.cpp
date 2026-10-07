@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -20,11 +21,18 @@
 #include "contextmanager.h"
 #include "doc.h"
 #include "fixture.h"
+#include "qlcfixturemode.h"
 #include "fixtureutils.h"
 #include "mastertimer.h"
 #include "monitorproperties.h"
 #include "previewcontext.h"
 #include "tardis.h"
+#include "stagewizard.h"
+#include "fixturemanager.h"
+#include "functionmanager.h"
+#include "virtualconsole.h"
+#include "mainview2d.h"
+#include "fixturegroup.h"
 
 #define private public
 #include "mainview3d.h"
@@ -364,6 +372,231 @@ void Upstream3D_Test::renderQuality()
     QCOMPARE(changed.count(), 1);
     QCOMPARE(scene.events.size(), attached ? 2 : 1);
     QCOMPARE(scene.rebuilds.size(), attached ? 1 : 0);
+}
+
+void Upstream3D_Test::multiHeadOffsets_data()
+{
+    QTest::addColumn<int>("heads");
+    QTest::addColumn<bool>("par");
+    QTest::addColumn<bool>("loaded");
+    for (int heads : {1, 4})
+        for (bool par : {false, true})
+            for (bool loaded : {false, true})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(heads).arg(par).arg(loaded)))
+                        << heads << par << loaded;
+}
+
+void Upstream3D_Test::multiHeadOffsets()
+{
+    QFETCH(int, heads);
+    QFETCH(bool, par);
+    QFETCH(bool, loaded);
+    QFile file(QFINDTESTDATA("../../qml/fixturesfunctions/3DView/MultiBeams3DItem.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString function = qmlFunction(QString::fromUtf8(file.readAll()), "setHeadLightProps");
+    QVERIFY(!function.isEmpty());
+    QQmlComponent component(m_app->engine());
+    component.setData(QString(R"(
+        import QtQuick
+        QtObject {
+            property var headsList: []
+            property var parCells: []
+            property bool parBodies: %1
+            property int cellColumns: %2
+            property int cellRows: 1
+            property vector3d phySize: Qt.vector3d(4, 2, 1)
+            property var lastLightPos
+            property var lastLightMatrix
+            %3
+            function run(loaded) {
+                var heads = [], cells = []
+                for (var h=0; h<cellColumns; h++) {
+                    heads.push({lightPos: Qt.vector3d(0,0,0), lightMatrix: Qt.matrix4x4()})
+                    cells.push(loaded ? {lensOffset: Qt.vector3d(h, 2, 3), meshScale: 0.5} : null)
+                }
+                headsList = heads
+                parCells = cells
+                setHeadLightProps(0, Qt.vector3d(10,20,30), Qt.matrix4x4())
+            }
+        }
+    )").arg(par ? "true" : "false").arg(heads).arg(function).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "run", Q_ARG(QVariant, false)));
+    if (loaded)
+        QVERIFY(QMetaObject::invokeMethod(object.get(), "run", Q_ARG(QVariant, true)));
+    for (int head = 0; head < heads; ++head)
+    {
+        QQmlExpression expression(qmlContext(object.get()), object.get(),
+                                 QString("headsList[%1].lightPos").arg(head));
+        const QVector3D actual = expression.evaluate().value<QVector3D>();
+        QVERIFY2(!expression.hasError(), qPrintable(expression.error().toString()));
+        const bool hasLens = par && loaded;
+        QCOMPARE(actual, QVector3D(10 - 2 + (head + 0.5) * 4 / heads + (hasLens ? head * 0.5 : 0),
+                                   20, 30 + (hasLens ? 1.5 : 0)));
+    }
+}
+
+void Upstream3D_Test::barTilt_data()
+{
+    QTest::addColumn<bool>("inverted");
+    QTest::addColumn<int>("tilt");
+    for (bool inverted : {false, true})
+        for (int tilt : {0, 32768, 65535})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(inverted).arg(tilt))) << inverted << tilt;
+}
+
+void Upstream3D_Test::barTilt()
+{
+    QFETCH(bool, inverted);
+    QFETCH(int, tilt);
+    QFile file(QFINDTESTDATA("../../qml/fixturesfunctions/3DView/MultiBeams3DItem.qml"));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QString source = QString::fromUtf8(file.readAll());
+    QQmlComponent component(m_app->engine());
+    component.setData(QString(R"(
+        import QtQuick
+        QtObject {
+            property real lastPositionTime: 0
+            property real continuousUpdateGap: 1000
+            property real tiltMaxDegrees: 270
+            property real tiltRestOffset: 180
+            property real tiltRotation: 315
+            property real tiltSpeed: 4000
+            property bool invertedTilt: %1
+            property var tiltAnim: ({stop:function(){}, start:function(){}, from:0, to:0, duration:0})
+            %2
+            %3
+        }
+    )").arg(inverted ? "true" : "false")
+        .arg(qmlFunction(source, "setPosition"), qmlFunction(source, "animationDuration")).toUtf8(), QUrl());
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    QVERIFY(QMetaObject::invokeMethod(object.get(), "setPosition", Q_ARG(QVariant, 0), Q_ARG(QVariant, tilt)));
+    QQmlExpression expression(qmlContext(object.get()), object.get(), "tiltAnim.to");
+    const double expected = 180 + (inverted ? -135 + 270.0 * tilt / 65535 : 135 - 270.0 * tilt / 65535);
+    QVERIFY(qAbs(expression.evaluate().toDouble() - expected) < 0.0001);
+    QVERIFY(!expression.hasError());
+}
+
+void Upstream3D_Test::meshCellNotReady_data()
+{
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<bool>("root");
+    QTest::addColumn<bool>("loader");
+    QTest::newRow("disabled") << false << true << true;
+    QTest::newRow("missing-root") << true << false << true;
+    QTest::newRow("missing-loader") << true << true << false;
+    QTest::newRow("deferred-load") << true << true << true;
+}
+
+void Upstream3D_Test::meshCellNotReady()
+{
+    QFETCH(bool, enabled);
+    QFETCH(bool, root);
+    QFETCH(bool, loader);
+    Qt3DCore::QEntity scene;
+    Qt3DRender::QSceneLoader pending;
+    auto *previousRoot = m_view->m_sceneRootEntity;
+    const auto cleanup = qScopeGuard([&]() {
+        m_view->m_sceneRootEntity = previousRoot;
+        m_view->PreviewContext::enableContext(true);
+    });
+    m_view->PreviewContext::enableContext(enabled);
+    m_view->m_sceneRootEntity = root ? &scene : nullptr;
+    QVERIFY(m_view->setupMeshCell(loader ? &pending : nullptr).isEmpty());
+}
+
+void Upstream3D_Test::rockvilleModes_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<int>("channels");
+    QTest::addColumn<int>("heads");
+    QTest::newRow("38-channel") << QString("38 Channel") << 38 << 8;
+    QTest::newRow("9-channel") << QString("9 Channel") << 9 << 1;
+}
+
+void Upstream3D_Test::rockvilleModes()
+{
+    QFETCH(QString, name);
+    QFETCH(int, channels);
+    QFETCH(int, heads);
+    QLCFixtureDef definition;
+    QCOMPARE(definition.loadXML(QFINDTESTDATA("../../../resources/fixtures/Rockville/Rockville-Motionstrip-RGBW.qxf")),
+             QFile::NoError);
+    auto *mode = definition.mode(name);
+    QVERIFY(mode);
+    Fixture fixture(m_app->doc());
+    fixture.setFixtureDefinition(&definition, mode);
+    QCOMPARE(int(fixture.channels()), channels);
+    QCOMPARE(int(fixture.heads()), heads);
+    QCOMPARE(fixture.channel(0)->group(), QLCChannel::Tilt);
+    QCOMPARE(fixture.channel(1)->preset(), QLCChannel::SpeedTiltSlowFast);
+    QCOMPARE(definition.physical().focusPanMax(), 0);
+    QCOMPARE(definition.physical().focusTiltMax(), 270);
+    for (int head = 0; head < heads; ++head)
+        QCOMPARE(fixture.rgbChannels(head).size(), 3);
+}
+
+void Upstream3D_Test::stageWizardPointOfView_data()
+{
+    QTest::addColumn<int>("pov");
+    QTest::addColumn<bool>("enabled");
+    for (auto pov : {MonitorProperties::Undefined, MonitorProperties::FrontView})
+        for (bool enabled : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(int(pov)).arg(enabled))) << int(pov) << enabled;
+}
+
+void Upstream3D_Test::stageWizardPointOfView()
+{
+    QFETCH(int, pov);
+    QFETCH(bool, enabled);
+    auto *doc = m_app->doc();
+    auto *properties = doc->monitorProperties();
+    auto *fixtureManager = m_app->rootContext()->contextProperty("fixtureManager").value<FixtureManager*>();
+    auto *functionManager = m_app->rootContext()->contextProperty("functionManager").value<FunctionManager*>();
+    auto *vc = m_app->rootContext()->contextProperty("virtualConsole").value<VirtualConsole*>();
+    QVERIFY(fixtureManager && functionManager && vc);
+    const auto oldPov = properties->pointOfView();
+    const auto oldStage = properties->stageType();
+    const auto oldGrid = properties->gridSize();
+    const auto cleanup = qScopeGuard([&]() {
+        vc->resetContents();
+        for (auto *function : doc->functions())
+            doc->deleteFunction(function->id());
+        for (auto *group : doc->fixtureGroups())
+            doc->deleteFixtureGroup(group->id());
+        for (auto *fixture : doc->fixtures())
+            doc->deleteFixture(fixture->id());
+        properties->setPointOfView(oldPov);
+        properties->setStageType(oldStage);
+        properties->setGridSize(oldGrid);
+        m_view->PreviewContext::enableContext(true);
+        Tardis::instance()->resetHistory();
+    });
+    properties->setPointOfView(MonitorProperties::PointOfView(pov));
+    properties->setStageType(MonitorProperties::StageSimple);
+    m_view->PreviewContext::enableContext(enabled);
+    auto *fixture = new Fixture(doc);
+    fixture->setChannels(1);
+    QVERIFY(doc->addFixture(fixture));
+    StageWizard wizard(doc, fixtureManager, functionManager, vc, m_context);
+    const int group = wizard.addGroup();
+    wizard.assignFixtureToGroup(group, fixture->id());
+    wizard.setGroupSelected(group, true);
+    for (int flag = 1; flag <= StageWizard::EffectAmbientLoop; flag <<= 1)
+        wizard.setEffectEnabled(flag, false);
+    wizard.setStageType(MonitorProperties::StageBox);
+    QSignalSpy stageChanged(m_view, &MainView3D::stageIndexChanged);
+    wizard.generate();
+    const auto expectedPov = pov == MonitorProperties::Undefined ? MonitorProperties::TopView
+                                                               : MonitorProperties::PointOfView(pov);
+    QCOMPARE(properties->pointOfView(), expectedPov);
+    QCOMPARE(properties->stageType(), MonitorProperties::StageBox);
+    QCOMPARE(stageChanged.count(), enabled ? 1 : 0);
+    const QVector3D position = properties->fixturePosition(fixture->id(), 0, 0);
+    m_context->get2DView()->setPointOfView(expectedPov);
+    QCOMPARE(properties->fixturePosition(fixture->id(), 0, 0), position);
 }
 
 QTEST_MAIN(Upstream3D_Test)

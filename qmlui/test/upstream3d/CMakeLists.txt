@@ -17,7 +17,7 @@ foreach(source IN LISTS ui_sources)
     list(APPEND test_ui_sources "${source}")
 endforeach()
 
-add_executable(${PROJECT_NAME} upstream3d_test.cpp ${test_ui_sources})
+add_executable(${PROJECT_NAME} upstream3d_test.cpp upstream3d_test.h ${test_ui_sources})
 add_dependencies(${PROJECT_NAME} qlcplus5)
 target_include_directories(${PROJECT_NAME} PRIVATE
     "$<TARGET_PROPERTY:qlcplus5,INCLUDE_DIRECTORIES>" ${ui_source_dir})
